@@ -5,15 +5,15 @@
 // The I/O entry point (`render_doc_markdown`) returns a HashMap of path→content
 // so callers can write files however they choose (file I/O is not in scope here).
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap } :: import "std/collections/hash_map";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 {
   DocParam, DocField, DocVariant, DocAssociatedType,
   DocImplAssocType, DocImpl, DocFunction, DocType, DocTrait,
   DocConstant, DocModule, DocModel,
   doc_item_kind_to_string, doc_trait_kind_to_string
-} :: import "./model.yo";
+} :: import("./model.yo");
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
@@ -21,13 +21,13 @@ open import "std/string";
 find_method_by_name_ :: (fn(methods : ArrayList(DocFunction), name : String) -> Option(DocFunction))({
   i := usize(0);
   n := methods.len();
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     m := match(methods.get(i), .Some(x) => x, .None => { break; });
     if((m.name == name), {
-      return Option(DocFunction).Some(m);
+      return(Option(DocFunction).Some(m));
     });
     i = (i + usize(1));
-  };
+  });
   Option(DocFunction).None
 });
 
@@ -36,14 +36,14 @@ is_in_list_ :: (fn(list : ArrayList(String), name : String) -> bool)({
   i := usize(0);
   n := list.len();
   result := false;
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     item := match(list.get(i), .Some(x) => x, .None => { break; });
     if((item == name), {
       result = true;
       break;
     });
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -58,11 +58,11 @@ format_type_params_ :: (fn(params : Option(ArrayList(DocParam))) -> String)(
           names := ArrayList(String).new();
           i := usize(0);
           n := p.len();
-          while runtime((i < n)), {
+          while(runtime((i < n)), {
             param := match(p.get(i), .Some(x) => x, .None => { break; });
             names.push(param.name);
             i = (i + usize(1));
-          };
+          });
           sep := `, `;
           `(${sep.join(names)})`
         }
@@ -77,13 +77,13 @@ render_fields_ :: (fn(fields : ArrayList(DocField)) -> String)({
   lines.push(``);
   i := usize(0);
   n := fields.len();
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     f := match(fields.get(i), .Some(x) => x, .None => { break; });
     dflt := match(f.default_value, .None => ``, .Some(d) => ` = \`${d}\``);
     doc  := match(f.doc,           .None => ``, .Some(d) => ` — ${d}`);
     lines.push(`- \`${f.name}\` : \`${f.type_}\`${dflt}${doc}`);
     i = (i + usize(1));
-  };
+  });
   lines.push(``);
   `\n`.join(lines)
 });
@@ -95,7 +95,7 @@ render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
   lines.push(``);
   i := usize(0);
   n := variants.len();
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     v := match(variants.get(i), .Some(x) => x, .None => { break; });
     disc := match(v.discriminant, .None => ``, .Some(d) => ` = ${d}`);
     doc  := match(v.doc,          .None => ``, .Some(d) => ` — ${d}`);
@@ -107,11 +107,11 @@ render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
           parts := ArrayList(String).new();
           fi := usize(0);
           fn_ := fs.len();
-          while runtime((fi < fn_)), {
+          while(runtime((fi < fn_)), {
             f := match(fs.get(fi), .Some(x) => x, .None => { break; });
             parts.push(`${f.name}: ${f.type_}`);
             fi = (fi + usize(1));
-          };
+          });
           `, `.join(parts)
         }
       );
@@ -120,7 +120,7 @@ render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
       lines.push(`- \`${v.name}\`${disc}${doc}`);
     });
     i = (i + usize(1));
-  };
+  });
   lines.push(``);
   `\n`.join(lines)
 });
@@ -132,13 +132,13 @@ render_associated_types_ :: (fn(types : ArrayList(DocAssociatedType)) -> String)
   lines.push(``);
   i := usize(0);
   n := types.len();
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     t := match(types.get(i), .Some(x) => x, .None => { break; });
     constraint := match(t.constraint, .None => ``, .Some(c) => ` : ${c}`);
     doc        := match(t.doc,        .None => ``, .Some(d) => ` — ${d}`);
     lines.push(`- \`${t.name}\`${constraint}${doc}`);
     i = (i + usize(1));
-  };
+  });
   lines.push(``);
   `\n`.join(lines)
 });
@@ -169,7 +169,7 @@ render_function_md :: (fn(fn_ : DocFunction) -> String)({
     lines.push(``);
     i := usize(0);
     n := fn_.parameters.len();
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       p := match(fn_.parameters.get(i), .Some(x) => x, .None => { break; });
       comptime := cond(p.is_comptime => ` *(comptime)*`, true => ``);
       implicit := cond(p.is_implicit => ` *(implicit)*`, true => ``);
@@ -177,7 +177,7 @@ render_function_md :: (fn(fn_ : DocFunction) -> String)({
       doc      := match(p.doc,           .None => ``, .Some(d) => ` — ${d}`);
       lines.push(`- \`${p.name}\` : \`${p.type_}\`${comptime}${implicit}${dflt}${doc}`);
       i = (i + usize(1));
-    };
+    });
     lines.push(``);
   });
   lines.push(`**Returns:** \`${fn_.return_type}\``);
@@ -235,11 +235,11 @@ render_type_md :: (fn(t : DocType) -> String)({
     impl_names := ArrayList(String).new();
     ti := usize(0);
     tn := t.trait_impls.len();
-    while runtime((ti < tn)), {
+    while(runtime((ti < tn)), {
       name := match(t.trait_impls.get(ti), .Some(x) => x, .None => { break; });
       impl_names.push(`\`${name}\``);
       ti = (ti + usize(1));
-    };
+    });
     sep := `, `;
     lines.push(`**Implements:** ${sep.join(impl_names)}`);
     lines.push(``);
@@ -251,7 +251,7 @@ render_type_md :: (fn(t : DocType) -> String)({
     match(t.impls, .None => (), .Some(impls) => {
       ii := usize(0);
       ni := impls.len();
-      while runtime((ii < ni)), {
+      while(runtime((ii < ni)), {
         impl := match(impls.get(ii), .Some(x) => x, .None => { break; });
         lines.push(`#### \`${impl.signature}\``);
         lines.push(``);
@@ -259,68 +259,68 @@ render_type_md :: (fn(t : DocType) -> String)({
           if((assoc_types.len() > usize(0)), {
             ai := usize(0);
             na := assoc_types.len();
-            while runtime((ai < na)), {
+            while(runtime((ai < na)), {
               at := match(assoc_types.get(ai), .Some(x) => x, .None => { break; });
               lines.push(`- \`${at.name}\` : \`${at.type_}\``);
               ai = (ai + usize(1));
-            };
+            });
             lines.push(``);
           });
         });
         mi := usize(0);
         nm := impl.method_names.len();
-        while runtime((mi < nm)), {
+        while(runtime((mi < nm)), {
           method_name := match(impl.method_names.get(mi), .Some(x) => x, .None => { break; });
           claimed.push(method_name);
           mi = (mi + usize(1));
-        };
+        });
         unresolved := ArrayList(String).new();
         mi2 := usize(0);
         nm2 := impl.method_names.len();
-        while runtime((mi2 < nm2)), {
+        while(runtime((mi2 < nm2)), {
           method_name := match(impl.method_names.get(mi2), .Some(x) => x, .None => { break; });
           match(find_method_by_name_(t.methods, method_name),
             .None    => { unresolved.push(method_name); },
             .Some(m) => { lines.push(render_function_md(m)); }
           );
           mi2 = (mi2 + usize(1));
-        };
+        });
         if((unresolved.len() > usize(0)), {
           unresolved_quoted := ArrayList(String).new();
           ui := usize(0);
           nu := unresolved.len();
-          while runtime((ui < nu)), {
+          while(runtime((ui < nu)), {
             uname := match(unresolved.get(ui), .Some(x) => x, .None => { break; });
             unresolved_quoted.push(`\`${uname}\``);
             ui = (ui + usize(1));
-          };
+          });
           sep2 := `, `;
           lines.push(`Methods: ${sep2.join(unresolved_quoted)}`);
           lines.push(``);
         });
         ii = (ii + usize(1));
-      };
+      });
     });
     unclaimed_methods := ArrayList(DocFunction).new();
     umi := usize(0);
     unm := t.methods.len();
-    while runtime((umi < unm)), {
+    while(runtime((umi < unm)), {
       m := match(t.methods.get(umi), .Some(x) => x, .None => { break; });
       if((!(is_in_list_(claimed, m.name))), {
         unclaimed_methods.push(m);
       });
       umi = (umi + usize(1));
-    };
+    });
     if((unclaimed_methods.len() > usize(0)), {
       lines.push(`**Methods:**`);
       lines.push(``);
       mui := usize(0);
       mun := unclaimed_methods.len();
-      while runtime((mui < mun)), {
+      while(runtime((mui < mun)), {
         m := match(unclaimed_methods.get(mui), .Some(x) => x, .None => { break; });
         lines.push(render_function_md(m));
         mui = (mui + usize(1));
-      };
+      });
     });
   });
   match(t.examples, .None => (), .Some(ex) => {
@@ -362,21 +362,21 @@ render_trait_md :: (fn(t : DocTrait) -> String)({
     lines.push(``);
     i := usize(0);
     n := t.methods.len();
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       m := match(t.methods.get(i), .Some(x) => x, .None => { break; });
       lines.push(render_function_md(m));
       i = (i + usize(1));
-    };
+    });
   });
   if((t.implementors.len() > usize(0)), {
     impl_quoted := ArrayList(String).new();
     i := usize(0);
     n := t.implementors.len();
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       name := match(t.implementors.get(i), .Some(x) => x, .None => { break; });
       impl_quoted.push(`\`${name}\``);
       i = (i + usize(1));
-    };
+    });
     sep := `, `;
     lines.push(`**Implementors:** ${sep.join(impl_quoted)}`);
     lines.push(``);
@@ -428,44 +428,44 @@ render_module_md :: (fn(mod : DocModule) -> String)({
       lines.push(`**Types:**`);
       i := usize(0);
       n := mod.types.len();
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         t := match(mod.types.get(i), .Some(x) => x, .None => { break; });
         lines.push(`- [\`${t.name}\`](#${t.name.to_lowercase()})`);
         i = (i + usize(1));
-      };
+      });
       lines.push(``);
     });
     if((mod.traits.len() > usize(0)), {
       lines.push(`**Traits:**`);
       i := usize(0);
       n := mod.traits.len();
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         t := match(mod.traits.get(i), .Some(x) => x, .None => { break; });
         lines.push(`- [\`${t.name}\`](#${t.name.to_lowercase()})`);
         i = (i + usize(1));
-      };
+      });
       lines.push(``);
     });
     if((mod.functions.len() > usize(0)), {
       lines.push(`**Functions:**`);
       i := usize(0);
       n := mod.functions.len();
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         f := match(mod.functions.get(i), .Some(x) => x, .None => { break; });
         lines.push(`- [\`${f.name}\`](#${f.name.to_lowercase()})`);
         i = (i + usize(1));
-      };
+      });
       lines.push(``);
     });
     if((mod.constants.len() > usize(0)), {
       lines.push(`**Constants:**`);
       i := usize(0);
       n := mod.constants.len();
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         c := match(mod.constants.get(i), .Some(x) => x, .None => { break; });
         lines.push(`- [\`${c.name}\`](#${c.name.to_lowercase()})`);
         i = (i + usize(1));
-      };
+      });
       lines.push(``);
     });
   });
@@ -476,11 +476,11 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     lines.push(``);
     i := usize(0);
     n := mod.types.len();
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       t := match(mod.types.get(i), .Some(x) => x, .None => { break; });
       lines.push(render_type_md(t));
       i = (i + usize(1));
-    };
+    });
   });
   if((mod.traits.len() > usize(0)), {
     lines.push(`---`);
@@ -489,11 +489,11 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     lines.push(``);
     i := usize(0);
     n := mod.traits.len();
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       t := match(mod.traits.get(i), .Some(x) => x, .None => { break; });
       lines.push(render_trait_md(t));
       i = (i + usize(1));
-    };
+    });
   });
   if((mod.functions.len() > usize(0)), {
     lines.push(`---`);
@@ -502,11 +502,11 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     lines.push(``);
     i := usize(0);
     n := mod.functions.len();
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       f := match(mod.functions.get(i), .Some(x) => x, .None => { break; });
       lines.push(render_function_md(f));
       i = (i + usize(1));
-    };
+    });
   });
   if((mod.constants.len() > usize(0)), {
     lines.push(`---`);
@@ -515,11 +515,11 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     lines.push(``);
     i := usize(0);
     n := mod.constants.len();
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       c := match(mod.constants.get(i), .Some(x) => x, .None => { break; });
       lines.push(render_constant_md(c));
       i = (i + usize(1));
-    };
+    });
   });
   `\n`.join(lines)
 });
@@ -533,7 +533,7 @@ render_index_md :: (fn(model : DocModel) -> String)({
   lines.push(``);
   i := usize(0);
   n := model.modules.len();
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     mod := match(model.modules.get(i), .Some(x) => x, .None => { break; });
     item_count := (((mod.functions.len() + mod.types.len()) + mod.traits.len()) + mod.constants.len());
     summary := match(mod.doc,
@@ -545,11 +545,10 @@ render_index_md :: (fn(model : DocModel) -> String)({
     );
     lines.push(`- [\`${mod.path}\`](module/${mod.name}.md) (${item_count.to_string()} items)${summary}`);
     i = (i + usize(1));
-  };
+  });
   lines.push(``);
   `\n`.join(lines)
 });
 
-export
-  render_function_md, render_type_md, render_trait_md,
-  render_constant_md, render_module_md, render_index_md;
+export(render_function_md, render_type_md, render_trait_md,
+  render_constant_md, render_module_md, render_index_md);

@@ -2,11 +2,11 @@
 ///
 /// Covers: TupleVal, ArrayVal, SliceVal, PtrVal, TraitVal, ComptimeListVal, ExprVal.
 
-open import "std/fmt";
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ AstExpr, make_err_expr } :: import "../expr/expr.yo";
-{ TokenKind, Token } :: import "../lexer/token.yo";
+open(import("std/fmt"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, make_err_expr } :: import("../expr/expr.yo");
+{ TokenKind, Token } :: import("../lexer/token.yo");
 {
   EvalValue,
   value_to_string,
@@ -14,7 +14,7 @@ open import "std/string";
   is_enum_val, is_func_val, is_return_val, is_type_val, is_struct_val, is_module_val,
   is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val,
   is_comptime_list_val, is_expr_val
-} :: import "../evaluator/value.yo";
+} :: import("../evaluator/value.yo");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,15 +30,15 @@ make_empty_list :: (fn() -> ArrayList(EvalValue))(
 // TupleVal
 // ---------------------------------------------------------------------------
 
-test "TupleVal: empty tuple construction and equality", {
+test("TupleVal: empty tuple construction and equality", {
   fields := ArrayList(EvalValue).new();
   t1 := EvalValue.TupleVal(fields);
   t2 := EvalValue.TupleVal(ArrayList(EvalValue).new());
   assert((t1 == t2), "empty tuples are equal");
   assert(!(t1 == EvalValue.UnitVal), "TupleVal != UnitVal");
-};
+});
 
-test "TupleVal: non-empty equality and inequality", {
+test("TupleVal: non-empty equality and inequality", {
   a := ArrayList(EvalValue).new();
   a.push(.IntLit(String.from("1")));
   a.push(.IntLit(String.from("2")));
@@ -53,46 +53,46 @@ test "TupleVal: non-empty equality and inequality", {
 
   assert((EvalValue.TupleVal(a) == EvalValue.TupleVal(b)), "same tuples are equal");
   assert(!(EvalValue.TupleVal(a) == EvalValue.TupleVal(c)), "different tuples are not equal");
-};
+});
 
-test "TupleVal: predicates", {
+test("TupleVal: predicates", {
   t := EvalValue.TupleVal(ArrayList(EvalValue).new());
   assert(is_tuple_val(t),           "is_tuple_val true");
   assert(!(is_array_val(t)),        "is_array_val false for TupleVal");
   assert(!(is_unit_val(t)),         "is_unit_val false for TupleVal");
-};
+});
 
-test "TupleVal: value_to_string empty", {
+test("TupleVal: value_to_string empty", {
   t := EvalValue.TupleVal(ArrayList(EvalValue).new());
   assert((value_to_string(t).as_str() == "()"), "empty tuple string");
-};
+});
 
-test "TupleVal: value_to_string singleton (trailing comma)", {
+test("TupleVal: value_to_string singleton (trailing comma)", {
   fs := ArrayList(EvalValue).new();
   fs.push(.IntLit(String.from("42")));
   t := EvalValue.TupleVal(fs);
   assert((value_to_string(t).as_str() == "(42,)"), "singleton tuple string");
-};
+});
 
-test "TupleVal: value_to_string multi", {
+test("TupleVal: value_to_string multi", {
   fs := ArrayList(EvalValue).new();
   fs.push(.IntLit(String.from("1")));
   fs.push(.BoolVal(true));
   t := EvalValue.TupleVal(fs);
   assert((value_to_string(t).as_str() == "(1, true)"), "multi-element tuple string");
-};
+});
 
 // ---------------------------------------------------------------------------
 // ArrayVal
 // ---------------------------------------------------------------------------
 
-test "ArrayVal: empty array equality", {
+test("ArrayVal: empty array equality", {
   a := EvalValue.ArrayVal(ArrayList(EvalValue).new());
   b := EvalValue.ArrayVal(ArrayList(EvalValue).new());
   assert((a == b), "empty arrays are equal");
-};
+});
 
-test "ArrayVal: element-wise equality", {
+test("ArrayVal: element-wise equality", {
   a := ArrayList(EvalValue).new();
   a.push(.IntLit(String.from("10")));
   b := ArrayList(EvalValue).new();
@@ -102,43 +102,43 @@ test "ArrayVal: element-wise equality", {
 
   assert((EvalValue.ArrayVal(a) == EvalValue.ArrayVal(b)), "equal arrays");
   assert(!(EvalValue.ArrayVal(a) == EvalValue.ArrayVal(c)), "unequal arrays");
-};
+});
 
-test "ArrayVal: length mismatch is not equal", {
+test("ArrayVal: length mismatch is not equal", {
   a := ArrayList(EvalValue).new();
   a.push(.IntLit(String.from("1")));
   b := ArrayList(EvalValue).new();
   b.push(.IntLit(String.from("1")));
   b.push(.IntLit(String.from("2")));
   assert(!(EvalValue.ArrayVal(a) == EvalValue.ArrayVal(b)), "different lengths unequal");
-};
+});
 
-test "ArrayVal: predicates", {
+test("ArrayVal: predicates", {
   v := EvalValue.ArrayVal(ArrayList(EvalValue).new());
   assert(is_array_val(v),    "is_array_val true");
   assert(!(is_tuple_val(v)), "is_tuple_val false for ArrayVal");
-};
+});
 
-test "ArrayVal: value_to_string", {
+test("ArrayVal: value_to_string", {
   elems := ArrayList(EvalValue).new();
   elems.push(.IntLit(String.from("1")));
   elems.push(.IntLit(String.from("2")));
   v := EvalValue.ArrayVal(elems);
   assert((value_to_string(v).as_str() == "[1, 2]"), "array string [1, 2]");
-};
+});
 
-test "ArrayVal: value_to_string singleton (trailing comma)", {
+test("ArrayVal: value_to_string singleton (trailing comma)", {
   elems := ArrayList(EvalValue).new();
   elems.push(.IntLit(String.from("5")));
   v := EvalValue.ArrayVal(elems);
   assert((value_to_string(v).as_str() == "[5,]"), "singleton array string");
-};
+});
 
 // ---------------------------------------------------------------------------
 // SliceVal
 // ---------------------------------------------------------------------------
 
-test "SliceVal: construction and basic equality", {
+test("SliceVal: construction and basic equality", {
   b1 := ArrayList(EvalValue).new();
   b1.push(.IntLit(String.from("10")));
   b1.push(.IntLit(String.from("20")));
@@ -151,9 +151,9 @@ test "SliceVal: construction and basic equality", {
   s1 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b1)), usize(0), usize(2));
   s2 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b2)), usize(0), usize(2));
   assert((s1 == s2), "same slices [0..2) are equal");
-};
+});
 
-test "SliceVal: sub-slice equality", {
+test("SliceVal: sub-slice equality", {
   b1 := ArrayList(EvalValue).new();
   b1.push(.IntLit(String.from("10")));
   b1.push(.IntLit(String.from("20")));
@@ -166,9 +166,9 @@ test "SliceVal: sub-slice equality", {
   s1 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b1)), usize(1), usize(3));
   s2 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b2)), usize(1), usize(3));
   assert((s1 == s2), "sub-slices are equal");
-};
+});
 
-test "SliceVal: different visible elements are not equal", {
+test("SliceVal: different visible elements are not equal", {
   b1 := ArrayList(EvalValue).new();
   b1.push(.IntLit(String.from("1")));
   b1.push(.IntLit(String.from("2")));
@@ -179,9 +179,9 @@ test "SliceVal: different visible elements are not equal", {
   s1 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b1)), usize(0), usize(2));
   s2 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b2)), usize(0), usize(2));
   assert(!(s1 == s2), "slices with different elements are not equal");
-};
+});
 
-test "SliceVal: different lengths are not equal", {
+test("SliceVal: different lengths are not equal", {
   b1 := ArrayList(EvalValue).new();
   b1.push(.IntLit(String.from("10")));
   b1.push(.IntLit(String.from("20")));
@@ -194,16 +194,16 @@ test "SliceVal: different lengths are not equal", {
   s1 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b1)), usize(0), usize(2));
   s2 := EvalValue.SliceVal(box(EvalValue.ArrayVal(b2)), usize(0), usize(3));
   assert(!(s1 == s2), "slices of different lengths are not equal");
-};
+});
 
-test "SliceVal: predicates", {
+test("SliceVal: predicates", {
   backing := ArrayList(EvalValue).new();
   v := EvalValue.SliceVal(box(EvalValue.ArrayVal(backing)), usize(0), usize(0));
   assert(is_slice_val(v),    "is_slice_val true");
   assert(!(is_array_val(v)), "is_array_val false for SliceVal");
-};
+});
 
-test "SliceVal: value_to_string", {
+test("SliceVal: value_to_string", {
   backing := ArrayList(EvalValue).new();
   backing.push(.IntLit(String.from("5")));
   backing.push(.IntLit(String.from("6")));
@@ -211,46 +211,46 @@ test "SliceVal: value_to_string", {
   src := EvalValue.ArrayVal(backing);
   v := EvalValue.SliceVal(box(src), usize(1), usize(3));
   assert((value_to_string(v).as_str() == "slice[6, 7]"), "slice_to_string");
-};
+});
 
 // ---------------------------------------------------------------------------
 // PtrVal
 // ---------------------------------------------------------------------------
 
-test "PtrVal: always unequal", {
+test("PtrVal: always unequal", {
   p1 := EvalValue.PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
   p2 := EvalValue.PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
   // Pointer alias identity is not portable; always false.
   assert(!(p1 == p2), "PtrVal equality is always false");
-};
+});
 
-test "PtrVal: predicates", {
+test("PtrVal: predicates", {
   p := EvalValue.PtrVal(box(EvalValue.UnitVal), usize(0));
   assert(is_ptr_val(p),        "is_ptr_val true");
   assert(!(is_slice_val(p)),   "is_slice_val false for PtrVal");
   assert(!(is_array_val(p)),   "is_array_val false for PtrVal");
-};
+});
 
-test "PtrVal: value_to_string scalar target", {
+test("PtrVal: value_to_string scalar target", {
   target := EvalValue.IntLit(String.from("7"));
   p := EvalValue.PtrVal(box(target), usize(0));
   assert((value_to_string(p).as_str() == "<ptr to 7>"), "ptr to scalar");
-};
+});
 
-test "PtrVal: value_to_string array element", {
+test("PtrVal: value_to_string array element", {
   elems := ArrayList(EvalValue).new();
   elems.push(.IntLit(String.from("10")));
   elems.push(.IntLit(String.from("20")));
   arr := EvalValue.ArrayVal(elems);
   p := EvalValue.PtrVal(box(arr), usize(1));
   assert((value_to_string(p).as_str() == "<ptr to 20>"), "ptr to array element");
-};
+});
 
 // ---------------------------------------------------------------------------
 // TraitVal
 // ---------------------------------------------------------------------------
 
-test "TraitVal: empty trait equality", {
+test("TraitVal: empty trait equality", {
   t1 := EvalValue.TraitVal(
     String.from("Display"),
     ArrayList(String).new(),
@@ -262,9 +262,9 @@ test "TraitVal: empty trait equality", {
     ArrayList(Option(EvalValue)).new()
   );
   assert((t1 == t2), "empty same-named traits equal");
-};
+});
 
-test "TraitVal: different name is not equal", {
+test("TraitVal: different name is not equal", {
   t1 := EvalValue.TraitVal(
     String.from("Display"),
     ArrayList(String).new(),
@@ -276,9 +276,9 @@ test "TraitVal: different name is not equal", {
     ArrayList(Option(EvalValue)).new()
   );
   assert(!(t1 == t2), "different trait names not equal");
-};
+});
 
-test "TraitVal: Some/None field equality", {
+test("TraitVal: Some/None field equality", {
   fnames := ArrayList(String).new();
   fnames.push(String.from("x"));
   fnames.push(String.from("y"));
@@ -301,9 +301,9 @@ test "TraitVal: Some/None field equality", {
 
   assert((t_a == t_b), "matching Some/None fields are equal");
   assert(!(t_a == t_c), "different Some value not equal");
-};
+});
 
-test "TraitVal: Some vs None mismatch not equal", {
+test("TraitVal: Some vs None mismatch not equal", {
   fnames := ArrayList(String).new();
   fnames.push(String.from("x"));
 
@@ -317,9 +317,9 @@ test "TraitVal: Some vs None mismatch not equal", {
   t_none := EvalValue.TraitVal(String.from("T"), fnames, fvals_none);
 
   assert(!(t_some == t_none), "Some vs None mismatch is not equal");
-};
+});
 
-test "TraitVal: predicates", {
+test("TraitVal: predicates", {
   v := EvalValue.TraitVal(
     String.from("Eq"),
     ArrayList(String).new(),
@@ -327,9 +327,9 @@ test "TraitVal: predicates", {
   );
   assert(is_trait_val(v),       "is_trait_val true");
   assert(!(is_struct_val(v)),   "is_struct_val false for TraitVal");
-};
+});
 
-test "TraitVal: value_to_string", {
+test("TraitVal: value_to_string", {
   fnames := ArrayList(String).new();
   fnames.push(String.from("to_string"));
 
@@ -338,9 +338,9 @@ test "TraitVal: value_to_string", {
 
   v := EvalValue.TraitVal(String.from("Display"), fnames, fvals);
   assert((value_to_string(v).as_str() == "Display(to_string: true)"), "trait to string");
-};
+});
 
-test "TraitVal: value_to_string with runtime (None) field", {
+test("TraitVal: value_to_string with runtime (None) field", {
   fnames := ArrayList(String).new();
   fnames.push(String.from("f"));
 
@@ -349,19 +349,19 @@ test "TraitVal: value_to_string with runtime (None) field", {
 
   v := EvalValue.TraitVal(String.from("T"), fnames, fvals);
   assert((value_to_string(v).as_str() == "T(f: <runtime>)"), "trait None field = <runtime>");
-};
+});
 
 // ---------------------------------------------------------------------------
 // ComptimeListVal
 // ---------------------------------------------------------------------------
 
-test "ComptimeListVal: empty equality", {
+test("ComptimeListVal: empty equality", {
   a := EvalValue.ComptimeListVal(ArrayList(EvalValue).new());
   b := EvalValue.ComptimeListVal(ArrayList(EvalValue).new());
   assert((a == b), "empty comptime lists equal");
-};
+});
 
-test "ComptimeListVal: element-wise equality", {
+test("ComptimeListVal: element-wise equality", {
   e1 := ArrayList(EvalValue).new();
   e1.push(.IntLit(String.from("1")));
   e2 := ArrayList(EvalValue).new();
@@ -371,27 +371,27 @@ test "ComptimeListVal: element-wise equality", {
 
   assert((EvalValue.ComptimeListVal(e1) == EvalValue.ComptimeListVal(e2)), "equal lists");
   assert(!(EvalValue.ComptimeListVal(e1) == EvalValue.ComptimeListVal(e3)), "unequal lists");
-};
+});
 
-test "ComptimeListVal: predicates", {
+test("ComptimeListVal: predicates", {
   v := EvalValue.ComptimeListVal(ArrayList(EvalValue).new());
   assert(is_comptime_list_val(v),   "is_comptime_list_val true");
   assert(!(is_array_val(v)),        "is_array_val false for ComptimeListVal");
-};
+});
 
-test "ComptimeListVal: value_to_string", {
+test("ComptimeListVal: value_to_string", {
   elems := ArrayList(EvalValue).new();
   elems.push(.IntLit(String.from("3")));
   elems.push(.IntLit(String.from("4")));
   v := EvalValue.ComptimeListVal(elems);
   assert((value_to_string(v).as_str() == "comptime_list(3, 4)"), "comptime_list string");
-};
+});
 
 // ---------------------------------------------------------------------------
 // ExprVal
 // ---------------------------------------------------------------------------
 
-test "ExprVal: structural equality", {
+test("ExprVal: structural equality", {
   e1 := EvalValue.ExprVal(box(make_err_expr()));
   e2 := EvalValue.ExprVal(box(make_err_expr()));
   // Phase 6f: structural Atom-token equality is now implemented.
@@ -409,26 +409,26 @@ test "ExprVal: structural equality", {
     input: String.from("")
   ))));
   assert(!(e1 == other), "ExprVal structural equality: different atoms are unequal");
-};
+});
 
-test "ExprVal: predicates", {
+test("ExprVal: predicates", {
   v := EvalValue.ExprVal(box(make_err_expr()));
   assert(is_expr_val(v),           "is_expr_val true");
   assert(!(is_tuple_val(v)),       "is_tuple_val false for ExprVal");
   assert(!(is_array_val(v)),       "is_array_val false for ExprVal");
   assert(!(is_comptime_list_val(v)), "is_comptime_list_val false for ExprVal");
-};
+});
 
-test "ExprVal: value_to_string", {
+test("ExprVal: value_to_string", {
   v := EvalValue.ExprVal(box(make_err_expr()));
   assert((value_to_string(v).as_str() == "<expr>"), "expr val string is <expr>");
-};
+});
 
 // ---------------------------------------------------------------------------
 // Predicate cross-checks: ensure each predicate is exclusive for different variants
 // ---------------------------------------------------------------------------
 
-test "predicates are exclusive across all variants", {
+test("predicates are exclusive across all variants", {
   unit_v     := EvalValue.UnitVal;
   bool_v     := EvalValue.BoolVal(true);
   int_v      := EvalValue.IntLit(String.from("0"));
@@ -465,4 +465,4 @@ test "predicates are exclusive across all variants", {
   assert(!(is_ptr_val(str_v)),      "str ≠ ptr");
   assert(!(is_trait_val(float_v)),  "float ≠ trait");
   assert(!(is_expr_val(varref_v)),  "varref ≠ expr");
-};
+});

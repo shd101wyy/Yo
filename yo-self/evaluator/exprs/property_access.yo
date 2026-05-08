@@ -14,30 +14,30 @@
 //! - `comptimeRef` setting for pointer-through-struct access — skipped (Phase 3).
 //! - `ModuleVal.isLoading` check — skipped (no such flag in yo-self).
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
 {
   AstExpr,
   ast_expr_token, ast_expr_id, ast_expr_to_string,
   ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of,
   make_err_expr, BF_DOT
-} :: import "../../expr/expr.yo";
+} :: import("../../expr/expr.yo");
 
 {
   ExprInfo, new_expr_info,
   expr_info_table_get, expr_info_table_set
-} :: import "../../expr/expr_info.yo";
+} :: import("../../expr/expr_info.yo");
 
-{ Environment, Variable, get_variables_from_env } :: import "../../env/env.yo";
+{ Environment, Variable, get_variables_from_env } :: import("../../env/env.yo");
 
-{ EvalContext, ExpectedTypeCtx } :: import "../context.yo";
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 
 {
   EvalValue,
   create_type_value, create_unknown_val, type_of_eval_value,
   is_type_value
-} :: import "../value.yo";
+} :: import("../value.yo");
 
 {
   TypeValue, t_unit, t_type,
@@ -45,26 +45,26 @@ open import "std/string";
   is_enum_type, is_struct_type, is_union_type,
   is_module_type, is_trait_type, is_tuple_type,
   is_some_type
-} :: import "../../types/type.yo";
+} :: import("../../types/type.yo");
 
-{ get_value_of_some_type_from_env } :: import "../../types/env_lookup.yo";
+{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 
-{ type_to_string }    :: import "../../types/string.yo";
+{ type_to_string }    :: import("../../types/string.yo");
 
-{ format_error_message } :: import "../../error/error.yo";
+{ format_error_message } :: import("../../error/error.yo");
 
-{ attach_temp_variable_to_expr } :: import "../utils.yo";
+{ attach_temp_variable_to_expr } :: import("../utils.yo");
 
-{ is_valid_variable_name } :: import "./binding.yo";
+{ is_valid_variable_name } :: import("./binding.yo");
 
-{ evaluate_expression }  :: import "./expr.yo";
+{ evaluate_expression }  :: import("./expr.yo");
 
-{ TokenKind } :: import "../../lexer/token.yo";
+{ TokenKind } :: import("../../lexer/token.yo");
 
-{ Exception } :: import "std/error";
+{ Exception } :: import("std/error");
 
 { find_methods_from_generic_impls, MethodCandidate }
-  :: import "../values/generic_impl_registry.yo";
+  :: import("../values/generic_impl_registry.yo");
 
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -76,13 +76,13 @@ find_last_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(u
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(labels.get(i),
       .Some(lbl) => { if((lbl.as_str() == name), { result = Option(usize).Some(i); }); },
       .None      => ()
     );
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -92,13 +92,13 @@ find_first_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
-  while runtime(((i < n) && result.is_none())), {
+  while(runtime(((i < n) && result.is_none())), {
     match(labels.get(i),
       .Some(lbl) => { if((lbl.as_str() == name), { result = Option(usize).Some(i); }); },
       .None      => ()
     );
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -118,25 +118,25 @@ build_field_path_collection :: (fn(
   result := ArrayList(ArrayList(String)).new();
   if((obj_pc.len() > usize(0)), {
     (bpc_i : usize) = usize(0);
-    while runtime((bpc_i < obj_pc.len())), {
+    while(runtime((bpc_i < obj_pc.len())), {
       match(obj_pc.get(bpc_i),
         .Some(old_path) => {
           new_path := ArrayList(String).new();
           (bpc_j : usize) = usize(0);
-          while runtime((bpc_j < old_path.len())), {
+          while(runtime((bpc_j < old_path.len())), {
             match(old_path.get(bpc_j),
               .Some(seg) => { new_path.push(seg); },
               .None      => ()
             );
             bpc_j = (bpc_j + usize(1));
-          };
+          });
           new_path.push(prop_name);
           result.push(new_path);
         },
         .None => ()
       );
       bpc_i = (bpc_i + usize(1));
-    };
+    });
   }, {
     base_path := ArrayList(String).new();
     base_name := match(obj_vname, .Some(n) => n, .None => String.from("?"));
@@ -161,12 +161,12 @@ evaluate_property_access :: (fn(
 
   // Guard: must be a "." function call.
   if(!(ast_expr_is_fn_call_of(expr, BF_DOT, .None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected "." for property access, got:\n${ast_expr_to_string(expr)}`,
       false, .None
-    ));
-    return expr;
+    )));
+    return(expr);
   });
 
   // -------------------------------------------------------------------------
@@ -179,37 +179,37 @@ evaluate_property_access :: (fn(
     );
     prop_expr_1 := match(all_args_1.get(usize(0)),
       .Some(a) => a,
-      .None    => { return expr; }
+      .None    => { return(expr); }
     );
 
     // Property must be an identifier atom.
     if((!(ast_expr_is_atom(prop_expr_1)) || !(is_valid_variable_name(prop_expr_1))), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(prop_expr_1),
         `Expected identifier for enum variant access, got:\n${ast_expr_to_string(prop_expr_1)}`,
         false, .None
-      ));
-      return expr;
+      )));
+      return(expr);
     });
 
     // Need an expected enum type from context.
     match(ctx.expected_type,
       .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           String.from("Failed to infer enum variant type."),
           false, .None
-        ));
-        return expr;
+        )));
+        return(expr);
       },
       .Some(exp_ctx_1) => {
         if(!(is_enum_type(exp_ctx_1.ty)), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(expr),
             String.from("Failed to infer enum variant type."),
             false, .None
-          ));
-          return expr;
+          )));
+          return(expr);
         });
 
         variant_name_1 := ast_expr_token(prop_expr_1).value;
@@ -220,12 +220,12 @@ evaluate_property_access :: (fn(
             fidx_1 := find_first_field_index(en_vnames_1, variant_name_1.as_str());
             match(fidx_1,
               .None => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   ast_expr_token(prop_expr_1),
                   `Enum variant "${variant_name_1}" not found in enum`,
                   false, .None
-                ));
-                return expr;
+                )));
+                return(expr);
               },
               .Some(vi_1) => {
                 new_en_ty_1 := TypeValue.EnumT(
@@ -259,34 +259,34 @@ evaluate_property_access :: (fn(
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_1);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(prop_expr_1), out_tv_1);
                 });
-                return expr;
+                return(expr);
               }
             );
           },
           _ => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(expr),
               String.from("Failed to infer enum variant type."),
               false, .None
-            ));
-            return expr;
+            )));
+            return(expr);
           }
         );
       }
     );
-    return expr;
+    return(expr);
   });
 
   // -------------------------------------------------------------------------
   // 2-arg form: `.(object, property)`
   // -------------------------------------------------------------------------
   if(!(ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(2)))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected "." with 2 arguments, got:\n${ast_expr_to_string(expr)}`,
       false, .None
-    ));
-    return expr;
+    )));
+    return(expr);
   });
 
   all_args := match(expr,
@@ -348,7 +348,7 @@ evaluate_property_access :: (fn(
                   );
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ptr);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_ptr);
-                  return expr;
+                  return(expr);
                 },
                 .UnknownVal(_) => {
                   deref_unk := create_unknown_val(resolved_base);
@@ -358,7 +358,7 @@ evaluate_property_access :: (fn(
                   out_unk.is_accessing_property = Option(bool).Some(true);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_unk);
-                  return expr;
+                  return(expr);
                 },
                 _ => ()
               );
@@ -373,7 +373,7 @@ evaluate_property_access :: (fn(
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rt);
           attach_temp_variable_to_expr(expr, false, ctx);
-          return expr;
+          return(expr);
         });
       },
       .None => ()
@@ -398,12 +398,12 @@ evaluate_property_access :: (fn(
     // --- TypeVal + EnumT --------------------------------------------------
     if(is_enum_type(type_val_inner), {
       if(!(ast_expr_is_atom(property_expr)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(property_expr),
           `Expected identifier for enum variant, got:\n${ast_expr_to_string(property_expr)}`,
           false, .None
-        ));
-        return expr;
+        )));
+        return(expr);
       });
 
       variant_name_tv := ast_expr_token(property_expr).value;
@@ -414,12 +414,12 @@ evaluate_property_access :: (fn(
           match(fidx_tv_en,
             .None => {
               // Generic methods stub returns empty — throw directly.
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 ast_expr_token(property_expr),
                 `Enum variant "${variant_name_tv}" not found in enum`,
                 false, .None
-              ));
-              return expr;
+              )));
+              return(expr);
             },
             .Some(tv_vi) => {
               new_en_tv := TypeValue.EnumT(
@@ -453,23 +453,23 @@ evaluate_property_access :: (fn(
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_en2);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tv_en2);
               });
-              return expr;
+              return(expr);
             }
           );
         },
-        _ => { return expr; }
+        _ => { return(expr); }
       );
     });
 
     // --- TypeVal + Struct or Union (replaces TS `typeValue.value.trait`) ---
     if((is_struct_type(type_val_inner) || is_union_type(type_val_inner)), {
       if(!(is_valid_variable_name(property_expr)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(property_expr),
           `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
           false, .None
-        ));
-        return expr;
+        )));
+        return(expr);
       });
 
       prop_name_su := ast_expr_token(property_expr).value;
@@ -495,7 +495,7 @@ evaluate_property_access :: (fn(
           out_su.is_accessing_property = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_su);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_su);
-          return expr;
+          return(expr);
         },
         .None => ()
       );
@@ -507,14 +507,14 @@ evaluate_property_access :: (fn(
       generic_methods_su := find_methods_from_generic_impls(type_val_inner, prop_name_su, env);
       if((generic_methods_su.len() == usize(1)), {
         method_su := match(generic_methods_su.get(usize(0)), .Some(m) => m, .None => {
-          return expr;
+          return(expr);
         });
         out_gm_su := new_expr_info(env, method_su.method_type);
         out_gm_su.value               = method_su.method_value;
         out_gm_su.is_accessing_property = Option(bool).Some(true);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_su);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_su);
-        return expr;
+        return(expr);
       });
 
       // During generic impl specialization, the associated type may be in env.
@@ -534,7 +534,7 @@ evaluate_property_access :: (fn(
                     out_spec_su.is_accessing_property = Option(bool).Some(true);
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_spec_su);
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_spec_su);
-                    return expr;
+                    return(expr);
                   },
                   .None => ()
                 );
@@ -546,18 +546,18 @@ evaluate_property_access :: (fn(
       });
 
       // Not found — let function.yo handle it as a method call.
-      return expr;
+      return(expr);
     });
 
     // --- TypeVal + ModuleT ------------------------------------------------
     if(is_module_type(type_val_inner), {
       if(!(is_valid_variable_name(property_expr)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(property_expr),
           `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
           false, .None
-        ));
-        return expr;
+        )));
+        return(expr);
       });
 
       prop_name_mt := ast_expr_token(property_expr).value;
@@ -580,11 +580,11 @@ evaluate_property_access :: (fn(
           out_mt.is_accessing_property = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_mt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_mt);
-          return expr;
+          return(expr);
         },
         .None => {
           // Not found — let function.ts handle it.
-          return expr;
+          return(expr);
         }
       );
     });
@@ -594,12 +594,12 @@ evaluate_property_access :: (fn(
     is_plain_trait_type := match(type_val_inner, .TraitT(_, _, _, _, _, _, _, _) => true, _ => false);
     if(is_plain_trait_type, {
       if(!(is_valid_variable_name(property_expr)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(property_expr),
           `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
           false, .None
-        ));
-        return expr;
+        )));
+        return(expr);
       });
 
       prop_name_tt := ast_expr_token(property_expr).value;
@@ -622,11 +622,11 @@ evaluate_property_access :: (fn(
           out_tt.is_accessing_property = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tt);
-          return expr;
+          return(expr);
         },
         .None => {
           // Not found — let function.ts handle it.
-          return expr;
+          return(expr);
         }
       );
     });
@@ -642,12 +642,12 @@ evaluate_property_access :: (fn(
   (base_ty : TypeValue) = obj_ty_main;
 
   // Dereference pointer chain (TS: while (isPtrType(objectType))).
-  while runtime(is_pointer_type(base_ty)), {
+  while(runtime(is_pointer_type(base_ty)), {
     match(base_ty,
       .Pointer(pt) => { base_ty = pt.*; },
       _            => ()
     );
-  };
+  });
 
   obj_val_main := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
 
@@ -673,34 +673,34 @@ evaluate_property_access :: (fn(
       // --- Integer index access (tuple fields only) -----------------------
       if((ast_expr_token(property_expr).kind == TokenKind.Integer), {
         if(!(is_tuple_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit()))), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(property_expr),
             String.from("Accessing tuple field by index is only allowed for tuples."),
             false, .None
-          ));
-          return expr;
+          )));
+          return(expr);
         });
 
         idx_str := ast_expr_token(property_expr).value;
         match(idx_str.parse_i64(),
           .None => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(property_expr),
               `Expected integer for tuple index, got:\n${ast_expr_to_string(property_expr)}`,
               false, .None
-            ));
-            return expr;
+            )));
+            return(expr);
           },
           .Some(idx_val) => {
             idx := usize(idx_val);
             field_count := fields_labels.len();
             if((idx >= field_count), {
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 ast_expr_token(property_expr),
                 `Index out of bounds: ${idx_str} for accessing field in:\n${type_to_string(base_ty)}`,
                 false, .None
-              ));
-              return expr;
+              )));
+              return(expr);
             });
 
             ft_idx := match(fields_types.get(idx), .Some(t) => t, .None => t_unit());
@@ -744,7 +744,7 @@ evaluate_property_access :: (fn(
             );
 
             attach_temp_variable_to_expr(expr, false, ctx);
-            return expr;
+            return(expr);
           }
         );
       });
@@ -756,15 +756,15 @@ evaluate_property_access :: (fn(
         match(field_idx_lbl,
           .None => {
             if(is_module_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 ast_expr_token(property_expr),
                 `Module field "${label_str}" not found in module type`,
                 false, .None
-              ));
-              return expr;
+              )));
+              return(expr);
             });
             // Could be a method call — return without setting ExprInfo.
-            return expr;
+            return(expr);
           },
           .Some(fi_lbl) => {
             ft_lbl := match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit());
@@ -822,7 +822,7 @@ evaluate_property_access :: (fn(
             );
 
             attach_temp_variable_to_expr(expr, false, ctx);
-            return expr;
+            return(expr);
           }
         );
       });
@@ -837,12 +837,12 @@ evaluate_property_access :: (fn(
   if(is_module_type(base_ty), {
     if(ast_expr_is_atom(property_expr), {
       if((ast_expr_token(property_expr).kind == TokenKind.Integer), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(property_expr),
           `Accessing module field by index is not allowed, got:\n${ast_expr_to_string(property_expr)}`,
           false, .None
-        ));
-        return expr;
+        )));
+        return(expr);
       });
 
       if(is_valid_variable_name(property_expr), {
@@ -862,15 +862,15 @@ evaluate_property_access :: (fn(
           .None => {
             if(is_module_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
               // Phase 2: skip isLoading check (no such field in yo-self ModuleVal).
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 ast_expr_token(property_expr),
                 `Module field "${mod_label}" not found in module type`,
                 false, .None
-              ));
-              return expr;
+              )));
+              return(expr);
             });
             // Could be a method call.
-            return expr;
+            return(expr);
           },
           .Some(fi_mod) => {
             ft_mod := match(mod_types_rt.get(fi_mod), .Some(t) => t, .None => t_unit());
@@ -905,7 +905,7 @@ evaluate_property_access :: (fn(
               .None => ()
             );
 
-            return expr;
+            return(expr);
           }
         );
       });
@@ -918,12 +918,12 @@ evaluate_property_access :: (fn(
   if(is_enum_type(base_ty), {
     if(ast_expr_is_atom(property_expr), {
       if(!(is_valid_variable_name(property_expr)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(property_expr),
           `Expected identifier for enum variant property, got:\n${ast_expr_to_string(property_expr)}`,
           false, .None
-        ));
-        return expr;
+        )));
+        return(expr);
       });
 
       prop_name_ev := ast_expr_token(property_expr).value;
@@ -987,7 +987,7 @@ evaluate_property_access :: (fn(
                         .None => ()
                       );
 
-                      return expr;
+                      return(expr);
                     }
                   );
                 },
@@ -1005,9 +1005,9 @@ evaluate_property_access :: (fn(
   // -------------------------------------------------------------------------
   // Fallback: property access could not be resolved at compile time.
   // Return expr without setting ExprInfo — codegen / function.ts will handle.
-  // Mirrors `expr.$ = undefined; return expr;` in TypeScript.
+  // Mirrors `expr.$ = undefined; return(expr);` in TypeScript.
   // -------------------------------------------------------------------------
   expr
 });
 
-export evaluate_property_access;
+export(evaluate_property_access);

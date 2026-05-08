@@ -1,4 +1,4 @@
-//! evaluate_import — handles `import "path"` expressions.
+//! evaluate_import — handles `import("path")` expressions.
 //!
 //! 1:1 port of `src/evaluator/exprs/import.ts` (317 lines).
 //!
@@ -11,20 +11,20 @@
 //! * The `safeRelativePath` Windows cross-drive helper is omitted; absolute
 //!   paths returned by `Path.join` are used directly.
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_is_fn_call_of, BK_IMPORT }                 :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
-{ Environment }                                        :: import "../../env/env.yo";
-{ EvalContext, LoadModuleResult }                       :: import "../context.yo";
-{ EvalValue }                                          :: import "../value.yo";
-{ TypeValue, t_unit }                                  :: import "../../types/type.yo";
-{ format_error_message }                               :: import "../../error/error.yo";
-{ Exception }                                          :: import "std/error";
-{ Path }                                               :: import "std/path";
-{ access, F_OK }                                       :: import "std/libc/unistd";
-{ evaluate_expression }                                :: import "./expr.yo";
+  ast_expr_is_fn_call_of, BK_IMPORT }                 :: import("../../expr/expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
+{ Environment }                                        :: import("../../env/env.yo");
+{ EvalContext, LoadModuleResult }                       :: import("../context.yo");
+{ EvalValue }                                          :: import("../value.yo");
+{ TypeValue, t_unit }                                  :: import("../../types/type.yo");
+{ format_error_message }                               :: import("../../error/error.yo");
+{ Exception }                                          :: import("std/error");
+{ Path }                                               :: import("std/path");
+{ access, F_OK }                                       :: import("std/libc/unistd");
+{ evaluate_expression }                                :: import("./expr.yo");
 
 // ---------------------------------------------------------------------------
 // _file_exists_sync
@@ -48,7 +48,7 @@ _find_project_root :: (fn(file_path : String) -> Option(String))({
   dir_path_opt := Path.new(file_path).parent();
   (result : Option(String)) = .None;
   (found : bool) = false;
-  while runtime((!found)), {
+  while(runtime((!(found))), {
     match(dir_path_opt,
       .None => { found = true; },
       .Some(dir_p) => {
@@ -75,7 +75,7 @@ _find_project_root :: (fn(file_path : String) -> Option(String))({
         });
       }
     );
-  };
+  });
   result
 });
 
@@ -106,12 +106,12 @@ evaluate_import :: (fn(
   (env : Environment) = env_in;
 
   if(!(ast_expr_is_fn_call_of(expr, BK_IMPORT, .Some(usize(1)))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("Expected `import` with exactly 1 argument."),
       false,
       .None
-    ));
+    )));
   });
 
   // Get the path argument (first arg of the import call).
@@ -119,22 +119,22 @@ evaluate_import :: (fn(
     .FnCall(_, _, args, _, _) => match(args.get(usize(0)),
       .Some(a) => a,
       .None    => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           String.from("import: missing path argument."),
           false,
           .None
-        ));
+        )));
         expr
       }
     ),
     .Atom(_, _) => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("import: expected FnCall expression."),
         false,
         .None
-      ));
+      )));
       expr
     }
   );
@@ -145,12 +145,12 @@ evaluate_import :: (fn(
   arg_info      := match(arg_info_opt,
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(module_arg),
         String.from("import: failed to evaluate module path argument."),
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -163,22 +163,22 @@ evaluate_import :: (fn(
     .Some(v) => match(v,
       .StrLit(s) => s,
       _ => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(module_arg),
           String.from("Expected comptime_string for module path."),
           false,
           .None
-        ));
+        )));
         String.new()
       }
     ),
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(module_arg),
         String.from("Expected comptime_string for module path."),
         false,
         .None
-      ));
+      )));
       String.new()
     }
   );
@@ -192,12 +192,12 @@ evaluate_import :: (fn(
 
   // Disallow importing the prelude.
   if(((module_path_to_import.as_str() == "std/prelude") || (module_path_to_import.as_str() == "std/prelude.yo")), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(module_arg),
       String.from("Importing the prelude module is not allowed — it is automatically loaded for every file."),
       false,
       .None
-    ));
+    )));
   });
 
   // ---------------------------------------------------------------------------
@@ -234,12 +234,12 @@ evaluate_import :: (fn(
   //    Phase 2 stub — dependency resolution via build registry is not yet ported.
   //    If the path is still not absolute here, throw a helpful error.
   if(!(Path.new(String.from(module_path_to_import.as_str())).is_absolute()), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(module_arg),
       `Module "${module_path_to_import}" not found. If this is a dependency, add it to build.yo and run 'yo fetch'. (Dependency name resolution is not yet implemented in the self-hosted compiler.)`,
       false,
       .None
-    ));
+    )));
   });
 
   // ---------------------------------------------------------------------------
@@ -258,12 +258,12 @@ evaluate_import :: (fn(
     yo_exists      := _file_exists_sync(String.from(yo_file_path.as_str()));
     index_exists   := _file_exists_sync(String.from(index_yo_path.as_str()));
     if((yo_exists && index_exists), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(module_arg),
-        `Ambiguous import "${module_path_to_import}": both "${module_path_to_import}.yo" and "${module_path_to_import}/index.yo" exist. Use an explicit path to resolve the ambiguity.`,
+        `Ambiguous import("${module_path_to_import}": both "${module_path_to_import}.yo" and "${module_path_to_import}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`,
         false,
         .None
-      ));
+      )));
     });
     if(yo_exists, {
       module_abs_path = `file://${yo_file_path}`;
@@ -272,12 +272,12 @@ evaluate_import :: (fn(
       module_abs_path = `file://${index_yo_path}`;
     });
     if((!(yo_exists) && !(index_exists)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(module_arg),
         `Module not found: tried "${module_path_to_import}.yo" and "${module_path_to_import}/index.yo"`,
         false,
         .None
-      ));
+      )));
     });
   });
 
@@ -288,12 +288,12 @@ evaluate_import :: (fn(
   load_fn := match(ctx.load_module,
     .Some(f) => f,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(module_arg),
         String.from("Module loader is not provided in the context."),
         false,
         .None
-      ));
+      )));
       (fn(p : String) -> LoadModuleResult)(LoadModuleResult(module_value: .UnitVal, module_error: .None))
     }
   );
@@ -303,12 +303,12 @@ evaluate_import :: (fn(
   // Check for a load error.
   match(load_result.module_error,
     .Some(err_msg) => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(module_arg),
         `Failed to import module "${module_path_to_import}":\n${err_msg}`,
         false,
         .None
-      ));
+      )));
     },
     .None => ()
   );
@@ -322,4 +322,4 @@ evaluate_import :: (fn(
   expr
 });
 
-export evaluate_import;
+export(evaluate_import);

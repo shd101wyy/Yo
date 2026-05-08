@@ -11,38 +11,38 @@
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
 
-open import "std/string";
-{ ArrayList }    :: import "std/collections/array_list";
-{ HashMap }      :: import "std/collections/hash_map";
+open(import("std/string"));
+{ ArrayList }    :: import("std/collections/array_list");
+{ HashMap }      :: import("std/collections/hash_map");
 
 {
   AstExpr
-}                :: import "../../expr/expr.yo";
-{ Token }        :: import "../../lexer/token.yo";
+}                :: import("../../expr/expr.yo");
+{ Token }        :: import("../../lexer/token.yo");
 {
   Variable,
   Environment,
   get_variables_from_env
-}                :: import "../../env/env.yo";
+}                :: import("../../env/env.yo");
 {
   TypeValue,
   t_unit
-}                :: import "../../types/type.yo";
+}                :: import("../../types/type.yo");
 {
   EvalValue
-}                :: import "../value.yo";
+}                :: import("../value.yo");
 {
   CapturedVarInfo,
   CaptureUsage
-}                :: import "../context.yo";
+}                :: import("../context.yo");
 {
   TypeField
-}                :: import "../types/field.yo";
+}                :: import("../types/field.yo");
 {
   register_struct_fields
-}                :: import "../types/field.yo";
-{ random_id }    :: import "../utils.yo";
-{ auto_derive_traits_for_struct_type } :: import "../types/auto_derive.yo";
+}                :: import("../types/field.yo");
+{ random_id }    :: import("../utils.yo");
+{ auto_derive_traits_for_struct_type } :: import("../types/auto_derive.yo");
 
 // ---------------------------------------------------------------------------
 // FuncCapturedVarInfo
@@ -140,7 +140,7 @@ enrich_captured_variables :: (fn(
   result    := HashMap(String, FuncCapturedVarInfo).new();
   key_iter  := captured_variables.keys();
   (more : bool) = true;
-  while runtime(more), {
+  while(runtime(more), {
     match(key_iter.next(),
       .None           => { more = false; },
       .Some(var_name) => {
@@ -155,7 +155,7 @@ enrich_captured_variables :: (fn(
               vars := get_variables_from_env(env, String.from(var_name.as_str()));
               m    := vars.len();
               (j : usize) = usize(0);
-              while runtime((j < m)), {
+              while(runtime((j < m)), {
                 match(vars.get(j),
                   .None => (),
                   .Some(v) => {
@@ -174,13 +174,13 @@ enrich_captured_variables :: (fn(
                   }
                 );
                 j = (j + usize(1));
-              };
+              });
             });
           }
         );
       }
     );
-  };
+  });
 
   result
 });
@@ -233,7 +233,7 @@ create_capture_type_and_value :: (fn(
         cvwv     := match(captured_vars_with_values, .Some(m) => m, .None => HashMap(String, FuncCapturedVarInfo).new());
         key_iter := cvwv.keys();
         (more_keys : bool) = true;
-        while runtime(more_keys), {
+        while(runtime(more_keys), {
           match(key_iter.next(),
             .None           => { more_keys = false; },
             .Some(cap_name) => {
@@ -255,7 +255,7 @@ create_capture_type_and_value :: (fn(
               );
             }
           );
-        };
+        });
       });
 
       // Register field metadata.
@@ -287,7 +287,7 @@ create_capture_type_and_value :: (fn(
       n_caps := cap_values.len();
       (all_known : bool) = true;
       (cv_i : usize) = usize(0);
-      while runtime((cv_i < n_caps)), {
+      while(runtime((cv_i < n_caps)), {
         match(cap_values.get(cv_i),
           .None => (),
           .Some(v_opt) => {
@@ -298,13 +298,13 @@ create_capture_type_and_value :: (fn(
           }
         );
         cv_i = (cv_i + usize(1));
-      };
+      });
 
       // Collect concrete values for StructVal if all are known.
       cap_struct_val := if(all_known, {
         concrete_vals := ArrayList(EvalValue).new();
         (ci : usize) = usize(0);
-        while runtime((ci < n_caps)), {
+        while(runtime((ci < n_caps)), {
           match(cap_values.get(ci),
             .None => (),
             .Some(v_opt) => {
@@ -315,7 +315,7 @@ create_capture_type_and_value :: (fn(
             }
           );
           ci = (ci + usize(1));
-        };
+        });
         // Use struct_id as the type name for the StructVal.
         Option(EvalValue).Some(EvalValue.StructVal(
           String.from(struct_id.as_str()),
@@ -359,12 +359,12 @@ generate_captured_variable_dup_expressions :: (fn(
   )
 );
 
-export FuncCapturedVarInfo;
-export CaptureTypeAndValueResult;
-export CapturedVarDupResult;
-export consume_captured_variables;
-export build_path_collection_from_captured_variables;
-export validate_capture_trait_requirements;
-export enrich_captured_variables;
-export create_capture_type_and_value;
-export generate_captured_variable_dup_expressions;
+export(FuncCapturedVarInfo);
+export(CaptureTypeAndValueResult);
+export(CapturedVarDupResult);
+export(consume_captured_variables);
+export(build_path_collection_from_captured_variables);
+export(validate_capture_trait_requirements);
+export(enrich_captured_variables);
+export(create_capture_type_and_value);
+export(generate_captured_variable_dup_expressions);

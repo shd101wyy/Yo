@@ -12,26 +12,26 @@
 // @skip_wasm32-emscripten — no process model / no cc in WASM
 // @skip_wasm32-wasi        — no process model / no cc in WASM
 
-open import "std/string";
-open import "std/error";
-open import "std/fmt";
-{ ArrayList }  :: import "std/collections/array_list";
-{ Path }       :: import "std/path";
-{ write_file } :: import "std/fs/file";
-{ Command }    :: import "std/process/command";
+open(import("std/string"));
+open(import("std/error"));
+open(import("std/fmt"));
+{ ArrayList }  :: import("std/collections/array_list");
+{ Path }       :: import("std/path");
+{ write_file } :: import("std/fs/file");
+{ Command }    :: import("std/process/command");
 
-{ parse }              :: import "../parser/parser.yo";
-{ compile_module_to_c } :: import "../codegen/driver.yo";
+{ parse }              :: import("../parser/parser.yo");
+{ compile_module_to_c } :: import("../codegen/driver.yo");
 
 // Temp file paths used across the integration tests.
 C_TMP  :: "/tmp/yo_bootstrap_hello.c";
 BIN_TMP :: "/tmp/yo_bootstrap_hello";
 
-test "Phase 4 integration: parse → C → cc → run (trivial void main)", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+test("Phase 4 integration: parse → C → cc → run (trivial void main)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
 
   // 1. Parse
-  src   := String.from("main :: (fn() -> unit)({ }); export main;");
+  src   := String.from("main :: (fn() -> unit)({ }); export(main);");
   exprs := parse(src, String.from("<integration_test>"), using(exn));
 
   // 2. Compile to C
@@ -59,15 +59,15 @@ test "Phase 4 integration: parse → C → cc → run (trivial void main)", {
   run    := Command.new(String.from(BIN_TMP));
   run_st := io.await(run.status());
   assert(run_st.success(), "compiled binary should exit 0");
-};
+});
 
-test "Phase 4 integration: parse → C → cc → run (fn with i32 return)", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+test("Phase 4 integration: parse → C → cc → run (fn with i32 return)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
 
   // A main that returns an i32 — in C the static fn returns int32_t, and
   // int main(void) calls it as a statement (return value ignored), then
   // returns 0.  So exit code is always 0.
-  src   := String.from("main :: (fn() -> unit)({ }); export main;");
+  src   := String.from("main :: (fn() -> unit)({ }); export(main);");
   exprs := parse(src, String.from("<integration_test2>"), using(exn));
 
   opt_c := compile_module_to_c(exprs, "integration_module2", "main");
@@ -87,4 +87,4 @@ test "Phase 4 integration: parse → C → cc → run (fn with i32 return)", {
 
   run := Command.new(String.from(BIN_TMP));
   assert((io.await(run.status())).success(), "binary should exit 0");
-};
+});

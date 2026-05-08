@@ -9,10 +9,10 @@
 //!   register_type_trait(type_id, trait_name)
 //!   is_type_registered_as_trait(type_id, trait_name) -> bool
 
-open import "std/string";
+open(import("std/string"));
 
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap }   :: import "std/collections/hash_map";
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap }   :: import("std/collections/hash_map");
 
 // ---------------------------------------------------------------------------
 // Global type-trait registry
@@ -49,14 +49,14 @@ is_type_registered_as_trait :: (fn(type_id : String, trait_name : str) -> bool)(
       n := list.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while runtime(((i < n) && !(found))), {
+      while(runtime(((i < n) && !(found))), {
         name := match(list.get(i), .Some(n2) => n2, .None => String.from(""));
         if((name.as_str() == trait_name), { found = true; });
         i = (i + usize(1));
-      };
+      });
       found
     }
   )
 );
 
-export register_type_trait, is_type_registered_as_trait;
+export(register_type_trait, is_type_registered_as_trait);

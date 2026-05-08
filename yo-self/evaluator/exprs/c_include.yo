@@ -8,21 +8,21 @@
 //! enum has no such fields, and that metadata is only needed by codegen (which
 //! yo-self does not perform).
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call,
-  ast_expr_is_fn_call_of, BK_C_INCLUDE }              :: import "../../expr/expr.yo";
-{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import "../../expr/expr_info.yo";
-{ Environment, add_variable_to_env }                   :: import "../../env/env.yo";
-{ EvalContext }                                        :: import "../context.yo";
-{ EvalValue, create_unknown_val }                      :: import "../value.yo";
-{ TypeValue, t_unit }                                  :: import "../../types/type.yo";
-{ type_contains_rc_type }                              :: import "../../types/utils.yo";
-{ format_error_message }                               :: import "../../error/error.yo";
-{ Exception }                                          :: import "std/error";
-{ evaluate_expression }                                :: import "./expr.yo";
-{ EvalModuleFieldResult, evaluate_module_field }       :: import "../types/module.yo";
-{ ArrayList }                                          :: import "std/collections/array_list";
+  ast_expr_is_fn_call_of, BK_C_INCLUDE }              :: import("../../expr/expr.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr/expr_info.yo");
+{ Environment, add_variable_to_env }                   :: import("../../env/env.yo");
+{ EvalContext }                                        :: import("../context.yo");
+{ EvalValue, create_unknown_val }                      :: import("../value.yo");
+{ TypeValue, t_unit }                                  :: import("../../types/type.yo");
+{ type_contains_rc_type }                              :: import("../../types/utils.yo");
+{ format_error_message }                               :: import("../../error/error.yo");
+{ Exception }                                          :: import("std/error");
+{ evaluate_expression }                                :: import("./expr.yo");
+{ EvalModuleFieldResult, evaluate_module_field }       :: import("../types/module.yo");
+{ ArrayList }                                          :: import("std/collections/array_list");
 
 evaluate_c_include :: (fn(
   expr    : AstExpr,
@@ -31,12 +31,12 @@ evaluate_c_include :: (fn(
   using(exn : Exception)
 ) -> AstExpr)({
   if(!(ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected c_include, got ${ast_expr_token(expr).value}`,
       false,
       .None
-    ));
+    )));
   });
 
   (env : Environment) = env_in;
@@ -45,12 +45,12 @@ evaluate_c_include :: (fn(
   // First arg must be an atom (the C header file string literal, e.g. "<stdio.h>").
   first_arg_opt := all_args.get(usize(0));
   if(!(match(first_arg_opt, .Some(a) => ast_expr_is_atom(a), .None => false)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;"),
       false,
       .None
-    ));
+    )));
   });
 
   c_header_file_arg := match(first_arg_opt, .Some(a) => a, .None => expr);
@@ -63,22 +63,22 @@ evaluate_c_include :: (fn(
     .Some(v) => match(v,
       .StrLit(s) => s,
       _ => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(c_header_file_arg),
           `Expected string for C header file argument`,
           false,
           .None
-        ));
+        )));
         String.new()
       }
     ),
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(c_header_file_arg),
         `Failed to evaluate C header file argument`,
         false,
         .None
-      ));
+      )));
       String.new()
     }
   );
@@ -91,12 +91,12 @@ evaluate_c_include :: (fn(
   );
 
   if((c_header_file.len() == usize(0)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;"),
       false,
       .None
-    ));
+    )));
   });
 
   // Iterate over the field declarations (args[1..]).
@@ -105,18 +105,18 @@ evaluate_c_include :: (fn(
   (args_idx : usize)  = usize(1);
   (field_idx : usize) = usize(0);
 
-  while runtime((args_idx < all_args.len())), {
+  while(runtime((args_idx < all_args.len())), {
     arg    := match(all_args.get(args_idx), .Some(a) => a, .None => expr);
     result := evaluate_module_field(arg, field_idx, env, ctx, false, using(exn));
 
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool)  = false;
-    while runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
+    while(runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
       existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if((existing.as_str() == result.label.as_str()), { has_dup = true; });
       dup_idx = (dup_idx + usize(1));
-    };
+    });
     if(has_dup, {
       err_tok := if(ast_expr_is_fn_call(arg),
         match(match(arg, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
@@ -125,12 +125,12 @@ evaluate_c_include :: (fn(
         ),
         ast_expr_token(arg)
       );
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         err_tok,
         `Duplicate label "${result.label}" in module`,
         false,
         .None
-      ));
+      )));
     });
 
     field_labels.push(String.from(result.label.as_str()));
@@ -142,7 +142,7 @@ evaluate_c_include :: (fn(
 
     // Add field variable to env (compile-time only, unknown value placeholder).
     _var_opt := add_variable_to_env(
-      (&env),
+      (&(env)),
       String.from(result.label.as_str()),
       result.field_type,
       Option(EvalValue).Some(create_unknown_val(result.field_type)),
@@ -155,7 +155,7 @@ evaluate_c_include :: (fn(
 
     args_idx  = (args_idx + usize(1));
     field_idx = (field_idx + usize(1));
-  };
+  });
 
   // Store UnitVal result on the c_include expression.
   unit_info := new_expr_info(env, t_unit());
@@ -169,4 +169,4 @@ evaluate_c_include :: (fn(
   expr
 });
 
-export evaluate_c_include;
+export(evaluate_c_include);

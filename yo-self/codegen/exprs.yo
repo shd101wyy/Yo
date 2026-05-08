@@ -11,12 +11,12 @@
 //! threshold that forced `evaluate()` to use the `g_eval_fn` pointer trick.
 //! All Phase 4c control-flow helpers are factored into module-level functions.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ AstExpr, BK_BEGIN, BK_ANON_STRUCT, BK_TUPLE } :: import "../expr/expr.yo";
-{ TokenKind }          :: import "../lexer/token.yo";
-{ CodegenContext }     :: import "./context.yo";
-{ DataBinding, DataArm, generate_match_data } :: import "./match.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, BK_BEGIN, BK_ANON_STRUCT, BK_TUPLE } :: import("../expr/expr.yo");
+{ TokenKind }          :: import("../lexer/token.yo");
+{ CodegenContext }     :: import("./context.yo");
+{ DataBinding, DataArm, generate_match_data } :: import("./match.yo");
 
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
@@ -383,7 +383,7 @@ handle_begin :: (fn(
         result_so_far.push_str("  ");
         result_so_far
       };
-      while runtime((i < (n - usize(1)))), {
+      while(runtime((i < (n - usize(1)))), {
         match(args.get(i),
           .None => (),
           .Some(s) => cond(
@@ -404,7 +404,7 @@ handle_begin :: (fn(
           )
         );
         i = (i + usize(1));
-      };
+      });
       // Return the last expression as the block value
       match(args.get((n - usize(1))),
         .None    => .Some(String.from("0")),
@@ -417,7 +417,7 @@ handle_begin :: (fn(
 /// True if `expr` requires statement-level emission and cannot appear
 /// inside a C ternary operand.
 ///
-/// Matches: `continue`, `break`, `return expr`, and begin blocks
+/// Matches: `continue`, `break`, `return(expr)`, and begin blocks
 /// that contain any statement-level expression (e.g. `{ x = 1; break; }`).
 ///
 /// Note: the Yo parser appends a trailing `tuple()` sentinel to begin blocks
@@ -450,13 +450,13 @@ is_stmt_body_expr :: (fn(expr : AstExpr) -> bool)(
             true => {
               (found : bool) = false;
               (k : usize) = usize(0);
-              while runtime(((k < na) && (!found))), {
+              while(runtime(((k < na) && (!(found)))), {
                 match(args.get(k),
                   .None => (),
                   .Some(e) => { found = recur(e); }
                 );
                 k = (k + usize(1));
-              };
+              });
               found
             }
           )
@@ -491,7 +491,7 @@ emit_cond_as_if_else :: (fn(
   inner.push_str("  ");
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while runtime(((i < n) && ok)), {
+  while(runtime(((i < n) && ok)), {
     match(args.get(i),
       .None => { ok = false; },
       .Some(arm) => match(get_arm_args(arm),
@@ -555,7 +555,7 @@ emit_cond_as_if_else :: (fn(
       )
     );
     i = (i + usize(1));
-  };
+  });
   cond(
     ok   => .Some(String.from("0")),
     true => Option(String).None
@@ -639,7 +639,7 @@ handle_cond :: (fn(
       has_stmt_body := {
         (k : usize) = usize(0);
         (found : bool) = false;
-        while runtime(((k < n) && (!found))), {
+        while(runtime(((k < n) && (!(found)))), {
           match(args.get(k),
             .None => (),
             .Some(arm) => match(get_arm_args(arm),
@@ -651,7 +651,7 @@ handle_cond :: (fn(
             )
           );
           k = (k + usize(1));
-        };
+        });
         found
       };
       cond(
@@ -674,7 +674,7 @@ handle_cond :: (fn(
             true => usize(0)
           );
           (done : bool) = (n <= usize(1));
-          while runtime((!done)), {
+          while(runtime((!(done))), {
             match(acc,
               .None => { done = true; },
               .Some(rest_str) => {
@@ -695,7 +695,7 @@ handle_cond :: (fn(
                 )
               }
             );
-          };
+          });
           acc
         }
       )
@@ -832,7 +832,7 @@ emit_match_value_as_if_else :: (fn(
   inner.push_str("  ");
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while runtime(((i < n) && ok)), {
+  while(runtime(((i < n) && ok)), {
     match(arms.get(i),
       .None => { ok = false; },
       .Some(arm) => match(get_arm_args(arm),
@@ -887,7 +887,7 @@ emit_match_value_as_if_else :: (fn(
       )
     );
     i = (i + usize(1));
-  };
+  });
   cond(
     ok   => .Some(String.from("0")),
     true => Option(String).None
@@ -927,7 +927,7 @@ handle_match_value :: (fn(
             has_stmt := {
               (k : usize) = usize(1);
               (found : bool) = false;
-              while runtime(((k < n) && (!found))), {
+              while(runtime(((k < n) && (!(found)))), {
                 match(args.get(k),
                   .None => (),
                   .Some(arm) => match(get_arm_args(arm),
@@ -939,7 +939,7 @@ handle_match_value :: (fn(
                   )
                 );
                 k = (k + usize(1));
-              };
+              });
               found
             };
 
@@ -948,13 +948,13 @@ handle_match_value :: (fn(
                 // Build arm list from args[1..]
                 arms := ArrayList(AstExpr).new();
                 (k : usize) = usize(1);
-                while runtime((k < n)), {
+                while(runtime((k < n)), {
                   match(args.get(k),
                     .None => (),
                     .Some(arm) => { _r := arms.push(arm); () }
                   );
                   k = (k + usize(1));
-                };
+                });
                 emit_match_value_as_if_else(temp, arms, ctx, indent)
               },
               true => {
@@ -975,7 +975,7 @@ handle_match_value :: (fn(
                   true => usize(0)
                 );
                 (done : bool) = (arm_count <= usize(1));
-                while runtime((!done)), {
+                while(runtime((!(done))), {
                   match(acc,
                     .None => { done = true; },
                     .Some(rest_str) => {
@@ -996,7 +996,7 @@ handle_match_value :: (fn(
                       )
                     }
                   );
-                };
+                });
                 acc
               }
             )
@@ -1014,7 +1014,7 @@ _split_csv :: (fn(csv : str) -> ArrayList(String))({
   base_ptr := csv.ptr();
   (i : usize) = usize(0);
   (start : usize) = usize(0);
-  while runtime((i <= n)), {
+  while(runtime((i <= n)), {
     is_sep := cond(
       (i == n) => true,
       true     => (csv.bytes(i) == u8(44)) // 44 = ','
@@ -1029,7 +1029,7 @@ _split_csv :: (fn(csv : str) -> ArrayList(String))({
       start = (i + usize(1));
     });
     i = (i + usize(1));
-  };
+  });
   parts
 });
 
@@ -1119,7 +1119,7 @@ _extract_data_arm :: (fn(
                   );
                   nba := pat_args.len();
                   (bi : usize) = usize(0);
-                  while runtime((bi < nba)), {
+                  while(runtime((bi < nba)), {
                     match(pat_args.get(bi),
                       .None => (),
                       .Some(barg) => {
@@ -1157,7 +1157,7 @@ _extract_data_arm :: (fn(
                             )) => {
                               nc := bargs.len();
                               (ci : usize) = usize(0);
-                              while runtime((ci < nc)), {
+                              while(runtime((ci < nc)), {
                                 match(bargs.get(ci),
                                   .None => (),
                                   .Some(ci_arg) => match(ci_arg,
@@ -1218,7 +1218,7 @@ _extract_data_arm :: (fn(
                                   )
                                 );
                                 ci = (ci + usize(1));
-                              };
+                              });
                             },
                             (!(binfix)) => (),
                             (bargs.len() < usize(2)) => (),
@@ -1259,7 +1259,7 @@ _extract_data_arm :: (fn(
                       }
                     );
                     bi = (bi + usize(1));
-                  };
+                  });
                   tag
                 }
               )
@@ -1301,7 +1301,7 @@ _has_data_arm :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while runtime(((i < n) && (!(found)))), {
+  while(runtime(((i < n) && (!(found)))), {
     match(args.get(i),
       .None => (),
       .Some(arm_expr) => match(get_arm_args(arm_expr),
@@ -1315,7 +1315,7 @@ _has_data_arm :: (fn(args : ArrayList(AstExpr)) -> bool)({
       )
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -1369,7 +1369,7 @@ handle_match_data :: (fn(
 
           data_arms := ArrayList(DataArm).new();
           (i : usize) = usize(1);
-          while runtime((i < n)), {
+          while(runtime((i < n)), {
             match(args.get(i),
               .None => (),
               .Some(arm_expr) => match(get_arm_args(arm_expr),
@@ -1398,7 +1398,7 @@ handle_match_data :: (fn(
               )
             );
             i = (i + usize(1));
-          };
+          });
 
           generate_match_data(
             scrut_c.as_str(),
@@ -1453,7 +1453,7 @@ step_to_c_expr :: (fn(
             result_s := String.new();
             (k : usize) = usize(0);
             (first : bool) = true;
-            while runtime((k < sn)), {
+            while(runtime((k < sn)), {
               match(sargs.get(k),
                 .None => (),
                 .Some(se) => {
@@ -1463,16 +1463,14 @@ step_to_c_expr :: (fn(
                     .FnCall(_, sef, seargs, _, _) => match(sef.*,
                       .FnCall(_, _, _, _, _) => false,
                       .Atom(_, setok) => (
-                        ((setok.value.as_str() == BK_TUPLE) || (setok.value.as_str() == BK_ANON_STRUCT))
-                        && (seargs.len() == usize(0))
-                      )
+                        ((setok.value.as_str() == BK_TUPLE) || (setok.value.as_str() == BK_ANON_STRUCT)) && (seargs.len() == usize(0)))
                     )
                   );
-                  if((!is_unit_sentinel), {
+                  if((!(is_unit_sentinel)), {
                     match(call_gen_expr(se, ctx, indent),
                       .None => (),
                       .Some(se_code) => {
-                        if((!first), { result_s.push_str(", "); });
+                        if((!(first)), { result_s.push_str(", "); });
                         result_s.push_string(se_code);
                         first = false;
                       }
@@ -1481,7 +1479,7 @@ step_to_c_expr :: (fn(
                 }
               );
               k = (k + usize(1));
-            };
+            });
             cond(
               (result_s.len() == usize(0)) => String.from("0"),
               true => result_s
@@ -2059,7 +2057,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                         sb := String.new();
                         n_fn := fn_args.len();
                         (pi : usize) = usize(0);
-                        while runtime((pi < n_fn)), {
+                        while(runtime((pi < n_fn)), {
                           match(fn_args.get(pi),
                             .None => (),
                             .Some(parg) => {
@@ -2088,7 +2086,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                             }
                           );
                           pi = (pi + usize(1));
-                        };
+                        });
                         sb
                       }
                     )
@@ -2251,7 +2249,7 @@ expr_all_ids_known :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
             )
           );
           cond(
-            (!method_safe) => false,
+            (!(method_safe)) => false,
             true => match(args2.get(usize(0)),
               .None => false,
               .Some(recv2) => recur(recv2, ctx)
@@ -2262,7 +2260,7 @@ expr_all_ids_known :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
           (ok2i : bool) = recur(fn2.*, ctx);
           n2 := args2.len();
           (i2 : usize) = usize(0);
-          while runtime(((i2 < n2) && ok2i)), {
+          while(runtime(((i2 < n2) && ok2i)), {
             match(args2.get(i2),
               .None => { ok2i = false; },
               .Some(ae2) => {
@@ -2270,7 +2268,7 @@ expr_all_ids_known :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
               }
             );
             i2 = (i2 + usize(1));
-          };
+          });
           ok2i
         }
       );
@@ -2575,7 +2573,7 @@ handle_define :: (fn(
                     n_rf := rf_args.len();
                     (rf_i : usize) = usize(0);
                     (all_ok : bool) = true;
-                    while runtime(((rf_i < n_rf) && all_ok)), {
+                    while(runtime(((rf_i < n_rf) && all_ok)), {
                       match(rf_args.get(rf_i),
                         .None => { all_ok = false; },
                         .Some(rf_arg) => match(rf_arg,
@@ -2589,7 +2587,7 @@ handle_define :: (fn(
                               .FnCall(_, _, _, _, _) => false
                             ));
                             cond(
-                              (!is_lbl) => { all_ok = false; },
+                              (!(is_lbl)) => { all_ok = false; },
                               true => match(rf_fa.get(usize(0)),
                                 .None => { all_ok = false; },
                                 .Some(rf_name_e) => match(rf_name_e,
@@ -2605,9 +2603,9 @@ handle_define :: (fn(
                         )
                       );
                       rf_i = (rf_i + usize(1));
-                    };
+                    });
                     cond(
-                      ((!all_ok) || (csv_buf.len() == usize(0))) => Option(String).None,
+                      ((!(all_ok)) || (csv_buf.len() == usize(0))) => Option(String).None,
                       true => Option(String).Some(csv_buf)
                     )
                   }
@@ -2719,7 +2717,7 @@ handle_define :: (fn(
                                     ib := String.from("{");
                                     (ib_i : usize) = usize(0);
                                     (ib_ok : bool) = true;
-                                    while runtime(((ib_i < ac_fn_args.len()) && ib_ok)), {
+                                    while(runtime(((ib_i < ac_fn_args.len()) && ib_ok)), {
                                       match(ac_fn_args.get(ib_i),
                                         .None => { ib_ok = false; },
                                         .Some(av) => match(call_gen_expr(av, ctx, indent),
@@ -2731,7 +2729,7 @@ handle_define :: (fn(
                                           }
                                         )
                                       );
-                                    };
+                                    });
                                     ib.push_str("}");
                                     ib
                                   }
@@ -2776,7 +2774,7 @@ handle_define :: (fn(
                     init_il := String.from("{");
                     (il_i : usize) = usize(0);
                     (il_ok : bool) = true;
-                    while runtime(((il_i < n_il) && il_ok)), {
+                    while(runtime(((il_i < n_il) && il_ok)), {
                       match(il_fn_args.get(il_i),
                         .None => { il_ok = false; },
                         .Some(il_e) => match(call_gen_expr(il_e, ctx, indent),
@@ -2788,9 +2786,9 @@ handle_define :: (fn(
                           }
                         )
                       );
-                    };
+                    });
                     cond(
-                      (!il_ok) => false,
+                      (!(il_ok)) => false,
                       true => {
                         init_il.push_str("}");
                         // Emit: `__typeof__(v0) name[N] = {v0, v1, ...};`
@@ -2847,7 +2845,7 @@ handle_define :: (fn(
                         n_av := arr_fn_args.len();
                         (av_i : usize) = usize(0);
                         (av_ok : bool) = true;
-                        while runtime(((av_i < n_av) && av_ok)), {
+                        while(runtime(((av_i < n_av) && av_ok)), {
                           match(arr_fn_args.get(av_i),
                             .None => { av_ok = false; },
                             .Some(av_e) => match(call_gen_expr(av_e, ctx, indent),
@@ -2859,9 +2857,9 @@ handle_define :: (fn(
                               }
                             )
                           );
-                        };
+                        });
                         cond(
-                          (!av_ok) => false,
+                          (!(av_ok)) => false,
                           true => {
                             init_buf.push_str("}");
                             // Emit: `elem_type name[N] = {v0, v1, ...};`
@@ -3018,7 +3016,7 @@ handle_define :: (fn(
                         true => match(dot_box.*,
                           .Atom(_, _) => Option(String).None,
                           .FnCall(_, dot_fn2, dot_args2, dot_infix2, _) => cond(
-                            (!dot_infix2) => Option(String).None,
+                            (!(dot_infix2)) => Option(String).None,
                             (dot_args2.len() != usize(2)) => Option(String).None,
                             true => match(dot_fn2.*,
                               .FnCall(_, _, _, _, _) => Option(String).None,
@@ -3137,7 +3135,7 @@ handle_define :: (fn(
                 all_labeled := {
                   (la : bool) = (destr_args.len() > usize(0));
                   (lai : usize) = usize(0);
-                  while runtime(((lai < destr_args.len()) && la)), {
+                  while(runtime(((lai < destr_args.len()) && la)), {
                     match(destr_args.get(lai),
                       .None => { la = false; },
                       .Some(da) => match(da,
@@ -3148,12 +3146,12 @@ handle_define :: (fn(
                             .Atom(_, dftok) => (dftok.value.as_str() == ":"),
                             .FnCall(_, _, _, _, _) => false
                           ));
-                          if((!is_colon_pair2), { la = false; });
+                          if((!(is_colon_pair2)), { la = false; });
                         }
                       )
                     );
                     lai = (lai + usize(1));
-                  };
+                  });
                   la
                 };
                 // Generate RHS expression first
@@ -3176,7 +3174,7 @@ handle_define :: (fn(
                     (ok_destr : bool) = true;
                     // Track bound field names for spread (`...`) support.
                     (bound_fields : ArrayList(String)) = ArrayList(String).new();
-                    while runtime(((di < nd) && ok_destr)), {
+                    while(runtime(((di < nd) && ok_destr)), {
                       match(destr_args.get(di),
                         .None => { ok_destr = false; },
                         .Some(da) => cond(
@@ -3199,14 +3197,14 @@ handle_define :: (fn(
                                           .Some(all_fields_csv) => {
                                             all_fields := _split_csv(all_fields_csv.as_str());
                                             (af_i : usize) = usize(0);
-                                            while runtime((af_i < all_fields.len())), {
+                                            while(runtime((af_i < all_fields.len())), {
                                               match(all_fields.get(af_i),
                                                 .None => (),
                                                 .Some(af_name) => {
                                                   // Skip if already bound.
                                                   (already_bound : bool) = false;
                                                   (bf_i : usize) = usize(0);
-                                                  while runtime(((bf_i < bound_fields.len()) && (!(already_bound)))), {
+                                                  while(runtime(((bf_i < bound_fields.len()) && (!(already_bound)))), {
                                                     match(bound_fields.get(bf_i),
                                                       .None => (),
                                                       .Some(bf) => {
@@ -3216,7 +3214,7 @@ handle_define :: (fn(
                                                       }
                                                     );
                                                     bf_i = (bf_i + usize(1));
-                                                  };
+                                                  });
                                                   if((!(already_bound)), {
                                                     spread_bind := String.from(indent.as_str());
                                                     spread_bind.push_str("__auto_type ");
@@ -3231,7 +3229,7 @@ handle_define :: (fn(
                                                 }
                                               );
                                               af_i = (af_i + usize(1));
-                                            };
+                                            });
                                           }
                                         );
                                       },
@@ -3281,7 +3279,7 @@ handle_define :: (fn(
                         )
                       );
                       di = (di + usize(1));
-                    };
+                    });
                     cond(
                       ok_destr => Option(String).Some(String.from("0")),
                       true => Option(String).None
@@ -3402,7 +3400,7 @@ is_lambda_expr :: (fn(expr : AstExpr) -> bool)(
   match(expr,
     .Atom(_, _) => false,
     .FnCall(_, lf, largs, lis_infix, _) => cond(
-      (!lis_infix)            => false,
+      (!(lis_infix))            => false,
       (largs.len() != usize(2)) => false,
       true => match(lf.*,
         .FnCall(_, _, _, _, _) => false,
@@ -3414,7 +3412,7 @@ is_lambda_expr :: (fn(expr : AstExpr) -> bool)(
               // Single param: `(u)` is parsed as bare Atom("u") after grouping.
               .Atom(_, lat) => (lat.kind == TokenKind.Identifier),
               // Multi-param tuple: `(u, v)` parsed as FnCall(Atom("tuple"), ...).
-              .FnCall(_, llf, _, llis, _) => ((!llis) && match(llf.*,
+              .FnCall(_, llf, _, llis, _) => ((!(llis)) && match(llf.*,
                 .FnCall(_, _, _, _, _) => false,
                 .Atom(_, llt) => (llt.value.as_str() == BK_TUPLE)
               ))
@@ -3442,7 +3440,7 @@ extract_lambda_param_names :: (fn(params_expr : AstExpr) -> ArrayList(String))(
       names := ArrayList(String).new();
       np := pargs.len();
       (pi : usize) = usize(0);
-      while runtime((pi < np)), {
+      while(runtime((pi < np)), {
         match(pargs.get(pi),
           .None => (),
           .Some(pe) => match(pe,
@@ -3455,7 +3453,7 @@ extract_lambda_param_names :: (fn(params_expr : AstExpr) -> ArrayList(String))(
           )
         );
         pi = (pi + usize(1));
-      };
+      });
       names
     }
   )
@@ -3471,7 +3469,7 @@ _split_c_params :: (fn(params_str : str) -> ArrayList(String))({
     true => {
       s := String.from(params_str);
       (start : usize) = usize(0);
-      while runtime((start <= total)), {
+      while(runtime((start <= total)), {
         sep_opt := s.index_of(String.from(","), start);
         sep := match(sep_opt, .Some(p) => p, .None => total);
         piece := s.substring(start, sep);
@@ -3479,19 +3477,19 @@ _split_c_params :: (fn(params_str : str) -> ArrayList(String))({
         trimmed := {
           (ts : usize) = usize(0);
           pl := piece.len();
-          while runtime((ts < pl)), {
+          while(runtime((ts < pl)), {
             match(piece.at(ts),
               .None => { break; },
               .Some(r) => {
                 if((r.char == u32(32)), { ts = (ts + usize(1)); }, { break; });
               }
             );
-          };
+          });
           piece.substring(ts, pl)
         };
         if((trimmed.len() > usize(0)), { result.push(trimmed); });
         start = (sep + usize(1));
-      };
+      });
     }
   );
   result
@@ -3555,25 +3553,25 @@ lift_non_capturing_lambda :: (fn(
                     true          => n_pn
                   );
                   (pi : usize) = usize(0);
-                  while runtime((pi < n_params)), {
+                  while(runtime((pi < n_params)), {
                     if((pi > usize(0)), { sb.push_str(", "); });
                     p_ty := match(param_types.get(pi), .Some(s) => s, .None => String.from("void*"));
                     p_nm := match(param_names.get(pi), .Some(s) => s, .None => String.from("_p"));
                     sb.push_string(build_typed_decl(p_ty.as_str(), p_nm.as_str()));
                     pi = (pi + usize(1));
-                  };
+                  });
                   // If no params, emit void
                   if(((n_params == usize(0)) && (n_pt == usize(0))), { sb.push_str("void"); });
-                  sb.push_str(") {\n  return ");
+                  sb.push_str(")({\n  return)");
                   // Register params temporarily so body can use them
                   {
                     (ri : usize) = usize(0);
-                    while runtime((ri < n_params)), {
+                    while(runtime((ri < n_params)), {
                       p_ty2 := match(param_types.get(ri), .Some(s) => s, .None => String.from("void*"));
                       p_nm2 := match(param_names.get(ri), .Some(s) => s, .None => String.from("_p"));
                       ctx.*.register_var_type(p_nm2.as_str(), p_ty2.as_str());
                       ri = (ri + usize(1));
-                    };
+                    });
                   };
                   body_code := match(call_gen_expr(body_expr, ctx, String.from("  ")),
                     .None    => String.from("0"),
@@ -3607,7 +3605,7 @@ gen_arg_list :: (fn(
   result := String.new();
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while runtime(((i < n) && ok)), {
+  while(runtime(((i < n) && ok)), {
     match(args.get(i),
       .None => { ok = false; },
       .Some(arg) => {
@@ -3616,7 +3614,7 @@ gen_arg_list :: (fn(
         // like a regular argument.
         actual_arg := match(arg,
           .FnCall(_, ua_fn, ua_args, ua_infix, _) => cond(
-            ((!ua_infix) && (ua_args.len() == usize(1))) =>
+            ((!(ua_infix)) && (ua_args.len() == usize(1))) =>
               match(ua_fn.*,
                 .Atom(_, ua_tok) => cond(
                   (ua_tok.value.as_str() == "using") =>
@@ -3642,7 +3640,7 @@ gen_arg_list :: (fn(
       }
     );
     i = (i + usize(1));
-  };
+  });
   cond(
     ok   => .Some(result),
     true => Option(String).None
@@ -3899,7 +3897,7 @@ handle_regular_call :: (fn(
       result_args := String.new();
       (i_rc : usize) = usize(0);
       (ok_rc : bool) = true;
-      while runtime(((i_rc < n_rc) && ok_rc)), {
+      while(runtime(((i_rc < n_rc) && ok_rc)), {
         match(args.get(i_rc),
           .None => { ok_rc = false; },
           .Some(arg_rc) => {
@@ -3928,9 +3926,9 @@ handle_regular_call :: (fn(
           }
         );
         i_rc = (i_rc + usize(1));
-      };
+      });
       cond(
-        (!ok_rc) => Option(String).None,
+        (!(ok_rc)) => Option(String).None,
         // If the callee is a comptime-only function, emit `0` (a no-op placeholder).
         ctx.*.is_skipped_fn(id.as_str()) => Option(String).Some(String.from("0")),
         true => {
@@ -4115,7 +4113,7 @@ handle_method_call :: (fn(
               .Atom(_, vatok_ts) => match(ctx.*.get_var_type(vatok_ts.value.as_str()),
                 .None => Option(String).None,
                 .Some(ty_name_a) => cond(
-                  (!ctx.*.has_derive_tostring(ty_name_a.as_str())) => Option(String).None,
+                  (!(ctx.*.has_derive_tostring(ty_name_a.as_str()))) => Option(String).None,
                   true => {
                     call_expr_a := String.from("fn_");
                     call_expr_a.push_string(ty_name_a);
@@ -4140,7 +4138,7 @@ handle_method_call :: (fn(
                         .Atom(_, vtok) => match(ctx.*.get_var_type(vtok.value.as_str()),
                           .None => Option(String).None,
                           .Some(ty_name) => cond(
-                            (!ctx.*.has_derive_tostring(ty_name.as_str())) => Option(String).None,
+                            (!(ctx.*.has_derive_tostring(ty_name.as_str()))) => Option(String).None,
                             true => {
                               call_expr := String.from("fn_");
                               call_expr.push_string(ty_name);
@@ -4170,7 +4168,7 @@ handle_method_call :: (fn(
               .Atom(_, vatok2) => match(ctx.*.get_var_type(vatok2.value.as_str()),
                 .None => Option(String).None,
                 .Some(ty_name_a) => cond(
-                  (!ctx.*.has_derive_clone(ty_name_a.as_str())) => Option(String).None,
+                  (!(ctx.*.has_derive_clone(ty_name_a.as_str()))) => Option(String).None,
                   true => {
                     clone_expr_a := String.from("fn_");
                     clone_expr_a.push_string(ty_name_a);
@@ -4195,7 +4193,7 @@ handle_method_call :: (fn(
                         .Atom(_, vtok2) => match(ctx.*.get_var_type(vtok2.value.as_str()),
                           .None => Option(String).None,
                           .Some(ty_name2) => cond(
-                            (!ctx.*.has_derive_clone(ty_name2.as_str())) => Option(String).None,
+                            (!(ctx.*.has_derive_clone(ty_name2.as_str()))) => Option(String).None,
                             true => {
                               clone_expr := String.from("fn_");
                               clone_expr.push_string(ty_name2);
@@ -4230,7 +4228,7 @@ handle_method_call :: (fn(
               .Atom(_, vatok_h) => match(ctx.*.get_var_type(vatok_h.value.as_str()),
                 .None => Option(String).None,
                 .Some(ty_name_ha) => cond(
-                  (!ctx.*.has_derive_hash(ty_name_ha.as_str())) => Option(String).None,
+                  (!(ctx.*.has_derive_hash(ty_name_ha.as_str()))) => Option(String).None,
                   true => {
                     hash_expr_a := String.from("fn_");
                     hash_expr_a.push_string(ty_name_ha);
@@ -4255,7 +4253,7 @@ handle_method_call :: (fn(
                         .Atom(_, vtok_h) => match(ctx.*.get_var_type(vtok_h.value.as_str()),
                           .None => Option(String).None,
                           .Some(ty_name_h) => cond(
-                            (!ctx.*.has_derive_hash(ty_name_h.as_str())) => Option(String).None,
+                            (!(ctx.*.has_derive_hash(ty_name_h.as_str()))) => Option(String).None,
                             true => {
                               hash_expr := String.from("fn_");
                               hash_expr.push_string(ty_name_h);
@@ -4334,7 +4332,7 @@ handle_method_call :: (fn(
                 result.push_str(" = {");
                 (ai : usize) = usize(0);
                 (ok2 : bool) = true;
-                while runtime(((ai < na) && ok2)), {
+                while(runtime(((ai < na) && ok2)), {
                   match(args.get(ai),
                     .None => { ok2 = false; },
                     .Some(arg_e) => {
@@ -4374,7 +4372,7 @@ handle_method_call :: (fn(
                       )
                     }
                   );
-                };
+                });
                 cond(
                   (!(ok2)) => Option(String).None,
                   true => {
@@ -4492,7 +4490,7 @@ gen_anon_struct_compound :: (fn(
   all_labeled_f := {
     (al : bool) = (n > usize(0));
     (ali : usize) = usize(0);
-    while runtime(((ali < n) && al)), {
+    while(runtime(((ali < n) && al)), {
       match(struct_args.get(ali),
         .None    => { al = false; },
         .Some(ae_l) => match(ae_l,
@@ -4502,19 +4500,19 @@ gen_anon_struct_compound :: (fn(
               .Atom(_, ftok_l) => (ftok_l.value.as_str() == ":"),
               .FnCall(_, _, _, _, _) => false
             ) && (fa_l.len() == usize(2))));
-            if((!is_colon_pair), { al = false; });
+            if((!(is_colon_pair)), { al = false; });
           }
         )
       );
       ali = (ali + usize(1));
-    };
+    });
     al
   };
   // Check if ALL args are bare identifier atoms (shorthand form)
   all_bare_idents := {
     (ok_f : bool) = true;
     (ii : usize) = usize(0);
-    while runtime(((ii < n) && ok_f)), {
+    while(runtime(((ii < n) && ok_f)), {
       match(struct_args.get(ii),
         .None    => { ok_f = false; },
         .Some(ae) => match(ae,
@@ -4525,7 +4523,7 @@ gen_anon_struct_compound :: (fn(
         )
       );
       ii = (ii + usize(1));
-    };
+    });
     ok_f
   };
   result := String.from("(");
@@ -4533,7 +4531,7 @@ gen_anon_struct_compound :: (fn(
   result.push_str("){");
   (i2 : usize) = usize(0);
   (ok2 : bool) = true;
-  while runtime(((i2 < n) && ok2)), {
+  while(runtime(((i2 < n) && ok2)), {
     match(struct_args.get(i2),
       .None    => { ok2 = false; },
       .Some(arg_expr) => cond(
@@ -4541,7 +4539,7 @@ gen_anon_struct_compound :: (fn(
         all_labeled_f => match(arg_expr,
           .Atom(_, _) => { ok2 = false; },
           .FnCall(_, ff2, fa2, finfix2, _) => cond(
-            (!finfix2) => { ok2 = false; },
+            (!(finfix2)) => { ok2 = false; },
             true => {
               fname_opt2 := match(fa2.get(usize(0)),
                 .None => Option(String).None,
@@ -4592,9 +4590,9 @@ gen_anon_struct_compound :: (fn(
       )
     );
     i2 = (i2 + usize(1));
-  };
+  });
   cond(
-    (!ok2) => Option(String).None,
+    (!(ok2)) => Option(String).None,
     true   => {
       result.push_str("}");
       Option(String).Some(result)
@@ -4685,7 +4683,7 @@ handle_assignment :: (fn(
                                               init_rv := String.from("{");
                                               (rvi : usize) = usize(0);
                                               (rv_ok : bool) = true;
-                                              while runtime(((rvi < n_rv) && rv_ok)), {
+                                              while(runtime(((rvi < n_rv) && rv_ok)), {
                                                 match(rhs_arr_args.get(rvi),
                                                   .None => { rv_ok = false; },
                                                   .Some(rv_e) => match(call_gen_expr(rv_e, ctx, indent),
@@ -4697,9 +4695,9 @@ handle_assignment :: (fn(
                                                     }
                                                   )
                                                 );
-                                              };
+                                              });
                                               cond(
-                                                (!rv_ok) => Option(String).None,
+                                                (!(rv_ok)) => Option(String).None,
                                                 true => {
                                                   init_rv.push_str("}");
                                                   Option(String).Some(init_rv)
@@ -4747,7 +4745,7 @@ handle_assignment :: (fn(
         rhs_is_anon_struct := match(rhs_expr,
           .Atom(_, _) => false,
           .FnCall(_, rhs_fn_box, rhs_fn_args, rhs_fn_infix, _) => (
-            (!rhs_fn_infix) &&
+            (!(rhs_fn_infix)) &&
             (rhs_fn_args.len() > usize(0)) &&
             match(rhs_fn_box.*,
               .FnCall(_, _, _, _, _) => false,
@@ -4778,7 +4776,7 @@ handle_assignment :: (fn(
                         n_ala := ala_args.len();
                         (ala_i : usize) = usize(0);
                         (ala_ok : bool) = true;
-                        while runtime(((ala_i < n_ala) && ala_ok)), {
+                        while(runtime(((ala_i < n_ala) && ala_ok)), {
                           match(ala_args.get(ala_i),
                             .None => { ala_ok = false; },
                             .Some(ala_e) => match(call_gen_expr(ala_e, ctx, indent),
@@ -4795,9 +4793,9 @@ handle_assignment :: (fn(
                               }
                             )
                           );
-                        };
+                        });
                         cond(
-                          (!ala_ok) => Option(String).None,
+                          (!(ala_ok)) => Option(String).None,
                           true => Option(String).Some(String.from("0"))
                         )
                       }
@@ -4979,7 +4977,7 @@ handle_assignment :: (fn(
                                       (nt_fnames : ArrayList(String)) = ArrayList(String).new();
                                       (nt_fctypes : ArrayList(String)) = ArrayList(String).new();
                                       (nti : usize) = usize(0);
-                                      while runtime(((nti < n_nt) && nt_ok)), {
+                                      while(runtime(((nti < n_nt) && nt_ok)), {
                                         match(nt_fa.get(nti),
                                           .None => { nt_ok = false; },
                                           .Some(nt_arg) => match(nt_arg,
@@ -5013,7 +5011,7 @@ handle_assignment :: (fn(
                                           )
                                         );
                                         nti = (nti + usize(1));
-                                      };
+                                      });
                                       cond(
                                         (!(nt_ok)) => Option(String).None,
                                         true => {
@@ -5029,7 +5027,7 @@ handle_assignment :: (fn(
                                           ctx.*.emitter.emit_string(indent);
                                           ctx.*.emitter.emit("struct { ");
                                           (pi : usize) = usize(0);
-                                          while runtime((pi < n_nt)), {
+                                          while(runtime((pi < n_nt)), {
                                             match(nt_fctypes.get(pi),
                                               .None => (),
                                               .Some(pct) => {
@@ -5040,9 +5038,9 @@ handle_assignment :: (fn(
                                               }
                                             );
                                             pi = (pi + usize(1));
-                                          };
+                                          });
                                           (ni2 : usize) = usize(0);
-                                          while runtime((ni2 < n_nt)), {
+                                          while(runtime((ni2 < n_nt)), {
                                             match(nt_fctypes.get(ni2),
                                               .None => (),
                                               .Some(nct) => match(nt_fnames.get(ni2),
@@ -5056,13 +5054,13 @@ handle_assignment :: (fn(
                                               )
                                             );
                                             ni2 = (ni2 + usize(1));
-                                          };
+                                          });
                                           ctx.*.emitter.emit("} ");
                                           ctx.*.emitter.emit_string(var_name);
                                           ctx.*.emitter.emit(" = {");
                                           // ._0 = tmp._0, ._1 = tmp._1, ...
                                           (ii : usize) = usize(0);
-                                          while runtime((ii < n_nt)), {
+                                          while(runtime((ii < n_nt)), {
                                             if((ii > usize(0)), { ctx.*.emitter.emit(", "); });
                                             ctx.*.emitter.emit("._");
                                             ctx.*.emitter.emit_string(ii.to_string());
@@ -5071,10 +5069,10 @@ handle_assignment :: (fn(
                                             ctx.*.emitter.emit("._");
                                             ctx.*.emitter.emit_string(ii.to_string());
                                             ii = (ii + usize(1));
-                                          };
+                                          });
                                           // .a = tmp._0, .b = tmp._1, ...
                                           (ii2 : usize) = usize(0);
-                                          while runtime((ii2 < n_nt)), {
+                                          while(runtime((ii2 < n_nt)), {
                                             ctx.*.emitter.emit(", .");
                                             match(nt_fnames.get(ii2),
                                               .None => (),
@@ -5085,7 +5083,7 @@ handle_assignment :: (fn(
                                             ctx.*.emitter.emit("._");
                                             ctx.*.emitter.emit_string(ii2.to_string());
                                             ii2 = (ii2 + usize(1));
-                                          };
+                                          });
                                           ctx.*.emitter.emit_line("};");
                                           Option(String).Some(String.from("0"))
                                         }
@@ -5133,7 +5131,7 @@ handle_assignment :: (fn(
                 // where `const_var` was declared with `::`.
                 // Skip (no-op): `::` bindings are comptime constants; any mutations to their
                 // fields are comptime-only and all dependent asserts are `comptime_assert` (no-ops).
-                (match(lhs_expr,
+                match(lhs_expr,
                   .Atom(_, _) => false,
                   .FnCall(_, cm_fn, cm_args, cm_infix, _) => (
                     cm_infix &&
@@ -5152,28 +5150,29 @@ handle_assignment :: (fn(
                       )
                     )
                   )
-                )) => Option(String).Some(String.from("0")),
+                ) => Option(String).Some(String.from("0")),
                 // Compound LHS: e.g. c.*.field = val, arr.data = val
                 // Guard: if LHS is a non-infix FnCall where the callee is neither a
                 // registered array var nor a registered function (i.e., it's a struct
                 // variable being indexed via the Index trait), emit a no-op.
                 // This handles comptime-only mutations like `p(0) = val` where `p` is a
                 // struct with a ComptimeIndex impl — all asserts around it are comptime.
-                (match(lhs_expr,
+                match(lhs_expr,
                   .Atom(_, _) => false,
                   .FnCall(_, nai_fn, nai_args, nai_infix, _) => (
-                    ((!nai_infix) && (nai_args.len() == usize(1))) &&
+                    ((!(nai_infix)) && (nai_args.len() == usize(1))) &&
                     match(nai_fn.*,
                       .FnCall(_, _, _, _, _) => false,
-                      .Atom(_, nai_tok) => (
-                        (nai_tok.kind == TokenKind.Identifier) &&
-                        ((!ctx.*.is_array_var(nai_tok.value.as_str())) &&
-                        ((!ctx.*.is_slice_var(nai_tok.value.as_str())) &&
-                        (!ctx.*.is_defined_fn(nai_tok.value.as_str()))))
-                      )
+                      .Atom(_, nai_tok) => {
+                        is_non_array_index := ((nai_tok.kind == TokenKind.Identifier) &&
+                          (!(ctx.*.is_array_var(nai_tok.value.as_str()))) &&
+                          (!(ctx.*.is_slice_var(nai_tok.value.as_str()))) &&
+                          (!(ctx.*.is_defined_fn(nai_tok.value.as_str()))));
+                        is_non_array_index
+                      }
                     )
                   )
-                )) => Option(String).Some(String.from("0")),
+                ) => Option(String).Some(String.from("0")),
                 // Compound LHS: e.g. c.*.field = val, arr.data = val
                 // Generate the LHS as an expression and return "lhs = rhs"
                 true => match(call_gen_expr(lhs_expr, ctx, indent),
@@ -5243,15 +5242,15 @@ all_labeled_args :: (fn(args : ArrayList(AstExpr)) -> bool)({
     true => {
       (all : bool) = true;
       (i : usize) = usize(0);
-      while runtime(((i < n) && all)), {
+      while(runtime(((i < n) && all)), {
         match(args.get(i),
           .None => { all = false; },
           .Some(e) => {
-            if((!is_labeled_arg(e)), { all = false; });
+            if((!(is_labeled_arg(e))), { all = false; });
           }
         );
         i = (i + usize(1));
-      };
+      });
       all
     }
   )
@@ -5285,7 +5284,7 @@ handle_tuple_literal :: (fn(
   arg_codes := ArrayList(String).new();
   (i : usize) = usize(0);
   (ok : bool) = true;
-  while runtime(((i < n) && ok)), {
+  while(runtime(((i < n) && ok)), {
     match(args.get(i),
       .None    => { ok = false; },
       .Some(ae) => match(call_gen_expr(ae, ctx, indent),
@@ -5294,14 +5293,14 @@ handle_tuple_literal :: (fn(
       )
     );
     i = (i + usize(1));
-  };
+  });
   cond(
-    (!ok) => Option(String).None,
+    (!(ok)) => Option(String).None,
     true  => {
       result := String.from("(struct { ");
       // struct fields: __typeof__(val) _0; __typeof__(val) _1; …
       (j : usize) = usize(0);
-      while runtime((j < n)), {
+      while(runtime((j < n)), {
         match(arg_codes.get(j),
           .None    => (),
           .Some(ac) => {
@@ -5313,11 +5312,11 @@ handle_tuple_literal :: (fn(
           }
         );
         j = (j + usize(1));
-      };
+      });
       result.push_str("}){");
       // initialiser: ._0 = a, ._1 = b, …
       (k : usize) = usize(0);
-      while runtime((k < n)), {
+      while(runtime((k < n)), {
         match(arg_codes.get(k),
           .None    => (),
           .Some(ac) => {
@@ -5329,7 +5328,7 @@ handle_tuple_literal :: (fn(
           }
         );
         k = (k + usize(1));
-      };
+      });
       result.push_str("}");
       Option(String).Some(result)
     }
@@ -5353,7 +5352,7 @@ handle_struct_constructor :: (fn(
   (i : usize) = usize(0);
   (all_ok : bool) = true;
   (first : bool) = true;
-  while runtime(((i < n) && all_ok)), {
+  while(runtime(((i < n) && all_ok)), {
     match(args.get(i),
       .None => { all_ok = false; },
       .Some(field_expr) => match(field_expr,
@@ -5375,7 +5374,7 @@ handle_struct_constructor :: (fn(
             .Some(fname) => match(field_val_opt,
               .None => { all_ok = false; },
               .Some(fval) => {
-                if((!first), { result.push_str(", "); });
+                if((!(first)), { result.push_str(", "); });
                 result.push_str(".");
                 result.push_string(fname);
                 result.push_str(" = ");
@@ -5388,7 +5387,7 @@ handle_struct_constructor :: (fn(
       )
     );
     i = (i + usize(1));
-  };
+  });
   cond(
     (!(all_ok)) => Option(String).None,
     true => {
@@ -5429,7 +5428,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .Some(op) => handle_infix_op(op, args, ctx, indent)
         ),
         // Unary prefix: (OP a)
-        ((!is_infix) && match(op_opt,
+        ((!(is_infix)) && match(op_opt,
           .None   => false,
           .Some(op) => ((args.len() == usize(1)) && is_unary_prefix_op(op.as_str()))
         )) => match(op_opt,
@@ -5438,7 +5437,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ),
         // Non-empty tuple literal: (a, b, …) → C anonymous-struct compound literal.
         // Uses __typeof__ to avoid needing explicit type info.
-        ((!is_infix) &&
+        ((!(is_infix)) &&
           (args.len() > usize(0)) &&
           match(ident_opt,
             .None    => false,
@@ -5447,7 +5446,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         // Labeled anonymous struct: { field1: val1, field2: val2 }
         // Generates a C compound literal with __typeof__ for type inference.
         // This is the expression form; `x := { ... }` is handled in handle_define.
-        ((!is_infix) &&
+        ((!(is_infix)) &&
           (args.len() > usize(0)) &&
           match(ident_opt,
             .None    => false,
@@ -5473,7 +5472,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           // First pass: collect field names and val codes
           field_names_anon := ArrayList(String).new();
           field_vals_anon := ArrayList(String).new();
-          while runtime(((ai_anon < n_anon) && ok_anon)), {
+          while(runtime(((ai_anon < n_anon) && ok_anon)), {
             match(args.get(ai_anon),
               .None => { ok_anon = false; },
               .Some(ae_a) => match(ae_a,
@@ -5497,14 +5496,14 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
               )
             );
             ai_anon = (ai_anon + usize(1));
-          };
+          });
           cond(
             (!(ok_anon)) => Option(String).None,
             true => {
               // Build struct type + initializer (or just initializer for named type)
-              if((!use_named_ty_anon), {
+              if((!(use_named_ty_anon)), {
                 (bi : usize) = usize(0);
-                while runtime((bi < n_anon)), {
+                while(runtime((bi < n_anon)), {
                   bi = (bi + usize(1));
                   match(field_vals_anon.get(bi - usize(1)),
                     .None => (),
@@ -5519,11 +5518,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                       }
                     )
                   );
-                };
+                });
                 result_anon.push_str("}){ ");
               });
               (ci : usize) = usize(0);
-              while runtime((ci < n_anon)), {
+              while(runtime((ci < n_anon)), {
                 ci = (ci + usize(1));
                 if((ci > usize(1)), { result_anon.push_str(", "); });
                 match(field_names_anon.get(ci - usize(1)),
@@ -5538,7 +5537,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   .None => (),
                   .Some(fval_s) => { result_anon.push_string(fval_s); }
                 );
-              };
+              });
               result_anon.push_str(" }");
               Option(String).Some(result_anon)
             }
@@ -5546,7 +5545,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         },
         // Shorthand anonymous struct (all bare identifiers): { x, y }
         // Each field = its own identifier value.
-        ((!is_infix) &&
+        ((!(is_infix)) &&
           (args.len() > usize(0)) &&
           match(ident_opt,
             .None    => false,
@@ -5556,7 +5555,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             n_sh := args.len();
             (ok_sh : bool) = true;
             (shi : usize) = usize(0);
-            while runtime(((shi < n_sh) && ok_sh)), {
+            while(runtime(((shi < n_sh) && ok_sh)), {
               match(args.get(shi),
                 .None => { ok_sh = false; },
                 .Some(ae_sh) => match(ae_sh,
@@ -5567,7 +5566,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 )
               );
               shi = (shi + usize(1));
-            };
+            });
             ok_sh
           })) => {
           // Use current function return type if it's a known named struct.
@@ -5586,7 +5585,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           (fi_sh : usize) = usize(0);
           // Collect field names (all identifiers)
           field_names_sh := ArrayList(String).new();
-          while runtime((fi_sh < n_sh2)), {
+          while(runtime((fi_sh < n_sh2)), {
             fi_sh = (fi_sh + usize(1));
             match(args.get(fi_sh - usize(1)),
               .None => (),
@@ -5595,10 +5594,10 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 .Atom(_, atsh2) => { field_names_sh.push(atsh2.value); }
               )
             );
-          };
-          if((!use_named_ty_sh), {
+          });
+          if((!(use_named_ty_sh)), {
             (gi_sh : usize) = usize(0);
-            while runtime((gi_sh < n_sh2)), {
+            while(runtime((gi_sh < n_sh2)), {
               gi_sh = (gi_sh + usize(1));
               match(field_names_sh.get(gi_sh - usize(1)),
                 .None => (),
@@ -5610,11 +5609,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   result_sh.push_str("; ");
                 }
               );
-            };
+            });
             result_sh.push_str("}){ ");
           });
           (hi_sh : usize) = usize(0);
-          while runtime((hi_sh < n_sh2)), {
+          while(runtime((hi_sh < n_sh2)), {
             hi_sh = (hi_sh + usize(1));
             if((hi_sh > usize(1)), { result_sh.push_str(", "); });
             match(field_names_sh.get(hi_sh - usize(1)),
@@ -5626,14 +5625,14 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 result_sh.push_string(fn_sh);
               }
             );
-          };
+          });
           result_sh.push_str(" }");
           Option(String).Some(result_sh)
         },
         // Unit value: FnCall(Atom("tuple"), [], …)  ← parser synthesizes this at end of begin
         // Empty anon struct: FnCall(Atom("_"), [], …) ← parser produces for `{ }` with no args
         // Both represent Yo unit () — emit the sentinel "0" (void functions skip it).
-        ((!is_infix) &&
+        ((!(is_infix)) &&
           (args.len() == usize(0)) &&
           match(ident_opt,
             .None    => false,
@@ -5641,7 +5640,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           )) => .Some(String.from("0")),
         // open NAME — emit `__auto_type field = name.field;` for each known field.
         // Looks up the variable's field CSV in the context, then emits bindings.
-        ((!is_infix) &&
+        ((!(is_infix)) &&
           (args.len() == usize(1)) &&
           match(ident_opt,
             .None    => false,
@@ -5663,7 +5662,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   field_list := _split_csv(fcsv.as_str());
                   nflds := field_list.len();
                   (fi_open : usize) = usize(0);
-                  while runtime((fi_open < nflds)), {
+                  while(runtime((fi_open < nflds)), {
                     fi_open = (fi_open + usize(1));
                     match(field_list.get(fi_open - usize(1)),
                       .None => (),
@@ -5678,7 +5677,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                         ctx.*.emitter.emit_line(";");
                       }
                     );
-                  };
+                  });
                   Option(String).Some(String.from("0"))
                 }
               )
@@ -5687,12 +5686,12 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ),
         // Pointer type cast: *(T)(expr) — generated as (T*)(expr) in C.
         // AST: FnCall(FnCall(Atom("*"), [TypeExpr], false), [arg], false)
-        ((!is_infix) &&
+        ((!(is_infix)) &&
           (args.len() == usize(1)) &&
           match(func_box.*,
             .Atom(_, _) => false,
             .FnCall(_, inner_func_box, inner_args, inner_infix, _) => (
-              (!inner_infix) &&
+              (!(inner_infix)) &&
               (inner_args.len() == usize(1)) &&
               match(inner_func_box.*,
                 .FnCall(_, _, _, _, _) => false,
@@ -5727,8 +5726,8 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .None    => false,
           .Some(id) => (id.as_str() == BK_BEGIN)
         ) => handle_begin(args, ctx, indent),
-        // return(expr) — emit `return expr;\n` and return "0" sentinel
-        ((!is_infix) && match(ident_opt,
+        // return(expr) — emit `return(expr);\n` and return "0" sentinel
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "return")
         )) => match(args.get(usize(0)),
@@ -5751,9 +5750,9 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         // escape(expr) — in the prototype codegen, treated identically to `return`.
         // In the full codegen, `escape` discards the continuation and exits the
         // enclosing handler-installed function.  For prototype purposes, emitting
-        // `return expr;` is correct for all non-async, non-effect code paths.
+        // `return(expr);` is correct for all non-async, non-effect code paths.
         // If the argument is unit (empty tuple, generates None) we emit a bare `return;`.
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "escape")
         )) => match(args.get(usize(0)),
@@ -5779,7 +5778,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           )
         ),
         // break — emit C `break;`
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "break")
         )) => {
@@ -5788,7 +5787,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .Some(String.from("0"))
         },
         // continue — emit C `continue;`
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "continue")
         )) => {
@@ -5828,22 +5827,22 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         (is_infix && func_box_is_dot(func_box)) => handle_dot_access(args, ctx, indent),
         // Bare enum variant pattern: .Variant — non-infix, Dot func, exactly 1 arg.
         // Used in match arm patterns; resolves to `EnumName_Variant` via variant registry.
-        ((!is_infix) && (func_box_is_dot(func_box) && (args.len() == usize(1)))) => handle_bare_dot_variant(args, ctx),
+        ((!(is_infix)) && (func_box_is_dot(func_box) && (args.len() == usize(1)))) => handle_bare_dot_variant(args, ctx),
         // Method call: a.method(args) — func_box is itself a dot-dispatch FnCall
         func_box_is_dot_dispatch(func_box) => handle_method_call(func_box, args, ctx, indent),
         // assert(cond, msg) — runtime test assertion: emits if(!(cond)){exit(1);}
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "assert")
         )) => handle_assert(args, ctx, indent),
         // comptime_assert(cond) / comptime_expect_error(expr) — compile-time only, no-op in prototype.
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => ((id.as_str() == "comptime_assert") || (id.as_str() == "comptime_expect_error"))
         )) => .Some(String.from("0")),
         // using(name) — strip the wrapper, emit the inner argument directly.
         // At expression level this appears as passing an evidence parameter.
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "using")
         )) => match(args.get(usize(0)),
@@ -5851,13 +5850,13 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .Some(inner) => call_gen_expr(inner, ctx, indent)
         ),
         // given(name) — compile-time binding, no runtime effect. Emit "0".
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "given")
         )) => .Some(String.from("0")),
         // Struct constructor: TypeName(field1: val1, field2: val2)
         // Detected by: non-infix, uppercase-start name, all args labeled.
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => (is_uppercase_start(id) && all_labeled_args(args))
         )) => match(ident_opt,
@@ -5879,7 +5878,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         // Positional struct constructor: TypeName(arg1, arg2, ...)
         // Detected by: non-infix, uppercase-start name, registered struct, all args unlabeled.
         // Emits C compound literal: (TypeName){arg1, arg2, ...}
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => {
             effective_id := cond(
@@ -5913,7 +5912,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             n_args2 := args.len();
             (ai : usize) = usize(0);
             (args_ok : bool) = true;
-            while runtime(((ai < n_args2) && args_ok)), {
+            while(runtime(((ai < n_args2) && args_ok)), {
               match(args.get(ai),
                 .None => { args_ok = false; },
                 .Some(aexpr) => match(call_gen_expr(aexpr, ctx, indent),
@@ -5925,7 +5924,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 )
               );
               ai = (ai + usize(1));
-            };
+            });
             if(args_ok, { result2.push_str("}"); });
             cond(
               args_ok => Option(String).Some(result2),
@@ -5934,7 +5933,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           }
         ),
         // sizeof(type_name) — translate Yo type name to C type
-        ((!is_infix) && ((args.len() == usize(1)) && match(ident_opt,
+        ((!(is_infix)) && ((args.len() == usize(1)) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "sizeof")
         ))) => match(args.get(usize(0)),
@@ -5960,7 +5959,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ),
         // Regular function call: f(args) — identifier func, not a builtin keyword
         // recur(args) — self-recursive call to the current function
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "recur")
         )) => match(gen_arg_list(args, ctx, indent),
@@ -5975,7 +5974,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           }
         ),
         // box(arg) — heap-allocate a value and return a typed pointer to it
-        (((!is_infix) && (args.len() == usize(1))) && match(ident_opt,
+        (((!(is_infix)) && (args.len() == usize(1))) && match(ident_opt,
           .None    => false,
           .Some(id) => (id.as_str() == "box")
         )) => match(args.get(usize(0)),
@@ -5991,7 +5990,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           )
         ),
         // Special case: primitive type cast — i32(x) → (int32_t)(x)
-        ((!is_infix) &&
+        ((!(is_infix)) &&
           ((args.len() == usize(1)) &&
           match(ident_opt,
             .None    => false,
@@ -6000,9 +5999,9 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .None    => Option(String).None,
           .Some(id) => handle_type_cast(id, args, ctx, indent)
         ),
-        ((!is_infix) && match(ident_opt,
+        ((!(is_infix)) && match(ident_opt,
           .None    => false,
-          .Some(id) => (!is_builtin_keyword(id.as_str()))
+          .Some(id) => (!(is_builtin_keyword(id.as_str())))
         )) => handle_regular_call(ident_opt, args, ctx, indent),
         // Assignment: x = val  OR  typed declaration: (x : T) = val
         (is_infix && match(op_opt,
@@ -6096,7 +6095,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                               true => {
                                 (has_sl : bool) = false;
                                 (sli : usize) = usize(0);
-                                while runtime(((sli < chk_args.len()) && (!has_sl))), {
+                                while(runtime(((sli < chk_args.len()) && (!(has_sl)))), {
                                   match(chk_args.get(sli),
                                     .None => (),
                                     .Some(sa) => match(sa,
@@ -6109,7 +6108,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                                     )
                                   );
                                   sli = (sli + usize(1));
-                                };
+                                });
                                 has_sl
                               }
                             )
@@ -6122,7 +6121,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   // Check both args to ensure all identifiers are available
                   all_ok := match(args.get(usize(1)),
                     .None => false,
-                    .Some(rhs_check) => ((!is_str_add) && expr_all_ids_known(rhs_check, ctx))
+                    .Some(rhs_check) => ((!(is_str_add)) && expr_all_ids_known(rhs_check, ctx))
                   );
                   all_ok
                 },
@@ -6213,10 +6212,10 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
               .Some(rhs_e2) => cond(
                 // Inline array literal: `arr :: [v0, v1, ...]`
                 // Emit C array declaration and register as array var, same as `:=`.
-                ((!rhs_is_eligible) && match(rhs_e2,
+                ((!(rhs_is_eligible)) && match(rhs_e2,
                   .Atom(_, _) => false,
                   .FnCall(_, il_fn_b, il_fn_a, il_fi, _) => (
-                    ((!il_fi) && (il_fn_a.len() > usize(0))) &&
+                    ((!(il_fi)) && (il_fn_a.len() > usize(0))) &&
                     match(il_fn_b.*,
                       .FnCall(_, _, _, _, _) => false,
                       .Atom(_, il_tok) => (il_tok.value.as_str() == "array")
@@ -6229,7 +6228,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                     init_il2 := String.from("{");
                     (il2_i : usize) = usize(0);
                     (il2_ok : bool) = true;
-                    while runtime(((il2_i < n_il2) && il2_ok)), {
+                    while(runtime(((il2_i < n_il2) && il2_ok)), {
                       match(il_args2.get(il2_i),
                         .None => { il2_ok = false; },
                         .Some(il_e2) => match(call_gen_expr(il_e2, ctx, indent),
@@ -6241,9 +6240,9 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                           }
                         )
                       );
-                    };
+                    });
                     cond(
-                      (!il2_ok) => .Some(String.from("0")),
+                      (!(il2_ok)) => .Some(String.from("0")),
                       true => {
                         init_il2.push_str("}");
                         first_opt2 := match(il_args2.get(usize(0)),
@@ -6273,7 +6272,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                   }
                 ),
                 // Skip if RHS is a function definition (pre-hoisted) or not eligible
-                (!rhs_is_eligible) => .Some(String.from("0")),
+                (!(rhs_is_eligible)) => .Some(String.from("0")),
                 true => match(call_gen_expr(rhs_e2, ctx, indent),
                   .None => .Some(String.from("0")),
                   .Some(rhs_code) => {
@@ -6311,15 +6310,15 @@ _gen_expr_fn_init := (fn() -> bool)({
   true
 })();
 
-export generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op;
-export gen_integer_lit, gen_float_lit, gen_bool_lit, gen_string_lit;
-export gen_binary_op, gen_unary_op;
-export type_name_to_c, type_expr_to_c, is_c_type_name, is_builtin_keyword, is_primitive_type_cast, build_typed_decl;
-export gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment;
-export handle_define, handle_bare_colon_decl, handle_type_cast, handle_assert;
-export is_labeled_arg, all_labeled_args, is_uppercase_start, handle_struct_constructor;
-export gen_match_arm, handle_match_value, handle_match_data, handle_bare_dot_variant;
-export func_box_is_dot, func_box_is_dot_dispatch;
-export is_begin_block;
-export gen_anon_struct_compound, handle_tuple_literal;
-export is_lambda_expr, extract_lambda_param_names, lift_non_capturing_lambda;
+export(generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op);
+export(gen_integer_lit, gen_float_lit, gen_bool_lit, gen_string_lit);
+export(gen_binary_op, gen_unary_op);
+export(type_name_to_c, type_expr_to_c, is_c_type_name, is_builtin_keyword, is_primitive_type_cast, build_typed_decl);
+export(gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment);
+export(handle_define, handle_bare_colon_decl, handle_type_cast, handle_assert);
+export(is_labeled_arg, all_labeled_args, is_uppercase_start, handle_struct_constructor);
+export(gen_match_arm, handle_match_value, handle_match_data, handle_bare_dot_variant);
+export(func_box_is_dot, func_box_is_dot_dispatch);
+export(is_begin_block);
+export(gen_anon_struct_compound, handle_tuple_literal);
+export(is_lambda_expr, extract_lambda_param_names, lift_non_capturing_lambda);

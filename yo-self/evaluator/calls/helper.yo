@@ -17,13 +17,13 @@
 //!   * `generate_deferred_drop_expressions` — generates ___drop calls for RC vars
 //!   * `validate_function_return_type` — checks return type SomeTs are resolvable
 
-open import "std/string";
-{ ArrayList }                                 :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList }                                 :: import("std/collections/array_list");
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_is_fn_call_of, ast_expr_is_atom_of,
   make_err_expr,
-  evaluated_body_contains_escape }             :: import "../../expr/expr.yo";
+  evaluated_body_contains_escape }             :: import("../../expr/expr.yo");
 { Environment,
   Variable,
   get_variables_from_env,
@@ -31,16 +31,16 @@ open import "std/string";
   add_variable_to_env,
   update_existing_variable,
   synthetic_token,
-  clone_env }                                 :: import "../../env/env.yo";
-{ TypeValue, t_unit }                         :: import "../../types/type.yo";
-{ type_to_string }                            :: import "../../types/string.yo";
+  clone_env }                                 :: import("../../env/env.yo");
+{ TypeValue, t_unit }                         :: import("../../types/type.yo");
+{ type_to_string }                            :: import("../../types/string.yo");
 { get_all_some_types,
-  type_contains_some_type }                   :: import "../../types/utils.yo";
-{ is_some_type }                              :: import "../../types/guards.yo";
+  type_contains_some_type }                   :: import("../../types/utils.yo");
+{ is_some_type }                              :: import("../../types/guards.yo");
 { type_implements_future,
-  type_implements_fn }                        :: import "../trait_checking.yo";
+  type_implements_fn }                        :: import("../trait_checking.yo");
 { EvalValue, eval_value_eq,
-  value_to_string, create_type_value }         :: import "../value.yo";
+  value_to_string, create_type_value }         :: import("../value.yo");
 { EvalContext,
   FuncCallResult,
   FuncOrAsyncBlockCtx, FuncOrAsyncBlockKind,
@@ -49,23 +49,23 @@ open import "std/string";
   ExpectedTypeCtx,
   SpecializingFunctionInfo,
   SpecializedFunctionCache,
-  SpecializedFunctionCacheEntry }             :: import "../context.yo";
+  SpecializedFunctionCacheEntry }             :: import("../context.yo");
 { PathCollection, path_collection_new,
   ExprInfo, new_expr_info,
-  expr_info_table_get }                       :: import "../../expr/expr_info.yo";
-{ evaluate_expression }                       :: import "../exprs/expr.yo";
+  expr_info_table_get }                       :: import("../../expr/expr_info.yo");
+{ evaluate_expression }                       :: import("../exprs/expr.yo");
 { SynthesizeResult, SynthesizeOptions,
-  TypePair, synthesize_types }                :: import "../types/synthesizer.yo";
+  TypePair, synthesize_types }                :: import("../types/synthesizer.yo");
 { are_types_compatible,
-  are_types_compatible_exact }               :: import "../../types/compatibility.yo";
+  are_types_compatible_exact }               :: import("../../types/compatibility.yo");
 { evaluate_function_parameter_type_again,
-  evaluate_function_return_type_again }       :: import "../types/function.yo";
-{ evaluate_begin_expression }                 :: import "../exprs/begin.yo";
-{ generate_expr_from_code }                   :: import "../../parser/parser.yo";
-{ format_error_message }                      :: import "../../error/error.yo";
-{ mark_as_control_fn, is_control_fn }         :: import "../types/control_fn_registry.yo";
-{ get_definition_site_return }               :: import "../types/definition_site_registry.yo";
-{ Exception }                                 :: import "std/error";
+  evaluate_function_return_type_again }       :: import("../types/function.yo");
+{ evaluate_begin_expression }                 :: import("../exprs/begin.yo");
+{ generate_expr_from_code }                   :: import("../../parser/parser.yo");
+{ format_error_message }                      :: import("../../error/error.yo");
+{ mark_as_control_fn, is_control_fn }         :: import("../types/control_fn_registry.yo");
+{ get_definition_site_return }               :: import("../types/definition_site_registry.yo");
+{ Exception }                                 :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // extract_function_value
@@ -103,7 +103,7 @@ _module_type_contains_ctl_field :: (fn(
       n := field_types.len();
       (fi : usize) = usize(0);
       (found : bool) = false;
-      while runtime(((fi < n) && (!(found)))), {
+      while(runtime(((fi < n) && (!(found)))), {
         field_ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
         (field_val_opt : Option(EvalValue)) = match(module_val,
           .None => Option(EvalValue).None,
@@ -141,7 +141,7 @@ _module_type_contains_ctl_field :: (fn(
           if(recur(field_ty, inner_module_val_opt), { found = true; });
         });
         fi = (fi + usize(1));
-      };
+      });
       found
     },
     _ => false
@@ -161,13 +161,13 @@ _module_type_contains_ctl_field :: (fn(
 _get_variables_needing_drop :: (fn(env : Environment) -> ArrayList(Variable))({
   result := ArrayList(Variable).new();
   n := env.frames.len();
-  if((n == usize(0)), { return result; });
+  if((n == usize(0)), { return(result); });
   match(env.frames.get((n - usize(1))),
     .None => (),
     .Some(top_frame) => {
       m := top_frame.variables.len();
       (i : usize) = usize(0);
-      while runtime((i < m)), {
+      while(runtime((i < m)), {
         match(top_frame.variables.get(i),
           .Some(v) => {
             if(((!(v.consumed_at_token.is_some())) && v.is_owning_the_rc_value), {
@@ -180,7 +180,7 @@ _get_variables_needing_drop :: (fn(env : Environment) -> ArrayList(Variable))({
           .None => ()
         );
         i = (i + usize(1));
-      };
+      });
     }
   );
   result
@@ -203,12 +203,12 @@ generate_deferred_drop_expressions :: (fn(
   using(exn         : Exception)
 ) -> Option(ArrayList(AstExpr)))({
   n := variables_to_drop.len();
-  if((n == usize(0)), { return Option(ArrayList(AstExpr)).None; });
+  if((n == usize(0)), { return(Option(ArrayList(AstExpr)).None); });
 
   deferred := ArrayList(AstExpr).new();
   (cur_env : Environment) = env;
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(variables_to_drop.get(i),
       .Some(variable) => {
         // Build the drop expression: ___drop(varName)
@@ -222,7 +222,7 @@ generate_deferred_drop_expressions :: (fn(
       .None => ()
     );
     i = (i + usize(1));
-  };
+  });
 
   if((deferred.len() == usize(0)),
     Option(ArrayList(AstExpr)).None,
@@ -249,13 +249,13 @@ validate_function_return_type :: (fn(
   using(exn   : Exception)
 ) -> unit)({
   // Skip validation if inside function-type evaluation or when expected type is set.
-  if((ctx.is_evaluating_function_type), { return (); });
-  if((ctx.expected_type.is_some()), { return (); });
+  if((ctx.is_evaluating_function_type), { return(()); });
+  if((ctx.expected_type.is_some()), { return(()); });
 
   some_types := get_all_some_types(return_type);
   n := some_types.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(some_types.get(i),
       .None    => (),
       .Some(st) =>
@@ -276,7 +276,7 @@ validate_function_return_type :: (fn(
                 (found_transitively : bool) = false;
                 (j : usize) = usize(0);
                 nv := all_vars.len();
-                while runtime(((j < nv) && !(found_transitively))), {
+                while(runtime(((j < nv) && !(found_transitively))), {
                   match(all_vars.get(j),
                     .Some(var) => {
                       match(var.value,
@@ -285,7 +285,7 @@ validate_function_return_type :: (fn(
                             .TypeVal(ty_box) => {
                               transitive := get_all_some_types(ty_box.*);
                               (k : usize) = usize(0);
-                              while runtime(((k < transitive.len()) && !(found_transitively))), {
+                              while(runtime(((k < transitive.len()) && !(found_transitively))), {
                                 match(transitive.get(k),
                                   .Some(tst) => {
                                     match(tst,
@@ -298,7 +298,7 @@ validate_function_return_type :: (fn(
                                   .None => ()
                                 );
                                 k = (k + usize(1));
-                              };
+                              });
                             },
                             _ => ()
                           );
@@ -309,15 +309,15 @@ validate_function_return_type :: (fn(
                     .None => ()
                   );
                   j = (j + usize(1));
-                };
+                });
                 // Not found even transitively — throw error.
                 if(!(found_transitively), {
-                  exn.throw(dyn format_error_message(
+                  exn.throw(dyn(format_error_message(
                     ast_expr_token(expr),
-                    String.from("Failed to infer the function call return type.\nPlease consider providing the expected type."),
+                    String.from("Failed to infer the function call return(type.\nPlease consider providing the expected type.)"),
                     false,
                     .None
-                  ));
+                  )));
                 });
               });
             });
@@ -326,7 +326,7 @@ validate_function_return_type :: (fn(
         )
     );
     i = (i + usize(1));
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -396,12 +396,12 @@ check_if_function_parameter_matches_argument :: (fn(
   arg_info := match(arg_info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(actual_arg),
         String.from("check_if_function_parameter_matches_argument: arg has no ExprInfo"),
         false,
         .None
-      ));
+      )));
       new_expr_info(caller_env, t_unit())
     }
   );
@@ -426,12 +426,12 @@ check_if_function_parameter_matches_argument :: (fn(
       )
     );
     if(is_rt, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(actual_arg),
         `Cannot assign runtime argument to compile-time parameter "${param_label}"`,
         false,
         .None
-      ));
+      )));
     });
   });
 
@@ -455,12 +455,12 @@ check_if_function_parameter_matches_argument :: (fn(
 
   // Step 8: Type-compatibility check.
   if(!(are_types_compatible(final_pt, arg_type)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(actual_arg),
       `Type mismatch for parameter "${param_label}"`,
       false,
       .None
-    ));
+    )));
   });
 
   // Step 9: Bind param variable in callee_env.
@@ -499,7 +499,7 @@ sanitize_for_sig :: (fn(s : String) -> String)({
   n      := bytes.len();
   result := String.new();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     is_alnum := (
       ((b >= u8(97)) && (b <= u8(122))) ||   // a-z
@@ -512,7 +512,7 @@ sanitize_for_sig :: (fn(s : String) -> String)({
       result.push_str("_");
     });
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -565,7 +565,7 @@ compute_compile_time_signature :: (fn(
       n_fl := fl.len();
       n_fa := arg_values.forall_args.len();
       (fpi : usize) = usize(0);
-      while runtime((fpi < n_fl)), {
+      while(runtime((fpi < n_fl)), {
         val_opt := if((fpi < n_fa),
           match(arg_values.forall_args.get(fpi),
             .Some(ae) => ae.value,
@@ -597,7 +597,7 @@ compute_compile_time_signature :: (fn(
         );
         parts.push(sig_str);
         fpi = (fpi + usize(1));
-      };
+      });
     },
     _ => ()
   );
@@ -607,7 +607,7 @@ compute_compile_time_signature :: (fn(
     .Some(impl_args) => {
       n_ia := impl_args.len();
       (iai : usize) = usize(0);
-      while runtime((iai < n_ia)), {
+      while(runtime((iai < n_ia)), {
         sig_str := match(impl_args.get(iai),
           .Some(ae) => match(ae.value,
             .Some(v) => sanitize_for_sig(value_to_signature_string(v)),
@@ -617,7 +617,7 @@ compute_compile_time_signature :: (fn(
         );
         parts.push(sig_str);
         iai = (iai + usize(1));
-      };
+      });
     },
     .None => ()
   );
@@ -626,20 +626,20 @@ compute_compile_time_signature :: (fn(
   // with the same compile-time args but different concrete closure capture types.
   n_rt := runtime_param_tys.len();
   (rti : usize) = usize(0);
-  while runtime((rti < n_rt)), {
+  while(runtime((rti < n_rt)), {
     ptype := match(runtime_param_tys.get(rti), .Some(t) => t, .None => t_unit());
     if(type_contains_some_type(ptype), {
       seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_to_string(ptype))}`;
       parts.push(seg);
     });
     rti = (rti + usize(1));
-  };
+  });
 
   // Join parts into a single string
   result    := String.new();
   n_parts   := parts.len();
   (pi : usize) = usize(0);
-  while runtime((pi < n_parts)), {
+  while(runtime((pi < n_parts)), {
     if((pi > usize(0)), {
       result.push_str("_");
     });
@@ -648,7 +648,7 @@ compute_compile_time_signature :: (fn(
       .None    => ()
     );
     pi = (pi + usize(1));
-  };
+  });
   result
 });
 
@@ -670,14 +670,14 @@ _find_specialization_cache :: (fn(
   n_entries := ctx.specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (result : Option(EvalValue)) = Option(EvalValue).None;
-  while runtime(((ei < n_entries) && result.is_none())), {
+  while(runtime(((ei < n_entries) && result.is_none())), {
     entry_opt := ctx.specialized_fn_caches.get(ei);
     match(entry_opt,
       .Some(entry) => {
         if((entry.func_id.as_str() == func_id), {
           n_caches := entry.caches.len();
           (ci : usize) = usize(0);
-          while runtime(((ci < n_caches) && result.is_none())), {
+          while(runtime(((ci < n_caches) && result.is_none())), {
             cache_opt := entry.caches.get(ci);
             match(cache_opt,
               .Some(cache) => {
@@ -687,14 +687,14 @@ _find_specialization_cache :: (fn(
                 ct_match := (n_ct == n_cur_ct);
                 if(ct_match, {
                   (cti : usize) = usize(0);
-                  while runtime(((cti < n_ct) && ct_match)), {
+                  while(runtime(((cti < n_ct) && ct_match)), {
                     cached_v  := match(cache.compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
                     current_v := match(compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
                     if(!(eval_value_eq(cached_v, current_v)), {
                       ct_match = false;
                     });
                     cti = (cti + usize(1));
-                  };
+                  });
                 });
                 if(ct_match, {
                   // Check runtime parameter types match (exact match)
@@ -704,14 +704,14 @@ _find_specialization_cache :: (fn(
                   if(rt_match, {
                     _ := caller_env;
                     (rti : usize) = usize(0);
-                    while runtime(((rti < n_rt) && rt_match)), {
+                    while(runtime(((rti < n_rt) && rt_match)), {
                       cached_ty  := match(cache.runtime_parameter_types.get(rti), .Some(t) => t, .None => t_unit());
                       current_ty := match(runtime_parameter_types.get(rti), .Some(t) => t, .None => t_unit());
                       if(!(are_types_compatible_exact(cached_ty, current_ty)), {
                         rt_match = false;
                       });
                       rti = (rti + usize(1));
-                    };
+                    });
                   });
                   if(rt_match, {
                     result = Option(EvalValue).Some(cache.specialized_func_value);
@@ -721,13 +721,13 @@ _find_specialization_cache :: (fn(
               .None => ()
             );
             ci = (ci + usize(1));
-          };
+          });
         });
       },
       .None => ()
     );
     ei = (ei + usize(1));
-  };
+  });
   result
 });
 
@@ -751,7 +751,7 @@ _store_specialization_cache :: (fn(
   n_entries := ctx.specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (found : bool) = false;
-  while runtime(((ei < n_entries) && !(found))), {
+  while(runtime(((ei < n_entries) && !(found))), {
     entry_opt := ctx.specialized_fn_caches.get(ei);
     match(entry_opt,
       .Some(entry) => {
@@ -764,7 +764,7 @@ _store_specialization_cache :: (fn(
       .None => ()
     );
     ei = (ei + usize(1));
-  };
+  });
 
   if(!(found), {
     // Create new entry
@@ -819,7 +819,7 @@ create_specialized_function_inline :: (fn(
       // Add forall type arguments (always compile-time)
       (fai : usize) = usize(0);
       n_fa := arg_values.forall_args.len();
-      while runtime((fai < n_fa)), {
+      while(runtime((fai < n_fa)), {
         match(arg_values.forall_args.get(fai),
           .Some(ae) => match(ae.value,
             .Some(v) => { compile_time_args.push(v); },
@@ -828,14 +828,14 @@ create_specialized_function_inline :: (fn(
           .None => ()
         );
         fai = (fai + usize(1));
-      };
+      });
 
       // Add implicit arguments (always compile-time)
       match(arg_values.implicit_args,
         .Some(impl_args) => {
           (iai : usize) = usize(0);
           n_ia := impl_args.len();
-          while runtime((iai < n_ia)), {
+          while(runtime((iai < n_ia)), {
             match(impl_args.get(iai),
               .Some(ae) => match(ae.value,
                 .Some(v) => { compile_time_args.push(v); },
@@ -844,7 +844,7 @@ create_specialized_function_inline :: (fn(
               .None => ()
             );
             iai = (iai + usize(1));
-          };
+          });
         },
         .None => ()
       );
@@ -854,13 +854,13 @@ create_specialized_function_inline :: (fn(
       // This means we track all regular arg types for cache differentiation.
       (ai : usize) = usize(0);
       n_a := arg_values.args.len();
-      while runtime((ai < n_a)), {
+      while(runtime((ai < n_a)), {
         match(arg_values.args.get(ai),
           .Some(ae) => { runtime_param_tys.push(ae.arg_type); },
           .None     => ()
         );
         ai = (ai + usize(1));
-      };
+      });
 
       // ------------------------------------------------------------------
       // Cache lookup
@@ -928,7 +928,7 @@ create_specialized_function_inline :: (fn(
           // Re-use existing captures from original function
           (oci : usize) = usize(0);
           n_oc := cap_names.len();
-          while runtime((oci < n_oc)), {
+          while(runtime((oci < n_oc)), {
             cn := match(cap_names.get(oci), .Some(s) => s, .None => String.new());
             ct := match(cap_tys.get(oci), .Some(t) => t, .None => t_unit());
             cv := match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal);
@@ -936,12 +936,12 @@ create_specialized_function_inline :: (fn(
             new_cap_tys.push(ct);
             new_cap_vals.push(cv);
             oci = (oci + usize(1));
-          };
+          });
 
           // Add compile-time args as additional captures (forall type bindings)
           (fai2 : usize) = usize(0);
           n_fl := match(func_type, .Func(fl, _, _, _, _, _, _, _, _) => fl.len(), _ => usize(0));
-          while runtime((fai2 < n_fl)), {
+          while(runtime((fai2 < n_fl)), {
             label := match(func_type, .Func(fl, _, _, _, _, _, _, _, _) => {
               r := match(fl.get(fai2), .Some(s) => s, .None => String.new());
               r
@@ -964,7 +964,7 @@ create_specialized_function_inline :: (fn(
               );
             });
             fai2 = (fai2 + usize(1));
-          };
+          });
 
           // Evaluate the specialized body to get its return type
           _ := specialized_body;
@@ -989,7 +989,7 @@ create_specialized_function_inline :: (fn(
           parent_is_ctl := is_control_fn(func_id.as_str());
           body_has_escape := evaluated_body_contains_escape(specialized_body);
           if((parent_is_ctl || body_has_escape), {
-            mark_as_control_fn((&specialized_func_id).clone());
+            mark_as_control_fn((&(specialized_func_id)).clone());
           });
 
           // Store in cache
@@ -1105,7 +1105,7 @@ evaluate_ctl_function_body_inline :: (fn(
     },
     .None => ()
   );
-  if(found_cached, { return cached_val; });
+  if(found_cached, { return(cached_val); });
 
   // -------------------------------------------------------------------------
   // Build specialized env: clone callee_env and push a new frame.
@@ -1121,12 +1121,12 @@ evaluate_ctl_function_body_inline :: (fn(
   // -------------------------------------------------------------------------
   n_caller_frames := caller_env.frames.len();
   (cfi : usize) = usize(0);
-  while runtime((cfi < n_caller_frames)), {
+  while(runtime((cfi < n_caller_frames)), {
     match(caller_env.frames.get(cfi),
       .Some(caller_frame) => {
         n_vars := caller_frame.variables.len();
         (vi : usize) = usize(0);
-        while runtime((vi < n_vars)), {
+        while(runtime((vi < n_vars)), {
           match(caller_frame.variables.get(vi),
             .Some(caller_var) => {
               if(caller_var.is_compile_time_only, {
@@ -1140,7 +1140,7 @@ evaluate_ctl_function_body_inline :: (fn(
                     if((existing.len() == usize(0)), {
                       _add_caller_var_res := add_variable_to_env(
                         &(specialized_env),
-                        (&caller_var.name).clone(),
+                        (&(caller_var.name)).clone(),
                         caller_var.ty,
                         caller_var.value,
                         true,
@@ -1156,12 +1156,12 @@ evaluate_ctl_function_body_inline :: (fn(
             .None => ()
           );
           vi = (vi + usize(1));
-        };
+        });
       },
       .None => ()
     );
     cfi = (cfi + usize(1));
-  };
+  });
 
   // -------------------------------------------------------------------------
   // Bind each forall parameter to concreteTypeForForall.
@@ -1177,13 +1177,13 @@ evaluate_ctl_function_body_inline :: (fn(
   );
   n_forall := forall_labels.len();
   (fi2 : usize) = usize(0);
-  while runtime((fi2 < n_forall)), {
+  while(runtime((fi2 < n_forall)), {
     fl_label := match(forall_labels.get(fi2), .Some(s) => s, .None => String.from(""));
     fl_ty    := match(forall_types_list.get(fi2), .Some(t) => t, .None => TypeValue.Unit);
-    ctl_tok  := synthetic_token((&fl_label).clone(), specialized_env.module_path);
+    ctl_tok  := synthetic_token((&(fl_label)).clone(), specialized_env.module_path);
     _add_forall_var_res := add_variable_to_env(
       &(specialized_env),
-      (&fl_label).clone(),
+      (&(fl_label)).clone(),
       fl_ty,
       Option(EvalValue).Some(create_type_value(concrete_type_for_forall)),
       true,
@@ -1193,7 +1193,7 @@ evaluate_ctl_function_body_inline :: (fn(
       ctl_tok
     );
     fi2 = (fi2 + usize(1));
-  };
+  });
 
   // -------------------------------------------------------------------------
   // Build a handler context with modified enclosingFunctionReturnType.
@@ -1248,7 +1248,7 @@ evaluate_ctl_function_body_inline :: (fn(
   ctl_parent_is_ctl := is_control_fn(orig_func_id.as_str());
   ctl_body_has_escape := evaluated_body_contains_escape(ctl_body);
   if((ctl_parent_is_ctl || ctl_body_has_escape), {
-    mark_as_control_fn((&ctl_func_id).clone());
+    mark_as_control_fn((&(ctl_func_id)).clone());
   });
 
   // Rebuild captures (same as original + forall type bindings).
@@ -1258,23 +1258,23 @@ evaluate_ctl_function_body_inline :: (fn(
 
   (oci : usize) = usize(0);
   n_oc := orig_cap_names.len();
-  while runtime((oci < n_oc)), {
+  while(runtime((oci < n_oc)), {
     ctl_cap_names.push(match(orig_cap_names.get(oci), .Some(s) => s, .None => String.new()));
     ctl_cap_tys.push(match(orig_cap_tys.get(oci), .Some(t) => t, .None => TypeValue.Unit));
     ctl_cap_vals.push(match(orig_cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
     oci = (oci + usize(1));
-  };
+  });
 
   // Add forall type bindings as extra captures.
   (fi3 : usize) = usize(0);
-  while runtime((fi3 < n_forall)), {
+  while(runtime((fi3 < n_forall)), {
     fl3 := match(forall_labels.get(fi3), .Some(s) => s, .None => String.new());
     ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => TypeValue.Unit);
-    ctl_cap_names.push((&fl3).clone());
+    ctl_cap_names.push((&(fl3)).clone());
     ctl_cap_tys.push(ft3);
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
     fi3 = (fi3 + usize(1));
-  };
+  });
 
   ctl_func_val := EvalValue.FuncVal(
     orig_forall_labels,
@@ -1285,7 +1285,7 @@ evaluate_ctl_function_body_inline :: (fn(
     ctl_cap_names,
     ctl_cap_tys,
     ctl_cap_vals,
-    (&ctl_func_id).clone()
+    (&(ctl_func_id)).clone()
   );
 
   // -------------------------------------------------------------------------
@@ -1296,7 +1296,7 @@ evaluate_ctl_function_body_inline :: (fn(
   ctl_cache_args.push(create_type_value(concrete_type_for_forall));
   _store_specialization_cache(
     ctx,
-    (&ctl_func_id).clone(),
+    (&(ctl_func_id)).clone(),
     ctl_cache_args,
     ArrayList(TypeValue).new(),
     ctl_func_val,
@@ -1384,7 +1384,7 @@ try_to_call_function_with_arguments :: (fn(
 
       n_total := arg_exprs.len();
       (ai : usize) = regular_start;
-      while runtime((ai < n_total)), {
+      while(runtime((ai < n_total)), {
         a := match(arg_exprs.get(ai), .Some(x) => x, .None => make_err_expr());
         if(ast_expr_is_fn_call_of(a, "using", Option(usize).None), {
           using_args_opt = .Some(_h_get_fn_call_args(a));
@@ -1392,7 +1392,7 @@ try_to_call_function_with_arguments :: (fn(
           adjusted_args.push(a);
         });
         ai = (ai + usize(1));
-      };
+      });
 
       // ----------------------------------------------------------------
       // Step 3: Argument count check.
@@ -1400,12 +1400,12 @@ try_to_call_function_with_arguments :: (fn(
       n_params := pl.len();
       n_args   := adjusted_args.len();
       if((n_args != n_params), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           tok,
           `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`,
           false,
           .None
-        ));
+        )));
       });
 
       // ----------------------------------------------------------------
@@ -1417,7 +1417,7 @@ try_to_call_function_with_arguments :: (fn(
             fenv := Environment.new(caller_env.module_path);
             (ci : usize) = usize(0);
             n_cap := cn.len();
-            while runtime((ci < n_cap)), {
+            while(runtime((ci < n_cap)), {
               cname := match(cn.get(ci), .Some(s) => s, .None => String.from(""));
               cty   := match(ct.get(ci), .Some(t) => t, .None => t_unit());
               cval  := match(cv.get(ci),
@@ -1432,7 +1432,7 @@ try_to_call_function_with_arguments :: (fn(
                 synthetic_token(cname, fenv.module_path)
               );
               ci = (ci + usize(1));
-            };
+            });
             fenv
           },
           _ => Environment.new(caller_env.module_path)
@@ -1449,7 +1449,7 @@ try_to_call_function_with_arguments :: (fn(
       // ----------------------------------------------------------------
       n_forall := fl.len();
       (fpi : usize) = usize(0);
-      while runtime((fpi < n_forall)), {
+      while(runtime((fpi < n_forall)), {
         flabel      := match(fl.get(fpi), .Some(l) => l, .None => String.from(""));
         ftype       := match(ft.get(fpi), .Some(t) => t, .None => t_unit());
         ftype_inner := match(ft.get(fpi), .Some(t) => t, .None => t_unit());
@@ -1489,7 +1489,7 @@ try_to_call_function_with_arguments :: (fn(
           synthetic_token(flabel, callee_env.module_path)
         );
         fpi = (fpi + usize(1));
-      };
+      });
 
       // ----------------------------------------------------------------
       // Step 7: Process regular parameters.
@@ -1501,7 +1501,7 @@ try_to_call_function_with_arguments :: (fn(
       (caller_env_m : Environment) = caller_env;
 
       (pi : usize) = usize(0);
-      while runtime((pi < n_params)), {
+      while(runtime((pi < n_params)), {
         plabel := match(pl.get(pi), .Some(l) => l, .None => String.from(""));
         ptype  := match(pt.get(pi), .Some(t) => t, .None => t_unit());
         parg   := match(adjusted_args.get(pi), .Some(a) => a, .None => make_err_expr());
@@ -1522,13 +1522,13 @@ try_to_call_function_with_arguments :: (fn(
           arg_type:       pr.arg_type
         ));
         pi = (pi + usize(1));
-      };
+      });
 
       // ----------------------------------------------------------------
       // Step 8: Extract resolved forall values from callee_env.
       // ----------------------------------------------------------------
       (fpi2 : usize) = usize(0);
-      while runtime((fpi2 < n_forall)), {
+      while(runtime((fpi2 < n_forall)), {
         flabel2 := match(fl.get(fpi2), .Some(l) => l, .None => String.from(""));
         ftype2  := match(ft.get(fpi2), .Some(t) => t, .None => t_unit());
         vars2   := get_variables_from_env(callee_env_m, flabel2);
@@ -1552,7 +1552,7 @@ try_to_call_function_with_arguments :: (fn(
           );
         });
         fpi2 = (fpi2 + usize(1));
-      };
+      });
 
       // ----------------------------------------------------------------
       // Step 9: Evaluate return type.
@@ -1585,7 +1585,7 @@ try_to_call_function_with_arguments :: (fn(
       implicit_arg_vals := ArrayList(ArgEntry).new();
       n_impl := il.len();
       (impl_i : usize) = usize(0);
-      while runtime((impl_i < n_impl)), {
+      while(runtime((impl_i < n_impl)), {
         impl_label := match(il.get(impl_i), .Some(l) => l, .None => String.from(""));
         impl_type  := match(it.get(impl_i), .Some(t) => t, .None => t_unit());
         resolved_impl_type := evaluate_function_parameter_type_again(impl_type, callee_env_m, ctx);
@@ -1604,12 +1604,12 @@ try_to_call_function_with_arguments :: (fn(
                     match(ua_info.value,
                       .Some(ua_val) => {
                         if(!(are_types_compatible(resolved_impl_type, ua_info.ty)), {
-                          exn.throw(dyn format_error_message(
+                          exn.throw(dyn(format_error_message(
                             ast_expr_token(ua_expr),
                             `Incompatible type for implicit parameter "${impl_label}"`,
                             false,
                             .None
-                          ));
+                          )));
                         });
                         impl_tok := synthetic_token(impl_label, callee_env_m.module_path);
                         _ := add_variable_to_env(
@@ -1650,7 +1650,7 @@ try_to_call_function_with_arguments :: (fn(
           (given_name  : String) = String.from("");
 
           (vi : usize) = usize(0);
-          while runtime(((vi < n_cenv) && !(found_given))), {
+          while(runtime(((vi < n_cenv) && !(found_given))), {
             gv_opt := all_cenv_vars.get(vi);
             match(gv_opt,
               .Some(gv) => {
@@ -1666,15 +1666,15 @@ try_to_call_function_with_arguments :: (fn(
               .None => ()
             );
             vi = (vi + usize(1));
-          };
+          });
 
           if(!(found_given), {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               tok,
               `No "given" variable found for implicit parameter "${impl_label}"`,
               false,
               .None
-            ));
+            )));
           });
 
           match(given_val,
@@ -1696,18 +1696,18 @@ try_to_call_function_with_arguments :: (fn(
               ));
             },
             .None => {
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 tok,
                 `The "given" variable "${given_name}" has no compile-time value`,
                 false,
                 .None
-              ));
+              )));
             }
           );
         });
 
         impl_i = (impl_i + usize(1));
-      };
+      });
 
       // ----------------------------------------------------------------
       // Step 12: Validate return type and build FuncCallResult.
@@ -1798,12 +1798,12 @@ try_to_call_function_with_arguments :: (fn(
       )
     },
     _ => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("try_to_call_function_with_arguments: func_type is not a Func type"),
         false,
         .None
-      ));
+      )));
       // Unreachable placeholder.
       FuncCallResult(
         callee_env:                 caller_env,
@@ -1826,12 +1826,12 @@ try_to_call_function_with_arguments :: (fn(
 });
 
 
-export try_to_call_function_with_arguments;
-export check_if_function_parameter_matches_argument;
-export extract_function_value;
-export validate_function_return_type;
-export generate_deferred_drop_expressions;
-export value_to_signature_string;
-export compute_compile_time_signature;
-export create_specialized_function_inline;
-export evaluate_ctl_function_body_inline;
+export(try_to_call_function_with_arguments);
+export(check_if_function_parameter_matches_argument);
+export(extract_function_value);
+export(validate_function_return_type);
+export(generate_deferred_drop_expressions);
+export(value_to_signature_string);
+export(compute_compile_time_signature);
+export(create_specialized_function_inline);
+export(evaluate_ctl_function_body_inline);

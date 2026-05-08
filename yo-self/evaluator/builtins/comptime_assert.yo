@@ -6,22 +6,22 @@
 //! at compile time and throws if it is false.  When not executing, still
 //! type-checks the condition argument.
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_to_string, BF_COMPTIME_ASSERT }          :: import "../../expr/expr.yo";
+  ast_expr_to_string, BF_COMPTIME_ASSERT }          :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                              :: import "../../expr/expr_info.yo";
-{ Environment }                                      :: import "../../env/env.yo";
-{ EvalContext, ExpectedTypeCtx }                     :: import "../context.yo";
+  expr_info_table_get }                              :: import("../../expr/expr_info.yo");
+{ Environment }                                      :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx }                     :: import("../context.yo");
 { EvalValue, is_bool_val, is_unknown_val,
-  create_unknown_val, value_to_string }              :: import "../value.yo";
-{ TypeValue }                                        :: import "../../types/type.yo";
-{ t_unit, is_unit_type }                             :: import "../../types/type.yo";
-{ is_bool_type }                                     :: import "../../types/type.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ evaluate_expression }                              :: import "../exprs/expr.yo";
-{ Exception }                                        :: import "std/error";
+  create_unknown_val, value_to_string }              :: import("../value.yo");
+{ TypeValue }                                        :: import("../../types/type.yo");
+{ t_unit, is_unit_type }                             :: import("../../types/type.yo");
+{ is_bool_type }                                     :: import("../../types/type.yo");
+{ format_error_message }                             :: import("../../error/error.yo");
+{ evaluate_expression }                              :: import("../exprs/expr.yo");
+{ Exception }                                        :: import("std/error");
 
 evaluate_comptime_assert :: (fn(
   expr : AstExpr,
@@ -49,12 +49,12 @@ evaluate_comptime_assert :: (fn(
         match(arg_info_opt,
           .Some(ai) => {
             if((!(is_bool_type(ai.ty)) && !(is_unknown_val(match(ai.value, .Some(v) => v, .None => EvalValue.UnitVal)))), {
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 ast_expr_token(arg_expr),
                 `Expected bool expression for "comptime_assert", got:\n${ast_expr_to_string(arg_expr)}\n\nType:\n${String.from("unknown")}`,
                 true,
                 .None
-              ));
+              )));
             });
           },
           .None => {}
@@ -75,14 +75,14 @@ evaluate_comptime_assert :: (fn(
     out_info := new_expr_info(env, ret_type);
     out_info.value = ret_val;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-    return expr;
+    return(expr);
   });
 
   // --- Executing path ---
 
   arg_expr := match(arg_expr_opt,
     .Some(a) => a,
-    .None    => { return expr; }
+    .None    => { return(expr); }
   );
 
   evaluated_arg := evaluate_expression(arg_expr, env, ctx);
@@ -90,12 +90,12 @@ evaluate_comptime_assert :: (fn(
   arg_info      := match(arg_info_opt,
     .Some(ai) => ai,
     .None     => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(arg_expr)}`,
         true,
         .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -103,23 +103,23 @@ evaluate_comptime_assert :: (fn(
   arg_val := match(arg_info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(arg_expr)}`,
         true,
         .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
 
   if(!(is_bool_val(arg_val)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(arg_expr)}\n\nValue:\n${value_to_string(arg_val)}`,
       true,
       .None
-    ));
+    )));
   });
 
   bool_val := match(arg_val, .BoolVal(b) => b, _ => false);
@@ -153,18 +153,18 @@ evaluate_comptime_assert :: (fn(
     );
 
     if((err_msg.len() > usize(0)), {
-      exn.throw(dyn format_error_message(ast_expr_token(expr), err_msg, true, .None));
+      exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, true, .None)));
     }, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `Assertion failed for "comptime_assert":\n${ast_expr_to_string(arg_expr)}`,
         true,
         .None
-      ));
+      )));
     });
   });
 
   expr
 });
 
-export evaluate_comptime_assert;
+export(evaluate_comptime_assert);

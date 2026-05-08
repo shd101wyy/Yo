@@ -8,22 +8,22 @@
 //! - Returns unknown if any unknown values are encountered without short-circuit.
 //! - Returns undefined (runtime) value if any runtime values are encountered.
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_to_string, ast_expr_is_fn_call_of,
-  BK_OP_AND, BK_OP_OR }                             :: import "../../expr/expr.yo";
+  BK_OP_AND, BK_OP_OR }                             :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                              :: import "../../expr/expr_info.yo";
-{ Environment }                                      :: import "../../env/env.yo";
-{ EvalContext }                                      :: import "../context.yo";
+  expr_info_table_get }                              :: import("../../expr/expr_info.yo");
+{ Environment }                                      :: import("../../env/env.yo");
+{ EvalContext }                                      :: import("../context.yo");
 { EvalValue, is_bool_val, is_unknown_val,
-  create_unknown_val }                               :: import "../value.yo";
-{ TypeValue }                                        :: import "../../types/type.yo";
-{ t_bool, is_bool_type }                             :: import "../../types/type.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ evaluate_expression }                              :: import "../exprs/expr.yo";
-{ Exception }                                        :: import "std/error";
+  create_unknown_val }                               :: import("../value.yo");
+{ TypeValue }                                        :: import("../../types/type.yo");
+{ t_bool, is_bool_type }                             :: import("../../types/type.yo");
+{ format_error_message }                             :: import("../../error/error.yo");
+{ evaluate_expression }                              :: import("../exprs/expr.yo");
+{ Exception }                                        :: import("std/error");
 
 evaluate_and_or :: (fn(
   expr : AstExpr,
@@ -36,7 +36,7 @@ evaluate_and_or :: (fn(
 
   args := match(expr,
     .FnCall(_, _, a, _, _) => a,
-    _                      => { return expr; }
+    _                      => { return(expr); }
   );
 
   // Empty and → true, empty or → false.
@@ -45,7 +45,7 @@ evaluate_and_or :: (fn(
     out_info := new_expr_info(env, t_bool());
     out_info.value = .Some(EvalValue.BoolVal(bool_result));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-    return expr;
+    return(expr);
   });
 
   // Short-circuiting evaluation.
@@ -55,7 +55,7 @@ evaluate_and_or :: (fn(
   (has_runtime : bool) = false;
 
   (i : usize) = usize(0);
-  while runtime((i < args.len())), {
+  while(runtime((i < args.len())), {
     arg_opt := args.get(i);
     i = (i + usize(1));
 
@@ -68,23 +68,23 @@ evaluate_and_or :: (fn(
         arg_info := match(arg_info_opt,
           .Some(ai) => ai,
           .None     => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg),
               `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(arg)}`,
               false,
               .None
-            ));
+            )));
             new_expr_info(env, t_bool())
           }
         );
 
         if(!(is_bool_type(arg_info.ty)), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(arg),
             `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(arg)}`,
             false,
             .None
-          ));
+          )));
         });
 
         cur_env = arg_info.env;
@@ -131,7 +131,7 @@ evaluate_and_or :: (fn(
         );
       }
     );
-  };
+  });
 
   // Determine final result.
   (final_val : Option(EvalValue)) = match(result_val,
@@ -155,4 +155,4 @@ evaluate_and_or :: (fn(
   expr
 });
 
-export evaluate_and_or;
+export(evaluate_and_or);

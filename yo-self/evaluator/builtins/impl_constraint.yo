@@ -6,23 +6,23 @@
 //! constraints contain the given traits. Supports negated traits via
 //! `!(Trait)` syntax. `Concrete(T)` support is a stub (returns false).
 
-open import "std/string";
-{ ArrayList }                               :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList }                               :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_to_string, ast_expr_is_fn_call_of,
-  BK_IMPL_UPPER }                           :: import "../../expr/expr.yo";
+  BK_IMPL_UPPER }                           :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                     :: import "../../expr/expr_info.yo";
-{ Environment }                             :: import "../../env/env.yo";
-{ EvalContext }                             :: import "../context.yo";
+  expr_info_table_get }                     :: import("../../expr/expr_info.yo");
+{ Environment }                             :: import("../../env/env.yo");
+{ EvalContext }                             :: import("../context.yo");
 { EvalValue, create_type_value,
-  is_type_value }                           :: import "../value.yo";
-{ TypeValue }                               :: import "../../types/type.yo";
-{ is_trait_type, is_concrete_trait_type }   :: import "../../types/guards.yo";
-{ generate_some_type_id }                   :: import "../../types/type.yo";
-{ format_error_message }                    :: import "../../error/error.yo";
-{ evaluate_expression }                     :: import "../exprs/expr.yo";
-{ Exception }                               :: import "std/error";
+  is_type_value }                           :: import("../value.yo");
+{ TypeValue }                               :: import("../../types/type.yo");
+{ is_trait_type, is_concrete_trait_type }   :: import("../../types/guards.yo");
+{ generate_some_type_id }                   :: import("../../types/type.yo");
+{ format_error_message }                    :: import("../../error/error.yo");
+{ evaluate_expression }                     :: import("../exprs/expr.yo");
+{ Exception }                               :: import("std/error");
 
 evaluate_impl_constraint :: (fn(
   expr : AstExpr,
@@ -30,15 +30,15 @@ evaluate_impl_constraint :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
 
   if((args.len() == usize(0)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("Impl requires at least one trait argument."),
       false,
       .None
-    ));
+    )));
   });
 
   required_trait_types  := ArrayList(TypeValue).new();
@@ -49,7 +49,7 @@ evaluate_impl_constraint :: (fn(
   (cur_env : Environment) = env;
   (i : usize)            = usize(0);
 
-  while runtime((i < args.len())), {
+  while(runtime((i < args.len())), {
     arg_opt := args.get(i);
     match(arg_opt,
       .None    => { i = args.len(); },
@@ -75,12 +75,12 @@ evaluate_impl_constraint :: (fn(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_mod)),
           .Some(info) => info,
           .None       => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(module_expr),
               String.from("Failed to evaluate Impl argument."),
               false,
               .None
-            ));
+            )));
             new_expr_info(cur_env, TypeValue.TypeUni(usize(0)))
           }
         );
@@ -88,12 +88,12 @@ evaluate_impl_constraint :: (fn(
 
         // Expect a TypeVal containing a trait type
         if(!(is_type_value(mod_info.value)), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(module_expr),
             (`Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`),
             false,
             .None
-          ));
+          )));
         });
 
         trait_tv := match(mod_info.value,
@@ -105,12 +105,12 @@ evaluate_impl_constraint :: (fn(
         );
 
         if(!(is_trait_type(trait_tv)), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(module_expr),
             (`Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`),
             false,
             .None
-          ));
+          )));
         });
 
         // Note: is_concrete_trait_type is a stub that returns false.
@@ -125,7 +125,7 @@ evaluate_impl_constraint :: (fn(
       }
     );
     i = (i + usize(1));
-  };
+  });
 
   // Compute frame_level for the SomeType.
   fl := match((cur_env.frame_count() > usize(0)),
@@ -155,4 +155,4 @@ evaluate_impl_constraint :: (fn(
   expr
 });
 
-export evaluate_impl_constraint;
+export(evaluate_impl_constraint);

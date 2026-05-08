@@ -4,21 +4,21 @@
 //!
 //! Handles: `__yo_process_platform`, `__yo_process_arch`, `__yo_pointer_size_bits`.
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_is_fn_call_of,
   BF_YO_PROCESS_PLATFORM, BF_YO_PROCESS_ARCH,
-  BF_YO_POINTER_SIZE_BITS }                          :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set }     :: import "../../expr/expr_info.yo";
-{ Environment }                                      :: import "../../env/env.yo";
-{ EvalContext }                                      :: import "../context.yo";
-{ EvalValue }                                        :: import "../value.yo";
-{ TypeValue, t_comptime_string, t_comptime_int }     :: import "../../types/type.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ Exception }                                        :: import "std/error";
+  BF_YO_POINTER_SIZE_BITS }                          :: import("../../expr/expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set }     :: import("../../expr/expr_info.yo");
+{ Environment }                                      :: import("../../env/env.yo");
+{ EvalContext }                                      :: import("../context.yo");
+{ EvalValue }                                        :: import("../value.yo");
+{ TypeValue, t_comptime_string, t_comptime_int }     :: import("../../types/type.yo");
+{ format_error_message }                             :: import("../../error/error.yo");
+{ Exception }                                        :: import("std/error");
 { Arch, Os, HostInfo, detect_host, arch_to_str,
-  os_to_str, pointer_size_for_arch }                 :: import "../../target/target.yo";
+  os_to_str, pointer_size_for_arch }                 :: import("../../target/target.yo");
 
 evaluate_yo_process_functions :: (fn(
   expr : AstExpr,
@@ -36,7 +36,7 @@ evaluate_yo_process_functions :: (fn(
     info   := new_expr_info(env, t_comptime_string());
     info.value = .Some(val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return expr;
+    return(expr);
   });
 
   if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH, .Some(usize(0))), {
@@ -47,7 +47,7 @@ evaluate_yo_process_functions :: (fn(
     info     := new_expr_info(env, t_comptime_string());
     info.value = .Some(val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return expr;
+    return(expr);
   });
 
   if(ast_expr_is_fn_call_of(expr, BF_YO_POINTER_SIZE_BITS, .Some(usize(0))), {
@@ -57,16 +57,16 @@ evaluate_yo_process_functions :: (fn(
     info := new_expr_info(env, t_comptime_int());
     info.value = .Some(val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return expr;
+    return(expr);
   });
 
-  exn.throw(dyn format_error_message(
+  exn.throw(dyn(format_error_message(
     ast_expr_token(expr),
     `Unknown process function`,
     false,
     .None
-  ));
+  )));
   expr
 });
 
-export evaluate_yo_process_functions;
+export(evaluate_yo_process_functions);

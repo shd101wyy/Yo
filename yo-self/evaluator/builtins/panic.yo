@@ -5,22 +5,22 @@
 //! `panic(msg)` validates the optional string argument and annotates the
 //! call with the surrounding function's return type (panic diverges).
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_to_string }                           :: import "../../expr/expr.yo";
+  ast_expr_to_string }                           :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                          :: import "../../expr/expr_info.yo";
-{ Environment }                                  :: import "../../env/env.yo";
-{ EvalContext, FuncOrAsyncBlockKind }            :: import "../context.yo";
-{ EvalValue }                                    :: import "../value.yo";
-{ TypeValue }                                    :: import "../../types/type.yo";
-{ t_unit, t_bool }                               :: import "../../types/type.yo";
-{ is_comptime_string_type }                      :: import "../../types/guards.yo";
-{ format_error_message }                         :: import "../../error/error.yo";
-{ evaluate_expression }                          :: import "../exprs/expr.yo";
-{ Exception }                                    :: import "std/error";
-{ ArrayList }                                    :: import "std/collections/array_list";
+  expr_info_table_get }                          :: import("../../expr/expr_info.yo");
+{ Environment }                                  :: import("../../env/env.yo");
+{ EvalContext, FuncOrAsyncBlockKind }            :: import("../context.yo");
+{ EvalValue }                                    :: import("../value.yo");
+{ TypeValue }                                    :: import("../../types/type.yo");
+{ t_unit, t_bool }                               :: import("../../types/type.yo");
+{ is_comptime_string_type }                      :: import("../../types/guards.yo");
+{ format_error_message }                         :: import("../../error/error.yo");
+{ evaluate_expression }                          :: import("../exprs/expr.yo");
+{ Exception }                                    :: import("std/error");
+{ ArrayList }                                    :: import("std/collections/array_list");
 
 evaluate_panic :: (fn(
   expr : AstExpr,
@@ -33,24 +33,24 @@ evaluate_panic :: (fn(
   fn_ctx := match(fn_ctx_opt,
     .Some(c) => c,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("panic() can only be called inside a function body or test block"),
         false,
         .None
-      ));
-      return expr;
+      )));
+      return(expr);
     }
   );
 
   // During CTFE capability analysis, panic disqualifies the function.
   if(ctx.is_analyzing_ctfe_capability, {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("Cannot use \"panic\" during compile-time function evaluation analysis. Functions containing \"panic\" cannot be evaluated at compile time."),
       false,
       .None
-    ));
+    )));
   });
 
   // Determine the return type: function body → func return type; test/async → unit.
@@ -73,19 +73,19 @@ evaluate_panic :: (fn(
   (cur_env : Environment) = env;
 
   if((args.len() > usize(0)), {
-    msg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+    msg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
     evaluated := evaluate_expression(msg_expr, cur_env, ctx);
     info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
 
     match(info_opt,
       .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(msg_expr),
           String.from("Failed to evaluate panic message"),
           false,
           .None
-        ));
+        )));
       },
       .Some(info) => {
         cur_env = info.env;
@@ -105,12 +105,12 @@ evaluate_panic :: (fn(
         );
 
         if((!(is_str_type) && !(is_comptime_str)), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(msg_expr),
             String.from("panic message must be a comptime_string or str"),
             false,
             .None
-          ));
+          )));
         });
       }
     );
@@ -123,4 +123,4 @@ evaluate_panic :: (fn(
   expr
 });
 
-export evaluate_panic;
+export(evaluate_panic);

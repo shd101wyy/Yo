@@ -1,4 +1,4 @@
-//! test — evaluate `test "name", { body }` declarations.
+//! test — evaluate `test("name", { body })` declarations.
 //!
 //! 1:1 port of `src/evaluator/exprs/test.ts`.
 //!
@@ -13,31 +13,31 @@
 //!
 //! Returns unit (no-op, preserves original env).
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_to_string,
-  make_err_expr, BK_TEST }                            :: import "../../expr/expr.yo";
+  make_err_expr, BK_TEST }                            :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                              :: import "../../expr/expr_info.yo";
+  expr_info_table_get }                              :: import("../../expr/expr_info.yo");
 { Environment, Variable, get_variables_from_env,
-  add_variable_to_env }                               :: import "../../env/env.yo";
+  add_variable_to_env }                               :: import("../../env/env.yo");
 { EvalContext, FuncOrAsyncBlockKind,
-  FuncOrAsyncBlockCtx }                               :: import "../context.yo";
+  FuncOrAsyncBlockCtx }                               :: import("../context.yo");
 { EvalValue, create_unknown_val,
-  is_type_val, is_str_lit }                           :: import "../value.yo";
-{ TypeValue, t_unit }                                  :: import "../../types/type.yo";
-{ is_unit_type }                                      :: import "../../types/guards.yo";
-{ type_to_string }                                    :: import "../../types/string.yo";
-{ format_error_message }                              :: import "../../error/error.yo";
-{ evaluate_expression }                               :: import "./expr.yo";
-{ Exception }                                         :: import "std/error";
+  is_type_val, is_str_lit }                           :: import("../value.yo");
+{ TypeValue, t_unit }                                  :: import("../../types/type.yo");
+{ is_unit_type }                                      :: import("../../types/guards.yo");
+{ type_to_string }                                    :: import("../../types/string.yo");
+{ format_error_message }                              :: import("../../error/error.yo");
+{ evaluate_expression }                               :: import("./expr.yo");
+{ Exception }                                         :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // evaluate_test
 // ---------------------------------------------------------------------------
 
-/// Evaluate a `test "name", { body }` declaration.
+/// Evaluate a `test("name", { body })` declaration.
 ///
 /// Mirrors `evaluateTest` in `src/evaluator/exprs/test.ts`.
 ///
@@ -53,12 +53,12 @@ evaluate_test :: (fn(
 
   // Validate shape: must be "test" call.
   if(!(ast_expr_is_fn_call_of(expr, BK_TEST, .None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected test, got ${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // test expects exactly 2 arguments: test "name", { body }
@@ -68,12 +68,12 @@ evaluate_test :: (fn(
   );
 
   if((arg_count != usize(2)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `test expects 2 arguments (name, body), got ${arg_count}. IO is implicitly available via "io" — no using clause needed.`,
       false,
       .None
-    ));
+    )));
   });
 
   test_name_expr := match(expr,
@@ -91,12 +91,12 @@ evaluate_test :: (fn(
   name_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_test_name_expr));
 
   if(!(name_info_opt.is_some()), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(test_name_expr),
       `Failed to evaluate test name: ${ast_expr_to_string(test_name_expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   name_info := match(name_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
@@ -110,12 +110,12 @@ evaluate_test :: (fn(
     .None    => false
   );
   if(!(name_is_str_lit), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(test_name_expr),
       `Expected string for test name, got ${ast_expr_to_string(test_name_expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Inject `io : IO` into the body scope.
@@ -123,23 +123,23 @@ evaluate_test :: (fn(
   io_vars := get_variables_from_env(env, String.from("IO"));
   n_io := io_vars.len();
   if((n_io == usize(0)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("IO module not found in environment. Is the prelude loaded?"),
       false,
       .None
-    ));
+    )));
   });
 
   io_module_var := match(io_vars.get((n_io - usize(1))), .Some(v) => v, .None => {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("IO module not found in environment."),
       false,
       .None
-    ));
+    )));
     // unreachable
-    return make_err_expr();
+    return(make_err_expr());
   });
 
   // Extract the actual module type from IO's TypeVal.
@@ -196,24 +196,24 @@ evaluate_test :: (fn(
   body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_test_body_expr));
 
   if(!(body_info_opt.is_some()), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(test_body_expr),
       `Failed to evaluate test body: ${ast_expr_to_string(test_body_expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   body_info := match(body_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
 
   if(!(is_unit_type(body_info.ty)), {
     body_ty_str := type_to_string(body_info.ty);
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(test_body_expr),
       `Test body must have 'unit' type, got ${body_ty_str}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Attach originalExpr to the body ExprInfo (used by test codegen).
@@ -229,4 +229,4 @@ evaluate_test :: (fn(
   expr
 });
 
-export evaluate_test;
+export(evaluate_test);

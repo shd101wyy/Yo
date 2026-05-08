@@ -5,22 +5,22 @@
 //!
 //! This mirrors `src/fetch.ts`.
 
-open import "std/string";
-{ Command } :: import "std/process/command";
-{ AnyError, Exception }       :: import "std/error";
-{ ArrayList }                 :: import "std/collections/array_list";
-{ Path }                      :: import "std/path";
-{ read_file, write_file, write_bytes, exists } :: import "std/fs/file";
+open(import("std/string"));
+{ Command } :: import("std/process/command");
+{ AnyError, Exception }       :: import("std/error");
+{ ArrayList }                 :: import("std/collections/array_list");
+{ Path }                      :: import("std/path");
+{ read_file, write_file, write_bytes, exists } :: import("std/fs/file");
 { DirEntry, FileType,
-  read_dir, remove_dir, remove_file, rename } :: import "std/fs/dir";
-{ walk, walk_with, WalkEntry, WalkOptions }   :: import "std/fs/walker";
-{ Sha256 }                    :: import "std/crypto/sha256";
-{ hex_encode }                :: import "std/encoding/hex";
+  read_dir, remove_dir, remove_file, rename } :: import("std/fs/dir");
+{ walk, walk_with, WalkEntry, WalkOptions }   :: import("std/fs/walker");
+{ Sha256 }                    :: import("std/crypto/sha256");
+{ hex_encode }                :: import("std/encoding/hex");
 { LockEntry, LockFile,
   read_lock_file, save_lock_file,
-  find_lock_entry, upsert_lock_entry } :: import "../lock-file/lock_file.yo";
+  find_lock_entry, upsert_lock_entry } :: import("../lock-file/lock_file.yo");
 { get_global_deps_cache_dir,
-  ensure_global_deps_cache_dir } :: import "../cache/cache.yo";
+  ensure_global_deps_cache_dir } :: import("../cache/cache.yo");
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -75,7 +75,7 @@ remove_dir_all :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Futur
     entries := io.await(walk_with(path, opts));
     n := entries.len();
     // Delete deepest entries first (reverse order from walk output)
-    while runtime((n > usize(0))), {
+    while(runtime((n > usize(0))), {
       n = (n - usize(1));
       match(entries.get(n),
         .None => (),
@@ -85,7 +85,7 @@ remove_dir_all :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Futur
             _ => { io.await(remove_file(entry.path)); }
           )
       );
-    };
+    });
     io.await(remove_dir(path));
   })
 );
@@ -97,17 +97,17 @@ sort_dir_entries :: (fn(entries: ArrayList(DirEntry)) -> ArrayList(DirEntry))({
   // Track which entries have been moved to result
   added := ArrayList(bool).with_capacity(n);
   i := usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     added.push(false);
     i = (i + usize(1));
-  };
+  });
   selected := usize(0);
-  while runtime((selected < n)), {
+  while(runtime((selected < n)), {
     // Find the minimum-name entry not yet added
     min_idx := usize(0);
     found := false;
     j := usize(0);
-    while runtime((j < n)), {
+    while(runtime((j < n)), {
       flag := match(added.get(j), .None => true, .Some(f) => f);
       if((!(flag)), {
         if((!(found)), {
@@ -120,7 +120,7 @@ sort_dir_entries :: (fn(entries: ArrayList(DirEntry)) -> ArrayList(DirEntry))({
         });
       });
       j = (j + usize(1));
-    };
+    });
     match(entries.get(min_idx), .None => (), .Some(e) => { result.push(e); });
     // Mark min_idx as added via raw pointer (bool is a primitive, safe to write)
     match(added.ptr(),
@@ -128,7 +128,7 @@ sort_dir_entries :: (fn(entries: ArrayList(DirEntry)) -> ArrayList(DirEntry))({
       .Some(p) => { (p &+ min_idx).* = true; }
     );
     selected = (selected + usize(1));
-  };
+  });
   result
 });
 
@@ -137,17 +137,17 @@ normalize_line_endings :: (fn(bytes: ArrayList(u8)) -> ArrayList(u8))({
   // Quick path: no CR in input
   has_cr := false;
   i := usize(0);
-  while runtime(((i < bytes.len()) && (!(has_cr)))), {
+  while(runtime(((i < bytes.len()) && (!(has_cr)))), {
     match(bytes.get(i),
       .None => (),
       .Some(b) => if((b == u8(13)), { has_cr = true; })
     );
     i = (i + usize(1));
-  };
+  });
   if((!(has_cr)), bytes, {
     out := ArrayList(u8).with_capacity(bytes.len());
     j := usize(0);
-    while runtime((j < bytes.len())), {
+    while(runtime((j < bytes.len())), {
       match(bytes.get(j),
         .None => (),
         .Some(b) => {
@@ -160,7 +160,7 @@ normalize_line_endings :: (fn(bytes: ArrayList(u8)) -> ArrayList(u8))({
         }
       );
       j = (j + usize(1));
-    };
+    });
     out
   })
 });
@@ -170,10 +170,10 @@ _push_str_bytes :: (fn(buf: *(ArrayList(u8)), s: str) -> unit)({
   p := s.ptr();
   n := s.len();
   k := usize(0);
-  while runtime((k < n)), {
+  while(runtime((k < n)), {
     { buf.*.push((p &+ k).*); };
     k = (k + usize(1));
-  };
+  });
 });
 
 /// Push a String's bytes into an ArrayList(u8).
@@ -181,13 +181,13 @@ _push_string_bytes :: (fn(buf: *(ArrayList(u8)), s: String) -> unit)({
   bytes := s.as_bytes();
   n := bytes.len();
   k := usize(0);
-  while runtime((k < n)), {
+  while(runtime((k < n)), {
     match(bytes.get(k),
       .None => (),
       .Some(b) => { buf.*.push(b); }
     );
     k = (k + usize(1));
-  };
+  });
 });
 
 /// Internal item type for the iterative DFS hash stack.
@@ -213,7 +213,7 @@ compute_content_hash :: (fn(
     stack := ArrayList(_HashWorkItem).new();
     // Push root entries in reversed sorted order
     ri := root_sorted.len();
-    while runtime((ri > usize(0))), {
+    while(runtime((ri > usize(0))), {
       ri = (ri - usize(1));
       match(root_sorted.get(ri),
         .None => (),
@@ -226,11 +226,11 @@ compute_content_hash :: (fn(
           )); };
         }
       );
-    };
+    });
 
-    while runtime((stack.len() > usize(0))), {
+    while(runtime((stack.len() > usize(0))), {
       item := match(stack.pop(),
-        .None => { return String.new(); },
+        .None => { return(String.new()); },
         .Some(it) => it
       );
 
@@ -253,8 +253,8 @@ compute_content_hash :: (fn(
         if((!(is_hidden)), {
           // Hash "dir:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
-          _push_str_bytes((&prefix_bytes), "dir:");
-          _push_string_bytes((&prefix_bytes), item.rel_path);
+          _push_str_bytes((&(prefix_bytes)), "dir:");
+          _push_string_bytes((&(prefix_bytes)), item.rel_path);
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
 
@@ -266,7 +266,7 @@ compute_content_hash :: (fn(
           sub_sorted := sort_dir_entries(sub_entries);
 
           si := sub_sorted.len();
-          while runtime((si > usize(0))), {
+          while(runtime((si > usize(0))), {
             si = (si - usize(1));
             match(sub_sorted.get(si),
               .None => (),
@@ -282,7 +282,7 @@ compute_content_hash :: (fn(
                 )); };
               }
             );
-          };
+          });
         });
       }, {
         // File entry — skip the sidecar hash file
@@ -290,8 +290,8 @@ compute_content_hash :: (fn(
         if((!(is_sidecar)), {
           // Hash "file:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
-          _push_str_bytes((&prefix_bytes), "file:");
-          _push_string_bytes((&prefix_bytes), item.rel_path);
+          _push_str_bytes((&(prefix_bytes)), "file:");
+          _push_string_bytes((&(prefix_bytes)), item.rel_path);
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
 
@@ -304,16 +304,16 @@ compute_content_hash :: (fn(
           hasher = hasher.update(normalized);
         });
       });
-    };
+    });
 
     // Produce "sha256-<hex>"
     digest := hasher.finish();
     hex_bytes := ArrayList(u8).with_capacity(usize(32));
     k := usize(0);
-    while runtime((k < usize(32))), {
+    while(runtime((k < usize(32))), {
       hex_bytes.push(digest(k));
       k = (k + usize(1));
-    };
+    });
     hex := hex_encode(hex_bytes);
     result := String.from("sha256-");
     result.push_string(hex);
@@ -438,14 +438,14 @@ resolve_git_ref :: (fn(
 
     if((text.len() == usize(0)), {
       // Assume ref is already a commit SHA
-      return ref;
+      return(ref);
     });
 
     // Take first non-empty line and split on \t
     lines := text.split(String.from("\n"));
     first_line := match(lines.get(usize(0)),
       .None => {
-        exn.throw(dyn `git ls-remote returned empty output`);
+        exn.throw(dyn(`git ls-remote returned empty output`));
         String.new()
       },
       .Some(l) => l
@@ -453,7 +453,7 @@ resolve_git_ref :: (fn(
     parts := first_line.split(String.from("\t"));
     sha := match(parts.get(usize(0)),
       .None => {
-        exn.throw(dyn `Could not parse git ls-remote output`);
+        exn.throw(dyn(`Could not parse git ls-remote output`));
         String.new()
       },
       .Some(s) => s
@@ -476,7 +476,7 @@ clone_repo :: (fn(
 
     // Return early if already cloned
     already_exists := io.await(exists(Path.new(target_dir)));
-    if(already_exists, { return target_dir; });
+    if(already_exists, { return(target_dir); });
 
     // Use a temp dir for atomic clone
     temp_dir := {
@@ -497,7 +497,7 @@ clone_repo :: (fn(
     if((!(clone_status.success())), {
       clone_fail_msg := String.from("git clone failed for ");
       clone_fail_msg.push_string(url);
-      exn.throw(dyn clone_fail_msg);
+      exn.throw(dyn(clone_fail_msg));
     });
 
     // Try to checkout the specific commit
@@ -532,7 +532,7 @@ clone_repo :: (fn(
       if((!(checkout_st2.success())), {
         checkout_fail_msg := String.from("git checkout failed for commit ");
         checkout_fail_msg.push_string(commit);
-        exn.throw(dyn checkout_fail_msg);
+        exn.throw(dyn(checkout_fail_msg));
       });
     });
 
@@ -604,7 +604,7 @@ fetch_dep :: (fn(
         .None => cached_path,
         .Some(p) => Path.new(cached_path).join(Path.new(p)).to_string()
       );
-      return FetchDepResult(lock_file: lock_file, dep_path: sub_path);
+      return(FetchDepResult(lock_file: lock_file, dep_path: sub_path));
     });
 
     // Resolve git ref
@@ -644,7 +644,7 @@ fetch_dep :: (fn(
           .None => state.cached_path,
           .Some(p) => Path.new(state.cached_path).join(Path.new(p)).to_string()
         );
-        return FetchDepResult(lock_file: updated_lock, dep_path: sub_path);
+        return(FetchDepResult(lock_file: updated_lock, dep_path: sub_path));
       });
 
       // Evict corrupt / hash-mismatch cache entry
@@ -701,11 +701,11 @@ fetch_all_deps :: (fn(
         empty_lock := LockFile(dependencies: ArrayList(LockEntry).new());
         io.await(save_lock_file(Path.new(project_dir), empty_lock));
       });
-      return FetchResult(
+      return(FetchResult(
         resolved_paths: resolved_paths,
         resolved_names: resolved_names,
         lock_file: LockFile(dependencies: ArrayList(LockEntry).new())
-      );
+      ));
     });
 
     lock_file := io.await(read_lock_file(Path.new(project_dir)));
@@ -713,7 +713,7 @@ fetch_all_deps :: (fn(
     i := usize(0);
     current_lock := lock_file;
 
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       match(deps.get(i),
         .None => (),
         .Some(dep) => {
@@ -724,18 +724,18 @@ fetch_all_deps :: (fn(
         }
       );
       i = (i + usize(1));
-    };
+    });
 
     // Prune stale lock entries (deps no longer in build.yo)
     pruned_deps := ArrayList(LockEntry).new();
     k := usize(0);
-    while runtime((k < current_lock.dependencies.len())), {
+    while(runtime((k < current_lock.dependencies.len())), {
       match(current_lock.dependencies.get(k),
         .None => (),
         .Some(entry) => {
           still_declared := false;
           m := usize(0);
-          while runtime((m < deps.len())), {
+          while(runtime((m < deps.len())), {
             match(deps.get(m),
               .None => (),
               .Some(dep) => if((dep.name.as_str() == entry.name.as_str()), {
@@ -743,12 +743,12 @@ fetch_all_deps :: (fn(
               })
             );
             m = (m + usize(1));
-          };
+          });
           if(still_declared, { pruned_deps.push(entry); });
         }
       );
       k = (k + usize(1));
-    };
+    });
 
     final_lock := LockFile(dependencies: pruned_deps);
     io.await(save_lock_file(Path.new(project_dir), final_lock));
@@ -768,14 +768,14 @@ are_deps_cached :: (fn(
   using(io : IO, exn : Exception)
 ) -> Impl(Future(bool, IO, Exception)))(
   io.async((using(io, exn)) => {
-    if((deps.len() == usize(0)), { return true; });
+    if((deps.len() == usize(0)), { return(true); });
 
     lock_file := io.await(read_lock_file(Path.new(project_dir)));
     cache_dir := get_global_deps_cache_dir();
 
     all_cached := true;
     i := usize(0);
-    while runtime(((i < deps.len()) && all_cached)), {
+    while(runtime(((i < deps.len()) && all_cached)), {
       match(deps.get(i),
         .None => (),
         .Some(dep) => {
@@ -792,7 +792,7 @@ are_deps_cached :: (fn(
         }
       );
       i = (i + usize(1));
-    };
+    });
     all_cached
   })
 );
@@ -820,14 +820,14 @@ resolve_dep_path :: (fn(
               missing_hash_msg := String.from("Dependency ");
               missing_hash_msg.push_string(dep_name);
               missing_hash_msg.push_str(" is cached but missing a content hash. Run 'yo fetch' to refresh.");
-              exn.throw(dyn missing_hash_msg);
+              exn.throw(dyn(missing_hash_msg));
               Option(String).None
             },
             .HashMismatch => {
               mismatch_msg := String.from("Dependency ");
               mismatch_msg.push_string(dep_name);
               mismatch_msg.push_str(" failed integrity check. Run 'yo fetch' to refetch.");
-              exn.throw(dyn mismatch_msg);
+              exn.throw(dyn(mismatch_msg));
               Option(String).None
             },
             .Ok =>
@@ -845,8 +845,7 @@ resolve_dep_path :: (fn(
 // Exports
 // ---------------------------------------------------------------------------
 
-export
-  BuildGitDependency,
+export(BuildGitDependency,
   CachedDepStatus,
   CachedDepState,
   FetchDepResult,
@@ -863,5 +862,4 @@ export
   fetch_dep,
   fetch_all_deps,
   are_deps_cached,
-  resolve_dep_path
-;
+  resolve_dep_path);

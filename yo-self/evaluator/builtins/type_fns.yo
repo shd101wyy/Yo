@@ -10,33 +10,33 @@
 //!   evaluate_comptime_string_to_expr, evaluate_type_join_fields,
 //!   evaluate_type_map_variants.
 
-open import "std/string";
-{ ArrayList }                               :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
+open(import("std/string"));
+{ ArrayList }                               :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                     :: import "../../expr/expr_info.yo";
+  expr_info_table_get }                     :: import("../../expr/expr_info.yo");
 { Environment, add_variable_to_env,
-  synthetic_token }                         :: import "../../env/env.yo";
-{ EvalContext, ExpectedTypeCtx }             :: import "../context.yo";
+  synthetic_token }                         :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx }             :: import("../context.yo");
 { EvalValue, is_type_val, is_str_lit,
   is_func_val, is_expr_val, create_unknown_val,
-  create_type_value, type_of_eval_value }   :: import "../value.yo";
+  create_type_value, type_of_eval_value }   :: import("../value.yo");
 { TypeValue, t_unit, t_bool, t_type,
   t_comptime_string, t_comptime_int,
   t_comptime_float, t_expr_t,
   t_comptime_list, is_some_type,
-  is_struct_type, is_enum_type }            :: import "../../types/type.yo";
-{ is_type_hierarchy_type, is_trait_type }   :: import "../../types/guards.yo";
-{ are_types_compatible, are_types_compatible_exact } :: import "../../types/compatibility.yo";
-{ type_to_string }                          :: import "../../types/string.yo";
-{ type_contains_rc_type, can_type_form_rc_cycle } :: import "../../types/utils.yo";
-{ type_implements_trait_bool }              :: import "../trait_checking.yo";
-{ format_error_message }                    :: import "../../error/error.yo";
-{ evaluate_expression }                     :: import "../exprs/expr.yo";
+  is_struct_type, is_enum_type }            :: import("../../types/type.yo");
+{ is_type_hierarchy_type, is_trait_type }   :: import("../../types/guards.yo");
+{ are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
+{ type_to_string }                          :: import("../../types/string.yo");
+{ type_contains_rc_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
+{ type_implements_trait_bool }              :: import("../trait_checking.yo");
+{ format_error_message }                    :: import("../../error/error.yo");
+{ evaluate_expression }                     :: import("../exprs/expr.yo");
 { generate_expr_from_code,
-  generate_exprs_from_code }                :: import "../../parser/parser.yo";
-{ random_id }                               :: import "../utils.yo";
-{ Exception }                               :: import "std/error";
+  generate_exprs_from_code }                :: import("../../parser/parser.yo");
+{ random_id }                               :: import("../utils.yo");
+{ Exception }                               :: import("std/error");
 
 /// Helper: extract a TypeValue from an arg's ExprInfo value, or throw.
 /// If value is .None (runtime expression), throws.
@@ -50,23 +50,23 @@ _extract_type_val :: (fn(
 ) -> TypeValue)(
   match(info.value,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg),
         `${fn_name}: expected a type value, got runtime expression`,
         false,
         .None
-      ));
+      )));
       TypeValue.Unit
     },
     .Some(v) => match(v,
       .TypeVal(tv) => tv.*,
       _ => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg),
           `${fn_name}: expected a TypeVal, got a non-type value`,
           false,
           .None
-        ));
+        )));
         TypeValue.Unit
       }
     )
@@ -81,31 +81,31 @@ evaluate_yo_type_to_string :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_arg  := evaluate_expression(arg0, env, ctx);
   arg_info  := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_type_to_comptime_string: failed to evaluate argument"),
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
 
   if(!(is_type_hierarchy_type(arg_info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg0),
       `__yo_type_to_comptime_string: expected a Type argument, got: ${type_to_string(arg_info.ty)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Default output: unknown comptime_string value.
@@ -122,12 +122,12 @@ evaluate_yo_type_to_string :: (fn(
       _ => ()
     ),
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_type_to_comptime_string: expected type value, got runtime expression"),
         false,
         .None
-      ));
+      )));
     }
   );
 
@@ -143,9 +143,9 @@ evaluate_yo_are_types_compatible :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
 
   // Evaluate expected type (clear expected_type and self_type for arg eval).
   saved_expected := ctx.expected_type;
@@ -160,22 +160,22 @@ evaluate_yo_are_types_compatible :: (fn(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_0)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_are_types_compatible: failed to evaluate first argument"),
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
   if(!(is_type_hierarchy_type(info_0.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg0),
       `__yo_are_types_compatible: expected a Type for first argument, got: ${type_to_string(info_0.ty)}`,
       false,
       .None
-    ));
+    )));
   });
   expected_type := _extract_type_val(arg0, info_0, "__yo_are_types_compatible");
   cur_env       := info_0.env;
@@ -191,22 +191,22 @@ evaluate_yo_are_types_compatible :: (fn(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_1)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_are_types_compatible: failed to evaluate second argument"),
         false,
         .None
-      ));
+      )));
       new_expr_info(cur_env, t_unit())
     }
   );
   if(!(is_type_hierarchy_type(info_1.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg1),
       `__yo_are_types_compatible: expected a Type for second argument, got: ${type_to_string(info_1.ty)}`,
       false,
       .None
-    ));
+    )));
   });
   given_type := _extract_type_val(arg1, info_1, "__yo_are_types_compatible");
   cur_env     = info_1.env;
@@ -228,9 +228,9 @@ evaluate_yo_are_types_equal :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
 
   saved_expected := ctx.expected_type;
   saved_self     := ctx.self_type;
@@ -244,12 +244,12 @@ evaluate_yo_are_types_equal :: (fn(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_0)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_are_types_equal: failed to evaluate first argument"),
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -266,12 +266,12 @@ evaluate_yo_are_types_equal :: (fn(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_1)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_are_types_equal: failed to evaluate second argument"),
         false,
         .None
-      ));
+      )));
       new_expr_info(cur_env, t_unit())
     }
   );
@@ -296,31 +296,31 @@ evaluate_yo_type_contains_rc_type :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_arg := evaluate_expression(arg0, env, ctx);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_type_contains_rc_type: failed to evaluate argument"),
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
 
   if(!(is_type_hierarchy_type(arg_info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg0),
       `__yo_type_contains_rc_type: expected a Type argument, got: ${type_to_string(arg_info.ty)}`,
       false,
       .None
-    ));
+    )));
   });
 
   type_val := _extract_type_val(arg0, arg_info, "__yo_type_contains_rc_type");
@@ -341,31 +341,31 @@ evaluate_yo_type_can_form_rc_cycle :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_arg := evaluate_expression(arg0, env, ctx);
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_type_can_form_rc_cycle: failed to evaluate argument"),
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
 
   if(!(is_type_hierarchy_type(arg_info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg0),
       `__yo_type_can_form_rc_cycle: expected a Type argument, got: ${type_to_string(arg_info.ty)}`,
       false,
       .None
-    ));
+    )));
   });
 
   type_val := _extract_type_val(arg0, arg_info, "__yo_type_can_form_rc_cycle");
@@ -386,33 +386,33 @@ evaluate_yo_type_impls :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
 
   // Evaluate arg0 (the type to check).
   eval0 := evaluate_expression(arg0, env, ctx);
   info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_type_impls: failed to evaluate type argument"),
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
   (cur_env : Environment) = info0.env;
 
   if(!(is_type_hierarchy_type(info0.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg0),
       String.from("__yo_type_impls: expected Type for first argument"),
       false,
       .None
-    ));
+    )));
   });
 
   target_type := _extract_type_val(arg0, info0, "__yo_type_impls", using(exn));
@@ -422,12 +422,12 @@ evaluate_yo_type_impls :: (fn(
   info1 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval1)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_type_impls: failed to evaluate trait argument"),
         false,
         .None
-      ));
+      )));
       new_expr_info(cur_env, t_unit())
     }
   );
@@ -462,18 +462,18 @@ evaluate_yo_type_impls :: (fn(
     out := new_expr_info(cur_env, t_bool());
     out.value = .Some(create_unknown_val(t_bool()));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
-    return expr;
+    return(expr);
   });
 
   trait_type := match(trait_type_opt2,
     .Some(tt) => tt,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_type_impls: expected trait type for second argument"),
         false,
         .None
-      ));
+      )));
       t_unit()
     }
   );
@@ -610,13 +610,13 @@ _ti_bind_type_field_list :: (fn(
   fi_vals := ArrayList(EvalValue).new();
   (i : usize) = usize(0);
   n := labels.len();
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     label    := match(labels.get(i), .Some(l) => l, .None => String.from(""));
     field_ty := match(types.get(i),  .Some(t) => t, .None => t_unit());
     fi_val   := _ti_build_type_field_info(env_ptr, label, field_ty, ctx, using(exn));
     _push    := fi_vals.push(fi_val);
     i = (i + usize(1));
-  };
+  });
   _ti_bind_comptime_list(env_ptr, fi_vals, String.from("TypeFieldInfo"), String.from("fl"), ctx, using(exn))
 });
 
@@ -656,14 +656,14 @@ _ti_bind_variant_info_list :: (fn(
   vi_vals := ArrayList(EvalValue).new();
   (i : usize) = usize(0);
   n := variant_names.len();
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     v_name         := match(variant_names.get(i),        .Some(nm) => nm, .None => String.from(""));
     v_fields       := match(variant_fields.get(i),       .Some(f)  => f,  .None => ArrayList(TypeValue).new());
     v_field_labels := match(variant_field_labels.get(i), .Some(l)  => l,  .None => ArrayList(String).new());
     vi_val         := _ti_build_variant_info(env_ptr, v_name, v_field_labels, v_fields, enum_ty, i, ctx, using(exn));
     _push          := vi_vals.push(vi_val);
     i = (i + usize(1));
-  };
+  });
   _ti_bind_comptime_list(env_ptr, vi_vals, String.from("VariantInfo"), String.from("vl"), ctx, using(exn))
 });
 
@@ -679,18 +679,18 @@ evaluate_yo_type_get_info :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval0 := evaluate_expression(arg0, env, ctx);
   info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_type_get_info: failed to evaluate type argument"),
         false, .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -711,7 +711,7 @@ evaluate_yo_type_get_info :: (fn(
     out          := new_expr_info(local_env, ti_ty);
     out.value    = Option(EvalValue).Some(unknown_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
-    return expr;
+    return(expr);
   });
 
   // Build code string for each TypeValue variant.
@@ -747,11 +747,11 @@ evaluate_yo_type_get_info :: (fn(
       (!(signed) && (bits == u8(32))) => String.from("TypeInfo.U32"),
       (!(signed) && (bits == u8(64))) => String.from("TypeInfo.U64"),
       true => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           String.from("__yo_type_get_info: unsupported Int bits"),
           false, .None
-        ));
+        )));
         String.from("TypeInfo.Unit")
       }
     ),
@@ -804,11 +804,11 @@ evaluate_yo_type_get_info :: (fn(
       (String.from("TypeInfo.Module(") + fl_name) + String.from(")")
     },
     _ => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("__yo_type_get_info: unsupported type variant"),
         false, .None
-      ));
+      )));
       String.from("TypeInfo.Unit")
     }
   );
@@ -822,11 +822,11 @@ evaluate_yo_type_get_info :: (fn(
   result_info := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(result_ast)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("__yo_type_get_info: failed to create TypeInfo value"),
         false, .None
-      ));
+      )));
       new_expr_info(local_env, t_unit())
     }
   );
@@ -845,18 +845,18 @@ evaluate_comptime_eval :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval0 := evaluate_expression(arg0, env, ctx);
   info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("comptime_eval: failed to evaluate argument"),
         false, .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -868,7 +868,7 @@ evaluate_comptime_eval :: (fn(
     out := new_expr_info(local_env, t_unit());
     out.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
-    return expr;
+    return(expr);
   });
 
   // Extract the code string from StrLit.raw.
@@ -886,7 +886,7 @@ evaluate_comptime_eval :: (fn(
   code_exprs := generate_exprs_from_code(code_str.as_str(), using(exn));
   (ci : usize) = usize(0);
   n_exprs    := code_exprs.len();
-  while runtime((ci < n_exprs)), {
+  while(runtime((ci < n_exprs)), {
     code_expr := match(code_exprs.get(ci), .Some(e) => e, .None => make_err_expr());
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = false;
@@ -895,17 +895,17 @@ evaluate_comptime_eval :: (fn(
     ce_info   := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(ce_result)),
       .Some(i) => i,
       .None    => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg0),
           String.from("comptime_eval: failed to evaluate code expression"),
           false, .None
-        ));
+        )));
         new_expr_info(local_env, t_unit())
       }
     );
     local_env = ce_info.env;
     ci = (ci + usize(1));
-  };
+  });
 
   out := new_expr_info(local_env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
@@ -921,18 +921,18 @@ evaluate_comptime_string_to_expr :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval0 := evaluate_expression(arg0, env, ctx);
   info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_comptime_string_to_expr: failed to evaluate argument"),
         false, .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -948,14 +948,14 @@ evaluate_comptime_string_to_expr :: (fn(
         out := new_expr_info(local_env, t_expr_t());
         out.value = Option(EvalValue).Some(unknown_val);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
-        return expr;
+        return(expr);
       },
       .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg0),
           String.from("__yo_comptime_string_to_expr: expected a comptime_string argument"),
           false, .None
-        ));
+        )));
       }
     );
   });
@@ -989,21 +989,21 @@ evaluate_type_join_fields :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
-  arg2 := match(args.get(usize(2)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
+  arg2 := match(args.get(usize(2)), .Some(a) => a, .None => { return(expr); });
 
   // Evaluate T.
   eval0 := evaluate_expression(arg0, env, ctx);
   info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_type_join_fields: failed to evaluate type argument"),
         false, .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -1016,15 +1016,15 @@ evaluate_type_join_fields :: (fn(
     out := new_expr_info(local_env, t_expr_t());
     out.value = Option(EvalValue).Some(unknown_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
-    return expr;
+    return(expr);
   });
 
   if(!(is_struct_type(target_type)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg0),
       String.from("__yo_type_join_fields: expected a struct type"),
       false, .None
-    ));
+    )));
   });
 
   // Evaluate mapper.
@@ -1032,30 +1032,30 @@ evaluate_type_join_fields :: (fn(
   info1 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval1)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_type_join_fields: failed to evaluate mapper"),
         false, .None
-      ));
+      )));
       new_expr_info(local_env, t_unit())
     }
   );
   local_env = info1.env;
   mapper_val := match(info1.value,
     .Some(v) => if(is_func_val(v), v, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_type_join_fields: second argument must be a function"),
         false, .None
-      ));
+      )));
       EvalValue.UnitVal
     }),
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_type_join_fields: mapper is a runtime expression"),
         false, .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -1065,11 +1065,11 @@ evaluate_type_join_fields :: (fn(
   info2 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval2)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg2),
         String.from("__yo_type_join_fields: failed to evaluate combiner"),
         false, .None
-      ));
+      )));
       new_expr_info(local_env, t_unit())
     }
   );
@@ -1078,20 +1078,20 @@ evaluate_type_join_fields :: (fn(
     .Some(v) => match(v,
       .ExprVal(e_box) => e_box.*,
       _ => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg2),
           String.from("__yo_type_join_fields: third argument must be a quoted expression"),
           false, .None
-        ));
+        )));
         make_err_expr()
       }
     ),
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg2),
         String.from("__yo_type_join_fields: combiner is a runtime expression"),
         false, .None
-      ));
+      )));
       make_err_expr()
     }
   );
@@ -1116,17 +1116,17 @@ evaluate_type_join_fields :: (fn(
   );
   n_fields := struct_labels.len();
   if((n_fields == usize(0)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("__yo_type_join_fields: struct has no fields"),
       false, .None
-    ));
+    )));
   });
 
   // For each field, build FieldInfo and call mapper.
   result_exprs := ArrayList(AstExpr).new();
   (si : usize) = usize(0);
-  while runtime((si < n_fields)), {
+  while(runtime((si < n_fields)), {
     label    := match(struct_labels.get(si), .Some(l) => l, .None => String.from(""));
     field_ty := match(struct_types.get(si),  .Some(t) => t, .None => t_unit());
     // Build FieldInfo("label", type_var).
@@ -1158,39 +1158,39 @@ evaluate_type_join_fields :: (fn(
       .Some(v) => match(v,
         .ExprVal(e_box) => e_box.*,
         _ => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(arg1),
-            String.from("__yo_type_join_fields: mapper must return comptime(Expr)"),
+            String.from("__yo_type_join_fields: mapper must return(comptime(Expr))"),
             false, .None
-          ));
+          )));
           make_err_expr()
         }
       ),
       .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg1),
           String.from("__yo_type_join_fields: mapper returned no value"),
           false, .None
-        ));
+        )));
         make_err_expr()
       }
     );
     _push := result_exprs.push(result_expr);
     si = (si + usize(1));
-  };
+  });
 
   // Combine all Exprs left-associatively using combiner token.
   tok := ast_expr_token(combiner_expr);
   (acc_expr : AstExpr) = match(result_exprs.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   (ri : usize) = usize(1);
-  while runtime((ri < result_exprs.len())), {
+  while(runtime((ri < result_exprs.len())), {
     rhs           := match(result_exprs.get(ri), .Some(e) => e, .None => make_err_expr());
     combine_args  := ArrayList(AstExpr).new();
     _p1           := combine_args.push(acc_expr);
     _p2           := combine_args.push(rhs);
     acc_expr      = AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tok)), combine_args, true, tok);
     ri = (ri + usize(1));
-  };
+  });
 
   combined_val := EvalValue.ExprVal(box(acc_expr));
   out          := new_expr_info(local_env, t_expr_t());
@@ -1208,20 +1208,20 @@ evaluate_type_map_variants :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+  arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
 
   // Evaluate T.
   eval0 := evaluate_expression(arg0, env, ctx);
   info0 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval0)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg0),
         String.from("__yo_type_map_variants: failed to evaluate type argument"),
         false, .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -1235,15 +1235,15 @@ evaluate_type_map_variants :: (fn(
     out := new_expr_info(local_env, list_type);
     out.value = Option(EvalValue).Some(unknown_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
-    return expr;
+    return(expr);
   });
 
   if(!(is_enum_type(target_type)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg0),
       String.from("__yo_type_map_variants: expected an enum type"),
       false, .None
-    ));
+    )));
   });
 
   // Evaluate mapper.
@@ -1251,30 +1251,30 @@ evaluate_type_map_variants :: (fn(
   info1 := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval1)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_type_map_variants: failed to evaluate mapper"),
         false, .None
-      ));
+      )));
       new_expr_info(local_env, t_unit())
     }
   );
   local_env = info1.env;
   mapper_val := match(info1.value,
     .Some(v) => if(is_func_val(v), v, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_type_map_variants: second argument must be a function"),
         false, .None
-      ));
+      )));
       EvalValue.UnitVal
     }),
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg1),
         String.from("__yo_type_map_variants: mapper is a runtime expression"),
         false, .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -1296,7 +1296,7 @@ evaluate_type_map_variants :: (fn(
   result_vals := ArrayList(EvalValue).new();
   (vi : usize) = usize(0);
   n_variants  := variant_names.len();
-  while runtime((vi < n_variants)), {
+  while(runtime((vi < n_variants)), {
     v_name         := match(variant_names.get(vi),        .Some(nm) => nm, .None => String.from(""));
     v_fields       := match(variant_fields.get(vi),       .Some(f)  => f,  .None => ArrayList(TypeValue).new());
     v_field_labels := match(variant_field_labels.get(vi), .Some(l)  => l,  .None => ArrayList(String).new());
@@ -1325,17 +1325,17 @@ evaluate_type_map_variants :: (fn(
     result_ev := match(call_info.value,
       .Some(v) => v,
       .None    => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg1),
           String.from("__yo_type_map_variants: mapper returned no value"),
           false, .None
-        ));
+        )));
         EvalValue.UnitVal
       }
     );
     _push := result_vals.push(result_ev);
     vi = (vi + usize(1));
-  };
+  });
 
   // Return a ComptimeList(Expr).
   list_type := t_comptime_list(t_expr_t());
@@ -1346,8 +1346,8 @@ evaluate_type_map_variants :: (fn(
   expr
 });
 
-export evaluate_yo_are_types_compatible, evaluate_yo_are_types_equal,
+export(evaluate_yo_are_types_compatible, evaluate_yo_are_types_equal,
        evaluate_yo_type_can_form_rc_cycle, evaluate_yo_type_contains_rc_type,
        evaluate_yo_type_impls, evaluate_yo_type_to_string, evaluate_yo_type_get_info,
        evaluate_comptime_eval, evaluate_comptime_string_to_expr,
-       evaluate_type_join_fields, evaluate_type_map_variants;
+       evaluate_type_join_fields, evaluate_type_map_variants);

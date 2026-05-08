@@ -10,25 +10,25 @@
 //!   - Stores `ExprInfo` in the ExprInfoTable; if all elements have compile-time
 //!     values, the array value is also stored.
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
-{ ArrayList }                                             :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr }  :: import "../../expr/expr.yo";
+{ ArrayList }                                             :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr }  :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }              :: import "../../expr/expr_info.yo";
-{ Environment }                                          :: import "../../env/env.yo";
-{ EvalContext, ExpectedTypeCtx }                         :: import "../context.yo";
-{ EvalValue }                                            :: import "../value.yo";
-{ TypeValue, t_array, t_usize, is_array_type }           :: import "../../types/type.yo";
-{ are_types_compatible }                                 :: import "../../types/compatibility.yo";
-{ convert_comptime_type_to_runtime_type }                :: import "../../types/utils.yo";
-{ type_to_string }                                       :: import "../../types/string.yo";
-{ format_error_message }                                 :: import "../../error/error.yo";
-{ Exception }                                            :: import "std/error";
-{ evaluate_expression }                                  :: import "../exprs/expr.yo";
+  expr_info_table_get, expr_info_table_set }              :: import("../../expr/expr_info.yo");
+{ Environment }                                          :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx }                         :: import("../context.yo");
+{ EvalValue }                                            :: import("../value.yo");
+{ TypeValue, t_array, t_usize, is_array_type }           :: import("../../types/type.yo");
+{ are_types_compatible }                                 :: import("../../types/compatibility.yo");
+{ convert_comptime_type_to_runtime_type }                :: import("../../types/utils.yo");
+{ type_to_string }                                       :: import("../../types/string.yo");
+{ format_error_message }                                 :: import("../../error/error.yo");
+{ Exception }                                            :: import("std/error");
+{ evaluate_expression }                                  :: import("../exprs/expr.yo");
 { set_expr_as_needs_to_call_dup,
-  attach_temp_variable_to_expr }                         :: import "../utils.yo";
+  attach_temp_variable_to_expr }                         :: import("../utils.yo");
 
 evaluate_array_value :: (fn(
   expr : AstExpr,
@@ -45,12 +45,12 @@ evaluate_array_value :: (fn(
   // Disallow empty arrays.
   array_len := args.len();
   if((array_len == usize(0)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected at least one element in array, got ${array_len}`,
       false,
       .None
-    ));
+    )));
   });
 
   // If the context expects an array type, use its element type as a hint.
@@ -72,7 +72,7 @@ evaluate_array_value :: (fn(
   (runtime_arg_exprs    : ArrayList(AstExpr))        = ArrayList(AstExpr).new();
 
   (i : usize) = usize(0);
-  while runtime((i < array_len)), {
+  while(runtime((i < array_len)), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
 
     // Save/restore expected_type around element evaluation.
@@ -89,12 +89,12 @@ evaluate_array_value :: (fn(
 
     elem_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem));
     if(elem_info_opt.is_none(), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg),
         `Failed to evaluate array element`,
         false,
         .None
-      ));
+      )));
     });
     elem_info := match(elem_info_opt,
       .Some(info) => info,
@@ -128,12 +128,12 @@ evaluate_array_value :: (fn(
               true    => {
                 inferred_str := type_to_string(inferred_ty);
                 elem_str     := type_to_string(elem_ty);
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   ast_expr_token(arg),
                   `Array element type mismatch:\nExpected type: ${inferred_str}\nGiven type: ${elem_str}`,
                   false,
                   .None
-                ));
+                )));
                 Option(TypeValue).Some(inferred_ty)  // unreachable
               }
             )
@@ -143,18 +143,18 @@ evaluate_array_value :: (fn(
     );
 
     i = (i + usize(1));
-  };
+  });
 
   // Unwrap the final element type (always set after the loop since array_len > 0).
   array_elem_type := match(array_elem_type_opt,
     .Some(ty) => ty,
     .None     => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `Failed to infer array element type`,
         false,
         .None
-      ));
+      )));
       t_usize()  // unreachable
     }
   );
@@ -164,23 +164,23 @@ evaluate_array_value :: (fn(
   // Build a compile-time ArrayVal if every element has a compile-time value.
   (all_have_values : bool) = true;
   (check_i : usize) = usize(0);
-  while runtime(((check_i < element_values.len()) && all_have_values)), {
+  while(runtime(((check_i < element_values.len()) && all_have_values)), {
     opt_v := match(element_values.get(check_i), .Some(x) => x, .None => Option(EvalValue).None);
     if(opt_v.is_none(), {
       all_have_values = false;
     });
     check_i = (check_i + usize(1));
-  };
+  });
 
   (array_value_opt : Option(EvalValue)) = cond(
     all_have_values => {
       (elems : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
       (build_i : usize) = usize(0);
-      while runtime((build_i < element_values.len())), {
+      while(runtime((build_i < element_values.len())), {
         opt_v := match(element_values.get(build_i), .Some(x) => x, .None => Option(EvalValue).None);
         match(opt_v, .Some(v) => { elems.push(v); }, .None => ());
         build_i = (build_i + usize(1));
-      };
+      });
       Option(EvalValue).Some(EvalValue.ArrayVal(elems))
     },
     true => Option(EvalValue).None
@@ -197,4 +197,4 @@ evaluate_array_value :: (fn(
   expr
 });
 
-export evaluate_array_value;
+export(evaluate_array_value);

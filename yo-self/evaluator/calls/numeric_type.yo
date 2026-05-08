@@ -7,28 +7,28 @@
 //!   `is_convertible_numeric_type`    — checks whether a type supports `type(value)` cast syntax.
 //!   `try_to_convert_to_numeric_type` — attempts to cast an argument to a numeric type.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
 { AstExpr, ExprId, ast_expr_token, ast_expr_id, ast_expr_to_string, make_err_expr,
-  BF_YO_AS }                                                     :: import "../../expr/expr.yo";
+  BF_YO_AS }                                                     :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }                     :: import "../../expr/expr_info.yo";
-{ Environment }                                                  :: import "../../env/env.yo";
+  expr_info_table_get, expr_info_table_set }                     :: import("../../expr/expr_info.yo");
+{ Environment }                                                  :: import("../../env/env.yo");
 { TypeValue,
-  is_float_type, is_numeric_type }                               :: import "../../types/type.yo";
+  is_float_type, is_numeric_type }                               :: import("../../types/type.yo");
 { is_comptime_int_type, is_comptime_float_type,
-  is_c_compatible_type, is_enum_type }                           :: import "../../types/guards.yo";
-{ IntRange, get_integer_type_range }                             :: import "../../types/utils.yo";
-{ type_to_string }                                               :: import "../../types/string.yo";
-{ EvalContext }                                                   :: import "../context.yo";
+  is_c_compatible_type, is_enum_type }                           :: import("../../types/guards.yo");
+{ IntRange, get_integer_type_range }                             :: import("../../types/utils.yo");
+{ type_to_string }                                               :: import("../../types/string.yo");
+{ EvalContext }                                                   :: import("../context.yo");
 { EvalValue, create_unknown_val,
-  is_int_lit, is_float_lit, is_enum_val }                        :: import "../value.yo";
-{ parse_raw_int }                                                :: import "../utils.yo";
-{ evaluate_expression }                                          :: import "../exprs/expr.yo";
-{ format_error_message }                                         :: import "../../error/error.yo";
-{ Token, TokenKind }                                             :: import "../../lexer/token.yo";
-{ Exception }                                                    :: import "std/error";
+  is_int_lit, is_float_lit, is_enum_val }                        :: import("../value.yo");
+{ parse_raw_int }                                                :: import("../utils.yo");
+{ evaluate_expression }                                          :: import("../exprs/expr.yo");
+{ format_error_message }                                         :: import("../../error/error.yo");
+{ Token, TokenKind }                                             :: import("../../lexer/token.yo");
+{ Exception }                                                    :: import("std/error");
 
 /// Return the numeric bounds `[min, max]` for `type_val`, or `.None` if the type
 /// has no fixed bounds (floats, ComptimeInt, non-numeric types).
@@ -71,7 +71,7 @@ _get_enum_discriminant :: (fn(
   n := variant_names.len();
   (i : usize) = usize(0);
   (result : Option(i64)) = Option(i64).None;
-  while runtime(((i < n) && result.is_none())), {
+  while(runtime(((i < n) && result.is_none())), {
     match(variant_names.get(i),
       .Some(name) => {
         if((name.as_str() == stripped.as_str()), {
@@ -84,7 +84,7 @@ _get_enum_discriminant :: (fn(
       .None => ()
     );
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -95,13 +95,13 @@ _int_raw_in_range :: (fn(raw : String, range : IntRange) -> bool)({
   match(i_opt,
     .Some(iv) => {
       if((iv < range.min), {
-        return false;
+        return(false);
       });
       if((iv >= i64(0)), {
         match(String.from(raw.as_str()).parse_u64(),
           .Some(uv) => {
             if((uv > range.max), {
-              return false;
+              return(false);
             });
           },
           .None => ()
@@ -128,12 +128,12 @@ _make_comptime_info :: (fn(
   match(bounds_opt,
     .Some(bounds) => {
       if(!((_int_raw_in_range(raw, bounds))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           expr_tok,
           `Value ${raw} is out of range for type ${type_to_string(target_type)} (${bounds.min.to_string()} to ${bounds.max.to_string()})`,
           false,
           .None
-        ));
+        )));
       });
     },
     .None => ()
@@ -190,7 +190,7 @@ try_to_convert_to_numeric_type :: (fn(
   using(exn   : Exception)
 ) -> Option(AstExpr))({
   if(!(is_convertible_numeric_type(target_type)), {
-    return Option(AstExpr).None;
+    return(Option(AstExpr).None);
   });
 
   // Evaluate the argument with no expectedType (let it resolve its natural type).
@@ -201,12 +201,12 @@ try_to_convert_to_numeric_type :: (fn(
 
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   if(info_opt.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`,
       false,
       .None
-    ));
+    )));
   });
   arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
 
@@ -229,12 +229,12 @@ try_to_convert_to_numeric_type :: (fn(
                   match(_get_enum_discriminant(variant, vnames, discs),
                     .Some(d) => { enum_disc_raw = .Some(d.to_string()); },
                     .None    => {
-                      exn.throw(dyn format_error_message(
+                      exn.throw(dyn(format_error_message(
                         ast_expr_token(arg_expr),
                         `Failed to get discriminant for enum variant "${variant}"`,
                         false,
                         .None
-                      ));
+                      )));
                     }
                   );
                 },
@@ -253,7 +253,7 @@ try_to_convert_to_numeric_type :: (fn(
         if(is_numeric_type(target_type), {
           out_info := _make_comptime_info(disc_raw, target_type, env, ast_expr_token(expr), using(exn));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-          return .Some(expr);
+          return(.Some(expr));
         });
       },
       .None => ()
@@ -267,12 +267,12 @@ try_to_convert_to_numeric_type :: (fn(
       !(is_comptime_int_type(arg_type))        &&
       !(is_comptime_float_type(arg_type))      &&
       !(is_enum_type(arg_type))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       `Cannot convert ${type_to_string(arg_type)} to ${type_to_string(target_type)}. Expected a numeric type.`,
       false,
       .None
-    ));
+    )));
   });
 
   // -----------------------------------------------------------------------
@@ -298,7 +298,7 @@ try_to_convert_to_numeric_type :: (fn(
       if(is_numeric_type(target_type), {
         out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), using(exn));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-        return .Some(expr);
+        return(.Some(expr));
       });
     },
     .None => ()
@@ -309,12 +309,12 @@ try_to_convert_to_numeric_type :: (fn(
   // -----------------------------------------------------------------------
   if((is_comptime_int_type(target_type) || is_comptime_float_type(target_type)), {
     if(comptime_raw.is_none(), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `Cannot convert runtime value to ${type_to_string(target_type)}. Only compile-time values can be converted to ${type_to_string(target_type)}.`,
         false,
         .None
-      ));
+      )));
     });
     // comptime_raw is Some here — already handled in Case 1 (unreachable)
   });
@@ -330,13 +330,13 @@ try_to_convert_to_numeric_type :: (fn(
         // Already covered by Case 1, but handle here for completeness.
         out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), using(exn));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-        return .Some(expr);
+        return(.Some(expr));
       },
       .None => {
         out_info := new_expr_info(env, target_type);
         out_info.value = .Some(create_unknown_val(target_type));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-        return .Some(expr);
+        return(.Some(expr));
       }
     );
   });
@@ -353,7 +353,7 @@ try_to_convert_to_numeric_type :: (fn(
     out_info := new_expr_info(env, target_type);
     out_info.value = .None;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), out_info);
-    return .Some(yo_as_node);
+    return(.Some(yo_as_node));
   });
 
   // -----------------------------------------------------------------------
@@ -366,17 +366,17 @@ try_to_convert_to_numeric_type :: (fn(
       .Some(expr)
     },
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("Unexpected case in numeric type conversion"),
         false,
         .None
-      ));
+      )));
       Option(AstExpr).None
     }
   )
 });
 
-export get_numeric_bounds;
-export is_convertible_numeric_type;
-export try_to_convert_to_numeric_type;
+export(get_numeric_bounds);
+export(is_convertible_numeric_type);
+export(try_to_convert_to_numeric_type);

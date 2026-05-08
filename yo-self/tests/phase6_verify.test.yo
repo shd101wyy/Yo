@@ -5,13 +5,13 @@
 /// These tests use the skip-prelude directive so we don't need to load the real prelude;
 /// the macro and call site live in the same source.
 
-open import "std/string";
-open import "std/fmt";
-open import "std/error";
-{ ArrayList } :: import "std/collections/array_list";
-{ Token, TokenKind }    :: import "../lexer/token.yo";
-{ EvalValue }           :: import "../evaluator/value.yo";
-{ has_comment_attribute, Evaluator } :: import "../evaluator/index.yo";
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Token, TokenKind }    :: import("../lexer/token.yo");
+{ EvalValue }           :: import("../evaluator/value.yo");
+{ has_comment_attribute, Evaluator } :: import("../evaluator/index.yo");
 
 noop_loader :: (fn(_path : String) -> Option(EvalValue))(
   Option(EvalValue).None
@@ -21,9 +21,9 @@ noop_loader :: (fn(_path : String) -> Option(EvalValue))(
 // Sanity check that the "proper" Evaluator path actually evaluates a tiny
 // program. This must work before anything else.
 // ---------------------------------------------------------------------------
-test "Phase6 verify: trivial export with skip_prelude evaluates cleanly", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
-  src := String.from("// @skip_prelude\nx := 1;\nexport x;\n");
+test("Phase6 verify: trivial export(with skip_prelude evaluates cleanly)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
+  src := String.from("// @skip_prelude\nx := 1;\nexport(x);\n");
   eval := Evaluator.new(
     String.from("<verify1>"),
     String.from("<no-std>"),
@@ -35,14 +35,14 @@ test "Phase6 verify: trivial export with skip_prelude evaluates cleanly", {
     .Some(_) => { assert(false, "unexpected module_error on trivial source"); },
     .None    => ()
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // quote(<atom>) — should produce an ExprVal wrapping the atom.
 // ---------------------------------------------------------------------------
-test "Phase6 verify: quote(42) produces ExprVal", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
-  src := String.from("// @skip_prelude\nq := quote(42);\nexport q;\n");
+test("Phase6 verify: quote(42) produces ExprVal", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
+  src := String.from("// @skip_prelude\nq := quote(42);\nexport(q);\n");
   eval := Evaluator.new(
     String.from("<verify2>"),
     String.from("<no-std>"),
@@ -63,7 +63,7 @@ test "Phase6 verify: quote(42) produces ExprVal", {
         (found_idx : Option(usize)) = .None;
         (i : usize) = usize(0);
         n := names.len();
-        while runtime((i < n)), {
+        while(runtime((i < n)), {
           match(names.get(i),
             .Some(nm) => cond(
               (nm.as_str() == "q") => { found_idx = .Some(i); },
@@ -72,7 +72,7 @@ test "Phase6 verify: quote(42) produces ExprVal", {
             .None => ()
           );
           i = (i + usize(1));
-        };
+        });
         match(found_idx,
           .None       => { assert(false, "q not in module exports"); },
           .Some(idx)  => match(values.get(idx),
@@ -87,16 +87,16 @@ test "Phase6 verify: quote(42) produces ExprVal", {
       _ => { assert(false, "module value is not ModuleVal"); }
     )
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // quote(unquote(<expr>)) — should evaluate the inner unquote and splice.
 // Bind y := quote(7), then z := quote(unquote(y)) — z should equal quote(7).
 // We just verify z is an ExprVal (deeper structural equality is harder).
 // ---------------------------------------------------------------------------
-test "Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
-  src := String.from("// @skip_prelude\ny := quote(7);\nz := quote(unquote(y));\nexport z;\n");
+test("Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
+  src := String.from("// @skip_prelude\ny := quote(7);\nz := quote(unquote(y));\nexport(z);\n");
   eval := Evaluator.new(
     String.from("<verify3>"),
     String.from("<no-std>"),
@@ -115,7 +115,7 @@ test "Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
         (found_idx : Option(usize)) = .None;
         (i : usize) = usize(0);
         n := names.len();
-        while runtime((i < n)), {
+        while(runtime((i < n)), {
           match(names.get(i),
             .Some(nm) => cond(
               (nm.as_str() == "z") => { found_idx = .Some(i); },
@@ -124,7 +124,7 @@ test "Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
             .None => ()
           );
           i = (i + usize(1));
-        };
+        });
         match(found_idx,
           .None      => { assert(false, "z not in module exports"); },
           .Some(idx) => match(values.get(idx),
@@ -139,4 +139,4 @@ test "Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
       _ => { assert(false, "module value is not ModuleVal"); }
     )
   );
-};
+});

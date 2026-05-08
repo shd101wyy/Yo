@@ -7,23 +7,23 @@
 //!   __yo_comptime_bool_and, __yo_comptime_bool_or, __yo_comptime_bool_eq,
 //!   __yo_comptime_bool_neq (binary)
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_to_string, ast_expr_is_fn_call_of,
   BF_COMPTIME_BOOL_NOT, BF_COMPTIME_BOOL_TO_COMPTIME_STRING,
   BF_COMPTIME_BOOL_AND, BF_COMPTIME_BOOL_OR,
-  BF_COMPTIME_BOOL_EQ,  BF_COMPTIME_BOOL_NEQ }      :: import "../../expr/expr.yo";
+  BF_COMPTIME_BOOL_EQ,  BF_COMPTIME_BOOL_NEQ }      :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                              :: import "../../expr/expr_info.yo";
-{ Environment }                                      :: import "../../env/env.yo";
-{ EvalContext }                                      :: import "../context.yo";
-{ EvalValue, is_bool_val, create_unknown_val }       :: import "../value.yo";
-{ TypeValue }                                        :: import "../../types/type.yo";
-{ t_bool, t_comptime_string, is_bool_type }          :: import "../../types/type.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ evaluate_expression }                              :: import "../exprs/expr.yo";
-{ Exception }                                        :: import "std/error";
+  expr_info_table_get }                              :: import("../../expr/expr_info.yo");
+{ Environment }                                      :: import("../../env/env.yo");
+{ EvalContext }                                      :: import("../context.yo");
+{ EvalValue, is_bool_val, create_unknown_val }       :: import("../value.yo");
+{ TypeValue }                                        :: import("../../types/type.yo");
+{ t_bool, t_comptime_string, is_bool_type }          :: import("../../types/type.yo");
+{ format_error_message }                             :: import("../../error/error.yo");
+{ evaluate_expression }                              :: import("../exprs/expr.yo");
+{ Exception }                                        :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // Helper — evaluate one argument and validate it is bool type with a value.
@@ -41,22 +41,22 @@ eval_bool_arg :: (fn(
   info         := match(info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg),
         `Expected bool type for comptime_bool argument, got:\n${ast_expr_to_string(arg)}`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_bool())
     }
   );
   if(!(is_bool_type(info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg),
       `Expected bool type for comptime_bool argument, got:\n${ast_expr_to_string(arg)}`,
       false,
       .None
-    ));
+    )));
   });
   info
 });
@@ -72,10 +72,10 @@ evaluate_yo_comptime_boolean_functions :: (fn(
     ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING, .Some(usize(1)))
   );
 
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
 
   if(is_unary, {
-    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
     ai   := eval_bool_arg(arg0, env, ctx);
     (cur_env : Environment) = ai.env;
 
@@ -95,12 +95,12 @@ evaluate_yo_comptime_boolean_functions :: (fn(
           .None => create_unknown_val(t_comptime_string())
         ),
       true => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           String.from("Unexpected unary comptime_bool function"),
           false,
           .None
-        ));
+        )));
         EvalValue.UnitVal
       }
     );
@@ -111,8 +111,8 @@ evaluate_yo_comptime_boolean_functions :: (fn(
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // Binary operations: lhs and rhs.
-    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-    arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+    arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
 
     lhs_info := eval_bool_arg(arg0, env, ctx);
     rhs_info := eval_bool_arg(arg1, lhs_info.env, ctx);
@@ -179,12 +179,12 @@ evaluate_yo_comptime_boolean_functions :: (fn(
           .None => create_unknown_val(t_bool())
         ),
       true => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           `Unexpected function call for comptime_bool binary operations:\n${ast_expr_to_string(expr)}`,
           false,
           .None
-        ));
+        )));
         EvalValue.UnitVal
       }
     );
@@ -197,4 +197,4 @@ evaluate_yo_comptime_boolean_functions :: (fn(
   expr
 });
 
-export evaluate_yo_comptime_boolean_functions;
+export(evaluate_yo_comptime_boolean_functions);

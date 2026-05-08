@@ -6,16 +6,16 @@
 //!   - Self, SelfTrait, SelfModule context references
 //!   - Variable lookup with closure-capture tracking
 
-open import "std/string";
+open(import("std/string"));
 
-{ ArrayList }                       :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id } :: import "../../expr/expr.yo";
+{ ArrayList }                       :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set }
-  :: import "../../expr/expr_info.yo";
-{ Token }                           :: import "../../lexer/token.yo";
-{ Environment, Variable, get_variables_from_env } :: import "../../env/env.yo";
+  :: import("../../expr/expr_info.yo");
+{ Token }                           :: import("../../lexer/token.yo");
+{ Environment, Variable, get_variables_from_env } :: import("../../env/env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage }
-  :: import "../context.yo";
+  :: import("../context.yo");
 { TypeValue,
   t_unit, t_bool, t_void,
   t_i8, t_i16, t_i32, t_i64,
@@ -27,13 +27,13 @@ open import "std/string";
   t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint,
   t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble,
   is_some_type, is_function_type }
-  :: import "../../types/type.yo";
-{ is_type_hierarchy_type }          :: import "../../types/guards.yo";
+  :: import("../../types/type.yo");
+{ is_type_hierarchy_type }          :: import("../../types/guards.yo");
 { EvalValue, create_type_value, is_type_value, is_unknown_val }
-  :: import "../value.yo";
-{ get_value_of_some_type_from_env } :: import "../../types/env_lookup.yo";
-{ format_error_message, ErrorKind } :: import "../../error/error.yo";
-{ Exception }                       :: import "std/error";
+  :: import("../value.yo");
+{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
+{ format_error_message, ErrorKind } :: import("../../error/error.yo");
+{ Exception }                       :: import("std/error");
 
 /// Evaluate an identifier or operator expression.
 ///
@@ -99,7 +99,7 @@ evaluate_identifier_and_operator :: (fn(
       info := new_expr_info(env, t_type());
       info.value = Option(EvalValue).Some(ev);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-      return expr;
+      return(expr);
     },
     .None => ()
   );
@@ -119,7 +119,7 @@ evaluate_identifier_and_operator :: (fn(
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return expr;
+    return(expr);
   });
 
   // ------------------------------------------------------------------
@@ -132,7 +132,7 @@ evaluate_identifier_and_operator :: (fn(
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return expr;
+    return(expr);
   });
 
   // ------------------------------------------------------------------
@@ -145,7 +145,7 @@ evaluate_identifier_and_operator :: (fn(
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return expr;
+    return(expr);
   });
 
   // ------------------------------------------------------------------
@@ -154,36 +154,36 @@ evaluate_identifier_and_operator :: (fn(
   identifier_string := token.value;
   variables := get_variables_from_env(env, identifier_string);
   if((variables.len() == usize(0)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       token,
       (String.from("Variable \"") + identifier_string) + String.from("\" not found."),
       false,
       Option(ErrorKind).None
-    ));
+    )));
   });
 
   variable := match(variables.get((variables.len() - usize(1))),
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         token,
         (String.from("Variable \"") + identifier_string) + String.from("\" not found (internal)."),
         false,
         Option(ErrorKind).None
-      ));
-      return expr;
+      )));
+      return(expr);
     }
   );
 
   // Check initialization (unless it's a function type or type value — mutual recursion)
   if(((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined), {
     if(!(is_function_type(variable.ty) || is_type_value(variable.value)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         token,
         (String.from("Variable \"") + identifier_string) + String.from("\" is not initialized"),
         false,
         Option(ErrorKind).None
-      ));
+      )));
     });
   });
 
@@ -251,4 +251,4 @@ evaluate_identifier_and_operator :: (fn(
   expr
 });
 
-export evaluate_identifier_and_operator;
+export(evaluate_identifier_and_operator);

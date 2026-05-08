@@ -8,24 +8,24 @@
 //! Note: `addRcFunctionsToIsoType` is not yet implemented (same status as
 //! `addRcFunctionsToDynType` in dyn.yo — deferred, returns env unchanged).
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
-{ AstExpr, ast_expr_token, ast_expr_id }       :: import "../../expr/expr.yo";
+{ AstExpr, ast_expr_token, ast_expr_id }       :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get,
-  expr_info_table_set }                         :: import "../../expr/expr_info.yo";
-{ Variable, Environment, get_variables_from_env } :: import "../../env/env.yo";
-{ TypeValue, t_iso, t_type }                   :: import "../../types/type.yo";
-{ is_iso_type }                                :: import "../../types/guards.yo";
-{ type_to_string }                              :: import "../../types/string.yo";
-{ can_type_form_rc_cycle }                      :: import "../../types/utils.yo";
-{ EvalContext, ExpectedTypeCtx }                :: import "../context.yo";
-{ EvalValue, create_type_value, is_type_value } :: import "../value.yo";
-{ set_variable_as_consumed }                    :: import "../builtins/consume.yo";
-{ attach_temp_variable_to_expr }                :: import "../utils.yo";
-{ evaluate_expression }                         :: import "../exprs/expr.yo";
-{ format_error_message }                        :: import "../../error/error.yo";
-{ Exception }                                   :: import "std/error";
+  expr_info_table_set }                         :: import("../../expr/expr_info.yo");
+{ Variable, Environment, get_variables_from_env } :: import("../../env/env.yo");
+{ TypeValue, t_iso, t_type }                   :: import("../../types/type.yo");
+{ is_iso_type }                                :: import("../../types/guards.yo");
+{ type_to_string }                              :: import("../../types/string.yo");
+{ can_type_form_rc_cycle }                      :: import("../../types/utils.yo");
+{ EvalContext, ExpectedTypeCtx }                :: import("../context.yo");
+{ EvalValue, create_type_value, is_type_value } :: import("../value.yo");
+{ set_variable_as_consumed }                    :: import("../builtins/consume.yo");
+{ attach_temp_variable_to_expr }                :: import("../utils.yo");
+{ evaluate_expression }                         :: import("../exprs/expr.yo");
+{ format_error_message }                        :: import("../../error/error.yo");
+{ Exception }                                   :: import("std/error");
 
 /// Evaluate an Iso type-constructor call, e.g. `Iso(Box(i32))`.
 ///
@@ -44,11 +44,11 @@ evaluate_iso_type_call :: (fn(
   arg_exprs := match(expr,
     .FnCall(_, _, args, _, _) => args,
     _ => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `evaluate_iso_type_call: expected FnCall expr`,
         false, .None
-      ));
+      )));
       ArrayList(AstExpr).new()
     }
   );
@@ -56,34 +56,34 @@ evaluate_iso_type_call :: (fn(
   arg_expr := match(arg_exprs.get(usize(0)),
     .Some(a) => a,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `Iso requires exactly one argument`,
         false, .None
-      ));
-      return expr;
+      )));
+      return(expr);
     }
   );
 
   evaluated_arg := evaluate_expression(arg_expr, env, ctx);
   arg_info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
   if(arg_info_opt.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       `Failed to evaluate the argument expression for Iso`,
       false, .None
-    ));
+    )));
   });
   arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, TypeValue.Unit));
   env = arg_info.env;
 
   // Check that the argument is a type value.
   if(!(is_type_value(arg_info.value)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       `Iso expects a type as argument`,
       false, .None
-    ));
+    )));
   });
   // EvalValue.TypeVal has a Box(TypeValue) — extract the child type.
   eval_val_opt := arg_info.value;
@@ -114,7 +114,7 @@ _join_strings :: (fn(items : ArrayList(String), sep : String) -> String)({
   result := String.from("");
   n := items.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(items.get(i),
       .Some(s) => {
         if((i > usize(0)), {
@@ -125,7 +125,7 @@ _join_strings :: (fn(items : ArrayList(String), sep : String) -> String)({
       .None => ()
     );
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -135,12 +135,12 @@ _find_rc_aliases :: (fn(env : Environment, owner_id : String) -> ArrayList(Strin
   result := ArrayList(String).new();
   n_frames := env.frames.len();
   (fi : usize) = usize(0);
-  while runtime((fi < n_frames)), {
+  while(runtime((fi < n_frames)), {
     match(env.frames.get(fi),
       .Some(frame) => {
         n_vars := frame.variables.len();
         (vi : usize) = usize(0);
-        while runtime((vi < n_vars)), {
+        while(runtime((vi < n_vars)), {
           match(frame.variables.get(vi),
             .Some(v) => {
               same_owner_id := match(v.is_owning_the_same_rc_value_as,
@@ -154,12 +154,12 @@ _find_rc_aliases :: (fn(env : Environment, owner_id : String) -> ArrayList(Strin
             .None => ()
           );
           vi = (vi + usize(1));
-        };
+        });
       },
       .None => ()
     );
     fi = (fi + usize(1));
-  };
+  });
   result
 });
 
@@ -193,12 +193,12 @@ evaluate_iso_value_call :: (fn(
   arg_expr := match(arg_exprs.get(usize(0)),
     .Some(a) => a,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `Iso value constructor requires exactly one argument`,
         false, .None
-      ));
-      return expr;
+      )));
+      return(expr);
     }
   );
 
@@ -210,11 +210,11 @@ evaluate_iso_value_call :: (fn(
 
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
   if(arg_info_opt.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       `Failed to evaluate argument for Iso value constructor`,
       false, .None
-    ));
+    )));
   });
   arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, TypeValue.Unit));
   env = arg_info.env;
@@ -226,30 +226,30 @@ evaluate_iso_value_call :: (fn(
       n_vars    := variables.len();
       if((n_vars > usize(0)), {
         variable := match(variables.get((n_vars - usize(1))), .Some(v) => v, .None => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(arg_expr),
             `Variable ${var_name} not found in env.`,
             false, .None
-          ));
-          return expr;
+          )));
+          return(expr);
         });
 
         // Check if the type may form RC cycles.
         if(can_type_form_rc_cycle(variable.ty), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(arg_expr),
             `Cannot isolate variable ${var_name} because its type may form RC cycles.`,
             false, .None
-          ));
+          )));
         });
 
         // Check that the variable owns its RC value.
         if(!(variable.is_owning_the_rc_value), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(arg_expr),
             `Cannot isolate variable ${var_name} because it does not own its RC value.`,
             false, .None
-          ));
+          )));
         });
 
         // Check for aliases: look for variables whose is_owning_the_same_rc_value_as
@@ -259,18 +259,18 @@ evaluate_iso_value_call :: (fn(
         if((alias_names.len() > usize(0)), {
           // Build comma-separated list.
           alias_list := _join_strings(alias_names, String.from(", "));
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(arg_expr),
             `Cannot isolate ${var_name}, also owned by: ${alias_list}\nIso requires unique ownership (no aliases). Drop other aliases first.`,
             false, .None
-          ));
+          )));
         });
       }, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg_expr),
           `Variable ${var_name} not found in the environment.`,
           false, .None
-        ));
+        )));
       });
     },
     .None => ()
@@ -296,5 +296,5 @@ evaluate_iso_value_call :: (fn(
   expr
 });
 
-export evaluate_iso_type_call;
-export evaluate_iso_value_call;
+export(evaluate_iso_type_call);
+export(evaluate_iso_value_call);

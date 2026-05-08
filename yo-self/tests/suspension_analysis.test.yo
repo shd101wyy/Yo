@@ -1,16 +1,16 @@
 //! Tests for yo-self/evaluator/shared/suspension_analysis.yo
 //! Mirrors src/evaluator/shared/suspension-analysis.ts
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ SuspensionPoint, SuspensionAnalysisResult } :: import "../evaluator/shared/suspension_analysis_types.yo";
-{ AstExpr, ast_expr_is_fn_call_of } :: import "../expr/expr.yo";
-{ TokenKind, Token } :: import "../lexer/token.yo";
-{ ExprInfo, new_expr_info } :: import "../expr/expr_info.yo";
-{ Environment } :: import "../env/env.yo";
-{ TypeValue, t_unit } :: import "../types/type.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ SuspensionPoint, SuspensionAnalysisResult } :: import("../evaluator/shared/suspension_analysis_types.yo");
+{ AstExpr, ast_expr_is_fn_call_of } :: import("../expr/expr.yo");
+{ TokenKind, Token } :: import("../lexer/token.yo");
+{ ExprInfo, new_expr_info } :: import("../expr/expr_info.yo");
+{ Environment } :: import("../env/env.yo");
+{ TypeValue, t_unit } :: import("../types/type.yo");
 { SuspensionPointDetector, extract_target_variable_id, analyze_suspension_points
-} :: import "../evaluator/shared/suspension_analysis.yo";
+} :: import("../evaluator/shared/suspension_analysis.yo");
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -74,7 +74,7 @@ make_detect_all_detector :: (fn() -> SuspensionPointDetector)(
       idx := points.len();
       sp := SuspensionPoint(
         index:                      idx,
-        expr:                       (&expr).clone(),
+        expr:                       (&(expr)).clone(),
         target_variable_id:         Option(String).None,
         is_inside_cond:             Option(bool).None,
         is_inside_while:            Option(bool).None,
@@ -93,20 +93,20 @@ make_detect_all_detector :: (fn() -> SuspensionPointDetector)(
 // extract_target_variable_id
 // ---------------------------------------------------------------------------
 
-test "extract_target_variable_id: None parent => None", {
+test("extract_target_variable_id: None parent => None", {
   result := extract_target_variable_id(Option(AstExpr).None, get_info_none);
   is_none := match(result, .None => true, .Some(_) => false);
-  assert(is_none, "should return None for None parent");
-};
+  assert(is_none, "should return(None for None parent)");
+});
 
-test "extract_target_variable_id: non-assign parent => None", {
+test("extract_target_variable_id: non-assign parent => None", {
   parent := make_fncall_expr("io.await");
   result := extract_target_variable_id(Option(AstExpr).Some(parent), get_info_none);
   is_none := match(result, .None => true, .Some(_) => false);
-  assert(is_none, "non-:= parent should return None");
-};
+  assert(is_none, "non-:= parent should return(None)");
+});
 
-test "extract_target_variable_id: := parent but get_info returns None => None", {
+test("extract_target_variable_id: := parent but get_info returns None => None", {
   // x := io.await(task)
   rhs    := make_fncall_expr("io.await");
   parent := make_assign_expr("x", rhs);
@@ -114,34 +114,34 @@ test "extract_target_variable_id: := parent but get_info returns None => None", 
   // get_info_none returns None, so no variable info → result is None
   is_none := match(result, .None => true, .Some(_) => false);
   assert(is_none, "no env info means no variable ID found");
-};
+});
 
 // ---------------------------------------------------------------------------
 // analyze_suspension_points — no suspensions
 // ---------------------------------------------------------------------------
 
-test "analyze_suspension_points: atom body — no suspensions", {
+test("analyze_suspension_points: atom body — no suspensions", {
   body     := make_ident_expr("x");
   detector := make_noop_detector();
   result   := analyze_suspension_points(body, get_info_none, detector);
   assert(!(result.has_suspensions),                      "no suspensions");
   assert((result.suspension_points.len() == usize(0)),   "no suspension points");
   assert((result.captured_variables.len() == usize(0)), "no captured vars");
-};
+});
 
-test "analyze_suspension_points: fncall body — noop detector → 0 points", {
+test("analyze_suspension_points: fncall body — noop detector → 0 points", {
   body     := make_fncall_expr("some_call");
   detector := make_noop_detector();
   result   := analyze_suspension_points(body, get_info_none, detector);
   assert(!(result.has_suspensions),                    "no suspensions");
   assert((result.suspension_points.len() == usize(0)), "noop detector adds nothing");
-};
+});
 
 // ---------------------------------------------------------------------------
 // analyze_suspension_points — with suspension detection
 // ---------------------------------------------------------------------------
 
-test "analyze_suspension_points: fncall body — detect_all detector → 1 point", {
+test("analyze_suspension_points: fncall body — detect_all detector → 1 point", {
   // Body is a single FnCall: `io.await(task)`.
   body     := make_fncall_expr("io.await");
   detector := make_detect_all_detector();
@@ -151,9 +151,9 @@ test "analyze_suspension_points: fncall body — detect_all detector → 1 point
   // triggered once (for the FnCall). The func Atom goes to the Atom branch.
   assert(result.has_suspensions,                       "has suspensions");
   assert((result.suspension_points.len() == usize(1)), "one suspension point");
-};
+});
 
-test "analyze_suspension_points: nested fncall — detect_all detects outer + inner", {
+test("analyze_suspension_points: nested fncall — detect_all detects outer + inner", {
   // Body: outer_call(inner_call())
   inner := make_fncall_expr("inner_call");
   args  := ArrayList(AstExpr).new();
@@ -168,9 +168,9 @@ test "analyze_suspension_points: nested fncall — detect_all detects outer + in
   result   := analyze_suspension_points(outer, get_info_none, detector);
   // detect fires for both outer_call FnCall and inner_call FnCall → 2 points
   assert((result.suspension_points.len() == usize(2)), "two suspension points");
-};
+});
 
-test "analyze_suspension_points: suspension point index is sequential", {
+test("analyze_suspension_points: suspension point index is sequential", {
   inner := make_fncall_expr("a");
   args  := ArrayList(AstExpr).new();
   args.push(inner);
@@ -186,11 +186,11 @@ test "analyze_suspension_points: suspension point index is sequential", {
   sp1 := match(result.suspension_points.get(usize(1)), .None => { assert(false, "sp1 missing"); SuspensionPoint(index: usize(99), expr: make_ident_expr("?"), target_variable_id: Option(String).None, is_inside_cond: Option(bool).None, is_inside_while: Option(bool).None, while_nesting_depth: Option(usize).None, cond_branch_source_index: Option(usize).None, needs_own_cond_branch_field: Option(bool).None, enclosing_while_expr: Option(AstExpr).None) }, .Some(p) => p);
   assert((sp0.index == usize(0)), "first point index 0");
   assert((sp1.index == usize(1)), "second point index 1");
-};
+});
 
-test "analyze_suspension_points: variable_id_remapping starts empty", {
+test("analyze_suspension_points: variable_id_remapping starts empty", {
   body     := make_ident_expr("x");
   detector := make_noop_detector();
   result   := analyze_suspension_points(body, get_info_none, detector);
   assert((result.variable_id_remapping.len() == usize(0)), "no remappings");
-};
+});

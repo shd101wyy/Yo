@@ -11,23 +11,23 @@
 //!
 //! This mirrors `src/version-cache.ts`.
 
-open import "std/string";
-open import "std/fmt";
-{ Command }                 :: import "std/process/command";
-{ AnyError, Exception }     :: import "std/error";
-{ ArrayList }               :: import "std/collections/array_list";
-{ Path }                    :: import "std/path";
-{ read_string, exists }     :: import "std/fs/file";
+open(import("std/string"));
+open(import("std/fmt"));
+{ Command }                 :: import("std/process/command");
+{ AnyError, Exception }     :: import("std/error");
+{ ArrayList }               :: import("std/collections/array_list");
+{ Path }                    :: import("std/path");
+{ read_string, exists }     :: import("std/fs/file");
 { FileType,
   create_dir_all, read_dir,
   remove_dir, remove_file,
-  rename }                  :: import "std/fs/dir";
-{ walk_with, WalkOptions }  :: import "std/fs/walker";
-{ TempDir }                 :: import "std/fs/temp";
+  rename }                  :: import("std/fs/dir");
+{ walk_with, WalkOptions }  :: import("std/fs/walker");
+{ TempDir }                 :: import("std/fs/temp");
 {
   get_global_versions_cache_dir,
   get_version_cache_dir
-}                           :: import "../cache/cache.yo";
+}                           :: import("../cache/cache.yo");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -49,7 +49,7 @@ _remove_dir_all :: (fn(
     opts := WalkOptions(max_depth: .None, follow_symlinks: false, include_dirs: true);
     entries := io.await(walk_with(path, opts));
     n := entries.len();
-    while runtime((n > usize(0))), {
+    while(runtime((n > usize(0))), {
       n = (n - usize(1));
       match(entries.get(n),
         .None => (),
@@ -59,7 +59,7 @@ _remove_dir_all :: (fn(
             _ => { io.await(remove_file(entry.path)); }
           )
       );
-    };
+    });
     io.await(remove_dir(path));
   })
 );
@@ -123,7 +123,7 @@ _json_extract_version_keys :: (fn(json: String) -> ArrayList(String))({
       in_string := false;
       escape_next := false;
 
-      while runtime(((pos < json_len) && (depth > i32(0)))), {
+      while(runtime(((pos < json_len) && (depth > i32(0)))), {
         byte_opt := bytes.get(pos);
         pos = (pos + usize(1));     // advance BEFORE dispatch
         match(byte_opt,
@@ -163,7 +163,7 @@ _json_extract_version_keys :: (fn(json: String) -> ArrayList(String))({
             });
           }
         );
-      };
+      });
       result
     }
   )
@@ -199,16 +199,16 @@ _sort_by_semver :: (fn(versions: ArrayList(String)) -> ArrayList(String))({
   result := ArrayList(String).with_capacity(n);
   added := ArrayList(bool).with_capacity(n);
   i := usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     added.push(false);
     i = (i + usize(1));
-  };
+  });
   selected := usize(0);
-  while runtime((selected < n)), {
+  while(runtime((selected < n)), {
     min_idx := usize(0);
     found := false;
     j := usize(0);
-    while runtime((j < n)), {
+    while(runtime((j < n)), {
       flag := match(added.get(j), .None => true, .Some(f) => f);
       if((!(flag)), {
         if((!(found)), {
@@ -221,14 +221,14 @@ _sort_by_semver :: (fn(versions: ArrayList(String)) -> ArrayList(String))({
         });
       });
       j = (j + usize(1));
-    };
+    });
     match(versions.get(min_idx), .None => (), .Some(v) => { result.push(v); });
     match(added.ptr(),
       .None => (),
       .Some(p) => { (p &+ min_idx).* = true; }
     );
     selected = (selected + usize(1));
-  };
+  });
   result
 });
 
@@ -244,14 +244,14 @@ is_version_cached :: (fn(
   io.async((using(io, exn)) => {
     version_dir := get_version_cache_dir(version);
     dir_exists := io.await(exists(Path.new(version_dir)));
-    if((!(dir_exists)), { return false; });
+    if((!(dir_exists)), { return(false); });
 
     pkg_json_path := {
       p := version_dir.concat(String.from("/package.json"));
       p
     };
     pkg_exists := io.await(exists(Path.new(pkg_json_path)));
-    if((!(pkg_exists)), { return false; });
+    if((!(pkg_exists)), { return(false); });
 
     // Check if dependencies need to be installed.
     // Reads package.json to check whether "dependencies" key is non-empty.
@@ -264,7 +264,7 @@ is_version_cached :: (fn(
     if(has_deps, {
       node_modules_path := version_dir.concat(String.from("/node_modules"));
       nm_exists := io.await(exists(Path.new(node_modules_path)));
-      if((!(nm_exists)), { return false; });
+      if((!(nm_exists)), { return(false); });
     });
 
     true
@@ -279,12 +279,12 @@ list_cached_versions :: (fn(
   io.async((using(io, exn)) => {
     versions_dir := get_global_versions_cache_dir();
     dir_exists := io.await(exists(Path.new(versions_dir)));
-    if((!(dir_exists)), { return ArrayList(String).new(); });
+    if((!(dir_exists)), { return(ArrayList(String).new()); });
 
     entries := io.await(read_dir(Path.new(versions_dir)));
     versions := ArrayList(String).new();
     i := usize(0);
-    while runtime((i < entries.len())), {
+    while(runtime((i < entries.len())), {
       match(entries.get(i),
         .None => (),
         .Some(entry) => {
@@ -296,7 +296,7 @@ list_cached_versions :: (fn(
         }
       );
       i = (i + usize(1));
-    };
+    });
     _sort_by_semver(versions)
   })
 );
@@ -335,14 +335,14 @@ install_dependencies :: (fn(
   io.async((using(io, exn)) => {
     pkg_json_path := version_dir.concat(String.from("/package.json"));
     pkg_exists := io.await(exists(Path.new(pkg_json_path)));
-    if((!(pkg_exists)), { return (); });
+    if((!(pkg_exists)), { return(()); });
 
     content     := io.await(read_string(Path.new(pkg_json_path)));
     has_key     := content.contains(String.from("\"dependencies\""));
     is_empty_1  := content.contains(String.from("\"dependencies\":{}"));
     is_empty_2  := content.contains(String.from("\"dependencies\": {}"));
     has_deps    := (has_key && ((!(is_empty_1)) && (!(is_empty_2))));
-    if((!(has_deps)), { return (); });
+    if((!(has_deps)), { return(()); });
 
     println(String.from("Installing dependencies..."));
 
@@ -353,14 +353,14 @@ install_dependencies :: (fn(
     npm_cmd.arg(String.from("-c"));
     npm_cmd.arg(npm_script);
     npm_out := io.await(npm_cmd.output());
-    if(npm_out.status.success(), { return (); });
+    if(npm_out.status.success(), { return(()); });
 
     bun_script := `cd '${version_dir}' && bun install --production`;
     bun_cmd := Command.new(String.from("sh"));
     bun_cmd.arg(String.from("-c"));
     bun_cmd.arg(bun_script);
     bun_out := io.await(bun_cmd.output());
-    if(bun_out.status.success(), { return (); });
+    if(bun_out.status.success(), { return(()); });
 
     eprintln(String.from(
       "Warning: Could not install dependencies for cached version. Some features may not work. Install npm or bun to resolve this."
@@ -388,7 +388,7 @@ _http_get :: (fn(
     if((!(out.status.success())), {
       msg := String.from("HTTP request failed for: ");
       msg.push_string(url);
-      exn.throw(dyn msg);
+      exn.throw(dyn(msg));
     });
     String.from_bytes(out.stdout)
   })
@@ -414,7 +414,7 @@ _download_file :: (fn(
     if((!(out.status.success())), {
       msg := String.from("Failed to download: ");
       msg.push_string(url);
-      exn.throw(dyn msg);
+      exn.throw(dyn(msg));
     });
     ()
   })
@@ -432,14 +432,14 @@ _fetch_tarball_url :: (fn(
     // npm returns {"error":"Not found"} for non-existent versions.
     if((body.contains(String.from("\"error\":"))), {
       msg := `Yo version ${version} is not available on npm.\nRun 'yo version list --remote'`;
-      exn.throw(dyn msg);
+      exn.throw(dyn(msg));
     });
 
     tarball_opt := _json_string_for_key(body, String.from("tarball"));
     match(tarball_opt,
       .None => {
         msg := `No tarball URL found for @shd101wyy/yo@${version} in npm registry`;
-        exn.throw(dyn msg);
+        exn.throw(dyn(msg));
         String.new()
       },
       .Some(tarball_url) => tarball_url
@@ -478,14 +478,14 @@ download_version :: (fn(
     tar_cmd.arg(tmp_path_str);
     tar_out := io.await(tar_cmd.output());
     if((!(tar_out.status.success())), {
-      exn.throw(dyn `Failed to extract tarball for Yo v${version}`);
+      exn.throw(dyn(`Failed to extract tarball for Yo v${version}`));
     });
 
     // 5. Move contents from `package/` to the version cache directory.
     extracted_dir := `${tmp_path_str}/package`;
     extracted_exists := io.await(exists(Path.new(extracted_dir)));
     if((!(extracted_exists)), {
-      exn.throw(dyn `Unexpected tarball structure: no 'package/' directory found`);
+      exn.throw(dyn(`Unexpected tarball structure: no 'package/' directory found`));
     });
 
     // Remove any existing partial extraction.
@@ -517,7 +517,7 @@ ensure_cached_version :: (fn(
   io.async((using(io, exn)) => {
     cached := io.await(is_version_cached(version));
     if(cached, {
-      return get_version_cache_dir(version);
+      return(get_version_cache_dir(version));
     });
     io.await(download_version(version))
   })
@@ -548,15 +548,16 @@ find_js_runtime :: (fn(
     node_cmd := Command.new(String.from("node"));
     node_cmd.arg(String.from("--version"));
     node_out := io.await(node_cmd.output());
-    if(node_out.status.success(), { return String.from("node"); });
+    if(node_out.status.success(), { return(String.from("node")); });
 
     // Try bun.
     bun_cmd := Command.new(String.from("bun"));
     bun_cmd.arg(String.from("--version"));
     bun_out := io.await(bun_cmd.output());
-    if(bun_out.status.success(), { return String.from("bun"); });
+    if(bun_out.status.success(), { return(String.from("bun")); });
 
-    exn.throw(dyn `No JavaScript runtime found. Install Node.js (https://nodejs.org) or Bun (https://bun.sh) to use version management.`);
+    exn.throw(dyn(`No JavaScript runtime found. Install Node.js (https://nodejs.org) or Bun (https://bun.sh) to use version management.`
+));
     String.new()
   })
 );
@@ -565,8 +566,7 @@ find_js_runtime :: (fn(
 // Exports
 // ---------------------------------------------------------------------------
 
-export
-  compare_semver,
+export(compare_semver,
   is_version_cached,
   list_cached_versions,
   clean_version_cache,
@@ -574,5 +574,4 @@ export
   download_version,
   ensure_cached_version,
   fetch_remote_versions,
-  find_js_runtime
-;
+  find_js_runtime);

@@ -7,20 +7,20 @@
 //! Since `type_contains_rc_type` is currently a stub returning `false`, those
 //! paths are unreachable and only the simple (non-RC) path is implemented here.
 
-open import "std/string";
-{ AstExpr, ast_expr_token, ast_expr_id }         :: import "../../expr/expr.yo";
+open(import("std/string"));
+{ AstExpr, ast_expr_token, ast_expr_id }         :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                          :: import "../../expr/expr_info.yo";
-{ Environment }                                  :: import "../../env/env.yo";
-{ EvalContext }                                  :: import "../context.yo";
-{ EvalValue }                                    :: import "../value.yo";
-{ TypeValue }                                    :: import "../../types/type.yo";
-{ t_unit }                                       :: import "../../types/type.yo";
-{ type_contains_rc_type }                        :: import "../../types/utils.yo";
-{ format_error_message }                         :: import "../../error/error.yo";
-{ set_variable_as_consumed }                     :: import "./consume.yo";
-{ evaluate_expression }                          :: import "../exprs/expr.yo";
-{ Exception }                                    :: import "std/error";
+  expr_info_table_get }                          :: import("../../expr/expr_info.yo");
+{ Environment }                                  :: import("../../env/env.yo");
+{ EvalContext }                                  :: import("../context.yo");
+{ EvalValue }                                    :: import("../value.yo");
+{ TypeValue }                                    :: import("../../types/type.yo");
+{ t_unit }                                       :: import("../../types/type.yo");
+{ type_contains_rc_type }                        :: import("../../types/utils.yo");
+{ format_error_message }                         :: import("../../error/error.yo");
+{ set_variable_as_consumed }                     :: import("./consume.yo");
+{ evaluate_expression }                          :: import("../exprs/expr.yo");
+{ Exception }                                    :: import("std/error");
 
 evaluate_drop :: (fn(
   expr : AstExpr,
@@ -28,8 +28,8 @@ evaluate_drop :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_arg     := evaluate_expression(arg_expr, env, ctx);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
@@ -37,16 +37,16 @@ evaluate_drop :: (fn(
   match(arg_info_opt,
     .Some(_) => (),
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("___drop: failed to evaluate the argument expression."),
         false,
         .None
-      ));
+      )));
     }
   );
 
-  arg_info     := match(arg_info_opt, .Some(i) => i, .None => { return expr; });
+  arg_info     := match(arg_info_opt, .Some(i) => i, .None => { return(expr); });
   (cur_env : Environment) = arg_info.env;
   arg_type     := arg_info.ty;
   variable_name_opt := arg_info.variable_name;
@@ -78,4 +78,4 @@ evaluate_drop :: (fn(
   expr
 });
 
-export evaluate_drop;
+export(evaluate_drop);

@@ -7,21 +7,21 @@
 ///   - `_ := rhs` — discard: renamed to temp var (ExprInfo.variable_name set)
 ///   - `given(name) := handler` — given wrapper detection
 
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 
-{ Token, TokenKind }             :: import "../lexer/token.yo";
+{ Token, TokenKind }             :: import("../lexer/token.yo");
 { AstExpr, ast_expr_id, BK_INIT_ASSIGN, BK_CONST, BK_GIVEN,
-  make_err_expr }                :: import "../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get } :: import "../expr/expr_info.yo";
-{ Environment, Variable, add_variable_to_env }                        :: import "../env/env.yo";
-{ EvalContext, eval_context_new }                       :: import "../evaluator/context.yo";
-{ EvalValue }                                           :: import "../evaluator/value.yo";
-{ TypeValue, t_bool, t_i32, t_unit }                    :: import "../types/type.yo";
-{ set_evaluate_expression_fn }                          :: import "../evaluator/exprs/expr.yo";
-{ evaluate_initialization_assignment }                  :: import "../evaluator/exprs/init_assignment.yo";
-{ Exception } :: import "std/error";
+  make_err_expr }                :: import("../expr/expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../expr/expr_info.yo");
+{ Environment, Variable, add_variable_to_env }                        :: import("../env/env.yo");
+{ EvalContext, eval_context_new }                       :: import("../evaluator/context.yo");
+{ EvalValue }                                           :: import("../evaluator/value.yo");
+{ TypeValue, t_bool, t_i32, t_unit }                    :: import("../types/type.yo");
+{ set_evaluate_expression_fn }                          :: import("../evaluator/exprs/expr.yo");
+{ evaluate_initialization_assignment }                  :: import("../evaluator/exprs/init_assignment.yo");
+{ Exception } :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // Helpers — shared across all tests
@@ -106,7 +106,7 @@ stub_eval_i32 :: (fn(
 /// Returns true iff evaluate_initialization_assignment throws on invalid shape.
 test_invalid_shape_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(throw: ((err) -> { escape true; }));
+  given(exn) := Exception(throw: ((err) -> { escape(true); }));
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   (env : Environment) = Environment.new(String.from("test"));
   env.push_frame(false);
@@ -121,17 +121,17 @@ test_invalid_shape_throws :: (fn() -> bool)({
   false
 });
 
-test "init_assign: invalid shape (not := or ::) throws", {
+test("init_assign: invalid shape (not := or ::) throws", {
   assert(test_invalid_shape_throws(), "expected error for invalid shape");
-};
+});
 
 // ---------------------------------------------------------------------------
 // evaluate_initialization_assignment — happy path :=
 // ---------------------------------------------------------------------------
 
-test "init_assign: name := rhs adds variable to env", {
+test("init_assign: name := rhs adds variable to env", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
 
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   (env : Environment) = Environment.new(String.from("test"));
@@ -158,15 +158,15 @@ test "init_assign: name := rhs adds variable to env", {
     .Some(_) => (),
     .None    => assert(false, "ExprInfo not set for init assign result")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // evaluate_initialization_assignment — happy path ::
 // ---------------------------------------------------------------------------
 
-test "init_assign: name :: rhs adds non-reassignable variable to env", {
+test("init_assign: name :: rhs adds non-reassignable variable to env", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
 
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   (env : Environment) = Environment.new(String.from("test"));
@@ -188,15 +188,15 @@ test "init_assign: name :: rhs adds non-reassignable variable to env", {
     },
     .None => assert(false, "variable constvar not found in env")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // evaluate_initialization_assignment — discard `_ :=`
 // ---------------------------------------------------------------------------
 
-test "init_assign: _ := rhs renames to temp var", {
+test("init_assign: _ := rhs renames to temp var", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
 
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   (env : Environment) = Environment.new(String.from("test"));
@@ -218,7 +218,7 @@ test "init_assign: _ := rhs renames to temp var", {
     ),
     .None => assert(false, "ExprInfo not set for _ init assign result")
   );
-};
+});
 
 // NOTE: Duplicate variable declaration error is not yet tested here because
 // yo-self's add_variable_to_env does not yet implement the shadowing check

@@ -28,18 +28,18 @@
 //!
 
 
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap }   :: import "std/collections/hash_map";
-{ TypeValue }  :: import "../types/type.yo";
-{ EvalValue }  :: import "../evaluator/value.yo";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap }   :: import("std/collections/hash_map");
+{ TypeValue }  :: import("../types/type.yo");
+{ EvalValue }  :: import("../evaluator/value.yo");
 { AstExpr, ExprId,
   ast_expr_is_fn_call_of, ast_expr_is_atom_of, make_err_expr,
-  BK_COND, BK_MATCH, BK_RETURN, BF_ESCAPE, BK_BREAK } :: import "./expr.yo";
-{ Environment, Variable, Frame } :: import "../env/env.yo";
-{ AwaitAnalysisResult }  :: import "../evaluator/async/await_analysis_types.yo";
-{ EffectAnalysisResult } :: import "../evaluator/effects/effect_analysis_types.yo";
+  BK_COND, BK_MATCH, BK_RETURN, BF_ESCAPE, BK_BREAK } :: import("./expr.yo");
+{ Environment, Variable, Frame } :: import("../env/env.yo");
+{ AwaitAnalysisResult }  :: import("../evaluator/async/await_analysis_types.yo");
+{ EffectAnalysisResult } :: import("../evaluator/effects/effect_analysis_types.yo");
 
 // ---------------------------------------------------------------------------
 // Path and PathCollection
@@ -71,14 +71,14 @@ path_collection_new :: (fn() -> PathCollection)(
 path_contains_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) -> bool)({
   n1 := path1.len();
   n2 := path2.len();
-  if((n1 < n2), { return false; });
+  if((n1 < n2), { return(false); });
   i := usize(0);
-  while runtime((i < n2)), {
+  while(runtime((i < n2)), {
     s1 := match(path1.get(i), .Some(s) => s, .None => String.from(""));
     s2 := match(path2.get(i), .Some(s) => s, .None => String.from("~"));
-    if((s1 != s2), { return false; });
+    if((s1 != s2), { return(false); });
     i = (i + usize(1));
-  };
+  });
   true
 });
 
@@ -99,16 +99,16 @@ path_collection_conflicts_with_path_collection :: (fn(
   n1 := c1.len();
   n2 := c2.len();
   i := usize(0);
-  while runtime((i < n1)), {
+  while(runtime((i < n1)), {
     p1 := match(c1.get(i), .Some(p) => p, .None => ArrayList(String).new());
     j := usize(0);
-    while runtime((j < n2)), {
+    while(runtime((j < n2)), {
       p2 := match(c2.get(j), .Some(p) => p, .None => ArrayList(String).new());
-      if(path_conflicts_with_path(p1, p2), { return true; });
+      if(path_conflicts_with_path(p1, p2), { return(true); });
       j = (j + usize(1));
-    };
+    });
     i = (i + usize(1));
-  };
+  });
   false
 });
 
@@ -170,7 +170,7 @@ control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)({
 /// due to codegen bug (see issues/struct-literal-in-match-arm-not-assigned.md).
 has_control_flow :: (fn(cf : Option(ControlFlowFlags), kind : ControlFlowKind) -> bool)({
   f := match(cf,
-    .None    => { return false; },
+    .None    => { return(false); },
     .Some(x) => x
   );
   match(kind,
@@ -186,7 +186,7 @@ has_control_flow :: (fn(cf : Option(ControlFlowFlags), kind : ControlFlowKind) -
 /// Mirrors `hasAnyControlFlow` in `src/expr.ts`.
 has_any_control_flow :: (fn(cf : Option(ControlFlowFlags)) -> bool)({
   f := match(cf,
-    .None    => { return false; },
+    .None    => { return(false); },
     .Some(x) => x
   );
   (f.return_flag || (f.escape_flag || (f.break_flag || f.continue_flag)))
@@ -202,7 +202,7 @@ merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFl
   c := false;
   n := flows.len();
   i := usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     cf := match(flows.get(i),
       .Some(f) => f,
       .None    => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: false, continue_flag: false)
@@ -212,7 +212,7 @@ merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFl
     if(cf.break_flag,    { b = true; });
     if(cf.continue_flag, { c = true; });
     i = (i + usize(1));
-  };
+  });
   ControlFlowFlags(return_flag: r, escape_flag: e, break_flag: b, continue_flag: c)
 });
 
@@ -460,20 +460,20 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
     },
     .FnCall(_, fn_box, args, _, _) => {
       // return / escape as a direct function call
-      if(ast_expr_is_fn_call_of(expr, BK_RETURN, .None), { return true; });
-      if(ast_expr_is_fn_call_of(expr, BF_ESCAPE, .None), { return true; });
+      if(ast_expr_is_fn_call_of(expr, BK_RETURN, .None), { return(true); });
+      if(ast_expr_is_fn_call_of(expr, BF_ESCAPE, .None), { return(true); });
       // => is a function boundary: do not recurse into it
-      if(ast_expr_is_fn_call_of(expr, "=>", .None), { return false; });
+      if(ast_expr_is_fn_call_of(expr, "=>", .None), { return(false); });
       // cond/match: recurse into branch parts directly (bypassing => at arg level)
       (is_cond_or_match : bool) = (
         ast_expr_is_fn_call_of(expr, BK_COND, .None) ||
         ast_expr_is_fn_call_of(expr, BK_MATCH, .None)
       );
       if(is_cond_or_match, {
-        if(recur(fn_box.*), { return true; });
+        if(recur(fn_box.*), { return(true); });
         (n_cm : usize) = args.len();
         (i_cm : usize) = usize(0);
-        while runtime((i_cm < n_cm)), {
+        while(runtime((i_cm < n_cm)), {
           arg := match(args.get(i_cm), .Some(a) => a, .None => make_err_expr());
           if(ast_expr_is_fn_call_of(arg, "=>", .None), {
             // Branch arrow: recurse into each child (condition and body)
@@ -482,29 +482,29 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
               .FnCall(_, _, branch_args, _, _) => {
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
-                while runtime((j < n_ba)), {
+                while(runtime((j < n_ba)), {
                   ba := match(branch_args.get(j), .Some(a) => a, .None => make_err_expr());
-                  if(recur(ba), { return true; });
+                  if(recur(ba), { return(true); });
                   j = (j + usize(1));
-                };
+                });
               }
             );
           }, {
-            if(recur(arg), { return true; });
+            if(recur(arg), { return(true); });
           });
           i_cm = (i_cm + usize(1));
-        };
-        return false;
+        });
+        return(false);
       });
       // General case: recurse into func and all args
-      if(recur(fn_box.*), { return true; });
+      if(recur(fn_box.*), { return(true); });
       (n : usize) = args.len();
       (i : usize) = usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
-        if(recur(arg), { return true; });
+        if(recur(arg), { return(true); });
         i = (i + usize(1));
-      };
+      });
       false
     }
   )
@@ -513,12 +513,12 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
 
 
 
-export Path, PathCollection, path_collection_new;
-export path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection;
-export ControlFlowKind, ControlFlowFlags;
-export control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string;
-export ComptimeRef;
-export RuntimeDestructuring;
-export ExprInfo, new_expr_info;
-export ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get;
-export expr_contains_loop_terminator;
+export(Path, PathCollection, path_collection_new);
+export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
+export(ControlFlowKind, ControlFlowFlags);
+export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string);
+export(ComptimeRef);
+export(RuntimeDestructuring);
+export(ExprInfo, new_expr_info);
+export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
+export(expr_contains_loop_terminator);

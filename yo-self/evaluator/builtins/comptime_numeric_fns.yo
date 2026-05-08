@@ -6,23 +6,23 @@
 //! all numeric types: comptime_int, comptime_float, i8/u8, i16/u16,
 //! i32/u32, i64/u64, isize/usize, f32/f64.
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_to_string }                        :: import "../../expr/expr.yo";
+  ast_expr_to_string }                        :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                       :: import "../../expr/expr_info.yo";
-{ Environment }                               :: import "../../env/env.yo";
-{ EvalContext }                               :: import "../context.yo";
-{ EvalValue, create_unknown_val }             :: import "../value.yo";
+  expr_info_table_get }                       :: import("../../expr/expr_info.yo");
+{ Environment }                               :: import("../../env/env.yo");
+{ EvalContext }                               :: import("../context.yo");
+{ EvalValue, create_unknown_val }             :: import("../value.yo");
 { TypeValue,
-  t_bool, t_comptime_int, t_comptime_string }  :: import "../../types/type.yo";
+  t_bool, t_comptime_int, t_comptime_string }  :: import("../../types/type.yo");
 { is_unsigned_integer_type, is_c_compatible_type,
-  is_float_type }                             :: import "../../types/guards.yo";
-{ format_error_message }                      :: import "../../error/error.yo";
-{ evaluate_expression }                       :: import "../exprs/expr.yo";
-{ parse_raw_int, parse_raw_float }            :: import "../utils.yo";
-{ Exception }                                 :: import "std/error";
+  is_float_type }                             :: import("../../types/guards.yo");
+{ format_error_message }                      :: import("../../error/error.yo");
+{ evaluate_expression }                       :: import("../exprs/expr.yo");
+{ parse_raw_int, parse_raw_float }            :: import("../utils.yo");
+{ Exception }                                 :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // str_lit_quote: wrap an unquoted string with double-quote chars.
@@ -45,20 +45,20 @@ apply_bounds :: (fn(n : i64, ty : TypeValue) -> i64)(
         (abs_n % i64(256))
       },
       ((bits == u8(8)) && signed) =>
-        if((n > i64(127)), i64(127), if((n < i64(-128)), i64(-128), n)),
+        if((n > i64(127)), i64(127), if((n < i64(-(128))), i64(-(128)), n)),
       ((bits == u8(16)) && !(signed)) => {
         abs_n := if((n >= i64(0)), n, (i64(0) - n));
         (abs_n % i64(65536))
       },
       ((bits == u8(16)) && signed) =>
-        if((n > i64(32767)), i64(32767), if((n < i64(-32768)), i64(-32768), n)),
+        if((n > i64(32767)), i64(32767), if((n < i64(-(32768))), i64(-(32768)), n)),
       ((bits == u8(32)) && !(signed)) => {
         abs_n := if((n >= i64(0)), n, (i64(0) - n));
         (abs_n % i64(4294967296))
       },
       ((bits == u8(32)) && signed) =>
         if((n > i64(2147483647)), i64(2147483647),
-           if((n < i64(-2147483648)), i64(-2147483648), n)),
+           if((n < i64(-(2147483648))), i64(-(2147483648)), n)),
       true => n
     ),
     _ => n
@@ -141,12 +141,12 @@ eval_numeric_arg :: (fn(
   match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg),
         `Expected numeric value for comptime numeric argument, got:\n${ast_expr_to_string(arg)}`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_comptime_int())
     }
   )
@@ -241,14 +241,14 @@ evaluate_yo_comptime_numeric_functions :: (fn(
   // ---- 4. Extract args. --------------------------------------------------
   args := match(expr,
     .FnCall(_, _, a, _, _) => a,
-    _                      => { return expr; }
+    _                      => { return(expr); }
   );
 
   // ---- 5. Unary operations (neg, bit_not, to_comptime_string). -----------
   is_unary := (((op_s == "neg") || (op_s == "bit_not")) || (op_s == "to_comptime_string"));
 
   if(is_unary, {
-    arg0     := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+    arg0     := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
     lhs_info := eval_numeric_arg(arg0, env, ctx);
     lhs_val  := lhs_info.value;
     (cur_env    : Environment) = lhs_info.env;
@@ -258,12 +258,12 @@ evaluate_yo_comptime_numeric_functions :: (fn(
     cond(
       (op_s == "neg") => {
         if(is_unsigned_integer_type(numeric_type), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(expr),
             `Cannot apply negation to unsigned type: ${fn_name}`,
             false,
             .None
-          ));
+          )));
         }, {
           result_val = match(lhs_val,
             .Some(av) => cond(
@@ -310,12 +310,12 @@ evaluate_yo_comptime_numeric_functions :: (fn(
         );
       },
       true => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           `Unexpected unary comptime numeric operation: ${op}`,
           false,
           .None
-        ));
+        )));
       }
     );
 
@@ -324,8 +324,8 @@ evaluate_yo_comptime_numeric_functions :: (fn(
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // ---- 6. Binary operations. -------------------------------------------
-    arg0     := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-    arg1     := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+    arg0     := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+    arg1     := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
     lhs_info := eval_numeric_arg(arg0, env, ctx);
     rhs_info := eval_numeric_arg(arg1, lhs_info.env, ctx);
     lhs_val  := lhs_info.value;
@@ -357,12 +357,12 @@ evaluate_yo_comptime_numeric_functions :: (fn(
             .Some(a) => match(rhs_f,
               .Some(b) => {
                 if(((op_s == "div") && (b == f64(0.0))), {
-                  exn.throw(dyn format_error_message(
+                  exn.throw(dyn(format_error_message(
                     ast_expr_token(arg1),
                     `Division by zero in comptime float operation: ${fn_name}`,
                     false,
                     .None
-                  ));
+                  )));
                 });
                 f_result := cond(
                   (op_s == "add") => (a + b),
@@ -399,20 +399,20 @@ evaluate_yo_comptime_numeric_functions :: (fn(
           );
         },
         (op_s == "mod") => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(expr),
             `Modulo operation not supported for floating point types: ${fn_name}`,
             false,
             .None
-          ));
+          )));
         },
         true => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(expr),
             `Unexpected binary comptime float operation: ${op}`,
             false,
             .None
-          ));
+          )));
         }
       );
     }, {
@@ -454,12 +454,12 @@ evaluate_yo_comptime_numeric_functions :: (fn(
             .Some(a) => match(rhs_n,
               .Some(b) => {
                 if((b == i64(0)), {
-                  exn.throw(dyn format_error_message(
+                  exn.throw(dyn(format_error_message(
                     ast_expr_token(arg1),
                     `Division by zero in comptime integer operation: ${fn_name}`,
                     false,
                     .None
-                  ));
+                  )));
                 });
                 result_val = make_int_val((a / b), numeric_type);
               },
@@ -473,12 +473,12 @@ evaluate_yo_comptime_numeric_functions :: (fn(
             .Some(a) => match(rhs_n,
               .Some(b) => {
                 if((b == i64(0)), {
-                  exn.throw(dyn format_error_message(
+                  exn.throw(dyn(format_error_message(
                     ast_expr_token(arg1),
                     `Modulo by zero in comptime integer operation: ${fn_name}`,
                     false,
                     .None
-                  ));
+                  )));
                 });
                 result_val = make_int_val((a % b), numeric_type);
               },
@@ -540,12 +540,12 @@ evaluate_yo_comptime_numeric_functions :: (fn(
           );
         },
         true => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(expr),
             `Unexpected binary comptime integer operation: ${op}`,
             false,
             .None
-          ));
+          )));
         }
       );
     });
@@ -558,4 +558,4 @@ evaluate_yo_comptime_numeric_functions :: (fn(
   expr
 });
 
-export evaluate_yo_comptime_numeric_functions;
+export(evaluate_yo_comptime_numeric_functions);

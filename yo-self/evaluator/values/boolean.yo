@@ -2,18 +2,18 @@
 //!
 //! 1:1 port of `src/evaluator/values/boolean.ts`.
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
-{ AstExpr, ast_expr_token, ast_expr_id }          :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set }   :: import "../../expr/expr_info.yo";
-{ Environment }                                    :: import "../../env/env.yo";
-{ EvalContext }                                    :: import "../context.yo";
-{ EvalValue }                                      :: import "../value.yo";
-{ TokenKind }                                      :: import "../../lexer/token.yo";
-{ t_bool }                                         :: import "../../types/type.yo";
-{ Exception }                                      :: import "std/error";
-{ format_error_message }                           :: import "../../error/error.yo";
+{ AstExpr, ast_expr_token, ast_expr_id }          :: import("../../expr/expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set }   :: import("../../expr/expr_info.yo");
+{ Environment }                                    :: import("../../env/env.yo");
+{ EvalContext }                                    :: import("../context.yo");
+{ EvalValue }                                      :: import("../value.yo");
+{ TokenKind }                                      :: import("../../lexer/token.yo");
+{ t_bool }                                         :: import("../../types/type.yo");
+{ Exception }                                      :: import("std/error");
+{ format_error_message }                           :: import("../../error/error.yo");
 
 evaluate_boolean_literal :: (fn(
   expr : AstExpr,
@@ -23,12 +23,12 @@ evaluate_boolean_literal :: (fn(
 ) -> AstExpr)({
   tok := ast_expr_token(expr);
   if(!(tok.kind == TokenKind.Bool), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       `Expected bool literal, got ${tok.value}`,
       false,
       .None
-    ));
+    )));
   });
   b    := (tok.value.as_str() == "true");
   val  := EvalValue.BoolVal(b);
@@ -38,4 +38,4 @@ evaluate_boolean_literal :: (fn(
   expr
 });
 
-export evaluate_boolean_literal;
+export(evaluate_boolean_literal);

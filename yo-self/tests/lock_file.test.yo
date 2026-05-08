@@ -1,19 +1,19 @@
-open import "std/string";
-open import "std/fmt";
-{ ArrayList }    :: import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList }    :: import("std/collections/array_list");
 { LockEntry, LockFile, parse_lock_file, write_lock_file_content,
-  find_lock_entry, upsert_lock_entry } :: import "../lock-file/lock_file.yo";
+  find_lock_entry, upsert_lock_entry } :: import("../lock-file/lock_file.yo");
 
 // ---------------------------------------------------------------------------
 // parse_lock_file tests
 // ---------------------------------------------------------------------------
 
-test "parse_lock_file: empty string returns empty lock file", {
+test("parse_lock_file: empty string returns empty lock file", {
   lock := parse_lock_file(String.from(""));
   assert((lock.dependencies.len() == usize(0)), "empty content → no deps");
-};
+});
 
-test "parse_lock_file: single dependency", {
+test("parse_lock_file: single dependency", {
   content := String.from("[[dependencies]]\nname   = \"json-parser\"\nurl    = \"https://github.com/user/json-parser.git\"\nref    = \"v1.0.0\"\ncommit = \"abc123\"\nhash   = \"sha256-XXXXX\"\n");
   lock := parse_lock_file(content);
   assert((lock.dependencies.len() == usize(1)), "one dep");
@@ -28,9 +28,9 @@ test "parse_lock_file: single dependency", {
       assert((dep.hash.as_str()   == "sha256-XXXXX"),                             "hash");
     }
   );
-};
+});
 
-test "parse_lock_file: two dependencies", {
+test("parse_lock_file: two dependencies", {
   content := String.from("[[dependencies]]\nname   = \"dep-a\"\nurl    = \"https://github.com/a/a.git\"\nref    = \"v1.0.0\"\ncommit = \"aaa\"\nhash   = \"sha256-AAA\"\n\n[[dependencies]]\nname   = \"dep-b\"\nurl    = \"https://github.com/b/b.git\"\nref    = \"main\"\ncommit = \"bbb\"\nhash   = \"sha256-BBB\"\n");
   lock := parse_lock_file(content);
   assert((lock.dependencies.len() == usize(2)), "two deps");
@@ -42,15 +42,15 @@ test "parse_lock_file: two dependencies", {
   match(b_opt, .None => assert(false, "dep-b missing"), .Some(b) => {
     assert((b.name.as_str() == "dep-b"), "second dep is dep-b");
   });
-};
+});
 
-test "parse_lock_file: comments and blank lines are skipped", {
+test("parse_lock_file: comments and blank lines are skipped", {
   content := String.from("# auto-generated\n\n[[dependencies]]\n# a comment\nname   = \"x\"\nurl    = \"https://example.com/x.git\"\nref    = \"HEAD\"\ncommit = \"ccc\"\nhash   = \"sha256-CCC\"\n");
   lock := parse_lock_file(content);
   assert((lock.dependencies.len() == usize(1)), "comments ignored, one dep");
-};
+});
 
-test "parse_lock_file: missing ref defaults to HEAD", {
+test("parse_lock_file: missing ref defaults to HEAD", {
   content := String.from("[[dependencies]]\nname   = \"no-ref\"\nurl    = \"https://github.com/x/y.git\"\ncommit = \"ddd\"\nhash   = \"sha256-DDD\"\n");
   lock := parse_lock_file(content);
   dep_opt := lock.dependencies.get(usize(0));
@@ -58,19 +58,19 @@ test "parse_lock_file: missing ref defaults to HEAD", {
     .None => assert(false, "dep expected"),
     .Some(dep) => assert((dep.ref.as_str() == "HEAD"), "default ref is HEAD")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // write_lock_file_content tests
 // ---------------------------------------------------------------------------
 
-test "write_lock_file_content: empty lock file has header only", {
+test("write_lock_file_content: empty lock file has header only", {
   lock := LockFile.empty();
   out  := write_lock_file_content(lock);
   assert(out.contains(String.from("auto-generated")), "header present");
-};
+});
 
-test "write_lock_file_content: round-trip single dependency", {
+test("write_lock_file_content: round-trip single dependency", {
   dep := LockEntry(
     name:   String.from("mylib"),
     url:    String.from("https://github.com/user/mylib.git"),
@@ -96,19 +96,19 @@ test "write_lock_file_content: round-trip single dependency", {
       assert((e.hash.as_str()   == "sha256-FFFF"),                           "hash");
     }
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // find_lock_entry tests
 // ---------------------------------------------------------------------------
 
-test "find_lock_entry: returns None for unknown name", {
+test("find_lock_entry: returns None for unknown name", {
   lock := LockFile.empty();
   result := find_lock_entry(lock, String.from("unknown"));
   match(result, .Some(_) => assert(false, "expected None"), .None => ());
-};
+});
 
-test "find_lock_entry: finds existing entry by name", {
+test("find_lock_entry: finds existing entry by name", {
   dep := LockEntry(
     name:   String.from("found"),
     url:    String.from("https://github.com/x/found.git"),
@@ -124,13 +124,13 @@ test "find_lock_entry: finds existing entry by name", {
     .None => assert(false, "expected Some"),
     .Some(e) => assert((e.name.as_str() == "found"), "correct entry returned")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // upsert_lock_entry tests
 // ---------------------------------------------------------------------------
 
-test "upsert_lock_entry: inserts new entry into empty lock", {
+test("upsert_lock_entry: inserts new entry into empty lock", {
   lock := LockFile.empty();
   entry := LockEntry(
     name:   String.from("new"),
@@ -141,9 +141,9 @@ test "upsert_lock_entry: inserts new entry into empty lock", {
   );
   updated := upsert_lock_entry(lock, entry);
   assert((updated.dependencies.len() == usize(1)), "one dep after insert");
-};
+});
 
-test "upsert_lock_entry: replaces existing entry with same name", {
+test("upsert_lock_entry: replaces existing entry with same name", {
   old_dep := LockEntry(
     name:   String.from("lib"),
     url:    String.from("https://github.com/x/lib.git"),
@@ -172,9 +172,9 @@ test "upsert_lock_entry: replaces existing entry with same name", {
       assert((e.ref.as_str()   == "v2.0.0"), "ref replaced");
     }
   );
-};
+});
 
-test "upsert_lock_entry: preserves other entries", {
+test("upsert_lock_entry: preserves other entries", {
   dep_a := LockEntry(
     name:   String.from("a"),
     url:    String.from("https://github.com/x/a.git"),
@@ -208,4 +208,4 @@ test "upsert_lock_entry: preserves other entries", {
     .None => assert(false, "dep-b should still be there"),
     .Some(b) => assert((b.commit.as_str() == "bbb"), "dep-b unchanged")
   );
-};
+});

@@ -9,24 +9,24 @@
 ///     * non-reassignable variable → throws
 ///     * type mismatch → throws
 
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 
-{ Token, TokenKind }             :: import "../lexer/token.yo";
+{ Token, TokenKind }             :: import("../lexer/token.yo");
 { AstExpr, ast_expr_id, BK_ASSIGN, BK_COLON, BK_COND, BK_MATCH, BK_BEGIN,
-  make_err_expr }                :: import "../expr/expr.yo";
+  make_err_expr }                :: import("../expr/expr.yo");
 { ExprInfo, ExprInfoTable, new_expr_info,
   expr_info_table_set, expr_info_table_get,
-  ControlFlowKind, ControlFlowFlags, control_flow_of } :: import "../expr/expr_info.yo";
-{ Environment, add_variable_to_env }                   :: import "../env/env.yo";
-{ EvalContext, eval_context_new }                      :: import "../evaluator/context.yo";
-{ EvalValue }                                          :: import "../evaluator/value.yo";
-{ TypeValue, t_bool, t_i32, t_unit }                   :: import "../types/type.yo";
-{ set_evaluate_expression_fn }                         :: import "../evaluator/exprs/expr.yo";
+  ControlFlowKind, ControlFlowFlags, control_flow_of } :: import("../expr/expr_info.yo");
+{ Environment, add_variable_to_env }                   :: import("../env/env.yo");
+{ EvalContext, eval_context_new }                      :: import("../evaluator/context.yo");
+{ EvalValue }                                          :: import("../evaluator/value.yo");
+{ TypeValue, t_bool, t_i32, t_unit }                   :: import("../types/type.yo");
+{ set_evaluate_expression_fn }                         :: import("../evaluator/exprs/expr.yo");
 { throw_rhs_contains_control_flow_expression_error,
-  evaluate_assignment }                                :: import "../evaluator/exprs/assignment.yo";
-{ Exception } :: import "std/error";
+  evaluate_assignment }                                :: import("../evaluator/exprs/assignment.yo");
+{ Exception } :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // Helpers — shared across all tests
@@ -104,46 +104,46 @@ stub_eval_i32 :: (fn(
 /// with the given expression throws.
 cf_error_throws :: (fn(rhs : AstExpr) -> bool)({
   given(exn) := Exception(throw: ((err) -> {
-    escape true;
+    escape(true);
   }));
   cf := control_flow_of(ControlFlowKind.Return);
   throw_rhs_contains_control_flow_expression_error(rhs, cf, using(exn));
   false
 });
 
-test "cf_error: cond rhs throws", {
+test("cf_error: cond rhs throws", {
   args := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(1), "x"));
   rhs := mk_ident_call(usize(100), BK_COND, args);
   assert(cf_error_throws(rhs), "expected throw for cond rhs");
-};
+});
 
-test "cf_error: match rhs throws", {
+test("cf_error: match rhs throws", {
   args := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(2), "x"));
   rhs := mk_ident_call(usize(101), BK_MATCH, args);
   assert(cf_error_throws(rhs), "expected throw for match rhs");
-};
+});
 
-test "cf_error: begin rhs throws", {
+test("cf_error: begin rhs throws", {
   args := ArrayList(AstExpr).new();
   args.push(mk_ident(usize(3), "x"));
   rhs := mk_ident_call(usize(102), BK_BEGIN, args);
   assert(cf_error_throws(rhs), "expected throw for begin rhs");
-};
+});
 
-test "cf_error: other rhs throws", {
+test("cf_error: other rhs throws", {
   rhs := mk_ident(usize(200), "some_expr");
   assert(cf_error_throws(rhs), "expected throw for any rhs with control flow");
-};
+});
 
 // ---------------------------------------------------------------------------
 // evaluate_assignment — happy path
 // ---------------------------------------------------------------------------
 
-test "evaluate_assignment: atom LHS — ExprInfo set with unit type", {
+test("evaluate_assignment: atom LHS — ExprInfo set with unit type", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
 
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   (env : Environment) = Environment.new(String.from("test"));
@@ -161,11 +161,11 @@ test "evaluate_assignment: atom LHS — ExprInfo set with unit type", {
   result := evaluate_assignment(expr, env, &(ctx), using(exn));
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
   assert(match(info_opt, .Some(_) => true, .None => false), "ExprInfo should be set on assignment expr");
-};
+});
 
-test "evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
+test("evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
 
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   (env : Environment) = Environment.new(String.from("test"));
@@ -192,7 +192,7 @@ test "evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
     ),
     .None => assert(false, "ExprInfo not set")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // evaluate_assignment — error cases
@@ -201,7 +201,7 @@ test "evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
 /// Returns true iff evaluate_assignment throws when the variable is absent.
 test_assign_missing_var_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(throw: ((err) -> { escape true; }));
+  given(exn) := Exception(throw: ((err) -> { escape(true); }));
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   (env : Environment) = Environment.new(String.from("test"));
   env.push_frame(false);
@@ -213,14 +213,14 @@ test_assign_missing_var_throws :: (fn() -> bool)({
   false
 });
 
-test "evaluate_assignment: variable not found throws", {
+test("evaluate_assignment: variable not found throws", {
   assert(test_assign_missing_var_throws(), "expected error for missing variable");
-};
+});
 
 /// Returns true iff evaluate_assignment throws for a non-reassignable variable.
 test_assign_non_reassignable_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(throw: ((err) -> { escape true; }));
+  given(exn) := Exception(throw: ((err) -> { escape(true); }));
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   (env : Environment) = Environment.new(String.from("test"));
   env.push_frame(false);
@@ -238,14 +238,14 @@ test_assign_non_reassignable_throws :: (fn() -> bool)({
   false
 });
 
-test "evaluate_assignment: non-reassignable variable throws", {
+test("evaluate_assignment: non-reassignable variable throws", {
   assert(test_assign_non_reassignable_throws(), "expected error for non-reassignable variable");
-};
+});
 
 /// Returns true iff evaluate_assignment throws for a type mismatch (bool var, i32 rhs).
 test_assign_type_mismatch_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_i32);
-  given(exn) := Exception(throw: ((err) -> { escape true; }));
+  given(exn) := Exception(throw: ((err) -> { escape(true); }));
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   (env : Environment) = Environment.new(String.from("test"));
   env.push_frame(false);
@@ -262,6 +262,6 @@ test_assign_type_mismatch_throws :: (fn() -> bool)({
   false
 });
 
-test "evaluate_assignment: type mismatch throws", {
+test("evaluate_assignment: type mismatch throws", {
   assert(test_assign_type_mismatch_throws(), "expected error for type mismatch bool vs i32");
-};
+});

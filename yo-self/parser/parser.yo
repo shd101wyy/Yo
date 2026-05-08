@@ -3,17 +3,17 @@
 //!
 //! Note: The AST type is `AstExpr` (not `Expr`) to avoid conflict with the prelude's Expr type.
 
-open import "std/string";
-open import "std/fmt";
-open import "std/error";
-{ ArrayList, array_list } :: import "std/collections/array_list";
-{ TokenKind, Token, find_matching_bracket } :: import "../lexer/token.yo";
-{ tokenize } :: import "../lexer/lexer.yo";
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ ArrayList, array_list } :: import("std/collections/array_list");
+{ TokenKind, Token, find_matching_bracket } :: import("../lexer/token.yo");
+{ tokenize } :: import("../lexer/lexer.yo");
 {
   AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT,
   make_err_expr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call,
   ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_token
-} :: import "../expr/expr.yo";
+} :: import("../expr/expr.yo");
 
 /// Result of parsing one expression: the expression and the next token index.
 ParseResult :: struct(
@@ -55,10 +55,10 @@ impl(ParseError, ToString(
       sb.write_str("\n  |");
       (k : usize) = usize(0);
       // pad column + 3 spaces (to align under first non-space char of source line)
-      while runtime((k < self.column)), {
+      while(runtime((k < self.column)), {
         sb.write_byte(u8(32));
         k = (k + usize(1));
-      };
+      });
       sb.write_byte(u8(94));
     });
     sb.to_string()
@@ -161,44 +161,32 @@ impl(Parser,
   skip_ws_fwd : (fn(self : *(Self), index : usize) -> usize)({
     i := index;
     n := self.tokens.len();
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       match(self.tokens.get(i),
         .None => { break; },
         .Some(tok) => {
-          is_ws := (((((((tok.kind == TokenKind.Whitespace)
-              || (tok.kind == TokenKind.SingleLineComment))
-              || (tok.kind == TokenKind.MultiLineComment))
-              || (tok.kind == TokenKind.DocLineComment))
-              || (tok.kind == TokenKind.InnerDocLineComment))
-              || (tok.kind == TokenKind.DocBlockComment))
-              || (tok.kind == TokenKind.InnerDocBlockComment));
+          is_ws := (((((((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.SingleLineComment)) || (tok.kind == TokenKind.MultiLineComment)) || (tok.kind == TokenKind.DocLineComment)) || (tok.kind == TokenKind.InnerDocLineComment)) || (tok.kind == TokenKind.DocBlockComment)) || (tok.kind == TokenKind.InnerDocBlockComment));
           if((is_ws == false), { break; });
           i = (i + usize(1));
         }
       );
-    };
+    });
     i
   }),
 
   skip_ws_bwd : (fn(self : *(Self), index : usize) -> usize)({
     i := index;
-    while runtime(true), {
+    while(runtime(true), {
       match(self.tokens.get(i),
         .None => { break; },
         .Some(tok) => {
-          is_ws := (((((((tok.kind == TokenKind.Whitespace)
-              || (tok.kind == TokenKind.SingleLineComment))
-              || (tok.kind == TokenKind.MultiLineComment))
-              || (tok.kind == TokenKind.DocLineComment))
-              || (tok.kind == TokenKind.InnerDocLineComment))
-              || (tok.kind == TokenKind.DocBlockComment))
-              || (tok.kind == TokenKind.InnerDocBlockComment));
+          is_ws := (((((((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.SingleLineComment)) || (tok.kind == TokenKind.MultiLineComment)) || (tok.kind == TokenKind.DocLineComment)) || (tok.kind == TokenKind.InnerDocLineComment)) || (tok.kind == TokenKind.DocBlockComment)) || (tok.kind == TokenKind.InnerDocBlockComment));
           if((is_ws == false), { break; });
           if((i == usize(0)), { break; });
           i = (i - usize(1));
         }
       );
-    };
+    });
     i
   }),
 
@@ -206,7 +194,7 @@ impl(Parser,
     nl_str := String.from("\n");
     i := start;
     result := false;
-    while runtime((i < end)), {
+    while(runtime((i < end)), {
       match(self.tokens.get(i),
         .None => { break; },
         .Some(tok) => {
@@ -217,17 +205,17 @@ impl(Parser,
           i = (i + usize(1));
         }
       );
-    };
+    });
     result
   }),
 
   is_op_at_line_start : (fn(self : *(Self), op_idx : usize) -> bool)({
-    if((op_idx == usize(0)), { return true; });
+    if((op_idx == usize(0)), { return(true); });
     nl_str := String.from("\n");
     j := op_idx;
     result := false;
     scan_done := false;
-    while runtime((scan_done == false)), {
+    while(runtime((scan_done == false)), {
       if((j == usize(0)), {
         result = true;
         scan_done = true;
@@ -240,7 +228,7 @@ impl(Parser,
               // Found newline — check tokens[j+1..op_idx) are all whitespace
               all_ws := true;
               k := (j + usize(1));
-              while runtime((k < op_idx)), {
+              while(runtime((k < op_idx)), {
                 match(self.tokens.get(k),
                   .None => { break; },
                   .Some(kt) => {
@@ -251,7 +239,7 @@ impl(Parser,
                     k = (k + usize(1));
                   }
                 );
-              };
+              });
               result = all_ws;
               scan_done = true;
             },
@@ -263,19 +251,19 @@ impl(Parser,
           )
         );
       });
-    };
+    });
     result
   })
 ,
   is_parenthesized_expr : (fn(self : *(Self), start : usize, end : usize) -> bool)({
     s := self.skip_ws_fwd(start);
     e := self.skip_ws_bwd(end);
-    s_tok := match(self.tokens.get(s), .Some(t) => t, .None => { return false; });
-    e_tok := match(self.tokens.get(e), .Some(t) => t, .None => { return false; });
-    if((s_tok.kind != TokenKind.LParen), { return false; });
-    if((e_tok.kind != TokenKind.RParen), { return false; });
+    s_tok := match(self.tokens.get(s), .Some(t) => t, .None => { return(false); });
+    e_tok := match(self.tokens.get(e), .Some(t) => t, .None => { return(false); });
+    if((s_tok.kind != TokenKind.LParen), { return(false); });
+    if((e_tok.kind != TokenKind.RParen), { return(false); });
     match_idx := match(find_matching_bracket(self.tokens, s),
-      .None => { return false; },
+      .None => { return(false); },
       .Some(m) => m
     );
     (match_idx == e)
@@ -286,7 +274,7 @@ impl(Parser,
   )
 ,
   is_op_alone_on_line : (fn(self : *(Self), op_idx : usize, rhs_start : usize) -> bool)({
-    if((self.is_op_at_line_start(op_idx) == false), { return false; });
+    if((self.is_op_at_line_start(op_idx) == false), { return(false); });
     nl_str := String.from("\n");
     match(self.tokens.get((op_idx + usize(1))),
       .None => false,
@@ -302,12 +290,12 @@ impl(Parser,
     ts_chars := ArrayList(rune).new();
     {
       c_iter := template_value.chars();
-      while runtime(true), {
+      while(runtime(true), {
         match(&(c_iter).next(),
           .None => { break; },
           .Some(c) => { ts_chars.push(c); }
         );
-      };
+      });
     };
 
     n := ts_chars.len();
@@ -319,7 +307,7 @@ impl(Parser,
     cur_sb := StringBuilder.new();
     i := usize(0);
 
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       c := match(ts_chars.get(i), .Some(r) => r, .None => rune(u32(0)));
 
       cond(
@@ -347,7 +335,7 @@ impl(Parser,
           brace_depth := usize(1);
           expr_sb := StringBuilder.new();
           j := (i + usize(2));
-          while runtime(((j < n) && (brace_depth > usize(0)))), {
+          while(runtime(((j < n) && (brace_depth > usize(0)))), {
             cj := match(ts_chars.get(j), .Some(r) => r, .None => rune(u32(0)));
             cond(
               (cj.char == u32(0x7B)) => { brace_depth = (brace_depth + usize(1)); },
@@ -356,7 +344,7 @@ impl(Parser,
             );
             if((brace_depth > usize(0)), { expr_sb.write_rune(cj); });
             j = (j + usize(1));
-          };
+          });
           part_is_expr.push(true);
           part_content.push(expr_sb.to_string());
           i = j;
@@ -367,7 +355,7 @@ impl(Parser,
           i = (i + usize(1));
         }
       );
-    };
+    });
 
     // Save remaining string content
     if((cur_sb.len() > usize(0)), {
@@ -399,7 +387,7 @@ impl(Parser,
     (result_expr_opt : Option(AstExpr)) = .None;
     pi := usize(0);
 
-    while runtime((pi < num_parts)), {
+    while(runtime((pi < num_parts)), {
       is_expr := match(part_is_expr.get(pi), .Some(b) => b, .None => false);
       content  := match(part_content.get(pi), .Some(s) => s, .None => String.from(""));
 
@@ -409,11 +397,11 @@ impl(Parser,
           // (avoids forward reference: parse_template_string → get_program cycle)
           (inner_prog : ArrayList(AstExpr)) = Parser.new(content, self.module_path, using(exn)).get_program(using(exn));
           if((inner_prog.len() == usize(0)), {
-            exn.throw(dyn make_parse_error(tok, `empty expression in template string interpolation`));
+            exn.throw(dyn(make_parse_error(tok, `empty expression in template string interpolation`)));
           });
           inner_expr := match(inner_prog.get(usize(0)),
             .Some(e) => e,
-            .None => { return ParseResult(expr: make_err_expr(), index: (index + usize(1))); }
+            .None => { return(ParseResult(expr: make_err_expr(), index: (index + usize(1)))); }
           );
           make_ts_call(inner_expr, dot_tok, to_str_tok, tok)
         },
@@ -449,11 +437,11 @@ impl(Parser,
       );
 
       pi = (pi + usize(1));
-    };
+    });
 
     final_expr := match(result_expr_opt,
       .Some(e) => e,
-      .None => { return ParseResult(expr: make_err_expr(), index: (index + usize(1))); }
+      .None => { return(ParseResult(expr: make_err_expr(), index: (index + usize(1)))); }
     );
 
     ParseResult(expr: final_expr, index: (index + usize(1)))
@@ -472,43 +460,41 @@ impl(Parser,
     if((has_whitespace == false), {
       curr_kind := match(self.tokens.get(idx), .Some(t) => t.kind, .None => TokenKind.RParen);
       if((curr_kind == TokenKind.RParen), {
-        return FnArgsResult(args: args, index: (idx + usize(1)));
+        return(FnArgsResult(args: args, index: (idx + usize(1))));
       });
     });
 
-    while runtime(true), {
+    while(runtime(true), {
       arg_pr := self.parse_expression(idx, using(exn));
       args.push(arg_pr.expr);
       idx = arg_pr.index;
 
       curr := match(self.tokens.get(idx), .Some(t) => t, .None => {
-        return FnArgsResult(args: args, index: idx);
+        return(FnArgsResult(args: args, index: idx));
       });
 
       cond(
         (curr.kind == TokenKind.Comma) => {
           idx = (idx + usize(1));
         },
-        (((curr.kind == TokenKind.Semicolon)
-          || (curr.kind == TokenKind.RBracket))
-          || (curr.kind == TokenKind.RCurlyBracket)) => {
-          return FnArgsResult(args: args, index: idx);
+        (((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket)) || (curr.kind == TokenKind.RCurlyBracket)) => {
+          return(FnArgsResult(args: args, index: idx));
         },
         (curr.kind == TokenKind.RParen) => {
-          return FnArgsResult(
+          return(FnArgsResult(
             args:  args,
             index: cond(has_whitespace => idx, true => (idx + usize(1)))
-          );
+          ));
         },
         true => {
-          exn.throw(dyn make_parse_error(curr, cond(
+          exn.throw(dyn(make_parse_error(curr, cond(
               has_whitespace => `expected ; to end function call`,
               true => `expected , or ) in function call`
-            )));
-          return FnArgsResult(args: args, index: idx);
+            ))));
+          return(FnArgsResult(args: args, index: idx));
         }
       );
-    };
+    });
 
     FnArgsResult(args: args, index: idx)
   })
@@ -530,11 +516,11 @@ impl(Parser,
 ,
   parse_paren_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(self.tokens.get(index),
-      .None => exn.throw(dyn make_parse_error_raw(self.module_path, `unexpected end of input`)),
+      .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
       .Some(t) => t
     );
     if((tok.kind != TokenKind.LParen), {
-      exn.throw(dyn make_parse_error(tok, `expected (`));
+      exn.throw(dyn(make_parse_error(tok, `expected (`)));
     });
 
     // Check for unit ()
@@ -552,10 +538,10 @@ impl(Parser,
         module_path: tok.module_path,
         input:       tok.input
       );
-      return ParseResult(
+      return(ParseResult(
         expr:  .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok),
         index: (index + usize(2))
-      );
+      ));
     });
 
     pr := self.parse_expression((index + usize(1)), using(exn));
@@ -564,12 +550,12 @@ impl(Parser,
 
     (curr_kind : TokenKind) = match(self.tokens.get(idx),
       .Some(t) => t.kind,
-      .None => exn.throw(dyn make_parse_error(tok, `expected ) or , in (...)`))
+      .None => exn.throw(dyn(make_parse_error(tok, `expected ) or , in (...)`)))
     );
 
     // Single expression wrapped in parens: (expr)
     if((curr_kind == TokenKind.RParen), {
-      return ParseResult(expr: expr, index: (idx + usize(1)));
+      return(ParseResult(expr: expr, index: (idx + usize(1))));
     });
 
     // Tuple or Tuple type
@@ -577,9 +563,9 @@ impl(Parser,
     args := ArrayList(AstExpr).new();
     args.push(expr);
 
-    while runtime(true), {
+    while(runtime(true), {
       (curr : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn make_parse_error(tok, `expected ) or , for tuple`)),
+        .None => exn.throw(dyn(make_parse_error(tok, `expected ) or , for tuple`))),
         .Some(t) => t
       );
       cond(
@@ -589,7 +575,7 @@ impl(Parser,
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn make_parse_error(curr, `cannot mix , and ; in (...)`));
+                exn.throw(dyn(make_parse_error(curr, `cannot mix , and ; in (...)`)));
                 Option(bool).Some(false)
               }
             )
@@ -601,7 +587,7 @@ impl(Parser,
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn make_parse_error(curr, `cannot mix ; and , in (...)`));
+                exn.throw(dyn(make_parse_error(curr, `cannot mix ; and , in (...)`)));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -614,7 +600,7 @@ impl(Parser,
 
       idx = self.skip_ws_fwd(idx);
       (curr2 : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn make_parse_error(tok, `expected ) for tuple`)),
+        .None => exn.throw(dyn(make_parse_error(tok, `expected ) for tuple`))),
         .Some(t) => t
       );
       if((curr2.kind == TokenKind.RParen), { break; });
@@ -622,7 +608,7 @@ impl(Parser,
       arg_pr := self.parse_expression(idx, using(exn));
       args.push(arg_pr.expr);
       idx = arg_pr.index;
-    };
+    });
 
     // comma separator → Tuple type; semicolon separator → tuple value
     is_tuple_type := match(separator_is_comma,
@@ -648,20 +634,20 @@ impl(Parser,
 ,
   parse_array_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(self.tokens.get(index),
-      .None => exn.throw(dyn make_parse_error_raw(self.module_path, `unexpected end of input`)),
+      .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
       .Some(t) => t
     );
     if((tok.kind != TokenKind.LBracket), {
-      exn.throw(dyn make_parse_error(tok, `expected [`));
+      exn.throw(dyn(make_parse_error(tok, `expected [`)));
     });
     idx := (index + usize(1));
 
     (separator_is_comma : Option(bool)) = .None;
     args := ArrayList(AstExpr).new();
 
-    while runtime(true), {
+    while(runtime(true), {
       (curr : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn make_parse_error(tok, `expected ] or , for array`)),
+        .None => exn.throw(dyn(make_parse_error(tok, `expected ] or , for array`))),
         .Some(t) => t
       );
       cond(
@@ -671,7 +657,7 @@ impl(Parser,
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn make_parse_error(curr, `cannot mix , and ; in [...]`));
+                exn.throw(dyn(make_parse_error(curr, `cannot mix , and ; in [...]`)));
                 Option(bool).Some(false)
               }
             )
@@ -683,7 +669,7 @@ impl(Parser,
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn make_parse_error(curr, `cannot mix ; and , in [...]`));
+                exn.throw(dyn(make_parse_error(curr, `cannot mix ; and , in [...]`)));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -695,7 +681,7 @@ impl(Parser,
       );
 
       (curr2 : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn make_parse_error(tok, `expected ]`)),
+        .None => exn.throw(dyn(make_parse_error(tok, `expected ]`))),
         .Some(t) => t
       );
       if((curr2.kind == TokenKind.RBracket), { break; });
@@ -703,7 +689,7 @@ impl(Parser,
       arg_pr := self.parse_expression(idx, using(exn));
       args.push(arg_pr.expr);
       idx = arg_pr.index;
-    };
+    });
 
     // [T; N] → Array(T, N), [T] or [T;] → Slice(T), [a, b] → array(a, b)
     is_array_or_slice_type := match(separator_is_comma,
@@ -712,7 +698,7 @@ impl(Parser,
     );
     n_args := args.len();
     if((is_array_or_slice_type && (n_args > usize(2))), {
-      exn.throw(dyn make_parse_error(tok, `expected at most 2 arguments for Array type, or 1 for Slice type`));
+      exn.throw(dyn(make_parse_error(tok, `expected at most 2 arguments for Array type, or 1 for Slice type`)));
     });
     is_array_type := (is_array_or_slice_type && (n_args == usize(2)));
     is_slice_type := (is_array_or_slice_type && (n_args == usize(1)));
@@ -740,21 +726,21 @@ impl(Parser,
 ,
   parse_curly_bracket_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(self.tokens.get(index),
-      .None => exn.throw(dyn make_parse_error_raw(self.module_path, `unexpected end of input`)),
+      .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
       .Some(t) => t
     );
     if((tok.kind != TokenKind.LCurlyBracket), {
-      exn.throw(dyn make_parse_error(tok, `expected {`));
+      exn.throw(dyn(make_parse_error(tok, `expected {`)));
     });
 
     args := ArrayList(AstExpr).new();
     (separator_is_comma : Option(bool)) = .None;
     idx := (index + usize(1));
 
-    while runtime(true), {
+    while(runtime(true), {
       idx = self.skip_ws_fwd(idx);
       (curr : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn make_parse_error(tok, `unexpected end of {...}`)),
+        .None => exn.throw(dyn(make_parse_error(tok, `unexpected end of {...}`))),
         .Some(t) => t
       );
       cond(
@@ -764,7 +750,7 @@ impl(Parser,
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn make_parse_error(curr, `cannot mix , and ; in {...}`));
+                exn.throw(dyn(make_parse_error(curr, `cannot mix , and ; in {...}`)));
                 Option(bool).Some(false)
               }
             )
@@ -776,7 +762,7 @@ impl(Parser,
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn make_parse_error(curr, `cannot mix ; and , in {...}`));
+                exn.throw(dyn(make_parse_error(curr, `cannot mix ; and , in {...}`)));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -789,7 +775,7 @@ impl(Parser,
 
       idx = self.skip_ws_fwd(idx);
       (curr2 : Token) = match(self.tokens.get(idx),
-        .None => exn.throw(dyn make_parse_error(tok, `unexpected end of {...}`)),
+        .None => exn.throw(dyn(make_parse_error(tok, `unexpected end of {...}`))),
         .Some(t) => t
       );
 
@@ -823,7 +809,7 @@ impl(Parser,
       arg_pr := self.parse_expression(idx, using(exn));
       args.push(arg_pr.expr);
       idx = arg_pr.index;
-    };
+    });
 
     is_comma := match(separator_is_comma,
       .None => true,
@@ -836,7 +822,7 @@ impl(Parser,
         n_args := args.len();
         final_args := ArrayList(AstExpr).new();
         ai := usize(0);
-        while runtime((ai < n_args)), {
+        while(runtime((ai < n_args)), {
           match(args.get(ai),
             .None => { break; },
             .Some(arg) => {
@@ -860,7 +846,7 @@ impl(Parser,
               ai = (ai + usize(1));
             }
           );
-        };
+        });
         anon_tok := Token(
           kind:        TokenKind.Identifier,
           value:       String.from(BK_ANON_STRUCT),
@@ -925,16 +911,16 @@ impl(Parser,
       (left_operand : AstExpr) = match(rhs,
         .FnCall(_, _, rargs, _, _) => match(rargs.get(usize(0)),
           .Some(a) => a,
-          .None => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: missing left arg in rhs`))
+          .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `internal: missing left arg in rhs`)))
         ),
-        .Atom(_, _) => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: rhs is atom`))
+        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(self.module_path, `internal: rhs is atom`)))
       );
       (right_operand : AstExpr) = match(rhs,
         .FnCall(_, _, rargs, _, _) => match(rargs.get(usize(1)),
           .Some(a) => a,
-          .None => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: missing right arg in rhs`))
+          .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `internal: missing right arg in rhs`)))
         ),
-        .Atom(_, _) => exn.throw(dyn make_parse_error_raw(self.module_path, `internal: rhs is atom`))
+        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(self.module_path, `internal: rhs is atom`)))
       );
       rhs_func_tok := match(rhs,
         .FnCall(_, rfb, _, _, _) => match(rfb.*,
@@ -966,19 +952,13 @@ impl(Parser,
   parse_primary : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(self.tokens.get(idx),
-      .None => exn.throw(dyn make_parse_error_raw(self.module_path, `unexpected end of input`)),
+      .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
       .Some(t) => t
     );
 
     cond(
       // Atom kinds
-      (((((((tok.kind == TokenKind.Identifier)
-        || (tok.kind == TokenKind.Operator))
-        || (tok.kind == TokenKind.Bool))
-        || (tok.kind == TokenKind.Integer))
-        || (tok.kind == TokenKind.Float))
-        || (tok.kind == TokenKind.StringLit))
-        || (tok.kind == TokenKind.CharLit)) => 
+      (((((((tok.kind == TokenKind.Identifier) || (tok.kind == TokenKind.Operator)) || (tok.kind == TokenKind.Bool)) || (tok.kind == TokenKind.Integer)) || (tok.kind == TokenKind.Float)) || (tok.kind == TokenKind.StringLit)) || (tok.kind == TokenKind.CharLit)) =>
         ParseResult(expr: .Atom(self.alloc_id(), tok), index: (idx + usize(1)))
       ,
 
@@ -988,7 +968,7 @@ impl(Parser,
       (tok.kind == TokenKind.Dot)             => ParseResult(expr: .Atom(self.alloc_id(), tok), index: (idx + usize(1))),
       (tok.kind == TokenKind.TemplateString)  => self.parse_template_string(tok, idx, using(exn)),
 
-      true => exn.throw(dyn make_parse_error(tok, `unexpected token: ${tok.value}`))
+      true => exn.throw(dyn(make_parse_error(tok, `unexpected token: ${tok.value}`)))
     )
   })
 ,
@@ -1007,16 +987,12 @@ impl(Parser,
     idx := next_idx;
 
     tok := match(self.tokens.get(idx), .Some(t) => t, .None => {
-      return ParseResult(expr: primary_expr, index: idx);
+      return(ParseResult(expr: primary_expr, index: idx));
     });
 
     // Terminators: stop parsing the current expression
-    if((((((tok.kind == TokenKind.Semicolon)
-       || (tok.kind == TokenKind.Comma))
-       || (tok.kind == TokenKind.RParen))
-       || (tok.kind == TokenKind.RBracket))
-       || (tok.kind == TokenKind.RCurlyBracket)), {
-      return ParseResult(expr: primary_expr, index: idx);
+    if((((((tok.kind == TokenKind.Semicolon) || (tok.kind == TokenKind.Comma)) || (tok.kind == TokenKind.RParen)) || (tok.kind == TokenKind.RBracket)) || (tok.kind == TokenKind.RCurlyBracket)), {
+      return(ParseResult(expr: primary_expr, index: idx));
     });
 
     primary_is_dot := match(primary_expr,
@@ -1031,24 +1007,19 @@ impl(Parser,
           .Some(t) => t.kind,
           .None => TokenKind.Whitespace
         );
-        ((next_after_dot_kind != TokenKind.Whitespace)
-          && self.range_has_newline(orig_idx, next_idx)
-          && self.is_op_at_line_start(idx))
+        (((next_after_dot_kind != TokenKind.Whitespace) && self.range_has_newline(orig_idx, next_idx)) && self.is_op_at_line_start(idx))
       },
       true => false
     );
 
     // Immediate dot (no whitespace on either side)
-    is_immediate_dot := ((tok.kind == TokenKind.Dot)
-      && (has_ws_fwd == false)
-      && (has_ws_bwd == false)
-      && {
+    is_immediate_dot := ((tok.kind == TokenKind.Dot) && ((has_ws_fwd == false) && ((has_ws_bwd == false) && {
         next_after_dot_kind := match(self.tokens.get((idx + usize(1))),
           .Some(t) => t.kind,
           .None => TokenKind.Whitespace
         );
         (next_after_dot_kind != TokenKind.Whitespace)
-      });
+      })));
 
     cond(
       // Dot: field access or enum variant
@@ -1081,7 +1052,7 @@ impl(Parser,
         (cur_expr : AstExpr) = .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), dot_fn_tok)), init_args, init_infix, dot_fn_tok);
         cur_idx := rhs_idx;
 
-        while runtime(true), {
+        while(runtime(true), {
           match(self.tokens.get(cur_idx),
             .None => { break; },
             .Some(next_dot) => {
@@ -1092,19 +1063,13 @@ impl(Parser,
               cur_idx = chain_pr.index;
             }
           );
-        };
+        });
 
         recur(self, cur_expr, cur_idx, using(exn))
       },
 
-      // Infix operator (not followed by `(`)
-      (((tok.kind == TokenKind.Operator) || ((tok.kind == TokenKind.Dot) && (has_ws_fwd == false))) && {
-        next_tok_kind := match(self.tokens.get((idx + usize(1))),
-          .Some(t) => t.kind,
-          .None => TokenKind.Identifier
-        );
-        (next_tok_kind != TokenKind.LParen)
-      }) => {
+      // Infix operator
+      ((tok.kind == TokenKind.Operator) || ((tok.kind == TokenKind.Dot) && (has_ws_fwd == false))) => {
         rhs_start := self.skip_ws_fwd((idx + usize(1)));
         rhs_pr := self.parse_expression(rhs_start, using(exn));
         rhs := rhs_pr.expr;
@@ -1160,7 +1125,7 @@ impl(Parser,
             op_at_line_start => 
               self.parse_left_assoc_op(primary_expr, tok, rhs, rhs_end, using(exn))
             ,
-            true => exn.throw(dyn make_parse_error(tok, `ambiguous operator precedence near ${tok.value} — use parentheses`))
+            true => exn.throw(dyn(make_parse_error(tok, `ambiguous operator precedence near ${tok.value} — use parentheses`)))
           )
         }, {
           rhs_args := ArrayList(AstExpr).new();
@@ -1180,10 +1145,14 @@ impl(Parser,
         recur(self, fn_pr.expr, fn_pr.index, using(exn))
       },
 
+      ((has_ws_fwd == true) && (tok.kind == TokenKind.LParen)) => {
+        exn.throw(dyn(make_parse_error(tok, `whitespace before '(' is not allowed in function calls`)));
+        ParseResult(expr: primary_expr, index: idx)
+      },
+
       true => {
-        // Function call with whitespace: `func arg1, arg2`
-        fn_pr := self.parse_fn_call(primary_expr, idx, true, using(exn));
-        recur(self, fn_pr.expr, fn_pr.index, using(exn))
+        exn.throw(dyn(make_parse_error(tok, `paren-less function and operator calls are not supported; use parentheses`)));
+        ParseResult(expr: primary_expr, index: idx)
       }
     )
   })
@@ -1199,18 +1168,11 @@ impl(Parser,
     n := self.tokens.len();
     exprs := ArrayList(AstExpr).new();
 
-    while runtime((idx < n)), {
+    while(runtime((idx < n)), {
       match(self.tokens.get(idx),
         .None => { break; },
         .Some(tok) => {
-          is_skip := (((((((tok.kind == TokenKind.Whitespace)
-            || (tok.kind == TokenKind.Semicolon))
-            || (tok.kind == TokenKind.SingleLineComment))
-            || (tok.kind == TokenKind.MultiLineComment))
-            || (tok.kind == TokenKind.DocLineComment))
-            || (tok.kind == TokenKind.InnerDocLineComment))
-            || ((tok.kind == TokenKind.DocBlockComment)
-            || (tok.kind == TokenKind.InnerDocBlockComment)));
+          is_skip := (((((((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.Semicolon)) || (tok.kind == TokenKind.SingleLineComment)) || (tok.kind == TokenKind.MultiLineComment)) || (tok.kind == TokenKind.DocLineComment)) || (tok.kind == TokenKind.InnerDocLineComment)) || ((tok.kind == TokenKind.DocBlockComment) || (tok.kind == TokenKind.InnerDocBlockComment)));
           if(is_skip, {
             idx = (idx + usize(1));
           }, {
@@ -1220,7 +1182,7 @@ impl(Parser,
           });
         }
       );
-    };
+    });
 
     // If last non-ws token is `;`, append trailing unit
     if((n > usize(0)), {
@@ -1281,7 +1243,7 @@ impl(Parser,
       result.push(import_expr);
       i := usize(0);
       n := self.program.len();
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         match(self.program.get(i),
           .None => { break; },
           .Some(e) => {
@@ -1289,8 +1251,8 @@ impl(Parser,
             i = (i + usize(1));
           }
         );
-      };
-      return result;
+      });
+      return(result);
     });
 
     self.program
@@ -1323,10 +1285,10 @@ generate_expr_from_code :: (fn(
       .None    => make_err_expr()
     ),
     true => {
-      exn.throw(dyn make_parse_error_raw(
+      exn.throw(dyn(make_parse_error_raw(
         String.from(""),
         String.from("generate_expr_from_code: expected exactly 1 expression from parsed code, got: ") + n.to_string()
-      ));
+      )));
       make_err_expr()
     }
   )
@@ -1342,6 +1304,6 @@ generate_exprs_from_code :: (fn(
   parse(String.from(code), module_path, using(exn))
 });
 
-export ParseResult, FnArgsResult, ParseError, Parser, parse;
-export extract_source_line, make_parse_error, make_parse_error_raw;
-export generate_expr_from_code, generate_exprs_from_code;
+export(ParseResult, FnArgsResult, ParseError, Parser, parse);
+export(extract_source_line, make_parse_error, make_parse_error_raw);
+export(generate_expr_from_code, generate_exprs_from_code);

@@ -7,22 +7,22 @@
 //!   - Checks the second argument is a type value.
 //!   - Returns Option(T) as a runtime unknown value.
 
-open import "std/string";
+open(import("std/string"));
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr,
-  expect_expr_to_be_fn_call_of, BF_DOWNCAST }          :: import "../../expr/expr.yo";
+  expect_expr_to_be_fn_call_of, BF_DOWNCAST }          :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }            :: import "../../expr/expr_info.yo";
-{ Environment }                                         :: import "../../env/env.yo";
-{ TypeValue }                                           :: import "../../types/type.yo";
-{ is_dyn_type }                                        :: import "../../types/guards.yo";
-{ type_to_string }                                     :: import "../../types/string.yo";
-{ EvalContext }                                         :: import "../context.yo";
-{ EvalValue, create_unknown_val, is_type_value }        :: import "../value.yo";
-{ create_option_type }                                  :: import "./rc_fns.yo";
-{ attach_temp_variable_to_expr }                        :: import "../utils.yo";
-{ evaluate_expression }                                 :: import "../exprs/expr.yo";
-{ format_error_message }                                :: import "../../error/error.yo";
-{ Exception }                                           :: import "std/error";
+  expr_info_table_get, expr_info_table_set }            :: import("../../expr/expr_info.yo");
+{ Environment }                                         :: import("../../env/env.yo");
+{ TypeValue }                                           :: import("../../types/type.yo");
+{ is_dyn_type }                                        :: import("../../types/guards.yo");
+{ type_to_string }                                     :: import("../../types/string.yo");
+{ EvalContext }                                         :: import("../context.yo");
+{ EvalValue, create_unknown_val, is_type_value }        :: import("../value.yo");
+{ create_option_type }                                  :: import("./rc_fns.yo");
+{ attach_temp_variable_to_expr }                        :: import("../utils.yo");
+{ evaluate_expression }                                 :: import("../exprs/expr.yo");
+{ format_error_message }                                :: import("../../error/error.yo");
+{ Exception }                                           :: import("std/error");
 
 /// Evaluate `downcast(dyn_value, T)`.
 ///
@@ -43,58 +43,58 @@ evaluate_downcast :: (fn(
 
   args := match(expr,
     .FnCall(_, _, a, _, _) => a,
-    _ => { return expr; }
+    _ => { return(expr); }
   );
 
   // First argument: the dyn value (runtime).
   dyn_expr := match(args.get(usize(0)),
     .Some(a) => a,
-    .None    => { return expr; }
+    .None    => { return(expr); }
   );
   eval_dyn_expr   := evaluate_expression(dyn_expr, cur_env, ctx);
   dyn_info_opt    := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_dyn_expr));
   if(dyn_info_opt.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(dyn_expr),
       String.from("Failed to evaluate dyn value argument for downcast."),
       false, .None
-    ));
+    )));
   });
   dyn_info := match(dyn_info_opt, .Some(i) => i, .None => new_expr_info(cur_env, TypeValue.Unit));
   cur_env = dyn_info.env;
 
   dyn_type := dyn_info.ty;
   if(!(is_dyn_type(dyn_type)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(dyn_expr),
       `downcast expects a Dyn type as first argument, got ${type_to_string(dyn_type)}.`,
       false, .None
-    ));
+    )));
   });
 
   // Second argument: the target type T (comptime).
   type_expr := match(args.get(usize(1)),
     .Some(a) => a,
-    .None    => { return expr; }
+    .None    => { return(expr); }
   );
   eval_type_expr  := evaluate_expression(type_expr, cur_env, ctx);
   type_info_opt   := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type_expr));
   if(type_info_opt.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(type_expr),
       String.from("Failed to evaluate type argument for downcast."),
       false, .None
-    ));
+    )));
   });
   type_info := match(type_info_opt, .Some(i) => i, .None => new_expr_info(cur_env, TypeValue.Unit));
   cur_env = type_info.env;
 
   if(!(is_type_value(type_info.value)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(type_expr),
       `downcast expects a type as second argument, got ${type_to_string(type_info.ty)}.`,
       false, .None
-    ));
+    )));
   });
 
   // Extract the TypeValue from the TypeVal.
@@ -119,4 +119,4 @@ evaluate_downcast :: (fn(
   expr
 });
 
-export evaluate_downcast;
+export(evaluate_downcast);

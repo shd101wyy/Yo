@@ -14,30 +14,30 @@
 //! since `TypeValue.Struct` only stores field labels and types (no `TypeField[]`),
 //! to avoid a circular dependency between the types and evaluator layers.
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
   ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_fn_call,
-  make_err_expr, BK_COMPTIME, BK_IMPL_UPPER, BK_CONST, BK_ASSIGN } :: import "../../expr/expr.yo";
-{ new_expr_info, expr_info_table_get, expr_info_table_set }          :: import "../../expr/expr_info.yo";
-{ Environment }                                                       :: import "../../env/env.yo";
-{ EvalContext, ExpectedTypeCtx }                                      :: import "../context.yo";
-{ EvalValue }                                                         :: import "../value.yo";
+  make_err_expr, BK_COMPTIME, BK_IMPL_UPPER, BK_CONST, BK_ASSIGN } :: import("../../expr/expr.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set }          :: import("../../expr/expr_info.yo");
+{ Environment }                                                       :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx }                                      :: import("../context.yo");
+{ EvalValue }                                                         :: import("../value.yo");
 { TypeValue, is_some_type, is_tuple_type, is_struct_type,
-  is_module_type, is_trait_type }                                     :: import "../../types/type.yo";
-{ are_types_compatible }                                              :: import "../../types/compatibility.yo";
-{ format_error_message }                                              :: import "../../error/error.yo";
-{ type_to_string }                                                   :: import "../../types/string.yo";
-{ prohibit_void_type }                                               :: import "../../types/utils.yo";
-{ doc_comment_lookup_key_from_token }                                 :: import "../utils.yo";
-{ is_type_value }                                                     :: import "../value.yo";
-{ is_valid_variable_name }                                            :: import "../exprs/binding.yo";
-{ Exception }                                                         :: import "std/error";
-{ evaluate_expression }                                               :: import "../exprs/expr.yo";
-{ HashMap }                                                           :: import "std/collections/hash_map";
-{ ArrayList }                                                         :: import "std/collections/array_list";
-{ type_implements_fn }                                                :: import "../trait_checking.yo";
+  is_module_type, is_trait_type }                                     :: import("../../types/type.yo");
+{ are_types_compatible }                                              :: import("../../types/compatibility.yo");
+{ format_error_message }                                              :: import("../../error/error.yo");
+{ type_to_string }                                                   :: import("../../types/string.yo");
+{ prohibit_void_type }                                               :: import("../../types/utils.yo");
+{ doc_comment_lookup_key_from_token }                                 :: import("../utils.yo");
+{ is_type_value }                                                     :: import("../value.yo");
+{ is_valid_variable_name }                                            :: import("../exprs/binding.yo");
+{ Exception }                                                         :: import("std/error");
+{ evaluate_expression }                                               :: import("../exprs/expr.yo");
+{ HashMap }                                                           :: import("std/collections/hash_map");
+{ ArrayList }                                                         :: import("std/collections/array_list");
+{ type_implements_fn }                                                :: import("../trait_checking.yo");
 
 // ---------------------------------------------------------------------------
 // TypeField
@@ -129,12 +129,12 @@ evaluate_type_field :: (fn(
       args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
       lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       if(!(is_valid_variable_name(lhs_expr)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_expr),
           `Expected identifier for element label, got ${ast_expr_to_string(lhs_expr)}`,
           false,
           .None
-        ));
+        )));
       });
       label_expr = Option(AstExpr).Some(lhs_expr);
       label = Option(String).Some(ast_expr_token(lhs_expr).value);
@@ -146,12 +146,12 @@ evaluate_type_field :: (fn(
 
   // Cannot have both default value and assigned value
   if(default_value_expr.is_some() && assigned_value_expr.is_some(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("Cannot have both default value and required value for element."),
       false,
       .None
-    ));
+    )));
   });
 
   // --- Parse the lhs expr: `x: T`, `comptime(x): T`, or just `comptime(x)` ---
@@ -164,12 +164,12 @@ evaluate_type_field :: (fn(
     // Check if it's `comptime(x): T`
     if(ast_expr_is_fn_call_of(lhs_, BK_COMPTIME, Option(usize).Some(usize(1))), {
       if(is_comptime, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_),
           String.from("Cannot combine the use of \"comptime\" with ::"),
           false,
           .None
-        ));
+        )));
       });
       is_comptime = true;
       ct_args := match(lhs_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
@@ -177,34 +177,34 @@ evaluate_type_field :: (fn(
     });
 
     if(!(ast_expr_is_atom(lhs_)) || !(is_valid_variable_name(lhs_)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(lhs_),
         `Expected identifier for element label, got ${ast_expr_to_string(lhs_)}`,
         false,
         .None
-      ));
+      )));
     });
     label_expr = Option(AstExpr).Some(lhs_);
     label = Option(String).Some(ast_expr_token(lhs_).value);
   }, if(ast_expr_is_fn_call_of(expr_, BK_COMPTIME, Option(usize).Some(usize(1))), {
     if(is_comptime, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr_),
         String.from("Cannot combine the use of \"comptime\" with \"::\""),
         false,
         .None
-      ));
+      )));
     });
     is_comptime = true;
     ct_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
     lhs_ := match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     if(!(ast_expr_is_atom(lhs_)) || !(is_valid_variable_name(lhs_)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(lhs_),
         `Expected identifier for element label, got ${ast_expr_to_string(lhs_)}`,
         false,
         .None
-      ));
+      )));
     });
     label_expr = Option(AstExpr).Some(lhs_);
     label = Option(String).Some(ast_expr_token(lhs_).value);
@@ -226,12 +226,12 @@ evaluate_type_field :: (fn(
         _                           => Option(TypeValue).None
       );
       if(maybe_field_ty.is_none(), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           `Failed to get the field at index ${tuple_field_index}`,
           false,
           .None
-        ));
+        )));
       });
       expected_tuple_element_type = maybe_field_ty;
     });
@@ -262,12 +262,12 @@ evaluate_type_field :: (fn(
     env = te_info.env;
 
     if(!(is_type_value(te_info.value)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(te),
         `(1) Expected type for element, got ${ast_expr_to_string(te)}`,
         false,
         .None
-      ));
+      )));
     });
 
     field_type = match(te_info.value,
@@ -284,12 +284,12 @@ evaluate_type_field :: (fn(
     av_expr := match(assigned_value_expr, .Some(e) => e, .None => make_err_expr());
 
     if(!(is_comptime), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(av_expr),
         String.from("Assigned value expression is only allowed for compile-time only.\nPlease consider adding \"comptime\" modifier to the field label."),
         false,
         .None
-      ));
+      )));
     });
 
     field_expected_ctx := if(field_type.is_some(),
@@ -317,24 +317,24 @@ evaluate_type_field :: (fn(
 
     av_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_av));
     av_info := match(av_info_opt, .Some(i) => i, .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(av_expr),
         `Failed to evaluate required value expression: ${ast_expr_to_string(av_expr)}`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)
     });
 
     env = av_info.env;
 
     if(av_info.value.is_none(), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(av_expr),
         `Expected compile-time known value for required value, got ${ast_expr_to_string(av_expr)}`,
         false,
         .None
-      ));
+      )));
     });
 
     assigned_value = av_info.value;
@@ -343,12 +343,12 @@ evaluate_type_field :: (fn(
     if(field_expected_ctx.is_some(), {
       ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
       if(!(are_types_compatible(av_type, ft)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(av_expr),
           `Assigned value type mismatch:\nExpected type: ${type_to_string(ft)}\nGiven type: ${type_to_string(av_type)}`,
           false,
           .None
-        ));
+        )));
       });
       field_type = Option(TypeValue).Some(ft);
     }, {
@@ -381,24 +381,24 @@ evaluate_type_field :: (fn(
 
     dv_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dv));
     dv_info := match(dv_info_opt, .Some(i) => i, .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(dv_expr),
         `Failed to evaluate default value expression: ${ast_expr_to_string(dv_expr)}`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)
     });
 
     env = dv_info.env;
 
     if(dv_info.value.is_none(), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(dv_expr),
         `Expected compile-time known value for default value, got ${ast_expr_to_string(dv_expr)}`,
         false,
         .None
-      ));
+      )));
     });
 
     default_value = dv_info.value;
@@ -407,12 +407,12 @@ evaluate_type_field :: (fn(
     if(field_expected_ctx.is_some(), {
       ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
       if(!(are_types_compatible(dv_type, ft)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(dv_expr),
           `Default value type mismatch:\nExpected type: ${type_to_string(ft)}\nGiven type: ${type_to_string(dv_type)}`,
           false,
           .None
-        ));
+        )));
       });
       field_type = Option(TypeValue).Some(ft);
     }, {
@@ -422,24 +422,24 @@ evaluate_type_field :: (fn(
 
   // --- field_type must be resolved by now ---
   if(field_type.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("Failed to infer the element type"),
       false,
       .None
-    ));
+    )));
   });
 
   final_type := match(field_type, .Some(t) => t, .None => TypeValue.Unit);
 
   // For non-tuple types, a label is required
   if((for_type != "tuple") && label_expr.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected label for ${for_type} field, got ${ast_expr_to_string(expr_)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // --- Annotate label_expr in expr_info_table ---
@@ -484,12 +484,12 @@ evaluate_type_field :: (fn(
     if(type_expr.is_some(), {
       te := match(type_expr, .Some(e) => e, .None => make_err_expr());
       if(ast_expr_is_fn_call_of(te, BK_IMPL_UPPER, Option(usize).None), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(te),
           `Cannot use Impl(Fn(...)) as a field type:\n  ${type_to_string(final_type)}\n\nEach closure has a unique anonymous type with a capture-dependent size, so an Impl(Fn(...)) field has no fixed runtime size.\n\nOptions:\n  - Use Dyn(Fn(...)) for a heap-allocated, type-erased closure (and wrap the value with dyn(...)).\n  - Make the containing type generic over a closure type parameter, e.g.\n      MyStruct :: (fn(comptime(F) : Type) -> comptime(Type))(struct(cb : F));`,
           false,
           .None
-        ));
+        )));
       });
     });
   });
@@ -525,7 +525,7 @@ evaluate_type_field :: (fn(
   EvalTypeFieldResult(field: field, env: env)
 });
 
-export TypeField, EvalTypeFieldResult;
-export register_struct_fields, get_struct_fields;
-export type_implements_fn;
-export evaluate_type_field;
+export(TypeField, EvalTypeFieldResult);
+export(register_struct_fields, get_struct_fields);
+export(type_implements_fn);
+export(evaluate_type_field);

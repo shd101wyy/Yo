@@ -2,20 +2,20 @@
 //!
 //! 1:1 port of `src/evaluator/builtins/rc_fns.ts`.
 
-open import "std/string";
-{ ArrayList }                                            :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
-{ TypeValue, t_unit }                                    :: import "../../types/type.yo";
-{ Environment }                                          :: import "../../env/env.yo";
-{ EvalContext, ExpectedTypeCtx }                         :: import "../context.yo";
+open(import("std/string"));
+{ ArrayList }                                            :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
+{ TypeValue, t_unit }                                    :: import("../../types/type.yo");
+{ Environment }                                          :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx }                         :: import("../context.yo");
 { ExprInfo, new_expr_info, expr_info_table_get,
-  expr_info_table_set }                                  :: import "../../expr/expr_info.yo";
-{ EvalValue }                                            :: import "../value.yo";
-{ is_array_type, is_iso_type, is_tuple_type }            :: import "../../types/guards.yo";
-{ type_to_string }                                       :: import "../../types/string.yo";
-{ format_error_message }                                 :: import "../../error/error.yo";
-{ Exception }                                            :: import "std/error";
-{ evaluate_expression }                                  :: import "../exprs/expr.yo";
+  expr_info_table_set }                                  :: import("../../expr/expr_info.yo");
+{ EvalValue }                                            :: import("../value.yo");
+{ is_array_type, is_iso_type, is_tuple_type }            :: import("../../types/guards.yo");
+{ type_to_string }                                       :: import("../../types/string.yo");
+{ format_error_message }                                 :: import("../../error/error.yo");
+{ Exception }                                            :: import("std/error");
+{ evaluate_expression }                                  :: import("../exprs/expr.yo");
 
 create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
   variant_names := ArrayList(String).new();
@@ -71,12 +71,12 @@ _eval_arg :: (fn(
   match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `Failed to evaluate argument for ${fn_name}`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   )
@@ -247,12 +247,12 @@ evaluate_yo_iso_extract :: (fn(
   if(!(is_iso_type(arg_type)), {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       `evaluate_yo_iso_extract: expected Iso type, but got: ${type_to_string(arg_type)}`,
       false,
       .None
-    ));
+    )));
   });
 
   inner_type := match(arg_type, .IsoT(child_box) => child_box.*, _ => t_unit());
@@ -319,12 +319,12 @@ evaluate_yo_dup_array_element :: (fn(
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(!(is_array_type(array_type)), {
     tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       `evaluate_yo_dup_array_element: expected array type, got: ${type_to_string(array_type)}`,
       false,
       .None
-    ));
+    )));
   });
 
   element_type := match(array_type, .Array(child_box, _) => child_box.*, _ => t_unit());
@@ -349,12 +349,12 @@ evaluate_yo_dup_tuple_element :: (fn(
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(!(is_tuple_type(tuple_type)), {
     tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       `evaluate_yo_dup_tuple_element: expected tuple type, got: ${type_to_string(tuple_type)}`,
       false,
       .None
-    ));
+    )));
   });
 
   index_raw := match(info1.value,
@@ -369,12 +369,12 @@ evaluate_yo_dup_tuple_element :: (fn(
     .Some(ft) => ft,
     .None => {
       tok := match(args.get(usize(1)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         `evaluate_yo_dup_tuple_element: index ${index_i64} out of bounds for tuple`,
         false,
         .None
-      ));
+      )));
       t_unit()
     }
   );
@@ -386,9 +386,9 @@ evaluate_yo_dup_tuple_element :: (fn(
 });
 
 
-export create_option_type;
-export evaluate_yo_decr_rc, evaluate_yo_decr_rc_atomic, evaluate_yo_drop_array_element,
+export(create_option_type);
+export(evaluate_yo_decr_rc, evaluate_yo_decr_rc_atomic, evaluate_yo_drop_array_element,
        evaluate_yo_drop_tuple_element, evaluate_yo_dup_array_element, evaluate_yo_dup_tuple_element,
        evaluate_yo_dyn_vtable_drop, evaluate_yo_dyn_vtable_dup, evaluate_yo_incr_rc,
        evaluate_yo_incr_rc_atomic, evaluate_yo_iso_dispose, evaluate_yo_iso_extract,
-       evaluate_yo_rc_own, evaluate_yo_some_type_drop, evaluate_yo_some_type_dup;
+       evaluate_yo_rc_own, evaluate_yo_some_type_drop, evaluate_yo_some_type_dup);

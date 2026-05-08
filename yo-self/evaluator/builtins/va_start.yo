@@ -6,21 +6,21 @@
 //! Validates that all arguments are atom identifiers, then marks the va_list
 //! variable as initialized in the environment.
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_is_atom, ast_expr_to_string,
-  BF_VA_START }                                      :: import "../../expr/expr.yo";
-{ ArrayList }                                        :: import "std/collections/array_list";
-{ ExprInfo, new_expr_info, expr_info_table_set }     :: import "../../expr/expr_info.yo";
+  BF_VA_START }                                      :: import("../../expr/expr.yo");
+{ ArrayList }                                        :: import("std/collections/array_list");
+{ ExprInfo, new_expr_info, expr_info_table_set }     :: import("../../expr/expr_info.yo");
 { Environment, Variable, get_variables_from_env,
-  update_existing_variable }                         :: import "../../env/env.yo";
-{ EvalContext }                                      :: import "../context.yo";
-{ TypeValue, t_unit }                                :: import "../../types/type.yo";
-{ EvalValue }                                        :: import "../value.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ is_valid_variable_name }                           :: import "../exprs/binding.yo";
-{ Exception }                                        :: import "std/error";
+  update_existing_variable }                         :: import("../../env/env.yo");
+{ EvalContext }                                      :: import("../context.yo");
+{ TypeValue, t_unit }                                :: import("../../types/type.yo");
+{ EvalValue }                                        :: import("../value.yo");
+{ format_error_message }                             :: import("../../error/error.yo");
+{ is_valid_variable_name }                           :: import("../exprs/binding.yo");
+{ Exception }                                        :: import("std/error");
 
 evaluate_va_start :: (fn(
   expr : AstExpr,
@@ -36,19 +36,19 @@ evaluate_va_start :: (fn(
   n := args.len();
   (i : usize) = usize(0);
 
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     arg_opt := args.get(i);
     match(arg_opt,
       .None => { i = n; },
       .Some(arg) => {
         // All arguments must be atom identifiers.
         if((!(ast_expr_is_atom(arg)) || !(is_valid_variable_name(arg))), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(arg),
             `Invalid argument for va_start. Expected identifier, got:\n${ast_expr_to_string(arg)}`,
             false,
             .None
-          ));
+          )));
         });
 
         var_name := ast_expr_token(arg).value;
@@ -57,12 +57,12 @@ evaluate_va_start :: (fn(
         if((i == usize(0)), {
           variables := get_variables_from_env(env, var_name);
           if((variables.len() == usize(0)), {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg),
               `Variable '${var_name}' not found in the environment.`,
               false,
               .None
-            ));
+            )));
           });
           variable_opt := variables.get((variables.len() - usize(1)));
           match(variable_opt,
@@ -98,19 +98,19 @@ evaluate_va_start :: (fn(
         if((i == usize(1)), {
           variables := get_variables_from_env(env, var_name);
           if((variables.len() == usize(0)), {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg),
               `Variable '${var_name}' not found in the environment.`,
               false,
               .None
-            ));
+            )));
           });
         });
 
         i = (i + usize(1));
       }
     );
-  };
+  });
 
   info := new_expr_info(env, t_unit());
   info.value = .Some(EvalValue.UnitVal);
@@ -119,4 +119,4 @@ evaluate_va_start :: (fn(
   expr
 });
 
-export evaluate_va_start;
+export(evaluate_va_start);

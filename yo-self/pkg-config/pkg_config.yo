@@ -6,10 +6,10 @@
 ///
 /// Mirrors: src/pkg-config.ts
 
-open import "std/string";
-{ Command, ExitStatus, Output } :: import "std/process/command";
-{ Exception }            :: import "std/error";
-{ ArrayList }            :: import "std/collections/array_list";
+open(import("std/string"));
+{ Command, ExitStatus, Output } :: import("std/process/command");
+{ Exception }            :: import("std/error");
+{ ArrayList }            :: import("std/collections/array_list");
 
 /// Resolved compiler and linker flags for a system library.
 PkgConfigResult :: object(
@@ -39,7 +39,7 @@ _split_whitespace :: (fn(s: String) -> ArrayList(String))({
   k := usize(0);
   start := usize(0);
   in_token := false;
-  while ((k < n)), {
+  while(((k < n)), {
     b := u8(0);
     match(bytes.get(k),
       .None => (),
@@ -58,7 +58,7 @@ _split_whitespace :: (fn(s: String) -> ArrayList(String))({
       true => ()
     );
     k = (k + usize(1));
-  };
+  });
   if(in_token, { result.push(s.substring(start, n)); });
   result
 });
@@ -82,7 +82,7 @@ parse_cflags :: (fn(raw: String) -> PkgConfigResult)({
   tokens := _split_whitespace(raw.trim());
   n := tokens.len();
   k := usize(0);
-  while ((k < n)), {
+  while(((k < n)), {
     flag_opt := tokens.get(k);
     flag := match(flag_opt, .None => String.new(), .Some(p) => p);
     cond(
@@ -98,7 +98,7 @@ parse_cflags :: (fn(raw: String) -> PkgConfigResult)({
       true => ()
     );
     k = (k + usize(1));
-  };
+  });
   result
 });
 
@@ -108,7 +108,7 @@ parse_ldflags_into :: (fn(raw: String, result: PkgConfigResult) -> PkgConfigResu
   tokens := _split_whitespace(raw.trim());
   n := tokens.len();
   k := usize(0);
-  while ((k < n)), {
+  while(((k < n)), {
     flag_opt := tokens.get(k);
     flag := match(flag_opt, .None => String.new(), .Some(p) => p);
     cond(
@@ -124,7 +124,7 @@ parse_ldflags_into :: (fn(raw: String, result: PkgConfigResult) -> PkgConfigResu
       true => ()
     );
     k = (k + usize(1));
-  };
+  });
   result
 });
 
@@ -142,12 +142,12 @@ build_fallback :: (fn(lib: BuildSystemLibrary) -> PkgConfigResult)({
     link_tokens := _split_whitespace(lib.fallback_link);
     lt_n := link_tokens.len();
     lt_k := usize(0);
-    while ((lt_k < lt_n)), {
+    while(((lt_k < lt_n)), {
       tok_opt := link_tokens.get(lt_k);
       tok := match(tok_opt, .None => String.new(), .Some(p) => p);
       if((!(tok.is_empty())), { result.link_libraries.push(tok); });
       lt_k = (lt_k + usize(1));
-    };
+    });
   });
   result
 });
@@ -156,12 +156,12 @@ build_fallback :: (fn(lib: BuildSystemLibrary) -> PkgConfigResult)({
 apply_system_library_metadata :: (fn(lib: BuildSystemLibrary, result: PkgConfigResult) -> PkgConfigResult)({
   k := usize(0);
   n := lib.defines.len();
-  while ((k < n)), {
+  while(((k < n)), {
     def_opt := lib.defines.get(k);
     def := match(def_opt, .None => String.new(), .Some(p) => p);
     if((!(def.is_empty())), { result.defines.push(def); });
     k = (k + usize(1));
-  };
+  });
   result
 });
 
@@ -169,19 +169,19 @@ apply_system_library_metadata :: (fn(lib: BuildSystemLibrary, result: PkgConfigR
 _append_all :: (fn(dst: ArrayList(String), src: ArrayList(String)) -> unit)({
   k := usize(0);
   n := src.len();
-  while ((k < n)), {
+  while(((k < n)), {
     elem_opt := src.get(k);
     elem := match(elem_opt, .None => String.new(), .Some(p) => p);
     dst.push(elem);
     k = (k + usize(1));
-  };
+  });
 });
 
 /// Append elements from `src` into `dst`, skipping duplicates.
 _append_all_unique :: (fn(dst: ArrayList(String), src: ArrayList(String)) -> unit)({
   s_k := usize(0);
   s_n := src.len();
-  while ((s_k < s_n)), {
+  while(((s_k < s_n)), {
     elem_opt := src.get(s_k);
     elem := match(elem_opt, .None => String.new(), .Some(p) => p);
     if((!(elem.is_empty())), {
@@ -189,16 +189,16 @@ _append_all_unique :: (fn(dst: ArrayList(String), src: ArrayList(String)) -> uni
       d_k := usize(0);
       d_n := dst.len();
       found := false;
-      while ((d_k < d_n)), {
+      while(((d_k < d_n)), {
         d_opt := dst.get(d_k);
         d := match(d_opt, .None => String.new(), .Some(p) => p);
         if((d.as_str() == elem.as_str()), { found = true; break; });
         d_k = (d_k + usize(1));
-      };
+      });
       if((!(found)), { dst.push(elem); });
     });
     s_k = (s_k + usize(1));
-  };
+  });
 });
 
 /// Merge all fields of `src` into `dst` in-place.
@@ -219,7 +219,7 @@ is_pkg_config_available :: (fn(
   io.async((using(io, exn)) => {
     cmd := Command.new(String.from("pkg-config"));
     cmd.arg(String.from("--version"));
-    given(try_exn) := Exception(throw: ((err) -> { return ExitStatus(raw: i32(1)); }));
+    given(try_exn) := Exception(throw: ((err) -> { return(ExitStatus(raw: i32(1))); }));
     status := io.await(cmd.status(using(io, try_exn)));
     status.success()
   })
@@ -236,17 +236,17 @@ query_pkg_config :: (fn(
     cflags_cmd := Command.new(String.from("pkg-config"));
     cflags_cmd.arg(String.from("--cflags"));
     cflags_cmd.arg(pkg_name);
-    given(cflags_exn) := Exception(throw: ((err) -> { return Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new()); }));
+    given(cflags_exn) := Exception(throw: ((err) -> { return(Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new())); }));
     cflags_out := io.await(cflags_cmd.output(using(io, cflags_exn)));
-    if((!(cflags_out.status.success())), { return Option(PkgConfigResult).None; });
+    if((!(cflags_out.status.success())), { return(Option(PkgConfigResult).None); });
 
     // Run pkg-config --libs
     ldflags_cmd := Command.new(String.from("pkg-config"));
     ldflags_cmd.arg(String.from("--libs"));
     ldflags_cmd.arg(pkg_name);
-    given(ldflags_exn) := Exception(throw: ((err) -> { return Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new()); }));
+    given(ldflags_exn) := Exception(throw: ((err) -> { return(Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new())); }));
     ldflags_out := io.await(ldflags_cmd.output(using(io, ldflags_exn)));
-    if((!(ldflags_out.status.success())), { return Option(PkgConfigResult).None; });
+    if((!(ldflags_out.status.success())), { return(Option(PkgConfigResult).None); });
 
     cflags_raw := String.from_bytes(cflags_out.stdout).trim();
     ldflags_raw := String.from_bytes(ldflags_out.stdout).trim();
@@ -269,7 +269,7 @@ resolve_system_library :: (fn(
     if(pkg_available, {
       pkg_result := io.await(query_pkg_config(lib.name));
       match(pkg_result,
-        .Some(r) => { return apply_system_library_metadata(lib, r); },
+        .Some(r) => { return(apply_system_library_metadata(lib, r)); },
         .None => ()
       );
     });
@@ -288,19 +288,18 @@ resolve_all_system_libraries :: (fn(
     merged := _empty_result();
     k := usize(0);
     n := libs.len();
-    while ((k < n)), {
+    while(((k < n)), {
       lib_opt := libs.get(k);
       lib := match(lib_opt, .None => { k = n; break; }, .Some(p) => p);
       resolved := io.await(resolve_system_library(lib, verbose));
       _merge_into(merged, resolved);
       k = (k + usize(1));
-    };
+    });
     merged
   })
 );
 
-export
-  PkgConfigResult,
+export(PkgConfigResult,
   BuildSystemLibrary,
   parse_cflags,
   parse_ldflags_into,
@@ -309,5 +308,4 @@ export
   is_pkg_config_available,
   query_pkg_config,
   resolve_system_library,
-  resolve_all_system_libraries
-;
+  resolve_all_system_libraries);

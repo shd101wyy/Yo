@@ -5,11 +5,11 @@
 //!
 //! This mirrors `src/compiler-utils.ts`.
 
-open import "std/string";
-{ platform, Platform }  :: import "std/process";
-{ Command, ExitStatus }  :: import "std/process/command";
-{ AnyError, Exception } :: import "std/error";
-{ ArrayList }           :: import "std/collections/array_list";
+open(import("std/string"));
+{ platform, Platform }  :: import("std/process");
+{ Command, ExitStatus }  :: import("std/process/command");
+{ AnyError, Exception } :: import("std/error");
+{ ArrayList }           :: import("std/collections/array_list");
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -100,7 +100,7 @@ find_available_compiler :: (fn(
 
     result := Option(String).None;
     i := usize(0);
-    while runtime(((i < candidates.len()) && (result == Option(String).None))), {
+    while(runtime(((i < candidates.len()) && (result == Option(String).None))), {
       candidate_opt := candidates.get(i);
       match(candidate_opt,
         .None => (),
@@ -111,7 +111,7 @@ find_available_compiler :: (fn(
           given(try_exn) := Exception(throw: ((err) -> {
             // Compiler not available — set found=false via the mutable binding
             // and resume by returning a dummy ExitStatus (success=false)
-            return ExitStatus(raw: i32(1));
+            return(ExitStatus(raw: i32(1)));
           }));
           cmd := Command.new(cc);
           cmd.arg(String.from("--version"));
@@ -123,7 +123,7 @@ find_available_compiler :: (fn(
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   })
 );
@@ -214,7 +214,7 @@ is_liburing_available :: (fn(
 ) -> Impl(Future(bool, IO, Exception)))(
   io.async((using(io, exn)) => {
     if((platform != Platform.Linux), {
-      return false;
+      return(false);
     });
     // Check pkg-config exists
     pkg := Command.new(String.from("pkg-config"));
@@ -225,8 +225,7 @@ is_liburing_available :: (fn(
   })
 );
 
-export
-  CompilerInfo,
+export(CompilerInfo,
   SanitizerKind,
   SanitizerFlags,
   get_compiler_info,
@@ -234,5 +233,4 @@ export
   find_available_compiler,
   get_sanitizer_flags,
   get_macos_lsan_suppressions,
-  is_liburing_available
-;
+  is_liburing_available);

@@ -11,37 +11,37 @@
 //!
 //! Phase 3w: effect-row forall `...(E)` and effect-row spread `...(E)` in using() are now fully implemented.
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom,
   ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr,
   BK_FORALL, BK_WHERE, BK_COMPTIME, BK_QUOTE, BK_FN, BK_UNSAFE_FN, BK_TUPLE }
-  :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
-{ Environment, Variable, get_variables_from_env, add_variable_to_env } :: import "../../env/env.yo";
-{ EvalContext }                             :: import "../context.yo";
-{ EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import "../value.yo";
+  :: import("../../expr/expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
+{ Environment, Variable, get_variables_from_env, add_variable_to_env } :: import("../../env/env.yo");
+{ EvalContext }                             :: import("../context.yo");
+{ EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../value.yo");
 { TypeValue, t_some_t, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list,
   is_some_type, is_trait_type, is_function_type, generate_some_type_id }
-  :: import "../../types/type.yo";
-{ type_of_type }                            :: import "../../types/hierarchy.yo";
+  :: import("../../types/type.yo");
+{ type_of_type }                            :: import("../../types/hierarchy.yo");
 { is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type, is_effects_row_type }
-  :: import "../../types/guards.yo";
-{ are_types_compatible }                    :: import "../../types/compatibility.yo";
+  :: import("../../types/guards.yo");
+{ are_types_compatible }                    :: import("../../types/compatibility.yo");
 { prohibit_void_type, type_requires_comptime_modifier,
   type_prohibits_comptime_modifier, type_contains_some_type,
   convert_comptime_type_to_runtime_type }
-  :: import "../../types/utils.yo";
-{ get_value_of_some_type_from_env }         :: import "../../types/env_lookup.yo";
-{ format_error_message }                    :: import "../../error/error.yo";
-{ type_to_string }                          :: import "../../types/string.yo";
-{ is_valid_variable_name }                  :: import "../exprs/binding.yo";
-{ type_implements_trait_bool }              :: import "../trait_checking.yo";
-{ Exception }                               :: import "std/error";
-{ evaluate_expression, evaluate_expression_raw } :: import "../exprs/expr.yo";
-{ ArrayList }                               :: import "std/collections/array_list";
-{ Token, TokenKind }                        :: import "../../lexer/token.yo";
+  :: import("../../types/utils.yo");
+{ get_value_of_some_type_from_env }         :: import("../../types/env_lookup.yo");
+{ format_error_message }                    :: import("../../error/error.yo");
+{ type_to_string }                          :: import("../../types/string.yo");
+{ is_valid_variable_name }                  :: import("../exprs/binding.yo");
+{ type_implements_trait_bool }              :: import("../trait_checking.yo");
+{ Exception }                               :: import("std/error");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ ArrayList }                               :: import("std/collections/array_list");
+{ Token, TokenKind }                        :: import("../../lexer/token.yo");
 
 // ---------------------------------------------------------------------------
 // Local data structures
@@ -106,22 +106,22 @@ _get_expr_type :: (fn(
   info      := match(info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `Failed to get expr info after evaluation`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env_mut, TypeValue.Unit)
     }
   );
   if(!(is_type_value(info.value)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected a type value, got ${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
   match(info.value,
     .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit),
@@ -241,37 +241,34 @@ extract_comptime_parameter_info :: (fn(
   // Handle default value: (comptime(name) : Type) ?= defaultValue
   if(ast_expr_is_fn_call_of(expr, "?=", .Some(usize(2))), {
     expr = match(_fn_call_args(expr).get(usize(0)),
-      .Some(a) => a, .None => return Option(ExtractComptimeResult).None
-    );
+      .Some(a) => a, .None => return(Option(ExtractComptimeResult).None));
   });
 
   // Handle assigned value: (comptime(name) : Type) = value
   if(ast_expr_is_fn_call_of(expr, "=", .Some(usize(2))), {
     expr = match(_fn_call_args(expr).get(usize(0)),
-      .Some(a) => a, .None => return Option(ExtractComptimeResult).None
-    );
+      .Some(a) => a, .None => return(Option(ExtractComptimeResult).None));
   });
 
   // Expect: comptime(name) : Type — form :(lhs, rhs)
   if(!(ast_expr_is_fn_call_of(expr, ":", .Some(usize(2)))), {
-    return Option(ExtractComptimeResult).None;
+    return(Option(ExtractComptimeResult).None);
   });
 
   args   := _fn_call_args(expr);
-  lhs    := match(args.get(usize(0)), .Some(a) => a, .None => return Option(ExtractComptimeResult).None);
-  type_e := match(args.get(usize(1)), .Some(a) => a, .None => return Option(ExtractComptimeResult).None);
+  lhs    := match(args.get(usize(0)), .Some(a) => a, .None => return(Option(ExtractComptimeResult).None));
+  type_e := match(args.get(usize(1)), .Some(a) => a, .None => return(Option(ExtractComptimeResult).None));
 
   // Check if lhs is comptime(name)
   if(!(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .Some(usize(1)))), {
-    return Option(ExtractComptimeResult).None;
+    return(Option(ExtractComptimeResult).None);
   });
 
   name_expr := match(_fn_call_args(lhs).get(usize(0)),
-    .Some(a) => a, .None => return Option(ExtractComptimeResult).None
-  );
+    .Some(a) => a, .None => return(Option(ExtractComptimeResult).None));
 
-  if(!(ast_expr_is_atom(name_expr)), { return Option(ExtractComptimeResult).None; });
-  if(!(is_valid_variable_name(name_expr)), { return Option(ExtractComptimeResult).None; });
+  if(!(ast_expr_is_atom(name_expr)), { return(Option(ExtractComptimeResult).None); });
+  if(!(is_valid_variable_name(name_expr)), { return(Option(ExtractComptimeResult).None); });
 
   .Some(ExtractComptimeResult(
     ast_expr_token(name_expr).value,
@@ -317,23 +314,23 @@ evaluate_function_parameter :: (fn(
       assigned_value_expr = .Some(match(_fn_call_args(expr_mut).get(usize(1)), .Some(a) => a, .None => make_err_expr()));
       expr_mut = match(_fn_call_args(expr_mut).get(usize(0)), .Some(a) => a, .None => make_err_expr());
     }, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr_mut),
         `Use "?=" for default parameter values. Assigned values require an explicit type: (name : Type) = value.`,
         false,
         .None
-      ));
+      )));
     });
   });
 
   // Disallow ":=" in parameter lists
   if(ast_expr_is_fn_call_of(expr_mut, ":=", .Some(usize(2))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr_mut),
       `":=" is not allowed in parameter lists. Use (name : Type) = value instead.`,
       false,
       .None
-    ));
+    )));
   });
 
   // Handle default value: (x: i32) ?= 13
@@ -366,12 +363,12 @@ evaluate_function_parameter :: (fn(
     `Expected an explicit type annotation for function parameter. Use "(name : Type)".`
   );
   if(type_expr.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       _type_err_msg,
       false,
       .None
-    ));
+    )));
   });
 
   // Process label expression modifiers: comptime, own, quote
@@ -381,22 +378,22 @@ evaluate_function_parameter :: (fn(
     // comptime modifier
     if(ast_expr_is_fn_call_of(lhs_mut, BK_COMPTIME, Option(usize).None), {
       if(is_parameter_comptime_by_default, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_mut),
           `"forall"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`,
           false,
           .None
-        ));
+        )));
       });
       is_compile_time_only = true;
       c_args := _fn_call_args(lhs_mut);
       if(!((c_args.len() == usize(1))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_mut),
           `Expected one argument for "comptime", got ${c_args.len()}`,
           false,
           .None
-        ));
+        )));
       });
       lhs_mut = match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
@@ -406,12 +403,12 @@ evaluate_function_parameter :: (fn(
       is_owning_rc_value = true;
       o_args := _fn_call_args(lhs_mut);
       if(!((o_args.len() == usize(1))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_mut),
           `Expected one argument for "own", got ${o_args.len()}`,
           false,
           .None
-        ));
+        )));
       });
       lhs_mut = match(o_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
@@ -421,32 +418,32 @@ evaluate_function_parameter :: (fn(
       is_quote = true;
       q_args := _fn_call_args(lhs_mut);
       if(!((q_args.len() == usize(1))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_mut),
           `Expected one argument for "quote" (or ":"), got ${q_args.len()}`,
           false,
           .None
-        ));
+        )));
       });
       if(is_compile_time_only, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_mut),
           `Cannot use "comptime" with "quote" (or ":"). "quote" parameters means compile-time only, so "comptime" is redundant.`,
           false,
           .None
-        ));
+        )));
       });
       is_compile_time_only = true;
       lhs_mut = match(q_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
 
     if(!(ast_expr_is_atom(lhs_mut)) || !(is_valid_variable_name(lhs_mut)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(lhs_mut),
         `Expected identifier for parameter label, got ${ast_expr_to_string(lhs_mut)}`,
         false,
         .None
-      ));
+      )));
     });
     label      = .Some(ast_expr_token(lhs_mut).value);
     label_expr = .Some(lhs_mut);
@@ -454,22 +451,22 @@ evaluate_function_parameter :: (fn(
 
   // A label is required
   if(label.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected a label for function parameter, got ${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Disallow "Self" as label
   if((match(label, .Some(l) => (l == String.from("Self")), .None => false)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
       String.from("Not allowed to use 'Self' as the label."),
       false,
       .None
-    ));
+    )));
   });
 
   // Evaluate assigned value expression (forall((T : Type) = Impl(Id)) form)
@@ -479,22 +476,22 @@ evaluate_function_parameter :: (fn(
   match(assigned_value_expr, .Some(ave) => {
     av_ty_opt := _eval_and_update_env(ave, env_mut, ctx, using(exn));
     if(av_ty_opt.is_none(), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(ave),
         `Expected type value for = assignment, got ${ast_expr_to_string(ave)}`,
         false,
         .None
-      ));
+      )));
     });
     param_type      = .Some(t_type());
     assigned_value  = .Some(create_type_value(match(av_ty_opt, .Some(t) => t, .None => TypeValue.Unit)));
     if(!(is_compile_time_only), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(ave),
         `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l, .None => String.from("?"))})" or put this in "forall(...)".`,
         false,
         .None
-      ));
+      )));
     });
   }, .None => ());
 
@@ -502,12 +499,12 @@ evaluate_function_parameter :: (fn(
   match(type_expr, .Some(te) => {
     ty_opt := _eval_and_update_env(te, env_mut, ctx, using(exn));
     if(ty_opt.is_none(), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(te),
         `(3) Failed to evaluate type expression: ${ast_expr_to_string(te)}`,
         false,
         .None
-      ));
+      )));
     });
     param_type = .Some(match(ty_opt, .Some(t) => t, .None => TypeValue.Unit));
   }, .None => ());
@@ -521,21 +518,21 @@ evaluate_function_parameter :: (fn(
       }, .Some(pt) => {
         // Check compatibility
         if(!(are_types_compatible(pt, dv_ty)), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(dve),
             `Incompatible default value type:\n- Expected: ${type_to_string(pt)}\n- Got     : ${type_to_string(dv_ty)}`,
             false,
             .None
-          ));
+          )));
         });
       });
     }, .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(dve),
         `Expected a compile-time known value for default parameter, got ${ast_expr_to_string(dve)}`,
         false,
         .None
-      ));
+      )));
     });
   }, .None => ());
 
@@ -543,12 +540,12 @@ evaluate_function_parameter :: (fn(
   final_param_type := match(param_type,
     .Some(pt) => pt,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("Expected type for function parameter}"),
         false,
         .None
-      ));
+      )));
       TypeValue.Unit
     }
   );
@@ -557,21 +554,21 @@ evaluate_function_parameter :: (fn(
   if((is_compile_time_only &&
       !(type_contains_some_type(final_param_type)) &&
       type_prohibits_comptime_modifier(final_param_type, env_mut.*)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
       `Parameter marked as "comptime" but type is not available at compile-time:\n${type_to_string(final_param_type)}`,
       false,
       .None
-    ));
+    )));
   });
 
   if((!(is_compile_time_only) && type_requires_comptime_modifier(final_param_type, env_mut.*)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
       `Parameter marked as runtime but type is not available at runtime:\n${type_to_string(final_param_type)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Validate runtime function parameters with generic function types
@@ -581,12 +578,12 @@ evaluate_function_parameter :: (fn(
       _ => false
     );
     if(has_forall, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
         `Runtime function parameters with generic function types are not allowed:\n${type_to_string(final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(label, .Some(l) => l, .None => String.from("?"))}) : ${type_to_string(final_param_type)}`,
         false,
         .None
-      ));
+      )));
     });
   });
 
@@ -594,12 +591,12 @@ evaluate_function_parameter :: (fn(
   if((is_quote &&
       !(is_expr_type(final_param_type)) &&
       !(is_expr_list_type(final_param_type))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
       `Expected Expr or ExprList type for "quote" (or ":") parameter, got ${type_to_string(final_param_type)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Prohibit void type as parameter type
@@ -614,25 +611,23 @@ evaluate_function_parameter :: (fn(
       _ => true
     );
     if(!(has_receiver), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         match(type_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
         `Trait type without receiver type set cannot be used as function parameter type.
         
-Please consider using "<:" to specify the receiver type for a trait type, for example:
+Please consider using "<:" to specify the receiver type for a trait(type, for example:
 
-Id :: trait
-  id   : (fn(self : Self) -> Self)
-;
+Id :: trait(id   : (fn(self : Self) -> Self)));
 
 use_id :: (fn(forall(T : Type),
               val : T, 
               where(T <: Id)
-          ) -> T) {
-  return val.id();
-}`,
+          ) -> T)({
+  return(val.id());
+})`,
         false,
         .None
-      ));
+      )));
     });
   });
 
@@ -648,7 +643,7 @@ use_id :: (fn(forall(T : Type),
   (existing_pre_var   : Option(Variable)) = Option(Variable).None;
 
   (vi : usize) = n_existing;
-  while runtime((vi > usize(0))), {
+  while(runtime((vi > usize(0))), {
     vi = (vi - usize(1));
     v  := match(existing_vars.get(vi), .Some(x) => x, .None => { vi = usize(0); break; });
     match(v.value, .Some(ev) => {
@@ -662,11 +657,11 @@ use_id :: (fn(forall(T : Type),
         _ => ()
       );
     }, .None => ());
-  };
+  });
 
   // Find last pre-added comptime var in current top frame
   if(existing_where_var.is_none() && (n_existing > usize(0)), {
-    last_v := match(existing_vars.get((n_existing - usize(1))), .Some(x) => x, .None => return FuncParam(
+    last_v := match(existing_vars.get((n_existing - usize(1))), .Some(x) => x, .None => return(FuncParam(
       label_str,
       final_param_type,
       is_compile_time_only,
@@ -674,7 +669,7 @@ use_id :: (fn(forall(T : Type),
       is_owning_rc_value,
       false,
       false
-    ));
+    )));
     top_frame_level := (env_mut.frames.len() - usize(1));
     if((last_v.is_compile_time_only && (last_v.frame_level == top_frame_level)), {
       existing_pre_var = .Some(last_v);
@@ -697,18 +692,18 @@ use_id :: (fn(forall(T : Type),
             .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _) => {
               // Merge required traits
               (ri : usize) = usize(0);
-              while runtime((ri < new_rtt.len())), {
+              while(runtime((ri < new_rtt.len())), {
                 nt := match(new_rtt.get(ri), .Some(t) => t, .None => { ri = new_rtt.len(); TypeValue.Unit });
                 _add_where_clause_constraint(existing_some_ty, nt, false);
                 ri = (ri + usize(1));
-              };
+              });
               // Merge negative traits
               (ni : usize) = usize(0);
-              while runtime((ni < new_ntt.len())), {
+              while(runtime((ni < new_ntt.len())), {
                 nt := match(new_ntt.get(ni), .Some(t) => t, .None => { ni = new_ntt.len(); TypeValue.Unit });
                 _add_where_clause_constraint(existing_some_ty, nt, true);
                 ni = (ni + usize(1));
-              };
+              });
             },
             _ => ()
           );
@@ -806,7 +801,7 @@ validate_concrete_type_constraints :: (fn(
     (args : ArrayList(AstExpr)) = _fn_call_args(rhs_expr);
     (i : usize) = usize(0);
     while((i < args.len()), {
-      (arg : AstExpr) = match(args.get(i), .Some(a) => a, .None => { i = (i + usize(1)); return (); });
+      (arg : AstExpr) = match(args.get(i), .Some(a) => a, .None => { i = (i + usize(1)); return(()); });
       if(ast_expr_is_fn_call_of(arg, "!", .Some(usize(1))), {
         (inner : AstExpr) = match(_fn_call_args(arg).get(usize(0)), .Some(a) => a, .None => arg);
         trait_exprs.push(inner);
@@ -831,7 +826,7 @@ validate_concrete_type_constraints :: (fn(
   // For each (trait_expr, is_negated): evaluate, check, throw if violated
   (j : usize) = usize(0);
   while((j < trait_exprs.len()), {
-    (t_expr : AstExpr) = match(trait_exprs.get(j), .Some(e) => e, .None => { j = (j + usize(1)); return (); });
+    (t_expr : AstExpr) = match(trait_exprs.get(j), .Some(e) => e, .None => { j = (j + usize(1)); return(()); });
     (negated : bool)   = match(trait_negated.get(j), .Some(b) => b, .None => false);
 
     evaled_t := evaluate_expression(t_expr, env_mut.*, ctx);
@@ -840,11 +835,11 @@ validate_concrete_type_constraints :: (fn(
     info := match(info_opt,
       .Some(i) => i,
       .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(t_expr),
           String.from("validate_concrete_type_constraints: failed to evaluate trait expression"),
           false, .None
-        ));
+        )));
         new_expr_info(env_mut.*, t_unit())
       }
     );
@@ -852,53 +847,53 @@ validate_concrete_type_constraints :: (fn(
 
     if(is_type_value(info.value), {
       tv := match(info.value, .Some(ev) => match(ev, .TypeVal(b) => b.*, _ => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(t_expr),
             String.from("Expected trait type for right-hand side of where clause constraint."),
             false, .None
-          ));
-          return ();
+          )));
+          return(());
         }), .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(t_expr),
           String.from("Expected trait type for right-hand side of where clause constraint."),
           false, .None
-        ));
-        return ();
+        )));
+        return(());
       });
 
       if(!(is_trait_type(tv)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(t_expr),
           String.from("Expected trait type for right-hand side of where clause constraint, got: ").concat(type_to_string(tv)),
           false, .None
-        ));
+        )));
       });
 
       implemented := type_implements_trait_bool(concrete_type, tv, env_mut.*);
       if(negated, {
         if(implemented, {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(constraint_expr),
             String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" must NOT implement ")).concat(type_to_string(tv)).concat(String.from(", but it does.")),
             false, .None
-          ));
+          )));
         });
       }, {
         if(!(implemented), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(constraint_expr),
             String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" does not implement required trait ")).concat(type_to_string(tv)).concat(String.from(".")),
             false, .None
-          ));
+          )));
         });
       });
     }, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(t_expr),
         String.from("Expected trait type for right-hand side of where clause constraint."),
         false, .None
-      ));
+      )));
     });
 
     j = (j + usize(1));
@@ -938,9 +933,9 @@ apply_single_trait_constraint :: (fn(
     var_name     := ast_expr_token(lhs_expr).value;
     existing_vars := get_variables_from_env(env_mut.*, var_name);
     if((existing_vars.len() == usize(0)), {
-      return false;
+      return(false);
     });
-    last_var := match(existing_vars.get((existing_vars.len() - usize(1))), .Some(v) => v, .None => return false);
+    last_var := match(existing_vars.get((existing_vars.len() - usize(1))), .Some(v) => v, .None => return(false));
     match(last_var.value, .Some(ev) => {
       match(ev, .TypeVal(b) => {
         if(is_some_type(b.*), {
@@ -950,17 +945,17 @@ apply_single_trait_constraint :: (fn(
           // Use outer exn directly (hard failure) — the given/using soft-failure pattern
           // generates incomplete C calls (missing exn__throw argument).
           validate_concrete_type_constraints(b.*, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, using(exn));
-          return true;
+          return(true);
         });
-      }, _ => { return false; });
-    }, .None => { return false; });
+      }, _ => { return(false); });
+    }, .None => { return(false); });
   }, {
     // Evaluate LHS expression
     (lhs_ty : TypeValue) = TypeValue.Unit;
     evaluated := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn));
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-    info     := match(info_opt, .Some(i) => i, .None => { return false; });
-    if(!(is_type_value(info.value)), { return false; });
+    info     := match(info_opt, .Some(i) => i, .None => { return(false); });
+    if(!(is_type_value(info.value)), { return(false); });
     env_mut.* = info.env;
     lhs_ty = match(info.value, .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit), .None => TypeValue.Unit);
 
@@ -969,38 +964,38 @@ apply_single_trait_constraint :: (fn(
     }, {
       // Concrete type — use outer exn (hard failure)
       validate_concrete_type_constraints(lhs_ty, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, using(exn));
-      return true;
+      return(true);
     });
   });
 
-  some_ty := match(some_ty_opt, .Some(t) => t, .None => { return false; });
+  some_ty := match(some_ty_opt, .Some(t) => t, .None => { return(false); });
 
   // Evaluate trait expression (unwrapped)
   (trait_ty : TypeValue) = TypeValue.Unit;
   evaluated_rhs := evaluate_expression_raw(unwrapped_trait_expr, env_mut.*, ctx, using(exn));
   info_rhs_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
-  info_rhs     := match(info_rhs_opt, .Some(i) => i, .None => { return false; });
-  if(!(is_type_value(info_rhs.value)), { return false; });
+  info_rhs     := match(info_rhs_opt, .Some(i) => i, .None => { return(false); });
+  if(!(is_type_value(info_rhs.value)), { return(false); });
   env_mut.* = info_rhs.env;
   trait_ty = match(info_rhs.value, .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit), .None => TypeValue.Unit);
 
   if(!(is_trait_type(trait_ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(unwrapped_trait_expr),
       `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(trait_ty)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Check that the trait does not already have a receiver type
   if(_trait_has_receiver(trait_ty), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(unwrapped_trait_expr),
       String.from("Trait type in where clause already has a receiver type assigned."),
       false,
       .None
-    ));
+    )));
   });
 
   // Add the constraint directly to the SomeT's ArrayLists
@@ -1027,17 +1022,17 @@ parse_where_clause_constraints :: (fn(
   pending_traits := ArrayList(PendingConstraint).new();
 
   (ci : usize) = usize(0);
-  while runtime((ci < constraint_exprs.len())), {
+  while(runtime((ci < constraint_exprs.len())), {
     constraint_expr := match(constraint_exprs.get(ci), .Some(e) => e, .None => { ci = constraint_exprs.len(); AstExpr.Atom(usize(0), Token(kind: TokenKind.Identifier, value: String.from(""), row: usize(0), column: usize(0), character: usize(0), module_path: String.from(""), input: String.from(""))) });
     ci = (ci + usize(1));
 
     if(!(ast_expr_is_fn_call_of(constraint_expr, "<:", .Some(usize(2)))), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(constraint_expr),
         `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${ast_expr_to_string(constraint_expr)}`,
         false,
         .None
-      ));
+      )));
     });
 
     c_args   := _fn_call_args(constraint_expr);
@@ -1054,7 +1049,7 @@ parse_where_clause_constraints :: (fn(
       existing_vars := get_variables_from_env(env_mut.*, var_name);
 
       if((existing_vars.len() > usize(0)), {
-        last_v := match(existing_vars.get((existing_vars.len() - usize(1))), .Some(v) => v, .None => return pending_traits);
+        last_v := match(existing_vars.get((existing_vars.len() - usize(1))), .Some(v) => v, .None => return(pending_traits));
         match(last_v.value, .Some(ev) => {
           match(ev, .TypeVal(b) => {
             if(is_some_type(b.*), {
@@ -1068,25 +1063,25 @@ parse_where_clause_constraints :: (fn(
               skip_constraint = true;
             });
           }, _ => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(lhs_expr),
               `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`,
               false,
               .None
-            ));
+            )));
           });
         }, .None => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(lhs_expr),
             `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`,
             false,
             .None
-          ));
+          )));
         });
       }, {
         // Create new SomeType for this variable
         top_frame := env_mut.frames.len();
-        if((top_frame == usize(0)), { return pending_traits; });
+        if((top_frame == usize(0)), { return(pending_traits); });
         new_some_ty := t_some_t(var_name, (top_frame - usize(1)));
         tv          := create_type_value(new_some_ty);
 
@@ -1115,33 +1110,33 @@ parse_where_clause_constraints :: (fn(
       evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn));
       lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
       lhs_info     := match(lhs_info_opt, .Some(i) => i, .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_expr),
           String.from("Expected type for left-hand side of where clause constraint."),
           false,
           .None
-        ));
+        )));
         new_expr_info(env_mut.*, TypeValue.Unit)
       });
       if(!(is_type_value(lhs_info.value)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_expr),
           String.from("Expected type for left-hand side of where clause constraint."),
           false,
           .None
-        ));
+        )));
       });
       env_mut.* = lhs_info.env;
       lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit), .None => TypeValue.Unit);
 
       // HKT TypeApplication case (stub — not yet implemented)
       if(is_type_application_type(lhs_tv), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lhs_expr),
           String.from("HKT TypeApplication where clause not yet implemented (Phase 3)"),
           false,
           .None
-        ));
+        )));
       });
 
       if(is_some_type(lhs_tv), {
@@ -1163,18 +1158,18 @@ parse_where_clause_constraints :: (fn(
     if(ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE, .None), {
       rhs_args := _fn_call_args(rhs_expr);
       (ri : usize) = usize(0);
-      while runtime((ri < rhs_args.len())), {
+      while(runtime((ri < rhs_args.len())), {
         rte := match(rhs_args.get(ri), .Some(a) => a, .None => make_err_expr());
         rhs_trait_exprs.push(rte);
         ri = (ri + usize(1));
-      };
+      });
     }, {
       rhs_trait_exprs.push(rhs_expr);
     });
 
     // Evaluate each trait expression and apply constraint incrementally
     (ti : usize) = usize(0);
-    while runtime((ti < rhs_trait_exprs.len())), {
+    while(runtime((ti < rhs_trait_exprs.len())), {
       trait_expr_item := match(rhs_trait_exprs.get(ti), .Some(a) => a, .None => make_err_expr());
       ti = (ti + usize(1));
 
@@ -1196,12 +1191,12 @@ parse_where_clause_constraints :: (fn(
       (skip_iter : bool) = false;
       trait_info     := match(trait_info_opt, .Some(i) => i, .None => {
         if(!(collect_pending), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(unwrapped_te),
             String.from("Expected trait type for right-hand side of where clause constraint."),
             false,
             .None
-          ));
+          )));
         });
         _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
         skip_iter = true;
@@ -1210,12 +1205,12 @@ parse_where_clause_constraints :: (fn(
       if(skip_iter, { continue; });
       if(!(is_type_value(trait_info.value)), {
         if(!(collect_pending), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(unwrapped_te),
             String.from("Expected trait type for right-hand side of where clause constraint."),
             false,
             .None
-          ));
+          )));
         });
         _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
         skip_iter = true;
@@ -1225,27 +1220,27 @@ parse_where_clause_constraints :: (fn(
       trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit), .None => TypeValue.Unit);
 
       if(!(is_trait_type(trait_ty2)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(unwrapped_te),
           `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(trait_ty2)}`,
           false,
           .None
-        ));
+        )));
       });
 
       if(_trait_has_receiver(trait_ty2), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(unwrapped_te),
           String.from("Trait type in where clause already has a receiver type assigned."),
           false,
           .None
-        ));
+        )));
       });
 
       // Add constraint directly to SomeT's ArrayList
       _add_where_clause_constraint(some_ty, trait_ty2, is_neg);
-    };
-  };
+    });
+  });
 
   pending_traits
 });
@@ -1287,7 +1282,7 @@ prepare_where_clause_variables :: (fn(
   pending := ArrayList(PendingConstraint).new();
 
   (ci : usize) = usize(0);
-  while runtime((ci < constraint_exprs.len())), {
+  while(runtime((ci < constraint_exprs.len())), {
     constraint_expr := match(constraint_exprs.get(ci), .Some(e) => e, .None => { ci = constraint_exprs.len(); break; });
     ci = (ci + usize(1));
 
@@ -1335,12 +1330,12 @@ prepare_where_clause_variables :: (fn(
     new_pending := parse_where_clause_constraints(one_expr, env_mut, ctx, true, using(exn));
 
     (pi : usize) = usize(0);
-    while runtime((pi < new_pending.len())), {
+    while(runtime((pi < new_pending.len())), {
       pc := match(new_pending.get(pi), .Some(p) => p, .None => { pi = new_pending.len(); break; });
       pending.push(pc);
       pi = (pi + usize(1));
-    };
-  };
+    });
+  });
 
   pending
 });
@@ -1361,7 +1356,7 @@ retry_pending_constraints :: (fn(
   still_pending := ArrayList(PendingConstraint).new();
 
   (i : usize) = usize(0);
-  while runtime((i < pending.len())), {
+  while(runtime((i < pending.len())), {
     pc := match(pending.get(i), .Some(p) => p, .None => { i = pending.len(); break; });
     i = (i + usize(1));
 
@@ -1372,7 +1367,7 @@ retry_pending_constraints :: (fn(
     if(!(success), {
       still_pending.push(pc);
     });
-  };
+  });
 
   still_pending
 });
@@ -1420,7 +1415,7 @@ evaluate_function_parameters :: (fn(
     if(ast_expr_is_fn_call_of(first_param, BK_FORALL, Option(usize).None), {
       forall_args := _fn_call_args(first_param);
       (j : usize) = usize(0);
-      while runtime((j < forall_args.len())), {
+      while(runtime((j < forall_args.len())), {
         tp_expr := match(forall_args.get(j), .Some(a) => a, .None => make_err_expr());
         j = (j + usize(1));
 
@@ -1429,23 +1424,23 @@ evaluate_function_parameters :: (fn(
         if((ast_expr_is_fn_call_of(tp_expr, "...", .Some(usize(1))) &&
             ast_expr_is_atom(match(_fn_call_args(tp_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr()))), {
           inner_arg := match(_fn_call_args(tp_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-          row_var_name := (&ast_expr_token(inner_arg).value).clone();
+          row_var_name := (&(ast_expr_token(inner_arg).value)).clone();
 
           // Duplicate check
           (erd_found : bool) = false;
           (erdi : usize) = usize(0);
-          while runtime((erdi < forall_params.len())), {
+          while(runtime((erdi < forall_params.len())), {
             erfp := match(forall_params.get(erdi), .Some(p) => p, .None => { erdi = forall_params.len(); break; });
             if((erfp.label == row_var_name), { erd_found = true; erdi = forall_params.len(); });
             erdi = (erdi + usize(1));
-          };
+          });
           if(erd_found, {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(tp_expr),
               `Duplicate label "${row_var_name}" in type parameter`,
               false,
               .None
-            ));
+            )));
           });
 
           // Create effects-row SomeT (is_effects_row = true)
@@ -1455,7 +1450,7 @@ evaluate_function_parameters :: (fn(
           );
           eff_row_some_type := TypeValue.SomeT(
             generate_some_type_id(),
-            (&row_var_name).clone(),
+            (&(row_var_name)).clone(),
             er_frame_level,
             Box(TypeValue)(TypeValue.TypeUni(usize(1))),
             ArrayList(TypeValue).new(),
@@ -1468,9 +1463,9 @@ evaluate_function_parameters :: (fn(
 
           _ := add_variable_to_env(
             env_mut,
-            (&row_var_name).clone(),
-            (&row_kind_type).clone(),
-            Option(EvalValue).Some(EvalValue.TypeVal(Box(TypeValue)((&eff_row_some_type).clone()))),
+            (&(row_var_name)).clone(),
+            (&(row_kind_type)).clone(),
+            Option(EvalValue).Some(EvalValue.TypeVal(Box(TypeValue)((&(eff_row_some_type)).clone()))),
             true,
             false,
             false,
@@ -1479,8 +1474,8 @@ evaluate_function_parameters :: (fn(
           );
 
           forall_params.push(FuncParam(
-            (&row_var_name).clone(),
-            (&row_kind_type).clone(),
+            (&(row_var_name)).clone(),
+            (&(row_kind_type)).clone(),
             true,
             false,
             false,
@@ -1496,25 +1491,25 @@ evaluate_function_parameters :: (fn(
         // Duplicate check
         dup_found := false;
         (di : usize) = usize(0);
-        while runtime((di < forall_params.len())), {
+        while(runtime((di < forall_params.len())), {
           fp := match(forall_params.get(di), .Some(p) => p, .None => { di = forall_params.len(); break; });
           if((fp.label == param.label), {
             dup_found = true;
             di = forall_params.len();
           });
           di = (di + usize(1));
-        };
+        });
         if(dup_found, {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(tp_expr),
             `Duplicate label "${param.label}" in type parameter`,
             false,
             .None
-          ));
+          )));
         });
 
         forall_params.push(param);
-      };
+      });
     });
   });
 
@@ -1523,7 +1518,7 @@ evaluate_function_parameters :: (fn(
   // --------------------------------------------------------------------------
   (using_count : usize) = usize(0);
   (ui : usize) = usize(0);
-  while runtime((ui < param_exprs.len())), {
+  while(runtime((ui < param_exprs.len())), {
     param_expr := match(param_exprs.get(ui), .Some(e) => e, .None => make_err_expr());
     ui = (ui + usize(1));
 
@@ -1531,17 +1526,17 @@ evaluate_function_parameters :: (fn(
 
     using_count = (using_count + usize(1));
     if((using_count > usize(1)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(param_expr),
         `Only one "using(...)" clause is allowed per function signature. Combine all implicit parameters into a single using(), e.g.: using(a : TypeA, b : TypeB)`,
         false,
         .None
-      ));
+      )));
     });
 
     using_args := _fn_call_args(param_expr);
     (uj : usize) = usize(0);
-    while runtime((uj < using_args.len())), {
+    while(runtime((uj < using_args.len())), {
       impl_expr := match(using_args.get(uj), .Some(a) => a, .None => make_err_expr());
       uj = (uj + usize(1));
 
@@ -1550,27 +1545,27 @@ evaluate_function_parameters :: (fn(
       if((ast_expr_is_fn_call_of(impl_expr, "...", .Some(usize(1))) &&
           ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr()))), {
         inner_arg2 := match(_fn_call_args(impl_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-        row_var_name2 := (&ast_expr_token(inner_arg2).value).clone();
+        row_var_name2 := (&(ast_expr_token(inner_arg2).value)).clone();
 
         // Look up E (must have been declared in forall)
-        row_vars := get_variables_from_env(env_mut.*, (&row_var_name2).clone());
+        row_vars := get_variables_from_env(env_mut.*, (&(row_var_name2)).clone());
         if((row_vars.len() == usize(0)), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(impl_expr),
             `Effect row variable "${row_var_name2}" not found in scope. Declare it with forall(..., ...(${row_var_name2}))`,
             false,
             .None
-          ));
+          )));
         });
         row_var_opt := row_vars.get((row_vars.len() - usize(1)));
         match(row_var_opt,
           .None => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(impl_expr),
               String.from("Effect row variable not found"),
               false,
               .None
-            ));
+            )));
           },
           .Some(row_var) => {
             e_val := row_var.value;
@@ -1578,63 +1573,63 @@ evaluate_function_parameters :: (fn(
 
             match(e_val,
               .Some(ev) => {
-                if((is_type_val(ev) && !eff_row_handled), {
+                if((is_type_val(ev) && !(eff_row_handled)), {
                   inner_ty := match(ev, .TypeVal(b) => b.*, _ => TypeValue.Unit);
-                  if(is_effects_row_type((&inner_ty).clone()), {
+                  if(is_effects_row_type((&(inner_ty)).clone()), {
                     // Expand concrete EffectsRowT into individual params
-                    match((&inner_ty).clone(),
+                    match((&(inner_ty)).clone(),
                       .EffectsRowT(row_ls, row_ts) => {
                         (ki : usize) = usize(0);
-                        while runtime((ki < row_ls.len())), {
+                        while(runtime((ki < row_ls.len())), {
                           lbl := match(row_ls.get(ki), .Some(l) => l, .None => String.from(""));
                           ty  := match(row_ts.get(ki), .Some(t) => t, .None => TypeValue.Unit);
                           implicit_params.push(FuncParam(
-                            (&lbl).clone(), (&ty).clone(), true, false, false, true, false
+                            (&(lbl)).clone(), (&(ty)).clone(), true, false, false, true, false
                           ));
                           ki = (ki + usize(1));
-                        };
+                        });
                       },
                       _ => ()
                     );
                     eff_row_handled = true;
                   }, {
                     // TypeVal but not EffectsRowT — must be a SomeT with is_effects_row
-                    is_er_some := match((&inner_ty).clone(),
+                    is_er_some := match((&(inner_ty)).clone(),
                       .SomeT(_, _, _, _, _, _, _, _, is_er) => is_er,
                       _ => false
                     );
                     if(!(is_er_some), {
-                      exn.throw(dyn format_error_message(
+                      exn.throw(dyn(format_error_message(
                         ast_expr_token(impl_expr),
                         `"...(${row_var_name2})" requires "${row_var_name2}" to be a forall-declared effect row variable, but it resolves to a concrete type.`,
                         false,
                         .None
-                      ));
+                      )));
                     });
                     // Push spread marker
                     implicit_params.push(FuncParam(
-                      (&row_var_name2).clone(),
-                      (&inner_ty).clone(),
+                      (&(row_var_name2)).clone(),
+                      (&(inner_ty)).clone(),
                       true, false, false, true, true
                     ));
                     eff_row_handled = true;
                   });
                 });
-                if((is_unknown_val(ev) && !eff_row_handled), {
+                if((is_unknown_val(ev) && !(eff_row_handled)), {
                   inner_ty2 := match(ev, .UnknownVal(b) => b.*, _ => TypeValue.Unit);
-                  if(is_effects_row_type((&inner_ty2).clone()), {
+                  if(is_effects_row_type((&(inner_ty2)).clone()), {
                     // Expand EffectsRowT
-                    match((&inner_ty2).clone(),
+                    match((&(inner_ty2)).clone(),
                       .EffectsRowT(row_ls2, row_ts2) => {
                         (ki2 : usize) = usize(0);
-                        while runtime((ki2 < row_ls2.len())), {
+                        while(runtime((ki2 < row_ls2.len())), {
                           lbl2 := match(row_ls2.get(ki2), .Some(l) => l, .None => String.from(""));
                           ty2  := match(row_ts2.get(ki2), .Some(t) => t, .None => TypeValue.Unit);
                           implicit_params.push(FuncParam(
-                            (&lbl2).clone(), (&ty2).clone(), true, false, false, true, false
+                            (&(lbl2)).clone(), (&(ty2)).clone(), true, false, false, true, false
                           ));
                           ki2 = (ki2 + usize(1));
-                        };
+                        });
                       },
                       _ => ()
                     );
@@ -1647,7 +1642,7 @@ evaluate_function_parameters :: (fn(
                     );
                     fresh_some_t := TypeValue.SomeT(
                       generate_some_type_id(),
-                      (&row_var_name2).clone(),
+                      (&(row_var_name2)).clone(),
                       er_fl,
                       Box(TypeValue)(TypeValue.TypeUni(usize(1))),
                       ArrayList(TypeValue).new(),
@@ -1657,29 +1652,29 @@ evaluate_function_parameters :: (fn(
                       true
                     );
                     implicit_params.push(FuncParam(
-                      (&row_var_name2).clone(),
-                      (&fresh_some_t).clone(),
+                      (&(row_var_name2)).clone(),
+                      (&(fresh_some_t)).clone(),
                       true, false, false, true, true
                     ));
                     eff_row_handled = true;
                   });
                 });
                 if(!(eff_row_handled), {
-                  exn.throw(dyn format_error_message(
+                  exn.throw(dyn(format_error_message(
                     ast_expr_token(impl_expr),
                     `Effect row variable "${row_var_name2}" has invalid value. Expected a type.`,
                     false,
                     .None
-                  ));
+                  )));
                 });
               },
               .None => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   ast_expr_token(impl_expr),
                   `Effect row variable "${row_var_name2}" has no value.`,
                   false,
                   .None
-                ));
+                )));
               }
             );
           }
@@ -1696,12 +1691,12 @@ evaluate_function_parameters :: (fn(
         ast_expr_is_fn_call_of(impl_expr, ":=", Option(usize).None)
       );
       if(!(has_explicit_label), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(impl_expr),
           `Implicit parameter requires a label. Use "using(name : Type)" instead of "using(Type)".`,
           false,
           .None
-        ));
+        )));
       });
 
       param := evaluate_function_parameter(impl_expr, env_mut, ctx, true, true, using(exn));
@@ -1709,34 +1704,34 @@ evaluate_function_parameters :: (fn(
       // Duplicate checks
       (dup_forall : bool) = false;
       (dfi : usize) = usize(0);
-      while runtime((dfi < forall_params.len())), {
+      while(runtime((dfi < forall_params.len())), {
         fp := match(forall_params.get(dfi), .Some(p) => p, .None => { dfi = forall_params.len(); break; });
         if((fp.label == param.label), { dup_forall = true; dfi = forall_params.len(); });
         dfi = (dfi + usize(1));
-      };
+      });
       if(dup_forall, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(impl_expr),
           `Duplicate label "${param.label}" in implicit parameter (already in forall)`,
           false,
           .None
-        ));
+        )));
       });
 
       (dup_impl : bool) = false;
       (dii : usize) = usize(0);
-      while runtime((dii < implicit_params.len())), {
+      while(runtime((dii < implicit_params.len())), {
         ip := match(implicit_params.get(dii), .Some(p) => p, .None => { dii = implicit_params.len(); break; });
         if((ip.label == param.label), { dup_impl = true; dii = implicit_params.len(); });
         dii = (dii + usize(1));
-      };
+      });
       if(dup_impl, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(impl_expr),
           `Duplicate label "${param.label}" in implicit parameter`,
           false,
           .None
-        ));
+        )));
       });
 
       impl_param := FuncParam(
@@ -1754,17 +1749,17 @@ evaluate_function_parameters :: (fn(
       top_frame_idx := (env_mut.frames.len() - usize(1));
       match(env_mut.frames.get(top_frame_idx), .Some(frame) => {
         (fvi : usize) = usize(0);
-        while runtime((fvi < frame.variables.len())), {
+        while(runtime((fvi < frame.variables.len())), {
           fv := match(frame.variables.get(fvi), .Some(v) => v, .None => { fvi = frame.variables.len(); break; });
           if((fv.name == param.label), {
             fv.is_implicit = true;
             fvi = frame.variables.len();
           });
           fvi = (fvi + usize(1));
-        };
+        });
       }, .None => ());
-    };
-  };
+    });
+  });
 
   // --------------------------------------------------------------------------
   // Pass 3 — pre-add all comptime parameters to env (so where clauses can ref them)
@@ -1772,7 +1767,7 @@ evaluate_function_parameters :: (fn(
   (pre_added_indices : ArrayList(usize)) = ArrayList(usize).new();
 
   (pi3 : usize) = usize(0);
-  while runtime((pi3 < param_exprs.len())), {
+  while(runtime((pi3 < param_exprs.len())), {
     param_expr := match(param_exprs.get(pi3), .Some(e) => e, .None => make_err_expr());
     (current_idx : usize) = pi3;
     pi3 = (pi3 + usize(1));
@@ -1811,7 +1806,7 @@ evaluate_function_parameters :: (fn(
 
       pre_added_indices.push(current_idx);
     }, .None => ());
-  };
+  });
 
   // --------------------------------------------------------------------------
   // Pass 4 — scan where clause and try constraints (with pending retry)
@@ -1825,19 +1820,19 @@ evaluate_function_parameters :: (fn(
 
       // Copy where_args to where_clause_exprs
       (wai : usize) = usize(0);
-      while runtime((wai < where_args.len())), {
+      while(runtime((wai < where_args.len())), {
         we := match(where_args.get(wai), .Some(a) => a, .None => make_err_expr());
         where_clause_exprs.push(we);
         wai = (wai + usize(1));
-      };
+      });
 
       if((where_clause_exprs.len() == usize(0)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(last_param),
           String.from("The where clause must have at least one constraint."),
           false,
           .None
-        ));
+        )));
       });
 
       // First pass of where clause: create SomeTypes and try constraints
@@ -1849,7 +1844,7 @@ evaluate_function_parameters :: (fn(
   // Pass 5 — process regular parameters
   // --------------------------------------------------------------------------
   (pi5 : usize) = usize(0);
-  while runtime((pi5 < param_exprs.len())), {
+  while(runtime((pi5 < param_exprs.len())), {
     param_expr := match(param_exprs.get(pi5), .Some(e) => e, .None => make_err_expr());
     (current_i : usize) = pi5;
     pi5 = (pi5 + usize(1));
@@ -1857,12 +1852,12 @@ evaluate_function_parameters :: (fn(
     // Skip forall (already processed in pass 1)
     if(ast_expr_is_fn_call_of(param_expr, BK_FORALL, Option(usize).None), {
       if(!((current_i == usize(0))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(param_expr),
           `Expected type parameters to be the first argument, got ${(current_i + usize(1))}`,
           false,
           .None
-        ));
+        )));
       });
       continue;
     });
@@ -1871,12 +1866,12 @@ evaluate_function_parameters :: (fn(
     // Skip where clause (already processed in pass 4)
     if(ast_expr_is_fn_call_of(param_expr, BK_WHERE, Option(usize).None), {
       if(!((current_i == (param_exprs.len() - usize(1)))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(param_expr),
           String.from("The where clause must be the last parameter in the function signature."),
           false,
           .None
-        ));
+        )));
       });
       continue;
     });
@@ -1919,12 +1914,12 @@ evaluate_function_parameters :: (fn(
                 vlabel_expr = vlhs_arg;
                 vparam_name = ast_expr_token(vlhs_arg).value;
               }, {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   ast_expr_token(vlhs_arg),
                   `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(vlhs_arg)}`,
                   false,
                   .None
-                ));
+                )));
               });
             });
           });
@@ -1932,12 +1927,12 @@ evaluate_function_parameters :: (fn(
           // Evaluate type expression
           vtype_opt := _eval_and_update_env(vtype_arg, env_mut, ctx, using(exn));
           vparam_type = match(vtype_opt, .Some(t) => t, .None => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(vtype_arg),
               `Expected type for variadic parameter, got ${ast_expr_to_string(vtype_arg)}`,
               false,
               .None
-            ));
+            )));
             TypeValue.Unit
           });
         }, {
@@ -1959,19 +1954,19 @@ evaluate_function_parameters :: (fn(
               if(ast_expr_is_atom(varg) && is_valid_variable_name(varg), {
                 vlabel_expr = varg;
                 vparam_name = ast_expr_token(varg).value;
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   ast_expr_token(varg),
                   String.from("...(param_name) is not supported yet."),
                   false,
                   .None
-                ));
+                )));
               }, {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   ast_expr_token(varg),
                   `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(varg)}`,
                   false,
                   .None
-                ));
+                )));
               });
             });
           });
@@ -2006,12 +2001,12 @@ evaluate_function_parameters :: (fn(
     }, {
       // Normal function parameter
       if(find_variadic, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(param_expr),
           String.from("Expected variadic parameter to be the last parameter before the normal parameters."),
           false,
           .None
-        ));
+        )));
       });
 
       param := evaluate_function_parameter(param_expr, env_mut, ctx, false, true, using(exn));
@@ -2019,22 +2014,22 @@ evaluate_function_parameters :: (fn(
       // Duplicate check
       (dup_p : bool) = false;
       (dpi : usize) = usize(0);
-      while runtime((dpi < params.len())), {
+      while(runtime((dpi < params.len())), {
         pp := match(params.get(dpi), .Some(p) => p, .None => { dpi = params.len(); break; });
         if((pp.label == param.label), { dup_p = true; dpi = params.len(); });
         dpi = (dpi + usize(1));
-      };
+      });
       _dup_err_tok := if(ast_expr_is_fn_call(param_expr),
         match(_fn_call_args(param_expr).get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(param_expr)),
         ast_expr_token(param_expr)
       );
       if(dup_p, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           _dup_err_tok,
           `Duplicate label "${param.label}" in function parameter`,
           false,
           .None
-        ));
+        )));
       });
 
       params.push(param);
@@ -2044,34 +2039,34 @@ evaluate_function_parameters :: (fn(
         pending_constraints = retry_pending_constraints(pending_constraints, env_mut, ctx, using(exn));
       });
     });
-  };
+  });
 
   // Validate ExprList must be last parameter
   (eli : usize) = usize(0);
-  while runtime((eli < params.len())), {
+  while(runtime((eli < params.len())), {
     p := match(params.get(eli), .Some(x) => x, .None => { eli = params.len(); break; });
     _eli_tok := ast_expr_token(match(param_exprs.get(eli), .Some(e) => e, .None => make_err_expr()));
     if((p.is_quote && is_expr_list_type(p.ty)), {
       if(!((eli == (params.len() - usize(1)))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           _eli_tok,
           String.from("Expected ExprList type to be the last parameter."),
           false,
           .None
-        ));
+        )));
       });
     });
     eli = (eli + usize(1));
-  };
+  });
 
   // Final retry of pending constraints
   if((pending_constraints.len() > usize(0)), {
     pending_constraints = retry_pending_constraints(pending_constraints, env_mut, ctx, using(exn));
 
     if((pending_constraints.len() > usize(0)), {
-      failed := match(pending_constraints.get(usize(0)), .Some(p) => p, .None => return FuncParamsResult(
+      failed := match(pending_constraints.get(usize(0)), .Some(p) => p, .None => return(FuncParamsResult(
         params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param
-      ));
+      )));
       // Re-evaluate the failed constraint to get the error message
       one_failed := ArrayList(AstExpr).new();
       one_failed.push(failed.original_constraint_expr);
@@ -2101,12 +2096,12 @@ evaluate_function_type :: (fn(
   using(exn : Exception)
 ) -> AstExpr)({
   if(!(ast_expr_is_fn_call_of(expr, "->", .Some(usize(2)))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected -> for function type, got:\n${ast_expr_to_string(expr)}\n\nNote: For closures, use Impl(Fn(...) -> ...) syntax.`,
       false,
       .None
-    ));
+    )));
   });
 
   expr_args   := _fn_call_args(expr);
@@ -2116,12 +2111,12 @@ evaluate_function_type :: (fn(
   // Expect fn(...) or unsafe_fn(...)
   if(!(ast_expr_is_fn_call_of(arg_list_expr, BK_FN, Option(usize).None) ||
        ast_expr_is_fn_call_of(arg_list_expr, BK_UNSAFE_FN, Option(usize).None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_list_expr),
       `Expected a "fn" or "unsafe_fn" call for parameter list, got:\n${ast_expr_to_string(arg_list_expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   arg_list := _fn_call_args(arg_list_expr);
@@ -2154,12 +2149,12 @@ evaluate_function_type :: (fn(
       is_return_comptime_only = true;
       ct_args := _fn_call_args(rl_expr);
       if(!((ct_args.len() == usize(1))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(rl_expr),
           `Expected one argument for "comptime", got ${ct_args.len()}`,
           false,
           .None
-        ));
+        )));
       });
       rl_expr = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
@@ -2168,40 +2163,40 @@ evaluate_function_type :: (fn(
       is_return_unquote = true;
       uq_args := _fn_call_args(rl_expr);
       if(!((uq_args.len() == usize(1))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(rl_expr),
           `Expected one argument for "unquote", got ${uq_args.len()}`,
           false,
           .None
-        ));
+        )));
       });
       if(is_return_comptime_only, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(rl_expr),
-          `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`,
+          `Cannot use "comptime" with "unquote". "unquote" return(type means compile-time only, so "comptime" is redundant.)`,
           false,
           .None
-        ));
+        )));
       });
       is_return_comptime_only = true;
       rl_expr = match(uq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     // quote on return label is an error
     if(ast_expr_is_fn_call_of(rl_expr, BK_QUOTE, Option(usize).None), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(rl_expr),
-        `To define a macro function, please use "unquote" for the return type, not "quote".`,
+        `To define a macro function, please use "unquote" for the return(type, not "quote".)`,
         false,
         .None
-      ));
+      )));
     });
     if(!(is_valid_variable_name(rl_expr)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(rl_expr),
-        `Expected a valid variable name for return label, got ${ast_expr_to_string(rl_expr)}`,
+        `Expected a valid variable name for return(label, got ${ast_expr_to_string(rl_expr)})`,
         false,
         .None
-      ));
+      )));
     });
     return_label = .Some(ast_expr_token(rl_expr).value);
   }, {
@@ -2210,12 +2205,12 @@ evaluate_function_type :: (fn(
       is_return_comptime_only = true;
       ct_args2 := _fn_call_args(return_type_expr);
       if(!((ct_args2.len() == usize(1))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(return_type_expr),
           `Expected one argument for "comptime", got ${ct_args2.len()}`,
           false,
           .None
-        ));
+        )));
       });
       return_type_expr = match(ct_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
@@ -2223,31 +2218,31 @@ evaluate_function_type :: (fn(
       is_return_unquote = true;
       uq_args2 := _fn_call_args(return_type_expr);
       if(!((uq_args2.len() == usize(1))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(return_type_expr),
           `Expected one argument for "unquote", got ${uq_args2.len()}`,
           false,
           .None
-        ));
+        )));
       });
       if(is_return_comptime_only, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(return_type_expr),
-          `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`,
+          `Cannot use "comptime" with "unquote". "unquote" return(type means compile-time only, so "comptime" is redundant.)`,
           false,
           .None
-        ));
+        )));
       });
       is_return_comptime_only = true;
       return_type_expr = match(uq_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     if(ast_expr_is_fn_call_of(return_type_expr, BK_QUOTE, Option(usize).None), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(return_type_expr),
-        `To define a macro function, please use "unquote" for the return type, not "quote".`,
+        `To define a macro function, please use "unquote" for the return(type, not "quote".)`,
         false,
         .None
-      ));
+      )));
     });
   });
 
@@ -2260,12 +2255,12 @@ evaluate_function_type :: (fn(
   ret_type_val := match(ret_type_opt,
     .Some(t) => t,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(return_type_expr),
-        `Expected a type for function return type, got:\n${ast_expr_to_string(return_type_expr)}`,
+        `Expected a type for function return(type, got:\n${ast_expr_to_string(return_type_expr)})`,
         false,
         .None
-      ));
+      )));
       TypeValue.Unit
     }
   );
@@ -2275,12 +2270,12 @@ evaluate_function_type :: (fn(
   if((type_requires_comptime_modifier(return_type, env_mut) && !(is_return_comptime_only)), {
     converted := convert_comptime_type_to_runtime_type(return_type, env_mut);
     if(type_requires_comptime_modifier(converted, env_mut), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(return_type_expr),
-        `Expected a "comptime" for return type, like:\n\ncomptime(${ast_expr_to_string(return_type_expr)})\n\nGiven type:\n${type_to_string(return_type)}`,
+        `Expected a "comptime" for return(type, like:\n\ncomptime(${ast_expr_to_string(return_type_expr)})\n\nGiven type:\n${type_to_string(return_type)})`,
         false,
         .None
-      ));
+      )));
     });
     return_type = converted;
   });
@@ -2293,39 +2288,39 @@ evaluate_function_type :: (fn(
   if((is_return_comptime_only &&
       !(type_contains_some_type(return_type)) &&
       type_prohibits_comptime_modifier(return_type, env_mut)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(return_type_expr),
-      `Unexpected "comptime" for return type of ${type_to_string(return_type)} which can only be used at runtime.`,
+      `Unexpected "comptime" for return(type of ${type_to_string(return_type)} which can only be used at runtime.)`,
       false,
       .None
-    ));
+    )));
   });
 
   // All params must be comptime if return is comptime
   if(is_return_comptime_only, {
     (rci : usize) = usize(0);
-    while runtime((rci < params_result.params.len())), {
+    while(runtime((rci < params_result.params.len())), {
       rp := match(params_result.params.get(rci), .Some(p) => p, .None => { rci = params_result.params.len(); break; });
       if(!(rp.is_compile_time_only), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(match(param_exprs_for_error(arg_list, rci), .Some(e) => e, .None => make_err_expr())),
-          String.from("Expected all parameters to be compile time only given the return type is compile time only."),
+          String.from("Expected all parameters to be compile time only given the return(type is compile time only.)"),
           false,
           .None
-        ));
+        )));
       });
       rci = (rci + usize(1));
-    };
+    });
   });
 
   // unquote return must be Expr type
   if((is_return_unquote && !(is_expr_type(return_type))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(return_type_expr),
-      `Expected Expr type for "unquote" return type, got ${type_to_string(return_type)}`,
+      `Expected Expr type for "unquote" return(type, got ${type_to_string(return_type)})`,
       false,
       .None
-    ));
+    )));
   });
 
   // Pop the parameters frame
@@ -2342,48 +2337,48 @@ evaluate_function_type :: (fn(
   where_types      := ArrayList(TypeValue).new();
 
   (fpi : usize) = usize(0);
-  while runtime((fpi < params_result.forall_params.len())), {
+  while(runtime((fpi < params_result.forall_params.len())), {
     fp := match(params_result.forall_params.get(fpi), .Some(p) => p, .None => { fpi = params_result.forall_params.len(); break; });
     forall_labels.push(fp.label);
     forall_types.push(fp.ty);
     fpi = (fpi + usize(1));
-  };
+  });
 
   (ppi : usize) = usize(0);
-  while runtime((ppi < params_result.params.len())), {
+  while(runtime((ppi < params_result.params.len())), {
     pp := match(params_result.params.get(ppi), .Some(p) => p, .None => { ppi = params_result.params.len(); break; });
     param_labels.push(pp.label);
     param_types.push(pp.ty);
     ppi = (ppi + usize(1));
-  };
+  });
 
   (ipi : usize) = usize(0);
-  while runtime((ipi < params_result.implicit_params.len())), {
+  while(runtime((ipi < params_result.implicit_params.len())), {
     ip := match(params_result.implicit_params.get(ipi), .Some(p) => p, .None => { ipi = params_result.implicit_params.len(); break; });
     implicit_labels.push(ip.label);
     implicit_types.push(ip.ty);
     implicit_spreads.push(ip.is_effect_row_spread);
     ipi = (ipi + usize(1));
-  };
+  });
 
   // where_types: collect trait types from where clause exprs (for substitution)
   // We store the constraint trait types from the SomeT required_trait_types
   (wci : usize) = usize(0);
-  while runtime((wci < params_result.forall_params.len())), {
+  while(runtime((wci < params_result.forall_params.len())), {
     fp := match(params_result.forall_params.get(wci), .Some(p) => p, .None => { wci = params_result.forall_params.len(); break; });
     match(fp.ty,
       .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
         (ti2 : usize) = usize(0);
-        while runtime((ti2 < required_trait_types.len())), {
+        while(runtime((ti2 < required_trait_types.len())), {
           tt := match(required_trait_types.get(ti2), .Some(t) => t, .None => { ti2 = required_trait_types.len(); break; });
           where_types.push(tt);
           ti2 = (ti2 + usize(1));
-        };
+        });
       },
       _ => ()
     );
     wci = (wci + usize(1));
-  };
+  });
 
   func_type := TypeValue.Func(
     forall_labels,
@@ -2461,10 +2456,10 @@ evaluate_function_return_type_again :: (fn(
 // Exports
 // ---------------------------------------------------------------------------
 
-export evaluate_function_type;
-export evaluate_function_parameters;
-export apply_where_clause_constraints;
-export evaluate_function_parameter_type_again;
-export evaluate_function_return_type_again;
-export FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult;
-export _add_where_clause_constraint, _trait_has_receiver;
+export(evaluate_function_type);
+export(evaluate_function_parameters);
+export(apply_where_clause_constraints);
+export(evaluate_function_parameter_type_again);
+export(evaluate_function_return_type_again);
+export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
+export(_add_where_clause_constraint, _trait_has_receiver);

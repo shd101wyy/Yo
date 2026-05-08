@@ -6,12 +6,12 @@
 ///
 /// Mirrors: src/target.ts
 
-open import "std/string";
-{ ArrayList }              :: import "std/collections/array_list";
-{ Path }                   :: import "std/path";
-{ Exception }              :: import "std/error";
-{ DirEntry, read_dir }     :: import "std/fs/dir";
-{ platform, Platform, arch, Arch : ProcessArch } :: import "std/process";
+open(import("std/string"));
+{ ArrayList }              :: import("std/collections/array_list");
+{ Path }                   :: import("std/path");
+{ Exception }              :: import("std/error");
+{ DirEntry, read_dir }     :: import("std/fs/dir");
+{ platform, Platform, arch, Arch : ProcessArch } :: import("std/process");
 
 // ── Supported architectures ───────────────────────────────────────────
 
@@ -171,12 +171,12 @@ detect_linux_abi :: (fn(
 ) -> Impl(Future(Abi, IO, Exception)))(
   io.async((using(io, exn)) =>
     if((platform != Platform.Linux), Abi.Gnu, {
-      given(try_exn) := Exception(throw: ((err) -> { return ArrayList(DirEntry).new(); }));
+      given(try_exn) := Exception(throw: ((err) -> { return(ArrayList(DirEntry).new()); }));
       entries := io.await(read_dir(Path.new(String.from("/lib")), using(io, try_exn)));
       n := entries.len();
       k := usize(0);
       found_musl := false;
-      while ((k < n)), {
+      while(((k < n)), {
         e_opt := entries.get(k);
         e := match(e_opt, .None => { k = n; break; }, .Some(p) => p);
         if(e.name.starts_with(String.from("ld-musl-")), {
@@ -184,7 +184,7 @@ detect_linux_abi :: (fn(
           break;
         });
         k = (k + usize(1));
-      };
+      });
       if(found_musl, Abi.Musl, Abi.Gnu)
     })
   )
@@ -258,7 +258,7 @@ parse_target :: (fn(triple: String) -> Result(TargetInfo, String))({
   parts_n := parts.len();
 
   if(((parts_n < usize(2)) || (parts_n > usize(3))), {
-    return Result(TargetInfo, String).Err(String.from("Invalid target triple. Expected format: <arch>-<os> or <arch>-<os>-<abi>"));
+    return(Result(TargetInfo, String).Err(String.from("Invalid target triple. Expected format: <arch>-<os> or <arch>-<os>-<abi>")));
   });
 
   arch_str := match(parts.get(usize(0)), .None => String.new(), .Some(p) => p);
@@ -270,13 +270,13 @@ parse_target :: (fn(triple: String) -> Result(TargetInfo, String))({
 
   a := match(arch_opt,
     .None    => {
-      return Result(TargetInfo, String).Err(String.from("Unknown architecture in target triple"));
+      return(Result(TargetInfo, String).Err(String.from("Unknown architecture in target triple")));
     },
     .Some(v) => v
   );
   o := match(os_opt,
     .None    => {
-      return Result(TargetInfo, String).Err(String.from("Unknown OS in target triple"));
+      return(Result(TargetInfo, String).Err(String.from("Unknown OS in target triple")));
     },
     .Some(v) => v
   );
@@ -288,7 +288,7 @@ parse_target :: (fn(triple: String) -> Result(TargetInfo, String))({
       parsed := parse_abi(abi_str);
       match(parsed,
         .None    => {
-          return Result(TargetInfo, String).Err(String.from("Unknown ABI in target triple"));
+          return(Result(TargetInfo, String).Err(String.from("Unknown ABI in target triple")));
         },
         .Some(v) => Option(Abi).Some(v)
       )
@@ -382,8 +382,7 @@ is_target_posix :: (fn(target: TargetInfo) -> bool)(
   ((!(is_target_windows(target))) && (!(is_target_wasm(target))))
 );
 
-export
-  Arch,
+export(Arch,
   Os,
   Abi,
   TargetInfo,
@@ -408,5 +407,4 @@ export
   is_target_emscripten,
   is_target_standalone_wasi,
   is_target_musl,
-  is_target_posix
-;
+  is_target_posix);

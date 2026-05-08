@@ -15,9 +15,9 @@
 //!     wildcard arm and return `TypeUni(0)` as a safe fallback.
 //!   * `getFunctionParameterToken` is deferred to Phase 3 (requires FunctionParameter.exprs).
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ TypeValue } :: import "./type.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("./type.yo");
 
 // ---------------------------------------------------------------------------
 // Forward reference slot for type_of_type_with_visited
@@ -34,14 +34,14 @@ open import "std/string";
 _name_in_visited :: (fn(visited : ArrayList(String), name : String) -> bool)({
   result := false;
   i := usize(0);
-  while runtime((i < visited.len())), {
+  while(runtime((i < visited.len())), {
     elem := match(visited.get(i), .Some(s) => s, .None => String.from(""));
     cond(
       (elem.as_str() == name.as_str()) => { result = true; },
       true => ()
     );
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -66,7 +66,7 @@ _determine_type_universe :: (fn(
 ) -> TypeValue)({
   max_level := usize(0);
   i := usize(0);
-  while runtime((i < field_types.len())), {
+  while(runtime((i < field_types.len())), {
     field := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     subtype := match(g_type_of_type_visited_fn,
       .Some(f) => f(field, visited_names),
@@ -78,7 +78,7 @@ _determine_type_universe :: (fn(
     );
     max_level = _max_usize(max_level, sub_level);
     i = (i + usize(1));
-  };
+  });
   TypeValue.TypeUni(max_level)
 });
 
@@ -150,16 +150,16 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
           new_visited.push(String.from(ename.as_str()));
           all_fields := ArrayList(TypeValue).new();
           vi := usize(0);
-          while runtime((vi < variant_fields.len())), {
+          while(runtime((vi < variant_fields.len())), {
             vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
             fi := usize(0);
-            while runtime((fi < vfields.len())), {
+            while(runtime((fi < vfields.len())), {
               ft := match(vfields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
               all_fields.push(ft);
               fi = (fi + usize(1));
-            };
+            });
             vi = (vi + usize(1));
-          };
+          });
           _determine_type_universe(all_fields, new_visited)
         }
       ),
@@ -207,4 +207,4 @@ type_of_type :: (fn(ty : TypeValue) -> TypeValue)(
 
 // get_function_parameter_token — TODO Phase 3: needs FunctionParameter.exprs (AST data)
 
-export type_of_type;
+export(type_of_type);

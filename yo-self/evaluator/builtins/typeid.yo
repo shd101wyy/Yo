@@ -6,19 +6,19 @@
 //! In the evaluator: validates that the argument is a type value and returns
 //! an unknown usize (the actual ID is resolved in C codegen).
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_to_string, BF_TYPEID }                   :: import "../../expr/expr.yo";
+  ast_expr_to_string, BF_TYPEID }                   :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                              :: import "../../expr/expr_info.yo";
-{ Environment }                                      :: import "../../env/env.yo";
-{ EvalContext }                                      :: import "../context.yo";
-{ EvalValue, is_type_value, create_unknown_val }     :: import "../value.yo";
-{ TypeValue, t_usize }                               :: import "../../types/type.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ evaluate_expression }                              :: import "../exprs/expr.yo";
-{ Exception }                                        :: import "std/error";
+  expr_info_table_get }                              :: import("../../expr/expr_info.yo");
+{ Environment }                                      :: import("../../env/env.yo");
+{ EvalContext }                                      :: import("../context.yo");
+{ EvalValue, is_type_value, create_unknown_val }     :: import("../value.yo");
+{ TypeValue, t_usize }                               :: import("../../types/type.yo");
+{ format_error_message }                             :: import("../../error/error.yo");
+{ evaluate_expression }                              :: import("../exprs/expr.yo");
+{ Exception }                                        :: import("std/error");
 
 evaluate_type_id :: (fn(
   expr : AstExpr,
@@ -35,13 +35,13 @@ evaluate_type_id :: (fn(
   type_expr := match(type_expr_opt,
     .Some(te) => te,
     .None     => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `"typeid" expects exactly 1 argument.`,
         false,
         .None
-      ));
-      return expr;
+      )));
+      return(expr);
     }
   );
 
@@ -52,13 +52,13 @@ evaluate_type_id :: (fn(
   type_info := match(type_info_opt,
     .Some(ti) => ti,
     .None     => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(type_expr),
         `Failed to evaluate expression for typeid.`,
         false,
         .None
-      ));
-      return expr;
+      )));
+      return(expr);
     }
   );
 
@@ -66,12 +66,12 @@ evaluate_type_id :: (fn(
 
   // typeid only accepts compile-time Type values.
   if(!(is_type_value(type_info.value)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(type_expr),
       `typeid expects a type argument. Use is() or downcast() for runtime type checks on Dyn values.`,
       false,
       .None
-    ));
+    )));
   });
 
   // The result is a runtime usize value (resolved in C codegen).
@@ -83,4 +83,4 @@ evaluate_type_id :: (fn(
   expr
 });
 
-export evaluate_type_id;
+export(evaluate_type_id);

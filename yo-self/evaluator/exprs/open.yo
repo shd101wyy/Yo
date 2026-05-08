@@ -8,30 +8,30 @@
 //! bindings are also recorded in `out_info.runtime_destructurings` so codegen
 //! can emit the equivalent runtime destructuring.
 
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
   ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_fn_call,
-  BK_OPEN, BF_DOT, make_err_expr } :: import "../../expr/expr.yo";
+  BK_OPEN, BF_DOT, make_err_expr } :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set,
-  RuntimeDestructuring } :: import "../../expr/expr_info.yo";
-{ Environment, add_variable_to_env, get_variables_from_env } :: import "../../env/env.yo";
-{ EvalContext } :: import "../context.yo";
-{ EvalValue, type_of_eval_value } :: import "../value.yo";
-{ TypeValue, t_unit, is_struct_type } :: import "../../types/type.yo";
-{ format_error_message, YoError } :: import "../../error/error.yo";
-{ Exception } :: import "std/error";
-{ evaluate_expression } :: import "./expr.yo";
+  RuntimeDestructuring } :: import("../../expr/expr_info.yo");
+{ Environment, add_variable_to_env, get_variables_from_env } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, type_of_eval_value } :: import("../value.yo");
+{ TypeValue, t_unit, is_struct_type } :: import("../../types/type.yo");
+{ format_error_message, YoError } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("./expr.yo");
 
 /// Walk down a `.`-chain to its leftmost root atom (or any non-`.` expr).
-/// Mirrors the TS `while (exprIsFunctionCallOf(rootExpr, "."))` walk.
+/// Mirrors the TS `while((exprIsFunctionCallOf(rootExpr, ".")))` walk.
 walk_to_root :: (fn(e : AstExpr) -> AstExpr)({
   cur := e;
   // Local-mutable loop: while cur is `.`-call, descend to first arg.
   done := false;
-  while runtime(!(done)), {
+  while(runtime(!(done)), {
     cond(
       ast_expr_is_fn_call_of(cur, BF_DOT, .None) => {
         match(cur,
@@ -50,7 +50,7 @@ walk_to_root :: (fn(e : AstExpr) -> AstExpr)({
       },
       true => { done = true; }
     );
-  };
+  });
   cur
 });
 
@@ -66,12 +66,12 @@ evaluate_open :: (fn(
 ) -> AstExpr)({
   // Validate shape: `open` with exactly 1 argument.
   if(!(ast_expr_is_fn_call_of(expr, BK_OPEN, .Some(usize(1)))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected "${BK_OPEN}" with 1 argument, got:\n${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Pull the single argument out of the FnCall.
@@ -96,12 +96,12 @@ evaluate_open :: (fn(
       match(root_vars.get(last_idx),
         .Some(v) =>
           if(v.is_implicit, {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg_expr),
               `Cannot use "open" on implicit variable "${v.name}". Implicit variables must be passed via using() parameters.`,
               false,
               .None
-            ));
+            )));
           }),
         .None => ()
       );
@@ -113,12 +113,12 @@ evaluate_open :: (fn(
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(arg_info_opt,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(evaluated),
         `Failed to evaluate the module argument:\n${ast_expr_to_string(evaluated)}`,
         false,
         .None
-      ));
+      )));
     },
     .Some(_) => ()
   );
@@ -151,17 +151,17 @@ evaluate_open :: (fn(
         .Some(v) => match(v,
           .ModuleVal(mnames, mvals) => {
             i := usize(0);
-            while runtime((i < mnames.len())), {
+            while(runtime((i < mnames.len())), {
               field_name := match(mnames.get(i), .Some(n) => n, .None => String.from(""));
               field_val  := match(mvals.get(i),  .Some(x) => x, .None => EvalValue.UnitVal);
               field_ty   := type_of_eval_value(field_val);
               _added := add_variable_to_env(
-                (&next_env), field_name, field_ty,
+                (&(next_env)), field_name, field_ty,
                 .Some(field_val), true, false, false, false,
                 ast_expr_token(arg_expr)
               );
               i = (i + usize(1));
-            };
+            });
           },
           _ => ()
         ),
@@ -174,7 +174,7 @@ evaluate_open :: (fn(
       match(arg_ty,
         .Struct(_, _, field_labels, field_types, _, _, _) => {
           i := usize(0);
-          while runtime((i < field_labels.len())), {
+          while(runtime((i < field_labels.len())), {
             label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
             fty   := match(field_types.get(i),  .Some(t) => t, .None => t_unit());
             // Pull the corresponding value from the StructVal, if any.
@@ -187,7 +187,7 @@ evaluate_open :: (fn(
             );
             is_comptime := match(fval_opt, .Some(_) => true, .None => false);
             _added := add_variable_to_env(
-              (&next_env), label, fty,
+              (&(next_env)), label, fty,
               fval_opt, is_comptime, false, false, false,
               ast_expr_token(arg_expr)
             );
@@ -197,19 +197,19 @@ evaluate_open :: (fn(
               variable_name: label
             ));
             i = (i + usize(1));
-          };
+          });
         },
         _ => ()
       );
       runtime_destructurings_opt = .Some(rds);
     },
     true => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `Expected module/struct for "${BK_OPEN}", got:\n${ast_expr_to_string(arg_expr)}`,
         false,
         .None
-      ));
+      )));
     }
   );
 
@@ -222,4 +222,4 @@ evaluate_open :: (fn(
   expr
 });
 
-export evaluate_open;
+export(evaluate_open);

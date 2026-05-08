@@ -7,20 +7,20 @@
 //!   __yo_var_is_owning_the_rc_value(v) — returns bool: is var the RC owner?
 //!   __yo_var_has_other_aliases(v)      — returns bool: does var share an RC alias?
 
-open import "std/string";
-{ ArrayList }                                    :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id }         :: import "../../expr/expr.yo";
+open(import("std/string"));
+{ ArrayList }                                    :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id }         :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                          :: import "../../expr/expr_info.yo";
+  expr_info_table_get }                          :: import("../../expr/expr_info.yo");
 { Variable, Frame, Environment,
-  get_variables_from_env }                       :: import "../../env/env.yo";
-{ EvalContext }                                  :: import "../context.yo";
-{ EvalValue }                                    :: import "../value.yo";
-{ TypeValue }                                    :: import "../../types/type.yo";
-{ t_bool, t_unit }                               :: import "../../types/type.yo";
-{ format_error_message }                         :: import "../../error/error.yo";
-{ evaluate_expression }                          :: import "../exprs/expr.yo";
-{ Exception }                                    :: import "std/error";
+  get_variables_from_env }                       :: import("../../env/env.yo");
+{ EvalContext }                                  :: import("../context.yo");
+{ EvalValue }                                    :: import("../value.yo");
+{ TypeValue }                                    :: import("../../types/type.yo");
+{ t_bool, t_unit }                               :: import("../../types/type.yo");
+{ format_error_message }                         :: import("../../error/error.yo");
+{ evaluate_expression }                          :: import("../exprs/expr.yo");
+{ Exception }                                    :: import("std/error");
 
 evaluate_yo_var_print_info :: (fn(
   expr : AstExpr,
@@ -28,8 +28,8 @@ evaluate_yo_var_print_info :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  var_arg := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  var_arg := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_var_arg      := evaluate_expression(var_arg, env, ctx);
   var_info_opt      := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_var_arg));
@@ -50,8 +50,8 @@ evaluate_yo_var_is_owning_the_rc_value :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  var_arg := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  var_arg := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_var_arg         := evaluate_expression(var_arg, env, ctx);
   var_info_opt         := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_var_arg));
@@ -64,7 +64,7 @@ evaluate_yo_var_is_owning_the_rc_value :: (fn(
       variables := get_variables_from_env(cur_env, vname);
       n_vars    := variables.len();
       if((n_vars > usize(0)), {
-        variable    := match(variables.get((n_vars - usize(1))), .Some(v) => v, .None => { return expr; });
+        variable    := match(variables.get((n_vars - usize(1))), .Some(v) => v, .None => { return(expr); });
         is_owning   = variable.is_owning_the_rc_value;
       });
     },
@@ -83,8 +83,8 @@ evaluate_yo_var_has_other_aliases :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  var_arg := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  var_arg := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_var_arg         := evaluate_expression(var_arg, env, ctx);
   var_info_opt         := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_var_arg));
@@ -98,20 +98,20 @@ evaluate_yo_var_has_other_aliases :: (fn(
       variables := get_variables_from_env(cur_env, vname);
       n_vars    := variables.len();
       if((n_vars > usize(0)), {
-        variable := match(variables.get((n_vars - usize(1))), .Some(v) => v, .None => { return expr; });
+        variable := match(variables.get((n_vars - usize(1))), .Some(v) => v, .None => { return(expr); });
         match(variable.is_owning_the_same_rc_value_as,
           .Some(_) => { has_aliases = true; },
           .None    => {
             // Check if any frame variable points to this variable as its RC alias.
             target_id   := variable.id;
             (fi : usize) = cur_env.frames.len();
-            while runtime((fi > usize(0))), {
+            while(runtime((fi > usize(0))), {
               fi = (fi - usize(1));
-              frame    := match(cur_env.frames.get(fi), .Some(f) => f, .None => { return expr; });
+              frame    := match(cur_env.frames.get(fi), .Some(f) => f, .None => { return(expr); });
               n_fvars  := frame.variables.len();
               (fj : usize) = usize(0);
-              while runtime((fj < n_fvars)), {
-                fvar := match(frame.variables.get(fj), .Some(v) => v, .None => { return expr; });
+              while(runtime((fj < n_fvars)), {
+                fvar := match(frame.variables.get(fj), .Some(v) => v, .None => { return(expr); });
                 match(fvar.is_owning_the_same_rc_value_as,
                   .Some(aliased_box) => {
                     if((aliased_box.*.id == target_id), {
@@ -121,8 +121,8 @@ evaluate_yo_var_has_other_aliases :: (fn(
                   .None => ()
                 );
                 fj = (fj + usize(1));
-              };
-            };
+              });
+            });
           }
         );
       });
@@ -136,5 +136,5 @@ evaluate_yo_var_has_other_aliases :: (fn(
   expr
 });
 
-export evaluate_yo_var_has_other_aliases, evaluate_yo_var_is_owning_the_rc_value,
-       evaluate_yo_var_print_info;
+export(evaluate_yo_var_has_other_aliases, evaluate_yo_var_is_owning_the_rc_value,
+       evaluate_yo_var_print_info);

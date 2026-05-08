@@ -1,9 +1,9 @@
-open import "std/string";
-open import "std/fmt";
-open import "std/error";
-{ ArrayList } :: import "std/collections/array_list";
-{ AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import "../expr/expr.yo";
-{ ParseError, parse, extract_source_line, generate_expr_from_code } :: import "../parser/parser.yo";
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import("../expr/expr.yo");
+{ ParseError, parse, extract_source_line, generate_expr_from_code } :: import("../parser/parser.yo");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -29,235 +29,235 @@ only_expr :: (fn(prog : ArrayList(AstExpr)) -> AstExpr)({
 
 // ─── Atoms ───────────────────────────────────────────────────────────────────
 
-test "Parse single identifier", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse single identifier", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`hello`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_atom(e), "expected Atom");
   assert_str_eq(ast_expr_to_string(e), `hello`, "identifier value");
-};
+});
 
-test "Parse integer literal", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse integer literal", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`42`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_atom(e), "expected Atom");
   assert_str_eq(ast_expr_to_string(e), `42`, "integer value");
-};
+});
 
-test "Parse float literal", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse float literal", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`3.14`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_atom(e), "expected Atom");
   assert_str_eq(ast_expr_to_string(e), `3.14`, "float value");
-};
+});
 
-test "Parse bool literal true", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse bool literal true", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`true`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_atom(e), "expected Atom");
   assert_str_eq(ast_expr_to_string(e), `true`, "bool value");
-};
+});
 
-test "Parse string literal", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse string literal", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   // "hello" in Yo source — lexed as StringLit with the surrounding quotes in the value
   prog := parse(String.from("\"hello\""), `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_atom(e), "expected Atom");
   assert_str_eq(ast_expr_to_string(e), String.from("\"hello\""), "string literal value includes quotes");
-};
+});
 
-test "Parse operator atom", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse operator atom", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`+`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_atom(e), "expected Atom");
   assert_str_eq(ast_expr_to_string(e), `+`, "operator value");
-};
+});
 
 // ─── Unit and parenthesized expressions ──────────────────────────────────────
 
-test "Parse unit value ()", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse unit value ()", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`()`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall (unit is FnCall('tuple',[]))");
   assert_str_eq(ast_expr_to_string(e), `()`, "unit value");
-};
+});
 
-test "Parse parenthesized expression (x)", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse parenthesized expression (x)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`(x)`, `test.yo`, using(exn));
   e := only_expr(prog);
   // single expr in parens → the inner expr, not a wrapper
   assert_str_eq(ast_expr_to_string(e), `x`, "parenthesized expr unwrapped");
-};
+});
 
-test "Parse parenthesized infix (a + b)", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse parenthesized infix (a + b)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`(a + b)`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `a + b`, "infix operator");
-};
+});
 
-test "Parse top-level infix a + b", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse top-level infix a + b", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`a + b`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `a + b`, "infix operator without parens");
-};
+});
 
 // ─── Function calls ───────────────────────────────────────────────────────────
 
-test "Parse no-arg function call f()", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse no-arg function call f()", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`f()`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `f()`, "no-arg call");
-};
+});
 
-test "Parse function call f(a, b)", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse function call f(a, b)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`f(a, b)`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `f(a, b)`, "function call args");
-};
+});
 
-test "Parse whitespace-separated call f a, b", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
-  prog := parse(`f a, b`, `test.yo`, using(exn));
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `f(a, b)`, "whitespace-separated args");
-};
+test("Reject whitespace-separated call f a, b", {
+  given(exn) := Exception(throw: ((err) -> {
+    escape(());
+  }));
+  _ := parse(`f a, b`, `test.yo`, using(exn));
+  assert(false, "expected whitespace-separated call parse error");
+});
 
-test "Parse nested function call f(g(x))", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse nested function call f(g(x))", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`f(g(x))`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `f(g(x))`, "nested calls");
-};
+});
 
 // ─── Member access and method calls ──────────────────────────────────────────
 
-test "Parse member access obj.field", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse member access obj.field", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`obj.field`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `(obj.field)`, "member access");
-};
+});
 
-test "Parse method call obj.method(x)", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse method call obj.method(x)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`obj.method(x)`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `(obj.method)(x)`, "method call");
-};
+});
 
-test "Parse chained member access a.b.c", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse chained member access a.b.c", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`a.b.c`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `((a.b).c)`, "chained member access");
-};
+});
 
 // ─── Curly bracket expressions ────────────────────────────────────────────────
 
-test "Parse begin block { x; y; }", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse begin block { x; y; }", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`{ x; y; }`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `begin(x, y, ())`, "begin block with trailing unit");
-};
+});
 
-test "Parse begin block { x; y } no trailing semicolon", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse begin block { x; y } no trailing semicolon", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`{ x; y }`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `begin(x, y)`, "begin block without trailing unit");
-};
+});
 
-test "Parse single-statement block { x; }", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse single-statement block { x; }", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`{ x; }`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `begin(x, ())`, "single-stmt block");
-};
+});
 
-test "Parse anonymous struct { x: 1, y: 2 }", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse anonymous struct { x: 1, y: 2 }", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`{ x: 1, y: 2 }`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `_(x : 1, y : 2)`, "anon struct with field assignments");
-};
+});
 
-test "Parse shorthand anonymous struct { x, y }", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse shorthand anonymous struct { x, y }", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`{ x, y }`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `_(x : x, y : y)`, "anon struct shorthand form");
-};
+});
 
 // ─── Array and bracket expressions ───────────────────────────────────────────
 
-test "Parse array value [1, 2, 3]", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse array value [1, 2, 3]", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`[1, 2, 3]`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `array(1, 2, 3)`, "array value");
-};
+});
 
-test "Parse Slice type [T]", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse Slice type [T]", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`[T]`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `Slice(T)`, "slice type");
-};
+});
 
-test "Parse Array type [T; N]", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse Array type [T; N]", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`[T; N]`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `Array(T, N)`, "array type");
-};
+});
 
 // ─── Tuple forms ─────────────────────────────────────────────────────────────
 
-test "Parse tuple value (a, b)", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse tuple value (a, b)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   // comma-separated → tuple value → FnCall("tuple", [a, b])
   prog := parse(`(a, b)`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `(a, b)`, "tuple value");
-};
+});
 
-test "Parse Tuple type (a; b)", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse Tuple type (a; b)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   // semicolon-separated → Tuple type → FnCall("Tuple", [a, b])
   prog := parse(`(a; b)`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `Tuple(a, b)`, "Tuple type");
-};
+});
 
 // ─── Multiple top-level expressions ──────────────────────────────────────────
 
-test "Parse two top-level expressions separated by semicolon", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse two top-level expressions separated by semicolon", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`a; b`, `test.yo`, using(exn));
   assert((prog.len() == usize(2)), "expected 2 expressions");
   match(prog.get(usize(0)),
@@ -268,10 +268,10 @@ test "Parse two top-level expressions separated by semicolon", {
     .None => assert(false, "no second expr"),
     .Some(e) => assert_str_eq(ast_expr_to_string(e), `b`, "second expr")
   );
-};
+});
 
-test "Parse trailing semicolon appends unit expression", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse trailing semicolon appends unit expression", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`x;`, `test.yo`, using(exn));
   assert((prog.len() == usize(2)), "expected 2 exprs (x and trailing unit)");
   match(prog.get(usize(0)),
@@ -282,85 +282,85 @@ test "Parse trailing semicolon appends unit expression", {
     .None => assert(false, "no second expr"),
     .Some(e) => assert_str_eq(ast_expr_to_string(e), `()`, "second is unit")
   );
-};
+});
 
-test "Parse empty program", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse empty program", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(``, `test.yo`, using(exn));
   assert((prog.len() == usize(0)), "empty program has 0 expressions");
-};
+});
 
-test "Parse comment-only program", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse comment-only program", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`// this is a comment`, `test.yo`, using(exn));
   assert((prog.len() == usize(0)), "comment-only program has 0 expressions");
-};
+});
 
 // ─── Dot variant (enum constructor start) ────────────────────────────────────
 
-test "Parse dot-prefixed identifier .Some", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse dot-prefixed identifier .Some", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`.Some`, `test.yo`, using(exn));
   e := only_expr(prog);
   // .Some → FnCall(Atom("."), [Atom("Some")], true) — unary dot
   assert(ast_expr_is_fn_call(e), "expected FnCall for .Some");
   assert_str_eq(ast_expr_to_string(e), `.Some`, "dot-prefixed atom");
-};
+});
 
-test "Parse dot-prefixed call .Ok(x)", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse dot-prefixed call .Ok(x)", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`.Ok(x)`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `.Ok(x)`, "dot-prefixed call");
-};
+});
 
 // ─── Complex expressions ──────────────────────────────────────────────────────
 
-test "Parse assignment-like x = y", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse assignment-like x = y", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`x = y`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `x = y`, "assignment");
-};
+});
 
-test "Parse multi-level dot chain a.b.c.d", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse multi-level dot chain a.b.c.d", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`a.b.c.d`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `(((a.b).c).d)`, "multi-level chain");
-};
+});
 
-test "Parse function call with multiple args and nested call", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("Parse function call with multiple args and nested call", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   prog := parse(`f(g(a), h(b, c))`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `f(g(a), h(b, c))`, "nested calls as args");
-};
+});
 
 // ─── Phase 5g: Error formatting ──────────────────────────────────────────────
 
-test "extract_source_line: row 0 returns first line", {
+test("extract_source_line: row 0 returns first line", {
   src := String.from("hello\nworld\nfoo");
   result := extract_source_line(src, usize(0));
-  assert_str_eq(result, String.from("hello"), "row 0 should return first line");
-};
+  assert_str_eq(result, String.from("hello"), "row 0 should return(first line)");
+});
 
-test "extract_source_line: row 1 returns second line", {
+test("extract_source_line: row 1 returns second line", {
   src := String.from("hello\nworld\nfoo");
   result := extract_source_line(src, usize(1));
-  assert_str_eq(result, String.from("world"), "row 1 should return second line");
-};
+  assert_str_eq(result, String.from("world"), "row 1 should return(second line)");
+});
 
-test "extract_source_line: out-of-range returns empty string", {
+test("extract_source_line: out-of-range returns empty string", {
   src := String.from("hello\nworld");
   result := extract_source_line(src, usize(99));
-  assert_str_eq(result, String.from(""), "out-of-range row should return empty string");
-};
+  assert_str_eq(result, String.from(""), "out-of-range row should return(empty string)");
+});
 
-test "ParseError.to_string: format with source line", {
+test("ParseError.to_string: format with source line", {
   err := ParseError(
     message:     String.from("unexpected token: }"),
     row:         usize(3),
@@ -372,26 +372,26 @@ test "ParseError.to_string: format with source line", {
   assert(s.contains(String.from("error: unexpected token: }")), "should contain error message");
   assert(s.contains(String.from("--> test.yo:4:0")), "should show row+1=4 in location");
   assert(s.contains(String.from("4 | }")), "should show source line with row+1");
-};
+});
 
 // ---------------------------------------------------------------------------
 // generate_expr_from_code
 // ---------------------------------------------------------------------------
 
-test "generate_expr_from_code: integer literal produces atom", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("generate_expr_from_code: integer literal produces atom", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   expr := generate_expr_from_code("42", using(exn));
   assert(ast_expr_is_atom(expr), "42 should be an atom expression");
-};
+});
 
-test "generate_expr_from_code: identifier produces atom", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("generate_expr_from_code: identifier produces atom", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   expr := generate_expr_from_code("x", using(exn));
   assert(ast_expr_is_atom(expr), "identifier should be an atom expression");
-};
+});
 
-test "generate_expr_from_code: function call produces fn call expr", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
+test("generate_expr_from_code: function call produces fn call expr", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
   expr := generate_expr_from_code("foo()", using(exn));
   assert(ast_expr_is_fn_call(expr), "foo() should be a fn call expression");
-};
+});

@@ -7,25 +7,25 @@
 //! if the expected type is a specific integer size, that type is used;
 //! otherwise `t_comptime_int()` is the default.
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
-{ AstExpr, ast_expr_token, ast_expr_id }          :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set }   :: import "../../expr/expr_info.yo";
-{ Environment }                                    :: import "../../env/env.yo";
-{ EvalContext }                                    :: import "../context.yo";
-{ EvalValue }                                      :: import "../value.yo";
-{ TokenKind }                                      :: import "../../lexer/token.yo";
+{ AstExpr, ast_expr_token, ast_expr_id }          :: import("../../expr/expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set }   :: import("../../expr/expr_info.yo");
+{ Environment }                                    :: import("../../env/env.yo");
+{ EvalContext }                                    :: import("../context.yo");
+{ EvalValue }                                      :: import("../value.yo");
+{ TokenKind }                                      :: import("../../lexer/token.yo");
 { t_comptime_int,
   t_u8, t_i8, t_u16, t_i16,
   t_u32, t_i32, t_u64, t_i64,
-  t_usize, t_isize }                               :: import "../../types/type.yo";
+  t_usize, t_isize }                               :: import("../../types/type.yo");
 { is_u8_type, is_i8_type, is_u16_type, is_i16_type,
   is_u32_type, is_i32_type, is_u64_type, is_i64_type,
-  is_usize_type, is_isize_type }                   :: import "../../types/guards.yo";
-{ Exception }                                      :: import "std/error";
-{ format_error_message }                           :: import "../../error/error.yo";
-{ parse_raw_int }                                  :: import "../utils.yo";
+  is_usize_type, is_isize_type }                   :: import("../../types/guards.yo");
+{ Exception }                                      :: import("std/error");
+{ format_error_message }                           :: import("../../error/error.yo");
+{ parse_raw_int }                                  :: import("../utils.yo");
 
 evaluate_integer_literal :: (fn(
   expr : AstExpr,
@@ -35,24 +35,24 @@ evaluate_integer_literal :: (fn(
 ) -> AstExpr)({
   tok := ast_expr_token(expr);
   if(!(tok.kind == TokenKind.Integer), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       `Expected integer literal, got ${tok.value}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Parse to i64, normalize to decimal string
   parsed := match(parse_raw_int(tok.value),
     .Some(n) => n,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         `Failed to parse integer literal: ${tok.value}`,
         false,
         .None
-      ));
+      )));
       i64(0)  // unreachable
     }
   );
@@ -83,4 +83,4 @@ evaluate_integer_literal :: (fn(
   expr
 });
 
-export evaluate_integer_literal;
+export(evaluate_integer_literal);

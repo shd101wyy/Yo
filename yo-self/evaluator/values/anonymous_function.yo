@@ -15,8 +15,8 @@
 //!   - await analysis skipped
 //!   - Effect row spread expansion skipped (uses existing implicit params as-is)
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
 {
   AstExpr,
@@ -24,36 +24,36 @@ open import "std/string";
   ast_expr_is_fn_call_of, ast_expr_is_atom,
   make_err_expr,
   BK_TUPLE
-} :: import "../../expr/expr.yo";
+} :: import("../../expr/expr.yo");
 
 {
   ExprInfo, new_expr_info,
   expr_info_table_set
-} :: import "../../expr/expr_info.yo";
+} :: import("../../expr/expr_info.yo");
 
 {
   Environment,
   add_variable_to_env,
   synthetic_token
-} :: import "../../env/env.yo";
+} :: import("../../env/env.yo");
 
 {
   TypeValue, t_unit
-} :: import "../../types/type.yo";
+} :: import("../../types/type.yo");
 
 {
   EvalValue,
   create_unknown_val
-} :: import "../value.yo";
+} :: import("../value.yo");
 
 {
   EvalContext
-} :: import "../context.yo";
-{ random_id } :: import "../utils.yo";
-{ format_error_message } :: import "../../error/error.yo";
-{ Exception } :: import "std/error";
-{ register_definition_site_return }  :: import "../types/definition_site_registry.yo";
-{ extract_fn_trait_from_type } :: import "../trait_checking.yo";
+} :: import("../context.yo");
+{ random_id } :: import("../utils.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ register_definition_site_return }  :: import("../types/definition_site_registry.yo");
+{ extract_fn_trait_from_type } :: import("../trait_checking.yo");
 
 /// Helper: get the operator string from an anonymous function expression.
 /// For `(x) -> body`, returns "->"; for `(x) => body`, returns "=>"; etc.
@@ -89,13 +89,13 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
         (fbtok.value.as_str() == ":") => match(args.get(usize(0)),
           .Some(name_expr) => match(name_expr,
             .Atom(_, ntok) => ntok.value,
-            .FnCall(_, _, _, _, _) => (&fallback).clone()
+            .FnCall(_, _, _, _, _) => (&(fallback)).clone()
           ),
-          .None => (&fallback).clone()
+          .None => (&(fallback)).clone()
         ),
-        true => (&fallback).clone()
+        true => (&(fallback)).clone()
       ),
-      .FnCall(_, _, _, _, _) => (&fallback).clone()
+      .FnCall(_, _, _, _, _) => (&(fallback)).clone()
     )
   )
 );
@@ -135,12 +135,12 @@ evaluate_anonymous_function_implementation :: (fn(
     .Atom(_, _) => usize(0)
   );
   if((n_expr_args != usize(2)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       `Anonymous function: expected 2 args, got ${n_expr_args}`,
       false,
       .None
-    ));
+    )));
   });
 
   param_decl := _get_arg(expr, usize(0));
@@ -152,12 +152,12 @@ evaluate_anonymous_function_implementation :: (fn(
   expected_ty := match(ctx.expected_type,
     .Some(etc) => etc.ty,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("Anonymous function: no expected type in context. Add an explicit type annotation."),
         false,
         .None
-      ));
+      )));
       TypeValue.Unit
     }
   );
@@ -190,12 +190,12 @@ evaluate_anonymous_function_implementation :: (fn(
   function_type := match(function_type_opt,
     .Some(ft) => ft,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("Anonymous function: expected a Func or Impl(Fn(...)) type"),
         false,
         .None
-      ));
+      )));
       TypeValue.Unit
     }
   );
@@ -264,7 +264,7 @@ evaluate_anonymous_function_implementation :: (fn(
 
   (sep_i : usize) = usize(0);
   n_raw := raw_param_exprs.len();
-  while runtime((sep_i < n_raw)), {
+  while(runtime((sep_i < n_raw)), {
     pe := match(raw_param_exprs.get(sep_i), .Some(a) => a, .None => make_err_expr());
     is_forall_call := ast_expr_is_fn_call_of(pe, "forall", .None);
     is_using_call  := ast_expr_is_fn_call_of(pe, "using", .None);
@@ -272,27 +272,27 @@ evaluate_anonymous_function_implementation :: (fn(
       is_forall_call => {
         fa := match(pe, .FnCall(_, _, fa_args, _, _) => fa_args, .Atom(_, _) => ArrayList(AstExpr).new());
         (fi : usize) = usize(0);
-        while runtime((fi < fa.len())), {
+        while(runtime((fi < fa.len())), {
           fpe := match(fa.get(fi), .Some(a) => a, .None => make_err_expr());
           forall_param_exprs.push(fpe);
           fi = (fi + usize(1));
-        };
+        });
       },
       is_using_call => {
         ua := match(pe, .FnCall(_, _, ua_args, _, _) => ua_args, .Atom(_, _) => ArrayList(AstExpr).new());
         (ui : usize) = usize(0);
-        while runtime((ui < ua.len())), {
+        while(runtime((ui < ua.len())), {
           upe := match(ua.get(ui), .Some(a) => a, .None => make_err_expr());
           using_param_exprs.push(upe);
           ui = (ui + usize(1));
-        };
+        });
       },
       true => {
         regular_param_exprs.push(pe);
       }
     );
     sep_i = (sep_i + usize(1));
-  };
+  });
 
   // -------------------------------------------------------------------------
   // Validate regular parameter count.
@@ -300,12 +300,12 @@ evaluate_anonymous_function_implementation :: (fn(
   n_regular  := regular_param_exprs.len();
   n_expected := param_labels.len();
   if((n_regular != n_expected), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       `Anonymous function: expected ${n_expected} regular parameters, got ${n_regular}`,
       false,
       .None
-    ));
+    )));
   });
 
   // -------------------------------------------------------------------------
@@ -321,12 +321,12 @@ evaluate_anonymous_function_implementation :: (fn(
   cap_vals   := ArrayList(EvalValue).new();
   n_cap_fr   := env.frames.len();
   (cap_fi : usize) = usize(0);
-  while runtime((cap_fi < n_cap_fr)), {
+  while(runtime((cap_fi < n_cap_fr)), {
     match(env.frames.get(cap_fi),
       .Some(cap_frame) => {
         n_cap_v := cap_frame.variables.len();
         (cap_vi : usize) = usize(0);
-        while runtime((cap_vi < n_cap_v)), {
+        while(runtime((cap_vi < n_cap_v)), {
           match(cap_frame.variables.get(cap_vi),
             .Some(cv) => {
               cond(
@@ -345,12 +345,12 @@ evaluate_anonymous_function_implementation :: (fn(
             .None => ()
           );
           cap_vi = (cap_vi + usize(1));
-        };
+        });
       },
       .None => ()
     );
     cap_fi = (cap_fi + usize(1));
-  };
+  });
 
   // -------------------------------------------------------------------------
   // Push a new environment frame for the function parameters.
@@ -362,11 +362,11 @@ evaluate_anonymous_function_implementation :: (fn(
   // Each forall type variable is bound as a compile-time unknown SomeT.
   // -------------------------------------------------------------------------
   (fa_env_i : usize) = usize(0);
-  while runtime((fa_env_i < forall_labels.len())), {
+  while(runtime((fa_env_i < forall_labels.len())), {
     fl_name := match(forall_labels.get(fa_env_i), .Some(n) => n, .None => String.from(""));
     fl_ty   := TypeValue.SomeT(
-      (&fl_name).clone(),
-      (&fl_name).clone(),
+      (&(fl_name)).clone(),
+      (&(fl_name)).clone(),
       env.frame_count(),
       box(TypeValue.TypeUni(usize(0))),
       ArrayList(TypeValue).new(),
@@ -375,10 +375,10 @@ evaluate_anonymous_function_implementation :: (fn(
       ArrayList(usize).new(),
       false
     );
-    fl_tok  := synthetic_token((&fl_name).clone(), env.module_path);
+    fl_tok  := synthetic_token((&(fl_name)).clone(), env.module_path);
     _fa_v   := add_variable_to_env(
       &(env),
-      (&fl_name).clone(),
+      (&(fl_name)).clone(),
       TypeValue.TypeUni(usize(0)),
       Option(EvalValue).Some(EvalValue.TypeVal(box(fl_ty))),
       true,
@@ -388,20 +388,20 @@ evaluate_anonymous_function_implementation :: (fn(
       fl_tok
     );
     fa_env_i = (fa_env_i + usize(1));
-  };
+  });
 
   // -------------------------------------------------------------------------
   // Add implicit (using) parameters to the environment.
   // -------------------------------------------------------------------------
   (il_env_i : usize) = usize(0);
-  while runtime((il_env_i < implicit_labels.len())), {
+  while(runtime((il_env_i < implicit_labels.len())), {
     il_name := match(implicit_labels.get(il_env_i), .Some(n) => n, .None => String.from(""));
     il_ty   := match(implicit_types.get(il_env_i), .Some(t) => t, .None => TypeValue.Unit);
-    il_tok  := synthetic_token((&il_name).clone(), env.module_path);
-    il_val  := create_unknown_val((&il_ty).clone());
+    il_tok  := synthetic_token((&(il_name)).clone(), env.module_path);
+    il_val  := create_unknown_val((&(il_ty)).clone());
     _il_v   := add_variable_to_env(
       &(env),
-      (&il_name).clone(),
+      (&(il_name)).clone(),
       il_ty,
       Option(EvalValue).Some(il_val),
       true,
@@ -411,7 +411,7 @@ evaluate_anonymous_function_implementation :: (fn(
       il_tok
     );
     il_env_i = (il_env_i + usize(1));
-  };
+  });
 
   // -------------------------------------------------------------------------
   // Build param_type_names and add regular parameters to the environment.
@@ -422,21 +422,21 @@ evaluate_anonymous_function_implementation :: (fn(
   actual_param_labels := ArrayList(String).new();
 
   (rp_i : usize) = usize(0);
-  while runtime((rp_i < n_regular)), {
+  while(runtime((rp_i < n_regular)), {
     rpe        := match(regular_param_exprs.get(rp_i), .Some(a) => a, .None => make_err_expr());
     exp_label  := match(param_labels.get(rp_i), .Some(n) => n, .None => String.from(""));
     rp_ty      := match(param_types.get(rp_i), .Some(t) => t, .None => TypeValue.Unit);
 
     // Derive the actual parameter name from the user's expression.
-    param_name := _get_param_name_from_expr(rpe, (&exp_label).clone());
+    param_name := _get_param_name_from_expr(rpe, (&(exp_label)).clone());
 
     // param_type_name for generic param binding at call time
     ptn := match(rp_ty,
       .SomeT(_, name, _, _, _, _, _, _, _) => name,
       _ => String.from("")
     );
-    param_type_names.push((&ptn).clone());
-    actual_param_labels.push((&param_name).clone());
+    param_type_names.push((&(ptn)).clone());
+    actual_param_labels.push((&(param_name)).clone());
 
     rp_tok  := ast_expr_token(rpe);
     _rp_v   := add_variable_to_env(
@@ -451,7 +451,7 @@ evaluate_anonymous_function_implementation :: (fn(
       rp_tok
     );
     rp_i = (rp_i + usize(1));
-  };
+  });
 
   // -------------------------------------------------------------------------
   // Build the FuncVal.
@@ -471,7 +471,7 @@ evaluate_anonymous_function_implementation :: (fn(
     cap_names,
     cap_tys,
     cap_vals,
-    (&func_id).clone()
+    (&(func_id)).clone()
   );
 
   // Register definitionSiteEnclosingFunctionType return type.
@@ -486,7 +486,7 @@ evaluate_anonymous_function_implementation :: (fn(
             .Func(_, _, _, _, _, _, _, _, rb) => rb.*,
             _ => TypeValue.Unit
           );
-          register_definition_site_return((&func_id).clone(), enclosing_return_ty);
+          register_definition_site_return((&(func_id)).clone(), enclosing_return_ty);
         },
         .None => ()
       ),
@@ -520,4 +520,4 @@ evaluate_anonymous_function_implementation :: (fn(
   expr
 });
 
-export evaluate_anonymous_function_implementation;
+export(evaluate_anonymous_function_implementation);

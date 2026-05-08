@@ -12,12 +12,12 @@
 //!   storing visited SomeType IDs (linear scan, fine for small chains).
 //! * TypeScript reference-equality `===` on SomeType → ID equality (`id_a == id_b`).
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ TypeValue } :: import "./type.yo";
-{ is_some_type, is_trait_type } :: import "./guards.yo";
-{ EvalValue } :: import "../evaluator/value.yo";
-{ Environment, get_variables_from_env } :: import "../env/env.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("./type.yo");
+{ is_some_type, is_trait_type } :: import("./guards.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
+{ Environment, get_variables_from_env } :: import("../env/env.yo");
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -66,7 +66,7 @@ _id_visited :: (fn(visited_ids : ArrayList(String), id : String) -> bool)({
   (found : bool) = false;
   n := visited_ids.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(visited_ids.get(i),
       .Some(existing) =>
         cond(
@@ -79,7 +79,7 @@ _id_visited :: (fn(visited_ids : ArrayList(String), id : String) -> bool)({
       .None => ()
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -96,7 +96,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
           m := vars.len();
           (result : Option(TypeValue)) = .None;
           (i : usize) = usize(0);
-          while runtime((i < m)), {
+          while(runtime((i < m)), {
             match(vars.get(i),
               .Some(var) =>
                 cond(
@@ -117,7 +117,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
               .None => ()
             );
             i = (i + usize(1));
-          };
+          });
           result
         },
         .None => Option(TypeValue).None
@@ -132,13 +132,13 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
   (found : bool) = false;
   n_frames := env.frames.len();
   (fi : usize) = usize(0);
-  while runtime(((fi < n_frames) && !found)), {
+  while(runtime(((fi < n_frames) && !(found))), {
     match(env.frames.get(fi),
       .Some(frame) => {
         vars := frame.variables;
         m := vars.len();
         (vi : usize) = usize(0);
-        while runtime(((vi < m) && !found)), {
+        while(runtime(((vi < m) && !(found))), {
           match(vars.get(vi),
             .Some(var) =>
               cond(
@@ -162,12 +162,12 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
             .None => ()
           );
           vi = (vi + usize(1));
-        };
+        });
       },
       .None => ()
     );
     fi = (fi + usize(1));
-  };
+  });
   found
 });
 
@@ -186,7 +186,7 @@ get_trait_type_from_env :: (fn(env : Environment, trait_name : String) -> Option
     (n == usize(0)) => Option(TypeValue).None,
     true => {
       last := match(variables.get((n - usize(1))), .Some(v) => v, .None => {
-        return Option(TypeValue).None;
+        return(Option(TypeValue).None);
       });
       match(last.value,
         .Some(val) =>
@@ -212,7 +212,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
   (done : bool) = false;
   (result : TypeValue) = start;
 
-  while runtime(!done), {
+  while(runtime(!(done)), {
     cur_id   := _some_id(current);
     cur_name := _some_name(current);
 
@@ -262,7 +262,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           ((is_some_type(resolved_tv) && (cur_name == _some_name(resolved_tv))) && (!(_same_some_id(resolved_tv, cur_id)))) => {
                             was_bound := _was_self_bound(env, cur_name, cur_id);
                             cond(
-                              (!was_bound) => {
+                              (!(was_bound)) => {
                                 result = current;
                                 done   = true;
                               },
@@ -279,7 +279,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           true => {
                             was_bound := _was_self_bound(env, cur_name, cur_id);
                             cond(
-                              (!was_bound) => {
+                              (!(was_bound)) => {
                                 result = current;
                                 done   = true;
                               },
@@ -297,7 +297,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
         );
       }
     );
-  };
+  });
   result
 });
 
@@ -349,4 +349,4 @@ get_value_of_some_type_from_env :: (fn(env : Environment, some_type : TypeValue)
   )
 );
 
-export get_trait_type_from_env, get_value_of_some_type_from_env;
+export(get_trait_type_from_env, get_value_of_some_type_from_env);

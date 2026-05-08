@@ -13,24 +13,24 @@
 //!   * reserved function-name check (___dup, ___drop, ___dispose, dispose)
 //!   * `addRcFunctionsToDynType` ARC injection (needs rc_fns infra)
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
-{ ArrayList }                                      :: import "std/collections/array_list";
+{ ArrayList }                                      :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
   ast_expr_is_fn_call_of, BK_DYN_UPPER,
-  make_err_expr }                                  :: import "../../expr/expr.yo";
+  make_err_expr }                                  :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }       :: import "../../expr/expr_info.yo";
-{ Environment }                                    :: import "../../env/env.yo";
-{ EvalContext }                                    :: import "../context.yo";
-{ EvalValue, create_type_value, is_type_value }    :: import "../value.yo";
-{ TypeValue, t_dyn, t_i32, is_trait_type }         :: import "../../types/type.yo";
-{ type_of_type }                                   :: import "../../types/hierarchy.yo";
-{ type_to_string }                                 :: import "../../types/string.yo";
-{ format_error_message }                           :: import "../../error/error.yo";
-{ Exception }                                      :: import "std/error";
-{ evaluate_expression }                            :: import "../exprs/expr.yo";
+  expr_info_table_get, expr_info_table_set }       :: import("../../expr/expr_info.yo");
+{ Environment }                                    :: import("../../env/env.yo");
+{ EvalContext }                                    :: import("../context.yo");
+{ EvalValue, create_type_value, is_type_value }    :: import("../value.yo");
+{ TypeValue, t_dyn, t_i32, is_trait_type }         :: import("../../types/type.yo");
+{ type_of_type }                                   :: import("../../types/hierarchy.yo");
+{ type_to_string }                                 :: import("../../types/string.yo");
+{ format_error_message }                           :: import("../../error/error.yo");
+{ Exception }                                      :: import("std/error");
+{ evaluate_expression }                            :: import("../exprs/expr.yo");
 
 /// Returns the canonical id of a trait type for duplicate detection.
 /// Uses the `id` field on `TraitT` when populated; falls back to the
@@ -38,7 +38,7 @@ open import "std/fmt";
 trait_id_for_dedup :: (fn(t : TypeValue) -> String)(
   match(t,
     .TraitT(_, _, _, _, id, _, _, _) => {
-      if((id.len() > usize(0)), { return id; });
+      if((id.len() > usize(0)), { return(id); });
       type_to_string(t)
     },
     _ => type_to_string(t)
@@ -52,12 +52,12 @@ evaluate_dyn_type :: (fn(
   using(exn : Exception)
 ) -> AstExpr)({
   if(!(ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected "Dyn", got:\n${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   args := match(expr,
@@ -74,7 +74,7 @@ evaluate_dyn_type :: (fn(
   cur_env          := env;
 
   i := usize(0);
-  while runtime((i < args.len())), {
+  while(runtime((i < args.len())), {
     trait_arg := match(args.get(i),
       .Some(a) => a,
       .None    => make_err_expr()
@@ -98,11 +98,11 @@ evaluate_dyn_type :: (fn(
     trait_info := match(info_opt,
       .Some(inf) => inf,
       .None      => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(actual_arg),
           `Failed to evaluate argument ${(i + usize(1))} of 'Dyn' expression.`,
           false, .None
-        ));
+        )));
         new_expr_info(cur_env, t_i32())
       }
     );
@@ -117,18 +117,18 @@ evaluate_dyn_type :: (fn(
     );
 
     if(!(is_type_value(trait_info.value)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(actual_arg),
         `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression.`,
         false, .None
-      ));
+      )));
     });
     if(!(is_trait_type(inner_ty)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(actual_arg),
         `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression, got:\n${type_to_string(inner_ty)}`,
         false, .None
-      ));
+      )));
     });
 
     cur_env = trait_info.env;
@@ -138,17 +138,17 @@ evaluate_dyn_type :: (fn(
       // Duplicate-in-negative check.
       already := false;
       j := usize(0);
-      while runtime((j < negative_ids.len())), {
+      while(runtime((j < negative_ids.len())), {
         existing := match(negative_ids.get(j), .Some(s) => s, .None => String.from(""));
         if((existing == tid), { already = true; });
         j = (j + usize(1));
-      };
+      });
       if(already, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(actual_arg),
           `Trait type ${type_to_string(inner_ty)} is already included in negative constraints of 'Dyn' expression.`,
           false, .None
-        ));
+        )));
       });
       { negative_traits.push(inner_ty); (); };
       { negative_levels.push(usize(0)); (); };
@@ -157,17 +157,17 @@ evaluate_dyn_type :: (fn(
       // Duplicate-in-required check.
       already := false;
       j := usize(0);
-      while runtime((j < required_ids.len())), {
+      while(runtime((j < required_ids.len())), {
         existing := match(required_ids.get(j), .Some(s) => s, .None => String.from(""));
         if((existing == tid), { already = true; });
         j = (j + usize(1));
-      };
+      });
       if(already, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(actual_arg),
           `Trait type ${type_to_string(inner_ty)} is already included in 'Dyn' expression.`,
           false, .None
-        ));
+        )));
       });
       { required_traits.push(inner_ty); (); };
       { required_levels.push(usize(0)); (); };
@@ -175,7 +175,7 @@ evaluate_dyn_type :: (fn(
     });
 
     i = (i + usize(1));
-  };
+  });
 
   // Phase 2aq deferred: self-constraint / supertrait expansion.
   // Phase 2aq deferred: function-name conflict check across required traits.
@@ -191,4 +191,4 @@ evaluate_dyn_type :: (fn(
   expr
 });
 
-export evaluate_dyn_type;
+export(evaluate_dyn_type);

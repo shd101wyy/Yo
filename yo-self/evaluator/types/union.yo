@@ -11,27 +11,27 @@
 //!   - `auto_derive_runtime_for_union_type`
 //!   - `definedInModulePath` propagation (orphan rule checks)
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
   ast_expr_is_fn_call, ast_expr_is_fn_call_of,
-  make_err_expr, BK_UNION }                         :: import "../../expr/expr.yo";
-{ new_expr_info, expr_info_table_set }               :: import "../../expr/expr_info.yo";
-{ Environment }                                      :: import "../../env/env.yo";
-{ EvalContext }                                      :: import "../context.yo";
-{ EvalValue, create_type_value }                     :: import "../value.yo";
-{ TypeValue }                                        :: import "../../types/type.yo";
-{ type_of_type }                                     :: import "../../types/hierarchy.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ Exception }                                        :: import "std/error";
+  make_err_expr, BK_UNION }                         :: import("../../expr/expr.yo");
+{ new_expr_info, expr_info_table_set }               :: import("../../expr/expr_info.yo");
+{ Environment }                                      :: import("../../env/env.yo");
+{ EvalContext }                                      :: import("../context.yo");
+{ EvalValue, create_type_value }                     :: import("../value.yo");
+{ TypeValue }                                        :: import("../../types/type.yo");
+{ type_of_type }                                     :: import("../../types/hierarchy.yo");
+{ format_error_message }                             :: import("../../error/error.yo");
+{ Exception }                                        :: import("std/error");
 { TypeField, EvalTypeFieldResult,
-  evaluate_type_field }                              :: import "./field.yo";
-{ random_id }                                        :: import "../utils.yo";
-{ type_implements_runtime, type_is_comptime_only }   :: import "../../types/utils.yo";
-{ type_contains_rc_type }                            :: import "../../types/utils.yo";
-{ ArrayList }                                        :: import "std/collections/array_list";
-{ auto_derive_traits_for_union_type }                :: import "./auto_derive.yo";
+  evaluate_type_field }                              :: import("./field.yo");
+{ random_id }                                        :: import("../utils.yo");
+{ type_implements_runtime, type_is_comptime_only }   :: import("../../types/utils.yo");
+{ type_contains_rc_type }                            :: import("../../types/utils.yo");
+{ ArrayList }                                        :: import("std/collections/array_list");
+{ auto_derive_traits_for_union_type }                :: import("./auto_derive.yo");
 
 evaluate_union_type :: (fn(
   expr : AstExpr,
@@ -42,12 +42,12 @@ evaluate_union_type :: (fn(
   (env_mut : Environment) = env;
 
   if(!(ast_expr_is_fn_call_of(expr, BK_UNION, Option(usize).None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected "union", got:\n${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   union_id := `union_${random_id(env_mut.module_path)}`;
@@ -68,7 +68,7 @@ evaluate_union_type :: (fn(
   fields       := ArrayList(TypeField).new();
 
   (i : usize) = usize(0);
-  while runtime((i < args.len())), {
+  while(runtime((i < args.len())), {
     arg    := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_type_field(arg, i, env_mut, ctx, "union", using(exn));
     field  := result.field;
@@ -76,53 +76,53 @@ evaluate_union_type :: (fn(
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool)  = false;
-    while runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
+    while(runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
       existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if((existing == field.label), { has_dup = true; });
       dup_idx = (dup_idx + usize(1));
-    };
+    });
     if(has_dup, {
       arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
       err_tok := if(ast_expr_is_fn_call(arg),
         match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(fe), .None => ast_expr_token(arg)),
         ast_expr_token(arg)
       );
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         err_tok,
         `Duplicate label "${field.label}" in union field.`,
         false,
         .None
-      ));
+      )));
     });
 
     // Union type cannot have default values for fields.
     if(field.default_value.is_some(), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg),
         String.from("Union type cannot have default value for its fields."),
         false,
         .None
-      ));
+      )));
     });
 
     // Union fields must be runtime types.
     if((type_is_comptime_only(field.ty, env_mut) || !(type_implements_runtime(field.ty, env_mut))), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg),
         String.from("Union type fields must be runtime types."),
         false,
         .None
-      ));
+      )));
     });
 
     // Union fields cannot contain garbage-collected types.
     if(type_contains_rc_type(field.ty), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg),
         String.from("Union type cannot have field with garbage-collected type."),
         false,
         .None
-      ));
+      )));
     });
 
     field_labels.push(String.from(field.label.as_str()));
@@ -130,7 +130,7 @@ evaluate_union_type :: (fn(
     fields.push(field);
     env_mut = result.env;
     i = (i + usize(1));
-  };
+  });
 
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsForUnionType` in TypeScript.
@@ -159,4 +159,4 @@ evaluate_union_type :: (fn(
   expr
 });
 
-export evaluate_union_type;
+export(evaluate_union_type);

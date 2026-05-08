@@ -1,17 +1,17 @@
-open import "std/fmt";
-open import "std/error";
+open(import("std/fmt"));
+open(import("std/error"));
 
-{ generate_exprs_from_code } :: import "../parser/parser.yo";
-{ Environment } :: import "../env/env.yo";
-{ evaluate_module_body } :: import "../evaluator/eval.yo";
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+{ Environment } :: import("../env/env.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
 
 empty_env :: (fn() -> Environment)(Environment.new(`leak_test`));
 
 main :: (fn() -> unit)({
-  given(exn) := Exception(throw: ((_err) -> escape ()));
-  src := "MyOpt :: enum(None, Some(i32)); val := MyOpt.Some(i32(42)); export val;";
+  given(exn) := Exception(throw: ((_err) -> escape(())));
+  src := "MyOpt :: enum(None, Some(i32)); val := MyOpt.Some(i32(42)); export(val);";
   env := empty_env();
   exprs := generate_exprs_from_code(src, using(exn));
-  _result := evaluate_module_body(exprs, &env);
+  _result := evaluate_module_body(exprs, &(env));
 });
-export main;
+export(main);

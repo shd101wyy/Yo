@@ -19,25 +19,25 @@
 //!     `_check_associated_type_constraints` are deferred; env binding
 //!     propagation is not yet implemented (returns original env unchanged).
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ Exception } :: import "std/error";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Exception } :: import("std/error");
 { TypeValue, is_function_type, is_some_type, is_pointer_type, is_struct_type
-} :: import "../types/type.yo";
+} :: import("../types/type.yo");
 { is_fn_trait_type, is_future_trait_type, is_dyn_type, is_type_hierarchy_type
-} :: import "../types/guards.yo";
-{ are_types_compatible } :: import "../types/compatibility.yo";
+} :: import("../types/guards.yo");
+{ are_types_compatible } :: import("../types/compatibility.yo");
 { get_trait_type_from_env, get_value_of_some_type_from_env
-} :: import "../types/env_lookup.yo";
+} :: import("../types/env_lookup.yo");
 { type_contains_some_type, type_implements_runtime_builtin
-} :: import "../types/utils.yo";
-{ type_to_string } :: import "../types/string.yo";
-{ Environment } :: import "../env/env.yo";
-{ Token } :: import "../lexer/token.yo";
-{ YoError, ErrorKind, format_error_message } :: import "../error/error.yo";
-{ is_type_registered_as_trait } :: import "./types/trait_registry.yo";
+} :: import("../types/utils.yo");
+{ type_to_string } :: import("../types/string.yo");
+{ Environment } :: import("../env/env.yo");
+{ Token } :: import("../lexer/token.yo");
+{ YoError, ErrorKind, format_error_message } :: import("../error/error.yo");
+{ is_type_registered_as_trait } :: import("./types/trait_registry.yo");
 { find_matching_generic_impl, set_type_implements_trait_fn }
-  :: import "./values/generic_impl_registry.yo";
+  :: import("./values/generic_impl_registry.yo");
 
 // ---------------------------------------------------------------------------
 // TraitCheckResult — mirrors { implemented: boolean; env: Environment }
@@ -240,7 +240,7 @@ type_implements_trait :: (fn(
     .Some(ct) => {
       if((_trait_type_id(trait_type) == _trait_type_id(ct)), {
         match(type_implements_comptime_builtin(target),
-          .Some(b) => { return TraitCheckResult(implemented: b, env: env); },
+          .Some(b) => { return(TraitCheckResult(implemented: b, env: env)); },
           .None    => ()
         );
       });
@@ -253,7 +253,7 @@ type_implements_trait :: (fn(
     .Some(rt) => {
       if((_trait_type_id(trait_type) == _trait_type_id(rt)), {
         match(type_implements_runtime_builtin(target),
-          .Some(b) => { return TraitCheckResult(implemented: b, env: env); },
+          .Some(b) => { return(TraitCheckResult(implemented: b, env: env)); },
           .None    => ()
         );
       });
@@ -276,13 +276,13 @@ type_implements_trait :: (fn(
         result
       ),
       _ => {
-        return TraitCheckResult(implemented: false, env: env);
+        return(TraitCheckResult(implemented: false, env: env));
       }
     );
     if(!(are_types_compatible(fn_trait_call_ty, target)), {
-      return TraitCheckResult(implemented: false, env: env);
+      return(TraitCheckResult(implemented: false, env: env));
     });
-    return TraitCheckResult(implemented: true, env: env);
+    return(TraitCheckResult(implemented: true, env: env));
   });
 
   // 4. Direct trait field match — check global auto-derive registry.
@@ -290,7 +290,7 @@ type_implements_trait :: (fn(
   trait_name := _trait_type_name(trait_type);
   if((!(type_id.is_empty()) && !(trait_name.is_empty())), {
     if(is_type_registered_as_trait(type_id, trait_name.as_str()), {
-      return TraitCheckResult(implemented: true, env: env);
+      return(TraitCheckResult(implemented: true, env: env));
     });
   });
 
@@ -299,45 +299,45 @@ type_implements_trait :: (fn(
     .DynT(required_trait_types, _, negative_trait_types, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         req_trait := match(required_trait_types.get(i),
           .Some(t) => t, .None => { i = (i + usize(1)); continue; }
         );
         // Direct match.
         if((_trait_type_id(req_trait) == _trait_type_id(trait_type)), {
-          return TraitCheckResult(implemented: true, env: env);
+          return(TraitCheckResult(implemented: true, env: env));
         });
         // selfConstraints of the required trait.
         match(req_trait,
           .TraitT(_, _, _, _, _, _, self_constraints, _) => {
             ns := self_constraints.len();
             (j : usize) = usize(0);
-            while runtime((j < ns)), {
+            while(runtime((j < ns)), {
               sc := match(self_constraints.get(j),
                 .Some(t) => t, .None => { j = (j + usize(1)); continue; }
               );
               if((_trait_type_id(sc) == _trait_type_id(trait_type)), {
-                return TraitCheckResult(implemented: true, env: env);
+                return(TraitCheckResult(implemented: true, env: env));
               });
               j = (j + usize(1));
-            };
+            });
           },
           _ => ()
         );
         i = (i + usize(1));
-      };
+      });
       // Negative trait check.
       nn := negative_trait_types.len();
       (k : usize) = usize(0);
-      while runtime((k < nn)), {
+      while(runtime((k < nn)), {
         neg_trait := match(negative_trait_types.get(k),
           .Some(t) => t, .None => { k = (k + usize(1)); continue; }
         );
         if((_trait_type_id(neg_trait) == _trait_type_id(trait_type)), {
-          return TraitCheckResult(implemented: false, env: env);
+          return(TraitCheckResult(implemented: false, env: env));
         });
         k = (k + usize(1));
-      };
+      });
     },
     _ => ()
   );
@@ -353,7 +353,7 @@ type_implements_trait :: (fn(
       // Check required_trait_types.
       nr := required_trait_types.len();
       (ir : usize) = usize(0);
-      while runtime((ir < nr)), {
+      while(runtime((ir < nr)), {
         req_t := match(required_trait_types.get(ir),
           .Some(t) => t, .None => { ir = (ir + usize(1)); continue; }
         );
@@ -361,12 +361,12 @@ type_implements_trait :: (fn(
           found_req = true;
         });
         ir = (ir + usize(1));
-      };
+      });
 
       // Check negative_trait_types.
       nn2 := negative_trait_types.len();
       (in2 : usize) = usize(0);
-      while runtime((in2 < nn2)), {
+      while(runtime((in2 < nn2)), {
         neg_t := match(negative_trait_types.get(in2),
           .Some(t) => t, .None => { in2 = (in2 + usize(1)); continue; }
         );
@@ -374,12 +374,12 @@ type_implements_trait :: (fn(
           found_neg = true;
         });
         in2 = (in2 + usize(1));
-      };
+      });
 
       if(found_req, {
-        return TraitCheckResult(implemented: !(found_neg), env: env);
+        return(TraitCheckResult(implemented: !(found_neg), env: env));
       }, {
-        if(found_neg, { return TraitCheckResult(implemented: false, env: env); });
+        if(found_neg, { return(TraitCheckResult(implemented: false, env: env)); });
       });
     },
     _ => ()
@@ -389,7 +389,7 @@ type_implements_trait :: (fn(
   if(is_some_type(target), {
     resolved := get_value_of_some_type_from_env(env, target);
     if(is_some_type(resolved), {
-      return TraitCheckResult(implemented: false, env: env);
+      return(TraitCheckResult(implemented: false, env: env));
     });
     target = resolved;
   });
@@ -400,7 +400,7 @@ type_implements_trait :: (fn(
     _trait_type_id(target),
     _trait_type_id(trait_type)
   ), {
-    return TraitCheckResult(implemented: true, env: env);
+    return(TraitCheckResult(implemented: true, env: env));
   });
 
   // 8. Generic impl registry (Phase 3 stub — always returns false).
@@ -409,15 +409,15 @@ type_implements_trait :: (fn(
   (already_checking : bool) = false;
   gn := g_trait_check_recursion_guard.len();
   (gi : usize) = usize(0);
-  while runtime((gi < gn)), {
+  while(runtime((gi < gn)), {
     entry := match(g_trait_check_recursion_guard.get(gi),
       .Some(s) => s, .None => { gi = (gi + usize(1)); continue; }
     );
     if((entry == guard_key), { already_checking = true; });
     gi = (gi + usize(1));
-  };
+  });
   if(already_checking, {
-    return TraitCheckResult(implemented: false, env: env);
+    return(TraitCheckResult(implemented: false, env: env));
   });
 
   g_trait_check_recursion_guard.push(guard_key);
@@ -465,7 +465,7 @@ check_type_implements_self_constraints :: (fn(
       // Check positive constraints (must implement).
       np := self_constraints.len();
       (ip : usize) = usize(0);
-      while runtime((ip < np)), {
+      while(runtime((ip < np)), {
         constraint := match(self_constraints.get(ip),
           .Some(c) => c, .None => { ip = (ip + usize(1)); continue; }
         );
@@ -477,15 +477,15 @@ check_type_implements_self_constraints :: (fn(
             .concat(`" from trait "`)
             .concat(name)
             .concat(`"'s where clause.`);
-          exn.throw(dyn format_error_message(error_token, msg, false, Option(ErrorKind).None));
+          exn.throw(dyn(format_error_message(error_token, msg, false, Option(ErrorKind).None)));
         });
         ip = (ip + usize(1));
-      };
+      });
 
       // Check negative constraints (must NOT implement).
       nn := neg_self_constraints.len();
       (in_ : usize) = usize(0);
-      while runtime((in_ < nn)), {
+      while(runtime((in_ < nn)), {
         constraint := match(neg_self_constraints.get(in_),
           .Some(c) => c, .None => { in_ = (in_ + usize(1)); continue; }
         );
@@ -497,10 +497,10 @@ check_type_implements_self_constraints :: (fn(
             .concat(`" but the trait "`)
             .concat(name)
             .concat(`"'s where clause requires it to NOT implement this trait.`);
-          exn.throw(dyn format_error_message(error_token, msg, false, Option(ErrorKind).None));
+          exn.throw(dyn(format_error_message(error_token, msg, false, Option(ErrorKind).None)));
         });
         in_ = (in_ + usize(1));
-      };
+      });
     },
     _ => ()
   )
@@ -515,7 +515,7 @@ check_type_implements_self_constraints :: (fn(
 /// Mirrors `typeImplementsComptime` in `src/evaluator/trait-checking.ts`.
 type_implements_comptime :: (fn(ty : TypeValue, env : Environment) -> bool)({
   match(type_implements_comptime_builtin(ty),
-    .Some(b) => { return b; },
+    .Some(b) => { return(b); },
     .None    => ()
   );
   match(get_trait_type_from_env(env, String.from("Comptime")),
@@ -533,7 +533,7 @@ type_implements_comptime :: (fn(ty : TypeValue, env : Environment) -> bool)({
 /// Mirrors `typeImplementsRuntime` in `src/evaluator/trait-checking.ts`.
 type_implements_runtime_full :: (fn(ty : TypeValue, env : Environment) -> bool)({
   match(type_implements_runtime_builtin(ty),
-    .Some(b) => { return b; },
+    .Some(b) => { return(b); },
     .None    => ()
   );
   match(get_trait_type_from_env(env, String.from("Runtime")),
@@ -560,7 +560,7 @@ end_send_derivation :: (fn(type_id : String) -> unit)({
   n := g_send_derivation_in_progress.len();
   (i : usize) = usize(0);
   (found_idx : Option(usize)) = Option(usize).None;
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     entry := match(g_send_derivation_in_progress.get(i),
       .Some(s) => s, .None => { i = (i + usize(1)); continue; }
     );
@@ -568,7 +568,7 @@ end_send_derivation :: (fn(type_id : String) -> unit)({
       found_idx = Option(usize).Some(i);
     });
     i = (i + usize(1));
-  };
+  });
   match(found_idx, .Some(idx) => { g_send_derivation_in_progress.remove(idx); }, .None => ());
 });
 
@@ -586,14 +586,14 @@ type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)({
   (in_derivation : bool) = false;
   nd := g_send_derivation_in_progress.len();
   (id : usize) = usize(0);
-  while runtime((id < nd)), {
+  while(runtime((id < nd)), {
     entry := match(g_send_derivation_in_progress.get(id),
       .Some(s) => s, .None => { id = (id + usize(1)); continue; }
     );
     if((entry == ty_id), { in_derivation = true; });
     id = (id + usize(1));
-  };
-  if(in_derivation, { return true; });
+  });
+  if(in_derivation, { return(true); });
 
   match(get_trait_type_from_env(env, String.from("Send")),
     .None    => false,
@@ -645,22 +645,22 @@ type_implements_fn :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while runtime(((i < n) && !(found))), {
+      while(runtime(((i < n) && !(found))), {
         t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
         match(t, .FnTraitT(base_name: _) => { found = true; }, _ => ());
         i = (i + usize(1));
-      };
+      });
       found
     },
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while runtime(((i < n) && !(found))), {
+      while(runtime(((i < n) && !(found))), {
         t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
         match(t, .FnTraitT(base_name: _) => { found = true; }, _ => ());
         i = (i + usize(1));
-      };
+      });
       found
     },
     _ => false
@@ -688,31 +688,31 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
     .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         t := match(required_trait_types.get(i),
           .Some(v) => v, .None => { i = (i + usize(1)); continue; }
         );
         match(t,
-          .FnTraitT(base_name: _) => { return Option(TypeValue).Some(t); },
+          .FnTraitT(base_name: _) => { return(Option(TypeValue).Some(t)); },
           _ => ()
         );
         i = (i + usize(1));
-      };
+      });
       Option(TypeValue).None
     },
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         t := match(required_trait_types.get(i),
           .Some(v) => v, .None => { i = (i + usize(1)); continue; }
         );
         match(t,
-          .FnTraitT(base_name: _) => { return Option(TypeValue).Some(t); },
+          .FnTraitT(base_name: _) => { return(Option(TypeValue).Some(t)); },
           _ => ()
         );
         i = (i + usize(1));
-      };
+      });
       Option(TypeValue).None
     },
     _ => Option(TypeValue).None
@@ -732,22 +732,22 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while runtime(((i < n) && !(found))), {
+      while(runtime(((i < n) && !(found))), {
         t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
         match(t, .FutureTraitT(base_name: _) => { found = true; }, _ => ());
         i = (i + usize(1));
-      };
+      });
       found
     },
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while runtime(((i < n) && !(found))), {
+      while(runtime(((i < n) && !(found))), {
         t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
         match(t, .FutureTraitT(base_name: _) => { found = true; }, _ => ());
         i = (i + usize(1));
-      };
+      });
       found
     },
     _ => false
@@ -762,36 +762,36 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
 ///
 /// Mirrors `extractFutureTraitFromType` in `src/evaluator/trait-checking.ts`.
 extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
-  match((&ty).clone(),
+  match((&(ty)).clone(),
     .FutureTraitT(base_name: _) => Option(TypeValue).Some(ty),
     .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         t := match(required_trait_types.get(i),
           .Some(v) => v, .None => { i = (i + usize(1)); continue; }
         );
-        match((&t).clone(),
-          .FutureTraitT(base_name: _) => { return Option(TypeValue).Some(t); },
+        match((&(t)).clone(),
+          .FutureTraitT(base_name: _) => { return(Option(TypeValue).Some(t)); },
           _ => ()
         );
         i = (i + usize(1));
-      };
+      });
       Option(TypeValue).None
     },
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         t := match(required_trait_types.get(i),
           .Some(v) => v, .None => { i = (i + usize(1)); continue; }
         );
-        match((&t).clone(),
-          .FutureTraitT(base_name: _) => { return Option(TypeValue).Some(t); },
+        match((&(t)).clone(),
+          .FutureTraitT(base_name: _) => { return(Option(TypeValue).Some(t)); },
           _ => ()
         );
         i = (i + usize(1));
-      };
+      });
       Option(TypeValue).None
     },
     _ => Option(TypeValue).None
@@ -831,12 +831,12 @@ validate_type_availability :: (fn(
   token : Token,
   using(exn : Exception)
 ) -> unit)({
-  if(type_contains_some_type(ty), { return (); });
+  if(type_contains_some_type(ty), { return(()); });
   if(!(type_implements_comptime(ty, env) || type_implements_runtime_full(ty, env)), {
     msg := `Type `
       .concat(type_to_string(ty))
       .concat(` has incompatible field contexts and cannot be used in any evaluation context.`);
-    exn.throw(dyn format_error_message(token, msg, false, Option(ErrorKind).None));
+    exn.throw(dyn(format_error_message(token, msg, false, Option(ErrorKind).None)));
   })
 });
 
@@ -863,7 +863,7 @@ find_some_type_missing_comptime_constraint :: (fn(
   // (unknown) result needs further checking. See
   // issues/pattern-match-literal-in-enum-destructure.md.
   match(type_implements_comptime_builtin(ty),
-    .Some(_) => { return Option(TypeValue).None; },
+    .Some(_) => { return(Option(TypeValue).None); },
     .None    => ()
   );
 
@@ -871,7 +871,7 @@ find_some_type_missing_comptime_constraint :: (fn(
   if(is_some_type(ty), {
     comptime_trait_opt := get_trait_type_from_env(env, String.from("Comptime"));
     match(comptime_trait_opt,
-      .None => { return Option(TypeValue).Some(ty); },
+      .None => { return(Option(TypeValue).Some(ty)); },
       .Some(comptime_trait) => {
         // Check required_trait_types.
         match(ty,
@@ -879,7 +879,7 @@ find_some_type_missing_comptime_constraint :: (fn(
             n := required_trait_types.len();
             (i : usize) = usize(0);
             (has_comptime : bool) = false;
-            while runtime((i < n)), {
+            while(runtime((i < n)), {
               req_t := match(required_trait_types.get(i),
                 .Some(t) => t, .None => { i = (i + usize(1)); continue; }
               );
@@ -887,14 +887,14 @@ find_some_type_missing_comptime_constraint :: (fn(
                 has_comptime = true;
               });
               i = (i + usize(1));
-            };
+            });
             if(!(has_comptime), {
-              return Option(TypeValue).Some(ty);
+              return(Option(TypeValue).Some(ty));
             });
           },
           _ => ()
         );
-        return Option(TypeValue).None;
+        return(Option(TypeValue).None);
       }
     );
   });
@@ -902,7 +902,7 @@ find_some_type_missing_comptime_constraint :: (fn(
   // Pointer *(T): T must implement Comptime.
   if(is_pointer_type(ty), {
     match(ty,
-      .Pointer(inner) => { return recur(inner.*, env); },
+      .Pointer(inner) => { return(recur(inner.*, env)); },
       _ => ()
     );
   });
@@ -941,18 +941,18 @@ _trait_checking_init := (fn() -> bool)({
 // Exports
 // ---------------------------------------------------------------------------
 
-export TraitCheckResult, AssocTypeCheckResult;
-export type_implements_comptime_builtin;
-export type_implements_trait, type_implements_trait_bool;
-export check_type_implements_self_constraints;
-export type_implements_comptime, type_implements_runtime_full;
-export begin_send_derivation, end_send_derivation;
-export type_implements_send, type_implements_dispose, type_implements_acyclic;
-export type_implements_fn;
-export extract_fn_trait_from_type;
-export type_implements_future;
-export extract_future_trait_from_type;
-export type_is_comptime_only_full, type_is_runtime_only;
-export validate_type_availability;
-export find_some_type_missing_comptime_constraint;
-export mark_concrete_impl_being_registered, unmark_concrete_impl_being_registered;
+export(TraitCheckResult, AssocTypeCheckResult);
+export(type_implements_comptime_builtin);
+export(type_implements_trait, type_implements_trait_bool);
+export(check_type_implements_self_constraints);
+export(type_implements_comptime, type_implements_runtime_full);
+export(begin_send_derivation, end_send_derivation);
+export(type_implements_send, type_implements_dispose, type_implements_acyclic);
+export(type_implements_fn);
+export(extract_fn_trait_from_type);
+export(type_implements_future);
+export(extract_future_trait_from_type);
+export(type_is_comptime_only_full, type_is_runtime_only);
+export(validate_type_availability);
+export(find_some_type_missing_comptime_constraint);
+export(mark_concrete_impl_being_registered, unmark_concrete_impl_being_registered);

@@ -16,8 +16,8 @@
 //!   5. emit_main_wrapper("__yo_user_main", ctx)
 //!   6. generate_c_output(ctx) -> full C source
 
-open import "std/string";
-{ CodegenContext } :: import "./context.yo";
+open(import("std/string"));
+{ CodegenContext } :: import("./context.yo");
 
 // ---------------------------------------------------------------------------
 // Preamble
@@ -31,7 +31,7 @@ open import "std/string";
 ///   - Libc allocator macros
 ///   - Module ID comment
 emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
-  e := &ctx.*.emitter;
+  e := &(ctx.*.emitter;
 
   // Feature macros
   e.*.emit_header_line("#define _DEFAULT_SOURCE");
@@ -65,7 +65,7 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
   e.*.emit_header_line("  char* buf = (char*)__yo_malloc(la + lb + 1);");
   e.*.emit_header_line("  memcpy(buf, a, la); memcpy(buf + la, b, lb);");
   e.*.emit_header_line("  buf[la + lb] = '\\0';");
-  e.*.emit_header_line("  return buf;");
+  e.*.emit_header_line("  return(buf);");
   e.*.emit_header_line("}");
   e.*.emit_header_line("");
 
@@ -74,7 +74,7 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
   // compound literals to create a temporary lvalue without statement expressions.
   e.*.emit_header_line("// box(v) — heap allocate and return a typed pointer");
   e.*.emit_header_line("static inline void* __yo_box_impl(void* src, size_t sz) {");
-  e.*.emit_header_line("  void* p = __yo_malloc(sz); memcpy(p, src, sz); return p;");
+  e.*.emit_header_line("  void* p = __yo_malloc(sz); memcpy(p, src, sz); return(p);");
   e.*.emit_header_line("}");
   e.*.emit_header_line("#define __yo_box(v) ((__typeof__(v)*)__yo_box_impl(&(__typeof__(v)){(v)}, sizeof(__typeof__(v))))");
   e.*.emit_header_line("");
@@ -106,7 +106,7 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
 /// }
 /// ```
 emit_main_wrapper :: (fn(user_main_c_name : str, ctx : *(CodegenContext)) -> unit)({
-  e := &ctx.*.emitter;
+  e := &(ctx.*.emitter;
   e.*.emit_line("int main(void) {");
 
   call_line := String.from("  ");
@@ -114,7 +114,7 @@ emit_main_wrapper :: (fn(user_main_c_name : str, ctx : *(CodegenContext)) -> uni
   call_line.push_str("();");
   e.*.emit_line(call_line.as_str());
 
-  e.*.emit_line("  return 0;");
+  e.*.emit_line("  return(0);");
   e.*.emit_line("}");
 });
 
@@ -130,4 +130,4 @@ generate_c_output :: (fn(ctx : *(CodegenContext)) -> String)(
   ctx.*.emitter.print()
 );
 
-export emit_c_preamble, emit_main_wrapper, generate_c_output;
+export(emit_c_preamble, emit_main_wrapper, generate_c_output);

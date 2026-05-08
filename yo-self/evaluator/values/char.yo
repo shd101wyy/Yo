@@ -5,18 +5,18 @@
 //! Char literals produce an IntLit(raw) with type u32. The raw field stores
 //! the decimal string of the Unicode code point (e.g., `'a'` → `"97"`).
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
-{ AstExpr, ast_expr_token, ast_expr_id }          :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set }   :: import "../../expr/expr_info.yo";
-{ Environment }                                    :: import "../../env/env.yo";
-{ EvalContext }                                    :: import "../context.yo";
-{ EvalValue }                                      :: import "../value.yo";
-{ TokenKind }                                      :: import "../../lexer/token.yo";
-{ t_comptime_int }                                 :: import "../../types/type.yo";
-{ Exception }                                      :: import "std/error";
-{ format_error_message }                           :: import "../../error/error.yo";
+{ AstExpr, ast_expr_token, ast_expr_id }          :: import("../../expr/expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set }   :: import("../../expr/expr_info.yo");
+{ Environment }                                    :: import("../../env/env.yo");
+{ EvalContext }                                    :: import("../context.yo");
+{ EvalValue }                                      :: import("../value.yo");
+{ TokenKind }                                      :: import("../../lexer/token.yo");
+{ t_comptime_int }                                 :: import("../../types/type.yo");
+{ Exception }                                      :: import("std/error");
+{ format_error_message }                           :: import("../../error/error.yo");
 
 // Parses a char literal token value (e.g., `'a'`, `'\n'`) to its u32 code point.
 // tok_value includes surrounding single quotes.
@@ -55,12 +55,12 @@ evaluate_char_literal :: (fn(
 ) -> AstExpr)({
   tok := ast_expr_token(expr);
   if(!(tok.kind == TokenKind.CharLit), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       `Expected char literal, got ${tok.value}`,
       false,
       .None
-    ));
+    )));
   });
   char_code := parse_char_literal(tok.value.as_str());
   val  := EvalValue.IntLit(char_code.to_string());
@@ -70,4 +70,4 @@ evaluate_char_literal :: (fn(
   expr
 });
 
-export evaluate_char_literal;
+export(evaluate_char_literal);

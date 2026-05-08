@@ -10,8 +10,8 @@
 //! Guards already defined in `type.yo` (is_int_type, is_float_type, …) are
 //! re-exported from here so callers can import from a single module.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 { TypeValue,
   type_value_tag,
   is_int_type,
@@ -29,7 +29,7 @@ open import "std/string";
   is_enum_type,
   is_unit_type,
   is_bool_type
-} :: import "./type.yo";
+} :: import("./type.yo");
 
 // ---------------------------------------------------------------------------
 // Basic primitive guards
@@ -332,13 +332,13 @@ is_rc_type :: (fn(t : TypeValue) -> bool)(
       // Check if any required trait is a Future trait
       (found : bool) = false;
       (i : usize) = usize(0);
-      while runtime(((i < req_traits.len()) && !(found))), {
+      while(runtime(((i < req_traits.len()) && !(found))), {
         match(req_traits.get(i),
           .Some(tr) => { if(is_future_trait_type(tr), { found = true; }); },
           .None => ()
         );
         i = (i + usize(1));
-      };
+      });
       found
     },
     _ => false
@@ -383,14 +383,14 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
           found := false;
           i := usize(0);
           n := pts.len();
-          while runtime((i < n)), {
+          while(runtime((i < n)), {
             match(pts.get(i),
               .Some(pt) => match(pt, .SomeT(name: _) => { found = true; }, _ => ()),
               .None     => ()
             );
             if(found, { break; });
             i = (i + usize(1));
-          };
+          });
           found
         }
       ),
@@ -416,14 +416,14 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
           found := false;
           i := usize(0);
           n := pts.len();
-          while runtime((i < n)), {
+          while(runtime((i < n)), {
             match(pts.get(i),
               .Some(pt) => match(pt, .SomeT(name: _) => { found = true; }, _ => ()),
               .None     => ()
             );
             if(found, { break; });
             i = (i + usize(1));
-          };
+          });
           found
         }
       ),
@@ -449,8 +449,7 @@ is_effects_row_type :: (fn(t : TypeValue) -> bool)(
 // Re-exports of guards already defined in type.yo
 // ---------------------------------------------------------------------------
 
-export
-  // Re-exports from type.yo
+export(// Re-exports from type.yo
   is_int_type,
   is_float_type,
   is_signed_int_type,
@@ -524,4 +523,4 @@ export
   is_function_specializable,
   // Box / effects-row guards
   is_boxed_type,
-  is_effects_row_type;
+  is_effects_row_type);

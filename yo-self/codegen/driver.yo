@@ -15,14 +15,14 @@
 //!   - `using(…)` evidence params are emitted as `void*`.
 //!   - No type declarations, RC helpers, or async support yet.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY } :: import "../expr/expr.yo";
-{ TokenKind, Token }  :: import "../lexer/token.yo";
-{ CodegenContext }    :: import "./context.yo";
-{ type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl }    :: import "./exprs.yo";
-{ generate_function } :: import "./functions.yo";
-{ emit_c_preamble, emit_main_wrapper, generate_c_output } :: import "./program.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY } :: import("../expr/expr.yo");
+{ TokenKind, Token }  :: import("../lexer/token.yo");
+{ CodegenContext }    :: import("./context.yo");
+{ type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl }    :: import("./exprs.yo");
+{ generate_function } :: import("./functions.yo");
+{ emit_c_preamble, emit_main_wrapper, generate_c_output } :: import("./program.yo");
 
 // ---------------------------------------------------------------------------
 // FnDef — extracted function definition record
@@ -174,17 +174,17 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
             // Step 2: extract the name atom.
             name_expr := match(top_args.get(usize(0)),
               .Some(e) => e,
-              .None    => { return Option(FnDef).None; }
+              .None    => { return(Option(FnDef).None); }
             );
             name_str := match(atom_ident(name_expr),
               .Some(n) => n,
-              .None    => { return Option(FnDef).None; }
+              .None    => { return(Option(FnDef).None); }
             );
 
             // Step 3: the RHS must be a fn application: fn_type(body).
             fn_app := match(top_args.get(usize(1)),
               .Some(e) => e,
-              .None    => { return Option(FnDef).None; }
+              .None    => { return(Option(FnDef).None); }
             );
 
             match(fn_app,
@@ -205,11 +205,11 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
 
                     fn_expr := match(arrow_args.get(usize(0)),
                       .Some(e) => e,
-                      .None    => { return Option(FnDef).None; }
+                      .None    => { return(Option(FnDef).None); }
                     );
                     ret_ty_expr := match(arrow_args.get(usize(1)),
                       .Some(e) => e,
-                      .None    => { return Option(FnDef).None; }
+                      .None    => { return(Option(FnDef).None); }
                     );
 
                     // Skip functions whose return type is comptime(X) where X has no C representation.
@@ -234,7 +234,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                         )
                       )
                     );
-                    if(should_skip_fn, { return Option(FnDef).None; });
+                    if(should_skip_fn, { return(Option(FnDef).None); });
 
                     // ret_ty_expr → C return type string
                     ret_ty_c := match(type_expr_to_c(ret_ty_expr),
@@ -244,12 +244,12 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
 
                     // fn_expr must be FnCall(Atom("fn"), params)
                     params_list := match(fn_expr,
-                      .Atom(_, _) => { return Option(FnDef).None; },
+                      .Atom(_, _) => { return(Option(FnDef).None); },
                       .FnCall(_, fn_func, fn_params, _, _) => cond(
                         (!(match(fn_func.*,
                           .Atom(_, fntok) => (fntok.value.as_str() == "fn"),
                           .FnCall(_, _, _, _, _) => false
-                        ))) => { return Option(FnDef).None; },
+                        ))) => { return(Option(FnDef).None); },
                         true => fn_params
                       )
                     );
@@ -264,7 +264,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                     out_param_tys := ArrayList(String).new();
                     n_p := params_list.len();
                     (pi : usize) = usize(0);
-                    while runtime((pi < n_p)), {
+                    while(runtime((pi < n_p)), {
                       pi = (pi + usize(1));
                       match(params_list.get(pi - usize(1)),
                         .None => (),
@@ -356,12 +356,12 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                           )
                         )
                       );
-                    };
+                    });
 
                     // body is the first element of app_args.
                     body := match(app_args.get(usize(0)),
                       .Some(e) => e,
-                      .None    => { return Option(FnDef).None; }
+                      .None    => { return(Option(FnDef).None); }
                     );
 
                     .Some(FnDef(
@@ -404,7 +404,7 @@ struct_has_self_fields :: (fn(sd : StructDef) -> bool)({
   n := sd.field_tys.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while runtime(((i < n) && (!found))), {
+  while(runtime(((i < n) && (!(found)))), {
     match(sd.field_tys.get(i),
       .None => (),
       .Some(ty) => {
@@ -412,7 +412,7 @@ struct_has_self_fields :: (fn(sd : StructDef) -> bool)({
       }
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -458,7 +458,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                           out_tys   := ArrayList(String).new();
                           nf := rhs_args.len();
                           (fi : usize) = usize(0);
-                          while runtime((fi < nf)), {
+                          while(runtime((fi < nf)), {
                             fi = (fi + usize(1));
                             match(rhs_args.get(fi - usize(1)),
                               .None => (),
@@ -532,7 +532,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                                 )
                               )
                             );
-                          };
+                          });
                           .Some(StructDef(
                             name:        String.from(name_str),
                             field_names: out_names,
@@ -571,7 +571,7 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
     field_tys_csv_buf := String.new();
     nf := sd.field_names.len();
     (fi : usize) = usize(0);
-    while runtime((fi < nf)), {
+    while(runtime((fi < nf)), {
       fi = (fi + usize(1));
       match(sd.field_names.get(fi - usize(1)),
         .None => (),
@@ -587,12 +587,12 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
           field_tys_csv_buf.push_string(fty);
         }
       );
-    };
+    });
     ctx.*.register_struct_fields(sd.name.as_str(), fields_csv_buf.as_str());
     ctx.*.register_struct_field_types(sd.name.as_str(), field_tys_csv_buf.as_str());
     line := String.from("typedef struct { ");
     (fi2 : usize) = usize(0);
-    while runtime((fi2 < nf)), {
+    while(runtime((fi2 < nf)), {
       fi2 = (fi2 + usize(1));
       match(sd.field_names.get(fi2 - usize(1)),
         .None => (),
@@ -606,7 +606,7 @@ emit_struct_to_c :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
           }
         )
       );
-    };
+    });
     line.push_str("} ");
     line.push_string(sd.name);
     line.push_str(";");
@@ -664,7 +664,7 @@ extract_union_def :: (fn(expr : AstExpr) -> Option(UnionDef))(
                           nfields := rargs.len();
                           (fi : usize) = usize(0);
                           (ok : bool) = true;
-                          while runtime(((fi < nfields) && ok)), {
+                          while(runtime(((fi < nfields) && ok)), {
                             fi = (fi + usize(1));
                             match(rargs.get(fi - usize(1)),
                               .None => { ok = false; },
@@ -698,7 +698,7 @@ extract_union_def :: (fn(expr : AstExpr) -> Option(UnionDef))(
                                 )
                               )
                             );
-                          };
+                          });
                           cond(
                             ok => Option(UnionDef).Some(udef),
                             true => Option(UnionDef).None
@@ -725,7 +725,7 @@ emit_union_to_c :: (fn(ud : UnionDef, ctx : *(CodegenContext)) -> unit)({
     fields_csv_buf := String.new();
     nf := ud.field_names.len();
     (fi : usize) = usize(0);
-    while runtime((fi < nf)), {
+    while(runtime((fi < nf)), {
       fi = (fi + usize(1));
       match(ud.field_names.get(fi - usize(1)),
         .None => (),
@@ -734,11 +734,11 @@ emit_union_to_c :: (fn(ud : UnionDef, ctx : *(CodegenContext)) -> unit)({
           fields_csv_buf.push_string(fname);
         }
       );
-    };
+    });
     ctx.*.register_struct_fields(ud.name.as_str(), fields_csv_buf.as_str());
     line := String.from("typedef union { ");
     (fi2 : usize) = usize(0);
-    while runtime((fi2 < nf)), {
+    while(runtime((fi2 < nf)), {
       fi2 = (fi2 + usize(1));
       match(ud.field_names.get(fi2 - usize(1)),
         .None => (),
@@ -752,7 +752,7 @@ emit_union_to_c :: (fn(ud : UnionDef, ctx : *(CodegenContext)) -> unit)({
           }
         )
       );
-    };
+    });
     line.push_str("} ");
     line.push_string(ud.name);
     line.push_str(";");
@@ -938,12 +938,12 @@ _parse_usize :: (fn(s : str) -> usize)({
   n := s.len();
   (i : usize) = usize(0);
   (acc : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     c := s.bytes(i);
     digit_ord := (usize(c) - usize(48));
     acc = ((acc * usize(10)) + digit_ord);
     i = (i + usize(1));
-  };
+  });
   acc
 });
 /// Returns `Some((field_name, c_type))` or `None`.
@@ -994,7 +994,7 @@ _parse_complex_variant :: (fn(call_expr : AstExpr) -> Option(EnumVariant))(
           nf := vargs.len();
           (fi : usize) = usize(0);
           (ok : bool) = true;
-          while runtime(((fi < nf) && ok)), {
+          while(runtime(((fi < nf) && ok)), {
             fi = (fi + usize(1));
             match(vargs.get(fi - usize(1)),
               .None => { ok = false; },
@@ -1003,7 +1003,7 @@ _parse_complex_variant :: (fn(call_expr : AstExpr) -> Option(EnumVariant))(
                 .Some(vf2) => { _r := fields.push(vf2); () }
               )
             );
-          };
+          });
           cond(
             (!(ok)) => Option(EnumVariant).None,
             true    => Option(EnumVariant).Some(
@@ -1129,7 +1129,7 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
                           (vi : usize) = usize(0);
                           (next_disc : usize) = usize(0);
                           (failed : bool) = false;
-                          while runtime(((vi < nv) && (!(failed)))), {
+                          while(runtime(((vi < nv) && (!(failed)))), {
                             vi = (vi + usize(1));
                             match(rhs_args.get(vi - usize(1)),
                               .None => (),
@@ -1145,7 +1145,7 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
                                 }
                               )
                             );
-                          };
+                          });
                           Option(EnumDef).Some(
                             EnumDef(
                               name:       String.from(name_str),
@@ -1174,7 +1174,7 @@ extract_enum_def :: (fn(expr : AstExpr) -> Option(EnumDef))(
 _register_enum_variants :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
   nv := ed.variants.len();
   (vi : usize) = usize(0);
-  while runtime((vi < nv)), {
+  while(runtime((vi < nv)), {
     vi = (vi + usize(1));
     match(ed.variants.get(vi - usize(1)),
       .None => (),
@@ -1182,7 +1182,7 @@ _register_enum_variants :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
         nf := ev.fields.len();
         fields_csv := String.new();
         (fi : usize) = usize(0);
-        while runtime((fi < nf)), {
+        while(runtime((fi < nf)), {
           fi = (fi + usize(1));
           match(ev.fields.get(fi - usize(1)),
             .None => (),
@@ -1191,11 +1191,11 @@ _register_enum_variants :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
               fields_csv.push_string(fld.name);
             }
           );
-        };
+        });
         ctx.*.register_variant(ev.name.as_str(), ed.name.as_str(), fields_csv.as_str());
       }
     );
-  };
+  });
 });
 
 /// Emit C type declaration(s) for an `EnumDef` into the context's declarations buffer.
@@ -1230,7 +1230,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
     (!(ed.is_complex)) => {
       line := String.from("typedef enum { ");
       (vi : usize) = usize(0);
-      while runtime((vi < nv)), {
+      while(runtime((vi < nv)), {
         vi = (vi + usize(1));
         match(ed.variants.get(vi - usize(1)),
           .None => (),
@@ -1243,7 +1243,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
             if((vi < nv), { line.push_str(", "); });
           }
         );
-      };
+      });
       line.push_str(" } ");
       line.push_string(ed.name);
       line.push_str(";");
@@ -1256,7 +1256,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
       // --- 1) typedef enum { Shape_Circle = 0, ... } Shape_tag; ---
       tag_line := String.from("typedef enum { ");
       (vi2 : usize) = usize(0);
-      while runtime((vi2 < nv)), {
+      while(runtime((vi2 < nv)), {
         vi2 = (vi2 + usize(1));
         match(ed.variants.get(vi2 - usize(1)),
           .None => (),
@@ -1269,7 +1269,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
             if((vi2 < nv), { tag_line.push_str(", "); });
           }
         );
-      };
+      });
       tag_line.push_str(" } ");
       tag_line.push_string(ed.name);
       tag_line.push_str("_tag;");
@@ -1278,7 +1278,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
       // --- 2) typedef union { struct { T f; } V; ... } Name_data; ---
       ctx.*.emitter.emit_declaration_line("typedef union {");
       (vi3 : usize) = usize(0);
-      while runtime((vi3 < nv)), {
+      while(runtime((vi3 < nv)), {
         vi3 = (vi3 + usize(1));
         match(ed.variants.get(vi3 - usize(1)),
           .None => (),
@@ -1296,7 +1296,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
               true => {
                 ctx.*.emitter.emit_declaration_line("  struct {");
                 (fi2 : usize) = usize(0);
-                while runtime((fi2 < nf)), {
+                while(runtime((fi2 < nf)), {
                   fi2 = (fi2 + usize(1));
                   match(ev.fields.get(fi2 - usize(1)),
                     .None => (),
@@ -1309,7 +1309,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
                       ctx.*.emitter.emit_declaration_string_line(fld_line);
                     }
                   );
-                };
+                });
                 close_line := String.from("  } ");
                 close_line.push_string(ev.name);
                 close_line.push_str(";");
@@ -1318,7 +1318,7 @@ emit_enum_to_c :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
             );
           }
         );
-      };
+      });
       union_close := String.from("} ");
       union_close.push_string(ed.name);
       union_close.push_str("_data;");
@@ -1362,13 +1362,13 @@ subst_self_ty_list :: (fn(tys : ArrayList(String), concrete_type : str) -> Array
   result := ArrayList(String).new();
   n := tys.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(tys.get(i),
       .None => (),
       .Some(ty_s) => { result.push(subst_self_ty(ty_s, concrete_type)); }
     );
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -1393,15 +1393,15 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
           true => {
             name_expr := match(top_args.get(usize(0)),
               .Some(e) => e,
-              .None    => { return Option(FnDef).None; }
+              .None    => { return(Option(FnDef).None); }
             );
             name_str := match(atom_ident(name_expr),
               .Some(n) => n,
-              .None    => { return Option(FnDef).None; }
+              .None    => { return(Option(FnDef).None); }
             );
             fn_app := match(top_args.get(usize(1)),
               .Some(e) => e,
-              .None    => { return Option(FnDef).None; }
+              .None    => { return(Option(FnDef).None); }
             );
             match(fn_app,
               .Atom(_, _) => Option(FnDef).None,
@@ -1413,11 +1413,11 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                   .FnCall(_, arrow_func, arrow_args, _, _) => {
                     fn_expr2 := match(arrow_args.get(usize(0)),
                       .Some(e) => e,
-                      .None    => { return Option(FnDef).None; }
+                      .None    => { return(Option(FnDef).None); }
                     );
                     ret_ty_expr2 := match(arrow_args.get(usize(1)),
                       .Some(e) => e,
-                      .None    => { return Option(FnDef).None; }
+                      .None    => { return(Option(FnDef).None); }
                     );
                     (ignore2 : str) = match(arrow_func.*,
                       .Atom(_, _) => "",
@@ -1429,12 +1429,12 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                       .None    => String.from("void*")
                     );
                     params_list2 := match(fn_expr2,
-                      .Atom(_, _) => { return Option(FnDef).None; },
+                      .Atom(_, _) => { return(Option(FnDef).None); },
                       .FnCall(_, fn_func2, fn_params2, _, _) => cond(
                         (!(match(fn_func2.*,
                           .Atom(_, fntok2) => (fntok2.value.as_str() == "fn"),
                           .FnCall(_, _, _, _, _) => false
-                        ))) => { return Option(FnDef).None; },
+                        ))) => { return(Option(FnDef).None); },
                         true => fn_params2
                       )
                     );
@@ -1442,7 +1442,7 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                     out_param_tys2 := ArrayList(String).new();
                     n_p2 := params_list2.len();
                     (pi2 : usize) = usize(0);
-                    while runtime((pi2 < n_p2)), {
+                    while(runtime((pi2 < n_p2)), {
                       pi2 = (pi2 + usize(1));
                       match(params_list2.get(pi2 - usize(1)),
                         .None => (),
@@ -1501,10 +1501,10 @@ extract_colon_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                           )
                         )
                       );
-                    };
+                    });
                     body2 := match(app_args.get(usize(0)),
                       .Some(b2) => b2,
-                      .None     => { return Option(FnDef).None; }
+                      .None     => { return(Option(FnDef).None); }
                     );
                     Option(FnDef).Some(FnDef(
                       name:      String.from(name_str),
@@ -1558,7 +1558,7 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
                   (btok.value.as_str() == "begin") => {
                     nm := ba.len();
                     (mi : usize) = usize(0);
-                    while runtime((mi < nm)), {
+                    while(runtime((mi < nm)), {
                       mi = (mi + usize(1));
                       match(ba.get(mi - usize(1)),
                         .None => (),
@@ -1588,7 +1588,7 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
                           )
                         }
                       );
-                    };
+                    });
                     results
                   },
                   // Single inline method: `impl(T, method : fn_expr)` or `impl(T, method :: fn_expr)`
@@ -1636,7 +1636,7 @@ build_param_tys_pipe :: (fn(param_tys : ArrayList(String)) -> String)({
   sb := String.new();
   n := param_tys.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     i = (i + usize(1));
     match(param_tys.get(i - usize(1)),
       .None => (),
@@ -1645,17 +1645,17 @@ build_param_tys_pipe :: (fn(param_tys : ArrayList(String)) -> String)({
         sb.push_string(ty_s);
       }
     );
-  };
+  });
   sb
 });
 
 
-export FnDef, extract_fn_def, is_comptime_expr, StructDef, extract_struct_def, emit_struct_to_c,
+export(FnDef, extract_fn_def, is_comptime_expr, StructDef, extract_struct_def, emit_struct_to_c,
        c_type_has_self, struct_has_self_fields,
        EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
        extract_newtype_def, emit_newtype_to_c,
        ConstDef, extract_const_def, emit_const_to_c,
-       extract_impl_fns;
+       extract_impl_fns);
 
 // ---------------------------------------------------------------------------
 // extract_import_path — Phase 5g import resolution
@@ -1692,9 +1692,9 @@ extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
 );
 
 /// Extract the import path from any import form:
-///   - `{ Names } :: import "path"` (infix `::`, RHS is import call)
-///   - `open import "path"` (`open` wrapping import call)
-///   - `import "path"` (bare import call)
+///   - `{ Names } :: import("path")` (infix `::`, RHS is import call)
+///   - `open(import("path"))` (`open` wrapping import call)
+///   - `import("path")` (bare import call)
 /// Returns the path without surrounding quotes, or .None if not an import expression.
 extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
   match(expr,
@@ -1724,7 +1724,7 @@ extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
   )
 );
 
-export extract_bare_import_path, extract_import_path;
+export(extract_bare_import_path, extract_import_path);
 
 // ---------------------------------------------------------------------------
 // Test body compilation
@@ -1752,7 +1752,7 @@ is_fn_name_called :: (fn(name : str, expr : AstExpr) -> bool)(
       // still descend into the RHS args so that `z :: some_fn()` counts as
       // calling `some_fn`.
       {
-        this_is_call := ((!is_infix) && ((!is_coloncolon) && match(func_box.*,
+        this_is_call := ((!(is_infix)) && ((!(is_coloncolon)) && match(func_box.*,
           .Atom(_, ftok)         => ((ftok.kind == TokenKind.Identifier) && (ftok.value.as_str() == name)),
           .FnCall(_, _, _, _, _) => false
         )));
@@ -1762,13 +1762,13 @@ is_fn_name_called :: (fn(name : str, expr : AstExpr) -> bool)(
             n := args.len();
             (i : usize) = usize(0);
             (found : bool) = false;
-            while runtime(((i < n) && (!(found)))), {
+            while(runtime(((i < n) && (!(found)))), {
               match(args.get(i),
                 .None    => (),
                 .Some(a) => { if(recur(name, a), { found = true; }); }
               );
               i = (i + usize(1));
-            };
+            });
             found
           }
         )
@@ -1787,7 +1787,7 @@ collect_all_enum_defs :: (fn(expr : AstExpr, result : *(ArrayList(EnumDef))) -> 
       is_begin_block(expr) => {
         n := args.len();
         (i : usize) = usize(0);
-        while runtime((i < n)), {
+        while(runtime((i < n)), {
           match(args.get(i),
             .None => (),
             .Some(stmt) => {
@@ -1804,7 +1804,7 @@ collect_all_enum_defs :: (fn(expr : AstExpr, result : *(ArrayList(EnumDef))) -> 
             }
           );
           i = (i + usize(1));
-        };
+        });
       },
       true => ()
     )
@@ -1826,17 +1826,17 @@ collect_all_enum_defs :: (fn(expr : AstExpr, result : *(ArrayList(EnumDef))) -> 
 emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
   // --- Enums: collect all, then emit last occurrence of each name ---
   all_eds := ArrayList(EnumDef).new();
-  collect_all_enum_defs(expr, &all_eds);
+  collect_all_enum_defs(expr, &(all_eds));
   ned := all_eds.len();
   (ei : usize) = usize(0);
-  while runtime((ei < ned)), {
+  while(runtime((ei < ned)), {
     match(all_eds.get(ei),
       .None => (),
       .Some(ed) => {
         // Determine whether this is the last (rightmost) definition for this name.
         (j : usize) = (ei + usize(1));
         (later_found : bool) = false;
-        while runtime(((j < ned) && (!(later_found)))), {
+        while(runtime(((j < ned) && (!(later_found)))), {
           match(all_eds.get(j),
             .None => (),
             .Some(ed2) => {
@@ -1844,7 +1844,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
             }
           );
           j = (j + usize(1));
-        };
+        });
         cond(
           // Last occurrence → emit typedef + register variants
           (!(later_found)) => emit_enum_to_c(ed, ctx),
@@ -1854,7 +1854,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
       }
     );
     ei = (ei + usize(1));
-  };
+  });
 
   // --- Structs: first-wins (walk begin blocks recursively) ---
   _emit_struct_defs :: (fn(e : AstExpr, c : *(CodegenContext)) -> unit)(
@@ -1864,7 +1864,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
         is_begin_block(e) => {
           en := eargs.len();
           (si : usize) = usize(0);
-          while runtime((si < en)), {
+          while(runtime((si < en)), {
             match(eargs.get(si),
               .None => (),
               .Some(stmt) => {
@@ -1936,14 +1936,14 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
                           )
                         )
                       );
-                      if((!alias_emitted), { recur(stmt, c); });
+                      if((!(alias_emitted)), { recur(stmt, c); });
                     }
                   )
                 );
               }
             );
             si = (si + usize(1));
-          };
+          });
         },
         true => ()
       )
@@ -1961,13 +1961,13 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
         is_begin_block(e) => {
           na_e := ef_args.len();
           (ia : usize) = usize(0);
-          while runtime((ia < na_e)), {
+          while(runtime((ia < na_e)), {
             match(ef_args.get(ia),
               .None => (),
               .Some(stmt) => { recur(stmt, c); }
             );
             ia = (ia + usize(1));
-          };
+          });
         },
         // `NAME :: Array(T, N)` — infix `::` with RHS = FnCall(Atom("Array"), [T, N])
         (ef_infix && (ef_args.len() == usize(2))) => match(ef_box.*,
@@ -2006,7 +2006,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
                                         sz_str := sz_tok.value.as_str();
                                         sz := usize(0);
                                         (si : usize) = usize(0);
-                                        while runtime((si < sz_str.len())), {
+                                        while(runtime((si < sz_str.len())), {
                                           ch_opt := sz_tok.value.at(si);
                                           match(ch_opt,
                                             .None => (),
@@ -2017,7 +2017,7 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
                                             }
                                           );
                                           si = (si + usize(1));
-                                        };
+                                        });
                                         c.*.register_array_alias(name_tok.value.as_str(), elem_c.as_str(), sz);
                                       }
                                     )
@@ -2057,7 +2057,7 @@ emit_comptime_const_defs :: (fn(body : AstExpr, ctx : *(CodegenContext)) -> unit
       is_begin_block(body) => {
         nb := bargs.len();
         (ib : usize) = usize(0);
-        while runtime((ib < nb)), {
+        while(runtime((ib < nb)), {
           match(bargs.get(ib),
             .None => (),
             .Some(stmt) => match(stmt,
@@ -2116,7 +2116,7 @@ emit_comptime_const_defs :: (fn(body : AstExpr, ctx : *(CodegenContext)) -> unit
             )
           );
           ib = (ib + usize(1));
-        };
+        });
       },
       true => ()
     )
@@ -2155,13 +2155,13 @@ collect_local_fn_defs :: (fn(expr : AstExpr, result : *(ArrayList(FnDef))) -> un
                       impl_fns := extract_impl_fns(expr, type_prefix);
                       nim := impl_fns.len();
                       (im : usize) = usize(0);
-                      while runtime((im < nim)), {
+                      while(runtime((im < nim)), {
                         im = (im + usize(1));
                         match(impl_fns.get(im - usize(1)),
                           .None => (),
                           .Some(ifd) => { _ri := result.*.push(ifd); () }
                         );
-                      };
+                      });
                     }
                   )
                 )
@@ -2175,13 +2175,13 @@ collect_local_fn_defs :: (fn(expr : AstExpr, result : *(ArrayList(FnDef))) -> un
         is_begin_block(expr) => {
           n := args.len();
           (i : usize) = usize(0);
-          while runtime((i < n)), {
+          while(runtime((i < n)), {
             match(args.get(i),
               .None => (),
               .Some(s) => recur(s, result)
             );
             i = (i + usize(1));
-          };
+          });
         },
         true => ()
       );
@@ -2198,7 +2198,7 @@ collect_skipped_fn_names :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit
     .FnCall(_, top_func, top_args, top_infix, _) => {
       // Check if this is a `name :: ...` (infix `::`) with 2 args.
       cond(
-        (!top_infix) => (),
+        (!(top_infix)) => (),
         true => match(top_func.*,
           .FnCall(_, _, _, _, _) => (),
           .Atom(_, ttok) => cond(
@@ -2235,13 +2235,13 @@ collect_skipped_fn_names :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit
         is_begin_block(expr) => {
           n := top_args.len();
           (i : usize) = usize(0);
-          while runtime((i < n)), {
+          while(runtime((i < n)), {
             match(top_args.get(i),
               .None => (),
               .Some(s) => recur(s, ctx)
             );
             i = (i + usize(1));
-          };
+          });
         },
         true => ()
       );
@@ -2291,7 +2291,7 @@ _build_concat_chain :: (fn(parts : ArrayList(String)) -> String)({
         .Some(p) => p
       );
       (i : usize) = usize(1);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         match(parts.get(i),
           .None => (),
           .Some(p) => {
@@ -2304,7 +2304,7 @@ _build_concat_chain :: (fn(parts : ArrayList(String)) -> String)({
           }
         );
         i = (i + usize(1));
-      };
+      });
       result
     }
   )
@@ -2331,7 +2331,7 @@ emit_struct_tostring_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)
 
   (buf_idx : usize) = usize(0);
   (fi : usize) = usize(0);
-  while runtime((fi < n)), {
+  while(runtime((fi < n)), {
     match(sd.field_names.get(fi),
       .None => (),
       .Some(fname) => match(sd.field_tys.get(fi),
@@ -2371,7 +2371,7 @@ emit_struct_tostring_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)
       )
     );
     fi = (fi + usize(1));
-  };
+  });
 
   // Closing ")"
   parts.push(String.from("\")\""));
@@ -2395,7 +2395,7 @@ emit_simple_enum_tostring_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> un
   ctx.*.emitter.emit_declaration_line("  switch (*self) {");
 
   (vi : usize) = usize(0);
-  while runtime((vi < nv)), {
+  while(runtime((vi < nv)), {
     match(ed.variants.get(vi),
       .None => (),
       .Some(ev) => {
@@ -2412,7 +2412,7 @@ emit_simple_enum_tostring_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> un
       }
     );
     vi = (vi + usize(1));
-  };
+  });
 
   ctx.*.emitter.emit_declaration_line("    default: return \"unknown\";");
   ctx.*.emitter.emit_declaration_line("  }");
@@ -2432,7 +2432,7 @@ emit_complex_enum_tostring_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> u
   ctx.*.emitter.emit_declaration_line("  switch (self->tag) {");
 
   (vi : usize) = usize(0);
-  while runtime((vi < nv)), {
+  while(runtime((vi < nv)), {
     match(ed.variants.get(vi),
       .None => (),
       .Some(ev) => {
@@ -2470,7 +2470,7 @@ emit_complex_enum_tostring_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> u
 
             (buf_idx : usize) = usize(0);
             (fi : usize) = usize(0);
-            while runtime((fi < nf)), {
+            while(runtime((fi < nf)), {
               match(ev.fields.get(fi),
                 .None => (),
                 .Some(fld) => {
@@ -2506,7 +2506,7 @@ emit_complex_enum_tostring_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> u
                 }
               );
               fi = (fi + usize(1));
-            };
+            });
 
             // Closing ")"
             parts.push(String.from("\")\""));
@@ -2520,7 +2520,7 @@ emit_complex_enum_tostring_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> u
       }
     );
     vi = (vi + usize(1));
-  };
+  });
 
   ctx.*.emitter.emit_declaration_line("    default: return \"unknown\";");
   ctx.*.emitter.emit_declaration_line("  }");
@@ -2533,7 +2533,7 @@ _has_tostring_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while runtime(((i < n) && (!found))), {
+  while(runtime(((i < n) && (!(found)))), {
     match(args.get(i),
       .None => (),
       .Some(a) => match(a,
@@ -2546,7 +2546,7 @@ _has_tostring_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
       )
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -2557,7 +2557,7 @@ _has_tostring_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
 process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx : *(CodegenContext)) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while runtime((ie < n)), {
+  while(runtime((ie < n)), {
     match(exprs.get(ie),
       .None => (),
       .Some(mexpr) => match(mexpr,
@@ -2584,7 +2584,7 @@ process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx :
                         found_struct := {
                           (je : usize) = usize(0);
                           (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                          while runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(je),
                               .None => (),
                               .Some(def_expr) => match(extract_struct_def(def_expr),
@@ -2597,13 +2597,13 @@ process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx :
                               )
                             );
                             je = (je + usize(1));
-                          };
+                          });
                           sd_opt
                         };
                         found_enum := {
                           (ke : usize) = usize(0);
                           (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                          while runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(ke),
                               .None => (),
                               .Some(def_expr) => match(extract_enum_def(def_expr),
@@ -2616,7 +2616,7 @@ process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx :
                               )
                             );
                             ke = (ke + usize(1));
-                          };
+                          });
                           ed_opt
                         };
                         match(found_struct,
@@ -2646,7 +2646,7 @@ process_derive_tostring :: (fn(exprs : ArrayList(AstExpr), body : AstExpr, ctx :
       )
     );
     ie = (ie + usize(1));
-  };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2675,7 +2675,7 @@ emit_struct_clone_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
   ctx.*.emitter.emit_declaration_line(" result;");
 
   (fi : usize) = usize(0);
-  while runtime((fi < n)), {
+  while(runtime((fi < n)), {
     match(sd.field_names.get(fi),
       .None => (),
       .Some(fname) => match(sd.field_tys.get(fi),
@@ -2699,7 +2699,7 @@ emit_struct_clone_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
       )
     );
     fi = (fi + usize(1));
-  };
+  });
 
   ctx.*.emitter.emit_declaration_line("  return result;");
   ctx.*.emitter.emit_declaration_line("}");
@@ -2724,7 +2724,7 @@ emit_complex_enum_clone_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit
   ctx.*.emitter.emit_declaration_line("  switch (self->tag) {");
 
   (vi : usize) = usize(0);
-  while runtime((vi < nv)), {
+  while(runtime((vi < nv)), {
     match(ed.variants.get(vi),
       .None => (),
       .Some(ev) => {
@@ -2747,7 +2747,7 @@ emit_complex_enum_clone_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit
           true => {
             // Data variant: copy each field
             (fi : usize) = usize(0);
-            while runtime((fi < nf)), {
+            while(runtime((fi < nf)), {
               match(ev.fields.get(fi),
                 .None => (),
                 .Some(fld) => {
@@ -2774,7 +2774,7 @@ emit_complex_enum_clone_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit
                 }
               );
               fi = (fi + usize(1));
-            };
+            });
           }
         );
         ctx.*.emitter.emit_declaration_line("      break;");
@@ -2782,7 +2782,7 @@ emit_complex_enum_clone_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit
       }
     );
     vi = (vi + usize(1));
-  };
+  });
 
   ctx.*.emitter.emit_declaration_line("  }");
   ctx.*.emitter.emit_declaration_line("  return result;");
@@ -2807,7 +2807,7 @@ emit_struct_eq_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
   ctx.*.emitter.emit_declaration_line("* b) {");
 
   (fi : usize) = usize(0);
-  while runtime((fi < n)), {
+  while(runtime((fi < n)), {
     match(sd.field_names.get(fi),
       .None => (),
       .Some(fname) => match(sd.field_tys.get(fi),
@@ -2847,7 +2847,7 @@ emit_struct_eq_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
       )
     );
     fi = (fi + usize(1));
-  };
+  });
 
   ctx.*.emitter.emit_declaration_line("  return true;");
   ctx.*.emitter.emit_declaration_line("}");
@@ -2869,7 +2869,7 @@ emit_complex_enum_eq_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
   ctx.*.emitter.emit_declaration_line("  switch (a->tag) {");
 
   (vi : usize) = usize(0);
-  while runtime((vi < nv)), {
+  while(runtime((vi < nv)), {
     match(ed.variants.get(vi),
       .None => (),
       .Some(ev) => {
@@ -2889,11 +2889,11 @@ emit_complex_enum_eq_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
             (fi : usize) = usize(0);
             (first_field : bool) = true;
             ctx.*.emitter.emit_declaration("      return ");
-            while runtime((fi < nf)), {
+            while(runtime((fi < nf)), {
               match(ev.fields.get(fi),
                 .None => (),
                 .Some(fld) => {
-                  if((!first_field), {
+                  if((!(first_field)), {
                     ctx.*.emitter.emit_declaration(" && ");
                   });
                   cond(
@@ -2924,7 +2924,7 @@ emit_complex_enum_eq_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
                 }
               );
               fi = (fi + usize(1));
-            };
+            });
             ctx.*.emitter.emit_declaration_line(";");
           }
         );
@@ -2932,7 +2932,7 @@ emit_complex_enum_eq_fn :: (fn(ed : EnumDef, ctx : *(CodegenContext)) -> unit)({
       }
     );
     vi = (vi + usize(1));
-  };
+  });
 
   ctx.*.emitter.emit_declaration_line("    default: return false;");
   ctx.*.emitter.emit_declaration_line("  }");
@@ -2957,7 +2957,7 @@ emit_struct_hash_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
   ctx.*.emitter.emit_declaration_line("  size_t h = 0;");
 
   (fi : usize) = usize(0);
-  while runtime((fi < n)), {
+  while(runtime((fi < n)), {
     match(sd.field_names.get(fi),
       .None => (),
       .Some(fname) => match(sd.field_tys.get(fi),
@@ -2988,7 +2988,7 @@ emit_struct_hash_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
       )
     );
     fi = (fi + usize(1));
-  };
+  });
 
   ctx.*.emitter.emit_declaration_line("  return h;");
   ctx.*.emitter.emit_declaration_line("}");
@@ -3024,7 +3024,7 @@ emit_struct_ord_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
   ctx.*.emitter.emit_declaration_line("* b) {");
 
   (fi : usize) = usize(0);
-  while runtime((fi < n)), {
+  while(runtime((fi < n)), {
     match(sd.field_names.get(fi),
       .None => (),
       .Some(fname) => match(sd.field_tys.get(fi),
@@ -3057,7 +3057,7 @@ emit_struct_ord_fn :: (fn(sd : StructDef, ctx : *(CodegenContext)) -> unit)({
       )
     );
     fi = (fi + usize(1));
-  };
+  });
 
   ctx.*.emitter.emit_declaration_line("  return 0;");
   ctx.*.emitter.emit_declaration_line("}");
@@ -3098,7 +3098,7 @@ _has_hash_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while runtime(((i < n) && (!found))), {
+  while(runtime(((i < n) && (!(found)))), {
     match(args.get(i),
       .None => (),
       .Some(a) => match(a,
@@ -3111,7 +3111,7 @@ _has_hash_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
       )
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -3120,13 +3120,13 @@ _has_ord_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while runtime(((i < n) && (!found))), {
+  while(runtime(((i < n) && (!(found)))), {
     match(args.get(i),
       .None => (),
       .Some(a) => match(a,
         // `Ord(TypeName)` call form
         .FnCall(_, ord_fn, _, ord_infix, _) => {
-          if((!ord_infix), {
+          if((!(ord_infix)), {
             match(ord_fn.*,
               .FnCall(_, _, _, _, _) => (),
               .Atom(_, etok) => {
@@ -3144,7 +3144,7 @@ _has_ord_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
       )
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -3152,7 +3152,7 @@ _has_ord_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
 process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while runtime((ie < n)), {
+  while(runtime((ie < n)), {
     match(exprs.get(ie),
       .None => (),
       .Some(mexpr) => match(mexpr,
@@ -3174,7 +3174,7 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) 
                         found_struct := {
                           (je : usize) = usize(0);
                           (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                          while runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(je),
                               .None => (),
                               .Some(def_expr) => match(extract_struct_def(def_expr),
@@ -3187,13 +3187,13 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) 
                               )
                             );
                             je = (je + usize(1));
-                          };
+                          });
                           sd_opt
                         };
                         found_enum := {
                           (ke : usize) = usize(0);
                           (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                          while runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(ke),
                               .None => (),
                               .Some(def_expr) => match(extract_enum_def(def_expr),
@@ -3206,7 +3206,7 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) 
                               )
                             );
                             ke = (ke + usize(1));
-                          };
+                          });
                           ed_opt
                         };
                         match(found_struct,
@@ -3218,7 +3218,7 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) 
                             .None => (),
                             .Some(ed) => {
                               ctx.*.register_derive_hash(type_name);
-                              if((!ed.is_complex), {
+                              if((!(ed.is_complex)), {
                                 emit_fieldless_enum_hash_fn(type_name, ctx);
                               });
                             }
@@ -3235,14 +3235,14 @@ process_derive_hash :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) 
       )
     );
     ie = (ie + usize(1));
-  };
+  });
 });
 
 /// Scan `exprs` for `derive(TypeName, ..., Ord(...), ...)` calls and emit cmp functions.
 process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while runtime((ie < n)), {
+  while(runtime((ie < n)), {
     match(exprs.get(ie),
       .None => (),
       .Some(mexpr) => match(mexpr,
@@ -3264,7 +3264,7 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -
                         found_struct := {
                           (je : usize) = usize(0);
                           (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                          while runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(je),
                               .None => (),
                               .Some(def_expr) => match(extract_struct_def(def_expr),
@@ -3277,13 +3277,13 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -
                               )
                             );
                             je = (je + usize(1));
-                          };
+                          });
                           sd_opt
                         };
                         found_enum := {
                           (ke : usize) = usize(0);
                           (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                          while runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(ke),
                               .None => (),
                               .Some(def_expr) => match(extract_enum_def(def_expr),
@@ -3296,7 +3296,7 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -
                               )
                             );
                             ke = (ke + usize(1));
-                          };
+                          });
                           ed_opt
                         };
                         match(found_struct,
@@ -3308,7 +3308,7 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -
                             .None => (),
                             .Some(ed) => {
                               ctx.*.register_derive_ord(type_name);
-                              if((!ed.is_complex), {
+                              if((!(ed.is_complex)), {
                                 emit_fieldless_enum_ord_fn(type_name, ctx);
                               });
                             }
@@ -3325,7 +3325,7 @@ process_derive_ord :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -
       )
     );
     ie = (ie + usize(1));
-  };
+  });
 });
 
 /// True if the `Clone` atom appears in a list of derive trait arguments (starting from index 1).
@@ -3333,7 +3333,7 @@ _has_clone_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while runtime(((i < n) && (!found))), {
+  while(runtime(((i < n) && (!(found)))), {
     match(args.get(i),
       .None => (),
       .Some(a) => match(a,
@@ -3346,7 +3346,7 @@ _has_clone_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
       )
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -3355,13 +3355,13 @@ _has_eq_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
   n := args.len();
   (i : usize) = usize(1);
   (found : bool) = false;
-  while runtime(((i < n) && (!found))), {
+  while(runtime(((i < n) && (!(found)))), {
     match(args.get(i),
       .None => (),
       .Some(a) => match(a,
         // `Eq(TypeName)` call form
         .FnCall(_, eq_fn, _, eq_infix, _) => {
-          if((!eq_infix), {
+          if((!(eq_infix)), {
             match(eq_fn.*,
               .FnCall(_, _, _, _, _) => (),
               .Atom(_, etok) => {
@@ -3379,7 +3379,7 @@ _has_eq_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
       )
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -3387,7 +3387,7 @@ _has_eq_trait :: (fn(args : ArrayList(AstExpr)) -> bool)({
 process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while runtime((ie < n)), {
+  while(runtime((ie < n)), {
     match(exprs.get(ie),
       .None => (),
       .Some(mexpr) => match(mexpr,
@@ -3409,7 +3409,7 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext))
                         found_struct := {
                           (je : usize) = usize(0);
                           (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                          while runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(je),
                               .None => (),
                               .Some(def_expr) => match(extract_struct_def(def_expr),
@@ -3422,13 +3422,13 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext))
                               )
                             );
                             je = (je + usize(1));
-                          };
+                          });
                           sd_opt
                         };
                         found_enum := {
                           (ke : usize) = usize(0);
                           (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                          while runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(ke),
                               .None => (),
                               .Some(def_expr) => match(extract_enum_def(def_expr),
@@ -3441,7 +3441,7 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext))
                               )
                             );
                             ke = (ke + usize(1));
-                          };
+                          });
                           ed_opt
                         };
                         match(found_struct,
@@ -3471,7 +3471,7 @@ process_derive_clone :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext))
       )
     );
     ie = (ie + usize(1));
-  };
+  });
 });
 
 /// Extract the type name from a `comptime_eval("derive(TypeName, ...)")` call.
@@ -3541,7 +3541,7 @@ _derive_string_contains_trait :: (fn(raw : String, trait_name : str) -> bool)(
 process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -> unit)({
   n := exprs.len();
   (ie : usize) = usize(0);
-  while runtime((ie < n)), {
+  while(runtime((ie < n)), {
     match(exprs.get(ie),
       .None => (),
       .Some(mexpr) => {
@@ -3564,7 +3564,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
               // Look up struct/enum def in exprs
               (je2 : usize) = usize(0);
               (ce_sd_opt : Option(StructDef)) = Option(StructDef).None;
-              while runtime(((je2 < n) && match(ce_sd_opt, .None => true, .Some(_) => false))), {
+              while(runtime(((je2 < n) && match(ce_sd_opt, .None => true, .Some(_) => false))), {
                 match(exprs.get(je2),
                   .None => (),
                   .Some(def_e) => match(extract_struct_def(def_e),
@@ -3573,10 +3573,10 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
                   )
                 );
                 je2 = (je2 + usize(1));
-              };
+              });
               (ke2 : usize) = usize(0);
               (ce_ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-              while runtime(((ke2 < n) && match(ce_ed_opt, .None => true, .Some(_) => false))), {
+              while(runtime(((ke2 < n) && match(ce_ed_opt, .None => true, .Some(_) => false))), {
                 match(exprs.get(ke2),
                   .None => (),
                   .Some(def_e2) => match(extract_enum_def(def_e2),
@@ -3585,7 +3585,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
                   )
                 );
                 ke2 = (ke2 + usize(1));
-              };
+              });
               match(ce_sd_opt,
                 .Some(sd3) => { ctx.*.register_derive_eq(ce_typename.as_str()); emit_struct_eq_fn(sd3, ctx); },
                 .None => match(ce_ed_opt,
@@ -3618,7 +3618,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
                         found_struct := {
                           (je : usize) = usize(0);
                           (sd_opt : Option(StructDef)) = Option(StructDef).None;
-                          while runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((je < n) && match(sd_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(je),
                               .None => (),
                               .Some(def_expr) => match(extract_struct_def(def_expr),
@@ -3631,13 +3631,13 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
                               )
                             );
                             je = (je + usize(1));
-                          };
+                          });
                           sd_opt
                         };
                         found_enum := {
                           (ke : usize) = usize(0);
                           (ed_opt : Option(EnumDef)) = Option(EnumDef).None;
-                          while runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
+                          while(runtime(((ke < n) && match(ed_opt, .None => true, .Some(_) => false))), {
                             match(exprs.get(ke),
                               .None => (),
                               .Some(def_expr) => match(extract_enum_def(def_expr),
@@ -3650,7 +3650,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
                               )
                             );
                             ke = (ke + usize(1));
-                          };
+                          });
                           ed_opt
                         };
                         match(found_struct,
@@ -3682,7 +3682,7 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
       }
     );
     ie = (ie + usize(1));
-  };
+  });
 });
 
 
@@ -3705,7 +3705,7 @@ compile_module_to_c :: (fn(
   main_name : str
 ) -> Option(String))({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
 
   emit_c_preamble(module_id, pctx);
 
@@ -3715,7 +3715,7 @@ compile_module_to_c :: (fn(
   // === Pass 1: register all top-level Yo function names ===
   // This allows forward calls (foo calls bar defined later) to receive the
   // correct `fn_` prefix in the generated C.
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     i = (i + usize(1));
     match(exprs.get(i - usize(1)),
       .None => (),
@@ -3744,7 +3744,7 @@ compile_module_to_c :: (fn(
                           impl_fns := extract_impl_fns(expr, type_name);
                           nim := impl_fns.len();
                           (mi : usize) = usize(0);
-                          while runtime((mi < nim)), {
+                          while(runtime((mi < nim)), {
                             mi = (mi + usize(1));
                             match(impl_fns.get(mi - usize(1)),
                               .None => (),
@@ -3753,7 +3753,7 @@ compile_module_to_c :: (fn(
                                 pctx.*.register_fn_with_params(iname, build_param_tys_pipe(ifd.param_tys));
                               }
                             );
-                          };
+                          });
                         }
                       )
                     )
@@ -3765,14 +3765,14 @@ compile_module_to_c :: (fn(
         );
       }
     );
-  };
+  });
 
   // === Pass 2: emit structs, functions, and impl methods ===
   (i = usize(0));
   (main_found : bool) = false;
   (main_c_name : String) = String.new();
 
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     i = (i + usize(1));
     match(exprs.get(i - usize(1)),
       .None => (),
@@ -3853,7 +3853,7 @@ compile_module_to_c :: (fn(
                 );
                 nm := impl_fns.len();
                 (mi : usize) = usize(0);
-                while runtime((mi < nm)), {
+                while(runtime((mi < nm)), {
                   mi = (mi + usize(1));
                   match(impl_fns.get(mi - usize(1)),
                     .None => (),
@@ -3872,7 +3872,7 @@ compile_module_to_c :: (fn(
                       );
                     }
                   );
-                };
+                });
                 // Fifth: try to extract a module-level constant.
                 if((nm == usize(0)), {
                   match(extract_const_def(expr),
@@ -3890,7 +3890,7 @@ compile_module_to_c :: (fn(
         );
       }
     );
-  };
+  });
 
 
   // === Pass 3: derive code generation ===
@@ -3915,7 +3915,7 @@ compile_module_to_c :: (fn(
   )
 });
 
-export compile_module_to_c;
+export(compile_module_to_c);
 
 /// An `int main(void)` wrapper calls `fn_test_body()`.
 ///
@@ -3927,17 +3927,17 @@ export compile_module_to_c;
 ///   1. Registered so call sites get the `fn_` prefix.
 ///   2. Emitted as C functions before the test body so calls can resolve.
 /// Struct definitions and impl methods are also emitted.
-/// Test declarations (`test "name", { body }`) are skipped.
+/// Test declarations (`test("name", { body })`) are skipped.
 ///
 /// Returns the full C source string.
 compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : ArrayList(AstExpr)) -> String)({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
 
   // === Pass 1: register all top-level function names ===
   ne := module_exprs.len();
   (ie : usize) = usize(0);
-  while runtime((ie < ne)), {
+  while(runtime((ie < ne)), {
     ie = (ie + usize(1));
     match(module_exprs.get(ie - usize(1)),
       .None => (),
@@ -3967,13 +3967,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                           impl_fns_tp := extract_impl_fns(mexpr, tp);
                           n_imp := impl_fns_tp.len();
                           (ii : usize) = usize(0);
-                          while runtime((ii < n_imp)), {
+                          while(runtime((ii < n_imp)), {
                             ii = (ii + usize(1));
                             match(impl_fns_tp.get(ii - usize(1)),
                               .None => (),
                               .Some(ifd) => { pctx.*.register_fn_with_params(String.from(ifd.name.as_str()), build_param_tys_pipe(ifd.param_tys)); }
                             );
-                          };
+                          });
                         }
                       )
                     )
@@ -3989,13 +3989,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
         );
       }
     );
-  };
+  });
 
   emit_c_preamble(module_id, pctx);
 
   // === Pass 2: emit helper structs and functions ===
   (ie = usize(0));
-  while runtime((ie < ne)), {
+  while(runtime((ie < ne)), {
     ie = (ie + usize(1));
     match(module_exprs.get(ie - usize(1)),
       .None => (),
@@ -4047,7 +4047,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                           impl_fns2 := extract_impl_fns(mexpr, tp2);
                           n_impl2 := impl_fns2.len();
                           (ii2 : usize) = usize(0);
-                          while runtime((ii2 < n_impl2)), {
+                          while(runtime((ii2 < n_impl2)), {
                             ii2 = (ii2 + usize(1));
                             match(impl_fns2.get(ii2 - usize(1)),
                               .None => (),
@@ -4067,7 +4067,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                                 pctx.*.set_self_type("");
                               }
                             );
-                          };
+                          });
                         }
                       )
                     )
@@ -4085,7 +4085,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
         );
       }
     );
-  };
+  });
 
   // === Pass 2.5: emit struct/enum type definitions from the test body ===
   //
@@ -4121,13 +4121,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   // they are called as `TypeName.method()` and `is_fn_name_called` won't
   // detect them.
   local_fns := ArrayList(FnDef).new();
-  collect_local_fn_defs(body, &local_fns);
+  collect_local_fn_defs(body, &(local_fns));
   collect_skipped_fn_names(body, pctx);
   nf := local_fns.len();
 
   // First pass: register impl method names so call sites get fn_ prefix.
   (jf0 : usize) = usize(0);
-  while runtime((jf0 < nf)), {
+  while(runtime((jf0 < nf)), {
     jf0 = (jf0 + usize(1));
     match(local_fns.get(jf0 - usize(1)),
       .None => (),
@@ -4138,11 +4138,11 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
         });
       }
     );
-  };
+  });
 
   hoisted_names := ArrayList(String).new();
   (jf : usize) = usize(0);
-  while runtime((jf < nf)), {
+  while(runtime((jf < nf)), {
     jf = (jf + usize(1));
     match(local_fns.get(jf - usize(1)),
       .None => (),
@@ -4155,13 +4155,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
           hn := hoisted_names.len();
           (hi : usize) = usize(0);
           (found_dup : bool) = false;
-          while runtime(((hi < hn) && (!(found_dup)))), {
+          while(runtime(((hi < hn) && (!(found_dup)))), {
             match(hoisted_names.get(hi),
               .None => (),
               .Some(hn_s) => { if((hn_s.as_str() == lfd.name.as_str()), { found_dup = true; }); }
             );
             hi = (hi + usize(1));
-          };
+          });
           found_dup
         };
         cond(
@@ -4203,7 +4203,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
         );
       }
     );
-  };
+  });
 
   // === Emit the test body as a standalone function ===
   params    := ArrayList(String).new();
@@ -4214,4 +4214,4 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   generate_c_output(pctx)
 });
 
-export compile_test_body_to_c;
+export(compile_test_body_to_c);

@@ -13,27 +13,27 @@
 //!   function callee expr as a placeholder (acceptable since codegen is not yet done).
 //! - `isComptimeOnlyType` is approximated via `_is_comptime_only_type_approx`.
 
-open import "std/string";
-{ ArrayList }                              :: import "std/collections/array_list";
-{ HashMap }                                :: import "std/collections/hash_map";
+open(import("std/string"));
+{ ArrayList }                              :: import("std/collections/array_list");
+{ HashMap }                                :: import("std/collections/hash_map");
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_to_string, ast_expr_is_atom,
-  ast_expr_is_fn_call, ast_expr_is_fn_call_of } :: import "../../expr/expr.yo";
+  ast_expr_is_fn_call, ast_expr_is_fn_call_of } :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get,
-  expr_info_table_set, path_collection_new }  :: import "../../expr/expr_info.yo";
-{ Environment }                            :: import "../../env/env.yo";
-{ TypeValue }                              :: import "../../types/type.yo";
-{ type_to_string }                         :: import "../../types/string.yo";
-{ are_types_compatible }                   :: import "../../types/compatibility.yo";
-{ convert_comptime_type_to_runtime_type }  :: import "../../types/utils.yo";
-{ EvalContext, ExpectedTypeCtx, TypeCallResult } :: import "../context.yo";
-{ EvalValue }                              :: import "../value.yo";
-{ TypeField }                              :: import "../types/field.yo";
-{ set_expr_as_needs_to_call_dup }          :: import "../utils.yo";
-{ evaluate_expression }                    :: import "../exprs/expr.yo";
-{ format_error_message }                   :: import "../../error/error.yo";
-{ Exception }                              :: import "std/error";
+  expr_info_table_set, path_collection_new }  :: import("../../expr/expr_info.yo");
+{ Environment }                            :: import("../../env/env.yo");
+{ TypeValue }                              :: import("../../types/type.yo");
+{ type_to_string }                         :: import("../../types/string.yo");
+{ are_types_compatible }                   :: import("../../types/compatibility.yo");
+{ convert_comptime_type_to_runtime_type }  :: import("../../types/utils.yo");
+{ EvalContext, ExpectedTypeCtx, TypeCallResult } :: import("../context.yo");
+{ EvalValue }                              :: import("../value.yo");
+{ TypeField }                              :: import("../types/field.yo");
+{ set_expr_as_needs_to_call_dup }          :: import("../utils.yo");
+{ evaluate_expression }                    :: import("../exprs/expr.yo");
+{ format_error_message }                   :: import("../../error/error.yo");
+{ Exception }                              :: import("std/error");
 
 /// Approximation for `isComptimeOnlyType` (Phase 2 — full version deferred).
 /// Returns true for types whose values only exist at compile time:
@@ -68,18 +68,18 @@ try_to_call_type_with_arguments :: (fn(
 
   // Validate argument count.
   if((n_args > n_fields), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(function_callee_expr),
       `Failed to call the type. Too many members provided. Expected ${n_fields.to_string()} arguments, got ${n_args.to_string()}.`,
       false, .None
-    ));
+    )));
   });
   if((is_union_type && !(n_args == usize(1))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(function_callee_expr),
       `Failed to call the union type. Expected exactly one argument, got ${n_args.to_string()}.`,
       false, .None
-    ));
+    )));
   });
 
   // Track which fields have been explicitly provided.
@@ -92,28 +92,28 @@ try_to_call_type_with_arguments :: (fn(
 
   // Pre-fill with None / placeholder.
   (pre_i : usize) = usize(0);
-  while runtime((pre_i < n_fields)), {
+  while(runtime((pre_i < n_fields)), {
     values.push(Option(EvalValue).None);
     runtime_arg_exprs_in_order.push(function_callee_expr);
     pre_i = (pre_i + usize(1));
-  };
+  });
 
   (env : Environment) = caller_env;
 
   // Process each provided argument.
   (i : usize) = usize(0);
-  while runtime((i < n_args)), {
+  while(runtime((i < n_args)), {
     arg_expr_opt := arg_exprs.get(i);
     if(arg_expr_opt.is_none(), { i = (i + usize(1)); });
     arg_expr := match(arg_expr_opt, .Some(a) => a, .None => function_callee_expr);
     field_opt := type_fields.get(i);
     member_element := match(field_opt, .Some(f) => f, .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `No field at index ${i.to_string()} in type.`,
         false, .None
-      ));
-      return TypeCallResult(values: ArrayList(Option(EvalValue)).new(), path_collection: path_collection_new(), runtime_arg_exprs_in_order: ArrayList(AstExpr).new(), caller_env: env);
+      )));
+      return(TypeCallResult(values: ArrayList(Option(EvalValue)).new(), path_collection: path_collection_new(), runtime_arg_exprs_in_order: ArrayList(AstExpr).new(), caller_env: env));
     });
     (member_element_position_index : usize) = i;
 
@@ -125,27 +125,27 @@ try_to_call_type_with_arguments :: (fn(
       label_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
       value_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
       label_sub := match(label_sub_opt, .Some(s) => s, .None => {
-        exn.throw(dyn format_error_message(ast_expr_token(arg_expr), `Label arg missing label sub-expr.`, false, .None));
+        exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), `Label arg missing label sub-expr.`, false, .None)));
         arg_expr
       });
       value_sub := match(value_sub_opt, .Some(s) => s, .None => {
-        exn.throw(dyn format_error_message(ast_expr_token(arg_expr), `Label arg missing value sub-expr.`, false, .None));
+        exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), `Label arg missing value sub-expr.`, false, .None)));
         arg_expr
       });
 
       if(!(ast_expr_is_atom(label_sub)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(label_sub),
           `Expected identifier for label, got:\n${ast_expr_to_string(label_sub)}`,
           false, .None
-        ));
+        )));
       });
 
       // Look up the label in type_fields.
       label_tok := match(label_sub, .Atom(_, tok) => tok.value, _ => String.from(""));
       (found_idx : Option(usize)) = Option(usize).None;
       (search_i : usize) = usize(0);
-      while runtime((search_i < n_fields)), {
+      while(runtime((search_i < n_fields)), {
         match(type_fields.get(search_i),
           .Some(f) => {
             if((f.label == label_tok), {
@@ -155,40 +155,40 @@ try_to_call_type_with_arguments :: (fn(
           .None => ()
         );
         search_i = (search_i + usize(1));
-      };
+      });
 
       match(found_idx,
         .Some(idx) => {
           found_field := match(type_fields.get(idx), .Some(f) => f, .None => member_element);
           // Cannot label an already-assigned field.
           if(found_field.assigned_value.is_some(), {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(value_sub),
               `Cannot use label "${found_field.label}" for already assigned value:\n${found_field.label}: ${type_to_string(found_field.ty)}`,
               false, .None
-            ));
+            )));
           });
           member_element_position_index = idx;
           member_element = found_field;
           actual_arg_expr = value_sub;
         },
         .None => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(value_sub),
             `Failed to find "${label_tok}" in the type.`,
             false, .None
-          ));
+          )));
         }
       );
     });
 
     // Check for duplicate labels.
     if(match(checked_indices.get(member_element_position_index), .Some(_) => true, .None => false), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(actual_arg_expr),
         `Type member "${member_element.label}" is already implemented.`,
         false, .None
-      ));
+      )));
     });
 
     // Evaluate the argument expression.
@@ -199,11 +199,11 @@ try_to_call_type_with_arguments :: (fn(
 
     arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
     if(arg_info_opt.is_none(), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(actual_arg_expr),
         `Failed to evaluate argument expression:\n${ast_expr_to_string(actual_arg_expr)}`,
         false, .None
-      ));
+      )));
     });
     arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, member_element.ty));
 
@@ -218,25 +218,25 @@ try_to_call_type_with_arguments :: (fn(
 
     // Type compatibility check.
     if(!(are_types_compatible(arg_type, member_element.ty)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(actual_arg_expr),
         `Type mismatch for type member "${member_element.label}":\nExpected: ${type_to_string(member_element.ty)}\nGot:   ${type_to_string(arg_type)}`,
         false, .None
-      ));
+      )));
     });
 
     // Store the result.
-    (&values).index(member_element_position_index).* = arg_info.value;
-    (&runtime_arg_exprs_in_order).index(member_element_position_index).* = evaluated_arg;
+    (&(values)).index(member_element_position_index).* = arg_info.value;
+    (&(runtime_arg_exprs_in_order)).index(member_element_position_index).* = evaluated_arg;
     ___ := checked_indices.set(member_element_position_index, true);
 
     i = (i + usize(1));
-  };
+  });
 
   // Check that all unchecked fields have defaults.
   if(!(is_union_type), {
     (ci : usize) = usize(0);
-    while runtime((ci < n_fields)), {
+    while(runtime((ci < n_fields)), {
       already_checked := match(checked_indices.get(ci), .Some(_) => true, .None => false);
       if(!(already_checked), {
         field_opt2 := type_fields.get(ci);
@@ -245,11 +245,11 @@ try_to_call_type_with_arguments :: (fn(
             has_default := field.default_value.is_some();
             has_assigned := field.assigned_value.is_some();
             if(!(has_default || has_assigned), {
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 ast_expr_token(function_callee_expr),
                 `Type member "${field.label}" is not provided and has no default value or assigned value.`,
                 false, .None
-              ));
+              )));
             }, {
               // Use default or assigned value.
               default_val := cond(
@@ -257,7 +257,7 @@ try_to_call_type_with_arguments :: (fn(
                 has_assigned => field.assigned_value,
                 true         => Option(EvalValue).None
               );
-              (&values).index(ci).* = default_val;
+              (&(values)).index(ci).* = default_val;
               // Note: we can't set the real expr here (TypeField doesn't store exprs),
               // so runtime_arg_exprs_in_order[ci] remains the function_callee_expr placeholder.
             });
@@ -266,7 +266,7 @@ try_to_call_type_with_arguments :: (fn(
         );
       });
       ci = (ci + usize(1));
-    };
+    });
   });
 
   TypeCallResult(
@@ -277,4 +277,4 @@ try_to_call_type_with_arguments :: (fn(
   )
 });
 
-export try_to_call_type_with_arguments;
+export(try_to_call_type_with_arguments);

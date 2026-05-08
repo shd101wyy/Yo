@@ -10,26 +10,26 @@
 //! Returns a `BindingResult` struct with the evaluated expr, the lhs sub-expr,
 //! and the variable name string.
 
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom,
-  ast_expr_to_string, BK_COMPTIME, BK_GIVEN, BK_COLON, make_err_expr } :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
-{ Environment, add_variable_to_env } :: import "../../env/env.yo";
-{ EvalContext, FuncOrAsyncBlockKind } :: import "../context.yo";
-{ EvalValue, is_type_value, create_unknown_val } :: import "../value.yo";
-{ TypeValue, t_unit } :: import "../../types/type.yo";
+  ast_expr_to_string, BK_COMPTIME, BK_GIVEN, BK_COLON, make_err_expr } :: import("../../expr/expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
+{ Environment, add_variable_to_env } :: import("../../env/env.yo");
+{ EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
+{ EvalValue, is_type_value, create_unknown_val } :: import("../value.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
 { is_array_type, is_function_type, is_function_type_generic,
-  is_function_type_and_returns_comptime_value } :: import "../../types/guards.yo";
-{ type_to_string } :: import "../../types/string.yo";
+  is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { prohibit_void_type, type_requires_comptime_modifier,
-  type_prohibits_comptime_modifier, type_contains_rc_type } :: import "../../types/utils.yo";
-{ format_error_message, YoError } :: import "../../error/error.yo";
-{ Exception } :: import "std/error";
-{ TokenKind } :: import "../../lexer/token.yo";
-{ evaluate_expression } :: import "./expr.yo";
+  type_prohibits_comptime_modifier, type_contains_rc_type } :: import("../../types/utils.yo");
+{ format_error_message, YoError } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ TokenKind } :: import("../../lexer/token.yo");
+{ evaluate_expression } :: import("./expr.yo");
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -87,12 +87,12 @@ evaluate_binding :: (fn(
 
   // Validate shape: ":" with exactly 2 args.
   if(!(ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2)))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected "${BK_COLON}" for variable binding.`,
       false,
       .None
-    ));
+    )));
   });
 
   // Pull lhs and rhs from the FnCall args.
@@ -109,12 +109,12 @@ evaluate_binding :: (fn(
   evaluated_rhs := evaluate_expression(rhs, env, ctx);
   rhs_info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
   if(rhs_info_opt.is_none(), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(rhs),
       `Failed to evaluate rhs expression:\n${ast_expr_to_string(rhs)}`,
       false,
       .None
-    ));
+    )));
   });
   rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
 
@@ -123,12 +123,12 @@ evaluate_binding :: (fn(
 
   // Rhs must evaluate to a TypeValue.
   if(!(is_type_value(rhs_info.value)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(rhs),
       `Expected type for rhs, got ${ast_expr_to_string(rhs)}`,
       false,
       .None
-    ));
+    )));
   });
   user_defined_type := match(rhs_info.value,
     .Some(v) => match(v,
@@ -156,12 +156,12 @@ evaluate_binding :: (fn(
       .Atom(_, _)                => usize(0)
     );
     if((n_comptime_args != usize(1)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(lhs),
         `Expected one argument for "comptime", got ${n_comptime_args.to_string()}`,
         false,
         .None
-      ));
+      )));
     });
     lhs = match(lhs,
       .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
@@ -177,12 +177,12 @@ evaluate_binding :: (fn(
       .Atom(_, _)                => usize(0)
     );
     if((n_given_args != usize(1)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(lhs),
         `Expected exactly one argument for "given", got ${n_given_args.to_string()}`,
         false,
         .None
-      ));
+      )));
     });
     is_implicit = true;
     is_compile_time_only = true;
@@ -212,46 +212,46 @@ evaluate_binding :: (fn(
       .None => false
     );
     if(is_ctfe_body, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(lhs),
         `Unexpected runtime variable binding in a compile-time only function body.`,
         false,
         .None
-      ));
+      )));
     });
   });
 
   // Validate lhs is a valid variable name (identifier or operator).
   if(!(is_valid_variable_name(lhs)), {
     lhs_tok_val := ast_expr_token(lhs).value;
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(lhs),
       `Invalid binding to "${lhs_tok_val}", expected identifier or operator`,
       false,
       .None
-    ));
+    )));
   });
 
   // Reject type annotations that require comptime but binding is runtime.
   if((type_requires_comptime_modifier(user_defined_type, env) && !(is_compile_time_only)), {
     ty_str := type_to_string(user_defined_type);
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(lhs),
       `Expected "comptime" for compile-time known value binding:\n${ty_str}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Reject comptime modifier on runtime-only types.
   if((type_prohibits_comptime_modifier(user_defined_type, env) && is_compile_time_only), {
     ty_str := type_to_string(user_defined_type);
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(lhs),
       `Unexpected "comptime" for ${ty_str} which can only be used at runtime.`,
       false,
       .None
-    ));
+    )));
   });
 
   variable_name := ast_expr_token(lhs).value;
@@ -259,12 +259,12 @@ evaluate_binding :: (fn(
   // Reject runtime vars with generic function types.
   if(((!(is_compile_time_only)) && (is_function_type(user_defined_type) && is_function_type_generic(user_defined_type))), {
     ty_str := type_to_string(user_defined_type);
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(lhs),
       `Runtime variables with generic function types are not allowed:\n${ty_str}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${variable_name}) : ${ty_str}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Reject mutable runtime vars inside impl blocks.
@@ -273,12 +273,12 @@ evaluate_binding :: (fn(
     .None    => false
   );
   if(((!(is_compile_time_only)) && (!(is_inside_fn_body) && ctx.is_inside_impl_block)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(lhs),
       `Mutable runtime variable "${variable_name}" is not allowed inside an impl block.\nUse "::" for compile-time definitions inside impl.`,
       false,
       .None
-    ));
+    )));
   });
 
   // Module-level: runtime var at module scope (not inside a function body).
@@ -292,7 +292,7 @@ evaluate_binding :: (fn(
 
   // Add the variable to the environment.
   _var_opt := add_variable_to_env(
-    (&env),
+    (&(env)),
     variable_name,
     user_defined_type,
     initial_value_opt,
@@ -324,4 +324,4 @@ evaluate_binding :: (fn(
   )
 });
 
-export BindingResult, evaluate_binding, is_valid_variable_name;
+export(BindingResult, evaluate_binding, is_valid_variable_name);

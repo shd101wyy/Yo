@@ -1,10 +1,10 @@
 //! Yo lexer — tokenizes Yo source code into tokens.
 
-open import "std/string";
-open import "std/fmt";
-open import "std/error";
-{ ArrayList } :: import "std/collections/array_list";
-{ TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue } :: import "./token.yo";
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue } :: import("./token.yo");
 
 /// An error produced by the lexer during tokenization.
 LexerError :: object(
@@ -36,12 +36,12 @@ tokenize :: (fn(
   chars := ArrayList(rune).new();
   {
     c_iter := input.chars();
-    while runtime(true), {
+    while(runtime(true), {
       match(&(c_iter).next(),
         .None => { break; },
         .Some(r) => { chars.push(r); }
       );
-    };
+    });
   };
 
   null_rune    := rune(u32(0));
@@ -50,7 +50,7 @@ tokenize :: (fn(
   line         := usize(0);
   line_start   := usize(0);
 
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     c        := chars.get(i).unwrap_or(null_rune);
     col      := (i - line_start);
     char_idx := i;
@@ -66,12 +66,12 @@ tokenize :: (fn(
       (c.char == u32(0x2E)) => {
         j      := i;
         dot_sb := StringBuilder.new();
-        while runtime((j < n)), {
+        while(runtime((j < n)), {
           cj := chars.get(j).unwrap_or(null_rune);
           if((cj.char != u32(0x2E)), { break; });
           dot_sb.write_rune(cj);
           j = (j + usize(1));
-        };
+        });
         // Check for trailing '=' to form '..='
         next_after_dots := chars.get(j).unwrap_or(null_rune);
         if((((j - i) == usize(2)) && (next_after_dots.char == u32(0x3D))), {
@@ -88,13 +88,13 @@ tokenize :: (fn(
       ((is_operator_char(c)) && !(is_comment_start)) => {
         j     := i;
         op_sb := StringBuilder.new();
-        while runtime((j < n)), {
+        while(runtime((j < n)), {
           cj        := chars.get(j).unwrap_or(null_rune);
           is_op_cont := ((is_operator_char(cj)) && (cj.char != u32(0x2E)));
           if(!(is_op_cont), { break; });
           op_sb.write_rune(cj);
           j = (j + usize(1));
-        };
+        });
         op_str := op_sb.to_string();
         tokens.push(Token(kind: TokenKind.Operator, value: op_str, row: line, column: col, character: char_idx, module_path: module_path, input: input));
         i = j;
@@ -105,7 +105,7 @@ tokenize :: (fn(
         k           := i;
         ws_sb       := StringBuilder.new();
         ws_start_ln := line;
-        while runtime((k < n)), {
+        while(runtime((k < n)), {
           ck := chars.get(k).unwrap_or(null_rune);
           if(!(ck.is_whitespace()), { break; });
           ws_sb.write_rune(ck);
@@ -114,7 +114,7 @@ tokenize :: (fn(
             line_start = (k + usize(1));
           });
           k = (k + usize(1));
-        };
+        });
         ws_str := ws_sb.to_string();
         tokens.push(Token(kind: TokenKind.Whitespace, value: ws_str, row: ws_start_ln, column: col, character: char_idx, module_path: module_path, input: input));
         i = k;
@@ -131,12 +131,12 @@ tokenize :: (fn(
         );
         k     := i;
         cm_sb := StringBuilder.new();
-        while runtime((k < n)), {
+        while(runtime((k < n)), {
           ck := chars.get(k).unwrap_or(null_rune);
           if((ck.char == u32(0x0A)), { break; });
           cm_sb.write_rune(ck);
           k = (k + usize(1));
-        };
+        });
         cm_str := cm_sb.to_string();
         tokens.push(Token(kind: comment_kind, value: cm_str, row: line, column: col, character: char_idx, module_path: module_path, input: input));
         i = k;
@@ -160,7 +160,7 @@ tokenize :: (fn(
         cm_sb.write_rune(chars.get(k).unwrap_or(null_rune));
         k = (k + usize(1));
         nesting := usize(1);
-        while runtime(((nesting > usize(0)) && (k < n))), {
+        while(runtime(((nesting > usize(0)) && (k < n))), {
           ck        := chars.get(k).unwrap_or(null_rune);
           next_k    := chars.get((k + usize(1))).unwrap_or(null_rune);
           if((ck.char == u32(0x0A)), {
@@ -185,9 +185,9 @@ tokenize :: (fn(
               k = (k + usize(1));
             }
           );
-        };
+        });
         if((nesting > usize(0)), {
-          exn.throw(dyn LexerError(message: `unterminated block comment`, row: bc_start_ln, column: col, character: char_idx));
+          exn.throw(dyn(LexerError(message: `unterminated block comment`, row: bc_start_ln, column: col, character: char_idx)));
         });
         cm_str := cm_sb.to_string();
         tokens.push(Token(kind: block_kind, value: cm_str, row: bc_start_ln, column: col, character: char_idx, module_path: module_path, input: input));
@@ -227,7 +227,7 @@ tokenize :: (fn(
         rune_count  := usize(0);
         char_closed := false;
         val_sb.write_byte(u8(0x27));
-        while runtime((k < n)), {
+        while(runtime((k < n)), {
           ck := chars.get(k).unwrap_or(null_rune);
           cond(
             (ck.char == u32(0x5C)) => {
@@ -250,12 +250,12 @@ tokenize :: (fn(
               k = (k + usize(1));
             }
           );
-        };
+        });
         if(!(char_closed), {
-          exn.throw(dyn LexerError(message: `unterminated char literal`, row: line, column: col, character: char_idx));
+          exn.throw(dyn(LexerError(message: `unterminated char literal`, row: line, column: col, character: char_idx)));
         });
         if((rune_count != usize(1)), {
-          exn.throw(dyn LexerError(message: `invalid char literal: expected exactly one character`, row: line, column: col, character: char_idx));
+          exn.throw(dyn(LexerError(message: `invalid char literal: expected exactly one character`, row: line, column: col, character: char_idx)));
         });
         val_sb.write_byte(u8(0x27));
         tok_val := val_sb.to_string();
@@ -269,7 +269,7 @@ tokenize :: (fn(
         val_sb     := StringBuilder.new();
         val_sb.write_byte(u8(0x22));
         str_closed := false;
-        while runtime((k < n)), {
+        while(runtime((k < n)), {
           ck := chars.get(k).unwrap_or(null_rune);
           cond(
             (ck.char == u32(0x5C)) => {
@@ -290,9 +290,9 @@ tokenize :: (fn(
               k = (k + usize(1));
             }
           );
-        };
+        });
         if(!(str_closed), {
-          exn.throw(dyn LexerError(message: `unterminated string literal`, row: line, column: col, character: char_idx));
+          exn.throw(dyn(LexerError(message: `unterminated string literal`, row: line, column: col, character: char_idx)));
         });
         val_sb.write_byte(u8(0x22));
         tok_val := val_sb.to_string();
@@ -306,7 +306,7 @@ tokenize :: (fn(
         ts_sb           := StringBuilder.new();
         brace_depth     := usize(0);
         template_closed := false;
-        while runtime((k < n)), {
+        while(runtime((k < n)), {
           ck   := chars.get(k).unwrap_or(null_rune);
           nck  := chars.get((k + usize(1))).unwrap_or(null_rune);
           cond(
@@ -363,9 +363,9 @@ tokenize :: (fn(
               k = (k + usize(1));
             }
           );
-        };
+        });
         if(!(template_closed), {
-          exn.throw(dyn LexerError(message: `unterminated template string`, row: line, column: col, character: char_idx));
+          exn.throw(dyn(LexerError(message: `unterminated template string`, row: line, column: col, character: char_idx)));
         });
         ts_val := ts_sb.to_string();
         tokens.push(Token(kind: TokenKind.TemplateString, value: ts_val, row: line, column: col, character: char_idx, module_path: module_path, input: input));
@@ -410,36 +410,36 @@ tokenize :: (fn(
         // Accumulate digits according to base
         cond(
           is_hex => {
-            while runtime((j < n)), {
+            while(runtime((j < n)), {
               dj := chars.get(j).unwrap_or(null_rune);
               is_hex_d := ((((dj.is_digit()) || ((dj.char >= u32(0x41)) && (dj.char <= u32(0x46)))) || ((dj.char >= u32(0x61)) && (dj.char <= u32(0x66)))) || (dj.char == u32(0x5F)));
               if(!(is_hex_d), { break; });
               num_sb.write_rune(dj); j = (j + usize(1));
-            };
+            });
           },
           is_bin => {
-            while runtime((j < n)), {
+            while(runtime((j < n)), {
               dj := chars.get(j).unwrap_or(null_rune);
               is_bin_d := (((dj.char == u32(0x30)) || (dj.char == u32(0x31))) || (dj.char == u32(0x5F)));
               if(!(is_bin_d), { break; });
               num_sb.write_rune(dj); j = (j + usize(1));
-            };
+            });
           },
           is_oct => {
-            while runtime((j < n)), {
+            while(runtime((j < n)), {
               dj := chars.get(j).unwrap_or(null_rune);
               is_oct_d := (((dj.char >= u32(0x30)) && (dj.char <= u32(0x37))) || (dj.char == u32(0x5F)));
               if(!(is_oct_d), { break; });
               num_sb.write_rune(dj); j = (j + usize(1));
-            };
+            });
           },
           true => {
-            while runtime((j < n)), {
+            while(runtime((j < n)), {
               dj := chars.get(j).unwrap_or(null_rune);
               is_dec_d := ((dj.is_digit()) || (dj.char == u32(0x5F)));
               if(!(is_dec_d), { break; });
               num_sb.write_rune(dj); j = (j + usize(1));
-            };
+            });
           }
         );
         is_float   := false;
@@ -454,12 +454,12 @@ tokenize :: (fn(
               is_float = true;
               num_sb.write_rune(dot_check);
               j = next_j;
-              while runtime((j < n)), {
+              while(runtime((j < n)), {
                 dj := chars.get(j).unwrap_or(null_rune);
                 is_dec_d := ((dj.is_digit()) || (dj.char == u32(0x5F)));
                 if(!(is_dec_d), { break; });
                 num_sb.write_rune(dj); j = (j + usize(1));
-              };
+              });
             });
           });
         });
@@ -483,12 +483,12 @@ tokenize :: (fn(
                 num_sb.write_rune(sign_rune);
                 j = (j + usize(1));
               });
-              while runtime((j < n)), {
+              while(runtime((j < n)), {
                 dj := chars.get(j).unwrap_or(null_rune);
                 is_dec_d := ((dj.is_digit()) || (dj.char == u32(0x5F)));
                 if(!(is_dec_d), { break; });
                 num_sb.write_rune(dj); j = (j + usize(1));
-              };
+              });
             });
           });
         });
@@ -504,12 +504,12 @@ tokenize :: (fn(
         id_sb := StringBuilder.new();
         id_sb.write_rune(c);
         j = (j + usize(1));
-        while runtime((j < n)), {
+        while(runtime((j < n)), {
           cj := chars.get(j).unwrap_or(null_rune);
           if(!(is_identifier_continue(cj)), { break; });
           id_sb.write_rune(cj);
           j = (j + usize(1));
-        };
+        });
         id_str := id_sb.to_string();
         kind := cond(
           (id_str == `true`)  => TokenKind.Bool,
@@ -522,13 +522,13 @@ tokenize :: (fn(
 
       // Unknown character: error
       true => {
-        exn.throw(dyn LexerError(message: `unexpected character`, row: line, column: col, character: char_idx));
+        exn.throw(dyn(LexerError(message: `unexpected character`, row: line, column: col, character: char_idx)));
         i = (i + usize(1));
       }
     );
-  };
+  });
 
   tokens
 });
 
-export LexerError, tokenize;
+export(LexerError, tokenize);

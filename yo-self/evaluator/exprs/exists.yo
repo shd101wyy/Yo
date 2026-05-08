@@ -12,13 +12,13 @@
 //! labelled variable `label : T`) exists as a compile-time-only variable in
 //! the current environment.  It returns a `comptime(bool)` value.
 
-open import "std/string";
+open(import("std/string"));
 
-{ AstExpr, ast_expr_token, make_err_expr } :: import "../../expr/expr.yo";
-{ Environment }                            :: import "../../env/env.yo";
-{ EvalContext }                            :: import "../context.yo";
-{ format_error_message }                   :: import "../../error/error.yo";
-{ Exception }                              :: import "std/error";
+{ AstExpr, ast_expr_token, make_err_expr } :: import("../../expr/expr.yo");
+{ Environment }                            :: import("../../env/env.yo");
+{ EvalContext }                            :: import("../context.yo");
+{ format_error_message }                   :: import("../../error/error.yo");
+{ Exception }                              :: import("std/error");
 
 /// Evaluate the `exists(type_or_label_type, ...)` builtin.
 ///
@@ -31,13 +31,13 @@ evaluate_exists :: (fn(
   ctx     : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  exn.throw(dyn format_error_message(
+  exn.throw(dyn(format_error_message(
     ast_expr_token(expr),
     String.from("evaluate_exists: not yet implemented (Phase 2 stub)"),
     false,
     .None
-  ));
+  )));
   make_err_expr()
 });
 
-export evaluate_exists;
+export(evaluate_exists);

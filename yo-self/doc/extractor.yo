@@ -10,10 +10,10 @@
 // - block doc comments (attach to next declaration)
 // - inner block doc comments (attach to enclosing module)
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap } :: import "std/collections/hash_map";
-{ TokenKind, Token } :: import "../lexer/token";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ TokenKind, Token } :: import("../lexer/token");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ strip_doc_line_comment_ :: (fn(value : String) -> String)(
 strip_doc_block_comment :: (fn(value : String) -> String)({
   // Handle empty doc comments: /**/ or /*!*/
   if(((value == `/**/`) || (value == `/*!*/`)), {
-    return ``;
+    return(``);
   });
 
   // Remove opening delimiter: /** or /*!
@@ -146,7 +146,7 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
 
   // Single-line case: no newlines, just trim whitespace
   if((!(content2.contains(`\n`))), {
-    return content2.trim();
+    return(content2.trim());
   });
 
   // Multi-line: split into lines, strip leading whitespace + optional *, then rejoin
@@ -155,7 +155,7 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
 
   j := usize(0);
   m := raw_lines.len();
-  while runtime((j < m)), {
+  while(runtime((j < m)), {
     raw_line := match(raw_lines.get(j), .Some(l) => l, .None => { break; });
     // Strip leading whitespace
     trimmed := raw_line.trim_start();
@@ -167,20 +167,20 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
     );
     processed.push(line);
     j = (j + usize(1));
-  };
+  });
 
   // Trim leading blank lines
-  while runtime((processed.len() > usize(0))), {
+  while(runtime((processed.len() > usize(0))), {
     first := match(processed.get(usize(0)), .Some(l) => l, .None => { break; });
     if((first.trim() == ``), {
       processed.remove(usize(0));
     }, {
       break;
     });
-  };
+  });
 
   // Trim trailing blank lines
-  while runtime((processed.len() > usize(0))), {
+  while(runtime((processed.len() > usize(0))), {
     last_idx := (processed.len() - usize(1));
     last := match(processed.get(last_idx), .Some(l) => l, .None => { break; });
     if((last.trim() == ``), {
@@ -188,7 +188,7 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
     }, {
       break;
     });
-  };
+  });
 
   `\n`.join(processed)
 });
@@ -203,25 +203,25 @@ strip_doc_block_comment_ :: (fn(value : String) -> String)(
 find_next_declaration_name_ :: (fn(tokens : ArrayList(Token), start_index : usize) -> DeclarationNameResult_)({
   i := start_index;
   n := tokens.len();
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     token := match(tokens.get(i), .Some(t) => t, .None => { break; });
     if(((is_whitespace_or_regular_comment_(token)) || (is_doc_comment_token_(token))), {
       i = (i + usize(1));
     }, {
       if((token.kind == TokenKind.Identifier), {
-        return DeclarationNameResult_(
+        return(DeclarationNameResult_(
           name:     token.value,
           position: Option(DocPosition).Some(DocPosition(row: token.row, column: token.column))
-        );
+        ));
       }, {
         if((token.kind == TokenKind.LParen), {
           i = (i + usize(1));
         }, {
-          return DeclarationNameResult_(name: ``, position: Option(DocPosition).None);
+          return(DeclarationNameResult_(name: ``, position: Option(DocPosition).None));
         });
       });
     });
-  };
+  });
   DeclarationNameResult_(name: ``, position: Option(DocPosition).None)
 });
 
@@ -243,7 +243,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
 
   i := usize(0);
   n := tokens.len();
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     token := match(tokens.get(i), .Some(t) => t, .None => { break; });
 
     if(is_inner_doc_token_(token), {
@@ -261,21 +261,21 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
 
         // Skip whitespace between consecutive //! lines
         cont_ws := true;
-        while runtime(((i < n) && cont_ws)), {
+        while(runtime(((i < n) && cont_ws)), {
           ws_tok := match(tokens.get(i), .Some(t) => t, .None => { cont_ws = false; break; });
           if((ws_tok.kind == TokenKind.Whitespace), {
             if(ws_tok.value.contains(`\n`), {
               // Check if next non-whitespace token is also //!
               next := (i + usize(1));
               cont_next := true;
-              while runtime(((next < n) && cont_next)), {
+              while(runtime(((next < n) && cont_next)), {
                 nxt := match(tokens.get(next), .Some(t) => t, .None => { cont_next = false; break; });
                 if((nxt.kind == TokenKind.Whitespace), {
                   next = (next + usize(1));
                 }, {
                   cont_next = false;
                 });
-              };
+              });
               match(tokens.get(next),
                 .Some(nxt) => {
                   if((nxt.kind == TokenKind.InnerDocLineComment), {
@@ -290,7 +290,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
           }, {
             cont_ws = false;
           });
-        };
+        });
       }, {
         // InnerDocBlockComment
         inner_doc_parts.push(strip_doc_block_comment_(token.value));
@@ -308,17 +308,17 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
 
         // Merge consecutive /// lines
         cont_merge := true;
-        while runtime(((i < n) && cont_merge)), {
+        while(runtime(((i < n) && cont_merge)), {
           j := i;
           // Skip whitespace tokens
-          while runtime((j < n)), {
+          while(runtime((j < n)), {
             ws := match(tokens.get(j), .Some(t) => t, .None => { break; });
             if((ws.kind == TokenKind.Whitespace), {
               j = (j + usize(1));
             }, {
               break;
             });
-          };
+          });
           // Check if j-th token is another DocLineComment
           match(tokens.get(j),
             .Some(next_doc) => {
@@ -330,7 +330,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
               });
             },
             .None => { cont_merge = false; });
-        };
+        });
 
         doc_comment := DocComment(
           content:     `\n`.join(doc_parts),
@@ -368,7 +368,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
         });
       });
     });
-  };
+  });
 
   // Assemble module doc from inner doc parts
   match(inner_doc_position,
@@ -392,22 +392,22 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
 
 find_next_identifier_ :: (fn(tokens : ArrayList(Token), start_index : usize, end_index : usize) -> String)({
   i := start_index;
-  while runtime((i < end_index)), {
+  while(runtime((i < end_index)), {
     token := match(tokens.get(i), .Some(t) => t, .None => { break; });
     if(((is_whitespace_or_regular_comment_(token)) || (is_doc_comment_token_(token))), {
       i = (i + usize(1));
     }, {
       if((token.kind == TokenKind.Identifier), {
-        return token.value;
+        return(token.value);
       }, {
         if((token.kind == TokenKind.LParen), {
           i = (i + usize(1));
         }, {
-          return ``;
+          return(``);
         });
       });
     });
-  };
+  });
   ``
 });
 
@@ -428,7 +428,7 @@ extract_inline_docs :: (fn(tokens : ArrayList(Token), start_index : usize, end_i
     true                       => tokens.len()
   );
 
-  while runtime((i < end)), {
+  while(runtime((i < end)), {
     token := match(tokens.get(i), .Some(t) => t, .None => { break; });
 
     if((token.kind == TokenKind.DocLineComment), {
@@ -438,17 +438,17 @@ extract_inline_docs :: (fn(tokens : ArrayList(Token), start_index : usize, end_i
 
       // Merge consecutive /// lines
       cont_merge := true;
-      while runtime(((i < end) && cont_merge)), {
+      while(runtime(((i < end) && cont_merge)), {
         j := i;
         // Skip whitespace tokens
-        while runtime((j < end)), {
+        while(runtime((j < end)), {
           ws := match(tokens.get(j), .Some(t) => t, .None => { break; });
           if((ws.kind == TokenKind.Whitespace), {
             j = (j + usize(1));
           }, {
             break;
           });
-        };
+        });
         match(tokens.get(j),
           .Some(next_doc) => {
             if((next_doc.kind == TokenKind.DocLineComment), {
@@ -459,7 +459,7 @@ extract_inline_docs :: (fn(tokens : ArrayList(Token), start_index : usize, end_i
             });
           },
           .None => { cont_merge = false; });
-      };
+      });
 
       name := find_next_identifier_(tokens, i, end);
       if((!(name == ``)), {
@@ -478,7 +478,7 @@ extract_inline_docs :: (fn(tokens : ArrayList(Token), start_index : usize, end_i
         i = (i + usize(1));
       });
     });
-  };
+  });
 
   InlineDocResult(docs: docs)
 });
@@ -496,23 +496,23 @@ find_matching_parens :: (fn(tokens : ArrayList(Token), search_start : usize) -> 
 
   // Find the opening paren
   found_open := false;
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     tok := match(tokens.get(i), .Some(t) => t, .None => { break; });
     if((tok.kind == TokenKind.LParen), {
       found_open = true;
       break;
     });
     i = (i + usize(1));
-  };
+  });
   if((!(found_open)), {
-    return Option(ParensResult).None;
+    return(Option(ParensResult).None);
   });
 
   open_index := i;
   depth      := usize(1);
   i          = (i + usize(1));
 
-  while runtime(((i < n) && (depth > usize(0)))), {
+  while(runtime(((i < n) && (depth > usize(0)))), {
     tok := match(tokens.get(i), .Some(t) => t, .None => { break; });
     depth = cond(
       (tok.kind == TokenKind.LParen) => (depth + usize(1)),
@@ -520,17 +520,16 @@ find_matching_parens :: (fn(tokens : ArrayList(Token), search_start : usize) -> 
       true                           => depth
     );
     if((depth == usize(0)), {
-      return Option(ParensResult).Some(ParensResult(open: open_index, close: i));
+      return(Option(ParensResult).Some(ParensResult(open: open_index, close: i)));
     });
     i = (i + usize(1));
-  };
+  });
 
   Option(ParensResult).None
 });
 
-export
-  DocPosition, DocComment, DocAssociation, DocExtractionResult,
+export(DocPosition, DocComment, DocAssociation, DocExtractionResult,
   InlineDocResult, ParensResult,
   get_doc_comment_lookup_key,
   strip_doc_line_comment, strip_doc_block_comment,
-  extract_doc_comments, extract_inline_docs, find_matching_parens;
+  extract_doc_comments, extract_inline_docs, find_matching_parens);

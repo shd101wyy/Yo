@@ -17,16 +17,16 @@
 //! * TypeScript `PathCollection` (Path[]) → `PathCollection :: ArrayList(ArrayList(String))`
 //!   imported from `yo-self/expr/expr_info.yo` (Phase 2k).
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap }   :: import "std/collections/hash_map";
-{ HashSet }   :: import "std/collections/hash_set";
-{ TypeValue }  :: import "../types/type.yo";
-{ EvalValue }  :: import "./value.yo";
-{ Environment, Variable } :: import "../env/env.yo";
-{ AstExpr }    :: import "../expr/expr.yo";
-{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new } :: import "../expr/expr_info.yo";
-{ Token }      :: import "../lexer/token.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap }   :: import("std/collections/hash_map");
+{ HashSet }   :: import("std/collections/hash_set");
+{ TypeValue }  :: import("../types/type.yo");
+{ EvalValue }  :: import("./value.yo");
+{ Environment, Variable } :: import("../env/env.yo");
+{ AstExpr }    :: import("../expr/expr.yo");
+{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new } :: import("../expr/expr_info.yo");
+{ Token }      :: import("../lexer/token.yo");
 
 // ---------------------------------------------------------------------------
 // PathCollection now imported from ../expr/expr_info.yo (Phase 2k)
@@ -53,7 +53,7 @@ FuncOrAsyncBlockKind :: enum(
   FunctionBody,
   /// Evaluating an `io.async(...)` closure body.
   AsyncBlock,
-  /// Evaluating a `test "...", { ... }` block body.
+  /// Evaluating a `test("...", { ... })` block body.
   TestBlock
 );
 
@@ -236,7 +236,7 @@ EvalContext :: object(
   is_evaluating_function_type            : bool,
 
   /// Module loader callback.  Set by the module manager before evaluation
-  /// starts and used by `import "..."` expressions.
+  /// starts and used by `import("...")` expressions.
   load_module                            : Option((fn(path : String) -> LoadModuleResult)),
 
   /// Absolute path to the standard library `std/` directory.
@@ -248,7 +248,7 @@ EvalContext :: object(
   /// Whether the function type being evaluated is marked unsafe.
   is_unsafe_function_type                : bool,
 
-  /// Return type of the enclosing (parent) function; enables `escape expr`.
+  /// Return type of the enclosing (parent) function; enables `escape(expr)`.
   enclosing_function_return_type         : Option(TypeValue),
 
   /// Whether the enclosing specialized function has control-flow implicit params.
@@ -595,20 +595,20 @@ track_variable_usage :: (fn(
       eval_env := sub_ctx.eval_env;
 
       // Only track variables from outer scopes.
-      if((frame_level >= eval_env.frame_count()), { return (); });
+      if((frame_level >= eval_env.frame_count()), { return(()); });
 
       // Find the variable in the evaluation environment.
       var_found := Option(Variable).None;
       actual_frame_level := usize(0);
       fi := usize(0);
       n_frames := eval_env.frame_count();
-      while runtime((fi < n_frames)), {
+      while(runtime((fi < n_frames)), {
         frame_opt := eval_env.frames.get(fi);
         match(frame_opt,
           .Some(frame) => {
             vi := usize(0);
             n_vars := frame.variables.len();
-            while runtime((vi < n_vars)), {
+            while(runtime((vi < n_vars)), {
               match(frame.variables.get(vi),
                 .Some(v) => {
                   if((v.name.as_str() == variable_name.as_str()), {
@@ -621,18 +621,18 @@ track_variable_usage :: (fn(
                 .None => ()
               );
               vi = (vi + usize(1));
-            };
+            });
           },
           .None => ()
         );
         fi = (fi + usize(1));
-      };
+      });
 
       match(var_found,
         .None => (),
         .Some(v) => {
           // Don't track compile-time-only variables.
-          if(v.is_compile_time_only, { return (); });
+          if(v.is_compile_time_only, { return(()); });
 
           // Ensure the capturedVariables map exists.
           match(context.captured_variables,
@@ -677,8 +677,7 @@ track_variable_usage :: (fn(
 // Exports
 // ---------------------------------------------------------------------------
 
-export
-  PathCollection,
+export(PathCollection,
   path_collection_new,
   LoadModuleResult,
   FuncOrAsyncBlockKind,
@@ -717,4 +716,4 @@ export
   get_trait_type_call_result,
   get_index_call_result,
   get_pointer_type_call_result,
-  track_variable_usage;
+  track_variable_usage);

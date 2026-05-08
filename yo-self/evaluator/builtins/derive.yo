@@ -9,25 +9,25 @@
 //! (from derive_rule.yo) instead of deriveRule fields on FunctionValue/TraitType.
 //! Trait args are resolved by expression-level name (not by evaluating the trait arg).
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_is_fn_call_of, make_err_expr,
-  BK_FORALL, BK_WHERE }                              :: import "../../expr/expr.yo";
+  BK_FORALL, BK_WHERE }                              :: import("../../expr/expr.yo");
 { Environment, Variable,
-  add_variable_to_env, synthetic_token }             :: import "../../env/env.yo";
-{ TypeValue, t_unit, t_type }                        :: import "../../types/type.yo";
-{ EvalValue }                                        :: import "../value.yo";
-{ EvalContext, FuncOrAsyncBlockCtx }                 :: import "../context.yo";
+  add_variable_to_env, synthetic_token }             :: import("../../env/env.yo");
+{ TypeValue, t_unit, t_type }                        :: import("../../types/type.yo");
+{ EvalValue }                                        :: import("../value.yo");
+{ EvalContext, FuncOrAsyncBlockCtx }                 :: import("../context.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }         :: import "../../expr/expr_info.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ evaluate_expression }                              :: import "../exprs/expr.yo";
-{ evaluate_begin_expression }                        :: import "../exprs/begin.yo";
-{ extract_derive_key, get_derive_rule }              :: import "./derive_rule.yo";
-{ random_id }                                        :: import "../utils.yo";
-{ Exception }                                        :: import "std/error";
+  expr_info_table_get, expr_info_table_set }         :: import("../../expr/expr_info.yo");
+{ format_error_message }                             :: import("../../error/error.yo");
+{ evaluate_expression }                              :: import("../exprs/expr.yo");
+{ evaluate_begin_expression }                        :: import("../exprs/begin.yo");
+{ extract_derive_key, get_derive_rule }              :: import("./derive_rule.yo");
+{ random_id }                                        :: import("../utils.yo");
+{ Exception }                                        :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // call_registered_derive_rule
@@ -94,13 +94,13 @@ call_registered_derive_rule :: (fn(
   match(trait_arg_expr,
     .FnCall(_, _, ta_args, _, _) => {
       (ti : usize) = usize(0);
-      while runtime((ti < ta_args.len())), {
+      while(runtime((ti < ta_args.len())), {
         match(ta_args.get(ti),
           .Some(ta) => { trait_param_evs.push(EvalValue.ExprVal(box(ta))); },
           .None     => ()
         );
         ti = (ti + usize(1));
-      };
+      });
     },
     .Atom(_, _) => ()
   );
@@ -119,7 +119,7 @@ call_registered_derive_rule :: (fn(
       evaled_arg_infos := ArrayList(ExprInfo).new();
 
       arg0 := new_expr_info(caller_env, t_type());
-      arg0.value = Option(EvalValue).Some(EvalValue.TypeVal(box((&target_type).clone())));
+      arg0.value = Option(EvalValue).Some(EvalValue.TypeVal(box((&(target_type)).clone())));
       evaled_arg_infos.push(arg0);
 
       arg1 := new_expr_info(caller_env, t_unit());
@@ -136,7 +136,7 @@ call_registered_derive_rule :: (fn(
       // Bind captures.
       (cap_i : usize) = usize(0);
       n_cap := cap_names.len();
-      while runtime((cap_i < n_cap)), {
+      while(runtime((cap_i < n_cap)), {
         cn     := match(cap_names.get(cap_i), .Some(n) => n, .None => String.from(""));
         ct     := match(cap_tys.get(cap_i),   .Some(t) => t, .None => t_unit());
         cap_v  := match(cap_vals.get(cap_i),
@@ -149,7 +149,7 @@ call_registered_derive_rule :: (fn(
           synthetic_token(cn, caller_env.module_path)
         );
         cap_i = (cap_i + usize(1));
-      };
+      });
 
       // Push frame and bind __recur_fn.
       _fr := fresh_env.push_frame(false);
@@ -170,12 +170,12 @@ call_registered_derive_rule :: (fn(
       // Infer forall type params from argument types.
       n_forall := forall_names.len();
       (fa_i : usize) = usize(0);
-      while runtime((fa_i < n_forall)), {
+      while(runtime((fa_i < n_forall)), {
         fa_name := match(forall_names.get(fa_i), .Some(n) => n, .None => String.from(""));
         n_ptn   := param_type_names.len();
         (ptn_i  : usize) = usize(0);
         (fa_bound : bool) = false;
-        while runtime(((ptn_i < n_ptn) && (!(fa_bound)))), {
+        while(runtime(((ptn_i < n_ptn) && (!(fa_bound)))), {
           ptn := match(param_type_names.get(ptn_i), .Some(n) => n, .None => String.from(""));
           if((ptn.as_str() == fa_name.as_str()), {
             arg_inf := match(evaled_arg_infos.get(ptn_i),
@@ -192,13 +192,13 @@ call_registered_derive_rule :: (fn(
             fa_bound = true;
           });
           ptn_i = (ptn_i + usize(1));
-        };
+        });
         fa_i = (fa_i + usize(1));
-      };
+      });
 
       // Bind regular params.
       (pi : usize) = usize(0);
-      while runtime((pi < n_p)), {
+      while(runtime((pi < n_p)), {
         pname    := match(param_names.get(pi),       .Some(n) => n, .None => String.from(""));
         arg_inf  := match(evaled_arg_infos.get(pi),  .Some(i) => i, .None => new_expr_info(caller_env, t_unit()));
         is_ct    := match(arg_inf.value, .Some(_) => true, .None => false);
@@ -209,11 +209,11 @@ call_registered_derive_rule :: (fn(
           synthetic_token(pname, caller_env.module_path)
         );
         pi = (pi + usize(1));
-      };
+      });
 
       // Bind evidence params.
       (evi : usize) = usize(0);
-      while runtime((evi < n_ev)), {
+      while(runtime((evi < n_ev)), {
         ev_name := match(evidence_names.get(evi),            .Some(n) => n, .None => String.from(""));
         ev_inf  := match(evaled_arg_infos.get((n_p + evi)),  .Some(i) => i, .None => new_expr_info(caller_env, t_unit()));
         is_ct_ev := match(ev_inf.value, .Some(_) => true, .None => false);
@@ -224,7 +224,7 @@ call_registered_derive_rule :: (fn(
           synthetic_token(ev_name, caller_env.module_path)
         );
         evi = (evi + usize(1));
-      };
+      });
 
       // Set function body context.
       old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
@@ -256,11 +256,11 @@ call_registered_derive_rule :: (fn(
       body_val := match(body_info.value,
         .Some(v) => v,
         .None    => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             tok,
             String.from("derive: derive rule returned no value"),
             false, .None
-          ));
+          )));
           EvalValue.UnitVal
         }
       );
@@ -268,11 +268,11 @@ call_registered_derive_rule :: (fn(
       result_expr := match(body_val,
         .ExprVal(expr_box) => expr_box.*,
         _ => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             tok,
-            String.from("derive: derive rule must return comptime(Expr)"),
+            String.from("derive: derive rule must return(comptime(Expr))"),
             false, .None
-          ));
+          )));
           make_err_expr()
         }
       );
@@ -288,11 +288,11 @@ call_registered_derive_rule :: (fn(
       result_info.env
     },
     _ => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("derive: registered derive rule is not a function"),
         false, .None
-      ));
+      )));
       caller_env
     }
   );
@@ -324,11 +324,11 @@ process_trait_arg :: (fn(
   key := match(key_opt,
     .Some(k) => k,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("derive: trait argument must be a trait name or trait constructor call"),
         false, .None
-      ));
+      )));
       String.from("")
     }
   );
@@ -338,11 +338,11 @@ process_trait_arg :: (fn(
   derive_rule_val := match(rule_opt,
     .Some(r) => r,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         `derive: trait '${key}' does not have a derive rule. Use derive_rule() to register one.`,
         false, .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -377,7 +377,7 @@ evaluate_derive :: (fn(
     info := new_expr_info(env, t_unit());
     info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return expr;
+    return(expr);
   });
 
   // Extract arguments.
@@ -387,11 +387,11 @@ evaluate_derive :: (fn(
   );
 
   if((args.len() < usize(2)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       String.from("derive requires at least 2 arguments: derive(Type, Trait1, ...)."),
       false, .None
-    ));
+    )));
   });
 
   (arg_idx : usize) = usize(0);
@@ -417,7 +417,7 @@ evaluate_derive :: (fn(
     );
     _fr := env.push_frame(false);
     (fpi : usize) = usize(0);
-    while runtime((fpi < forall_params.len())), {
+    while(runtime((fpi < forall_params.len())), {
       fp := match(forall_params.get(fpi), .Some(a) => a, .None => make_err_expr());
       // Handle both `T` (Atom) and `T : Type` (FnCall(":", [T, Type])) forms.
       fp_name := match(fp,
@@ -443,7 +443,7 @@ evaluate_derive :: (fn(
         );
       });
       fpi = (fpi + usize(1));
-    };
+    });
   });
 
   // Check for optional where(...) before target type.
@@ -460,11 +460,11 @@ evaluate_derive :: (fn(
   target_expr := match(args.get(arg_idx),
     .Some(a) => a,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("derive requires a target type"),
         false, .None
-      ));
+      )));
       make_err_expr()
     }
   );
@@ -475,11 +475,11 @@ evaluate_derive :: (fn(
   target_info      := match(target_info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("derive: failed to evaluate target type"),
         false, .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -489,20 +489,20 @@ evaluate_derive :: (fn(
     .Some(tv) => match(tv,
       .TypeVal(ty_box) => ty_box.*,
       _ => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           tok,
           String.from("derive: expected a type"),
           false, .None
-        ));
+        )));
         TypeValue.Unit
       }
     ),
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("derive: expected a type"),
         false, .None
-      ));
+      )));
       TypeValue.Unit
     }
   );
@@ -512,11 +512,11 @@ evaluate_derive :: (fn(
     .Struct(_, _, _, _, _, _, _) => (),
     .EnumT(_, _, _, _, _, _, _) => (),
     _ => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("derive only works on struct and enum types"),
         false, .None
-      ));
+      )));
     }
   );
 
@@ -541,16 +541,16 @@ evaluate_derive :: (fn(
 
   n_args := args.len();
   if((arg_idx >= n_args), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       String.from("derive requires at least one trait argument after the target type"),
       false, .None
-    ));
+    )));
   });
 
   // Process each trait argument.
   (result_env : Environment) = env;
-  while runtime((arg_idx < n_args)), {
+  while(runtime((arg_idx < n_args)), {
     trait_arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
     result_env = process_trait_arg(
       trait_arg, target_type, target_type_expr,
@@ -558,7 +558,7 @@ evaluate_derive :: (fn(
       ctx, using(exn)
     );
     arg_idx = (arg_idx + usize(1));
-  };
+  });
 
   out := new_expr_info(result_env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
@@ -567,4 +567,4 @@ evaluate_derive :: (fn(
   expr
 });
 
-export evaluate_derive;
+export(evaluate_derive);

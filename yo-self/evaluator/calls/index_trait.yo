@@ -13,26 +13,26 @@
 //!   - Custom type ComptimeIndex: not yet implemented (Phase 4)
 //!   - has_index_impl: returns true for Array/Slice, false otherwise
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
-{ Environment }                     :: import "../../env/env.yo";
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
+{ Environment }                     :: import("../../env/env.yo");
 { TypeValue, t_unit, t_ptr, t_slice,
   is_array_type, is_slice_type,
-  is_pointer_type, is_trait_type }  :: import "../../types/type.yo";
+  is_pointer_type, is_trait_type }  :: import("../../types/type.yo");
 { EvalValue,
   is_array_val, is_slice_val, is_str_lit,
   is_struct_val, is_int_lit, is_unknown_val,
-  create_unknown_val }              :: import "../value.yo";
-{ EvalContext, IndexCallResult }    :: import "../context.yo";
+  create_unknown_val }              :: import("../value.yo");
+{ EvalContext, IndexCallResult }    :: import("../context.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_get }             :: import "../../expr/expr_info.yo";
-{ format_error_message }            :: import "../../error/error.yo";
-{ are_types_compatible }            :: import "../../types/compatibility.yo";
-{ convert_comptime_type_to_runtime_type } :: import "../../types/utils.yo";
-{ evaluate_expression }             :: import "../exprs/expr.yo";
-{ Exception }                       :: import "std/error";
+  expr_info_table_get }             :: import("../../expr/expr_info.yo");
+{ format_error_message }            :: import("../../error/error.yo");
+{ are_types_compatible }            :: import("../../types/compatibility.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/utils.yo");
+{ evaluate_expression }             :: import("../exprs/expr.yo");
+{ Exception }                       :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // Private types
@@ -101,34 +101,34 @@ _extract_range_indices :: (fn(
     .StructVal(_, _, field_values) => {
       start_field := match(field_values.get(usize(0)),
         .Some(v) => v,
-        .None    => { return Option(_IdxRange).None; }
+        .None    => { return(Option(_IdxRange).None); }
       );
       end_field := match(field_values.get(usize(1)),
         .Some(v) => v,
-        .None    => { return Option(_IdxRange).None; }
+        .None    => { return(Option(_IdxRange).None); }
       );
       if((!(is_int_lit(start_field)) || !(is_int_lit(end_field))), {
-        return Option(_IdxRange).None;
+        return(Option(_IdxRange).None);
       });
       start_raw := match(start_field,
         .IntLit(r) => r,
-        _          => { return Option(_IdxRange).None; }
+        _          => { return(Option(_IdxRange).None); }
       );
       end_raw := match(end_field,
         .IntLit(r) => r,
-        _          => { return Option(_IdxRange).None; }
+        _          => { return(Option(_IdxRange).None); }
       );
       start_i64   := match(start_raw.parse_i64(),
         .Some(n) => n,
-        .None    => { return Option(_IdxRange).None; }
+        .None    => { return(Option(_IdxRange).None); }
       );
       end_raw_i64 := match(end_raw.parse_i64(),
         .Some(n) => n,
-        .None    => { return Option(_IdxRange).None; }
+        .None    => { return(Option(_IdxRange).None); }
       );
       end_i64 := if(is_inclusive, (end_raw_i64 + i64(1)), end_raw_i64);
-      if((start_i64 < i64(0)), { return Option(_IdxRange).None; });
-      if((end_i64 < i64(0)),   { return Option(_IdxRange).None; });
+      if((start_i64 < i64(0)), { return(Option(_IdxRange).None); });
+      if((end_i64 < i64(0)),   { return(Option(_IdxRange).None); });
       Option(_IdxRange).Some(_IdxRange(
         start_idx: usize(start_i64),
         end_idx:   usize(end_i64)
@@ -154,7 +154,7 @@ _find_all_index_methods :: (fn(
     .TraitT(_, _, field_labels, field_types, _, _, _, _) => {
       n := field_labels.len();
       (i : usize) = usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         lbl_opt := field_labels.get(i);
         ty_opt  := field_types.get(i);
         match(lbl_opt,
@@ -176,7 +176,7 @@ _find_all_index_methods :: (fn(
           .None => ()
         );
         i = (i + usize(1));
-      };
+      });
     },
     _ => ()
   );
@@ -197,7 +197,7 @@ _find_index_method :: (fn(
   n := methods.len();
   (i : usize) = usize(0);
   (found : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
-  while runtime(((i < n) && found.is_none())), {
+  while(runtime(((i < n) && found.is_none())), {
     match(methods.get(i),
       .Some(m) => {
         match(m.method_type,
@@ -230,7 +230,7 @@ _find_index_method :: (fn(
       .None => ()
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -266,17 +266,17 @@ _try_comptime_range_slicing :: (fn(
     .None => Option(EvalValue).None
   );
   if(range_opt.is_none(), {
-    return Option(IndexCallResult).None;
+    return(Option(IndexCallResult).None);
   });
 
   range_ev := match(range_opt,
     .Some(v) => v,
-    .None    => { return Option(IndexCallResult).None; }
+    .None    => { return(Option(IndexCallResult).None); }
   );
   indices := _extract_range_indices(range_ev, is_inclusive);
   range_data := match(indices,
     .Some(r) => r,
-    .None    => { return Option(IndexCallResult).None; }
+    .None    => { return(Option(IndexCallResult).None); }
   );
   start_usize := range_data.start_idx;
   end_usize   := range_data.end_idx;
@@ -288,21 +288,21 @@ _try_comptime_range_slicing :: (fn(
         .ArrayVal(elements) => {
           arr_len := elements.len();
           if((start_usize > arr_len), {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg_expr),
               `Slice start index out of bounds: ${start_usize}. Expected index in range [0, ${arr_len}].`,
               false, .None
-            ));
+            )));
           });
           if(((end_usize < start_usize) || (end_usize > arr_len)), {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg_expr),
               `Slice end index out of bounds: ${end_usize}. Expected index in range [${start_usize}, ${arr_len}].`,
               false, .None
-            ));
+            )));
           });
           new_slice := EvalValue.SliceVal(box(av), start_usize, end_usize);
-          return Option(IndexCallResult).Some(IndexCallResult(
+          return(Option(IndexCallResult).Some(IndexCallResult(
             value:              Option(EvalValue).Some(new_slice),
             ty:                 slice_ty,
             ptr_type:           t_ptr(slice_ty),
@@ -310,7 +310,7 @@ _try_comptime_range_slicing :: (fn(
             index_method_value: Option(EvalValue).None,
             caller_env:         caller_env,
             index:              Option(usize).None
-          ));
+          )));
         },
         _ => ()
       );
@@ -325,23 +325,23 @@ _try_comptime_range_slicing :: (fn(
         .SliceVal(src_box, sl_start, sl_end) => {
           slice_len := (sl_end - sl_start);
           if((start_usize > slice_len), {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg_expr),
               `Slice start index out of bounds: ${start_usize}. Expected index in range [0, ${slice_len}].`,
               false, .None
-            ));
+            )));
           });
           if(((end_usize < start_usize) || (end_usize > slice_len)), {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg_expr),
               `Slice end index out of bounds: ${end_usize}. Expected index in range [${start_usize}, ${slice_len}].`,
               false, .None
-            ));
+            )));
           });
           abs_start := (sl_start + start_usize);
           abs_end   := (sl_start + end_usize);
           new_slice := EvalValue.SliceVal(src_box, abs_start, abs_end);
-          return Option(IndexCallResult).Some(IndexCallResult(
+          return(Option(IndexCallResult).Some(IndexCallResult(
             value:              Option(EvalValue).Some(new_slice),
             ty:                 slice_ty,
             ptr_type:           t_ptr(slice_ty),
@@ -349,7 +349,7 @@ _try_comptime_range_slicing :: (fn(
             index_method_value: Option(EvalValue).None,
             caller_env:         caller_env,
             index:              Option(usize).None
-          ));
+          )));
         },
         _ => ()
       );
@@ -388,20 +388,20 @@ _try_comptime_element_access :: (fn(
         idx_i64 := match(idx_raw.parse_i64(),
           .Some(n) => n,
           .None    => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg_expr),
               String.from("Invalid integer literal for array/slice index"),
               false, .None
-            ));
+            )));
             i64(0)
           }
         );
         if((idx_i64 < i64(0)), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(arg_expr),
             `Array/slice index out of bounds: ${idx_raw}`,
             false, .None
-          ));
+          )));
         });
         idx_usize := usize(idx_i64);
 
@@ -412,24 +412,24 @@ _try_comptime_element_access :: (fn(
               .ArrayVal(elements) => {
                 arr_len := elements.len();
                 if((idx_usize >= arr_len), {
-                  exn.throw(dyn format_error_message(
+                  exn.throw(dyn(format_error_message(
                     ast_expr_token(arg_expr),
                     `Array index out of bounds: ${idx_raw}. Expected index in range [0, ${(arr_len - usize(1))}].`,
                     false, .None
-                  ));
+                  )));
                 });
                 elem_val := match(elements.get(idx_usize),
                   .Some(ev) => ev,
                   .None     => {
-                    exn.throw(dyn format_error_message(
+                    exn.throw(dyn(format_error_message(
                       ast_expr_token(arg_expr),
                       String.from("Array index out of bounds"),
                       false, .None
-                    ));
+                    )));
                     EvalValue.UnitVal
                   }
                 );
-                return Option(IndexCallResult).Some(IndexCallResult(
+                return(Option(IndexCallResult).Some(IndexCallResult(
                   value:              Option(EvalValue).Some(elem_val),
                   ty:                 elem_ty,
                   ptr_type:           t_ptr(elem_ty),
@@ -437,7 +437,7 @@ _try_comptime_element_access :: (fn(
                   index_method_value: Option(EvalValue).None,
                   caller_env:         caller_env,
                   index:              Option(usize).Some(idx_usize)
-                ));
+                )));
               },
               _ => ()
             );
@@ -452,11 +452,11 @@ _try_comptime_element_access :: (fn(
               .SliceVal(src_box, sl_start, sl_end) => {
                 slice_len := (sl_end - sl_start);
                 if((idx_usize >= slice_len), {
-                  exn.throw(dyn format_error_message(
+                  exn.throw(dyn(format_error_message(
                     ast_expr_token(arg_expr),
                     `Slice index out of bounds: ${idx_raw}. Expected index in range [0, ${(slice_len - usize(1))}].`,
                     false, .None
-                  ));
+                  )));
                 });
                 abs_idx := (sl_start + idx_usize);
                 src_arr := src_box.*;
@@ -464,17 +464,17 @@ _try_comptime_element_access :: (fn(
                   .ArrayVal(src_elems) => match(src_elems.get(abs_idx),
                     .Some(ev) => ev,
                     .None     => {
-                      exn.throw(dyn format_error_message(
+                      exn.throw(dyn(format_error_message(
                         ast_expr_token(arg_expr),
                         String.from("Slice index out of bounds"),
                         false, .None
-                      ));
+                      )));
                       EvalValue.UnitVal
                     }
                   ),
                   _ => create_unknown_val(elem_ty)
                 );
-                return Option(IndexCallResult).Some(IndexCallResult(
+                return(Option(IndexCallResult).Some(IndexCallResult(
                   value:              Option(EvalValue).Some(elem_val),
                   ty:                 elem_ty,
                   ptr_type:           t_ptr(elem_ty),
@@ -482,7 +482,7 @@ _try_comptime_element_access :: (fn(
                   index_method_value: Option(EvalValue).None,
                   caller_env:         caller_env,
                   index:              Option(usize).Some(abs_idx)
-                ));
+                )));
               },
               _ => ()
             );
@@ -541,11 +541,11 @@ _try_comptime_array_slice_index :: (fn(
   info := match(info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("Failed to evaluate index argument"),
         false, .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -555,10 +555,10 @@ _try_comptime_array_slice_index :: (fn(
 
   rc := _check_range_type(arg_type);
   if(rc.is_range, {
-    return _try_comptime_range_slicing(
+    return(_try_comptime_range_slicing(
       arg_expr, arg_val, rc.is_inclusive,
       array_val, slice_val, value_type, caller_env
-    );
+    ));
   });
 
   _try_comptime_element_access(
@@ -581,67 +581,67 @@ _compute_comptime_string_index :: (fn(
 ) -> EvalValue)({
   // During type-checking with UnknownVal, return a placeholder
   if(is_unknown_val(arg_value), {
-    return EvalValue.StrLit(_str_quote(String.from("")));
+    return(EvalValue.StrLit(_str_quote(String.from(""))));
   });
 
   if(!(is_range), {
     // Single character access
     if(!(is_int_lit(arg_value)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("Expected comptime_int index for comptime string index"),
         false, .None
-      ));
+      )));
     });
     idx_raw := match(arg_value, .IntLit(r) => r, _ => String.from("0"));
     idx_i64 := match(idx_raw.parse_i64(),
       .Some(n) => n,
       .None    => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg_expr),
           String.from("Invalid integer literal for string index"),
           false, .None
-        ));
+        )));
         i64(0)
       }
     );
     if((idx_i64 < i64(0)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `String index out of bounds: ${idx_raw}`,
         false, .None
-      ));
+      )));
     });
     idx_usize := usize(idx_i64);
     str_len   := str_value.len();
     if((idx_usize >= str_len), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `String index out of bounds: ${idx_raw}. Expected index in range [0, ${(str_len - usize(1))}].`,
         false, .None
-      ));
+      )));
     });
     char_str := str_value.substring(idx_usize, (idx_usize + usize(1)));
-    return EvalValue.StrLit(_str_quote(char_str));
+    return(EvalValue.StrLit(_str_quote(char_str)));
   });
 
   // Range access
   if(!(is_struct_val(arg_value)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       String.from("Expected comptime Range value for comptime string range index"),
       false, .None
-    ));
+    )));
   });
   indices_opt := _extract_range_indices(arg_value, is_inclusive);
   range_data  := match(indices_opt,
     .Some(r) => r,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("Expected numeric start/end in Range for comptime string range index"),
         false, .None
-      ));
+      )));
       _IdxRange(start_idx: usize(0), end_idx: usize(0))
     }
   );
@@ -650,18 +650,18 @@ _compute_comptime_string_index :: (fn(
   str_len   := str_value.len();
 
   if((start_idx > str_len), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       `String slice start index out of bounds: ${start_idx}. Expected index in range [0, ${str_len}].`,
       false, .None
-    ));
+    )));
   });
   if(((end_idx < start_idx) || (end_idx > str_len)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       `String slice end index out of bounds: ${end_idx}. Expected index in range [${start_idx}, ${str_len}].`,
       false, .None
-    ));
+    )));
   });
 
   sliced := str_value.substring(start_idx, end_idx);
@@ -685,22 +685,22 @@ _try_comptime_string_index :: (fn(
   info := match(info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("Failed to evaluate index argument for comptime string indexing"),
         false, .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
   arg_val := match(info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("Failed to evaluate index argument for comptime string indexing"),
         false, .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -745,20 +745,20 @@ try_to_call_with_index_trait :: (fn(
 ) -> IndexCallResult)({
   // 1. Exactly 1 argument required
   if((arg_exprs.len() != usize(1)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Index trait expects exactly 1 argument, got ${arg_exprs.len()}.`,
       false, .None
-    ));
+    )));
   });
   arg_expr := match(arg_exprs.get(usize(0)),
     .Some(e) => e,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("Index trait: missing argument"),
         false, .None
-      ));
+      )));
       make_err_expr()
     }
   );
@@ -795,7 +795,7 @@ try_to_call_with_index_trait :: (fn(
       arg_expr, array_val, slice_val, value_type, caller_env, ctx
     );
     match(ct_result,
-      .Some(r) => { return r; },
+      .Some(r) => { return(r); },
       .None    => ()
     );
   });
@@ -809,7 +809,7 @@ try_to_call_with_index_trait :: (fn(
         String.new()
       );
       result := _try_comptime_string_index(arg_expr, str_unquoted, caller_env, ctx);
-      return result;
+      return(result);
     },
     .None => ()
   );
@@ -823,11 +823,11 @@ try_to_call_with_index_trait :: (fn(
   arg_info := match(arg_info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("Failed to evaluate index argument"),
         false, .None
-      ));
+      )));
       new_expr_info(caller_env, t_unit())
     }
   );
@@ -841,7 +841,7 @@ try_to_call_with_index_trait :: (fn(
       _             => t_unit()
     );
     result_val := create_unknown_val(elem_ty);
-    return IndexCallResult(
+    return(IndexCallResult(
       value:              Option(EvalValue).Some(result_val),
       ty:                 elem_ty,
       ptr_type:           t_ptr(elem_ty),
@@ -849,7 +849,7 @@ try_to_call_with_index_trait :: (fn(
       index_method_value: Option(EvalValue).None,
       caller_env:         updated_env,
       index:              Option(usize).None
-    );
+    ));
   });
 
   // For custom types: find the index method via trait lookup
@@ -858,11 +858,11 @@ try_to_call_with_index_trait :: (fn(
   method := match(method_opt,
     .Some(m) => m,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("Type does not implement Index for the given argument type."),
         false, .None
-      ));
+      )));
       _IndexMethodEntry(
         method_type:  t_unit(),
         method_value: Option(EvalValue).None
@@ -911,16 +911,16 @@ has_index_impl :: (fn(
   _ := caller_env;
   _ := ctx;
   if((arg_exprs.len() != usize(1)), {
-    return false;
+    return(false);
   });
   // Fast path: Array and Slice always have Index impls
   if((is_array_type(concrete_type) || is_slice_type(concrete_type)), {
-    return true;
+    return(true);
   });
   // Check for trait-direct methods (Phase 3u: no generic impls)
   methods := _find_all_index_methods(concrete_type);
   (methods.len() > usize(0))
 });
 
-export try_to_call_with_index_trait;
-export has_index_impl;
+export(try_to_call_with_index_trait);
+export(has_index_impl);

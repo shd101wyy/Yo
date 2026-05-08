@@ -8,21 +8,21 @@
 //! enum has no such fields, and that metadata is only needed by codegen (which
 //! yo-self does not perform).
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call,
-  ast_expr_is_fn_call_of, BK_EXTERN }                 :: import "../../expr/expr.yo";
-{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import "../../expr/expr_info.yo";
-{ Environment, add_variable_to_env }                   :: import "../../env/env.yo";
-{ EvalContext }                                        :: import "../context.yo";
-{ EvalValue, create_unknown_val }                      :: import "../value.yo";
-{ TypeValue, t_unit }                                  :: import "../../types/type.yo";
-{ type_contains_rc_type }                              :: import "../../types/utils.yo";
-{ format_error_message }                               :: import "../../error/error.yo";
-{ Exception }                                          :: import "std/error";
-{ evaluate_expression }                                :: import "./expr.yo";
-{ EvalModuleFieldResult, evaluate_module_field }       :: import "../types/module.yo";
-{ ArrayList }                                          :: import "std/collections/array_list";
+  ast_expr_is_fn_call_of, BK_EXTERN }                 :: import("../../expr/expr.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr/expr_info.yo");
+{ Environment, add_variable_to_env }                   :: import("../../env/env.yo");
+{ EvalContext }                                        :: import("../context.yo");
+{ EvalValue, create_unknown_val }                      :: import("../value.yo");
+{ TypeValue, t_unit }                                  :: import("../../types/type.yo");
+{ type_contains_rc_type }                              :: import("../../types/utils.yo");
+{ format_error_message }                               :: import("../../error/error.yo");
+{ Exception }                                          :: import("std/error");
+{ evaluate_expression }                                :: import("./expr.yo");
+{ EvalModuleFieldResult, evaluate_module_field }       :: import("../types/module.yo");
+{ ArrayList }                                          :: import("std/collections/array_list");
 
 evaluate_extern :: (fn(
   expr    : AstExpr,
@@ -31,12 +31,12 @@ evaluate_extern :: (fn(
   using(exn : Exception)
 ) -> AstExpr)({
   if(!(ast_expr_is_fn_call_of(expr, BK_EXTERN, .None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected extern, got ${ast_expr_token(expr).value}`,
       false,
       .None
-    ));
+    )));
   });
 
   (env : Environment) = env_in;
@@ -61,22 +61,22 @@ evaluate_extern :: (fn(
       .Some(v) => match(v,
         .StrLit(s) => s,
         _ => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(lang_arg),
             `Expected string for language argument`,
             false,
             .None
-          ));
+          )));
           String.new()
         }
       ),
       .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(lang_arg),
           `Failed to evaluate language argument`,
           false,
           .None
-        ));
+        )));
         String.new()
       }
     );
@@ -97,12 +97,12 @@ evaluate_extern :: (fn(
       language = String.from("c");
     });
     if(!((lang_lower.as_str() == "yo") || (lang_lower.as_str() == "c")), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(lang_arg),
         `Unsupported language "${lang_lower}" for extern, expected "c" or "yo"`,
         false,
         .None
-      ));
+      )));
     });
 
     field_start = usize(1);
@@ -116,18 +116,18 @@ evaluate_extern :: (fn(
   (args_idx : usize)  = field_start;
   (field_idx : usize) = usize(0);
 
-  while runtime((args_idx < all_args.len())), {
+  while(runtime((args_idx < all_args.len())), {
     arg    := match(all_args.get(args_idx), .Some(a) => a, .None => expr);
     result := evaluate_module_field(arg, field_idx, env, ctx, false, using(exn));
 
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool)  = false;
-    while runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
+    while(runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
       existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if((existing.as_str() == result.label.as_str()), { has_dup = true; });
       dup_idx = (dup_idx + usize(1));
-    };
+    });
     if(has_dup, {
       err_tok := if(ast_expr_is_fn_call(arg),
         match(match(arg, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
@@ -136,12 +136,12 @@ evaluate_extern :: (fn(
         ),
         ast_expr_token(arg)
       );
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         err_tok,
         `Duplicate label "${result.label}" in module`,
         false,
         .None
-      ));
+      )));
     });
 
     field_labels.push(String.from(result.label.as_str()));
@@ -153,7 +153,7 @@ evaluate_extern :: (fn(
 
     // Add field variable to env (compile-time only, unknown value placeholder).
     _var_opt := add_variable_to_env(
-      (&env),
+      (&(env)),
       String.from(result.label.as_str()),
       result.field_type,
       Option(EvalValue).Some(create_unknown_val(result.field_type)),
@@ -166,7 +166,7 @@ evaluate_extern :: (fn(
 
     args_idx  = (args_idx + usize(1));
     field_idx = (field_idx + usize(1));
-  };
+  });
 
   // Store UnitVal result on the extern expression.
   unit_info := new_expr_info(env, t_unit());
@@ -180,4 +180,4 @@ evaluate_extern :: (fn(
   expr
 });
 
-export evaluate_extern;
+export(evaluate_extern);

@@ -19,25 +19,25 @@
 //!   - `try_to_call_function_with_arguments` is a throwing stub (Phase 3).
 //!   - `attach_temp_variable_to_expr` is a no-op stub (Phase 3).
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_fn_call_of, BF_RECUR, make_err_expr }            :: import "../../expr/expr.yo";
+  ast_expr_is_fn_call_of, BF_RECUR, make_err_expr }            :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }                    :: import "../../expr/expr_info.yo";
-{ Environment }                                                 :: import "../../env/env.yo";
+  expr_info_table_get, expr_info_table_set }                    :: import("../../expr/expr_info.yo");
+{ Environment }                                                 :: import("../../env/env.yo");
 { EvalContext,
   FuncOrAsyncBlockKind,
-  FuncOrAsyncBlockCtx }                                         :: import "../context.yo";
-{ TypeValue, t_unit }                                           :: import "../../types/type.yo";
-{ EvalValue, create_unknown_val, is_func_val, is_unknown_val }  :: import "../value.yo";
-{ random_id, attach_temp_variable_to_expr }                     :: import "../utils.yo";
-{ format_error_message }                                        :: import "../../error/error.yo";
-{ Exception }                                                   :: import "std/error";
-{ evaluate_function_call }                                      :: import "../calls/function.yo";
-{ try_to_call_function_with_arguments }                         :: import "../calls/helper.yo";
-{ ArrayList }                                                   :: import "std/collections/array_list";
+  FuncOrAsyncBlockCtx }                                         :: import("../context.yo");
+{ TypeValue, t_unit }                                           :: import("../../types/type.yo");
+{ EvalValue, create_unknown_val, is_func_val, is_unknown_val }  :: import("../value.yo");
+{ random_id, attach_temp_variable_to_expr }                     :: import("../utils.yo");
+{ format_error_message }                                        :: import("../../error/error.yo");
+{ Exception }                                                   :: import("std/error");
+{ evaluate_function_call }                                      :: import("../calls/function.yo");
+{ try_to_call_function_with_arguments }                         :: import("../calls/helper.yo");
+{ ArrayList }                                                   :: import("std/collections/array_list");
 
 /// Evaluate a `recur(...)` tail-recursive self-call expression.
 ///
@@ -58,12 +58,12 @@ evaluate_recur :: (fn(
     .Some(bc) => match(bc.kind, .FunctionBody => true, _ => false)
   );
   if(!(is_function_body), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected a function type for recur, got:\n${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
   func_body_ctx := match(block_ctx_opt,
     .Some(bc) => bc,
@@ -79,12 +79,12 @@ evaluate_recur :: (fn(
   // Guard 2: must be a recur(...) call.
   // ------------------------------------------------------------------
   if(!(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected recur, got:\n${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // ------------------------------------------------------------------
@@ -92,12 +92,12 @@ evaluate_recur :: (fn(
   // ------------------------------------------------------------------
   match(func_body_ctx.func_type,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("recur: missing function type in context"),
         false,
         .None
-      ));
+      )));
     },
     .Some(_) => ()
   );
@@ -176,7 +176,7 @@ evaluate_recur :: (fn(
     // Phase 2x stub: no-op; full implementation in Phase 3.
     attach_temp_variable_to_expr(expr, true, ctx);
 
-    return expr;
+    return(expr);
   });
 
   // ------------------------------------------------------------------
@@ -192,4 +192,4 @@ evaluate_recur :: (fn(
   )
 });
 
-export evaluate_recur;
+export(evaluate_recur);

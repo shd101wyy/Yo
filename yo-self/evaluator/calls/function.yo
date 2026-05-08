@@ -12,45 +12,45 @@
 //! Complex dispatch (overloads, CTFE, method calls, trait dispatch, macros)
 //! still deferred to Phase 4.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr,
-  ast_expr_is_fn_call_of, BF_DOT }                    :: import "../../expr/expr.yo";
+  ast_expr_is_fn_call_of, BF_DOT }                    :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }              :: import "../../expr/expr_info.yo";
+  expr_info_table_get, expr_info_table_set }              :: import("../../expr/expr_info.yo");
 { Variable,
   Environment, add_variable_to_env, synthetic_token,
-  get_variables_from_env }                             :: import "../../env/env.yo";
-{ TypeValue, t_unit, t_type }                            :: import "../../types/type.yo";
-{ EvalValue, is_unknown_val, type_of_eval_value }        :: import "../value.yo";
-{ random_id }                                            :: import "../utils.yo";
+  get_variables_from_env }                             :: import("../../env/env.yo");
+{ TypeValue, t_unit, t_type }                            :: import("../../types/type.yo");
+{ EvalValue, is_unknown_val, type_of_eval_value }        :: import("../value.yo");
+{ random_id }                                            :: import("../utils.yo");
 { EvalContext,
   FuncOrAsyncBlockCtx, FuncOrAsyncBlockKind,
   TypeCallResult, ModuleTypeCallResult,
-  TraitTypeCallResult, TraitSpecializationResult }       :: import "../context.yo";
-{ evaluate_expression }                                  :: import "../exprs/expr.yo";
-{ evaluate_begin_expression }                            :: import "../exprs/begin.yo";
-{ try_to_implement_function_by_function_type }           :: import "./function_type.yo";
-{ try_to_implement_closure_by_fn_module_type }           :: import "./closure_type.yo";
-{ extract_fn_trait_from_type }                           :: import "../trait_checking.yo";
-{ try_to_call_type_with_arguments }                      :: import "./type.yo";
-{ try_to_implement_module_with_arguments_by_module_type } :: import "./module_type.yo";
+  TraitTypeCallResult, TraitSpecializationResult }       :: import("../context.yo");
+{ evaluate_expression }                                  :: import("../exprs/expr.yo");
+{ evaluate_begin_expression }                            :: import("../exprs/begin.yo");
+{ try_to_implement_function_by_function_type }           :: import("./function_type.yo");
+{ try_to_implement_closure_by_fn_module_type }           :: import("./closure_type.yo");
+{ extract_fn_trait_from_type }                           :: import("../trait_checking.yo");
+{ try_to_call_type_with_arguments }                      :: import("./type.yo");
+{ try_to_implement_module_with_arguments_by_module_type } :: import("./module_type.yo");
 { try_to_specialize_trait_type,
-  try_to_implement_trait_with_arguments_by_trait_type }  :: import "./trait_type.yo";
-{ try_to_implement_array_by_array_type }                 :: import "./array_type.yo";
-{ try_to_implement_comptime_list_by_comptime_list_type } :: import "./comptime_list_type.yo";
+  try_to_implement_trait_with_arguments_by_trait_type }  :: import("./trait_type.yo");
+{ try_to_implement_array_by_array_type }                 :: import("./array_type.yo");
+{ try_to_implement_comptime_list_by_comptime_list_type } :: import("./comptime_list_type.yo");
 { is_convertible_numeric_type,
-  try_to_convert_to_numeric_type }                       :: import "./numeric_type.yo";
-{ try_to_convert_to_pointer_type }                       :: import "./pointer_type.yo";
-{ evaluate_iso_value_call }                              :: import "./iso.yo";
-{ TypeField, get_struct_fields }                         :: import "../types/field.yo";
-{ try_to_call_function_with_arguments }                  :: import "./helper.yo";
+  try_to_convert_to_numeric_type }                       :: import("./numeric_type.yo");
+{ try_to_convert_to_pointer_type }                       :: import("./pointer_type.yo");
+{ evaluate_iso_value_call }                              :: import("./iso.yo");
+{ TypeField, get_struct_fields }                         :: import("../types/field.yo");
+{ try_to_call_function_with_arguments }                  :: import("./helper.yo");
 { MethodCandidate,
-  find_methods_from_generic_impls }                      :: import "../values/generic_impl_registry.yo";
-{ create_unknown_val }                                   :: import "../value.yo";
-{ format_error_message }                                 :: import "../../error/error.yo";
-{ Exception }                                            :: import "std/error";
+  find_methods_from_generic_impls }                      :: import("../values/generic_impl_registry.yo");
+{ create_unknown_val }                                   :: import("../value.yo");
+{ format_error_message }                                 :: import("../../error/error.yo");
+{ Exception }                                            :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
@@ -73,12 +73,12 @@ ReceiverMethodResult :: struct(
 
 _type_value_base_name :: (fn(ty : TypeValue) -> Option(String))(
   match(ty,
-    .Struct(_, name, _, _, _, _, _)        => Option(String).Some((&name).clone()),
-    .EnumT(_, name, _, _, _, _, _)         => Option(String).Some((&name).clone()),
-    .Union(name, _, _)                     => Option(String).Some((&name).clone()),
-    .ModuleT(_, name, _, _)                => Option(String).Some((&name).clone()),
-    .TraitT(name, _, _, _, _, _, _, _)     => Option(String).Some((&name).clone()),
-    .SomeT(_, name, _, _, _, _, _, _, _)   => Option(String).Some((&name).clone()),
+    .Struct(_, name, _, _, _, _, _)        => Option(String).Some((&(name)).clone()),
+    .EnumT(_, name, _, _, _, _, _)         => Option(String).Some((&(name)).clone()),
+    .Union(name, _, _)                     => Option(String).Some((&(name)).clone()),
+    .ModuleT(_, name, _, _)                => Option(String).Some((&(name)).clone()),
+    .TraitT(name, _, _, _, _, _, _, _)     => Option(String).Some((&(name)).clone()),
+    .SomeT(_, name, _, _, _, _, _, _, _)   => Option(String).Some((&(name)).clone()),
     .TypeAppT(ctor_box, _)                 => recur(ctor_box.*),
     .Pointer(pt_box)                       => recur(pt_box.*),
     _                                      => Option(String).None
@@ -104,44 +104,44 @@ _try_find_receiver_method :: (fn(
 ) -> Option(ReceiverMethodResult))({
   // 1. callee must be `.(receiver, method_name)` — a 2-arg dot call.
   if(!(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
-    return Option(ReceiverMethodResult).None;
+    return(Option(ReceiverMethodResult).None);
   });
 
   prop_args := match(callee,
     .FnCall(_, _, pargs, _, _) => pargs,
-    _                          => { return Option(ReceiverMethodResult).None; }
+    _                          => { return(Option(ReceiverMethodResult).None); }
   );
   receiver_expr    := match(prop_args.get(usize(0)), .Some(a) => a,
-    .None => { return Option(ReceiverMethodResult).None; });
+    .None => { return(Option(ReceiverMethodResult).None); });
   method_name_expr := match(prop_args.get(usize(1)), .Some(a) => a,
-    .None => { return Option(ReceiverMethodResult).None; });
+    .None => { return(Option(ReceiverMethodResult).None); });
 
   // 2. Get receiver's compiled type from the expr-info table.
   receiver_type := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(receiver_expr)),
     .Some(ri) => ri.ty,
-    .None     => { return Option(ReceiverMethodResult).None; }
+    .None     => { return(Option(ReceiverMethodResult).None); }
   );
 
   // 3. Method name token.
   method_tok  := ast_expr_token(method_name_expr);
-  method_name := (&method_tok.value).clone();
+  method_name := (&(method_tok.value)).clone();
 
   // 4. Dereference pointer layers on the receiver type to reach the base type.
   (base_ty    : TypeValue) = receiver_type;
   (keep_deref : bool)      = true;
-  while runtime(keep_deref), {
+  while(runtime(keep_deref), {
     match(base_ty,
       .Pointer(pt_box) => { base_ty = pt_box.*; },
       _                => { keep_deref = false; }
     );
-  };
+  });
 
   // 5. Build the qualified name "TypeName.method".
   type_name := match(
     _type_value_base_name(base_ty),
     .Some(tn) => tn,
-    .None     => { return Option(ReceiverMethodResult).None; }
+    .None     => { return(Option(ReceiverMethodResult).None); }
   );
   qualified := `${type_name}.${method_name}`;
 
@@ -151,7 +151,7 @@ _try_find_receiver_method :: (fn(
   (found_method   : bool)              = false;
 
   // 6a. Non-generic impls registered as "TypeName.method" in env (Case 3 of impl.yo).
-  vars := get_variables_from_env(env, (&qualified).clone());
+  vars := get_variables_from_env(env, (&(qualified)).clone());
   if((vars.len() > usize(0)), {
     match(vars.get((vars.len() - usize(1))),
       .Some(mv) => {
@@ -165,7 +165,7 @@ _try_find_receiver_method :: (fn(
 
   // 6b. Generic impls registered via impl(forall(T), ReceiverType(T), …).
   if((!(found_method)), {
-    candidates := find_methods_from_generic_impls(base_ty, (&method_name).clone(), env);
+    candidates := find_methods_from_generic_impls(base_ty, (&(method_name)).clone(), env);
     if((candidates.len() > usize(0)), {
       match(candidates.get(usize(0)),
         .Some(c) => {
@@ -178,7 +178,7 @@ _try_find_receiver_method :: (fn(
     });
   });
 
-  if((!(found_method)), { return Option(ReceiverMethodResult).None; });
+  if((!(found_method)), { return(Option(ReceiverMethodResult).None); });
 
   Option(ReceiverMethodResult).Some(ReceiverMethodResult(
     method_val_opt: method_val_opt,
@@ -241,12 +241,12 @@ evaluate_function_call :: (fn(
         match(func_type,
           .Func(_, _, _, _, _, _, _, _, _) => {
             if((args.len() != usize(1)), {
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 tok,
                 `Expected 1 body argument for function definition, got ${args.len()}`,
                 false,
                 .None
-              ));
+              )));
             });
             try_to_implement_function_by_function_type(expr, func_type, callee_env, ctx, using(exn))
           },
@@ -258,12 +258,12 @@ evaluate_function_call :: (fn(
             match(result_opt,
               .Some(e) => e,
               .None    => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   tok,
                   String.from("evaluate_function_call: closure creation failed"),
                   false,
                   .None
-                ));
+                )));
                 make_err_expr()
               }
             )
@@ -279,23 +279,23 @@ evaluate_function_call :: (fn(
                 match(result_opt,
                   .Some(e) => e,
                   .None    => {
-                    exn.throw(dyn format_error_message(
+                    exn.throw(dyn(format_error_message(
                       tok,
                       String.from("evaluate_function_call: SomeT closure creation failed"),
                       false,
                       .None
-                    ));
+                    )));
                     make_err_expr()
                   }
                 )
               },
               .None => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   tok,
                   String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)"),
                   false,
                   .None
-                ));
+                )));
                 make_err_expr()
               }
             )
@@ -310,23 +310,23 @@ evaluate_function_call :: (fn(
                 match(result_opt,
                   .Some(e) => e,
                   .None    => {
-                    exn.throw(dyn format_error_message(
+                    exn.throw(dyn(format_error_message(
                       tok,
                       String.from("evaluate_function_call: DynT closure creation failed"),
                       false,
                       .None
-                    ));
+                    )));
                     make_err_expr()
                   }
                 )
               },
               .None => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   tok,
                   String.from("evaluate_function_call: TypeVal DynT callee without FnTrait (Phase 4)"),
                   false,
                   .None
-                ));
+                )));
                 make_err_expr()
               }
             )
@@ -340,7 +340,7 @@ evaluate_function_call :: (fn(
               .None => {
                 tf := ArrayList(TypeField).new();
                 (tfi : usize) = usize(0);
-                while runtime((tfi < struct_field_labels.len())), {
+                while(runtime((tfi < struct_field_labels.len())), {
                   sf_lbl := match(struct_field_labels.get(tfi), .Some(l) => String.from(l.as_str()), .None => String.new());
                   sf_ty  := match(struct_field_types.get(tfi),  .Some(t) => t, .None => TypeValue.Unit);
                   tf.push(TypeField(
@@ -352,14 +352,14 @@ evaluate_function_call :: (fn(
                     doc_comment:   Option(String).None
                   ));
                   tfi = (tfi + usize(1));
-                };
+                });
                 tf
               }
             );
             call_result_s := try_to_call_type_with_arguments(fields, func_expr, args, callee_env, ctx, false, using(exn));
             (all_known_s : bool) = true;
             (ki_s : usize) = usize(0);
-            while runtime(((ki_s < call_result_s.values.len()) && all_known_s)), {
+            while(runtime(((ki_s < call_result_s.values.len()) && all_known_s)), {
               match(call_result_s.values.get(ki_s),
                 .Some(inner_opt_s) => {
                   match(inner_opt_s,
@@ -372,12 +372,12 @@ evaluate_function_call :: (fn(
                 .None => { all_known_s = false; }
               );
               ki_s = (ki_s + usize(1));
-            };
+            });
             struct_val := if((all_known_s && !(is_ref)), {
               fnames_s := ArrayList(String).new();
               fvals_s  := ArrayList(EvalValue).new();
               (bi_s : usize) = usize(0);
-              while runtime((bi_s < call_result_s.values.len())), {
+              while(runtime((bi_s < call_result_s.values.len())), {
                 match(call_result_s.values.get(bi_s),
                   .Some(inner_v_s) => {
                     match(inner_v_s,
@@ -392,7 +392,7 @@ evaluate_function_call :: (fn(
                   _ => ()
                 );
                 bi_s = (bi_s + usize(1));
-              };
+              });
               Option(EvalValue).Some(EvalValue.StructVal(String.from(struct_name.as_str()), fnames_s, fvals_s))
             }, Option(EvalValue).None);
             out_s := new_expr_info(call_result_s.caller_env, func_type);
@@ -409,18 +409,18 @@ evaluate_function_call :: (fn(
             variant_name := match(sel_var_name,
               .Some(n) => n,
               .None => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   tok,
                   String.from("evaluate_function_call: EnumT callee has no selected variant"),
                   false, .None
-                ));
+                )));
                 String.new()
               }
             );
             (variant_idx : usize) = usize(0);
             (found_variant : bool) = false;
             (vs_i : usize) = usize(0);
-            while runtime(((vs_i < variant_names.len()) && !(found_variant))), {
+            while(runtime(((vs_i < variant_names.len()) && !(found_variant))), {
               match(variant_names.get(vs_i),
                 .Some(vn) => {
                   if((vn.as_str() == variant_name.as_str()), {
@@ -431,19 +431,19 @@ evaluate_function_call :: (fn(
                 .None => ()
               );
               vs_i = (vs_i + usize(1));
-            };
+            });
             if(!(found_variant), {
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 tok,
                 `evaluate_function_call: enum variant not found: ${variant_name}`,
                 false, .None
-              ));
+              )));
             });
             fields_for_var := match(variant_fields_e.get(variant_idx), .Some(f) => f, .None => ArrayList(TypeValue).new());
             labels_for_var := match(variant_field_labels.get(variant_idx), .Some(l) => l, .None => ArrayList(String).new());
             tf_e := ArrayList(TypeField).new();
             (tfi_e : usize) = usize(0);
-            while runtime((tfi_e < fields_for_var.len())), {
+            while(runtime((tfi_e < fields_for_var.len())), {
               vf_ty  := match(fields_for_var.get(tfi_e), .Some(t) => t, .None => TypeValue.Unit);
               vf_lbl := match(labels_for_var.get(tfi_e), .Some(l) => String.from(l.as_str()), .None => String.new());
               tf_e.push(TypeField(
@@ -455,11 +455,11 @@ evaluate_function_call :: (fn(
                 doc_comment:   Option(String).None
               ));
               tfi_e = (tfi_e + usize(1));
-            };
+            });
             call_result_e := try_to_call_type_with_arguments(tf_e, func_expr, args, callee_env, ctx, false, using(exn));
             (all_known_e : bool) = true;
             (ki_e : usize) = usize(0);
-            while runtime(((ki_e < call_result_e.values.len()) && all_known_e)), {
+            while(runtime(((ki_e < call_result_e.values.len()) && all_known_e)), {
               match(call_result_e.values.get(ki_e),
                 .Some(inner_opt_e) => {
                   match(inner_opt_e,
@@ -472,11 +472,11 @@ evaluate_function_call :: (fn(
                 .None => { all_known_e = false; }
               );
               ki_e = (ki_e + usize(1));
-            };
+            });
             enum_val := if(all_known_e, {
               fvals_e := ArrayList(EvalValue).new();
               (bi_e : usize) = usize(0);
-              while runtime((bi_e < call_result_e.values.len())), {
+              while(runtime((bi_e < call_result_e.values.len())), {
                 match(call_result_e.values.get(bi_e),
                   .Some(inner_v_e) => {
                     match(inner_v_e,
@@ -487,7 +487,7 @@ evaluate_function_call :: (fn(
                   _ => ()
                 );
                 bi_e = (bi_e + usize(1));
-              };
+              });
               dot_variant := `.${variant_name}`;
               Option(EvalValue).Some(EvalValue.EnumVal(dot_variant, fvals_e))
             }, Option(EvalValue).None);
@@ -504,7 +504,7 @@ evaluate_function_call :: (fn(
           .Union(_, union_labels, union_types) => {
             tf_u := ArrayList(TypeField).new();
             (tfi_u : usize) = usize(0);
-            while runtime((tfi_u < union_labels.len())), {
+            while(runtime((tfi_u < union_labels.len())), {
               u_lbl := match(union_labels.get(tfi_u), .Some(l) => String.from(l.as_str()), .None => String.new());
               u_ty  := match(union_types.get(tfi_u),  .Some(t) => t, .None => TypeValue.Unit);
               tf_u.push(TypeField(
@@ -516,7 +516,7 @@ evaluate_function_call :: (fn(
                 doc_comment:   Option(String).None
               ));
               tfi_u = (tfi_u + usize(1));
-            };
+            });
             call_result_u := try_to_call_type_with_arguments(tf_u, func_expr, args, callee_env, ctx, true, using(exn));
             out_u := new_expr_info(call_result_u.caller_env, func_type);
             out_u.value = Option(EvalValue).None;
@@ -544,7 +544,7 @@ evaluate_function_call :: (fn(
           .TraitT(_, _, _, _, _, _, _, _) => {
             (has_spec : bool) = false;
             (spec_i : usize) = usize(0);
-            while runtime(((spec_i < args.len()) && !(has_spec))), {
+            while(runtime(((spec_i < args.len()) && !(has_spec))), {
               match(args.get(spec_i),
                 .Some(a) => {
                   if(ast_expr_is_fn_call_of(a, ":=", Option(usize).Some(usize(2))), {
@@ -554,7 +554,7 @@ evaluate_function_call :: (fn(
                 .None => ()
               );
               spec_i = (spec_i + usize(1));
-            };
+            });
             if(has_spec, {
               result_ts := try_to_specialize_trait_type(
                 func_expr, func_type, args, callee_env, ctx, using(exn)
@@ -603,22 +603,22 @@ evaluate_function_call :: (fn(
           // ----------------------------------------------------------------
           .Pointer(_) => {
             arg_expr_p := match(args.get(usize(0)), .Some(a) => a, .None => {
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 tok,
                 String.from("evaluate_function_call: pointer cast expects 1 argument"),
                 false, .None
-              ));
+              )));
               make_err_expr()
             });
             result_ptr := try_to_convert_to_pointer_type(func_type, arg_expr_p, expr, callee_env, ctx, using(exn));
             match(result_ptr,
               .Some(e_ptr) => e_ptr,
               .None => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   tok,
                   String.from("evaluate_function_call: pointer type conversion failed"),
                   false, .None
-                ));
+                )));
                 make_err_expr()
               }
             )
@@ -631,31 +631,31 @@ evaluate_function_call :: (fn(
           _ =>
             if(is_convertible_numeric_type(func_type), {
               arg_expr_n := match(args.get(usize(0)), .Some(a) => a, .None => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   tok,
                   String.from("evaluate_function_call: numeric cast expects 1 argument"),
                   false, .None
-                ));
+                )));
                 make_err_expr()
               });
               result_n := try_to_convert_to_numeric_type(func_type, arg_expr_n, expr, callee_env, ctx, using(exn));
               match(result_n,
                 .Some(e_n) => e_n,
                 .None => {
-                  exn.throw(dyn format_error_message(
+                  exn.throw(dyn(format_error_message(
                     tok,
                     String.from("evaluate_function_call: numeric type conversion failed"),
                     false, .None
-                  ));
+                  )));
                   make_err_expr()
                 }
               )
             }, {
-              exn.throw(dyn format_error_message(
+              exn.throw(dyn(format_error_message(
                 tok,
                 String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 5)"),
                 false, .None
-              ));
+              )));
               make_err_expr()
             })
         )
@@ -669,36 +669,36 @@ evaluate_function_call :: (fn(
       n_a   := args.len();
 
       if(((n_p + n_ev) != n_a), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           tok,
           `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`,
           false,
           .None
-        ));
+        )));
       });
 
       // Evaluate all arguments.
       evaled_arg_infos := ArrayList(ExprInfo).new();
       (ai : usize) = usize(0);
-      while runtime((ai < n_a)), {
+      while(runtime((ai < n_a)), {
         arg_expr := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
         evaled_arg := evaluate_expression(arg_expr, env, ctx);
         arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
         arg_info := match(arg_info_opt,
           .Some(i) => i,
           .None    => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg_expr),
               String.from("evaluate_function_call: arg not evaluated"),
               false,
               .None
-            ));
+            )));
             new_expr_info(env, t_unit())
           }
         );
         _push_arg := evaled_arg_infos.push(arg_info);
         ai = (ai + usize(1));
-      };
+      });
 
       // Build a fresh environment for the function body.
       fresh_env := Environment.new(env.module_path);
@@ -706,7 +706,7 @@ evaluate_function_call :: (fn(
       // Bind captures.
       (cap_i : usize) = usize(0);
       n_cap := cap_names.len();
-      while runtime((cap_i < n_cap)), {
+      while(runtime((cap_i < n_cap)), {
         cn := match(cap_names.get(cap_i), .Some(n) => n, .None => String.from(""));
         ct := match(cap_tys.get(cap_i),   .Some(t) => t, .None => t_unit());
         cap_v := match(cap_vals.get(cap_i),  .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
@@ -714,7 +714,7 @@ evaluate_function_call :: (fn(
         _add_cap := add_variable_to_env(&(fresh_env), cn, ct, cap_v, is_ct_only, false, false, false,
                                    synthetic_token(cn, env.module_path));
         cap_i = (cap_i + usize(1));
-      };
+      });
 
       // Push a frame and bind `__recur_fn`.
       _fr := fresh_env.push_frame(false);
@@ -736,12 +736,12 @@ evaluate_function_call :: (fn(
       // Infer forall type params from argument types.
       n_forall := forall_names.len();
       (fa_i : usize) = usize(0);
-      while runtime((fa_i < n_forall)), {
+      while(runtime((fa_i < n_forall)), {
         fa_name := match(forall_names.get(fa_i), .Some(n) => n, .None => String.from(""));
         n_ptn := param_type_names.len();
         (ptn_i : usize) = usize(0);
         (fa_bound : bool) = false;
-        while runtime(((ptn_i < n_ptn) && (!(fa_bound)))), {
+        while(runtime(((ptn_i < n_ptn) && (!(fa_bound)))), {
           ptn := match(param_type_names.get(ptn_i), .Some(n) => n, .None => String.from(""));
           if((ptn.as_str() == fa_name.as_str()), {
             arg_info := match(evaled_arg_infos.get(ptn_i),
@@ -759,14 +759,14 @@ evaluate_function_call :: (fn(
             fa_bound = true;
           });
           ptn_i = (ptn_i + usize(1));
-        };
+        });
         fa_i = (fa_i + usize(1));
-      };
+      });
 
       // Bind regular params.
       param_vars := ArrayList(Variable).new();
       (pi : usize) = usize(0);
-      while runtime((pi < n_p)), {
+      while(runtime((pi < n_p)), {
         pname    := match(param_names.get(pi),       .Some(n) => n, .None => String.from(""));
         arg_info := match(evaled_arg_infos.get(pi),  .Some(i) => i, .None => new_expr_info(env, t_unit()));
         is_ct    := match(arg_info.value, .Some(_) => true, .None => false);
@@ -778,11 +778,11 @@ evaluate_function_call :: (fn(
         );
         match(var_opt, .Some(v) => { _push_pv := param_vars.push(v); }, .None => ());
         pi = (pi + usize(1));
-      };
+      });
 
       // Bind evidence params (implicit args at indices n_p..n_p+n_ev).
       (evi : usize) = usize(0);
-      while runtime((evi < n_ev)), {
+      while(runtime((evi < n_ev)), {
         ev_name  := match(evidence_names.get(evi),          .Some(n) => n, .None => String.from(""));
         ev_info  := match(evaled_arg_infos.get((n_p + evi)), .Some(i) => i, .None => new_expr_info(env, t_unit()));
         is_ct_ev := match(ev_info.value, .Some(_) => true, .None => false);
@@ -793,7 +793,7 @@ evaluate_function_call :: (fn(
           synthetic_token(ev_name, env.module_path)
         );
         evi = (evi + usize(1));
-      };
+      });
 
       // Set function body context on ctx.
       // We need the declared return type from the callee's type (if available).
@@ -881,13 +881,13 @@ evaluate_function_call :: (fn(
         all_args := ArrayList(AstExpr).new();
         all_args.push(method_info.receiver_expr);
         (ai : usize) = usize(0);
-        while runtime((ai < args.len())), {
+        while(runtime((ai < args.len())), {
           match(args.get(ai),
             .Some(a) => { all_args.push(a); },
             .None    => ()
           );
           ai = (ai + usize(1));
-        };
+        });
         call_result_m := try_to_call_function_with_arguments(
           method_info.method_val_opt, method_info.method_ty,
           expr, evaluated_callee, all_args,
@@ -922,4 +922,4 @@ evaluate_function_call :: (fn(
 )
 });
 
-export evaluate_function_call;
+export(evaluate_function_call);

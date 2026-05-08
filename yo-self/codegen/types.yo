@@ -12,11 +12,11 @@
 //! a data union.
 //! Structs compile to a forward-declared struct.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ TypeValue } :: import "../types/type.yo";
-{ get_struct_fields } :: import "../evaluator/types/field.yo";
-{ CodegenContext } :: import "./context.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../types/type.yo");
+{ get_struct_fields } :: import("../evaluator/types/field.yo");
+{ CodegenContext } :: import("./context.yo");
 
 // ---------------------------------------------------------------------------
 // C name helpers
@@ -70,9 +70,9 @@ type_value_to_c_field :: (fn(t : TypeValue) -> Option(String))(
       (signed && (bits == u8(16)))   => Option(String).Some(String.from("int16_t")),
       (signed && (bits == u8(32)))   => Option(String).Some(String.from("int32_t")),
       (signed && (bits == u8(64)))   => Option(String).Some(String.from("int64_t")),
-      ((!signed) && (bits == u8(8))) => Option(String).Some(String.from("uint8_t")),
-      ((!signed) && (bits == u8(16))) => Option(String).Some(String.from("uint16_t")),
-      ((!signed) && (bits == u8(32))) => Option(String).Some(String.from("uint32_t")),
+      ((!(signed)) && (bits == u8(8))) => Option(String).Some(String.from("uint8_t")),
+      ((!(signed)) && (bits == u8(16))) => Option(String).Some(String.from("uint16_t")),
+      ((!(signed)) && (bits == u8(32))) => Option(String).Some(String.from("uint32_t")),
       true                           => Option(String).Some(String.from("uint64_t"))
     ),
     .Float(bits) => cond(
@@ -142,7 +142,7 @@ generate_struct_decl :: (fn(
     true => field_types.len()
   );
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     skip_field := match(registered_fields,
       .Some(fields) => match(fields.get(i),
         .Some(field) => field.is_comptime,
@@ -172,7 +172,7 @@ generate_struct_decl :: (fn(
       );
     });
     i = (i + usize(1));
-  };
+  });
 
   ctx.*.emitter.emit_declaration_line("};");
 
@@ -188,7 +188,7 @@ all_unit_variants :: (fn(variant_fields : ArrayList(ArrayList(TypeValue))) -> bo
   n := variant_fields.len();
   (i : usize) = usize(0);
   (all_unit : bool) = true;
-  while runtime(((i < n) && all_unit)), {
+  while(runtime(((i < n) && all_unit)), {
     match(variant_fields.get(i),
       .None => (),
       .Some(fields) => {
@@ -196,7 +196,7 @@ all_unit_variants :: (fn(variant_fields : ArrayList(ArrayList(TypeValue))) -> bo
       }
     );
     i = (i + usize(1));
-  };
+  });
   all_unit
 });
 
@@ -228,7 +228,7 @@ emit_simple_enum :: (fn(
   // Variant entries: __YO_ENUM_..._VARIANTNAME = N,
   n := variant_names.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(variant_names.get(i),
       .None => (),
       .Some(vname) => {
@@ -248,7 +248,7 @@ emit_simple_enum :: (fn(
       }
     );
     i = (i + usize(1));
-  };
+  });
 
   // Closing: } __yo_enum_...;
   closing := String.from("} ");
@@ -298,7 +298,7 @@ emit_data_enum :: (fn(
   ctx.*.emitter.emit_declaration_string_line(tag_hdr);
   n := variant_names.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(variant_names.get(i),
       .None => (),
       .Some(vname) => {
@@ -317,7 +317,7 @@ emit_data_enum :: (fn(
       }
     );
     i = (i + usize(1));
-  };
+  });
   tag_ty := String.from("} ");
   tag_ty.push_string(c_name);
   tag_ty.push_str("_tag;");
@@ -326,7 +326,7 @@ emit_data_enum :: (fn(
   // Data union
   ctx.*.emitter.emit_declaration_line("typedef union {");
   (j : usize) = usize(0);
-  while runtime((j < n)), {
+  while(runtime((j < n)), {
     v_name_opt   := variant_names.get(j);
     v_fields_opt := variant_fields.get(j);
     match(v_name_opt,
@@ -338,7 +338,7 @@ emit_data_enum :: (fn(
           .Some(fields) => {
             nf := fields.len();
             (fi : usize) = usize(0);
-            while runtime((fi < nf)), {
+            while(runtime((fi < nf)), {
               match(fields.get(fi),
                 .None => (),
                 .Some(fty) => match(type_value_to_c_field(fty),
@@ -355,7 +355,7 @@ emit_data_enum :: (fn(
                 )
               );
               fi = (fi + usize(1));
-            };
+            });
           }
         );
         member := String.from("  } ");
@@ -365,7 +365,7 @@ emit_data_enum :: (fn(
       }
     );
     j = (j + usize(1));
-  };
+  });
   union_ty := String.from("} ");
   union_ty.push_string(c_name);
   union_ty.push_str("_data;");
@@ -428,8 +428,7 @@ generate_type_decl :: (fn(
   )
 );
 
-export
-  type_value_to_c_field,
+export(type_value_to_c_field,
   struct_c_name, enum_c_name, enum_tag_prefix,
   generate_struct_decl, emit_simple_enum, emit_data_enum,
-  generate_type_decl;
+  generate_type_decl);

@@ -5,21 +5,21 @@
 //! `*(T)` creates a pointer type `Pointer(T)`.
 //! `*(val)` where val is not a type → error (use `&` to take the address of a value).
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  make_err_expr }                                          :: import "../../expr/expr.yo";
+  make_err_expr }                                          :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }               :: import "../../expr/expr_info.yo";
-{ Environment }                                            :: import "../../env/env.yo";
-{ EvalContext }                                            :: import "../context.yo";
-{ EvalValue, create_type_value, is_type_value }            :: import "../value.yo";
-{ TypeValue, t_ptr, t_i32 }                                :: import "../../types/type.yo";
-{ type_of_type }                                           :: import "../../types/hierarchy.yo";
-{ format_error_message }                                   :: import "../../error/error.yo";
-{ Exception }                                              :: import "std/error";
-{ evaluate_expression }                                    :: import "../exprs/expr.yo";
+  expr_info_table_get, expr_info_table_set }               :: import("../../expr/expr_info.yo");
+{ Environment }                                            :: import("../../env/env.yo");
+{ EvalContext }                                            :: import("../context.yo");
+{ EvalValue, create_type_value, is_type_value }            :: import("../value.yo");
+{ TypeValue, t_ptr, t_i32 }                                :: import("../../types/type.yo");
+{ type_of_type }                                           :: import("../../types/hierarchy.yo");
+{ format_error_message }                                   :: import("../../error/error.yo");
+{ Exception }                                              :: import("std/error");
+{ evaluate_expression }                                    :: import("../exprs/expr.yo");
 
 /// Evaluate a raw pointer call `*(T)` (pointer type) or `*(val)` (error).
 ///
@@ -49,12 +49,12 @@ evaluate_raw_pointer_call :: (fn(
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(info_opt,
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `Failed to evaluate the argument expression for pointer:\n${ast_expr_to_string(arg_expr)}`,
         false,
         .None
-      ));
+      )));
     },
     .Some(_) => ()
   );
@@ -80,15 +80,15 @@ evaluate_raw_pointer_call :: (fn(
       expr
     },
     true => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         `Cannot create a pointer to a value. Use "&" to create a pointer to a value:\n${ast_expr_to_string(arg_expr)}`,
         false,
         .None
-      ));
+      )));
       make_err_expr()
     }
   )
 });
 
-export evaluate_raw_pointer_call;
+export(evaluate_raw_pointer_call);

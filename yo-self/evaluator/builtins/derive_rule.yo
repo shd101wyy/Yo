@@ -7,19 +7,19 @@
 //! use a global HashMap(String, EvalValue) registry instead.
 //! The key is the expression-level name of the trait constructor.
 
-open import "std/string";
-{ HashMap }  :: import "std/collections/hash_map";
-{ ArrayList } :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
-{ Environment }                                          :: import "../../env/env.yo";
-{ EvalContext }                                          :: import "../context.yo";
-{ EvalValue, is_func_val }                               :: import "../value.yo";
+open(import("std/string"));
+{ HashMap }  :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
+{ Environment }                                          :: import("../../env/env.yo");
+{ EvalContext }                                          :: import("../context.yo");
+{ EvalValue, is_func_val }                               :: import("../value.yo");
 { ExprInfo, new_expr_info,
-  expr_info_table_set, expr_info_table_get }             :: import "../../expr/expr_info.yo";
-{ TypeValue, t_unit }                                    :: import "../../types/type.yo";
-{ format_error_message }                                 :: import "../../error/error.yo";
-{ evaluate_expression }                                  :: import "../exprs/expr.yo";
-{ Exception }                                            :: import "std/error";
+  expr_info_table_set, expr_info_table_get }             :: import("../../expr/expr_info.yo");
+{ TypeValue, t_unit }                                    :: import("../../types/type.yo");
+{ format_error_message }                                 :: import("../../error/error.yo");
+{ evaluate_expression }                                  :: import("../exprs/expr.yo");
+{ Exception }                                            :: import("std/error");
 
 /// Global registry: trait name → derive rule FuncVal EvalValue.
 /// Mirrors `FunctionValue.deriveRule` / `TraitType.deriveRule` from TypeScript,
@@ -60,11 +60,11 @@ evaluate_derive_rule :: (fn(
   );
 
   if((args.len() < usize(2)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       String.from("derive_rule requires exactly 2 arguments"),
       false, .None
-    ));
+    )));
   });
 
   trait_arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -75,11 +75,11 @@ evaluate_derive_rule :: (fn(
   key := match(key_opt,
     .Some(k) => k,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("derive_rule: first argument must be a trait name or trait constructor call"),
         false, .None
-      ));
+      )));
       String.from("")
     }
   );
@@ -90,11 +90,11 @@ evaluate_derive_rule :: (fn(
   derive_fn_info     := match(derive_fn_info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("derive_rule: failed to evaluate derive function"),
         false, .None
-      ));
+      )));
       new_expr_info(env, t_unit())
     }
   );
@@ -102,21 +102,21 @@ evaluate_derive_rule :: (fn(
   derive_fn_val := match(derive_fn_info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         tok,
         String.from("derive_rule: derive function has no compile-time value"),
         false, .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
 
   if(!(is_func_val(derive_fn_val)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       String.from("derive_rule: second argument must be a function"),
       false, .None
-    ));
+    )));
   });
 
   // Store in the global registry.
@@ -129,5 +129,5 @@ evaluate_derive_rule :: (fn(
   expr
 });
 
-export evaluate_derive_rule;
-export extract_derive_key, get_derive_rule;
+export(evaluate_derive_rule);
+export(extract_derive_key, get_derive_rule);

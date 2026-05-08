@@ -4,7 +4,7 @@
 //! `TypeShape` is exported FIRST so that when `value_b.yo` imports it back,
 //! the field is already in the partial module.
 
-open import "std/string";
+open(import("std/string"));
 
 TypeShape :: enum(
   IntT,
@@ -14,11 +14,11 @@ TypeShape :: enum(
   FuncT(result_name : String)
 );
 
-export TypeShape;
+export(TypeShape);
 
 // Now pull in Value, which imports us back. Anything ValueB needs from us
 // must already be exported above this line.
-{ ValueB } :: import "./value_b.yo";
+{ ValueB } :: import("./value_b.yo");
 
 /// A helper that uses both directions of the cycle.
 type_for_value :: (fn(v : ValueB) -> TypeShape)(
@@ -29,4 +29,4 @@ type_for_value :: (fn(v : ValueB) -> TypeShape)(
   )
 );
 
-export type_for_value;
+export(type_for_value);

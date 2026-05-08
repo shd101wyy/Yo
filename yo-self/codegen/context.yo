@@ -3,9 +3,9 @@
 //! Holds the `Emitter` and any mutable state that expression/statement
 //! generators need to share.  More fields will be added in Phases 4c–4i.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ Emitter } :: import "./emitter.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Emitter } :: import("./emitter.yo");
 
 /// Shared mutable context passed to every `generate_*` function.
 ///
@@ -196,7 +196,7 @@ impl(CodegenContext,
     n_fns := self.*.defined_fns.len();
     (fi : usize) = usize(0);
     (found_list_idx : Option(usize)) = Option(usize).None;
-    while runtime(((fi < n_fns) && match(found_list_idx, .None => true, .Some(_) => false))), {
+    while(runtime(((fi < n_fns) && match(found_list_idx, .None => true, .Some(_) => false))), {
       match(self.*.defined_fns.get(fi),
         .None => (),
         .Some(s) => {
@@ -206,7 +206,7 @@ impl(CodegenContext,
         }
       );
       fi = (fi + usize(1));
-    };
+    });
     match(found_list_idx,
       .None => Option(String).None,
       .Some(list_fi) => match(self.*.fn_param_ty_lists.get(list_fi),
@@ -217,7 +217,7 @@ impl(CodegenContext,
           (cur_start : usize) = usize(0);
           (cur_count : usize) = usize(0);
           (result_ty : Option(String)) = Option(String).None;
-          while runtime(((cur_count <= param_idx) && (cur_start <= tys_len))), {
+          while(runtime(((cur_count <= param_idx) && (cur_start <= tys_len))), {
             sep_pos := match(pipe_csv.index_of(String.from("|"), cur_start),
               .Some(p) => p,
               .None    => tys_len
@@ -227,7 +227,7 @@ impl(CodegenContext,
             });
             cur_start = (sep_pos + usize(1));
             cur_count = (cur_count + usize(1));
-          };
+          });
           result_ty
         }
       )
@@ -251,7 +251,7 @@ impl(CodegenContext,
     n := self.*.array_var_names.len();
     (i : usize) = usize(0);
     (found_idx : Option(usize)) = Option(usize).None;
-    while runtime(((i < n) && match(found_idx, .None => true, .Some(_) => false))), {
+    while(runtime(((i < n) && match(found_idx, .None => true, .Some(_) => false))), {
       match(self.*.array_var_names.get(i),
         .None => (),
         .Some(s) => {
@@ -259,7 +259,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     match(found_idx,
       .None => Option(String).None,
       .Some(idx) => self.*.array_var_sizes.get(idx)
@@ -271,7 +271,7 @@ impl(CodegenContext,
     n := self.*.array_var_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.array_var_names.get(i),
         .None => (),
         .Some(s) => {
@@ -279,7 +279,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -293,7 +293,7 @@ impl(CodegenContext,
     n := self.*.slice_var_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.slice_var_names.get(i),
         .None => (),
         .Some(s) => {
@@ -301,7 +301,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -316,7 +316,7 @@ impl(CodegenContext,
     n := self.*.box_var_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.box_var_names.get(i),
         .None => (),
         .Some(s) => {
@@ -324,7 +324,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -338,7 +338,7 @@ impl(CodegenContext,
     n := self.*.emitted_const_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.emitted_const_names.get(i),
         .None => (),
         .Some(s) => {
@@ -346,7 +346,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -360,7 +360,7 @@ impl(CodegenContext,
     n := self.*.string_const_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.string_const_names.get(i),
         .None => (),
         .Some(s) => {
@@ -368,7 +368,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -378,7 +378,7 @@ impl(CodegenContext,
     n := self.*.defined_fns.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.defined_fns.get(i),
         .None => (),
         .Some(s) => {
@@ -386,7 +386,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -400,7 +400,7 @@ impl(CodegenContext,
     n := self.*.defined_enums.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.defined_enums.get(i),
         .None => (),
         .Some(s) => {
@@ -408,7 +408,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -426,7 +426,7 @@ impl(CodegenContext,
     n := self.*.defined_structs.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.defined_structs.get(i),
         .None => (),
         .Some(s) => {
@@ -437,7 +437,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
   }),
 
   /// Return the CSV of field names for a registered struct, or `None` if not found or empty.
@@ -445,7 +445,7 @@ impl(CodegenContext,
     n := self.*.defined_structs.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
-    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+    while(runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
       match(self.*.defined_structs.get(i),
         .None => (),
         .Some(s) => {
@@ -461,7 +461,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   }),
 
@@ -478,7 +478,7 @@ impl(CodegenContext,
     n := self.*.open_var_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
-    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+    while(runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
       match(self.*.open_var_names.get(i),
         .None => (),
         .Some(s) => {
@@ -494,7 +494,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   }),
 
@@ -503,7 +503,7 @@ impl(CodegenContext,
     n := self.*.defined_structs.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.defined_structs.get(i),
         .None => (),
         .Some(s) => {
@@ -511,7 +511,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -529,7 +529,7 @@ impl(CodegenContext,
     n := self.*.variant_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.variant_names.get(i),
         .None => (),
         .Some(s) => {
@@ -548,8 +548,8 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
-    if((!found), {
+    });
+    if((!(found)), {
       self.*.variant_names.push(String.from(variant));
       self.*.variant_enums.push(String.from(enum_name));
       self.*.variant_fields_csv.push(String.from(fields_csv));
@@ -567,7 +567,7 @@ impl(CodegenContext,
     n := self.*.var_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
-    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+    while(runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
       match(self.*.var_names.get(i),
         .None => (),
         .Some(s) => {
@@ -580,7 +580,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   }),
 
@@ -591,7 +591,7 @@ impl(CodegenContext,
     n := self.*.variant_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.variant_enums.get(i),
         .None => (),
         .Some(e) => {
@@ -606,7 +606,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -615,7 +615,7 @@ impl(CodegenContext,
     n := self.*.variant_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
-    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+    while(runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
       match(self.*.variant_names.get(i),
         .None => (),
         .Some(s) => {
@@ -628,7 +628,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   }),
 
@@ -641,7 +641,7 @@ impl(CodegenContext,
     n := self.*.variant_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
-    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+    while(runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
       match(self.*.variant_names.get(i),
         .None => (),
         .Some(s) => {
@@ -664,7 +664,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   }),
 
@@ -710,7 +710,7 @@ impl(CodegenContext,
     n := self.*.array_alias_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
-    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+    while(runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
       match(self.*.array_alias_names.get(i),
         .None => (),
         .Some(s) => {
@@ -723,7 +723,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   }),
 
@@ -732,7 +732,7 @@ impl(CodegenContext,
     n := self.*.array_alias_names.len();
     (i : usize) = usize(0);
     (result : Option(usize)) = Option(usize).None;
-    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+    while(runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
       match(self.*.array_alias_names.get(i),
         .None => (),
         .Some(s) => {
@@ -745,7 +745,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   }),
 
@@ -756,7 +756,7 @@ impl(CodegenContext,
     n := self.*.defined_structs.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.defined_structs.get(i),
         .None => (),
         .Some(s) => {
@@ -767,7 +767,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
   }),
 
   /// Return the CSV of C field types for struct `name`, or `None` if not found.
@@ -775,7 +775,7 @@ impl(CodegenContext,
     n := self.*.defined_structs.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
-    while runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
+    while(runtime(((i < n) && match(result, .None => true, .Some(_) => false))), {
       match(self.*.defined_structs.get(i),
         .None => (),
         .Some(s) => {
@@ -791,7 +791,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   }),
 
@@ -805,7 +805,7 @@ impl(CodegenContext,
     n := self.*.derive_tostring_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.derive_tostring_names.get(i),
         .None => (),
         .Some(s) => {
@@ -813,7 +813,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -827,7 +827,7 @@ impl(CodegenContext,
     n := self.*.derive_clone_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.derive_clone_names.get(i),
         .None => (),
         .Some(s) => {
@@ -835,7 +835,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -849,7 +849,7 @@ impl(CodegenContext,
     n := self.*.derive_eq_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.derive_eq_names.get(i),
         .None => (),
         .Some(s) => {
@@ -857,7 +857,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -871,7 +871,7 @@ impl(CodegenContext,
     n := self.*.derive_hash_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.derive_hash_names.get(i),
         .None => (),
         .Some(s) => {
@@ -879,7 +879,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -893,7 +893,7 @@ impl(CodegenContext,
     n := self.*.derive_ord_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.derive_ord_names.get(i),
         .None => (),
         .Some(s) => {
@@ -901,7 +901,7 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   }),
 
@@ -915,7 +915,7 @@ impl(CodegenContext,
     n := self.*.skipped_fn_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
-    while runtime(((i < n) && (!found))), {
+    while(runtime(((i < n) && (!(found)))), {
       match(self.*.skipped_fn_names.get(i),
         .None => (),
         .Some(s) => {
@@ -923,9 +923,9 @@ impl(CodegenContext,
         }
       );
       i = (i + usize(1));
-    };
+    });
     found
   })
 );
 
-export CodegenContext;
+export(CodegenContext);

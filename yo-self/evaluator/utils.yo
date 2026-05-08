@@ -9,28 +9,28 @@
 //!                                 `set_expr_as_needs_to_call_dup` (stub),
 //!                                 `attach_temp_variable_to_expr` (stub)
 
-open import "std/string";
-{ ArrayList }  :: import "std/collections/array_list";
-{ HashSet }    :: import "std/collections/hash_set";
-{ HashMap }    :: import "std/collections/hash_map";
+open(import("std/string"));
+{ ArrayList }  :: import("std/collections/array_list");
+{ HashSet }    :: import("std/collections/hash_set");
+{ HashMap }    :: import("std/collections/hash_map");
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_atom,
-  make_err_expr }                                            :: import "../expr/expr.yo";
-{ ExprInfoTable, expr_info_table_get }                      :: import "../expr/expr_info.yo";
+  make_err_expr }                                            :: import("../expr/expr.yo");
+{ ExprInfoTable, expr_info_table_get }                      :: import("../expr/expr_info.yo");
 { Environment, Variable, Frame, new_frame,
   get_variables_from_env, make_err_variable,
-  generate_variable_id, add_variable_to_begin_block_frame } :: import "../env/env.yo";
-{ Token }                                                    :: import "../lexer/token.yo";
-{ EvalContext }                                              :: import "./context.yo";
-{ atof }                                                     :: import "std/libc/stdlib";
+  generate_variable_id, add_variable_to_begin_block_frame } :: import("../env/env.yo");
+{ Token }                                                    :: import("../lexer/token.yo");
+{ EvalContext }                                              :: import("./context.yo");
+{ atof }                                                     :: import("std/libc/stdlib");
 { format_error_message, format_error_messages,
-  TokenAndError, YoError }                                   :: import "../error/error.yo";
-{ Exception }                                                :: import "std/error";
-{ EvalValue, is_unknown_val, is_var_ref }                   :: import "./value.yo";
-{ TypeValue }                                               :: import "../types/type.yo";
-{ are_types_compatible }                                    :: import "../types/compatibility.yo";
-{ type_contains_rc_type }                                   :: import "../types/utils.yo";
-{ expr_info_table_set }                                     :: import "../expr/expr_info.yo";
+  TokenAndError, YoError }                                   :: import("../error/error.yo");
+{ Exception }                                                :: import("std/error");
+{ EvalValue, is_unknown_val, is_var_ref }                   :: import("./value.yo");
+{ TypeValue }                                               :: import("../types/type.yo");
+{ are_types_compatible }                                    :: import("../types/compatibility.yo");
+{ type_contains_rc_type }                                   :: import("../types/utils.yo");
+{ expr_info_table_set }                                     :: import("../expr/expr_info.yo");
 
 // ---------------------------------------------------------------------------
 // Temp variable name generation
@@ -54,7 +54,7 @@ generate_temp_variable_name_prefix :: (fn(module_path : String) -> String)({
   n      := bytes.len();
   i      := usize(0);
   taken  := usize(0);
-  while runtime(((i < n) && (taken < usize(12)))), {
+  while(runtime(((i < n) && (taken < usize(12)))), {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     is_alnum := (
       ((b >= u8(97)) && (b <= u8(122))) ||   // 'a'-'z'
@@ -68,7 +68,7 @@ generate_temp_variable_name_prefix :: (fn(module_path : String) -> String)({
     });
     i     = (i + usize(1));
     taken = (taken + usize(1));
-  };
+  });
   out := `_${result}_temp_`;
   out
 });
@@ -226,13 +226,13 @@ find_rc_value_owner_relationship :: (fn(
     .None => Option(Variable).None,
     .Some(var_name) => {
       vars := get_variables_from_env(env, var_name);
-      if((vars.len() == usize(0)), { return Option(Variable).None; });
+      if((vars.len() == usize(0)), { return(Option(Variable).None); });
       (candidate_opt : Option(Variable)) = Option(Variable).Some(
         match(vars.get((vars.len() - usize(1))), .Some(v) => v, .None => make_err_variable(env))
       );
       visited := HashSet(String).new();
       // Follow the chain until we find an owning variable or it breaks.
-      while runtime(match(candidate_opt,
+      while(runtime(match(candidate_opt,
         .Some(c) => c.is_owning_the_same_rc_value_as.is_some(),
         .None    => false
       )), {
@@ -240,7 +240,7 @@ find_rc_value_owner_relationship :: (fn(
           .Some(cand) => {
             if(visited.contains(cand.id), {
               candidate_opt = Option(Variable).None;
-              return candidate_opt;
+              return(candidate_opt);
             });
             visited_add_result := visited.add(cand.id);
             candidate_opt = match(cand.is_owning_the_same_rc_value_as,
@@ -250,7 +250,7 @@ find_rc_value_owner_relationship :: (fn(
           },
           .None => ()
         );
-      };
+      });
       match(candidate_opt,
         .Some(c) => (if(c.is_owning_the_rc_value,
           Option(Variable).Some(c),
@@ -286,7 +286,7 @@ throw_expr_is_implicit_variable_error :: (fn(
     .Some(rhs_info) => {
       n := rhs_info.path_collection.len();
       (i : usize) = usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         path := match(rhs_info.path_collection.get(i), .Some(p) => p, .None => ArrayList(String).new());
         if((path.len() > usize(0)), {
           match(path.get(usize(0)),
@@ -295,7 +295,7 @@ throw_expr_is_implicit_variable_error :: (fn(
           );
         });
         i = (i + usize(1));
-      };
+      });
     },
     .None => ()
   );
@@ -315,12 +315,12 @@ throw_expr_is_implicit_variable_error :: (fn(
         .None     => (),
         .Some(rv) => {
           if(rv.is_implicit, {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(rhs),
               `Cannot use implicit variable "${var_name}" in assignment. Implicit variables must be passed via using() parameters.`,
               false,
               .None
-            ));
+            )));
           });
         }
       );
@@ -357,7 +357,7 @@ require_expr_not_consumed :: (fn(
           token         : ast_expr_token(rhs),
           error_message : `Variable "${var_name}" is not defined.`
         ));
-        exn.throw(dyn format_error_messages(entries, false, .None));
+        exn.throw(dyn(format_error_messages(entries, false, .None)));
       });
       v := match(vars.get((vars.len() - usize(1))), .Some(v) => v, .None => make_err_variable(env));
       match(v.consumed_at_token,
@@ -372,7 +372,7 @@ require_expr_not_consumed :: (fn(
             token         : consumed_tok,
             error_message : String.from("value moved here")
           ));
-          exn.throw(dyn format_error_messages(entries, false, .None));
+          exn.throw(dyn(format_error_messages(entries, false, .None)));
         }
       );
     }
@@ -432,9 +432,9 @@ consume_case_body_temp_var :: (fn(
   match(var_name_opt,
     .None => (),
     .Some(var_name) => {
-      if(!(is_temp_variable_name(env.module_path, var_name)), { return (); });
+      if(!(is_temp_variable_name(env.module_path, var_name)), { return(()); });
       vars := get_variables_from_env(env, var_name);
-      if((vars.len() == usize(0)), { return (); });
+      if((vars.len() == usize(0)), { return(()); });
       v := match(vars.get((vars.len() - usize(1))), .Some(x) => x, .None => make_err_variable(env));
       if(v.consumed_at_token.is_none(), {
         // Variable is an RC object; mutation is in-place and visible through env.
@@ -470,50 +470,50 @@ merge_and_check_envs :: (fn(
   ctx    : *(EvalContext),
   using(exn : Exception)
 ) -> Environment)({
-  if((bodies.len() == usize(0)), { return env; });
+  if((bodies.len() == usize(0)), { return(env); });
 
   max_frame_level := (env.frames.len() - usize(1));
 
   // Collect case environments from the expr_info_table.
   case_envs := ArrayList(Environment).new();
   (bi : usize) = usize(0);
-  while runtime((bi < bodies.len())), {
+  while(runtime((bi < bodies.len())), {
     body := match(bodies.get(bi), .Some(b) => b, .None => make_err_expr());
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(body));
     match(info_opt,
       .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(body),
           `Expected the body of the case to be evaluated, but it is not.`,
           false,
           .None
-        ));
+        )));
       },
       .Some(info) => {
         case_envs.push(info.env);
       }
     );
     bi = (bi + usize(1));
-  };
+  });
 
   // Verify that every case env has the same frame depth as the base env.
   (ci : usize) = usize(0);
-  while runtime((ci < case_envs.len())), {
+  while(runtime((ci < case_envs.len())), {
     case_env := match(case_envs.get(ci), .Some(e) => e, .None => env);
     if(((case_env.frames.len() - usize(1)) != max_frame_level), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(match(bodies.get(ci), .Some(b) => b, .None => make_err_expr())),
         `Frame level is different for different cases.`,
         false,
         .None
-      ));
+      )));
     });
     ci = (ci + usize(1));
-  };
+  });
 
   // Process each frame level from 0 to max_frame_level (inclusive).
   (frame_i : usize) = usize(0);
-  while runtime((frame_i <= max_frame_level)), {
+  while(runtime((frame_i <= max_frame_level)), {
     frame_opt := env.frames.get(frame_i);
     match(frame_opt,
       .None => (),
@@ -524,7 +524,7 @@ merge_and_check_envs :: (fn(
         // base env frame (only for non-innermost frames).
         // ---------------------------------------------------------------
         (cj : usize) = usize(0);
-        while runtime((cj < case_envs.len())), {
+        while(runtime((cj < case_envs.len())), {
           case_env := match(case_envs.get(cj), .Some(e) => e, .None => env);
           case_frame := match(case_env.frames.get(frame_i), .Some(f) => f, .None => new_frame(false));
           case_vars_len := case_frame.variables.len();
@@ -536,71 +536,69 @@ merge_and_check_envs :: (fn(
                 // Check whether all extra variables are temp variables.
                 (all_temps : bool) = true;
                 (ek : usize) = base_vars_len;
-                while runtime((ek < case_vars_len)), {
+                while(runtime((ek < case_vars_len)), {
                   extra_var := match(case_frame.variables.get(ek), .Some(v) => v, .None => make_err_variable(env));
                   if(!(is_temp_variable_name(env.module_path, extra_var.name)), {
                     all_temps = false;
                   });
                   ek = (ek + usize(1));
-                };
+                });
                 if(all_temps, {
                   // Adopt extra temps into the base env frame. Adopted temps
                   // must NOT own RC values (each branch handles its own drops).
                   (ek2 : usize) = base_vars_len;
-                  while runtime((ek2 < case_vars_len)), {
+                  while(runtime((ek2 < case_vars_len)), {
                     extra_var2 := match(case_frame.variables.get(ek2), .Some(v) => v, .None => make_err_variable(env));
                     extra_var2.is_owning_the_rc_value = false;
                     { ___ := frame.variables.push(extra_var2); };
                     ek2 = (ek2 + usize(1));
-                  };
+                  });
                 }, {
-                  exn.throw(dyn format_error_message(
+                  exn.throw(dyn(format_error_message(
                     ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
                     `Frame level ${frame_i} has different number of values for different cases.`,
                     false,
                     .None
-                  ));
+                  )));
                 });
               },
               true => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
                   `Frame level ${frame_i} has different number of values for different cases.`,
                   false,
                   .None
-                ));
+                )));
               }
             );
           });
 
           // Check variable name consistency.
           (kk : usize) = usize(0);
-          while runtime((kk < frame.variables.len())), {
+          while(runtime((kk < frame.variables.len())), {
             base_var    := match(frame.variables.get(kk),      .Some(v) => v, .None => make_err_variable(env));
             case_var_k  := match(case_frame.variables.get(kk), .Some(v) => v, .None => make_err_variable(env));
             if(
-              ((base_var.name != case_var_k.name)
-               && !(is_temp_variable_name(env.module_path, base_var.name))
-               && !(is_temp_variable_name(env.module_path, case_var_k.name))),
+              (((base_var.name != case_var_k.name) && !(is_temp_variable_name(env.module_path, base_var.name))) && !(is_temp_variable_name(env.module_path, case_var_k.name))),
               {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
                   `Frame level ${frame_i} has different variable names for different cases.`,
                   false,
                   .None
-                ));
+                )));
               }
             );
             kk = (kk + usize(1));
-          };
+          });
           cj = (cj + usize(1));
-        };
+        });
 
         // ---------------------------------------------------------------
         // For each variable column, check and propagate state.
         // ---------------------------------------------------------------
         (var_j : usize) = usize(0);
-        while runtime((var_j < frame.variables.len())), {
+        while(runtime((var_j < frame.variables.len())), {
           base_var := match(frame.variables.get(var_j), .Some(v) => v, .None => make_err_variable(env));
           var_name := base_var.name;
 
@@ -612,7 +610,7 @@ merge_and_check_envs :: (fn(
           case_types             := ArrayList(TypeValue).new();
 
           (ck : usize) = usize(0);
-          while runtime((ck < case_envs.len())), {
+          while(runtime((ck < case_envs.len())), {
             case_env  := match(case_envs.get(ck), .Some(e) => e, .None => env);
             case_frame_k := match(case_env.frames.get(frame_i), .Some(f) => f, .None => new_frame(false));
             case_var := match(case_frame_k.variables.get(var_j), .Some(v) => v, .None => make_err_variable(env));
@@ -627,7 +625,7 @@ merge_and_check_envs :: (fn(
             { ___ := var_ids.push(case_var.id); };
             { ___ := case_types.push(case_var.ty); };
             ck = (ck + usize(1));
-          };
+          });
 
           n_cases := case_envs.len();
 
@@ -639,12 +637,12 @@ merge_and_check_envs :: (fn(
               .Some(_) => {
                 match(base_var.initialized_at_token,
                   .None => {
-                    exn.throw(dyn format_error_message(
+                    exn.throw(dyn(format_error_message(
                       base_var.token,
                       `Variable "${var_name}" might not be initialized in all cases.`,
                       false,
                       .None
-                    ));
+                    )));
                   },
                   .Some(_) => ()
                 );
@@ -657,11 +655,11 @@ merge_and_check_envs :: (fn(
             (all_init : bool) = true;
             (any_init : bool) = false;
             (init_i : usize) = usize(0);
-            while runtime((init_i < n_cases)), {
+            while(runtime((init_i < n_cases)), {
               tok_opt := match(initialized_at_tokens.get(init_i), .Some(v) => v, .None => Option(Token).None);
               match(tok_opt, .Some(_) => { any_init = true; }, .None => { all_init = false; });
               init_i = (init_i + usize(1));
-            };
+            });
             if((all_init && !(match(base_var.initialized_at_token, .Some(_) => true, .None => false))), {
               first_tok := match(initialized_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
               match(first_tok, .Some(t) => { base_var.initialized_at_token = Option(Token).Some(t); }, .None => ());
@@ -670,7 +668,7 @@ merge_and_check_envs :: (fn(
             if((any_init && !(all_init)), {
               err_list := ArrayList(TokenAndError).new();
               (ei : usize) = usize(0);
-              while runtime((ei < n_cases)), {
+              while(runtime((ei < n_cases)), {
                 tok_opt := match(initialized_at_tokens.get(ei), .Some(v) => v, .None => Option(Token).None);
                 body_tok := ast_expr_token(match(bodies.get(ei), .Some(b) => b, .None => make_err_expr()));
                 msg := cond(
@@ -681,8 +679,8 @@ merge_and_check_envs :: (fn(
                 err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
                 { ___ := err_list.push(TokenAndError(token: err_tok, error_message: msg)); };
                 ei = (ei + usize(1));
-              };
-              exn.throw(dyn format_error_messages(err_list, false, .None));
+              });
+              exn.throw(dyn(format_error_messages(err_list, false, .None)));
             });
           });
 
@@ -705,11 +703,11 @@ merge_and_check_envs :: (fn(
             (all_consumed : bool) = true;
             (any_consumed : bool) = false;
             (cons_i : usize) = usize(0);
-            while runtime((cons_i < n_cases)), {
+            while(runtime((cons_i < n_cases)), {
               tok_opt := match(consumed_at_tokens.get(cons_i), .Some(v) => v, .None => Option(Token).None);
               match(tok_opt, .Some(_) => { any_consumed = true; }, .None => { all_consumed = false; });
               cons_i = (cons_i + usize(1));
-            };
+            });
             if((all_consumed && !(match(base_var.consumed_at_token, .Some(_) => true, .None => false))), {
               first_tok := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
               match(first_tok, .Some(t) => { base_var.consumed_at_token = Option(Token).Some(t); }, .None => ());
@@ -718,7 +716,7 @@ merge_and_check_envs :: (fn(
             if((any_consumed && !(all_consumed)), {
               err_list := ArrayList(TokenAndError).new();
               (eci : usize) = usize(0);
-              while runtime((eci < n_cases)), {
+              while(runtime((eci < n_cases)), {
                 tok_opt := match(consumed_at_tokens.get(eci), .Some(v) => v, .None => Option(Token).None);
                 body_tok := ast_expr_token(match(bodies.get(eci), .Some(b) => b, .None => make_err_expr()));
                 msg := cond(
@@ -729,8 +727,8 @@ merge_and_check_envs :: (fn(
                 err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
                 { ___ := err_list.push(TokenAndError(token: err_tok, error_message: msg)); };
                 eci = (eci + usize(1));
-              };
-              exn.throw(dyn format_error_messages(err_list, false, .None));
+              });
+              exn.throw(dyn(format_error_messages(err_list, false, .None)));
             });
           });
 
@@ -739,11 +737,11 @@ merge_and_check_envs :: (fn(
           (all_owning : bool) = true;
           (any_owning : bool) = false;
           (ow_i : usize) = usize(0);
-          while runtime((ow_i < n_cases)), {
+          while(runtime((ow_i < n_cases)), {
             tok_opt := match(owning_at_tokens.get(ow_i), .Some(v) => v, .None => Option(Token).None);
             match(tok_opt, .Some(_) => { any_owning = true; }, .None => { all_owning = false; });
             ow_i = (ow_i + usize(1));
-          };
+          });
           if((all_owning && !(base_var.is_owning_the_rc_value)), {
             base_var.is_owning_the_rc_value            = true;
             base_var.is_owning_the_same_rc_value_as    = Option(Box(Variable)).None;
@@ -752,7 +750,7 @@ merge_and_check_envs :: (fn(
           if(((any_owning && !(all_owning)) && !(base_var.is_owning_the_rc_value)), {
             err_list := ArrayList(TokenAndError).new();
             (oei : usize) = usize(0);
-            while runtime((oei < n_cases)), {
+            while(runtime((oei < n_cases)), {
               tok_opt := match(owning_at_tokens.get(oei), .Some(v) => v, .None => Option(Token).None);
               body_tok := ast_expr_token(match(bodies.get(oei), .Some(b) => b, .None => make_err_expr()));
               msg := cond(
@@ -763,8 +761,8 @@ merge_and_check_envs :: (fn(
               err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
               { ___ := err_list.push(TokenAndError(token: err_tok, error_message: msg)); };
               oei = (oei + usize(1));
-            };
-            exn.throw(dyn format_error_messages(err_list, false, .None));
+            });
+            exn.throw(dyn(format_error_messages(err_list, false, .None)));
           });
 
           // ---- Handle variable ID reassignment across branches ----
@@ -772,11 +770,11 @@ merge_and_check_envs :: (fn(
           original_id := base_var.id;
           (has_reassignment : bool) = false;
           (rid_i : usize) = usize(0);
-          while runtime((rid_i < n_cases)), {
+          while(runtime((rid_i < n_cases)), {
             case_id := match(var_ids.get(rid_i), .Some(s) => s, .None => String.from(""));
             if((case_id != original_id), { has_reassignment = true; });
             rid_i = (rid_i + usize(1));
-          };
+          });
           if(has_reassignment, {
             new_id := generate_variable_id(env.module_path, var_name);
             base_var.id                                = new_id;
@@ -785,11 +783,11 @@ merge_and_check_envs :: (fn(
           });
 
           var_j = (var_j + usize(1));
-        };
+        });
       }
     );
     frame_i = (frame_i + usize(1));
-  };
+  });
 
   env
 });
@@ -941,7 +939,7 @@ _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> 
       (result : i64) = i64(0);
       (i : usize) = start;
       (ok : bool) = true;
-      while runtime(((i < n) && ok)), {
+      while(runtime(((i < n) && ok)), {
         match(bytes.get(i),
           .Some(b) =>
             match(_digit_value(b, base),
@@ -951,7 +949,7 @@ _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> 
           .None => { ok = false; }
         );
         i = (i + usize(1));
-      };
+      });
       cond(ok => .Some(result), true => .None)
     }
   )
@@ -991,13 +989,13 @@ parse_raw_float :: (fn(raw : String) -> Option(f64))({
   )
 });
 
-export generate_new_temp_variable_name, is_temp_variable_name, random_id;
-export find_rc_value_owner_relationship;
-export throw_expr_is_implicit_variable_error;
-export require_expr_not_consumed;
-export set_expr_as_needs_to_call_dup;
-export attach_temp_variable_to_expr;
-export doc_comment_lookup_key_from_token;
-export consume_case_body_temp_var, merge_and_check_envs;
-export are_values_equal;
-export parse_raw_int, parse_raw_float;
+export(generate_new_temp_variable_name, is_temp_variable_name, random_id);
+export(find_rc_value_owner_relationship);
+export(throw_expr_is_implicit_variable_error);
+export(require_expr_not_consumed);
+export(set_expr_as_needs_to_call_dup);
+export(attach_temp_variable_to_expr);
+export(doc_comment_lookup_key_from_token);
+export(consume_case_body_temp_var, merge_and_check_envs);
+export(are_values_equal);
+export(parse_raw_int, parse_raw_float);

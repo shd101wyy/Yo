@@ -8,10 +8,10 @@
 //!
 //! This mirrors `src/version.ts`.
 
-open import "std/string";
-{ Path }          :: import "std/path";
-{ exists, read_string } :: import "std/fs/file";
-{ AnyError, Exception } :: import "std/error";
+open(import("std/string"));
+{ Path }          :: import("std/path");
+{ exists, read_string } :: import("std/fs/file");
+{ AnyError, Exception } :: import("std/error");
 
 /// The name of the version pin file.
 YO_VERSION_FILE :: ".yo-version";
@@ -32,15 +32,15 @@ current_yo_version :: (fn() -> str)(CURRENT_YO_VERSION);
 _all_digits :: (fn(s : String, start : usize, end_pos : usize) -> bool)({
   ok := true;
   i := start;
-  while runtime((i < end_pos)), {
+  while(runtime((i < end_pos)), {
     byte_opt := s.as_bytes().get(i);
     is_digit := match(byte_opt,
       .None    => false,
       .Some(b) => ((b >= u8(48)) && (b <= u8(57)))
     );
-    if((!is_digit), { ok = false; });
+    if((!(is_digit)), { ok = false; });
     i = (i + usize(1));
-  };
+  });
   ok
 });
 
@@ -62,7 +62,7 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
   version := content.trim();
 
   if((version.len() == usize(0)), {
-    return .Err(`Empty .yo-version file. Specify a version number (e.g., ${CURRENT_YO_VERSION}).`);
+    return(.Err(`Empty .yo-version file. Specify a version number (e.g., ${CURRENT_YO_VERSION}).`));
   });
 
   // Strip leading v/V  (ASCII: 'v' = 118, 'V' = 86)
@@ -77,7 +77,7 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
 
   // Reject "latest"
   if((version.to_lowercase().as_str() == "latest"), {
-    return .Err(`Invalid version "latest" in .yo-version. Specify a concrete version number (e.g., ${CURRENT_YO_VERSION}).`);
+    return(.Err(`Invalid version "latest" in .yo-version. Specify a concrete version number (e.g., ${CURRENT_YO_VERSION}).`));
   });
 
   // Validate semver: MAJOR.MINOR.PATCH(-prerelease)?(+build)?
@@ -87,14 +87,14 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
   dot1_opt := version.index_of(String.from("."));
   match(dot1_opt,
     .None => {
-      return .Err(`Invalid version "${version}" in .yo-version. Expected semver like "0.1.12".`);
+      return(.Err(`Invalid version "${version}" in .yo-version. Expected semver like "0.1.12".`));
     },
     .Some(dot1) => {
       rest1 := version.substring((dot1 + usize(1)), version.len());
       dot2_opt := rest1.index_of(String.from("."));
       match(dot2_opt,
         .None => {
-          return .Err(`Invalid version "${version}" in .yo-version. Expected semver like "0.1.12".`);
+          return(.Err(`Invalid version "${version}" in .yo-version. Expected semver like "0.1.12".`));
         },
         .Some(dot2) => {
           major         := version.substring(usize(0), dot1);
@@ -111,8 +111,8 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
             )
           );
 
-          if((!major_ok || !minor_ok || !patch_ok), {
-            return .Err(`Invalid version "${version}" in .yo-version. Expected semver like "0.1.12".`);
+          if((!(major_ok) || !(minor_ok) || !(patch_ok)), {
+            return(.Err(`Invalid version "${version}" in .yo-version. Expected semver like "0.1.12".`));
           });
 
           .Ok(version)
@@ -135,21 +135,21 @@ find_yo_version_file :: (fn(
     keep_going := true;
     current    := start_dir;
 
-    while runtime(keep_going), {
+    while(runtime(keep_going), {
       candidate := current.join(Path.new(String.from(YO_VERSION_FILE)));
       found := io.await(exists(candidate, using(io)));
       if(found, {
         result     = .Some(candidate);
         keep_going = false;
       });
-      if((!found), {
+      if((!(found)), {
         parent_opt := current.parent();
         match(parent_opt,
           .None         => { keep_going = false; },
           .Some(parent) => { current = parent; }
         );
       });
-    };
+    });
     result
   })
 );
@@ -170,7 +170,7 @@ read_yo_version :: (fn(
       .Some(path) => {
         content := io.await(read_string(path, using(io)));
         match(parse_yo_version(content),
-          .Err(e)       => exn.throw(dyn e),
+          .Err(e)       => exn.throw(dyn(e)),
           .Ok(version)  => .Some(version)
         )
       }
@@ -183,11 +183,9 @@ is_pinned_version_current :: (fn(pinned : String, current : String) -> bool)(
   (pinned.as_str() == current.as_str())
 );
 
-export
-  YO_VERSION_FILE, CURRENT_YO_VERSION,
+export(YO_VERSION_FILE, CURRENT_YO_VERSION,
   current_yo_version,
   parse_yo_version,
   find_yo_version_file,
   read_yo_version,
-  is_pinned_version_current
-;
+  is_pinned_version_current);

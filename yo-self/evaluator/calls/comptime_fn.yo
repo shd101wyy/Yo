@@ -16,29 +16,29 @@
 //!   - No `functionValue` field back-patching (not in Yo TypeValue).
 //!   - SomeType id comparison uses `SomeT.id` for exact identity.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr }   :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_get }           :: import "../../expr/expr_info.yo";
-{ Variable, Environment }                                  :: import "../../env/env.yo";
-{ TypeValue, t_unit }                                      :: import "../../types/type.yo";
-{ are_types_compatible, are_types_compatible_exact }       :: import "../../types/compatibility.yo";
-{ is_some_type, is_type_hierarchy_type }                   :: import "../../types/guards.yo";
-{ type_contains_some_type }                                :: import "../../types/utils.yo";
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr }   :: import("../../expr/expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get }           :: import("../../expr/expr_info.yo");
+{ Variable, Environment }                                  :: import("../../env/env.yo");
+{ TypeValue, t_unit }                                      :: import("../../types/type.yo");
+{ are_types_compatible, are_types_compatible_exact }       :: import("../../types/compatibility.yo");
+{ is_some_type, is_type_hierarchy_type }                   :: import("../../types/guards.yo");
+{ type_contains_some_type }                                :: import("../../types/utils.yo");
 {
   EvalValue, eval_value_eq, is_type_val, create_unknown_val
-}                                                          :: import "../value.yo";
+}                                                          :: import("../value.yo");
 {
   EvalContext, ArgValues,
   CalledComptimeFnCache, ComptimeFnCacheEntry,
   ComptimeFnCallResult,
   FuncOrAsyncBlockCtx, FuncOrAsyncBlockKind,
   ImplConcreteTypeInfo
-}                                                          :: import "../context.yo";
-{ evaluate_begin_expression }                              :: import "../exprs/begin.yo";
-{ format_error_message }                                   :: import "../../error/error.yo";
-{ Exception }                                              :: import "std/error";
+}                                                          :: import("../context.yo");
+{ evaluate_begin_expression }                              :: import("../exprs/begin.yo");
+{ format_error_message }                                   :: import("../../error/error.yo");
+{ Exception }                                              :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // Internal helper: compare two EvalValues for CTFE cache lookup.
@@ -115,14 +115,14 @@ evaluate_comptime_fn_call :: (fn(
   body_box := match(function_value,
     .FuncVal(_, _, _, _, body_b, _, _, _, _) => body_b,
     _ => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         match(function_callee_expr,
           .Some(e) => ast_expr_token(e),
           .None    => ast_expr_token(make_err_expr())
         ),
         String.from("evaluate_comptime_fn_call: function_value is not a FuncVal"),
         false, .None
-      ));
+      )));
       box(make_err_expr())
     }
   );
@@ -130,11 +130,11 @@ evaluate_comptime_fn_call :: (fn(
   // During CTFE capability analysis, return an UnknownVal immediately without
   // executing the body. This prevents infinite recursion in the analysis pass.
   if(ctx.is_analyzing_ctfe_capability, {
-    return ComptimeFnCallResult(
+    return(ComptimeFnCallResult(
       value:      create_unknown_val(return_type),
       caller_env: caller_env,
       callee_env: callee_env
-    );
+    ));
   });
 
   // Collect all argument values from forall_args, args, and variadic_args.
@@ -144,7 +144,7 @@ evaluate_comptime_fn_call :: (fn(
 
   n_fa := arg_values.forall_args.len();
   (fai : usize) = usize(0);
-  while runtime(((fai < n_fa) && collect_ok)), {
+  while(runtime(((fai < n_fa) && collect_ok)), {
     match(arg_values.forall_args.get(fai),
       .Some(e) => match(e.value,
         .Some(v) => { _ := all_arg_vals.push(v); },
@@ -153,10 +153,10 @@ evaluate_comptime_fn_call :: (fn(
       .None => { collect_ok = false; }
     );
     fai = (fai + usize(1));
-  };
+  });
   n_a := arg_values.args.len();
   (ai : usize) = usize(0);
-  while runtime(((ai < n_a) && collect_ok)), {
+  while(runtime(((ai < n_a) && collect_ok)), {
     match(arg_values.args.get(ai),
       .Some(e) => match(e.value,
         .Some(v) => { _ := all_arg_vals.push(v); },
@@ -165,10 +165,10 @@ evaluate_comptime_fn_call :: (fn(
       .None => { collect_ok = false; }
     );
     ai = (ai + usize(1));
-  };
+  });
   n_va := arg_values.variadic_args.len();
   (vai : usize) = usize(0);
-  while runtime(((vai < n_va) && collect_ok)), {
+  while(runtime(((vai < n_va) && collect_ok)), {
     match(arg_values.variadic_args.get(vai),
       .Some(e) => match(e.value,
         .Some(v) => { _ := all_arg_vals.push(v); },
@@ -177,17 +177,17 @@ evaluate_comptime_fn_call :: (fn(
       .None => { collect_ok = false; }
     );
     vai = (vai + usize(1));
-  };
+  });
 
   if((!(collect_ok)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       match(function_callee_expr,
         .Some(e) => ast_expr_token(e),
         .None    => ast_expr_token(make_err_expr())
       ),
       String.from("Failed to call the function for compile-time. Some arguments are not compile-time evaluated correctly."),
       false, .None
-    ));
+    )));
   });
 
   // Only cache CTFE calls that return a Type (TypeHierarchyType / TypeUni).
@@ -200,7 +200,7 @@ evaluate_comptime_fn_call :: (fn(
   {
     (ci : usize) = usize(0);
     n_c := ctx.comptime_fn_caches.len();
-    while runtime(((ci < n_c) && match(entry_idx_opt, .None => true, .Some(_) => false))), {
+    while(runtime(((ci < n_c) && match(entry_idx_opt, .None => true, .Some(_) => false))), {
       match(ctx.comptime_fn_caches.get(ci),
         .Some(e) => if((e.func_id.as_str() == func_id_str.as_str()), {
           entry_idx_opt = Option(usize).Some(ci);
@@ -208,7 +208,7 @@ evaluate_comptime_fn_call :: (fn(
         .None => ()
       );
       ci = (ci + usize(1));
-    };
+    });
   };
   match(entry_idx_opt,
     .None => {
@@ -230,14 +230,14 @@ evaluate_comptime_fn_call :: (fn(
       .Some(entry) => {
         (cfi : usize) = usize(0);
         n_cc := entry.caches.len();
-        while runtime(((cfi < n_cc) && match(cached_result, .None => true, .Some(_) => false))), {
+        while(runtime(((cfi < n_cc) && match(cached_result, .None => true, .Some(_) => false))), {
           match(entry.caches.get(cfi),
             .Some(cache) => {
               if((cache.arg_values.len() == all_arg_vals.len()), {
                 (args_match : bool) = true;
                 (ami : usize) = usize(0);
                 n_av := all_arg_vals.len();
-                while runtime(((ami < n_av) && args_match)), {
+                while(runtime(((ami < n_av) && args_match)), {
                   match(cache.arg_values.get(ami),
                     .Some(cached_av) => match(all_arg_vals.get(ami),
                       .Some(given_av) => {
@@ -248,7 +248,7 @@ evaluate_comptime_fn_call :: (fn(
                     .None => { args_match = false; }
                   );
                   ami = (ami + usize(1));
-                };
+                });
                 if(args_match, {
                   cached_result = Option(EvalValue).Some(cache.value);
                 });
@@ -257,7 +257,7 @@ evaluate_comptime_fn_call :: (fn(
             .None => ()
           );
           cfi = (cfi + usize(1));
-        };
+        });
       },
       .None => ()
     );
@@ -266,11 +266,11 @@ evaluate_comptime_fn_call :: (fn(
   // If a cache hit was found, return it immediately.
   match(cached_result,
     .Some(cached_val) => {
-      return ComptimeFnCallResult(
+      return(ComptimeFnCallResult(
         value:      cached_val,
         caller_env: caller_env,
         callee_env: callee_env
-      );
+      ));
     },
     .None => ()
   );
@@ -340,11 +340,11 @@ evaluate_comptime_fn_call :: (fn(
         .Some(entry) => { _ := entry.caches.remove(temp_cache_index, usize(1)); },
         .None => ()
       );
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(body_expr),
         String.from("Function body is not evaluated correctly"),
         false, .None
-      ));
+      )));
       new_expr_info(callee_env, t_unit())
     }
   );
@@ -357,11 +357,11 @@ evaluate_comptime_fn_call :: (fn(
         .Some(entry) => { _ := entry.caches.remove(temp_cache_index, usize(1)); },
         .None => ()
       );
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(body_expr),
-        String.from("Function body is not evaluated correctly. Expected to return a compile-time known value."),
+        String.from("Function body is not evaluated correctly. Expected to return(a compile-time known value.)"),
         false, .None
-      ));
+      )));
       create_unknown_val(return_type)
     }
   );
@@ -393,5 +393,5 @@ evaluate_comptime_fn_call :: (fn(
   )
 });
 
-export evaluate_comptime_fn_call;
-export ComptimeFnCallResult;
+export(evaluate_comptime_fn_call);
+export(ComptimeFnCallResult);

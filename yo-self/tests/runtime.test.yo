@@ -2,22 +2,22 @@
 ///
 /// Covers `evaluate_runtime` — the production handler for `runtime(expr)`.
 
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 
-{ Token, TokenKind } :: import "../lexer/token.yo";
-{ AstExpr, ast_expr_id, BF_RUNTIME } :: import "../expr/expr.yo";
+{ Token, TokenKind } :: import("../lexer/token.yo");
+{ AstExpr, ast_expr_id, BF_RUNTIME } :: import("../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
-  :: import "../expr/expr_info.yo";
-{ Environment }    :: import "../env/env.yo";
-{ EvalContext, eval_context_new } :: import "../evaluator/context.yo";
-{ EvalValue }       :: import "../evaluator/value.yo";
-{ TypeValue, t_i32, t_comptime_int } :: import "../types/type.yo";
+  :: import("../expr/expr_info.yo");
+{ Environment }    :: import("../env/env.yo");
+{ EvalContext, eval_context_new } :: import("../evaluator/context.yo");
+{ EvalValue }       :: import("../evaluator/value.yo");
+{ TypeValue, t_i32, t_comptime_int } :: import("../types/type.yo");
 { set_evaluate_expression_fn, evaluate_expression }
-  :: import "../evaluator/exprs/expr.yo";
-{ evaluate_runtime } :: import "../evaluator/exprs/runtime.yo";
-{ Exception } :: import "std/error";
+  :: import("../evaluator/exprs/expr.yo");
+{ evaluate_runtime } :: import("../evaluator/exprs/runtime.yo");
+{ Exception } :: import("std/error");
 
 // Helper: build a token with the given identifier value.
 mk_token :: (fn(value : str) -> Token)(
@@ -53,9 +53,9 @@ stub_evaluate_comptime_int :: (fn(
   expr
 });
 
-test "evaluate_runtime: converts comptime_int argument to i32", {
+test("evaluate_runtime: converts comptime_int argument to i32", {
   set_evaluate_expression_fn(stub_evaluate_comptime_int);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
 
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   env := Environment.new(String.from("test"));
@@ -85,4 +85,4 @@ test "evaluate_runtime: converts comptime_int argument to i32", {
     .None    => (),
     .Some(_) => assert(false, "expected runtime() to leave value = .None")
   );
-};
+});

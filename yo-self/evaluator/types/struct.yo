@@ -12,26 +12,26 @@
 //!        `beginSendDerivation`, `endSendDerivation`, `typeImplementsSend`
 //! are not yet ported (see plans/BOOTSTRAPPING.md Phase 3).
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
   ast_expr_is_fn_call, ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_STRUCT, BK_OBJECT, BK_NEWTYPE }              :: import "../../expr/expr.yo";
-{ new_expr_info, expr_info_table_set }             :: import "../../expr/expr_info.yo";
-{ Environment }                                    :: import "../../env/env.yo";
-{ EvalContext }                                    :: import "../context.yo";
-{ EvalValue, create_type_value }                   :: import "../value.yo";
-{ TypeValue }                                      :: import "../../types/type.yo";
-{ type_of_type }                                   :: import "../../types/hierarchy.yo";
-{ format_error_message }                           :: import "../../error/error.yo";
-{ Exception }                                      :: import "std/error";
+  BK_STRUCT, BK_OBJECT, BK_NEWTYPE }              :: import("../../expr/expr.yo");
+{ new_expr_info, expr_info_table_set }             :: import("../../expr/expr_info.yo");
+{ Environment }                                    :: import("../../env/env.yo");
+{ EvalContext }                                    :: import("../context.yo");
+{ EvalValue, create_type_value }                   :: import("../value.yo");
+{ TypeValue }                                      :: import("../../types/type.yo");
+{ type_of_type }                                   :: import("../../types/hierarchy.yo");
+{ format_error_message }                           :: import("../../error/error.yo");
+{ Exception }                                      :: import("std/error");
 { TypeField, EvalTypeFieldResult,
-  evaluate_type_field, register_struct_fields }    :: import "./field.yo";
-{ random_id }                                      :: import "../utils.yo";
-{ ArrayList }                                      :: import "std/collections/array_list";
-{ auto_derive_traits_for_struct_type }             :: import "./auto_derive.yo";
+  evaluate_type_field, register_struct_fields }    :: import("./field.yo");
+{ random_id }                                      :: import("../utils.yo");
+{ ArrayList }                                      :: import("std/collections/array_list");
+{ auto_derive_traits_for_struct_type }             :: import("./auto_derive.yo");
 
 evaluate_struct_type :: (fn(
   expr         : AstExpr,
@@ -47,12 +47,12 @@ evaluate_struct_type :: (fn(
   is_newtype_keyword := ast_expr_is_fn_call_of(expr, BK_NEWTYPE, Option(usize).None);
 
   if(!(((is_struct_keyword || is_object_keyword) || is_newtype_keyword)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected "struct" or "object" or "newtype", got:\n${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   is_reference_semantics := is_object_keyword;
@@ -87,7 +87,7 @@ evaluate_struct_type :: (fn(
   fields       := ArrayList(TypeField).new();
 
   (i : usize) = usize(0);
-  while runtime((i < args.len())), {
+  while(runtime((i < args.len())), {
     arg    := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_type_field(arg, i, env, ctx, "struct", using(exn));
     field  := result.field;
@@ -95,23 +95,23 @@ evaluate_struct_type :: (fn(
     // Check for duplicate labels
     (dup_idx : usize) = usize(0);
     (has_dup : bool)  = false;
-    while runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
+    while(runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
       existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if((existing == field.label), { has_dup = true; });
       dup_idx = (dup_idx + usize(1));
-    };
+    });
     if(has_dup, {
       arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
       err_tok := if(ast_expr_is_fn_call(arg),
         match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(fe), .None => ast_expr_token(arg)),
         ast_expr_token(arg)
       );
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         err_tok,
         `Duplicate label "${field.label}" in struct`,
         false,
         .None
-      ));
+      )));
     });
 
     field_labels.push(String.from(field.label.as_str()));
@@ -122,16 +122,16 @@ evaluate_struct_type :: (fn(
     fields.push(field);
     env = result.env;
     i = (i + usize(1));
-  };
+  });
 
   // Check newtype constraint: must have exactly one field
   if((is_newtype && !(fields.len() == usize(1))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Newtype struct must have exactly one field, but got ${fields.len()} fields.`,
       false,
       .None
-    ));
+    )));
   });
 
 
@@ -177,4 +177,4 @@ evaluate_struct_type :: (fn(
   expr
 });
 
-export evaluate_struct_type;
+export(evaluate_struct_type);

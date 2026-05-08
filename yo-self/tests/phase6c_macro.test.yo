@@ -9,21 +9,21 @@
 /// `y` should be `IntLit("42")` — i.e. the `42` literal returned by the
 /// macro after splicing.
 
-open import "std/string";
-open import "std/fmt";
-open import "std/error";
-{ ArrayList }                      :: import "std/collections/array_list";
-{ Token, TokenKind }               :: import "../lexer/token.yo";
-{ EvalValue }                      :: import "../evaluator/value.yo";
-{ has_comment_attribute, Evaluator } :: import "../evaluator/index.yo";
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ ArrayList }                      :: import("std/collections/array_list");
+{ Token, TokenKind }               :: import("../lexer/token.yo");
+{ EvalValue }                      :: import("../evaluator/value.yo");
+{ has_comment_attribute, Evaluator } :: import("../evaluator/index.yo");
 
 noop_loader :: (fn(_path : String) -> Option(EvalValue))(
   Option(EvalValue).None
 );
 
-test "Phase6c verify: identity macro expands correctly", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
-  src := String.from("// @skip_prelude\nid_macro :: (fn(quote(e) : Expr) -> unquote(Expr)) quote(unquote(e));\ny := id_macro(42);\nexport y;\n");
+test("Phase6c verify: identity macro expands correctly", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
+  src := String.from("// @skip_prelude\nid_macro :: (fn(quote(e) : Expr) -> unquote(Expr))(quote(unquote(e)));\ny := id_macro(42);\nexport(y);\n");
   eval := Evaluator.new(
     String.from("<phase6c1>"),
     String.from("<no-std>"),
@@ -42,7 +42,7 @@ test "Phase6c verify: identity macro expands correctly", {
         (found_idx : Option(usize)) = .None;
         (i : usize) = usize(0);
         n := names.len();
-        while runtime((i < n)), {
+        while(runtime((i < n)), {
           match(names.get(i),
             .Some(nm) => cond(
               (nm.as_str() == "y") => { found_idx = .Some(i); },
@@ -51,7 +51,7 @@ test "Phase6c verify: identity macro expands correctly", {
             .None => ()
           );
           i = (i + usize(1));
-        };
+        });
         match(found_idx,
           .None      => { assert(false, "y not in module exports"); },
           .Some(idx) => match(values.get(idx),
@@ -66,11 +66,11 @@ test "Phase6c verify: identity macro expands correctly", {
       _ => { assert(false, "module value is not ModuleVal"); }
     )
   );
-};
+});
 
-test "Phase6c verify: two-arg macro builds sum AST", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
-  src := String.from("// @skip_prelude\nadd_macro :: (fn(quote(a) : Expr, quote(b) : Expr) -> unquote(Expr)) quote((unquote(a) + unquote(b)));\nz := add_macro(3, 4);\nexport z;\n");
+test("Phase6c verify: two-arg macro builds sum AST", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
+  src := String.from("// @skip_prelude\nadd_macro :: (fn(quote(a) : Expr, quote(b) : Expr) -> unquote(Expr))(quote((unquote(a) + unquote(b))));\nz := add_macro(3, 4);\nexport(z);\n");
   eval := Evaluator.new(
     String.from("<phase6c2>"),
     String.from("<no-std>"),
@@ -89,7 +89,7 @@ test "Phase6c verify: two-arg macro builds sum AST", {
         (found_idx : Option(usize)) = .None;
         (i : usize) = usize(0);
         n := names.len();
-        while runtime((i < n)), {
+        while(runtime((i < n)), {
           match(names.get(i),
             .Some(nm) => cond(
               (nm.as_str() == "z") => { found_idx = .Some(i); },
@@ -98,7 +98,7 @@ test "Phase6c verify: two-arg macro builds sum AST", {
             .None => ()
           );
           i = (i + usize(1));
-        };
+        });
         match(found_idx,
           .None      => { assert(false, "z not in module exports"); },
           .Some(idx) => match(values.get(idx),
@@ -113,4 +113,4 @@ test "Phase6c verify: two-arg macro builds sum AST", {
       _ => { assert(false, "module value is not ModuleVal"); }
     )
   );
-};
+});

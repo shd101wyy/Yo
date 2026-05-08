@@ -2,24 +2,24 @@
 //!
 //! 1:1 port of `src/evaluator/builtins/comptime-list-fns.ts`.
 
-open import "std/string";
-{ ArrayList }                              :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList }                              :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id,
   BF_YO_COMPTIME_LIST_CAR, BF_YO_COMPTIME_LIST_CDR,
   BF_YO_COMPTIME_LIST_CONS, BF_YO_COMPTIME_LIST_APPEND,
   BF_YO_COMPTIME_LIST_LENGTH, BF_YO_COMPTIME_LIST_ELEMENT_TYPE,
-  BF_YO_COMPTIME_LIST_GET }               :: import "../../expr/expr.yo";
+  BF_YO_COMPTIME_LIST_GET }               :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                    :: import "../../expr/expr_info.yo";
-{ Environment }                            :: import "../../env/env.yo";
-{ EvalContext }                            :: import "../context.yo";
-{ EvalValue, create_unknown_val }          :: import "../value.yo";
-{ TypeValue, t_usize, t_type }             :: import "../../types/type.yo";
-{ is_comptime_list_type }                  :: import "../../types/guards.yo";
-{ are_types_compatible }                   :: import "../../types/compatibility.yo";
-{ format_error_message }                   :: import "../../error/error.yo";
-{ evaluate_expression }                    :: import "../exprs/expr.yo";
-{ Exception }                              :: import "std/error";
+  expr_info_table_get }                    :: import("../../expr/expr_info.yo");
+{ Environment }                            :: import("../../env/env.yo");
+{ EvalContext }                            :: import("../context.yo");
+{ EvalValue, create_unknown_val }          :: import("../value.yo");
+{ TypeValue, t_usize, t_type }             :: import("../../types/type.yo");
+{ is_comptime_list_type }                  :: import("../../types/guards.yo");
+{ are_types_compatible }                   :: import("../../types/compatibility.yo");
+{ format_error_message }                   :: import("../../error/error.yo");
+{ evaluate_expression }                    :: import("../exprs/expr.yo");
+{ Exception }                              :: import("std/error");
 
 evaluate_yo_comptime_list_car :: (fn(
   expr : AstExpr,
@@ -27,32 +27,32 @@ evaluate_yo_comptime_list_car :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_arg := evaluate_expression(arg_e, env, ctx);
   info     := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_e),
         `Failed to evaluate argument for "${BF_YO_COMPTIME_LIST_CAR}"`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)
     }
   );
   (cur_env : Environment) = info.env;
 
   if(!(is_comptime_list_type(info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_e),
       `Expected ComptimeList type for "${BF_YO_COMPTIME_LIST_CAR}" argument`,
       false,
       .None
-    ));
+    )));
   });
 
   child_ty := match(info.ty, .ComptimeListT(cb) => cb.*, _ => TypeValue.Unit);
@@ -60,12 +60,12 @@ evaluate_yo_comptime_list_car :: (fn(
   list_val := match(info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_e),
         `Expected ComptimeList value for "${BF_YO_COMPTIME_LIST_CAR}" argument`,
         false,
         .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -81,12 +81,12 @@ evaluate_yo_comptime_list_car :: (fn(
           .None        => ()
         );
       }, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg_e),
           `Unexpected empty ComptimeList for "${BF_YO_COMPTIME_LIST_CAR}" argument`,
           false,
           .None
-        ));
+        )));
       });
     },
     _ => ()
@@ -102,32 +102,32 @@ evaluate_yo_comptime_list_cdr :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_arg := evaluate_expression(arg_e, env, ctx);
   info     := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_e),
         `Failed to evaluate argument for "${BF_YO_COMPTIME_LIST_CDR}"`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)
     }
   );
   (cur_env : Environment) = info.env;
 
   if(!(is_comptime_list_type(info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_e),
       `Expected ComptimeList type for "${BF_YO_COMPTIME_LIST_CDR}" argument`,
       false,
       .None
-    ));
+    )));
   });
 
   list_ty := info.ty;
@@ -135,12 +135,12 @@ evaluate_yo_comptime_list_cdr :: (fn(
   list_val := match(info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_e),
         `Expected ComptimeList value for "${BF_YO_COMPTIME_LIST_CDR}" argument`,
         false,
         .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -154,21 +154,21 @@ evaluate_yo_comptime_list_cdr :: (fn(
         new_elems  := ArrayList(EvalValue).new();
         (i : usize) = usize(1);
         n          := elements.len();
-        while runtime((i < n)), {
+        while(runtime((i < n)), {
           match(elements.get(i),
             .Some(e) => { new_elems.push(e); },
             .None    => ()
           );
           i = (i + usize(1));
-        };
+        });
         out_info.value = .Some(EvalValue.ComptimeListVal(new_elems));
       }, {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg_e),
           `Unexpected empty ComptimeList for "${BF_YO_COMPTIME_LIST_CDR}" argument`,
           false,
           .None
-        ));
+        )));
       });
     },
     _ => ()
@@ -184,21 +184,21 @@ evaluate_yo_comptime_list_cons :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args      := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  car_arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-  cdr_arg_e := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+  args      := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  car_arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+  cdr_arg_e := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
 
   eval_car := evaluate_expression(car_arg_e, env, ctx);
   car_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_car)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(car_arg_e),
         `Failed to evaluate car argument for "${BF_YO_COMPTIME_LIST_CONS}"`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)
     }
   );
@@ -207,12 +207,12 @@ evaluate_yo_comptime_list_cons :: (fn(
   car_val := match(car_info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(car_arg_e),
         `Expected compile-time car value for "${BF_YO_COMPTIME_LIST_CONS}"`,
         false,
         .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -222,35 +222,35 @@ evaluate_yo_comptime_list_cons :: (fn(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_cdr)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(cdr_arg_e),
         `Failed to evaluate cdr argument for "${BF_YO_COMPTIME_LIST_CONS}"`,
         false,
         .None
-      ));
+      )));
       new_expr_info(cur_env, TypeValue.Unit)
     }
   );
   cur_env = cdr_info.env;
 
   if(!(is_comptime_list_type(cdr_info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(cdr_arg_e),
       `Expected ComptimeList type for cdr argument of "${BF_YO_COMPTIME_LIST_CONS}"`,
       false,
       .None
-    ));
+    )));
   });
 
   cdr_val := match(cdr_info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(cdr_arg_e),
         `Expected compile-time cdr value for "${BF_YO_COMPTIME_LIST_CONS}"`,
         false,
         .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -259,12 +259,12 @@ evaluate_yo_comptime_list_cons :: (fn(
   list_ty  := cdr_info.ty;
 
   if(!(are_types_compatible(car_info.ty, child_ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(car_arg_e),
       `Type mismatch: car type is incompatible with ComptimeList element type in "${BF_YO_COMPTIME_LIST_CONS}"`,
       false,
       .None
-    ));
+    )));
   });
 
   out_info := new_expr_info(cur_env, list_ty);
@@ -276,13 +276,13 @@ evaluate_yo_comptime_list_cons :: (fn(
       new_elems.push(car_val);
       (i : usize) = usize(0);
       n          := elements.len();
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         match(elements.get(i),
           .Some(e) => { new_elems.push(e); },
           .None    => ()
         );
         i = (i + usize(1));
-      };
+      });
       out_info.value = .Some(EvalValue.ComptimeListVal(new_elems));
     },
     _ => ()
@@ -298,44 +298,44 @@ evaluate_yo_comptime_list_append :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args        := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  first_arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-  second_arg_e := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+  args        := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  first_arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+  second_arg_e := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
 
   eval_first := evaluate_expression(first_arg_e, env, ctx);
   first_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_first)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(first_arg_e),
         `Failed to evaluate first argument for "${BF_YO_COMPTIME_LIST_APPEND}"`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)
     }
   );
   (cur_env : Environment) = first_info.env;
 
   if(!(is_comptime_list_type(first_info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(first_arg_e),
       `Expected ComptimeList type for first argument of "${BF_YO_COMPTIME_LIST_APPEND}"`,
       false,
       .None
-    ));
+    )));
   });
 
   first_val := match(first_info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(first_arg_e),
         `Expected compile-time value for first argument of "${BF_YO_COMPTIME_LIST_APPEND}"`,
         false,
         .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -345,46 +345,46 @@ evaluate_yo_comptime_list_append :: (fn(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_second)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(second_arg_e),
         `Failed to evaluate second argument for "${BF_YO_COMPTIME_LIST_APPEND}"`,
         false,
         .None
-      ));
+      )));
       new_expr_info(cur_env, TypeValue.Unit)
     }
   );
   cur_env = second_info.env;
 
   if(!(is_comptime_list_type(second_info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(second_arg_e),
       `Expected ComptimeList type for second argument of "${BF_YO_COMPTIME_LIST_APPEND}"`,
       false,
       .None
-    ));
+    )));
   });
 
   second_val := match(second_info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(second_arg_e),
         `Expected compile-time value for second argument of "${BF_YO_COMPTIME_LIST_APPEND}"`,
         false,
         .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
 
   if(!(are_types_compatible(first_info.ty, second_info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(first_arg_e),
       `Type mismatch between the two ComptimeList arguments of "${BF_YO_COMPTIME_LIST_APPEND}"`,
       false,
       .None
-    ));
+    )));
   });
 
   first_ty := first_info.ty;
@@ -397,22 +397,22 @@ evaluate_yo_comptime_list_append :: (fn(
         new_elems   := ArrayList(EvalValue).new();
         (i1 : usize) = usize(0);
         n1          := first_elems.len();
-        while runtime((i1 < n1)), {
+        while(runtime((i1 < n1)), {
           match(first_elems.get(i1),
             .Some(e) => { new_elems.push(e); },
             .None    => ()
           );
           i1 = (i1 + usize(1));
-        };
+        });
         (i2 : usize) = usize(0);
         n2          := second_elems.len();
-        while runtime((i2 < n2)), {
+        while(runtime((i2 < n2)), {
           match(second_elems.get(i2),
             .Some(e) => { new_elems.push(e); },
             .None    => ()
           );
           i2 = (i2 + usize(1));
-        };
+        });
         out_info.value = .Some(EvalValue.ComptimeListVal(new_elems));
       },
       _ => ()
@@ -430,42 +430,42 @@ evaluate_yo_comptime_list_length :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_arg := evaluate_expression(arg_e, env, ctx);
   info     := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_e),
         `Failed to evaluate argument for "${BF_YO_COMPTIME_LIST_LENGTH}"`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)
     }
   );
 
   if(!(is_comptime_list_type(info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_e),
       `Expected ComptimeList type for "${BF_YO_COMPTIME_LIST_LENGTH}" argument`,
       false,
       .None
-    ));
+    )));
   });
 
   list_val := match(info.value,
     .Some(v) => v,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_e),
         `Expected compile-time value for "${BF_YO_COMPTIME_LIST_LENGTH}" argument`,
         false,
         .None
-      ));
+      )));
       EvalValue.UnitVal
     }
   );
@@ -490,20 +490,20 @@ evaluate_yo_comptime_list_element_type :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_arg := evaluate_expression(arg_e, env, ctx);
   info     := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_e),
         `Failed to evaluate argument for "${BF_YO_COMPTIME_LIST_ELEMENT_TYPE}"`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)
     }
   );
@@ -513,33 +513,33 @@ evaluate_yo_comptime_list_element_type :: (fn(
     .Some(v) => match(v,
       .TypeVal(ty_box) => ty_box.*,
       _ => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg_e),
           `Expected TypeVal for "${BF_YO_COMPTIME_LIST_ELEMENT_TYPE}" argument`,
           false,
           .None
-        ));
+        )));
         TypeValue.Unit
       }
     ),
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_e),
         `Expected TypeVal for "${BF_YO_COMPTIME_LIST_ELEMENT_TYPE}" argument`,
         false,
         .None
-      ));
+      )));
       TypeValue.Unit
     }
   );
 
   if(!(is_comptime_list_type(inner_ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_e),
       `Expected ComptimeList type inside TypeVal for "${BF_YO_COMPTIME_LIST_ELEMENT_TYPE}"`,
       false,
       .None
-    ));
+    )));
   });
 
   child_ty := match(inner_ty, .ComptimeListT(cb) => cb.*, _ => TypeValue.Unit);
@@ -556,31 +556,31 @@ evaluate_yo_comptime_list_get :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args  := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg_e := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   eval_list_arg := evaluate_expression(arg_e, env, ctx);
   list_info     := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_list_arg)),
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_e),
         `Failed to evaluate list argument for "${BF_YO_COMPTIME_LIST_GET}"`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)
     }
   );
 
   if(!(is_comptime_list_type(list_info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_e),
       `Expected ComptimeList type for "${BF_YO_COMPTIME_LIST_GET}" argument`,
       false,
       .None
-    ));
+    )));
   });
 
   child_ty := match(list_info.ty, .ComptimeListT(cb) => cb.*, _ => TypeValue.Unit);
@@ -591,7 +591,7 @@ evaluate_yo_comptime_list_get :: (fn(
     .Some(list_v) => match(list_v,
       .ComptimeListVal(elements) => {
         list_len      := elements.len();
-        index_arg_e   := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+        index_arg_e   := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
         eval_idx_arg  := evaluate_expression(index_arg_e, cur_env, ctx);
         match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_idx_arg)),
@@ -609,21 +609,21 @@ evaluate_yo_comptime_list_get :: (fn(
                             cur_env = idx_info.env;
                           },
                           .None => {
-                            exn.throw(dyn format_error_message(
+                            exn.throw(dyn(format_error_message(
                               ast_expr_token(index_arg_e),
                               `ComptimeList index out of bounds in "${BF_YO_COMPTIME_LIST_GET}"`,
                               false,
                               .None
-                            ));
+                            )));
                           }
                         );
                       }, {
-                        exn.throw(dyn format_error_message(
+                        exn.throw(dyn(format_error_message(
                           ast_expr_token(index_arg_e),
                           `ComptimeList index out of bounds in "${BF_YO_COMPTIME_LIST_GET}"`,
                           false,
                           .None
-                        ));
+                        )));
                       });
                     },
                     .None => ()
@@ -635,12 +635,12 @@ evaluate_yo_comptime_list_get :: (fn(
             );
           },
           .None => {
-            exn.throw(dyn format_error_message(
+            exn.throw(dyn(format_error_message(
               ast_expr_token(arg_e),
               `Failed to evaluate index argument for "${BF_YO_COMPTIME_LIST_GET}"`,
               false,
               .None
-            ));
+            )));
           }
         );
       },
@@ -655,7 +655,7 @@ evaluate_yo_comptime_list_get :: (fn(
   expr
 });
 
-export evaluate_yo_comptime_list_append, evaluate_yo_comptime_list_car,
+export(evaluate_yo_comptime_list_append, evaluate_yo_comptime_list_car,
        evaluate_yo_comptime_list_cdr, evaluate_yo_comptime_list_cons,
        evaluate_yo_comptime_list_element_type, evaluate_yo_comptime_list_get,
-       evaluate_yo_comptime_list_length;
+       evaluate_yo_comptime_list_length);

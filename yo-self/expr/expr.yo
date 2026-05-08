@@ -3,11 +3,11 @@
 //!
 //! Note: Named `AstExpr` (not `Expr`) to avoid conflict with the prelude's builtin `Expr` type.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ TokenKind, Token }        :: import "../lexer/token.yo";
-{ format_error_message }    :: import "../error/error.yo";
-{ Exception }               :: import "std/error";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TokenKind, Token }        :: import("../lexer/token.yo");
+{ format_error_message }    :: import("../error/error.yo");
+{ Exception }               :: import("std/error");
 
 /// The Yo builtin keyword strings used by the parser.
 BK_TUPLE       :: "tuple";
@@ -335,13 +335,11 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
               lhs0 := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
               rhs0 := recur(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
               lhs := cond(
-                (ast_expr_is_infix_op_fn_call(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()))
-                  || ast_expr_is_atom_and_operator(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()))) => `(${lhs0})`,
+                (ast_expr_is_infix_op_fn_call(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())) || ast_expr_is_atom_and_operator(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()))) => `(${lhs0})`,
                 true => lhs0
               );
               rhs := cond(
-                (ast_expr_is_infix_op_fn_call(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()))
-                  || ast_expr_is_atom_and_operator(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()))) => `(${rhs0})`,
+                (ast_expr_is_infix_op_fn_call(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr())) || ast_expr_is_atom_and_operator(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()))) => `(${rhs0})`,
                 true => rhs0
               );
               cond(
@@ -359,12 +357,12 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
               func_str := recur(func_box.*);
               sb := StringBuilder.new();
               i := usize(0);
-              while runtime((i < n)), {
+              while(runtime((i < n)), {
                 if((i > usize(0)), { sb.write_str(", "); });
                 arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
                 sb.write_string(recur(arg));
                 i = (i + usize(1));
-              };
+              });
               `${func_str}(${sb.to_string()})`
             }
           )
@@ -372,12 +370,12 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
         func_is_tuple_kw => {
           sb := StringBuilder.new();
           i := usize(0);
-          while runtime((i < n)), {
+          while(runtime((i < n)), {
             if((i > usize(0)), { sb.write_str(", "); });
             arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
             sb.write_string(recur(arg));
             i = (i + usize(1));
-          };
+          });
           args_str := sb.to_string();
           cond(
             (n == usize(1)) => `(${args_str},)`,
@@ -393,12 +391,12 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
           );
           sb := StringBuilder.new();
           i := usize(0);
-          while runtime((i < n)), {
+          while(runtime((i < n)), {
             if((i > usize(0)), { sb.write_str(", "); });
             arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
             sb.write_string(recur(arg));
             i = (i + usize(1));
-          };
+          });
           `${func_str}(${sb.to_string()})`
         }
       )
@@ -406,12 +404,12 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
   )
 );
 
-export AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN;
-export BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_ESCAPE, BF_RECUR, BF_DOT;
-export BK_COMPTIME, BK_GIVEN, BK_FORALL, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH;
-export BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST;
-export BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_EXISTS, BK_WHERE;
-export make_err_expr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string;
+export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN);
+export(BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_ESCAPE, BF_RECUR, BF_DOT);
+export(BK_COMPTIME, BK_GIVEN, BK_FORALL, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH);
+export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
+export(BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_EXISTS, BK_WHERE);
+export(make_err_expr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string);
 
 // ---------------------------------------------------------------------------
 // Atom / FnCall predicate helpers (mirrors src/expr.ts exprIsAtomOf, etc.)
@@ -433,11 +431,11 @@ ast_expr_is_atom_of_any :: (fn(e : AstExpr, values : ArrayList(str)) -> bool)(
     .Atom(_, tok) => {
       n := values.len();
       i := usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         v := match(values.get(i), .Some(s) => s, .None => "~unreachable~");
-        if((tok.value == String.from(v)), { return true; });
+        if((tok.value == String.from(v)), { return(true); });
         i = (i + usize(1));
-      };
+      });
       false
     },
     .FnCall(_, _, _, _, _) => false
@@ -455,7 +453,7 @@ ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(u
         .Atom(_, tok) => (tok.value == String.from(func_name)),
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(func_name_matches), { return false; });
+      if(!(func_name_matches), { return(false); });
       count_ok := match(arg_count,
         .None    => true,
         .Some(n) => (args.len() == n)
@@ -477,16 +475,16 @@ ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_
           n := func_names.len();
           i := usize(0);
           found := false;
-          while runtime((i < n)), {
+          while(runtime((i < n)), {
             v := match(func_names.get(i), .Some(s) => s, .None => "~unreachable~");
-            if((tok.value == String.from(v)), { found = true; return found; });
+            if((tok.value == String.from(v)), { found = true; return(found); });
             i = (i + usize(1));
-          };
+          });
           found
         },
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(func_name_in_list), { return false; });
+      if(!(func_name_in_list), { return(false); });
       count_ok := match(arg_count,
         .None    => true,
         .Some(n) => (args.len() == n)
@@ -510,17 +508,17 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
     .FnCall(_, func1, args1, _, _) => match(e2,
       .Atom(_, _) => false,
       .FnCall(_, func2, args2, _, _) => {
-        if(!(recur(func1.*, func2.*)), { return false; });
+        if(!(recur(func1.*, func2.*)), { return(false); });
         n1 := args1.len();
         n2 := args2.len();
-        if((n1 != n2), { return false; });
+        if((n1 != n2), { return(false); });
         i := usize(0);
-        while runtime((i < n1)), {
+        while(runtime((i < n1)), {
           a1 := match(args1.get(i), .Some(a) => a, .None => make_err_expr());
           a2 := match(args2.get(i), .Some(a) => a, .None => make_err_expr());
-          if(!(recur(a1, a2)), { return false; });
+          if(!(recur(a1, a2)), { return(false); });
           i = (i + usize(1));
-        };
+        });
         true
       }
     )
@@ -575,11 +573,11 @@ evaluated_body_contains_escape :: (fn(e : AstExpr) -> bool)(
         // Inline traverseCondMatchBranches: recurse into each arg.
         // Branch arrows `condition => body` are NOT function boundaries:
         // recurse into both the condition and the body parts.
-        if(recur(func_box.*), { return true; });
+        if(recur(func_box.*), { return(true); });
         na := args.len();
         (ia : usize) = usize(0);
         (found_a : bool) = false;
-        while runtime(((ia < na) && (!(found_a)))), {
+        while(runtime(((ia < na) && (!(found_a)))), {
           arg_a := match(args.get(ia), .Some(a) => a, .None => make_err_expr());
           is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>", .None);
           if(is_branch_arrow, {
@@ -589,73 +587,73 @@ evaluated_body_contains_escape :: (fn(e : AstExpr) -> bool)(
             );
             ni := inner_args.len();
             (ji : usize) = usize(0);
-            while runtime(((ji < ni) && (!(found_a)))), {
+            while(runtime(((ji < ni) && (!(found_a)))), {
               bp := match(inner_args.get(ji), .Some(a) => a, .None => make_err_expr());
               if(recur(bp), { found_a = true; });
               ji = (ji + usize(1));
-            };
+            });
           }, {
             if(recur(arg_a), { found_a = true; });
           });
           ia = (ia + usize(1));
-        };
-        return found_a;
+        });
+        return(found_a);
       });
-      if(is_function_boundary_arrow(e), { return false; });
-      if(recur(func_box.*), { return true; });
+      if(is_function_boundary_arrow(e), { return(false); });
+      if(recur(func_box.*), { return(true); });
       n := args.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while runtime(((i < n) && (!(found)))), {
+      while(runtime(((i < n) && (!(found)))), {
         arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
         if(recur(arg), { found = true; });
         i = (i + usize(1));
-      };
+      });
       found
     }
   )
 );
 
-export BK_FN, BK_UNSAFE_FN, BK_FN_TRAIT, BK_ATOMIC, BK_OBJECT, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION;
-export BK_MODULE, BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO;
-export BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER;
-export BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL;
-export BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL;
-export BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START;
-export BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_RC, BF_THE, BF_DOWNCAST;
-export BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC;
-export BF_YO_ISO_EXTRACT, BF_YO_ISO_DISPOSE, BF_YO_DROP_ARRAY_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT;
-export BF_YO_DROP_TUPLE_ELEMENT, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_RC_OWN;
-export BF_YO_DYN_DROP, BF_YO_DYN_DUP, BF_YO_SOMETYPE_DROP, BF_YO_SOMETYPE_DUP, BF_YO_GC_COLLECT;
-export BF_YO_AS;
-export BF_YO_EXPR_IS_ATOM, BF_YO_EXPR_IS_FN_CALL, BF_YO_EXPR_GET_CALLEE, BF_YO_EXPR_GET_ARGS;
-export BF_YO_EXPR_TO_STRING, BF_YO_EXPR_EQ;
-export BF_YO_COMPTIME_LIST_CAR, BF_YO_COMPTIME_LIST_CDR, BF_YO_COMPTIME_LIST_CONS;
-export BF_YO_COMPTIME_LIST_APPEND, BF_YO_COMPTIME_LIST_LENGTH, BF_YO_COMPTIME_LIST_ELEMENT_TYPE;
-export BF_YO_COMPTIME_LIST_GET, BF_YO_COMPTIME_LIST_INDEX, BF_YO_COMPTIME_LIST_INDEX_RANGE;
-export BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE;
-export BF_YO_TYPE_TO_COMPTIME_STRING, BF_YO_ARE_TYPES_COMPATIBLE, BF_YO_ARE_TYPES_EQUAL;
-export BF_YO_TYPE_CONTAINS_RC_TYPE, BF_YO_TYPE_CAN_FORM_RC_CYCLE, BF_YO_TYPE_IMPLS, BF_YO_TYPE_GET_INFO;
-export BF_YO_TYPE_JOIN_FIELDS, BF_YO_TYPE_MAP_VARIANTS, BF_YO_COMPTIME_STRING_TO_EXPR;
-export BF_YO_VAR_PRINT_INFO, BF_YO_VAR_IS_OWNING_RC, BF_YO_VAR_HAS_OTHER_ALIASES;
-export BF_YO_PROCESS_PLATFORM, BF_YO_PROCESS_ARCH, BF_YO_POINTER_SIZE_BITS;
-export BF_YO_BUILD_EXECUTABLE, BF_YO_BUILD_STATIC_LIBRARY, BF_YO_BUILD_SHARED_LIBRARY;
-export BF_YO_BUILD_TEST, BF_YO_BUILD_RUN, BF_YO_BUILD_STEP, BF_YO_BUILD_STEP_DEPEND_ON;
-export BF_YO_BUILD_TARGET_HOST, BF_YO_BUILD_TARGET_PARSE, BF_YO_BUILD_DEPENDENCY;
-export BF_YO_BUILD_PATH_DEPENDENCY, BF_YO_BUILD_SYSTEM_LIBRARY, BF_YO_BUILD_LINK;
-export BF_YO_BUILD_LINK_SYSTEM_LIBRARY, BF_YO_BUILD_OPTION, BF_YO_BUILD_DEP_ARTIFACT;
-export BF_YO_BUILD_MODULE, BF_YO_BUILD_MODULE_LINK, BF_YO_BUILD_ADD_IMPORT;
-export BF_YO_BUILD_ADD_CFLAGS, BF_YO_BUILD_DEP_MODULE, BF_YO_BUILD_DOC;
-export BF_COMPTIME_BOOL_AND, BF_COMPTIME_BOOL_OR, BF_COMPTIME_BOOL_EQ, BF_COMPTIME_BOOL_NEQ;
-export BF_COMPTIME_BOOL_NOT, BF_COMPTIME_BOOL_TO_COMPTIME_STRING;
-export BF_COMPTIME_STRING_CONCAT, BF_COMPTIME_STRING_EQ, BF_COMPTIME_STRING_NEQ;
-export BF_COMPTIME_STRING_LT, BF_COMPTIME_STRING_LTE, BF_COMPTIME_STRING_GT, BF_COMPTIME_STRING_GTE;
-export BF_COMPTIME_STRING_LENGTH, BF_COMPTIME_STRING_TO_UPPER, BF_COMPTIME_STRING_TO_LOWER;
-export BF_COMPTIME_STRING_SLICE, BF_COMPTIME_STRING_INDEX, BF_COMPTIME_STRING_INDEX_RANGE;
-export BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE;
-export BF_COMPTIME_ARRAY_INDEX, BF_COMPTIME_SLICE_INDEX, BF_COMPTIME_ARRAY_INDEX_RANGE;
-export BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE, BF_COMPTIME_SLICE_INDEX_RANGE;
-export BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE;
+export(BK_FN, BK_UNSAFE_FN, BK_FN_TRAIT, BK_ATOMIC, BK_OBJECT, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
+export(BK_MODULE, BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO);
+export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
+export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL);
+export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL);
+export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START);
+export(BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_RC, BF_THE, BF_DOWNCAST);
+export(BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC);
+export(BF_YO_ISO_EXTRACT, BF_YO_ISO_DISPOSE, BF_YO_DROP_ARRAY_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT);
+export(BF_YO_DROP_TUPLE_ELEMENT, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_RC_OWN);
+export(BF_YO_DYN_DROP, BF_YO_DYN_DUP, BF_YO_SOMETYPE_DROP, BF_YO_SOMETYPE_DUP, BF_YO_GC_COLLECT);
+export(BF_YO_AS);
+export(BF_YO_EXPR_IS_ATOM, BF_YO_EXPR_IS_FN_CALL, BF_YO_EXPR_GET_CALLEE, BF_YO_EXPR_GET_ARGS);
+export(BF_YO_EXPR_TO_STRING, BF_YO_EXPR_EQ);
+export(BF_YO_COMPTIME_LIST_CAR, BF_YO_COMPTIME_LIST_CDR, BF_YO_COMPTIME_LIST_CONS);
+export(BF_YO_COMPTIME_LIST_APPEND, BF_YO_COMPTIME_LIST_LENGTH, BF_YO_COMPTIME_LIST_ELEMENT_TYPE);
+export(BF_YO_COMPTIME_LIST_GET, BF_YO_COMPTIME_LIST_INDEX, BF_YO_COMPTIME_LIST_INDEX_RANGE);
+export(BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE);
+export(BF_YO_TYPE_TO_COMPTIME_STRING, BF_YO_ARE_TYPES_COMPATIBLE, BF_YO_ARE_TYPES_EQUAL);
+export(BF_YO_TYPE_CONTAINS_RC_TYPE, BF_YO_TYPE_CAN_FORM_RC_CYCLE, BF_YO_TYPE_IMPLS, BF_YO_TYPE_GET_INFO);
+export(BF_YO_TYPE_JOIN_FIELDS, BF_YO_TYPE_MAP_VARIANTS, BF_YO_COMPTIME_STRING_TO_EXPR);
+export(BF_YO_VAR_PRINT_INFO, BF_YO_VAR_IS_OWNING_RC, BF_YO_VAR_HAS_OTHER_ALIASES);
+export(BF_YO_PROCESS_PLATFORM, BF_YO_PROCESS_ARCH, BF_YO_POINTER_SIZE_BITS);
+export(BF_YO_BUILD_EXECUTABLE, BF_YO_BUILD_STATIC_LIBRARY, BF_YO_BUILD_SHARED_LIBRARY);
+export(BF_YO_BUILD_TEST, BF_YO_BUILD_RUN, BF_YO_BUILD_STEP, BF_YO_BUILD_STEP_DEPEND_ON);
+export(BF_YO_BUILD_TARGET_HOST, BF_YO_BUILD_TARGET_PARSE, BF_YO_BUILD_DEPENDENCY);
+export(BF_YO_BUILD_PATH_DEPENDENCY, BF_YO_BUILD_SYSTEM_LIBRARY, BF_YO_BUILD_LINK);
+export(BF_YO_BUILD_LINK_SYSTEM_LIBRARY, BF_YO_BUILD_OPTION, BF_YO_BUILD_DEP_ARTIFACT);
+export(BF_YO_BUILD_MODULE, BF_YO_BUILD_MODULE_LINK, BF_YO_BUILD_ADD_IMPORT);
+export(BF_YO_BUILD_ADD_CFLAGS, BF_YO_BUILD_DEP_MODULE, BF_YO_BUILD_DOC);
+export(BF_COMPTIME_BOOL_AND, BF_COMPTIME_BOOL_OR, BF_COMPTIME_BOOL_EQ, BF_COMPTIME_BOOL_NEQ);
+export(BF_COMPTIME_BOOL_NOT, BF_COMPTIME_BOOL_TO_COMPTIME_STRING);
+export(BF_COMPTIME_STRING_CONCAT, BF_COMPTIME_STRING_EQ, BF_COMPTIME_STRING_NEQ);
+export(BF_COMPTIME_STRING_LT, BF_COMPTIME_STRING_LTE, BF_COMPTIME_STRING_GT, BF_COMPTIME_STRING_GTE);
+export(BF_COMPTIME_STRING_LENGTH, BF_COMPTIME_STRING_TO_UPPER, BF_COMPTIME_STRING_TO_LOWER);
+export(BF_COMPTIME_STRING_SLICE, BF_COMPTIME_STRING_INDEX, BF_COMPTIME_STRING_INDEX_RANGE);
+export(BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE);
+export(BF_COMPTIME_ARRAY_INDEX, BF_COMPTIME_SLICE_INDEX, BF_COMPTIME_ARRAY_INDEX_RANGE);
+export(BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE, BF_COMPTIME_SLICE_INDEX_RANGE);
+export(BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE);
 /// Throws if `expr` is not a FnCall of `func_name` with an optional exact `arg_count`.
 /// Mirrors `expectExprToBeFunctionCallOf` in `src/expr.ts`.
 expect_expr_to_be_fn_call_of :: (fn(
@@ -665,18 +663,18 @@ expect_expr_to_be_fn_call_of :: (fn(
   using(exn : Exception)
 ) -> unit)({
   if(!(ast_expr_is_fn_call(expr)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected function call, got atom:\n${ast_expr_to_string(expr)}`,
       false, .None
-    ));
+    )));
   });
   if(!(ast_expr_is_fn_call_of(expr, func_name, .None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected function call of "${String.from(func_name)}", got:\n${ast_expr_to_string(expr)}`,
       false, .None
-    ));
+    )));
   });
   match(arg_count,
     .Some(n) => {
@@ -685,11 +683,11 @@ expect_expr_to_be_fn_call_of :: (fn(
         _                        => usize(0)
       );
       if((actual != n), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`,
           false, .None
-        ));
+        )));
       });
     },
     .None => ()
@@ -705,18 +703,18 @@ expect_expr_to_be_fn_call_of_any :: (fn(
   using(exn  : Exception)
 ) -> unit)({
   if(!(ast_expr_is_fn_call(expr)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected function call, got atom:\n${ast_expr_to_string(expr)}`,
       false, .None
-    ));
+    )));
   });
   if(!(ast_expr_is_fn_call_of_any(expr, func_names, .None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected function call of one of the expected names, got:\n${ast_expr_to_string(expr)}`,
       false, .None
-    ));
+    )));
   });
   match(arg_count,
     .Some(n) => {
@@ -725,19 +723,19 @@ expect_expr_to_be_fn_call_of_any :: (fn(
         _                        => usize(0)
       );
       if((actual != n), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`,
           false, .None
-        ));
+        )));
       });
     },
     .None => ()
   )
 });
 
-export ast_expr_is_atom_of, ast_expr_is_atom_of_any;
-export ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any;
-export exprs_are_equal;
-export expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any;
-export is_function_boundary_arrow, evaluated_body_contains_escape;
+export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
+export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
+export(exprs_are_equal);
+export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
+export(is_function_boundary_arrow, evaluated_body_contains_escape);

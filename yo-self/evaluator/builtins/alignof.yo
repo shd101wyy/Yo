@@ -6,21 +6,21 @@
 //! and returns the alignment of that type in bytes as a `usize` value.
 //! If the alignment is not statically known, returns an unknown `usize`.
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_is_fn_call_of, BF_ALIGNOF }          :: import "../../expr/expr.yo";
+  ast_expr_is_fn_call_of, BF_ALIGNOF }          :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                          :: import "../../expr/expr_info.yo";
-{ Environment }                                  :: import "../../env/env.yo";
-{ EvalContext }                                  :: import "../context.yo";
-{ EvalValue }                                    :: import "../value.yo";
-{ TypeValue }                                    :: import "../../types/type.yo";
-{ t_usize }                                      :: import "../../types/type.yo";
-{ get_alignment_of_type }                        :: import "../../types/utils.yo";
-{ format_error_message }                         :: import "../../error/error.yo";
-{ evaluate_expression }                          :: import "../exprs/expr.yo";
-{ Exception }                                    :: import "std/error";
+  expr_info_table_get }                          :: import("../../expr/expr_info.yo");
+{ Environment }                                  :: import("../../env/env.yo");
+{ EvalContext }                                  :: import("../context.yo");
+{ EvalValue }                                    :: import("../value.yo");
+{ TypeValue }                                    :: import("../../types/type.yo");
+{ t_usize }                                      :: import("../../types/type.yo");
+{ get_alignment_of_type }                        :: import("../../types/utils.yo");
+{ format_error_message }                         :: import("../../error/error.yo");
+{ evaluate_expression }                          :: import("../exprs/expr.yo");
+{ Exception }                                    :: import("std/error");
 
 evaluate_align_of :: (fn(
   expr : AstExpr,
@@ -29,20 +29,20 @@ evaluate_align_of :: (fn(
   using(exn : Exception)
 ) -> AstExpr)({
   if(!(ast_expr_is_fn_call_of(expr, BF_ALIGNOF, .Some(usize(1)))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Expected "alignof" with 1 argument`,
       false,
       .None
-    ));
+    )));
   });
 
   type_expr := match(expr,
     .FnCall(_, _, args, _, _) => match(args.get(usize(0)),
       .Some(a) => a,
-      .None    => { return expr; }
+      .None    => { return(expr); }
     ),
-    .Atom(_, _) => { return expr; }
+    .Atom(_, _) => { return(expr); }
   );
 
   evaluated := evaluate_expression(type_expr, env, ctx);
@@ -50,12 +50,12 @@ evaluate_align_of :: (fn(
   info      := match(info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(type_expr),
         String.from("Failed to evaluate expression."),
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_usize())
     }
   );
@@ -86,4 +86,4 @@ evaluate_align_of :: (fn(
   expr
 });
 
-export evaluate_align_of;
+export(evaluate_align_of);

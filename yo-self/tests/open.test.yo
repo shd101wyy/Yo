@@ -2,22 +2,22 @@
 ///
 /// Covers `evaluate_open` — the production handler for `open(module)`.
 
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 
-{ Token, TokenKind } :: import "../lexer/token.yo";
-{ AstExpr, ast_expr_id, BK_OPEN } :: import "../expr/expr.yo";
+{ Token, TokenKind } :: import("../lexer/token.yo");
+{ AstExpr, ast_expr_id, BK_OPEN } :: import("../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set,
-  RuntimeDestructuring } :: import "../expr/expr_info.yo";
-{ Environment } :: import "../env/env.yo";
-{ EvalContext, eval_context_new } :: import "../evaluator/context.yo";
-{ EvalValue } :: import "../evaluator/value.yo";
-{ TypeValue, t_i32, t_unit } :: import "../types/type.yo";
+  RuntimeDestructuring } :: import("../expr/expr_info.yo");
+{ Environment } :: import("../env/env.yo");
+{ EvalContext, eval_context_new } :: import("../evaluator/context.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
+{ TypeValue, t_i32, t_unit } :: import("../types/type.yo");
 { set_evaluate_expression_fn, evaluate_expression }
-  :: import "../evaluator/exprs/expr.yo";
-{ evaluate_open } :: import "../evaluator/exprs/open.yo";
-{ Exception } :: import "std/error";
+  :: import("../evaluator/exprs/expr.yo");
+{ evaluate_open } :: import("../evaluator/exprs/open.yo");
+{ Exception } :: import("std/error");
 
 mk_token :: (fn(value : str) -> Token)(
   Token(
@@ -61,9 +61,9 @@ stub_evaluate_module :: (fn(
   expr
 });
 
-test "evaluate_open: module — adds each field as a comptime variable", {
+test("evaluate_open: module — adds each field as a comptime variable", {
   set_evaluate_expression_fn(stub_evaluate_module);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
 
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   env := Environment.new(String.from("test"));
@@ -97,4 +97,4 @@ test "evaluate_open: module — adds each field as a comptime variable", {
     ),
     .None => assert(false, "expected Some value")
   );
-};
+});

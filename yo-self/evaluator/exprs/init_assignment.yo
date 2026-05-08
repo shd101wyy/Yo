@@ -16,43 +16,43 @@
 //!   - `is_compile_time_only` check for function return type
 //!   - `funcName` / `typeName` / `isModuleEffectMember` mutations
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call,
   ast_expr_is_fn_call_of, ast_expr_to_string, make_err_expr,
-  BK_COLON, BK_CONST, BK_INIT_ASSIGN, BK_GIVEN } :: import "../../expr/expr.yo";
+  BK_COLON, BK_CONST, BK_INIT_ASSIGN, BK_GIVEN } :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get,
-  has_any_control_flow, path_collection_new }      :: import "../../expr/expr_info.yo";
-{ Environment, Variable, add_variable_to_env }       :: import "../../env/env.yo";
+  has_any_control_flow, path_collection_new }      :: import("../../expr/expr_info.yo");
+{ Environment, Variable, add_variable_to_env }       :: import("../../env/env.yo");
 { EvalContext, ExpectedTypeCtx,
-  FuncOrAsyncBlockKind }                            :: import "../context.yo";
-{ EvalValue, create_unknown_val }                   :: import "../value.yo";
-{ TypeValue, t_unit, type_value_tag }                :: import "../../types/type.yo";
-{ TypeTag }                                          :: import "../../types/tags.yo";
-{ are_types_compatible }                            :: import "../../types/compatibility.yo";
+  FuncOrAsyncBlockKind }                            :: import("../context.yo");
+{ EvalValue, create_unknown_val }                   :: import("../value.yo");
+{ TypeValue, t_unit, type_value_tag }                :: import("../../types/type.yo");
+{ TypeTag }                                          :: import("../../types/tags.yo");
+{ are_types_compatible }                            :: import("../../types/compatibility.yo");
 { convert_comptime_type_to_runtime_type,
   prohibit_void_type,
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
-  type_contains_rc_type }                           :: import "../../types/utils.yo";
-{ type_to_string }                                  :: import "../../types/string.yo";
-{ is_function_type_and_returns_comptime_value }     :: import "../../types/guards.yo";
-{ format_error_message }                              :: import "../../error/error.yo";
-{ evaluate_expression }                             :: import "./expr.yo";
-{ is_valid_variable_name }                          :: import "./binding.yo";
-{ throw_rhs_contains_control_flow_expression_error } :: import "./assignment.yo";
+  type_contains_rc_type }                           :: import("../../types/utils.yo");
+{ type_to_string }                                  :: import("../../types/string.yo");
+{ is_function_type_and_returns_comptime_value }     :: import("../../types/guards.yo");
+{ format_error_message }                              :: import("../../error/error.yo");
+{ evaluate_expression }                             :: import("./expr.yo");
+{ is_valid_variable_name }                          :: import("./binding.yo");
+{ throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
 { evaluate_destructuring_assignment,
-  DestructuringResult }                             :: import "./destructuring_assignment.yo";
-{ synthesize_expr_and_type }                        :: import "../types/expr_synthesizer.yo";
-{ clone_value }                                     :: import "../values/clone_value.yo";
+  DestructuringResult }                             :: import("./destructuring_assignment.yo");
+{ synthesize_expr_and_type }                        :: import("../types/expr_synthesizer.yo");
+{ clone_value }                                     :: import("../values/clone_value.yo");
 { generate_new_temp_variable_name,
   find_rc_value_owner_relationship,
   throw_expr_is_implicit_variable_error,
   require_expr_not_consumed,
   set_expr_as_needs_to_call_dup,
-  doc_comment_lookup_key_from_token }               :: import "../utils.yo";
-{ Exception }                                       :: import "std/error";
+  doc_comment_lookup_key_from_token }               :: import("../utils.yo");
+{ Exception }                                       :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // evaluate_initialization_assignment
@@ -74,12 +74,12 @@ evaluate_initialization_assignment :: (fn(
   is_const      := ast_expr_is_fn_call_of(expr, BK_CONST,       .Some(usize(2)));
   is_init_assign := ast_expr_is_fn_call_of(expr, BK_INIT_ASSIGN, .Some(usize(2)));
   if(!(is_const || is_init_assign), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("Expected \":=\" or \"::\" for initialization assignment."),
       false,
       .None
-    ));
+    )));
   });
 
   // During CTFE (force_compile_time_bindings), `:=` is treated as `::`.
@@ -103,12 +103,12 @@ evaluate_initialization_assignment :: (fn(
       .None => false
     );
     if(is_ctfe_body, {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("Unexpected runtime variable declaration in a compile-time only function body."),
         false,
         .None
-      ));
+      )));
     });
   });
 
@@ -131,12 +131,12 @@ evaluate_initialization_assignment :: (fn(
       .Atom(_, _)                => usize(0)
     );
     if((n_given_args != usize(1)), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(lhs),
         `Expected exactly one argument for "given", got ${n_given_args.to_string()}`,
         false,
         .None
-      ));
+      )));
     });
     is_implicit = true;
     actual_lhs  = match(lhs,
@@ -148,13 +148,13 @@ evaluate_initialization_assignment :: (fn(
   // Prevent declaring variable type using :: or :=.
   if((ast_expr_is_fn_call(actual_lhs) && ast_expr_is_fn_call_of(actual_lhs, BK_COLON, .None)), {
     op_str := String.from(ast_expr_token(expr).value.as_str());
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(actual_lhs),
       `Unexpected use of ":" in type declaration with "${op_str}". Please consider using "=":
 (${ast_expr_to_string(actual_lhs)}) = ${ast_expr_to_string(rhs)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Evaluate the rhs expression.
@@ -219,12 +219,12 @@ evaluate_initialization_assignment :: (fn(
     // Validate LHS name.
     if(!(is_valid_variable_name(actual_lhs)), {
       lhs_tok_val := String.from(ast_expr_token(actual_lhs).value.as_str());
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(actual_lhs),
         `Invalid assignment to ${lhs_tok_val}, expected identifier or operator`,
         false,
         .None
-      ));
+      )));
     });
 
     effective_is_compile_time_only       := (is_implicit || is_compile_time_only);
@@ -255,12 +255,12 @@ evaluate_initialization_assignment :: (fn(
       // User did not annotate a type — infer from RHS.
       match(rhs_type_opt,
         .None => {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(rhs),
             `Failed to evaluate, got ${ast_expr_to_string(rhs)}`,
             false,
             .None
-          ));
+          )));
         },
         .Some(rt) => {
           lhs_type = rt;
@@ -289,14 +289,14 @@ evaluate_initialization_assignment :: (fn(
       if(!(are_types_compatible(pre_type, synth.ty)), {
         pre_ty_str  := type_to_string(pre_type);
         rhs_ty_str  := type_to_string(synth.ty);
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(actual_lhs),
           `Incompatible types:
 - Defined: ${pre_ty_str}
 - Given  : ${rhs_ty_str}`,
           false,
           .None
-        ));
+        )));
       });
       lhs_type = pre_type;
     });
@@ -305,7 +305,7 @@ evaluate_initialization_assignment :: (fn(
     if((!(effective_is_compile_time_only) && type_requires_comptime_modifier(lhs_type, env)), {
       lhs_type_str := type_to_string(lhs_type);
       expr_str     := ast_expr_to_string(expr);
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `Expected "::" instead of ":=" for compile-time known value assignment:
 ${expr_str}
@@ -314,18 +314,18 @@ Type:
 ${lhs_type_str}`,
         false,
         .None
-      ));
+      )));
     });
     if((effective_is_compile_time_only && type_prohibits_comptime_modifier(lhs_type, env)), {
       lhs_type_str := type_to_string(lhs_type);
       expr_str     := ast_expr_to_string(expr);
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `Expected ":=" instead of "::" for value type "${lhs_type_str}" which can only be used at the runtime:
 ${expr_str}`,
         false,
         .None
-      ));
+      )));
     });
 
     // NOTE: Type mutations (funcName, typeName, isModuleEffectMember) are
@@ -342,14 +342,14 @@ ${expr_str}`,
     if((rhs_value_opt.is_none() && effective_is_compile_time_only), {
       lhs_tok_val := String.from(ast_expr_token(actual_lhs).value.as_str());
       rhs_str     := ast_expr_to_string(rhs);
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(actual_lhs),
         `Expected compile-time value for "${lhs_tok_val}".
 Got runtime value. Please consider using ":=" instead of "::":
 ${rhs_str}`,
         false,
         .None
-      ));
+      )));
     });
 
     // Determine the value to store.
@@ -403,13 +403,13 @@ ${rhs_str}`,
     // Reject mutable runtime variable inside an impl block.
     is_runtime_not_in_fn := (!(effective_is_compile_time_only) && !(ctx.is_evaluating_function_body_or_async_block.is_some()));
     if((is_runtime_not_in_fn && ctx.is_inside_impl_block), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         actual_lhs_tok,
         `Mutable runtime variable "${var_name}" is not allowed inside an impl block.
 Use \`::\` for compile-time definitions inside impl.`,
         false,
         .None
-      ));
+      )));
     });
 
     // Mark as module-level for C file-scope statics.
@@ -513,4 +513,4 @@ Use \`::\` for compile-time definitions inside impl.`,
   })
 });
 
-export evaluate_initialization_assignment;
+export(evaluate_initialization_assignment);

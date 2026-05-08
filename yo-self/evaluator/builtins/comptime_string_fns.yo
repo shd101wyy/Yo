@@ -11,7 +11,7 @@
 //! Unquoted value = raw.substring(1, raw.len()-1).
 //! To create a StrLit from unquoted string s: wrap with quotes.
 
-open import "std/string";
+open(import("std/string"));
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_to_string, ast_expr_is_fn_call_of,
@@ -19,18 +19,18 @@ open import "std/string";
   BF_COMPTIME_STRING_LT, BF_COMPTIME_STRING_LTE,
   BF_COMPTIME_STRING_GT, BF_COMPTIME_STRING_GTE,
   BF_COMPTIME_STRING_LENGTH, BF_COMPTIME_STRING_TO_UPPER,
-  BF_COMPTIME_STRING_TO_LOWER, BF_COMPTIME_STRING_SLICE }  :: import "../../expr/expr.yo";
+  BF_COMPTIME_STRING_TO_LOWER, BF_COMPTIME_STRING_SLICE }  :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                                    :: import "../../expr/expr_info.yo";
-{ Environment }                                            :: import "../../env/env.yo";
-{ EvalContext }                                            :: import "../context.yo";
-{ EvalValue, is_str_lit, is_int_lit, create_unknown_val }  :: import "../value.yo";
-{ TypeValue }                                              :: import "../../types/type.yo";
-{ t_bool, t_comptime_string, t_comptime_int }              :: import "../../types/type.yo";
-{ is_comptime_string_type, is_comptime_int_type }          :: import "../../types/guards.yo";
-{ format_error_message }                                   :: import "../../error/error.yo";
-{ evaluate_expression }                                    :: import "../exprs/expr.yo";
-{ Exception }                                              :: import "std/error";
+  expr_info_table_get }                                    :: import("../../expr/expr_info.yo");
+{ Environment }                                            :: import("../../env/env.yo");
+{ EvalContext }                                            :: import("../context.yo");
+{ EvalValue, is_str_lit, is_int_lit, create_unknown_val }  :: import("../value.yo");
+{ TypeValue }                                              :: import("../../types/type.yo");
+{ t_bool, t_comptime_string, t_comptime_int }              :: import("../../types/type.yo");
+{ is_comptime_string_type, is_comptime_int_type }          :: import("../../types/guards.yo");
+{ format_error_message }                                   :: import("../../error/error.yo");
+{ evaluate_expression }                                    :: import("../exprs/expr.yo");
+{ Exception }                                              :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // Helpers for StrLit quote-stripping / quote-wrapping.
@@ -65,22 +65,22 @@ eval_comptime_str_arg :: (fn(
   info      := match(info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg),
         `Expected comptime_string type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_comptime_string())
     }
   );
   if(!(is_comptime_string_type(info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg),
       `Expected comptime_string type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
       false,
       .None
-    ));
+    )));
   });
   info
 });
@@ -100,22 +100,22 @@ eval_comptime_int_arg :: (fn(
   info      := match(info_opt,
     .Some(i) => i,
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg),
         `Expected comptime_int type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, t_comptime_int())
     }
   );
   if(!(is_comptime_int_type(info.ty)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg),
       `Expected comptime_int type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
       false,
       .None
-    ));
+    )));
   });
   info
 });
@@ -126,7 +126,7 @@ evaluate_yo_comptime_string_functions :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
 
   is_unary := (
     ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1))) ||
@@ -136,7 +136,7 @@ evaluate_yo_comptime_string_functions :: (fn(
   is_slice := ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_SLICE, .None);
 
   if(is_unary, {
-    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
     ai   := eval_comptime_str_arg(arg0, env, ctx);
     (cur_env : Environment) = ai.env;
     arg_val := ai.value;
@@ -170,12 +170,12 @@ evaluate_yo_comptime_string_functions :: (fn(
           .None => create_unknown_val(t_comptime_string())
         ),
       true => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           String.from("Unexpected comptime_string unary function"),
           false,
           .None
-        ));
+        )));
         EvalValue.UnitVal
       }
     );
@@ -188,16 +188,16 @@ evaluate_yo_comptime_string_functions :: (fn(
     // slice(string, start, end?)
     n_args := args.len();
     if(((n_args < usize(2)) || (n_args > usize(3))), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `"${BF_COMPTIME_STRING_SLICE}" expects 2 or 3 arguments, got ${n_args.to_string()}`,
         false,
         .None
-      ));
+      )));
     });
 
-    str_arg   := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-    start_arg := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+    str_arg   := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+    start_arg := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
 
     str_info   := eval_comptime_str_arg(str_arg, env, ctx);
     start_info := eval_comptime_int_arg(start_arg, str_info.env, ctx);
@@ -258,8 +258,8 @@ evaluate_yo_comptime_string_functions :: (fn(
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // Binary operations.
-    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-    arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
+    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+    arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
 
     lhs_info := eval_comptime_str_arg(arg0, env, ctx);
     rhs_info := eval_comptime_str_arg(arg1, lhs_info.env, ctx);
@@ -336,12 +336,12 @@ evaluate_yo_comptime_string_functions :: (fn(
           .None => create_unknown_val(t_bool())
         ),
       true => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           `Unexpected function call for comptime_string operations:\n${ast_expr_to_string(expr)}`,
           false,
           .None
-        ));
+        )));
         EvalValue.UnitVal
       }
     );
@@ -355,4 +355,4 @@ evaluate_yo_comptime_string_functions :: (fn(
   expr
 });
 
-export evaluate_yo_comptime_string_functions;
+export(evaluate_yo_comptime_string_functions);

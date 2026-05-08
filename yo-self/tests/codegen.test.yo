@@ -1,14 +1,14 @@
 /// Tests for the self-hosted C code emitter — Phase 4a/4b/4c/4d/4e.
 
-open import "std/fmt";
-open import "std/string";
-open import "std/error";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
 
-{ Emitter }          :: import "../codegen/emitter.yo";
-{ CodegenContext }   :: import "../codegen/context.yo";
-{ AstExpr }          :: import "../expr/expr.yo";
-{ TokenKind, Token } :: import "../lexer/token.yo";
+{ Emitter }          :: import("../codegen/emitter.yo");
+{ CodegenContext }   :: import("../codegen/context.yo");
+{ AstExpr }          :: import("../expr/expr.yo");
+{ TokenKind, Token } :: import("../lexer/token.yo");
 { generate_expr, gen_binary_op, gen_unary_op,
   gen_bool_lit, sanitize_c_ident, is_binary_op, is_unary_prefix_op,
   type_name_to_c, type_expr_to_c, gen_arg_list,
@@ -16,26 +16,26 @@ open import "std/error";
   handle_struct_constructor, handle_regular_call,
   gen_match_arm, handle_match_value,
   handle_dot_access,
-  is_lambda_expr, extract_lambda_param_names, lift_non_capturing_lambda } :: import "../codegen/exprs.yo";
-{ generate_function } :: import "../codegen/functions.yo";
-{ TypeValue, t_i32, t_f32, t_usize, t_bool, t_comptime_string } :: import "../types/type.yo";
+  is_lambda_expr, extract_lambda_param_names, lift_non_capturing_lambda } :: import("../codegen/exprs.yo");
+{ generate_function } :: import("../codegen/functions.yo");
+{ TypeValue, t_i32, t_f32, t_usize, t_bool, t_comptime_string } :: import("../types/type.yo");
 { generate_type_decl, type_value_to_c_field,
-  struct_c_name, enum_c_name, enum_tag_prefix } :: import "../codegen/types.yo";
-{ TypeField, register_struct_fields } :: import "../evaluator/types/field.yo";
-{ EvalValue } :: import "../evaluator/value.yo";
+  struct_c_name, enum_c_name, enum_tag_prefix } :: import("../codegen/types.yo");
+{ TypeField, register_struct_fields } :: import("../evaluator/types/field.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
 { generate_rc_fns, generate_rc_fns_trivial,
   rc_dispose_name, rc_drop_name, rc_dup_name,
-  RC_ATTR } :: import "../codegen/rc.yo";
-{ emit_c_preamble, emit_main_wrapper, generate_c_output } :: import "../codegen/program.yo";
+  RC_ATTR } :: import("../codegen/rc.yo");
+{ emit_c_preamble, emit_main_wrapper, generate_c_output } :: import("../codegen/program.yo");
 { DataBinding, SimpleArm, DataArm,
   emit_match_temp_decl, emit_switch_open, emit_case_open, emit_case_body,
   emit_data_bindings,
-  generate_match_simple, generate_match_data } :: import "../codegen/match.yo";
+  generate_match_simple, generate_match_data } :: import("../codegen/match.yo");
 { FnDef, extract_fn_def, StructDef, extract_struct_def, emit_struct_to_c,
   EnumVariantField, EnumVariant, EnumDef, extract_enum_def, emit_enum_to_c,
   extract_newtype_def, emit_newtype_to_c,
   ConstDef, extract_const_def, emit_const_to_c,
-  extract_impl_fns, compile_module_to_c, compile_test_body_to_c } :: import "../codegen/driver.yo";
+  extract_impl_fns, compile_module_to_c, compile_test_body_to_c } :: import("../codegen/driver.yo");
 
 // ---------------------------------------------------------------------------
 // AST construction helpers
@@ -175,7 +175,7 @@ make_typed_decl_expr :: (fn(name : str, ty_name : str, val_e : AstExpr) -> AstEx
 /// Convenience: run generate_expr with a fresh context and empty indent.
 run_gen :: (fn(expr : AstExpr) -> Option(String))({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   ind := String.new();
   generate_expr(expr, pctx, ind)
 });
@@ -183,7 +183,7 @@ run_gen :: (fn(expr : AstExpr) -> Option(String))({
 /// Convenience: run generate_expr and also return the emitted code.
 run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   ind := String.new();
   _r := generate_expr(expr, pctx, ind);
   ctx
@@ -193,7 +193,7 @@ run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
 // Phase 4a — Emitter tests
 // ---------------------------------------------------------------------------
 
-test "Emitter: new creates empty buffers", {
+test("Emitter: new creates empty buffers", {
   e := Emitter.new();
   output := e.print();
   // headers="", decls="", code="" => "\n\n"
@@ -201,9 +201,9 @@ test "Emitter: new creates empty buffers", {
     (output == String.from("\n\n")),
     "expected two newlines for empty emitter"
   );
-};
+});
 
-test "Emitter: emit appends to code without newline", {
+test("Emitter: emit appends to code without newline", {
   e := Emitter.new();
   e.emit("int x = 42;");
   output := e.print();
@@ -212,9 +212,9 @@ test "Emitter: emit appends to code without newline", {
     output.contains(String.from("int x = 42;")),
     "expected emit to add code"
   );
-};
+});
 
-test "Emitter: emit_line appends to code with newline", {
+test("Emitter: emit_line appends to code with newline", {
   e := Emitter.new();
   e.emit_line("int x = 1;");
   e.emit_line("int y = 2;");
@@ -227,9 +227,9 @@ test "Emitter: emit_line appends to code with newline", {
     output.contains(String.from("int y = 2;\n")),
     "expected second line with newline"
   );
-};
+});
 
-test "Emitter: emit_header_line appends to headers", {
+test("Emitter: emit_header_line appends to headers", {
   e := Emitter.new();
   e.emit_header_line("#include <stdio.h>");
   output := e.print();
@@ -237,9 +237,9 @@ test "Emitter: emit_header_line appends to headers", {
     output.contains(String.from("#include <stdio.h>")),
     "expected header line in output"
   );
-};
+});
 
-test "Emitter: emit_declaration_line appends to declarations", {
+test("Emitter: emit_declaration_line appends to declarations", {
   e := Emitter.new();
   e.emit_declaration_line("typedef struct Foo Foo;");
   output := e.print();
@@ -247,13 +247,13 @@ test "Emitter: emit_declaration_line appends to declarations", {
     output.contains(String.from("typedef struct Foo Foo;")),
     "expected declaration in output"
   );
-};
+});
 
-test "Emitter: print preserves section ordering", {
+test("Emitter: print preserves section ordering", {
   e := Emitter.new();
   e.emit_header_line("#include <stdint.h>");
   e.emit_declaration_line("typedef int32_t i32;");
-  e.emit_line("int main(void) { return 0; }");
+  e.emit_line("int main(void)({ return(0); })");
   output := e.print();
   // Find positions of each section marker to verify ordering
   h_pos := output.index_of(String.from("#include"), usize(0));
@@ -293,19 +293,19 @@ test "Emitter: print preserves section ordering", {
       )
     )
   );
-};
+});
 
-test "Emitter: emit_string appends String to code", {
+test("Emitter: emit_string appends String to code", {
   e := Emitter.new();
-  e.emit_string(String.from("return 0;"));
+  e.emit_string(String.from("return(0);"));
   output := e.print();
   assert(
-    output.contains(String.from("return 0;")),
+    output.contains(String.from("return(0);")),
     "expected emitted string in output"
   );
-};
+});
 
-test "Emitter: multiple emit calls accumulate in code", {
+test("Emitter: multiple emit calls accumulate in code", {
   e := Emitter.new();
   e.emit("foo(");
   e.emit("1");
@@ -317,67 +317,67 @@ test "Emitter: multiple emit calls accumulate in code", {
     output.contains(String.from("foo(1, 2)")),
     "expected concatenated code"
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4b — generate_expr tests
 // ---------------------------------------------------------------------------
 
-test "generate_expr: integer literal", {
+test("generate_expr: integer literal", {
   expr := make_atom_expr(TokenKind.Integer, "42");
   result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("42"))),
     "expected '42'"
   );
-};
+});
 
-test "generate_expr: float literal", {
+test("generate_expr: float literal", {
   expr := make_atom_expr(TokenKind.Float, "3.14");
   result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("3.14"))),
     "expected '3.14'"
   );
-};
+});
 
-test "generate_expr: bool literal true", {
+test("generate_expr: bool literal true", {
   expr := make_atom_expr(TokenKind.Bool, "true");
   result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("1"))),
     "expected '1' for true"
   );
-};
+});
 
-test "generate_expr: bool literal false", {
+test("generate_expr: bool literal false", {
   expr := make_atom_expr(TokenKind.Bool, "false");
   result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("0"))),
     "expected '0' for false"
   );
-};
+});
 
-test "generate_expr: string literal", {
+test("generate_expr: string literal", {
   expr := make_atom_expr(TokenKind.StringLit, "\"hello\"");
   result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("\"hello\""))),
     "expected string literal verbatim"
   );
-};
+});
 
-test "generate_expr: identifier reference", {
+test("generate_expr: identifier reference", {
   expr := make_atom_expr(TokenKind.Identifier, "my_var");
   result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("my_var"))),
     "expected identifier name"
   );
-};
+});
 
-test "generate_expr: binary addition", {
+test("generate_expr: binary addition", {
   lhs  := make_atom_expr(TokenKind.Integer, "1");
   rhs  := make_atom_expr(TokenKind.Integer, "2");
   expr := make_infix_expr("+", lhs, rhs);
@@ -386,9 +386,9 @@ test "generate_expr: binary addition", {
     match(result, .None => false, .Some(s) => (s == String.from("(1 + 2)"))),
     "expected '(1 + 2)'"
   );
-};
+});
 
-test "generate_expr: binary subtraction", {
+test("generate_expr: binary subtraction", {
   lhs  := make_atom_expr(TokenKind.Integer, "10");
   rhs  := make_atom_expr(TokenKind.Integer, "3");
   expr := make_infix_expr("-", lhs, rhs);
@@ -397,9 +397,9 @@ test "generate_expr: binary subtraction", {
     match(result, .None => false, .Some(s) => (s == String.from("(10 - 3)"))),
     "expected '(10 - 3)'"
   );
-};
+});
 
-test "generate_expr: binary multiplication", {
+test("generate_expr: binary multiplication", {
   lhs  := make_atom_expr(TokenKind.Integer, "4");
   rhs  := make_atom_expr(TokenKind.Integer, "5");
   expr := make_infix_expr("*", lhs, rhs);
@@ -408,9 +408,9 @@ test "generate_expr: binary multiplication", {
     match(result, .None => false, .Some(s) => (s == String.from("(4 * 5)"))),
     "expected '(4 * 5)'"
   );
-};
+});
 
-test "generate_expr: equality comparison", {
+test("generate_expr: equality comparison", {
   lhs  := make_atom_expr(TokenKind.Identifier, "x");
   rhs  := make_atom_expr(TokenKind.Integer, "0");
   expr := make_infix_expr("==", lhs, rhs);
@@ -419,9 +419,9 @@ test "generate_expr: equality comparison", {
     match(result, .None => false, .Some(s) => (s == String.from("(x == 0)"))),
     "expected '(x == 0)'"
   );
-};
+});
 
-test "generate_expr: less-than comparison", {
+test("generate_expr: less-than comparison", {
   lhs  := make_atom_expr(TokenKind.Identifier, "n");
   rhs  := make_atom_expr(TokenKind.Integer, "10");
   expr := make_infix_expr("<", lhs, rhs);
@@ -430,9 +430,9 @@ test "generate_expr: less-than comparison", {
     match(result, .None => false, .Some(s) => (s == String.from("(n < 10)"))),
     "expected '(n < 10)'"
   );
-};
+});
 
-test "generate_expr: logical and", {
+test("generate_expr: logical and", {
   lhs  := make_atom_expr(TokenKind.Identifier, "a");
   rhs  := make_atom_expr(TokenKind.Identifier, "b");
   expr := make_infix_expr("&&", lhs, rhs);
@@ -441,9 +441,9 @@ test "generate_expr: logical and", {
     match(result, .None => false, .Some(s) => (s == String.from("(a && b)"))),
     "expected '(a && b)'"
   );
-};
+});
 
-test "generate_expr: logical or", {
+test("generate_expr: logical or", {
   lhs  := make_atom_expr(TokenKind.Identifier, "x");
   rhs  := make_atom_expr(TokenKind.Identifier, "y");
   expr := make_infix_expr("||", lhs, rhs);
@@ -452,9 +452,9 @@ test "generate_expr: logical or", {
     match(result, .None => false, .Some(s) => (s == String.from("(x || y)"))),
     "expected '(x || y)'"
   );
-};
+});
 
-test "generate_expr: unary negation", {
+test("generate_expr: unary negation", {
   operand := make_atom_expr(TokenKind.Integer, "5");
   expr    := make_unary_expr("-", operand);
   result  := run_gen(expr);
@@ -462,9 +462,9 @@ test "generate_expr: unary negation", {
     match(result, .None => false, .Some(s) => (s == String.from("(-5)"))),
     "expected '(-5)'"
   );
-};
+});
 
-test "generate_expr: unary boolean not", {
+test("generate_expr: unary boolean not", {
   operand := make_atom_expr(TokenKind.Identifier, "flag");
   expr    := make_unary_expr("!", operand);
   result  := run_gen(expr);
@@ -472,9 +472,9 @@ test "generate_expr: unary boolean not", {
     match(result, .None => false, .Some(s) => (s == String.from("(!flag)"))),
     "expected '(!flag)'"
   );
-};
+});
 
-test "generate_expr: nested binary ops", {
+test("generate_expr: nested binary ops", {
   // (1 + 2) * 3
   inner := make_infix_expr("+",
     make_atom_expr(TokenKind.Integer, "1"),
@@ -486,9 +486,9 @@ test "generate_expr: nested binary ops", {
     match(result, .None => false, .Some(s) => (s == String.from("((1 + 2) * 3)"))),
     "expected '((1 + 2) * 3)'"
   );
-};
+});
 
-test "generate_expr: unsupported expr returns None", {
+test("generate_expr: unsupported expr returns None", {
   // An operator Atom (not an identifier or literal) should return None
   expr := make_atom_expr(TokenKind.Operator, "+");
   result := run_gen(expr);
@@ -496,27 +496,27 @@ test "generate_expr: unsupported expr returns None", {
     match(result, .None => true, .Some(_) => false),
     "expected None for unsupported operator atom"
   );
-};
+});
 
-test "gen_bool_lit: true maps to 1", {
+test("gen_bool_lit: true maps to 1", {
   assert((gen_bool_lit("true") == String.from("1")), "true -> 1");
-};
+});
 
-test "gen_bool_lit: false maps to 0", {
+test("gen_bool_lit: false maps to 0", {
   assert((gen_bool_lit("false") == String.from("0")), "false -> 0");
-};
+});
 
-test "gen_binary_op: produces parenthesised output", {
+test("gen_binary_op: produces parenthesised output", {
   result := gen_binary_op(String.from("+"), String.from("a"), String.from("b"));
   assert((result == String.from("(a + b)")), "expected '(a + b)'");
-};
+});
 
-test "gen_unary_op: produces parenthesised output", {
+test("gen_unary_op: produces parenthesised output", {
   result := gen_unary_op(String.from("-"), String.from("x"));
   assert((result == String.from("(-x)")), "expected '(-x)'");
-};
+});
 
-test "is_binary_op: recognises all supported ops", {
+test("is_binary_op: recognises all supported ops", {
   assert(is_binary_op("+"),  "+ should be binary");
   assert(is_binary_op("-"),  "- should be binary");
   assert(is_binary_op("*"),  "* should be binary");
@@ -530,25 +530,25 @@ test "is_binary_op: recognises all supported ops", {
   assert(is_binary_op(">="), ">= should be binary");
   assert(is_binary_op("&&"), "&& should be binary");
   assert(is_binary_op("||"), "|| should be binary");
-  assert((!is_binary_op("=")), "= is not a supported binary op here");
-};
+  assert((!(is_binary_op("="))), "= is not a supported binary op here");
+});
 
-test "is_unary_prefix_op: recognises - and !", {
+test("is_unary_prefix_op: recognises - and !", {
   assert(is_unary_prefix_op("-"),    "- is a unary op");
   assert(is_unary_prefix_op("!"),    "! is a unary op");
-  assert((!is_unary_prefix_op("+")), "+ is not a unary op");
-};
+  assert((!(is_unary_prefix_op("+"))), "+ is not a unary op");
+});
 
-test "sanitize_c_ident: simple names pass through unchanged", {
+test("sanitize_c_ident: simple names pass through unchanged", {
   assert((sanitize_c_ident("foo") == String.from("foo")), "foo -> foo");
   assert((sanitize_c_ident("my_var_123") == String.from("my_var_123")), "my_var_123 ok");
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4c — control flow codegen tests
 // ---------------------------------------------------------------------------
 
-test "generate_expr: begin block single expr", {
+test("generate_expr: begin block single expr", {
   // { 42 }  →  "42"
   stmts := ArrayList(AstExpr).new();
   stmts.push(make_atom_expr(TokenKind.Integer, "42"));
@@ -558,9 +558,9 @@ test "generate_expr: begin block single expr", {
     match(result, .None => false, .Some(s) => (s == String.from("42"))),
     "expected '42' as last expr of begin"
   );
-};
+});
 
-test "generate_expr: begin block emits non-last stmts", {
+test("generate_expr: begin block emits non-last stmts", {
   // { 1; x }  →  emitter has "1;\n", result is "x"
   stmts := ArrayList(AstExpr).new();
   stmts.push(make_atom_expr(TokenKind.Integer, "1"));
@@ -572,19 +572,19 @@ test "generate_expr: begin block emits non-last stmts", {
     output.contains(String.from("1;")),
     "expected '1;' emitted for first stmt"
   );
-};
+});
 
-test "generate_expr: empty begin block", {
+test("generate_expr: empty begin block", {
   stmts := ArrayList(AstExpr).new();
   expr := make_begin_expr(stmts);
   result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("0"))),
-    "empty begin block should return '0'"
+    "empty begin(block should return('0'))"
   );
-};
+});
 
-test "generate_expr: cond two arms", {
+test("generate_expr: cond two arms", {
   // cond(true => 1, true => 2)  →  "1"
   // The codegen constant-folds `true =>` to its body expression (skipping dead code).
   arms := ArrayList(AstExpr).new();
@@ -602,9 +602,9 @@ test "generate_expr: cond two arms", {
     match(result, .None => false, .Some(s) => (s == String.from("1"))),
     "expected '1' (constant-folded)"
   );
-};
+});
 
-test "generate_expr: cond three arms", {
+test("generate_expr: cond three arms", {
   // cond(a => 10, b => 20, true => 30)  →  "(a ? 10 : (b ? 20 : 30))"
   arms := ArrayList(AstExpr).new();
   arms.push(make_cond_arm(
@@ -625,19 +625,19 @@ test "generate_expr: cond three arms", {
     match(result, .None => false, .Some(s) => (s == String.from("(a ? 10 : (b ? 20 : 30))"))),
     "expected '(a ? 10 : (b ? 20 : 30))'"
   );
-};
+});
 
-test "generate_expr: empty cond", {
+test("generate_expr: empty cond", {
   arms := ArrayList(AstExpr).new();
   expr := make_cond_expr(arms);
   result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("0"))),
-    "empty cond should return '0'"
+    "empty cond(should return('0'))"
   );
-};
+});
 
-test "generate_expr: if two-branch", {
+test("generate_expr: if two-branch", {
   // if(c, t, e)  →  "(c ? t : e)"
   expr := make_if_else_expr(
     make_atom_expr(TokenKind.Identifier, "c"),
@@ -649,9 +649,9 @@ test "generate_expr: if two-branch", {
     match(result, .None => false, .Some(s) => (s == String.from("(c ? t : e)"))),
     "expected '(c ? t : e)'"
   );
-};
+});
 
-test "generate_expr: if one-branch", {
+test("generate_expr: if one-branch", {
   // if(c, t)  →  "(c ? t : 0)"
   expr := make_if_expr(
     make_atom_expr(TokenKind.Identifier, "c"),
@@ -662,10 +662,10 @@ test "generate_expr: if one-branch", {
     match(result, .None => false, .Some(s) => (s == String.from("(c ? 42 : 0)"))),
     "expected '(c ? 42 : 0)'"
   );
-};
+});
 
-test "generate_expr: while emits loop and returns 0", {
-  // while runtime(x), y  →  emits "while (x) {\n  y;\n}\n", result is "0"
+test("generate_expr: while emits loop and returns 0", {
+  // while runtime(x), y  -> emits "while (x) {\n  y;\n}\n", result is "0"
   cond_e := make_runtime_cond(make_atom_expr(TokenKind.Identifier, "running"));
   body_e := make_atom_expr(TokenKind.Identifier, "step");
   expr   := make_while_expr(cond_e, body_e);
@@ -679,13 +679,13 @@ test "generate_expr: while emits loop and returns 0", {
     output.contains(String.from("step;")),
     "expected 'step;' emitted inside loop"
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4d — type mapping, function calls, dot access, assignment
 // ---------------------------------------------------------------------------
 
-test "type_name_to_c: primitive types", {
+test("type_name_to_c: primitive types", {
   assert((type_name_to_c("i8")    == String.from("int8_t")),    "i8");
   assert((type_name_to_c("i16")   == String.from("int16_t")),   "i16");
   assert((type_name_to_c("i32")   == String.from("int32_t")),   "i32");
@@ -700,13 +700,13 @@ test "type_name_to_c: primitive types", {
   assert((type_name_to_c("bool")  == String.from("bool")),      "bool");
   assert((type_name_to_c("str")   == String.from("const char*")), "str");
   assert((type_name_to_c("unit")  == String.from("void")),      "unit");
-};
+});
 
-test "type_name_to_c: unknown name passes through unchanged", {
+test("type_name_to_c: unknown name passes through unchanged", {
   assert((type_name_to_c("MyType") == String.from("MyType")), "user-defined type");
-};
+});
 
-test "generate_expr: regular function call no args", {
+test("generate_expr: regular function call no args", {
   // f()  →  "f()"
   args := ArrayList(AstExpr).new();
   expr := make_fncall_expr("f", args);
@@ -715,9 +715,9 @@ test "generate_expr: regular function call no args", {
     match(result, .None => false, .Some(s) => (s == String.from("f()"))),
     "expected 'f()'"
   );
-};
+});
 
-test "generate_expr: regular function call with args", {
+test("generate_expr: regular function call with args", {
   // foo(1, x)  →  "foo(1, x)"
   args := ArrayList(AstExpr).new();
   args.push(make_atom_expr(TokenKind.Integer, "1"));
@@ -728,9 +728,9 @@ test "generate_expr: regular function call with args", {
     match(result, .None => false, .Some(s) => (s == String.from("foo(1, x)"))),
     "expected 'foo(1, x)'"
   );
-};
+});
 
-test "generate_expr: dot field access", {
+test("generate_expr: dot field access", {
   // a.b  →  "a.b"
   lhs  := make_atom_expr(TokenKind.Identifier, "a");
   rhs  := make_atom_expr(TokenKind.Identifier, "b");
@@ -740,9 +740,9 @@ test "generate_expr: dot field access", {
     match(result, .None => false, .Some(s) => (s == String.from("a.b"))),
     "expected 'a.b'"
   );
-};
+});
 
-test "generate_expr: method call no extra args", {
+test("generate_expr: method call no extra args", {
   // obj.method()  →  "obj.method()"
   obj  := make_atom_expr(TokenKind.Identifier, "obj");
   args := ArrayList(AstExpr).new();
@@ -752,9 +752,9 @@ test "generate_expr: method call no extra args", {
     match(result, .None => false, .Some(s) => (s == String.from("obj.method()"))),
     "expected 'obj.method()'"
   );
-};
+});
 
-test "generate_expr: method call with args", {
+test("generate_expr: method call with args", {
   // vec.push(x)  →  "vec.push(x)"
   obj  := make_atom_expr(TokenKind.Identifier, "vec");
   args := ArrayList(AstExpr).new();
@@ -765,9 +765,9 @@ test "generate_expr: method call with args", {
     match(result, .None => false, .Some(s) => (s == String.from("vec.push(x)"))),
     "expected 'vec.push(x)'"
   );
-};
+});
 
-test "generate_expr: bare assignment expression", {
+test("generate_expr: bare assignment expression", {
   // x = 5  →  "x = 5"
   lhs  := make_atom_expr(TokenKind.Identifier, "x");
   rhs  := make_atom_expr(TokenKind.Integer, "5");
@@ -777,9 +777,9 @@ test "generate_expr: bare assignment expression", {
     match(result, .None => false, .Some(s) => (s == String.from("x = 5"))),
     "expected 'x = 5'"
   );
-};
+});
 
-test "generate_expr: typed declaration emits statement", {
+test("generate_expr: typed declaration emits statement", {
   // (x : i32) = 42  →  emits "int32_t x = 42;" as statement, returns "0"
   expr := make_typed_decl_expr("x", "i32", make_atom_expr(TokenKind.Integer, "42"));
   ctx  := run_gen_with_ctx(expr);
@@ -788,19 +788,19 @@ test "generate_expr: typed declaration emits statement", {
     output.contains(String.from("int32_t x = 42;")),
     "expected 'int32_t x = 42;' emitted as statement"
   );
-};
+});
 
-test "generate_expr: typed declaration returns 0", {
+test("generate_expr: typed declaration returns 0", {
   // (x : i32) = 42  →  returns "0"
   expr   := make_typed_decl_expr("x", "i32", make_atom_expr(TokenKind.Integer, "42"));
   result := run_gen(expr);
   assert(
     match(result, .None => false, .Some(s) => (s == String.from("0"))),
-    "typed decl should return '0'"
+    "typed decl should return('0')"
   );
-};
+});
 
-test "generate_expr: nested function call in arg", {
+test("generate_expr: nested function call in arg", {
   // f(g(1))  →  "f(g(1))"
   inner_args := ArrayList(AstExpr).new();
   inner_args.push(make_atom_expr(TokenKind.Integer, "1"));
@@ -813,23 +813,23 @@ test "generate_expr: nested function call in arg", {
     match(result, .None => false, .Some(s) => (s == String.from("f(g(1))"))),
     "expected 'f(g(1))'"
   );
-};
+});
 
-test "generate_function: void function with no params", {
+test("generate_function: void function with no params", {
   // static void hello() { return 0; }  — body is just integer 0
   params    := ArrayList(String).new();
   param_tys := ArrayList(String).new();
   body      := make_atom_expr(TokenKind.Integer, "0");
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   generate_function("hello", "void", params, param_tys, body, pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static void hello()")), "expected function signature");
   assert(output.contains(String.from("{")),  "expected opening brace");
   assert(output.contains(String.from("}")),  "expected closing brace");
-};
+});
 
-test "generate_function: int function with params", {
+test("generate_function: int function with params", {
   // static int32_t add(int32_t a, int32_t b) { return (a + b); }
   params    := ArrayList(String).new();
   param_tys := ArrayList(String).new();
@@ -842,15 +842,15 @@ test "generate_function: int function with params", {
     make_atom_expr(TokenKind.Identifier, "b")
   );
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   generate_function("add", "int32_t", params, param_tys, body, pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static int32_t add(int32_t a, int32_t b)")), "signature");
   assert(output.contains(String.from("return")),    "expected return");
   assert(output.contains(String.from("(a + b)")),   "expected body expression");
-};
+});
 
-test "generate_function: function with begin block body", {
+test("generate_function: function with begin block body", {
   // static int32_t const_42() { return 42; }
   // body is a begin block: { 42 }
   stmts := ArrayList(AstExpr).new();
@@ -859,30 +859,30 @@ test "generate_function: function with begin block body", {
   params    := ArrayList(String).new();
   param_tys := ArrayList(String).new();
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   generate_function("const_42", "int32_t", params, param_tys, body, pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static int32_t const_42()")), "signature");
   assert(output.contains(String.from("return 42;")), "expected 'return 42;'");
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4e: Type codegen helpers
 // ---------------------------------------------------------------------------
 
-test "struct_c_name and enum_c_name", {
+test("struct_c_name and enum_c_name", {
   sn := struct_c_name("yoabc123", usize(5));
   en := enum_c_name("yoabc123", usize(7));
   assert((sn == String.from("__yo_struct_yoabc123_id_5")), "struct c name");
   assert((en == String.from("__yo_enum_yoabc123_id_7")),   "enum c name");
-};
+});
 
-test "enum_tag_prefix: uppercase module_id and id", {
+test("enum_tag_prefix: uppercase module_id and id", {
   p := enum_tag_prefix("yoabc123", usize(3));
   assert((p == String.from("__YO_ENUM_YOABC123_ID_3")), "tag prefix");
-};
+});
 
-test "type_value_to_c_field: primitives", {
+test("type_value_to_c_field: primitives", {
   assert(
     match(type_value_to_c_field(t_i32()), .Some(s) => (s == String.from("int32_t")), .None => false),
     "i32 → int32_t"
@@ -899,9 +899,9 @@ test "type_value_to_c_field: primitives", {
     match(type_value_to_c_field(t_bool()), .Some(s) => (s == String.from("bool")), .None => false),
     "bool → bool"
   );
-};
+});
 
-test "generate_type_decl: simple struct Point with two i32 fields", {
+test("generate_type_decl: simple struct Point with two i32 fields", {
   field_labels := ArrayList(String).new();
   field_labels.push(String.from("x"));
   field_labels.push(String.from("y"));
@@ -911,7 +911,7 @@ test "generate_type_decl: simple struct Point with two i32 fields", {
   tv := TypeValue.Struct(String.from(""), String.from("Point"), field_labels, field_types, false, false, false);
 
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   result_opt := generate_type_decl(tv, "yomod0001", usize(2), pctx);
   c_name := match(result_opt, .Some(s) => s, .None => String.from("NONE"));
 
@@ -922,9 +922,9 @@ test "generate_type_decl: simple struct Point with two i32 fields", {
   assert(output.contains(String.from("struct __yo_struct_yomod0001_id_2_struct")), "struct def");
   assert(output.contains(String.from("int32_t x;")), "field x");
   assert(output.contains(String.from("int32_t y;")), "field y");
-};
+});
 
-test "generate_type_decl: skips explicit comptime-only struct fields", {
+test("generate_type_decl: skips explicit comptime-only struct fields", {
   struct_id := String.from("static_struct");
   field_labels := ArrayList(String).new();
   field_labels.push(String.from("tag"));
@@ -955,15 +955,15 @@ test "generate_type_decl: skips explicit comptime-only struct fields", {
 
   tv := TypeValue.Struct(struct_id, String.from("StaticStruct"), field_labels, field_types, false, false, false);
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   _ := generate_type_decl(tv, "yomod0001", usize(3), pctx);
 
   output := ctx.emitter.print();
   assert(!(output.contains(String.from(" tag;"))), "static field omitted");
   assert(output.contains(String.from("int32_t value;")), "runtime field emitted");
-};
+});
 
-test "generate_type_decl: simple enum Color (all unit variants)", {
+test("generate_type_decl: simple enum Color (all unit variants)", {
   variant_names := ArrayList(String).new();
   variant_names.push(String.from("Red"));
   variant_names.push(String.from("Green"));
@@ -975,7 +975,7 @@ test "generate_type_decl: simple enum Color (all unit variants)", {
   tv := TypeValue.EnumT(String.from(""), String.from("Color"), variant_names, variant_fields, Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new());
 
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   result_opt := generate_type_decl(tv, "yomod0001", usize(10), pctx);
   c_name := match(result_opt, .Some(s) => s, .None => String.from("NONE"));
 
@@ -987,9 +987,9 @@ test "generate_type_decl: simple enum Color (all unit variants)", {
   assert(output.contains(String.from("__YO_ENUM_YOMOD0001_ID_10_GREEN")), "GREEN variant");
   assert(output.contains(String.from("__YO_ENUM_YOMOD0001_ID_10_BLUE")),  "BLUE variant");
   assert(output.contains(String.from("} __yo_enum_yomod0001_id_10;")),     "closing typedef");
-};
+});
 
-test "generate_type_decl: data enum Shape with Circle(f32) and Rect(f32, f32)", {
+test("generate_type_decl: data enum Shape with Circle(f32) and Rect(f32, f32)", {
   variant_names := ArrayList(String).new();
   variant_names.push(String.from("Circle"));
   variant_names.push(String.from("Rect"));
@@ -1005,7 +1005,7 @@ test "generate_type_decl: data enum Shape with Circle(f32) and Rect(f32, f32)", 
 
   tv := TypeValue.EnumT(String.from(""), String.from("Shape"), variant_names, variant_fields, Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new());
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   result_opt := generate_type_decl(tv, "yomod0001", usize(15), pctx);
   c_name := match(result_opt, .Some(s) => s, .None => String.from("NONE"));
 
@@ -1020,33 +1020,33 @@ test "generate_type_decl: data enum Shape with Circle(f32) and Rect(f32, f32)", 
   assert(output.contains(String.from("} Rect;")),         "Rect member");
   assert(output.contains(String.from("__yo_enum_yomod0001_id_15_tag tag;")),  "tag field");
   assert(output.contains(String.from("__yo_enum_yomod0001_id_15_data data;")), "data field");
-};
+});
 
-test "generate_type_decl: unsupported TypeValue returns None", {
+test("generate_type_decl: unsupported TypeValue returns None", {
   tv := TypeValue.Int(u8(32), true);
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   result_opt := generate_type_decl(tv, "yomod0001", usize(1), pctx);
   assert(
     match(result_opt, .None => true, .Some(_) => false),
-    "primitive should return None"
+    "primitive should return(None)"
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4i: RC/GC helper function generation
 // ---------------------------------------------------------------------------
 
-test "rc name builders", {
+test("rc name builders", {
   s := "__yo_struct_yomod_id_2";
   assert((rc_dispose_name(s) == String.from("__yo_struct_yomod_id_2___dispose")), "dispose name");
   assert((rc_drop_name(s)    == String.from("__yo_struct_yomod_id_2___drop")),    "drop name");
   assert((rc_dup_name(s)     == String.from("__yo_struct_yomod_id_2___dup")),     "dup name");
-};
+});
 
-test "generate_rc_fns_trivial: struct (has_dispose=true)", {
+test("generate_rc_fns_trivial: struct (has_dispose=true)", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   generate_rc_fns_trivial("__yo_struct_yomod_id_2", true, pctx);
   output := ctx.emitter.print();
 
@@ -1059,23 +1059,23 @@ test "generate_rc_fns_trivial: struct (has_dispose=true)", {
   assert(output.contains(String.from("void __yo_struct_yomod_id_2___dispose(")), "dispose void sig");
   assert(output.contains(String.from("void __yo_struct_yomod_id_2___drop(")),    "drop void sig");
   // Dup returns the type
-  assert(output.contains(String.from("__yo_struct_yomod_id_2 __yo_struct_yomod_id_2___dup(")), "dup return type");
+  assert(output.contains(String.from("__yo_struct_yomod_id_2 __yo_struct_yomod_id_2___dup(")), "dup return(type)");
 
   // Drop body has return;
   assert(output.contains(String.from("return;")), "drop return");
   // Dup body copies __yo_self
   assert(output.contains(String.from("__yo_struct_yomod_id_2 __yo_dup_tmp = __yo_self;")), "dup copy");
-  assert(output.contains(String.from("return __yo_dup_tmp;")), "dup return tmp");
-};
+  assert(output.contains(String.from("return(__yo_dup_tmp);")), "dup return(tmp)");
+});
 
-test "generate_rc_fns_trivial: enum (has_dispose=false)", {
+test("generate_rc_fns_trivial: enum (has_dispose=false)", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   generate_rc_fns_trivial("__yo_enum_yomod_id_5", false, pctx);
   output := ctx.emitter.print();
 
   // No dispose for enums
-  assert((!output.contains(String.from("___dispose"))), "no dispose for enum");
+  assert((!(output.contains(String.from("___dispose")))), "no dispose for enum");
 
   // Drop and dup present
   assert(output.contains(String.from("__yo_enum_yomod_id_5___drop")), "drop present");
@@ -1084,11 +1084,11 @@ test "generate_rc_fns_trivial: enum (has_dispose=false)", {
   // Definitions emitted
   assert(output.contains(String.from("void __yo_enum_yomod_id_5___drop(")), "drop def");
   assert(output.contains(String.from("__yo_enum_yomod_id_5 __yo_enum_yomod_id_5___dup(")), "dup def");
-};
+});
 
-test "generate_rc_fns: Struct TypeValue generates all three RC fns", {
+test("generate_rc_fns: Struct TypeValue generates all three RC fns", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
 
   field_labels := ArrayList(String).new();
   field_labels.push(String.from("x"));
@@ -1099,17 +1099,17 @@ test "generate_rc_fns: Struct TypeValue generates all three RC fns", {
   tv := TypeValue.Struct(String.from(""), String.from("Point"), field_labels, field_types, false, false, false);
 
   ok := generate_rc_fns(tv, "yomod0001", usize(2), pctx);
-  assert(ok, "should return true for Struct");
+  assert(ok, "should return(true for Struct)");
 
   output := ctx.emitter.print();
   assert(output.contains(String.from("__yo_struct_yomod0001_id_2___dispose")), "dispose");
   assert(output.contains(String.from("__yo_struct_yomod0001_id_2___drop")),    "drop");
   assert(output.contains(String.from("__yo_struct_yomod0001_id_2___dup")),     "dup");
-};
+});
 
-test "generate_rc_fns: EnumT TypeValue generates drop+dup, no dispose", {
+test("generate_rc_fns: EnumT TypeValue generates drop+dup, no dispose", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
 
   variant_names := ArrayList(String).new();
   variant_names.push(String.from("Red"));
@@ -1122,30 +1122,30 @@ test "generate_rc_fns: EnumT TypeValue generates drop+dup, no dispose", {
   tv := TypeValue.EnumT(String.from(""), String.from("Color"), variant_names, variant_fields, Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new());
 
   ok := generate_rc_fns(tv, "yomod0001", usize(10), pctx);
-  assert(ok, "should return true for EnumT");
+  assert(ok, "should return(true for EnumT)");
 
   output := ctx.emitter.print();
-  assert((!output.contains(String.from("___dispose"))),                    "no dispose for enum");
+  assert((!(output.contains(String.from("___dispose")))),                    "no dispose for enum");
   assert(output.contains(String.from("__yo_enum_yomod0001_id_10___drop")), "drop");
   assert(output.contains(String.from("__yo_enum_yomod0001_id_10___dup")),  "dup");
-};
+});
 
-test "generate_rc_fns: unsupported TypeValue returns false", {
+test("generate_rc_fns: unsupported TypeValue returns false", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   tv   := TypeValue.Int(u8(32), true);
   ok   := generate_rc_fns(tv, "yomod0001", usize(1), pctx);
-  assert((!ok), "should return false for non-struct/enum");
-};
+  assert((!(ok)), "should return(false for non-struct/enum)");
+});
 
 
 // ---------------------------------------------------------------------------
 // Phase 4j: Program emission
 // ---------------------------------------------------------------------------
 
-test "emit_c_preamble: has standard includes", {
+test("emit_c_preamble: has standard includes", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_c_preamble("yomod0001", pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("#define _DEFAULT_SOURCE")), "_DEFAULT_SOURCE");
@@ -1153,38 +1153,38 @@ test "emit_c_preamble: has standard includes", {
   assert(output.contains(String.from("#include <stdint.h>")),     "stdint.h");
   assert(output.contains(String.from("#include <stdio.h>")),      "stdio.h");
   assert(output.contains(String.from("#include <string.h>")),     "string.h");
-};
+});
 
-test "emit_c_preamble: has allocator macros", {
+test("emit_c_preamble: has allocator macros", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_c_preamble("yomod0001", pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("#define __yo_malloc")),  "malloc macro");
   assert(output.contains(String.from("#define __yo_free")),    "free macro");
-};
+});
 
-test "emit_c_preamble: has module ID comment", {
+test("emit_c_preamble: has module ID comment", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_c_preamble("yoabc999", pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("// Module ID: yoabc999")), "module id comment");
-};
+});
 
-test "emit_main_wrapper: emits int main with user fn call", {
+test("emit_main_wrapper: emits int main with user fn call", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_main_wrapper("__yo_user_main", pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("int main(void) {")),   "main signature");
   assert(output.contains(String.from("__yo_user_main();")), "user fn call");
-  assert(output.contains(String.from("return 0;")),         "return 0");
-};
+  assert(output.contains(String.from("return(0);")),         "return(0)");
+});
 
-test "generate_c_output: combines headers + declarations + code", {
+test("generate_c_output: combines headers + declarations + code", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   ctx.emitter.emit_header_line("// header");
   ctx.emitter.emit_declaration_line("// decl");
   ctx.emitter.emit_line("// code");
@@ -1192,11 +1192,11 @@ test "generate_c_output: combines headers + declarations + code", {
   assert(out.contains(String.from("// header")),  "header present");
   assert(out.contains(String.from("// decl")),    "decl present");
   assert(out.contains(String.from("// code")),    "code present");
-};
+});
 
-test "full program: preamble + type + RC + function + main wrapper", {
+test("full program: preamble + type + RC + function + main wrapper", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
 
   // 1. Preamble
   emit_c_preamble("yomod0001", pctx);
@@ -1226,65 +1226,65 @@ test "full program: preamble + type + RC + function + main wrapper", {
   assert(out.contains(String.from("__yo_struct_yomod0001_id_2")), "type in output");
   assert(out.contains(String.from("___dispose")), "RC dispose in output");
   assert(out.contains(String.from("int main(void)")), "main wrapper in output");
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4d: Match codegen
 // ---------------------------------------------------------------------------
 
-test "emit_match_temp_decl: emits type and varname", {
+test("emit_match_temp_decl: emits type and varname", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_match_temp_decl("int32_t", "_yo_temp_1", pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("int32_t _yo_temp_1;")), "temp decl");
-};
+});
 
-test "emit_switch_open: simple enum (no tag field)", {
+test("emit_switch_open: simple enum (no tag field)", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_switch_open("c", false, pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("switch (c) {")), "simple switch");
-};
+});
 
-test "emit_switch_open: data enum (with tag field)", {
+test("emit_switch_open: data enum (with tag field)", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_switch_open("shape", true, pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("switch ((shape).tag) {")), "data switch");
-};
+});
 
-test "emit_case_open: named case", {
+test("emit_case_open: named case", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_case_open("__YO_ENUM_MOD_ID_2_RED", pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("case __YO_ENUM_MOD_ID_2_RED: {")), "named case");
-};
+});
 
-test "emit_case_open: wildcard emits default", {
+test("emit_case_open: wildcard emits default", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_case_open("", pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("default: {")), "default case");
-};
+});
 
-test "emit_case_body: emits assignment, break, close brace", {
+test("emit_case_body: emits assignment, break, close brace", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_case_body("_yo_temp_1", "42", pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("_yo_temp_1 = 42;")), "assignment");
   assert(out.contains(String.from("break;")),            "break");
   assert(out.contains(String.from("}")),                 "close brace");
-};
+});
 
-test "generate_match_simple: switch on unit enum", {
+test("generate_match_simple: switch on unit enum", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
 
   arms := ArrayList(SimpleArm).new();
 
@@ -1317,11 +1317,11 @@ test "generate_match_simple: switch on unit enum", {
   assert(out.contains(String.from("_yo_temp_1 = 0;")),                   "RED body");
   assert(out.contains(String.from("_yo_temp_1 = 1;")),                   "GREEN body");
   assert(out.contains(String.from("_yo_temp_1 = 2;")),                   "BLUE body");
-};
+});
 
-test "generate_match_data: switch on data enum with field bindings", {
+test("generate_match_data: switch on data enum with field bindings", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
 
   // .Circle(r) arm with one binding
   circle_bindings := ArrayList(DataBinding).new();
@@ -1371,11 +1371,11 @@ test "generate_match_data: switch on data enum with field bindings", {
   assert(out.contains(String.from("case __YO_ENUM_MOD_ID_2_RECT: {")),           "RECT case");
   assert(out.contains(String.from("int32_t w = shape.data.Rect.w;")),            "w binding");
   assert(out.contains(String.from("int32_t h = shape.data.Rect.h;")),            "h binding");
-};
+});
 
-test "generate_match_simple: wildcard arm emits default case", {
+test("generate_match_simple: wildcard arm emits default case", {
   ctx  := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
 
   arms := ArrayList(SimpleArm).new();
   arm_a := SimpleArm(
@@ -1393,7 +1393,7 @@ test "generate_match_simple: wildcard arm emits default case", {
   out := ctx.emitter.print();
   assert(out.contains(String.from("case __YO_ENUM_ID_TAG_A: {")), "named case");
   assert(out.contains(String.from("default: {")),                  "wildcard default");
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4j+ — Compiler driver helpers
@@ -1447,7 +1447,7 @@ make_using_param :: (fn(ev_name : str, ty_name : str) -> AstExpr)({
 // Phase 4j+ tests — extract_fn_def
 // ---------------------------------------------------------------------------
 
-test "extract_fn_def: simple no-param fn() -> unit", {
+test("extract_fn_def: simple no-param fn() -> unit", {
   body  := make_begin_expr(ArrayList(AstExpr).new());
   ret   := make_atom_expr(TokenKind.Identifier, "unit");
   rhs   := make_fn_app(ArrayList(AstExpr).new(), ret, body);
@@ -1462,9 +1462,9 @@ test "extract_fn_def: simple no-param fn() -> unit", {
       assert((d.params.len() == usize(0)),        "no params");
     }
   );
-};
+});
 
-test "extract_fn_def: fn(x : i32) -> i64", {
+test("extract_fn_def: fn(x : i32) -> i64", {
   params := ArrayList(AstExpr).new();
   params.push(make_param("x", "i32"));
   body  := make_atom_expr(TokenKind.Identifier, "x");
@@ -1485,9 +1485,9 @@ test "extract_fn_def: fn(x : i32) -> i64", {
       );
     }
   );
-};
+});
 
-test "extract_fn_def: using evidence param → void*", {
+test("extract_fn_def: using evidence param → void*", {
   params := ArrayList(AstExpr).new();
   params.push(make_using_param("io", "IO"));
   body  := make_begin_expr(ArrayList(AstExpr).new());
@@ -1510,22 +1510,22 @@ test "extract_fn_def: using evidence param → void*", {
       );
     }
   );
-};
+});
 
-test "extract_fn_def: non-define expr returns None", {
+test("extract_fn_def: non-define expr returns None", {
   expr := make_atom_expr(TokenKind.Identifier, "hello");
   fd   := extract_fn_def(expr);
   match(fd,
     .None    => (),   // expected
-    .Some(_) => assert(false, "should return None for non-define")
+    .Some(_) => assert(false, "should return(None for non-define)")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4j+ tests — compile_module_to_c
 // ---------------------------------------------------------------------------
 
-test "compile_module_to_c: trivial main() → generates static fn + int main", {
+test("compile_module_to_c: trivial main() → generates static fn + int main", {
   body  := make_begin_expr(ArrayList(AstExpr).new());
   ret   := make_atom_expr(TokenKind.Identifier, "unit");
   rhs   := make_fn_app(ArrayList(AstExpr).new(), ret, body);
@@ -1544,9 +1544,9 @@ test "compile_module_to_c: trivial main() → generates static fn + int main", {
       assert(c.contains(String.from("#include <stdio.h>")),   "preamble included");
     }
   );
-};
+});
 
-test "compile_module_to_c: main not found returns None", {
+test("compile_module_to_c: main not found returns None", {
   body  := make_begin_expr(ArrayList(AstExpr).new());
   ret   := make_atom_expr(TokenKind.Identifier, "unit");
   rhs   := make_fn_app(ArrayList(AstExpr).new(), ret, body);
@@ -1560,9 +1560,9 @@ test "compile_module_to_c: main not found returns None", {
     .None    => (),   // expected
     .Some(_) => assert(false, "should be None when main absent")
   );
-};
+});
 
-test "compile_module_to_c: fn with i32 param emits correct signature", {
+test("compile_module_to_c: fn with i32 param emits correct signature", {
   params := ArrayList(AstExpr).new();
   params.push(make_param("n", "i32"));
   body  := make_atom_expr(TokenKind.Identifier, "n");
@@ -1578,10 +1578,10 @@ test "compile_module_to_c: fn with i32 param emits correct signature", {
     .None    => assert(false, "no C output"),
     .Some(c) => {
       assert(c.contains(String.from("int32_t n")), "param in signature");
-      assert(c.contains(String.from("static int32_t fn_main")), "return type");
+      assert(c.contains(String.from("static int32_t fn_main")), "return(type)");
     }
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4 validation milestone — parse + compile hello_world
@@ -1591,11 +1591,11 @@ test "compile_module_to_c: fn with i32 param emits correct signature", {
 // They are the "Phase 4 validation milestone": compile hello_world.yo end-to-end
 // through the Yo-written compiler.
 
-{ parse, ParseError } :: import "../parser/parser.yo";
+{ parse, ParseError } :: import("../parser/parser.yo");
 
-test "validation: parse and compile trivial main() -> unit", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
-  src := String.from("main :: (fn() -> unit)({ }); export main;");
+test("validation: parse and compile trivial main() -> unit", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
+  src := String.from("main :: (fn() -> unit)({ }); export(main);");
   exprs := parse(src, String.from("<test>"), using(exn));
   opt_c := compile_module_to_c(exprs, "hello_module", "main");
   match(opt_c,
@@ -1607,11 +1607,11 @@ test "validation: parse and compile trivial main() -> unit", {
       assert(c.contains(String.from("#include <stdio.h>")),      "preamble present");
     }
   );
-};
+});
 
-test "validation: parse and compile fn with i32 parameter", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape (); }));
-  src := String.from("add :: (fn(x : i32, y : i32) -> i32)({ x; }); export add;");
+test("validation: parse and compile fn with i32 parameter", {
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected parse error"); escape(()); }));
+  src := String.from("add :: (fn(x : i32, y : i32) -> i32)({ x; }); export(add);");
   exprs := parse(src, String.from("<test>"), using(exn));
   opt_c := compile_module_to_c(exprs, "arith_module", "add");
   match(opt_c,
@@ -1619,10 +1619,10 @@ test "validation: parse and compile fn with i32 parameter", {
     .Some(c) => {
       assert(c.contains(String.from("int32_t x")),              "param x: i32");
       assert(c.contains(String.from("int32_t y")),              "param y: i32");
-      assert(c.contains(String.from("static int32_t fn_add(")), "fn return type");
+      assert(c.contains(String.from("static int32_t fn_add(")), "fn return(type)");
     }
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
@@ -1642,16 +1642,16 @@ make_assert_expr :: (fn(cond_e : AstExpr, msg : str) -> AstExpr)({
   make_fncall_expr("assert", a)
 });
 
-test "handle_define: x := 42 emits __auto_type x = 42;", {
+test("handle_define: x := 42 emits __auto_type x = 42;", {
   // Build `x := 42`
   rhs  := make_atom_expr(TokenKind.Integer, "42");
   expr := make_walrus_expr("x", rhs);
   ctx  := run_gen_with_ctx(expr);
-  code := generate_c_output(&ctx);
+  code := generate_c_output(&(ctx));
   assert(code.contains(String.from("__auto_type x = 42;")), "define emits __auto_type");
-};
+});
 
-test "handle_define: returns unit sentinel 0 so no spurious value emitted", {
+test("handle_define: returns unit sentinel 0 so no spurious value emitted", {
   // When used as statement in a begin block, define returns "0" (unit sentinel)
   rhs  := make_atom_expr(TokenKind.Integer, "5");
   expr := make_walrus_expr("y", rhs);
@@ -1660,9 +1660,9 @@ test "handle_define: returns unit sentinel 0 so no spurious value emitted", {
     .None    => assert(false, "expected Some"),
     .Some(v) => assert((v == String.from("0")), "unit sentinel 0")
   );
-};
+});
 
-test "handle_type_cast: i32(99) emits (int32_t)(99)", {
+test("handle_type_cast: i32(99) emits (int32_t)(99)", {
   a := ArrayList(AstExpr).new();
   a.push(make_atom_expr(TokenKind.Integer, "99"));
   expr := make_fncall_expr("i32", a);
@@ -1671,9 +1671,9 @@ test "handle_type_cast: i32(99) emits (int32_t)(99)", {
     .None    => assert(false, "expected Some"),
     .Some(v) => assert(v.contains(String.from("(int32_t)(99)")), "cast emitted correctly")
   );
-};
+});
 
-test "handle_type_cast: u8(x) emits (uint8_t)(x)", {
+test("handle_type_cast: u8(x) emits (uint8_t)(x)", {
   a := ArrayList(AstExpr).new();
   a.push(make_atom_expr(TokenKind.Identifier, "x"));
   expr := make_fncall_expr("u8", a);
@@ -1682,9 +1682,9 @@ test "handle_type_cast: u8(x) emits (uint8_t)(x)", {
     .None    => assert(false, "expected Some"),
     .Some(v) => assert(v.contains(String.from("(uint8_t)(x)")), "u8 cast emitted correctly")
   );
-};
+});
 
-test "handle_type_cast: bool(x) emits (bool)(x)", {
+test("handle_type_cast: bool(x) emits (bool)(x)", {
   a := ArrayList(AstExpr).new();
   a.push(make_atom_expr(TokenKind.Identifier, "x"));
   expr := make_fncall_expr("bool", a);
@@ -1693,26 +1693,26 @@ test "handle_type_cast: bool(x) emits (bool)(x)", {
     .None    => assert(false, "expected Some"),
     .Some(v) => assert(v.contains(String.from("(bool)(x)")), "bool cast emitted correctly")
   );
-};
+});
 
-test "handle_assert: assert(cond, msg) emits if (!cond) { exit(1); }", {
+test("handle_assert: assert(cond, msg) emits if (!cond) { exit(1); }", {
   cond_e := make_atom_expr(TokenKind.Identifier, "ok");
   expr   := make_assert_expr(cond_e, "\"check\"");
   ctx    := run_gen_with_ctx(expr);
-  code   := generate_c_output(&ctx);
+  code   := generate_c_output(&(ctx));
   assert(code.contains(String.from("if (!(ok))")), "if guard");
   assert(code.contains(String.from("exit(1)")),    "exit(1) on failure");
-};
+});
 
-test "compile_test_body_to_c: empty body compiles to valid C with main wrapper", {
+test("compile_test_body_to_c: empty body compiles to valid C with main wrapper", {
   body := make_begin_expr(ArrayList(AstExpr).new());
   c    := compile_test_body_to_c(body, "test_mod", ArrayList(AstExpr).new());
   assert(c.contains(String.from("fn_test_body")),  "test body function");
   assert(c.contains(String.from("int main(void)")), "main wrapper");
   assert(c.contains(String.from("#include <stdio.h>")), "preamble");
-};
+});
 
-test "compile_test_body_to_c: assert in body emits if guard", {
+test("compile_test_body_to_c: assert in body emits if guard", {
   cond_e := make_atom_expr(TokenKind.Identifier, "ok");
   assert_e := make_assert_expr(cond_e, "\"msg\"");
   stmts := ArrayList(AstExpr).new();
@@ -1720,7 +1720,7 @@ test "compile_test_body_to_c: assert in body emits if guard", {
   body := make_begin_expr(stmts);
   c    := compile_test_body_to_c(body, "test_mod", ArrayList(AstExpr).new());
   assert(c.contains(String.from("if (!(ok))")), "assert guard present in test body C");
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 4f+ — struct/impl support in compile_module_to_c
@@ -1744,7 +1744,7 @@ make_impl_expr :: (fn(type_name : str, body : AstExpr) -> AstExpr)({
   make_fncall_expr("impl", a)
 });
 
-test "extract_struct_def: simple struct with i32 field", {
+test("extract_struct_def: simple struct with i32 field", {
   // Counter :: struct(value : i32)
   fields := ArrayList(AstExpr).new();
   fields.push(make_colon_expr(
@@ -1768,9 +1768,9 @@ test "extract_struct_def: simple struct with i32 field", {
       );
     }
   );
-};
+});
 
-test "extract_struct_def: two fields i32 and bool", {
+test("extract_struct_def: two fields i32 and bool", {
   fields := ArrayList(AstExpr).new();
   fields.push(make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "x"),
@@ -1792,9 +1792,9 @@ test "extract_struct_def: two fields i32 and bool", {
       );
     }
   );
-};
+});
 
-test "extract_struct_def: non-struct expr returns None", {
+test("extract_struct_def: non-struct expr returns None", {
   // A regular function def should not be recognised as a struct.
   body  := make_begin_expr(ArrayList(AstExpr).new());
   ret   := make_atom_expr(TokenKind.Identifier, "unit");
@@ -1805,9 +1805,9 @@ test "extract_struct_def: non-struct expr returns None", {
     .None    => (),   // expected
     .Some(_) => assert(false, "function def should not be a struct")
   );
-};
+});
 
-test "emit_struct_to_c: single field emits typedef struct", {
+test("emit_struct_to_c: single field emits typedef struct", {
   fields := ArrayList(AstExpr).new();
   fields.push(make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "value"),
@@ -1818,17 +1818,17 @@ test "emit_struct_to_c: single field emits typedef struct", {
     .None => assert(false, "extract failed"),
     .Some(sd) => {
       ctx := CodegenContext.new();
-      (pctx : *(CodegenContext)) = &ctx;
+      (pctx : *(CodegenContext)) = &(ctx);
       emit_struct_to_c(sd, pctx);
-      c := generate_c_output(&ctx);
+      c := generate_c_output(&(ctx));
       assert(c.contains(String.from("typedef struct")), "typedef struct keyword");
       assert(c.contains(String.from("int32_t value")), "field emitted");
       assert(c.contains(String.from("} Counter;")), "struct name in typedef");
     }
   );
-};
+});
 
-test "compile_module_to_c: struct definition emits typedef before functions", {
+test("compile_module_to_c: struct definition emits typedef before functions", {
   // Point :: struct(x : i32, y : i32);  add_pt :: (fn(p : Point) -> i32)(p.x);  main :: ...
   fields := ArrayList(AstExpr).new();
   fields.push(make_colon_expr(make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "i32")));
@@ -1855,9 +1855,9 @@ test "compile_module_to_c: struct definition emits typedef before functions", {
       assert(c.contains(String.from("static void fn_main")), "main function");
     }
   );
-};
+});
 
-test "extract_impl_fns: extracts method as TypeName_method", {
+test("extract_impl_fns: extracts method as TypeName_method", {
   // impl(Counter, { get :: (fn(self : Counter) -> i32)(self.value); });
   self_param := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "self"),
@@ -1881,30 +1881,30 @@ test "extract_impl_fns: extracts method as TypeName_method", {
     .None => assert(false, "method missing"),
     .Some(fd) => {
       assert((fd.name == String.from("Counter_get")), "method C name is Counter_get");
-      assert((fd.ret_ty_c == String.from("int32_t")), "return type is int32_t");
+      assert((fd.ret_ty_c == String.from("int32_t")), "return(type is int32_t)");
       assert((fd.params.len() == usize(1)), "one param");
     }
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Struct constructor — is_labeled_arg, all_labeled_args, is_uppercase_start,
 //                      handle_struct_constructor, generate_expr integration
 // ---------------------------------------------------------------------------
 
-test "is_labeled_arg: colon infix with 2 args is labeled", {
+test("is_labeled_arg: colon infix with 2 args is labeled", {
   name_e := make_atom_expr(TokenKind.Identifier, "value");
   val_e  := make_atom_expr(TokenKind.Integer, "42");
   labeled := make_colon_expr(name_e, val_e);
   assert(is_labeled_arg(labeled), "colon infix should be labeled arg");
-};
+});
 
-test "is_labeled_arg: plain atom is not labeled", {
+test("is_labeled_arg: plain atom is not labeled", {
   e := make_atom_expr(TokenKind.Identifier, "x");
-  assert((!is_labeled_arg(e)), "atom is not a labeled arg");
-};
+  assert((!(is_labeled_arg(e))), "atom is not a labeled arg");
+});
 
-test "is_labeled_arg: non-colon infix is not labeled", {
+test("is_labeled_arg: non-colon infix is not labeled", {
   lhs := make_atom_expr(TokenKind.Identifier, "a");
   rhs := make_atom_expr(TokenKind.Integer, "1");
   args := ArrayList(AstExpr).new();
@@ -1912,10 +1912,10 @@ test "is_labeled_arg: non-colon infix is not labeled", {
   args.push(rhs);
   plus_tok := make_token_raw(TokenKind.Operator, "+");
   e := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), plus_tok)), args, true, plus_tok);
-  assert((!is_labeled_arg(e)), "plus infix is not a labeled arg");
-};
+  assert((!(is_labeled_arg(e))), "plus infix is not a labeled arg");
+});
 
-test "all_labeled_args: all labeled returns true", {
+test("all_labeled_args: all labeled returns true", {
   f1 := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "x"),
     make_atom_expr(TokenKind.Integer, "1")
@@ -1928,14 +1928,14 @@ test "all_labeled_args: all labeled returns true", {
   args.push(f1);
   args.push(f2);
   assert(all_labeled_args(args), "all labeled args");
-};
+});
 
-test "all_labeled_args: empty list returns false", {
+test("all_labeled_args: empty list returns false", {
   empty := ArrayList(AstExpr).new();
-  assert((!all_labeled_args(empty)), "empty list is not all-labeled");
-};
+  assert((!(all_labeled_args(empty))), "empty list is not all-labeled");
+});
 
-test "all_labeled_args: mixed args returns false", {
+test("all_labeled_args: mixed args returns false", {
   f1 := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "x"),
     make_atom_expr(TokenKind.Integer, "1")
@@ -1944,26 +1944,26 @@ test "all_labeled_args: mixed args returns false", {
   args := ArrayList(AstExpr).new();
   args.push(f1);
   args.push(pos);
-  assert((!all_labeled_args(args)), "mixed args not all labeled");
-};
+  assert((!(all_labeled_args(args))), "mixed args not all labeled");
+});
 
-test "is_uppercase_start: uppercase name returns true", {
+test("is_uppercase_start: uppercase name returns true", {
   assert(is_uppercase_start(String.from("Counter")), "Counter starts uppercase");
   assert(is_uppercase_start(String.from("Point")), "Point starts uppercase");
-};
+});
 
-test "is_uppercase_start: lowercase name returns false", {
-  assert((!is_uppercase_start(String.from("add"))), "add starts lowercase");
-  assert((!is_uppercase_start(String.from("foo"))), "foo starts lowercase");
-};
+test("is_uppercase_start: lowercase name returns false", {
+  assert((!(is_uppercase_start(String.from("add")))), "add starts lowercase");
+  assert((!(is_uppercase_start(String.from("foo")))), "foo starts lowercase");
+});
 
-test "is_uppercase_start: empty string returns false", {
-  assert((!is_uppercase_start(String.from(""))), "empty string has no uppercase start");
-};
+test("is_uppercase_start: empty string returns false", {
+  assert((!(is_uppercase_start(String.from("")))), "empty string has no uppercase start");
+});
 
-test "handle_struct_constructor: single field emits compound literal", {
+test("handle_struct_constructor: single field emits compound literal", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   ind  := String.new();
   field := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "value"),
@@ -1976,11 +1976,11 @@ test "handle_struct_constructor: single field emits compound literal", {
     .None => assert(false, "expected Some"),
     .Some(s) => assert((s == String.from("(Counter){.value = 42}")), "single field compound literal")
   );
-};
+});
 
-test "handle_struct_constructor: two fields", {
+test("handle_struct_constructor: two fields", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   ind  := String.new();
   f1 := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "x"),
@@ -1998,9 +1998,9 @@ test "handle_struct_constructor: two fields", {
     .None => assert(false, "expected Some"),
     .Some(s) => assert((s == String.from("(Point){.x = 3, .y = 4}")), "two field compound literal")
   );
-};
+});
 
-test "generate_expr: struct constructor via generate_expr dispatch", {
+test("generate_expr: struct constructor via generate_expr dispatch", {
   field := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, "value"),
     make_atom_expr(TokenKind.Integer, "99")
@@ -2014,15 +2014,15 @@ test "generate_expr: struct constructor via generate_expr dispatch", {
     .None => assert(false, "expected Some"),
     .Some(s) => assert((s == String.from("(MyStruct){.value = 99}")), "struct ctor dispatch")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Cross-function call: fn_ prefix for registered functions
 // ---------------------------------------------------------------------------
 
-test "handle_regular_call: registered fn gets fn_ prefix", {
+test("handle_regular_call: registered fn gets fn_ prefix", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   pctx.*.register_fn(String.from("helper"));
   ind  := String.new();
   args := ArrayList(AstExpr).new();
@@ -2032,11 +2032,11 @@ test "handle_regular_call: registered fn gets fn_ prefix", {
     .None => assert(false, "expected Some"),
     .Some(s) => assert((s == String.from("fn_helper(1)")), "registered fn uses fn_ prefix")
   );
-};
+});
 
-test "handle_regular_call: unregistered fn has no prefix", {
+test("handle_regular_call: unregistered fn has no prefix", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   ind  := String.new();
   args := ArrayList(AstExpr).new();
   args.push(make_atom_expr(TokenKind.Integer, "1"));
@@ -2045,9 +2045,9 @@ test "handle_regular_call: unregistered fn has no prefix", {
     .None => assert(false, "expected Some"),
     .Some(s) => assert((s == String.from("exit(1)")), "unregistered fn has no prefix")
   );
-};
+});
 
-test "compile_module_to_c: cross-function call uses fn_ prefix", {
+test("compile_module_to_c: cross-function call uses fn_ prefix", {
   // Build: double :: (fn(x : i32) -> i32)(x + x)
   //        main   :: (fn() -> unit)(double(21))
   dbl_params := ArrayList(AstExpr).new();
@@ -2083,7 +2083,7 @@ test "compile_module_to_c: cross-function call uses fn_ prefix", {
       assert(c.contains(String.from("fn_double(21)")), "call site uses fn_double prefix");
     }
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 5d — handle_match_value, gen_match_arm
@@ -2099,9 +2099,9 @@ make_wildcard_expr :: (fn() -> AstExpr)(
   make_atom_expr(TokenKind.Identifier, "_")
 );
 
-test "gen_match_arm: integer pattern emits ternary", {
+test("gen_match_arm: integer pattern emits ternary", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   pat := make_atom_expr(TokenKind.Integer, "5");
   body := make_atom_expr(TokenKind.Integer, "10");
   arm_args := ArrayList(AstExpr).new();
@@ -2116,11 +2116,11 @@ test "gen_match_arm: integer pattern emits ternary", {
       assert(result.contains(String.from("0")), "fallback present");
     }
   );
-};
+});
 
-test "gen_match_arm: wildcard arm emits body only", {
+test("gen_match_arm: wildcard arm emits body only", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   wildcard := make_wildcard_expr();
   body := make_atom_expr(TokenKind.Integer, "42");
   arm_args := ArrayList(AstExpr).new();
@@ -2131,11 +2131,11 @@ test "gen_match_arm: wildcard arm emits body only", {
     .None => assert(false, "gen_match_arm wildcard returned None"),
     .Some(result) => assert(result.contains(String.from("42")), "wildcard body emitted")
   );
-};
+});
 
-test "handle_match_value: two-arm match with wildcard", {
+test("handle_match_value: two-arm match with wildcard", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   scrut := make_atom_expr(TokenKind.Identifier, "x");
   arm1 := make_arm_expr(
     make_atom_expr(TokenKind.Integer, "5"),
@@ -2158,11 +2158,11 @@ test "handle_match_value: two-arm match with wildcard", {
       assert(result.contains(String.from("0")), "wildcard body present");
     }
   );
-};
+});
 
-test "handle_match_value: single wildcard arm emits body", {
+test("handle_match_value: single wildcard arm emits body", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   scrut := make_atom_expr(TokenKind.Identifier, "y");
   wildcard_arm := make_arm_expr(
     make_wildcard_expr(),
@@ -2176,7 +2176,7 @@ test "handle_match_value: single wildcard arm emits body", {
     .None => assert(false, "single wildcard returned None"),
     .Some(result) => assert(result.contains(String.from("99")), "wildcard body emitted")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 5e — enum type declarations + variant access
@@ -2187,7 +2187,7 @@ make_enum_def_expr :: (fn(name : str, variants : ArrayList(str)) -> AstExpr)({
   variant_exprs := ArrayList(AstExpr).new();
   n := variants.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     i = (i + usize(1));
     match(variants.get(i - usize(1)),
       .None => (),
@@ -2196,12 +2196,12 @@ make_enum_def_expr :: (fn(name : str, variants : ArrayList(str)) -> AstExpr)({
         ()
       }
     );
-  };
+  });
   enum_call := make_fncall_expr("enum", variant_exprs);
   make_infix_expr("::", make_atom_expr(TokenKind.Identifier, name), enum_call)
 });
 
-test "extract_enum_def: Color :: enum(Red, Green, Blue)", {
+test("extract_enum_def: Color :: enum(Red, Green, Blue)", {
   variants := ArrayList(str).new();
   _r1 := variants.push("Red");
   _r2 := variants.push("Green");
@@ -2215,11 +2215,11 @@ test "extract_enum_def: Color :: enum(Red, Green, Blue)", {
       assert((ed.variants.len() == usize(3)), "3 variants");
     }
   );
-};
+});
 
-test "emit_enum_to_c: typedef enum emitted correctly", {
+test("emit_enum_to_c: typedef enum emitted correctly", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   red_ev := EnumVariant(
     name:   String.from("Red"),
     disc:   usize(0),
@@ -2243,9 +2243,9 @@ test "emit_enum_to_c: typedef enum emitted correctly", {
   assert(c.contains(String.from("Color_Red")), "Color_Red variant");
   assert(c.contains(String.from("Color_Green")), "Color_Green variant");
   assert(c.contains(String.from("} Color;")), "closing Color typedef");
-};
+});
 
-test "compile_module_to_c: enum type is declared before functions", {
+test("compile_module_to_c: enum type is declared before functions", {
   // Build: Color :: enum(Red, Green)
   ev := ArrayList(str).new();
   _ra := ev.push("Red");
@@ -2272,11 +2272,11 @@ test "compile_module_to_c: enum type is declared before functions", {
       assert(c.contains(String.from("Color_Red")), "Color_Red in output");
     }
   );
-};
+});
 
-test "handle_dot_access: enum name rewritten to underscore", {
+test("handle_dot_access: enum name rewritten to underscore", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   pctx.*.register_enum(String.from("Color"));
   // Build Color.Red
   color_expr := make_atom_expr(TokenKind.Identifier, "Color");
@@ -2289,39 +2289,39 @@ test "handle_dot_access: enum name rewritten to underscore", {
     .None => assert(false, "handle_dot_access returned None"),
     .Some(result) => assert(result.contains(String.from("Color_Red")), "enum variant rewritten")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 5f — pointer types, address-of, deref, compound LHS assignment
 // ---------------------------------------------------------------------------
 
-test "type_expr_to_c: *(i32) emits int32_t*", {
+test("type_expr_to_c: *(i32) emits int32_t*", {
   ptr_ty := make_unary_expr("*", make_atom_expr(TokenKind.Identifier, "i32"));
   result_opt := type_expr_to_c(ptr_ty);
   match(result_opt,
     .None => assert(false, "type_expr_to_c returned None for *(i32)"),
     .Some(c_ty) => assert((c_ty.as_str() == "int32_t*"), "pointer type string")
   );
-};
+});
 
-test "is_unary_prefix_op: & is prefix op", {
+test("is_unary_prefix_op: & is prefix op", {
   assert(is_unary_prefix_op("&"), "& is unary prefix");
   assert(is_unary_prefix_op("-"), "- is unary prefix");
   assert(is_unary_prefix_op("!"), "! is unary prefix");
-};
+});
 
-test "generate_expr: &x emits (&x)", {
+test("generate_expr: &x emits (&x)", {
   expr := make_unary_expr("&", make_atom_expr(TokenKind.Identifier, "x"));
   result_opt := run_gen(expr);
   match(result_opt,
     .None => assert(false, "generate_expr returned None for &x"),
     .Some(result) => assert(result.contains(String.from("(&x)")), "address-of emitted")
   );
-};
+});
 
-test "handle_dot_access: c.* emits (*c)", {
+test("handle_dot_access: c.* emits (*c)", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   c_expr   := make_atom_expr(TokenKind.Identifier, "c");
   star_tok := make_token_raw(TokenKind.Operator, "*");
   star_expr := AstExpr.Atom(usize(0), star_tok);
@@ -2333,7 +2333,7 @@ test "handle_dot_access: c.* emits (*c)", {
     .None => assert(false, "handle_dot_access returned None for c.*"),
     .Some(result) => assert(result.contains(String.from("(*c)")), "dereference emitted")
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 5h — template string codegen
@@ -2360,7 +2360,7 @@ make_ts_concat :: (fn(lhs : AstExpr, rhs : AstExpr) -> AstExpr)({
   AstExpr.FnCall(usize(0), box(dot_expr), call_args, false, dot_tok)
 });
 
-test "template string: to_string() on string literal strips the call", {
+test("template string: to_string() on string literal strips the call", {
   // `"hello "`.to_string() → `"hello "`
   lit_expr := make_atom_expr(TokenKind.StringLit, "\"hello \"");
   ts_expr  := make_to_string_call(lit_expr);
@@ -2369,9 +2369,9 @@ test "template string: to_string() on string literal strips the call", {
     .None => assert(false, "generate_expr returned None"),
     .Some(result) => assert((result.as_str() == "\"hello \""), "string literal passed through")
   );
-};
+});
 
-test "template string: to_string() on identifier strips the call", {
+test("template string: to_string() on identifier strips the call", {
   // `name`.to_string() → `name`
   id_expr := make_atom_expr(TokenKind.Identifier, "name");
   ts_expr  := make_to_string_call(id_expr);
@@ -2380,9 +2380,9 @@ test "template string: to_string() on identifier strips the call", {
     .None => assert(false, "generate_expr returned None"),
     .Some(result) => assert((result.as_str() == "name"), "identifier passed through")
   );
-};
+});
 
-test "template string: .+(b) emits __yo_str_concat(a, b)", {
+test("template string: .+(b) emits __yo_str_concat(a, b)", {
   // `"fn_".to_string().+(name.to_string())` — i.e. `fn_${name}`
   lhs := make_to_string_call(make_atom_expr(TokenKind.StringLit, "\"fn_\""));
   rhs := make_to_string_call(make_atom_expr(TokenKind.Identifier, "name"));
@@ -2396,9 +2396,9 @@ test "template string: .+(b) emits __yo_str_concat(a, b)", {
       assert(result.contains(String.from("name")),             "identifier part present");
     }
   );
-};
+});
 
-test "template string: three-part chain emits nested __yo_str_concat", {
+test("template string: three-part chain emits nested __yo_str_concat", {
   // `fn_${name}!` → __yo_str_concat(__yo_str_concat("fn_", name), "!")
   lhs1 := make_to_string_call(make_atom_expr(TokenKind.StringLit, "\"fn_\""));
   mid  := make_to_string_call(make_atom_expr(TokenKind.Identifier, "name"));
@@ -2419,16 +2419,16 @@ test "template string: three-part chain emits nested __yo_str_concat", {
       assert(result.contains(String.from("\"!\"")),   "suffix literal present");
     }
   );
-};
+});
 
-test "emit_c_preamble: __yo_str_concat helper is present", {
+test("emit_c_preamble: __yo_str_concat helper is present", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &ctx;
+  (pctx : *(CodegenContext)) = &(ctx);
   emit_c_preamble("test_mod", pctx);
   output := generate_c_output(pctx);
   assert(output.contains(String.from("__yo_str_concat")), "__yo_str_concat in preamble");
   assert(output.contains(String.from("memcpy")),          "memcpy in concat helper");
-};
+});
 
 // Phase 5i: if-with-block-branch emits C if statement, not ternary ----------
 
@@ -2439,7 +2439,7 @@ make_single_stmt_begin :: (fn(expr : AstExpr) -> AstExpr)({
   make_begin_expr(stmts)
 });
 
-test "handle_if: block then-branch emits C if statement (not ternary)", {
+test("handle_if: block then-branch emits C if statement (not ternary)", {
   // if((x > 0), { break; })  →  should contain "if (" and "break", NOT "? break"
   cond_e := make_infix_expr(">",
     make_atom_expr(TokenKind.Identifier, "x"),
@@ -2452,10 +2452,10 @@ test "handle_if: block then-branch emits C if statement (not ternary)", {
   code := ctx.emitter.code;
   assert(code.contains(String.from("if (")),   "C if statement emitted");
   assert(code.contains(String.from("break")),  "break present in output");
-  assert((!code.contains(String.from("? break"))), "no ternary with break");
-};
+  assert((!(code.contains(String.from("? break")))), "no ternary with break");
+});
 
-test "handle_if: simple expression still emits ternary", {
+test("handle_if: simple expression still emits ternary", {
   // if((x > 0), y)  →  should emit (... ? y : 0)
   cond_e := make_infix_expr(">",
     make_atom_expr(TokenKind.Identifier, "x"),
@@ -2472,9 +2472,9 @@ test "handle_if: simple expression still emits ternary", {
       assert(result.contains(String.from("y")), "then-value y present");
     }
   );
-};
+});
 
-test "handle_if: block else-branch emits C if/else statement", {
+test("handle_if: block else-branch emits C if/else statement", {
   // if(flag, x, { break; })  →  should contain "if (" and "else" and "break"
   cond_e := make_atom_expr(TokenKind.Identifier, "flag");
   then_e := make_atom_expr(TokenKind.Identifier, "x");
@@ -2486,9 +2486,9 @@ test "handle_if: block else-branch emits C if/else statement", {
   assert(code.contains(String.from("if (")),   "C if statement emitted");
   assert(code.contains(String.from("else")),   "else branch emitted");
   assert(code.contains(String.from("break")),  "break in else branch");
-};
+});
 
-test "handle_begin: sibling begin blocks are wrapped in C braces for variable scoping", {
+test("handle_begin: sibling begin blocks are wrapped in C braces for variable scoping", {
   // { { x := 1; }; { x := 2; }; 3 }
   // The two inner begin blocks both define `x`. Without C brace wrapping they
   // emit two `__auto_type x = ...;` at the same scope → redefinition error.
@@ -2519,11 +2519,11 @@ test "handle_begin: sibling begin blocks are wrapped in C braces for variable sc
   // Both inner blocks must be wrapped in C braces
   assert(code.contains(String.from("{")),  "opening brace emitted");
   assert(code.contains(String.from("}")),  "closing brace emitted");
-};
+});
 
 // Phase 5j: while loop codegen tests ----------------------------------------
 
-test "handle_while: 2-arg while(cond, body) emits C while loop", {
+test("handle_while: 2-arg while(cond, body) emits C while loop", {
   // while(flag, { break; })  →  while (flag) { ... break ... }
   cond_e := make_atom_expr(TokenKind.Identifier, "flag");
   body_e := make_single_stmt_begin(make_atom_expr(TokenKind.Identifier, "break"));
@@ -2534,9 +2534,9 @@ test "handle_while: 2-arg while(cond, body) emits C while loop", {
   assert(code.contains(String.from("while (")), "C while emitted");
   assert(code.contains(String.from("flag")),    "condition present");
   assert(code.contains(String.from("break")),   "break in body");
-};
+});
 
-test "handle_while: runtime(cond) wrapper is stripped from condition", {
+test("handle_while: runtime(cond) wrapper is stripped from condition", {
   // while(runtime(i < n), { x; })  →  while (i < n) { ... }
   cond_inner := make_infix_expr("<",
     make_atom_expr(TokenKind.Identifier, "i"),
@@ -2551,10 +2551,10 @@ test "handle_while: runtime(cond) wrapper is stripped from condition", {
   assert(code.contains(String.from("while (")),          "C while emitted");
   assert(code.contains(String.from("i")),                "i in condition");
   assert(code.contains(String.from("n")),                "n in condition");
-  assert((!code.contains(String.from("runtime"))), "runtime wrapper stripped");
-};
+  assert((!(code.contains(String.from("runtime")))), "runtime wrapper stripped");
+});
 
-test "handle_while: 3-arg while(cond, step, body) emits C for loop", {
+test("handle_while: 3-arg while(cond, step, body) emits C for loop", {
   // while(cond, i = i + 1, body)  →  for (;cond;...) { body }
   cond_e := make_atom_expr(TokenKind.Identifier, "cond");
   step_e := make_assign_expr(
@@ -2575,11 +2575,11 @@ test "handle_while: 3-arg while(cond, step, body) emits C for loop", {
   code := ctx.emitter.code;
   assert(code.contains(String.from("for (;")), "C for loop emitted");
   assert(code.contains(String.from("cond")),   "condition present");
-};
+});
 
 // Phase 5k: for-loop codegen tests -------------------------------------------
 
-test "handle_for: for(iter, elem => body) emits fallback while(1) loop", {
+test("handle_for: for(iter, elem => body) emits fallback while(1) loop", {
   // for(my_iter, elem => { break; })
   // → __auto_type _yo_tN = my_iter;
   //   while (1) { __auto_type _yo_tM = _yo_tN.next(); if (!_yo_tM) break; __auto_type elem = _yo_tM; break; }
@@ -2599,9 +2599,9 @@ test "handle_for: for(iter, elem => body) emits fallback while(1) loop", {
   assert(code.contains(String.from("elem")),      "param name present");
   assert(code.contains(String.from(".next()")),   "next() call present");
   assert(code.contains(String.from("break")),     "break in body");
-};
+});
 
-test "handle_for: wrong arity (1 arg) returns None", {
+test("handle_for: wrong arity (1 arg) returns None", {
   // for(iter_only) — missing handler → None
   iter_e := make_atom_expr(TokenKind.Identifier, "my_iter");
   a := ArrayList(AstExpr).new();
@@ -2613,21 +2613,21 @@ test "handle_for: wrong arity (1 arg) returns None", {
     .None => (),
     .Some(_) => assert(false, "expected None for wrong-arity for")
   );
-};
+});
 
 // Phase 5l: escape-as-return codegen tests, plus standalone break/continue ----
 
-test "generate_expr: escape() with no args emits bare return", {
+test("generate_expr: escape() with no args emits bare return", {
   // escape() — no arguments → should emit `return;`
   a := ArrayList(AstExpr).new();
   esc_e := make_fncall_expr("escape", a);
 
   ctx := run_gen_with_ctx(esc_e);
   code := ctx.emitter.code;
-  assert(code.contains(String.from("return;")), "bare return emitted for escape()");
-};
+  assert(code.contains(String.from("return;")), "bare return(emitted for escape())");
+});
 
-test "generate_expr: escape(unit) emits return statement", {
+test("generate_expr: escape(unit)(emits return(statement))", {
   // escape(()) — unit argument maps to "0" in the proto-codegen, so escape(())
   // emits `return 0;` (same as return(()) — unit return value maps to 0).
   unit_args := ArrayList(AstExpr).new();
@@ -2639,12 +2639,12 @@ test "generate_expr: escape(unit) emits return statement", {
 
   ctx := run_gen_with_ctx(esc_e);
   code := ctx.emitter.code;
-  // Unit return: `return 0;` is emitted (proto-codegen maps unit→0)
+  // Unit return: `return 0;` is emitted (proto-codegen maps unit to 0)
   assert(code.contains(String.from("return 0;")), "return 0 emitted for escape(())");
-};
+});
 
-test "generate_expr: escape(expr) emits return with value", {
-  // escape(42) → should emit `return 42;`
+test("generate_expr: escape(expr)(emits return(with value))", {
+  // escape(42) -> should emit `return 42;`
   a := ArrayList(AstExpr).new();
   a.push(make_atom_expr(TokenKind.Integer, "42"));
   esc_e := make_fncall_expr("escape", a);
@@ -2652,10 +2652,10 @@ test "generate_expr: escape(expr) emits return with value", {
   ctx := run_gen_with_ctx(esc_e);
   code := ctx.emitter.code;
   assert(code.contains(String.from("return 42;")), "return with value emitted for escape(42)");
-};
+});
 
-test "generate_expr: escape(ident) emits return with identifier", {
-  // escape(result) → should emit `return result;`
+test("generate_expr: escape(ident)(emits return(with identifier))", {
+  // escape(result) -> should emit `return result;`
   a := ArrayList(AstExpr).new();
   a.push(make_atom_expr(TokenKind.Identifier, "result"));
   esc_e := make_fncall_expr("escape", a);
@@ -2663,9 +2663,9 @@ test "generate_expr: escape(ident) emits return with identifier", {
   ctx := run_gen_with_ctx(esc_e);
   code := ctx.emitter.code;
   assert(code.contains(String.from("return result;")), "return with ident emitted for escape(result)");
-};
+});
 
-test "generate_expr: break atom is emitted as identifier", {
+test("generate_expr: break atom is emitted as identifier", {
   // Standalone `break` atom → generate_expr returns "break" as the expression code.
   // When this appears as the last statement in a begin block, the caller emits it.
   break_e := make_atom_expr(TokenKind.Identifier, "break");
@@ -2675,9 +2675,9 @@ test "generate_expr: break atom is emitted as identifier", {
     .None    => assert(false, "expected Some for break atom"),
     .Some(s) => assert((s == String.from("break")), "break atom generates 'break' string")
   );
-};
+});
 
-test "generate_expr: continue atom is emitted as identifier", {
+test("generate_expr: continue atom is emitted as identifier", {
   // Standalone `continue` atom → generate_expr returns "continue" as expression code.
   continue_e := make_atom_expr(TokenKind.Identifier, "continue");
 
@@ -2686,10 +2686,10 @@ test "generate_expr: continue atom is emitted as identifier", {
     .None    => assert(false, "expected Some for continue atom"),
     .Some(s) => assert((s == String.from("continue")), "continue atom generates 'continue' string")
   );
-};
+});
 
-test "handle_while: break inside body emits break statement in C code", {
-  // while runtime(true), { break; } → emits `while (1) {` and `break;`
+test("handle_while: break inside body emits break statement in C code", {
+  // while runtime(true), { break; } → emits `while((1)({))` and `break;`
   cond_e := make_runtime_cond(make_atom_expr(TokenKind.Bool, "true"));
   body_e := make_single_stmt_begin(make_atom_expr(TokenKind.Identifier, "break"));
   while_e := make_while_expr(cond_e, body_e);
@@ -2698,13 +2698,13 @@ test "handle_while: break inside body emits break statement in C code", {
   code := ctx.emitter.code;
   assert(code.contains(String.from("while")),  "while keyword present");
   assert(code.contains(String.from("break")),  "break present in while body");
-};
+});
 
 // =============================================================================
 // Phase 5n: using(name) unwrapping and given(name) := expr codegen
 // =============================================================================
 
-test "Phase 5n: using(name) in arg list passes inner name", {
+test("Phase 5n: using(name) in arg list passes inner name", {
   // f(x, using(ctx)) → gen_arg_list should emit "x, ctx"
   args := ArrayList(AstExpr).new();
   args.push(make_atom_expr(TokenKind.Integer, "42"));
@@ -2724,9 +2724,9 @@ test "Phase 5n: using(name) in arg list passes inner name", {
       assert(s.contains(String.from("42")), "regular arg present");
     }
   );
-};
+});
 
-test "Phase 5n: using(name) as standalone expression returns the identifier", {
+test("Phase 5n: using(name) as standalone expression returns the identifier", {
   // using(exn) standalone → just emits the inner name "exn"
   using_args := ArrayList(AstExpr).new();
   using_args.push(make_atom_expr(TokenKind.Identifier, "exn"));
@@ -2736,9 +2736,9 @@ test "Phase 5n: using(name) as standalone expression returns the identifier", {
     .None => assert(false, "using(exn) returned None"),
     .Some(s) => assert((s == String.from("exn")), "using(exn) emits 'exn'")
   );
-};
+});
 
-test "Phase 5n: given(name) as standalone expression returns 0", {
+test("Phase 5n: given(name) as standalone expression returns 0", {
   // given(ctx) standalone → no-op, returns "0"
   given_args := ArrayList(AstExpr).new();
   given_args.push(make_atom_expr(TokenKind.Identifier, "ctx"));
@@ -2748,9 +2748,9 @@ test "Phase 5n: given(name) as standalone expression returns 0", {
     .None => assert(false, "given(ctx) returned None"),
     .Some(s) => assert((s == String.from("0")), "given(ctx) standalone is no-op '0'")
   );
-};
+});
 
-test "Phase 5n: given(name) := rhs emits __auto_type define", {
+test("Phase 5n: given(name) := rhs emits __auto_type define", {
   // given(handler) := 42  →  __auto_type handler = 42;
   given_args := ArrayList(AstExpr).new();
   given_args.push(make_atom_expr(TokenKind.Identifier, "handler"));
@@ -2763,9 +2763,9 @@ test "Phase 5n: given(name) := rhs emits __auto_type define", {
   assert(code.contains(String.from("__auto_type")), "auto type declare present");
   assert(code.contains(String.from("handler")), "name is handler");
   assert(code.contains(String.from("42")), "rhs value 42 present");
-};
+});
 
-test "Phase 5n: extract_struct_def recognizes object keyword", {
+test("Phase 5n: extract_struct_def recognizes object keyword", {
   // Emitter :: object(code : String) → treated same as struct
   fields := ArrayList(AstExpr).new();
   fields.push(make_colon_expr(
@@ -2786,9 +2786,9 @@ test "Phase 5n: extract_struct_def recognizes object keyword", {
       );
     }
   );
-};
+});
 
-test "Phase 5n: extract_newtype_def recognizes newtype(u8)", {
+test("Phase 5n: extract_newtype_def recognizes newtype(u8)", {
   // TokenKind :: newtype(u8) → should extract name="TokenKind", inner="uint8_t"
   nt_args := ArrayList(AstExpr).new();
   nt_args.push(make_atom_expr(TokenKind.Identifier, "u8"));
@@ -2808,9 +2808,9 @@ test "Phase 5n: extract_newtype_def recognizes newtype(u8)", {
       );
     }
   );
-};
+});
 
-test "Phase 5o: extract_enum_def recognizes union keyword", {
+test("Phase 5o: extract_enum_def recognizes union keyword", {
   // Value :: union(IntVal(n: i32), BoolVal(b: bool))
   // Build: IntVal(n: i32)
   int_fields := ArrayList(AstExpr).new();
@@ -2849,9 +2849,9 @@ test "Phase 5o: extract_enum_def recognizes union keyword", {
       );
     }
   );
-};
+});
 
-test "Phase 5o: extract_const_def recognizes string constant", {
+test("Phase 5o: extract_const_def recognizes string constant", {
   // BK_TUPLE :: "tuple"
   expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "BK_TUPLE"), make_atom_expr(TokenKind.StringLit, "\"tuple\""));
   result := extract_const_def(expr);
@@ -2863,9 +2863,9 @@ test "Phase 5o: extract_const_def recognizes string constant", {
       assert((cd.kind == String.from("str")), "kind is str");
     }
   );
-};
+});
 
-test "Phase 5o: extract_const_def recognizes integer constant", {
+test("Phase 5o: extract_const_def recognizes integer constant", {
   // MAX_SIZE :: 1024
   expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "MAX_SIZE"), make_atom_expr(TokenKind.Integer, "1024"));
   result := extract_const_def(expr);
@@ -2877,9 +2877,9 @@ test "Phase 5o: extract_const_def recognizes integer constant", {
       assert((cd.kind == String.from("int")), "kind is int");
     }
   );
-};
+});
 
-test "Phase 5o: extract_const_def recognizes bool constant", {
+test("Phase 5o: extract_const_def recognizes bool constant", {
   // DEBUG :: true
   expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "DEBUG"), make_atom_expr(TokenKind.Identifier, "true"));
   result := extract_const_def(expr);
@@ -2891,9 +2891,9 @@ test "Phase 5o: extract_const_def recognizes bool constant", {
       assert((cd.kind == String.from("bool")), "kind is bool");
     }
   );
-};
+});
 
-test "Phase 5o: extract_const_def returns None for function def", {
+test("Phase 5o: extract_const_def returns None for function def", {
   // foo :: (fn() -> unit)(...) → should NOT be a const
   fn_args := ArrayList(AstExpr).new();
   fn_body := make_fncall_expr("fn", fn_args);
@@ -2903,26 +2903,26 @@ test "Phase 5o: extract_const_def returns None for function def", {
     .None => (),
     .Some(_) => assert(false, "should not match function def as constant")
   );
-};
+});
 
-test "Phase 5o: emit_const_to_c emits string constant", {
+test("Phase 5o: emit_const_to_c emits string constant", {
   ctx := CodegenContext.new();
   cd := ConstDef(name: String.from("MY_STR"), value: String.from("\"hello\""), kind: String.from("str"));
-  emit_const_to_c(cd, &ctx);
+  emit_const_to_c(cd, &(ctx));
   output := ctx.emitter.print();
   assert(output.contains(String.from("static const char* MY_STR")), "has static const char*");
   assert(output.contains(String.from("\"hello\"")), "has value");
-};
+});
 
-test "Phase 5o: emit_const_to_c emits int constant as define", {
+test("Phase 5o: emit_const_to_c emits int constant as define", {
   ctx := CodegenContext.new();
   cd := ConstDef(name: String.from("MAX_SIZE"), value: String.from("1024"), kind: String.from("int"));
-  emit_const_to_c(cd, &ctx);
+  emit_const_to_c(cd, &(ctx));
   output := ctx.emitter.print();
   assert(output.contains(String.from("#define MAX_SIZE 1024")), "has #define");
-};
+});
 
-test "Phase 5o: compile_module_to_c emits constants", {
+test("Phase 5o: compile_module_to_c emits constants", {
   exprs := ArrayList(AstExpr).new();
   // Add a constant: MAGIC :: 42
   exprs.push(make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "MAGIC"), make_atom_expr(TokenKind.Integer, "42")));
@@ -2938,9 +2938,9 @@ test "Phase 5o: compile_module_to_c emits constants", {
       assert(output.contains(String.from("#define MAGIC 42")), "output has MAGIC constant");
     }
   );
-};
+});
 
-test "Phase 5o: extract_const_def recognizes float constant", {
+test("Phase 5o: extract_const_def recognizes float constant", {
   // PI :: 3.14159
   expr := make_infix_expr("::", make_atom_expr(TokenKind.Identifier, "PI"), make_atom_expr(TokenKind.Float, "3.14159"));
   result := extract_const_def(expr);
@@ -2952,18 +2952,18 @@ test "Phase 5o: extract_const_def recognizes float constant", {
       assert((cd.kind == String.from("float")), "kind is float");
     }
   );
-};
+});
 
-test "Phase 5o: emit_const_to_c emits float as static const double", {
+test("Phase 5o: emit_const_to_c emits float as static const double", {
   ctx := CodegenContext.new();
   cd := ConstDef(name: String.from("PI"), value: String.from("3.14159"), kind: String.from("float"));
-  emit_const_to_c(cd, &ctx);
+  emit_const_to_c(cd, &(ctx));
   output := ctx.emitter.print();
   assert(output.contains(String.from("static const double PI")), "has static const double");
   assert(output.contains(String.from("3.14159")), "has value");
-};
+});
 
-test "Phase 5o: compile_module_to_c with impl emits method", {
+test("Phase 5o: compile_module_to_c with impl emits method", {
   exprs := ArrayList(AstExpr).new();
   // Define a struct: Counter :: struct(n: i32)
   fields := ArrayList(AstExpr).new();
@@ -2991,19 +2991,19 @@ test "Phase 5o: compile_module_to_c with impl emits method", {
       assert(output.contains(String.from("Counter_inc")), "impl method has correct C name");
     }
   );
-};
+});
 
-test "Phase 5o: type_name_to_c maps String to const char*", {
+test("Phase 5o: type_name_to_c maps String to const char*", {
   result := type_name_to_c("String");
   assert((result == String.from("const char*")), "String maps to const char*");
-};
+});
 
-test "Phase 5o: type_name_to_c maps rune to uint32_t", {
+test("Phase 5o: type_name_to_c maps rune to uint32_t", {
   result := type_name_to_c("rune");
   assert((result == String.from("uint32_t")), "rune maps to uint32_t");
-};
+});
 
-test "Phase 5o: type_expr_to_c maps ArrayList(T) to void*", {
+test("Phase 5o: type_expr_to_c maps ArrayList(T) to void*", {
   // ArrayList(String) → FnCall(Atom("ArrayList"), [Atom("String")], false)
   args := ArrayList(AstExpr).new();
   args.push(make_atom_expr(TokenKind.Identifier, "String"));
@@ -3013,9 +3013,9 @@ test "Phase 5o: type_expr_to_c maps ArrayList(T) to void*", {
     .None => assert(false, "expected Some for ArrayList(String)"),
     .Some(ty) => assert((ty == String.from("void*")), "ArrayList(T) -> void*")
   );
-};
+});
 
-test "Phase 5o: type_expr_to_c maps Option(T) to void*", {
+test("Phase 5o: type_expr_to_c maps Option(T) to void*", {
   args := ArrayList(AstExpr).new();
   args.push(make_atom_expr(TokenKind.Identifier, "i32"));
   expr := make_fncall_expr("Option", args);
@@ -3024,9 +3024,9 @@ test "Phase 5o: type_expr_to_c maps Option(T) to void*", {
     .None => assert(false, "expected Some for Option(i32)"),
     .Some(ty) => assert((ty == String.from("void*")), "Option(T) -> void*")
   );
-};
+});
 
-test "Phase 5p: compile_module_to_c with derive(ToString) emits toString fn", {
+test("Phase 5p: compile_module_to_c with derive(ToString) emits toString fn", {
   // Build a module with:
   //   Point :: struct(x : i32, y : i32)
   //   derive(Point, ToString)
@@ -3073,9 +3073,9 @@ test "Phase 5p: compile_module_to_c with derive(ToString) emits toString fn", {
       assert(has_tostring, "derive(ToString) should emit fn_Point_to_string");
     }
   );
-};
+});
 
-test "Phase 5p: compile_module_to_c with derive(Clone) emits clone fn", {
+test("Phase 5p: compile_module_to_c with derive(Clone) emits clone fn", {
   exprs := ArrayList(AstExpr).new();
 
   // Vec2 :: struct(x : f64, y : f64)
@@ -3114,7 +3114,7 @@ test "Phase 5p: compile_module_to_c with derive(Clone) emits clone fn", {
       assert(has_clone, "derive(Clone) should emit fn_Vec2_clone");
     }
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Lambda codegen tests — Phase 5p
@@ -3134,13 +3134,13 @@ make_multi_lambda_expr :: (fn(params : ArrayList(str), body : AstExpr) -> AstExp
   arrow_tok := make_token_raw(TokenKind.Operator, "->");
   tuple_args := ArrayList(AstExpr).new();
   (i : usize) = usize(0);
-  while runtime((i < params.len())), {
+  while(runtime((i < params.len())), {
     match(params.get(i),
       .Some(p) => { tuple_args.push(make_atom_expr(TokenKind.Identifier, p)); },
       .None => ()
     );
     i = (i + usize(1));
-  };
+  });
   tuple_tok := make_token_raw(TokenKind.Identifier, "tuple");
   tuple_expr := AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tuple_tok)), tuple_args, false, tuple_tok);
   args := ArrayList(AstExpr).new();
@@ -3149,14 +3149,14 @@ make_multi_lambda_expr :: (fn(params : ArrayList(str), body : AstExpr) -> AstExp
   AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), arrow_tok)), args, true, arrow_tok)
 });
 
-test "is_lambda_expr: single-param lambda detected", {
+test("is_lambda_expr: single-param lambda detected", {
   // (x) => (x + 1)
   body := make_infix_expr("+", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Integer, "1"));
   lam := make_lambda_expr("x", body);
   assert(is_lambda_expr(lam), "single param lambda should be detected");
-};
+});
 
-test "is_lambda_expr: multi-param lambda detected", {
+test("is_lambda_expr: multi-param lambda detected", {
   // (x, y) => (x + y)
   body := make_infix_expr("+", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "y"));
   params := ArrayList(str).new();
@@ -3164,19 +3164,19 @@ test "is_lambda_expr: multi-param lambda detected", {
   params.push("y");
   lam := make_multi_lambda_expr(params, body);
   assert(is_lambda_expr(lam), "multi param lambda should be detected");
-};
+});
 
-test "is_lambda_expr: plain atom is not lambda", {
+test("is_lambda_expr: plain atom is not lambda", {
   atom := make_atom_expr(TokenKind.Identifier, "foo");
   assert(!(is_lambda_expr(atom)), "atom should not be lambda");
-};
+});
 
-test "is_lambda_expr: infix + is not lambda", {
+test("is_lambda_expr: infix + is not lambda", {
   plus := make_infix_expr("+", make_atom_expr(TokenKind.Integer, "1"), make_atom_expr(TokenKind.Integer, "2"));
   assert(!(is_lambda_expr(plus)), "infix + should not be lambda");
-};
+});
 
-test "extract_lambda_param_names: single param extracts name", {
+test("extract_lambda_param_names: single param extracts name", {
   param_expr := make_atom_expr(TokenKind.Identifier, "x");
   names := extract_lambda_param_names(param_expr);
   assert((names.len() == usize(1)), "should extract 1 param name");
@@ -3184,9 +3184,9 @@ test "extract_lambda_param_names: single param extracts name", {
     .Some(n) => assert((n.as_str() == "x"), "param name should be x"),
     .None => assert(false, "no param at index 0")
   );
-};
+});
 
-test "extract_lambda_param_names: multi param extracts all names", {
+test("extract_lambda_param_names: multi param extracts all names", {
   tuple_args := ArrayList(AstExpr).new();
   tuple_args.push(make_atom_expr(TokenKind.Identifier, "a"));
   tuple_args.push(make_atom_expr(TokenKind.Identifier, "b"));
@@ -3198,9 +3198,9 @@ test "extract_lambda_param_names: multi param extracts all names", {
   match(names.get(usize(0)), .Some(n) => assert((n.as_str() == "a"), "first param a"), .None => assert(false, "no 0"));
   match(names.get(usize(1)), .Some(n) => assert((n.as_str() == "b"), "second param b"), .None => assert(false, "no 1"));
   match(names.get(usize(2)), .Some(n) => assert((n.as_str() == "c"), "third param c"), .None => assert(false, "no 2"));
-};
+});
 
-test "lift_non_capturing_lambda: single param emits static function", {
+test("lift_non_capturing_lambda: single param emits static function", {
   ctx := CodegenContext.new();
   // (x) => 42
   body := make_atom_expr(TokenKind.Integer, "42");
@@ -3215,13 +3215,13 @@ test "lift_non_capturing_lambda: single param emits static function", {
       assert(fn_name.starts_with(String.from("__yo_lambda_")), "fn name should start with __yo_lambda_");
       // The emitter should have the static function declaration
       output := ctx.emitter.print();
-      assert(output.contains(String.from("static int32_t")), "should have static int32_t return type");
+      assert(output.contains(String.from("static int32_t")), "should have static int32_t return(type)");
       assert(output.contains(String.from("int32_t x")), "should have param declaration");
     }
   );
-};
+});
 
-test "lift_non_capturing_lambda: multi param emits correct params", {
+test("lift_non_capturing_lambda: multi param emits correct params", {
   ctx := CodegenContext.new();
   // (a, b) => 0
   body := make_atom_expr(TokenKind.Integer, "0");
@@ -3240,20 +3240,20 @@ test "lift_non_capturing_lambda: multi param emits correct params", {
       assert(output.contains(String.from("int32_t b")), "should have param b");
     }
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Integration test: compile a complete program through compile_module_to_c
 // ---------------------------------------------------------------------------
 
-test "compile_module_to_c: complete program with struct, fn, and main", {
+test("compile_module_to_c: complete program with struct, fn, and main", {
   // Program:
   //   Point :: struct(x : i32, y : i32);
   //   add_points :: (fn(a : Point, b : Point) -> Point)(
   //     Point(x: (a.x + b.x), y: (a.y + b.y))
   //   );
   //   main :: (fn() -> i32)(0);
-  //   export main;
+  //   export(main);
   exprs := ArrayList(AstExpr).new();
 
   // Point :: struct(x : i32, y : i32)
@@ -3302,13 +3302,13 @@ test "compile_module_to_c: complete program with struct, fn, and main", {
       assert(c_code.contains(String.from("#include")), "should have #include directives");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with enum and match emits switch", {
+test("compile_module_to_c: program with enum and match emits switch", {
   // Program:
   //   Color :: enum(Red, Green, Blue);
   //   main :: (fn() -> i32)(0);
-  //   export main;
+  //   export(main);
   exprs := ArrayList(AstExpr).new();
 
   // Color :: enum(Red, Green, Blue)
@@ -3345,14 +3345,14 @@ test "compile_module_to_c: program with enum and match emits switch", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with impl method emits TypeName_method", {
+test("compile_module_to_c: program with impl method emits TypeName_method", {
   // Program:
   //   Counter :: struct(count : i32);
   //   impl(Counter, inc : (fn(self : *(Self)) -> unit)(...));
   //   main :: (fn() -> i32)(0);
-  //   export main;
+  //   export(main);
   exprs := ArrayList(AstExpr).new();
 
   // Counter :: struct(count : i32)
@@ -3407,13 +3407,13 @@ test "compile_module_to_c: program with impl method emits TypeName_method", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 5q: codegen integration tests — richer program patterns
 // ---------------------------------------------------------------------------
 
-test "compile_module_to_c: program with if/else emits conditional", {
+test("compile_module_to_c: program with if/else emits conditional", {
   // abs :: (fn(x : i32) -> i32)({ if((x < 0), (0 - x), x); });
   // main :: (fn() -> i32)(0);
   exprs := ArrayList(AstExpr).new();
@@ -3451,9 +3451,9 @@ test "compile_module_to_c: program with if/else emits conditional", {
       assert(has_if, "should have if or ternary");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with while loop emits while", {
+test("compile_module_to_c: program with while loop emits while", {
   // countdown :: (fn(n : i32) -> i32)({
   //   (x : i32) = n; while runtime((x > 0)), { x = (x - 1); }; x;
   // });
@@ -3499,9 +3499,9 @@ test "compile_module_to_c: program with while loop emits while", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with function calling function", {
+test("compile_module_to_c: program with function calling function", {
   // double :: (fn(x : i32) -> i32)((x + x));
   // quadruple :: (fn(x : i32) -> i32)(double(double(x)));
   // main :: (fn() -> i32)(0);
@@ -3546,9 +3546,9 @@ test "compile_module_to_c: program with function calling function", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with var definition and reassignment", {
+test("compile_module_to_c: program with var definition and reassignment", {
   // incr :: (fn(n : i32) -> i32)({ x := n; x = (x + 1); x; });
   // main :: (fn() -> i32)(0);
   exprs := ArrayList(AstExpr).new();
@@ -3585,9 +3585,9 @@ test "compile_module_to_c: program with var definition and reassignment", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with return statement", {
+test("compile_module_to_c: program with return(statement)", {
   // early_return :: (fn(x : i32) -> i32)({ if((x > 10), return(x)); (x + 1); });
   // main :: (fn() -> i32)(0);
   exprs := ArrayList(AstExpr).new();
@@ -3620,16 +3620,16 @@ test "compile_module_to_c: program with return statement", {
 
   result := compile_module_to_c(exprs, "return_mod", "main");
   match(result,
-    .None => assert(false, "return program should compile"),
+    .None => assert(false, "return(program should compile)"),
     .Some(c_code) => {
       assert(c_code.contains(String.from("early_return")), "should have early_return fn");
-      assert(c_code.contains(String.from("return")), "should have return statement");
+      assert(c_code.contains(String.from("return")), "should have return(statement)");
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with struct field access", {
+test("compile_module_to_c: program with struct field access", {
   // Pair :: struct(first : i32, second : i32);
   // sum :: (fn(p : Pair) -> i32)((p.first + p.second));
   // main :: (fn() -> i32)(0);
@@ -3671,9 +3671,9 @@ test "compile_module_to_c: program with struct field access", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with cond expression", {
+test("compile_module_to_c: program with cond expression", {
   // classify :: (fn(x : i32) -> i32)({ cond((x > 0) => 1, (x < 0) => -(1), true => 0); });
   // main :: (fn() -> i32)(0);
   exprs := ArrayList(AstExpr).new();
@@ -3719,9 +3719,9 @@ test "compile_module_to_c: program with cond expression", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with newtype emits typedef", {
+test("compile_module_to_c: program with newtype emits typedef", {
   // UserId :: newtype(i32);
   // main :: (fn() -> i32)(0);
   exprs := ArrayList(AstExpr).new();
@@ -3747,39 +3747,39 @@ test "compile_module_to_c: program with newtype emits typedef", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "generate_expr: break emits break statement", {
+test("generate_expr: break emits break statement", {
   ctx := CodegenContext.new();
-  pctx := &ctx;
+  pctx := &(ctx);
   // break() => emits "break;\n" and returns "0"
   break_args := ArrayList(AstExpr).new();
   break_expr := make_fncall_expr("break", break_args);
   result := generate_expr(break_expr, pctx, String.from("  "));
   match(result,
-    .None => assert(false, "break should return Some"),
+    .None => assert(false, "break should return(Some)"),
     .Some(v) => assert((v.as_str() == "0"), "break returns 0 sentinel")
   );
   output := ctx.emitter.print();
   assert(output.contains(String.from("break;")), "should contain break;");
-};
+});
 
-test "generate_expr: continue emits continue statement", {
+test("generate_expr: continue emits continue statement", {
   ctx := CodegenContext.new();
-  pctx := &ctx;
+  pctx := &(ctx);
   // continue() => emits "continue;\n" and returns "0"
   cont_args := ArrayList(AstExpr).new();
   cont_expr := make_fncall_expr("continue", cont_args);
   result := generate_expr(cont_expr, pctx, String.from("  "));
   match(result,
-    .None => assert(false, "continue should return Some"),
+    .None => assert(false, "continue should return(Some)"),
     .Some(v) => assert((v.as_str() == "0"), "continue returns 0 sentinel")
   );
   output := ctx.emitter.print();
   assert(output.contains(String.from("continue;")), "should contain continue;");
-};
+});
 
-test "compile_module_to_c: program with break in while loop", {
+test("compile_module_to_c: program with break in while loop", {
   // find_first :: (fn(n : i32) -> i32)({
   //   (i : i32) = 0;
   //   while runtime(true), { if((i > n), break()); i = (i + 1); };
@@ -3840,13 +3840,13 @@ test "compile_module_to_c: program with break in while loop", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Phase 5r — More integration tests (assert, type cast, typed decl, continue, nested if)
 // ---------------------------------------------------------------------------
 
-test "compile_module_to_c: program with assert call", {
+test("compile_module_to_c: program with assert call", {
   // check :: (fn(x : i32) -> unit)({ assert((x > 0)); });
   // main :: (fn() -> i32)(0);
   exprs := ArrayList(AstExpr).new();
@@ -3883,9 +3883,9 @@ test "compile_module_to_c: program with assert call", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with type cast i32(x)", {
+test("compile_module_to_c: program with type cast i32(x)", {
   // cast_add :: (fn(a : i32, b : i32) -> i32)((i32(a) + i32(b)));
   // main :: (fn() -> i32)(0);
   exprs := ArrayList(AstExpr).new();
@@ -3923,9 +3923,9 @@ test "compile_module_to_c: program with type cast i32(x)", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with typed variable declaration", {
+test("compile_module_to_c: program with typed variable declaration", {
   // countdown :: (fn(n : i32) -> i32)({ (result : i32) = n; result; });
   // main :: (fn() -> i32)(0);
   exprs := ArrayList(AstExpr).new();
@@ -3960,9 +3960,9 @@ test "compile_module_to_c: program with typed variable declaration", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with continue in while loop", {
+test("compile_module_to_c: program with continue in while loop", {
   // skip_odds :: (fn(n : i32) -> i32)({
   //   (i : i32) = i32(0); (sum : i32) = i32(0);
   //   while runtime((i < n)), {
@@ -4029,11 +4029,11 @@ test "compile_module_to_c: program with continue in while loop", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 
-test "compile_module_to_c: program with nested if/else", {
+test("compile_module_to_c: program with nested if/else", {
   // classify :: (fn(x : i32) -> i32)(
-  //   if((x > 0), i32(1), if((x < 0), i32(-1), i32(0)))
+  //   if((x > 0), i32(1), if((x < 0), i32(-(1)), i32(0)))
   // );
   // main :: (fn() -> i32)(0);
   exprs := ArrayList(AstExpr).new();
@@ -4043,7 +4043,7 @@ test "compile_module_to_c: program with nested if/else", {
   fn_params.push(make_infix_expr(":", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "i32")));
   fn_type := make_infix_expr("->", make_fncall_expr("fn", fn_params), make_atom_expr(TokenKind.Identifier, "i32"));
 
-  // Inner if: if((x < 0), i32(-1), i32(0))
+  // Inner if: if((x < 0), i32(-(1)), i32(0))
   inner_cond := make_infix_expr("<", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Integer, "0"));
   neg_one_args := ArrayList(AstExpr).new();
   neg_one_args.push(make_unary_expr("-", make_atom_expr(TokenKind.Integer, "1")));
@@ -4080,12 +4080,12 @@ test "compile_module_to_c: program with nested if/else", {
       assert(c_code.contains(String.from("int main")), "should have main");
     }
   );
-};
+});
 // ===========================================================================
 // Phase 5s — More codegen integration tests: for loop, struct ctor, method call
 // ===========================================================================
 
-test "generate_expr: for loop emits iterator-style while loop", {
+test("generate_expr: for loop emits iterator-style while loop", {
   // for(collection, (item) => { body })
   // Codegen expects 2-arg form: for(iter_expr, handler_lambda)
   // With a plain identifier as iter_expr, falls back to while(1) pattern
@@ -4107,9 +4107,9 @@ test "generate_expr: for loop emits iterator-style while loop", {
   output := ctx.emitter.print();
   assert(output.contains(String.from("while")), "for loop fallback should emit 'while'");
   assert(output.contains(String.from("collection")), "should reference 'collection'");
-};
+});
 
-test "generate_expr: method call emits function call with receiver", {
+test("generate_expr: method call emits function call with receiver", {
   // obj.push(42) → TypeName_push(obj, 42) or similar
   method_args := ArrayList(AstExpr).new();
   method_args.push(make_atom_expr(TokenKind.Integer, "42"));
@@ -4126,9 +4126,9 @@ test "generate_expr: method call emits function call with receiver", {
       assert(code.contains(String.from("obj")), "should contain receiver 'obj'");
     }
   );
-};
+});
 
-test "generate_expr: dot access on identifier emits field access", {
+test("generate_expr: dot access on identifier emits field access", {
   // point.x → point.x or point->x
   dot := make_dot_expr(
     make_atom_expr(TokenKind.Identifier, "point"),
@@ -4142,9 +4142,9 @@ test "generate_expr: dot access on identifier emits field access", {
       assert(code.contains(String.from("x")), "should contain field 'x'");
     }
   );
-};
+});
 
-test "generate_expr: struct constructor emits compound literal", {
+test("generate_expr: struct constructor emits compound literal", {
   // Point(x: 1, y: 2) → (Point){.x = 1, .y = 2}
   ctor_args := ArrayList(AstExpr).new();
   ctor_args.push(make_colon_expr(
@@ -4165,9 +4165,9 @@ test "generate_expr: struct constructor emits compound literal", {
       assert(code.contains(String.from(".y")), "should emit '.y' field");
     }
   );
-};
+});
 
-test "generate_expr: if-else emits ternary or if/else blocks", {
+test("generate_expr: if-else emits ternary or if/else blocks", {
   // if(cond, then_expr, else_expr) → (cond) ? then : else  or  if (...) {...} else {...}
   if_args := ArrayList(AstExpr).new();
   if_args.push(make_atom_expr(TokenKind.Identifier, "flag"));
@@ -4182,4 +4182,4 @@ test "generate_expr: if-else emits ternary or if/else blocks", {
       assert(code.contains(String.from("flag")), "should contain condition 'flag'");
     }
   );
-};
+});

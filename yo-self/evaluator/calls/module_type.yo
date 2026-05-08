@@ -10,25 +10,25 @@
 //! - `isFunctionValue` / `specializedType` / `ioBuiltin` propagation omitted (codegen deferred).
 //! - Return type is `ModuleTypeCallResult` (not `Option(AstExpr)` as in stub).
 
-open import "std/string";
-{ ArrayList }                                    :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList }                                    :: import("std/collections/array_list");
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_to_string, ast_expr_is_atom,
-  ast_expr_is_fn_call_of }                       :: import "../../expr/expr.yo";
+  ast_expr_is_fn_call_of }                       :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get,
-  expr_info_table_set }                          :: import "../../expr/expr_info.yo";
-{ Environment }                                  :: import "../../env/env.yo";
-{ TypeValue }                                    :: import "../../types/type.yo";
-{ type_to_string }                               :: import "../../types/string.yo";
-{ are_types_compatible }                         :: import "../../types/compatibility.yo";
+  expr_info_table_set }                          :: import("../../expr/expr_info.yo");
+{ Environment }                                  :: import("../../env/env.yo");
+{ TypeValue }                                    :: import("../../types/type.yo");
+{ type_to_string }                               :: import("../../types/string.yo");
+{ are_types_compatible }                         :: import("../../types/compatibility.yo");
 { EvalContext, ModuleTypeCallResult,
-  ExpectedTypeCtx }                              :: import "../context.yo";
-{ EvalValue, value_to_string }                   :: import "../value.yo";
-{ set_expr_as_needs_to_call_dup }                :: import "../utils.yo";
-{ evaluate_expression }                          :: import "../exprs/expr.yo";
-{ format_error_message }                         :: import "../../error/error.yo";
-{ Exception }                                    :: import "std/error";
+  ExpectedTypeCtx }                              :: import("../context.yo");
+{ EvalValue, value_to_string }                   :: import("../value.yo");
+{ set_expr_as_needs_to_call_dup }                :: import("../utils.yo");
+{ evaluate_expression }                          :: import("../exprs/expr.yo");
+{ format_error_message }                         :: import("../../error/error.yo");
+{ Exception }                                    :: import("std/error");
 
 /// Bind `arg_exprs` to the fields of `module_type`, returning a ModuleTypeCallResult.
 ///
@@ -57,26 +57,26 @@ try_to_implement_module_with_arguments_by_module_type :: (fn(
   n_args   := arg_exprs.len();
 
   if((n_args > n_fields), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(module_expr),
       String.from("Failed to implement the module. Too many fields provided."),
       false, .None
-    ));
+    )));
   });
 
   // Pre-allocate values and result name/value lists.
   (values   : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
   (i_init : usize) = usize(0);
-  while runtime((i_init < n_fields)), {
+  while(runtime((i_init < n_fields)), {
     values.push(Option(EvalValue).None);
     i_init = (i_init + usize(1));
-  };
+  });
 
   (caller_env : Environment) = caller_env_in;
 
   // For each module field, find the matching arg by label.
   (i : usize) = usize(0);
-  while runtime((i < n_fields)), {
+  while(runtime((i < n_fields)), {
     field_label_opt := field_labels.get(i);
     field_type_opt  := field_types.get(i);
 
@@ -85,46 +85,46 @@ try_to_implement_module_with_arguments_by_module_type :: (fn(
 
     (found_arg : bool) = false;
     (j : usize) = usize(0);
-    while runtime((j < n_args)), {
+    while(runtime((j < n_args)), {
       arg_expr_opt := arg_exprs.get(j);
       arg_expr := match(arg_expr_opt, .Some(a) => a, .None => module_expr);
 
       // Each arg must be a `label: value` colon call.
       if(!(ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2)))), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg_expr),
           `Expected member label, but got:\n${ast_expr_to_string(arg_expr)}`,
           false, .None
-        ));
+        )));
       });
 
       // Extract label_sub and value_sub from the `:` call.
       label_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
       value_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
       label_sub := match(label_sub_opt, .Some(s) => s, .None => {
-        exn.throw(dyn format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing label sub-expr."), false, .None));
+        exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing label sub-expr."), false, .None)));
         arg_expr
       });
       value_sub := match(value_sub_opt, .Some(s) => s, .None => {
-        exn.throw(dyn format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing value sub-expr."), false, .None));
+        exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing value sub-expr."), false, .None)));
         arg_expr
       });
 
       if(!(ast_expr_is_atom(label_sub)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(label_sub),
           `Expected identifier for label, got:\n${ast_expr_to_string(label_sub)}`,
           false, .None
-        ));
+        )));
       });
 
       // Parse the label token value.
-      label_tok := match(label_sub, .Atom(_, tok) => (&tok.value).clone(), _ => String.from(""));
+      label_tok := match(label_sub, .Atom(_, tok) => (&(tok.value)).clone(), _ => String.from(""));
 
       // Validate the label exists in the module type.
       (label_exists_in_type : bool) = false;
       (li : usize) = usize(0);
-      while runtime((li < n_fields)), {
+      while(runtime((li < n_fields)), {
         match(field_labels.get(li),
           .Some(fl) => {
             if((fl == label_tok), {
@@ -134,13 +134,13 @@ try_to_implement_module_with_arguments_by_module_type :: (fn(
           .None => ()
         );
         li = (li + usize(1));
-      };
+      });
       if(!(label_exists_in_type), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(label_sub),
           `Module member with label "${label_tok}" does not exist in the module type.`,
           false, .None
-        ));
+        )));
       });
 
       // Check if this arg matches the current field.
@@ -155,11 +155,11 @@ try_to_implement_module_with_arguments_by_module_type :: (fn(
 
         arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
         if(arg_info_opt.is_none(), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(value_sub),
             `Failed to evaluate module member "${field_label}".`,
             false, .None
-          ));
+          )));
         });
         arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(caller_env, field_type));
 
@@ -169,15 +169,15 @@ try_to_implement_module_with_arguments_by_module_type :: (fn(
         arg_type := arg_info.ty;
 
         if(!(are_types_compatible(arg_type, field_type)), {
-          exn.throw(dyn format_error_message(
+          exn.throw(dyn(format_error_message(
             ast_expr_token(value_sub),
             `Type mismatch for the module member "${field_label}":\nExpected: ${type_to_string(field_type)}\nGot:   ${type_to_string(arg_type)}`,
             false, .None
-          ));
+          )));
         });
 
         // Store the evaluated value at position i.
-        (&values).index(i).* = arg_info.value;
+        (&(values)).index(i).* = arg_info.value;
 
         // Annotate the label sub-expr with the same ExprInfo as the value.
         label_info := new_expr_info(caller_env, arg_type);
@@ -186,26 +186,26 @@ try_to_implement_module_with_arguments_by_module_type :: (fn(
       });
 
       j = (j + usize(1));
-    }; // end inner loop over argExprs
+    }); // end inner loop over argExprs
 
     if(!(found_arg), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(module_expr),
         `Module member "${field_label}" is not provided and has no required/default value.`,
         false, .None
-      ));
+      )));
     });
 
     i = (i + usize(1));
-  }; // end outer loop over fields
+  }); // end outer loop over fields
 
   // Build ModuleVal from field labels and values.
   (result_names  : ArrayList(String))    = ArrayList(String).new();
   (result_values : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
   (k : usize) = usize(0);
-  while runtime((k < n_fields)), {
+  while(runtime((k < n_fields)), {
     match(field_labels.get(k),
-      .Some(lbl) => { result_names.push((&lbl).clone()); },
+      .Some(lbl) => { result_names.push((&(lbl)).clone()); },
       .None => ()
     );
     val_opt := match(values.get(k), .Some(v) => v, .None => Option(EvalValue).None);
@@ -214,11 +214,11 @@ try_to_implement_module_with_arguments_by_module_type :: (fn(
       .None    => { result_values.push(EvalValue.UnitVal); }
     );
     k = (k + usize(1));
-  };
+  });
 
   module_val := EvalValue.ModuleVal(result_names, result_values);
   ModuleTypeCallResult(module_value: module_val, caller_env: caller_env)
 });
 
-export try_to_implement_module_with_arguments_by_module_type;
+export(try_to_implement_module_with_arguments_by_module_type);
 

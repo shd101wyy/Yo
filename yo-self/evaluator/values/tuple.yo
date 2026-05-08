@@ -16,26 +16,26 @@
 //!   * `set_expr_as_needs_to_call_dup` — RC tracking is not yet ported.
 //!   * `attach_temp_variable_to_expr` — temp-variable assignment is not yet ported.
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
-{ ArrayList } :: import "std/collections/array_list";
+{ ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
   ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr,
-  BK_TUPLE } :: import "../../expr/expr.yo";
+  BK_TUPLE } :: import("../../expr/expr.yo");
 { new_expr_info, expr_info_table_set,
-  expr_info_table_get } :: import "../../expr/expr_info.yo";
-{ Environment } :: import "../../env/env.yo";
-{ EvalContext, ExpectedTypeCtx } :: import "../context.yo";
-{ EvalValue, is_type_value } :: import "../value.yo";
-{ TypeValue } :: import "../../types/type.yo";
+  expr_info_table_get } :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalValue, is_type_value } :: import("../value.yo");
+{ TypeValue } :: import("../../types/type.yo");
 { is_tuple_type, is_comptime_int_type, is_comptime_float_type,
-  is_comptime_string_type, is_comptime_list_type } :: import "../../types/guards.yo";
-{ convert_comptime_type_to_runtime_type } :: import "../../types/utils.yo";
-{ type_to_string } :: import "../../types/string.yo";
-{ format_error_message } :: import "../../error/error.yo";
-{ Exception } :: import "std/error";
-{ evaluate_expression } :: import "../exprs/expr.yo";
+  is_comptime_string_type, is_comptime_list_type } :: import("../../types/guards.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/utils.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("../exprs/expr.yo");
 
 // Pragmatic stand-in for the TS `isComptimeOnlyType` while the full
 // `typeImplementsComptime` / `typeImplementsRuntime` infrastructure is
@@ -84,12 +84,12 @@ evaluate_tuple_element_value :: (fn(
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
     args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
     lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => expr);
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(lhs_expr),
       String.from("Labelled field is not allowed in tuple value."),
       false,
       .None
-    ));
+    )));
   });
 
   // Compute the expected element type from the tuple-shaped expected_type, if any.
@@ -102,12 +102,12 @@ evaluate_tuple_element_value :: (fn(
             match(types.get(tuple_field_index),
               .Some(t) => { expected_field_type_opt = Option(TypeValue).Some(t); (); },
               .None    => {
-                exn.throw(dyn format_error_message(
+                exn.throw(dyn(format_error_message(
                   ast_expr_token(expr),
                   `Failed to get the tuple field at index ${tuple_field_index}`,
                   false,
                   .None
-                ));
+                )));
               }
             );
             ();
@@ -118,12 +118,12 @@ evaluate_tuple_element_value :: (fn(
       },
       true => {
         ty_str := type_to_string(et.ty);
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           `(2) Failed to evaluate the tuple fields. Expected type to be:\n${ty_str}`,
           false,
           .None
-        ));
+        )));
       }
     ),
     .None => ()
@@ -146,12 +146,12 @@ evaluate_tuple_element_value :: (fn(
   rhs_info := match(rhs_info_opt,
     .Some(info) => info,
     .None       => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         `Failed to evaluate the tuple field: ${ast_expr_to_string(expr)}`,
         false,
         .None
-      ));
+      )));
       new_expr_info(env, TypeValue.Unit)  // unreachable
     }
   );
@@ -159,12 +159,12 @@ evaluate_tuple_element_value :: (fn(
 
   // Reject `type` values stored as tuple elements.
   if(is_type_value(rhs_info.value), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       `Cannot store a type value in tuple, please use module instead:\n  ${ast_expr_to_string(expr)}`,
       false,
       .None
-    ));
+    )));
   });
 
   // Convert to runtime type unless the expected field type is comptime-only.
@@ -203,7 +203,7 @@ evaluate_tuple_elements_value :: (fn(
   runtime_arg_exprs_in_order := ArrayList(AstExpr).new();
 
   (i : usize) = usize(0);
-  while runtime((i < args.len())), {
+  while(runtime((i < args.len())), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
 
     result := evaluate_tuple_element_value(
@@ -216,7 +216,7 @@ evaluate_tuple_elements_value :: (fn(
     env = result.env;
 
     i = (i + usize(1));
-  };
+  });
 
   EvalTupleElementsValueResult(
     field_labels:               field_labels,
@@ -237,12 +237,12 @@ evaluate_tuple_value :: (fn(
   using(exn : Exception)
 ) -> AstExpr)({
   if(!(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(expr),
       String.from("Expected tuple, got non-tuple expression"),
       false,
       .None
-    ));
+    )));
   });
 
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -252,7 +252,7 @@ evaluate_tuple_value :: (fn(
     info := new_expr_info(env, TypeValue.Unit);
     info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return expr;
+    return(expr);
   });
 
   result := evaluate_tuple_elements_value(args, env, ctx, using(exn));
@@ -262,7 +262,7 @@ evaluate_tuple_value :: (fn(
 
   (all_known : bool) = true;
   (k : usize) = usize(0);
-  while runtime(((k < result.values.len()) && all_known)), {
+  while(runtime(((k < result.values.len()) && all_known)), {
     match(result.values.get(k),
       .Some(opt) => match(opt,
         .Some(_) => (),
@@ -271,13 +271,13 @@ evaluate_tuple_value :: (fn(
       .None => { all_known = false; }
     );
     k = (k + usize(1));
-  };
+  });
 
   (tuple_value_opt : Option(EvalValue)) = Option(EvalValue).None;
   if(all_known, {
     val_list := ArrayList(EvalValue).new();
     (m : usize) = usize(0);
-    while runtime((m < result.values.len())), {
+    while(runtime((m < result.values.len())), {
       match(result.values.get(m),
         .Some(opt) => match(opt,
           .Some(v) => { val_list.push(v); (); },
@@ -286,7 +286,7 @@ evaluate_tuple_value :: (fn(
         .None => ()
       );
       m = (m + usize(1));
-    };
+    });
     tuple_value_opt = Option(EvalValue).Some(EvalValue.TupleVal(val_list));
   });
 
@@ -300,5 +300,5 @@ evaluate_tuple_value :: (fn(
   expr
 });
 
-export evaluate_tuple_value, evaluate_tuple_elements_value, evaluate_tuple_element_value,
-       EvalTupleElementsValueResult, EvalTupleElementResult;
+export(evaluate_tuple_value, evaluate_tuple_elements_value, evaluate_tuple_element_value,
+       EvalTupleElementsValueResult, EvalTupleElementResult);

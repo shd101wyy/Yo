@@ -6,18 +6,18 @@
 //!
 //! This mirrors `src/install-command.ts`.
 
-open import "std/string";
-open import "std/fmt";
-{ env }                       :: import "std/env";
-{ cwd }                       :: import "std/env";
-{ Path }                      :: import "std/path";
-{ AnyError, Exception }       :: import "std/error";
-{ ArrayList }                 :: import "std/collections/array_list";
-{ Command, ExitStatus, Output } :: import "std/process/command";
-{ exists, read_file, write_file } :: import "std/fs/file";
-{ BuildGitDependency, fetch_all_deps } :: import "../fetch/fetch.yo";
-{ generate_deps_yo }          :: import "../init/init.yo";
-{ exit }                      :: import "std/libc/stdlib";
+open(import("std/string"));
+open(import("std/fmt"));
+{ env }                       :: import("std/env");
+{ cwd }                       :: import("std/env");
+{ Path }                      :: import("std/path");
+{ AnyError, Exception }       :: import("std/error");
+{ ArrayList }                 :: import("std/collections/array_list");
+{ Command, ExitStatus, Output } :: import("std/process/command");
+{ exists, read_file, write_file } :: import("std/fs/file");
+{ BuildGitDependency, fetch_all_deps } :: import("../fetch/fetch.yo");
+{ generate_deps_yo }          :: import("../init/init.yo");
+{ exit }                      :: import("std/libc/stdlib");
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -72,16 +72,16 @@ _url_to_dep_name :: (fn(url: str) -> String)({
 /// Return `true` if every character in `s` is an ASCII digit.
 _is_all_digits :: (fn(s: String) -> bool)({
   n := s.len();
-  if((n == usize(0)), return false);
+  if((n == usize(0)), return(false));
   i := usize(0);
   ok := true;
-  while runtime(((i < n) && ok)), {
+  while(runtime(((i < n) && ok)), {
     match(s.at(i),
       .None => { ok = false; },
       .Some(c) => if(((c < rune(u32('0'))) || (c > rune(u32('9')))), { ok = false; })
     );
     i = (i + usize(1));
-  };
+  });
   ok
 });
 
@@ -89,10 +89,10 @@ _is_all_digits :: (fn(s: String) -> bool)({
 /// Returns `.None` if the string is not a valid semver.
 _parse_semver_tag :: (fn(tag: String) -> Option(SemVer))({
   n := tag.len();
-  if((n == usize(0)), return Option(SemVer).None);
+  if((n == usize(0)), return(Option(SemVer).None));
 
   first_char := match(tag.at(usize(0)),
-    .None => { return Option(SemVer).None; },
+    .None => { return(Option(SemVer).None); },
     .Some(c) => c
   );
 
@@ -102,35 +102,34 @@ _parse_semver_tag :: (fn(tag: String) -> Option(SemVer))({
   );
 
   parts := stripped.split(String.from("."));
-  if((!(parts.len() == usize(3))), return Option(SemVer).None);
+  if((!(parts.len() == usize(3))), return(Option(SemVer).None));
 
   major_str := match(parts.get(usize(0)),
-    .None => { return Option(SemVer).None; },
+    .None => { return(Option(SemVer).None); },
     .Some(s) => s
   );
   minor_str := match(parts.get(usize(1)),
-    .None => { return Option(SemVer).None; },
+    .None => { return(Option(SemVer).None); },
     .Some(s) => s
   );
   patch_str := match(parts.get(usize(2)),
-    .None => { return Option(SemVer).None; },
+    .None => { return(Option(SemVer).None); },
     .Some(s) => s
   );
 
   if((!(_is_all_digits(major_str) && (_is_all_digits(minor_str) && _is_all_digits(patch_str)))),
-    return Option(SemVer).None
-  );
+    return(Option(SemVer).None));
 
   major := match(major_str.parse_i32(),
-    .None => { return Option(SemVer).None; },
+    .None => { return(Option(SemVer).None); },
     .Some(x) => x
   );
   minor := match(minor_str.parse_i32(),
-    .None => { return Option(SemVer).None; },
+    .None => { return(Option(SemVer).None); },
     .Some(x) => x
   );
   patch := match(patch_str.parse_i32(),
-    .None => { return Option(SemVer).None; },
+    .None => { return(Option(SemVer).None); },
     .Some(x) => x
   );
 
@@ -140,11 +139,11 @@ _parse_semver_tag :: (fn(tag: String) -> Option(SemVer))({
 /// Compare two `SemVer` values. Returns positive if `a > b`, negative if `a < b`, 0 if equal.
 _compare_semver :: (fn(a: SemVer, b: SemVer) -> i32)(
   if((a.major != b.major),
-    if((a.major > b.major), i32(1), i32(-1)),
+    if((a.major > b.major), i32(1), i32(-(1))),
     if((a.minor != b.minor),
-      if((a.minor > b.minor), i32(1), i32(-1)),
+      if((a.minor > b.minor), i32(1), i32(-(1))),
       if((a.patch != b.patch),
-        if((a.patch > b.patch), i32(1), i32(-1)),
+        if((a.patch > b.patch), i32(1), i32(-(1))),
         i32(0)
       )
     )
@@ -158,7 +157,7 @@ _parse_tags_for_latest_semver :: (fn(text: String) -> Option(String))({
   tags  := ArrayList(SemVer).new();
   n     := lines.len();
   i     := usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(lines.get(i),
       .None => (),
       .Some(line) => {
@@ -183,23 +182,23 @@ _parse_tags_for_latest_semver :: (fn(text: String) -> Option(String))({
       }
     );
     i = (i + usize(1));
-  };
+  });
 
   // Find the maximum-version SemVer (linear scan — list is typically small)
-  if((tags.len() == usize(0)), return Option(String).None);
+  if((tags.len() == usize(0)), return(Option(String).None));
 
   best := match(tags.get(usize(0)),
-    .None => { return Option(String).None; },
+    .None => { return(Option(String).None); },
     .Some(t) => t
   );
   j    := usize(1);
-  while runtime((j < tags.len())), {
+  while(runtime((j < tags.len())), {
     match(tags.get(j),
       .None => (),
       .Some(t) => if((_compare_semver(t, best) > i32(0)), { best = t; })
     );
     j = (j + usize(1));
-  };
+  });
   Option(String).Some(best.tag)
 });
 
@@ -217,9 +216,9 @@ parse_package_specifier :: (fn(spec: String) -> Result(ParsedPackage, String))({
   // Local path case
   if(is_local_path(spec_str), {
     name := _url_to_dep_name(spec_str);
-    return Result(ParsedPackage, String).Ok(
+    return(Result(ParsedPackage, String).Ok(
       ParsedPackage.Path(name, spec)
-    );
+    ));
   });
 
   // Split off optional @ref suffix (use last '@' so URLs with '@' in credentials are handled)
@@ -254,11 +253,11 @@ parse_package_specifier :: (fn(spec: String) -> Result(ParsedPackage, String))({
         s := String.from("https://github.com/").concat(url_part);
         if(s.ends_with(String.from(".git")), s, s.concat(String.from(".git")))
       }, {
-        return Result(ParsedPackage, String).Err(
+        return(Result(ParsedPackage, String).Err(
           String.from("Invalid package specifier: \"").concat(spec).concat(
             String.from("\". Use 'user/repo', 'github.com/user/repo', or a full URL.")
           )
-        );
+        ));
       })
     }
   );
@@ -290,7 +289,7 @@ parse_dependency_names :: (fn(content: String) -> ArrayList(String))({
   all_lines := content.split(String.from("\n"));
   n := all_lines.len();
   i := usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     match(all_lines.get(i),
       .None => (),
       .Some(line) => {
@@ -310,7 +309,7 @@ parse_dependency_names :: (fn(content: String) -> ArrayList(String))({
       }
     );
     i = (i + usize(1));
-  };
+  });
   names
 });
 
@@ -318,11 +317,11 @@ parse_dependency_names :: (fn(content: String) -> ArrayList(String))({
 _build_imports_block :: (fn(dep_names: ArrayList(String)) -> String)({
   n := dep_names.len();
   if((n == usize(0)),
-    String.from("imports :: ComptimeList(build.ImportEntry)();\nexport imports;\n"),
+    String.from("imports :: ComptimeList(build.ImportEntry)();\nexport(imports);\n"),
     {
       block := String.from("imports :: ComptimeList(build.ImportEntry)(\n");
       i     := usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         match(dep_names.get(i),
           .None => (),
           .Some(dep_name) => {
@@ -337,18 +336,18 @@ _build_imports_block :: (fn(dep_names: ArrayList(String)) -> String)({
           }
         );
         i = (i + usize(1));
-      };
-      block.concat(String.from(");\nexport imports;\n"))
+      });
+      block.concat(String.from(");\nexport(imports);\n"))
     }
   )
 });
 
-/// Regenerate the `// --- Import list ---` … `export imports;` section in
+/// Regenerate the `// --- Import list ---` … `export(imports);` section in
 /// `content` to match the dependency declarations found in the same content.
 regenerate_imports_list :: (fn(content: String) -> String)({
   dep_names    := parse_dependency_names(content);
   marker       := String.from("// --- Import list ---");
-  export_line  := String.from("export imports;");
+  export_line  := String.from("export(imports);");
   imports_blk  := _build_imports_block(dep_names);
 
   marker_idx := content.index_of(marker, usize(0));
@@ -364,12 +363,12 @@ regenerate_imports_list :: (fn(content: String) -> String)({
       export_idx := content.index_of(export_line, m_idx);
       match(export_idx,
         .None =>
-          // Marker found but no `export imports;` — replace to end
+          // Marker found but no `export(imports);` — replace to end
           content.substring(usize(0), m_idx).concat(marker).concat(
             String.from("\n")
           ).concat(imports_blk),
         .Some(e_idx) => {
-          // Replace from marker to end of "export imports;\n"
+          // Replace from marker to end of "export(imports);\n"
           end_idx := ((e_idx + export_line.len()) + usize(1));
           prefix  := content.substring(usize(0), m_idx);
           tail    := content.substring(end_idx, content.len());
@@ -437,7 +436,7 @@ append_dep_to_deps_file :: (fn(
 
     if(dependency_exists_in_deps_file(content, dep_name), {
       println(`Dependency "${dep_name}" already exists in deps.yo. Update it manually if needed.`);
-      return false;
+      return(false);
     });
 
     updated := _append_dep_to_content(content, dep_line);
@@ -464,15 +463,15 @@ resolve_default_branch :: (fn(
     cmd.arg(String.from("HEAD"));
 
     given(try_exn) := Exception(throw: ((err) -> {
-      return Output(
+      return(Output(
         status: ExitStatus(raw: i32(1)),
         stdout: ArrayList(u8).new(),
         stderr: ArrayList(u8).new()
-      );
+      ));
     }));
 
     out := io.await(cmd.output(using(io, try_exn)));
-    if((out.status.raw != i32(0)), return String.from("main"));
+    if((out.status.raw != i32(0)), return(String.from("main")));
 
     text  := String.from_bytes(out.stdout).trim();
     lines := text.split(String.from("\n"));
@@ -481,7 +480,7 @@ resolve_default_branch :: (fn(
 
     n := lines.len();
     i := usize(0);
-    while runtime((i < n)), {
+    while(runtime((i < n)), {
       match(lines.get(i),
         .None => (),
         .Some(line) => {
@@ -497,7 +496,7 @@ resolve_default_branch :: (fn(
         }
       );
       i = (i + usize(1));
-    };
+    });
     result
   })
 );
@@ -520,19 +519,18 @@ resolve_latest_ref :: (fn(
     cmd.arg(url);
 
     given(try_exn) := Exception(throw: ((err) -> {
-      return Output(
+      return(Output(
         status: ExitStatus(raw: i32(1)),
         stdout: ArrayList(u8).new(),
         stderr: ArrayList(u8).new()
-      );
+      ));
     }));
 
     out := io.await(cmd.output(using(io, try_exn)));
     if((out.status.raw != i32(0)),
-      return Result(String, String).Err(
+      return(Result(String, String).Err(
         String.from("Repository not found or not accessible: ").concat(url)
-      )
-    );
+      )));
 
     text      := String.from_bytes(out.stdout).trim();
     semver_opt := _parse_tags_for_latest_semver(text);
@@ -562,7 +560,7 @@ _print_add_import_guidance :: (fn(build_path: Path, project_dir: Path) -> unit)(
     // Read build.yo synchronously would require IO — skip check and always print guidance.
     // (In practice the user already has deps.yo wired if they ran install before.)
     println("If you haven't already, add the following to your build.yo:");
-    println("  { imports } :: import \"./deps.yo\";");
+    println("  { imports } :: import(\"./deps.yo\");");
     println("  exe.add_import_list(imports);");
   });
   ()
@@ -717,8 +715,7 @@ run_install :: (fn(
 // Exports
 // ---------------------------------------------------------------------------
 
-export
-  is_local_path,
+export(is_local_path,
   _url_to_dep_name,
   _is_all_digits,
   _parse_semver_tag,
@@ -736,5 +733,4 @@ export
   run_install,
   ParsedPackage,
   SemVer,
-  InstallOptions
-;
+  InstallOptions);

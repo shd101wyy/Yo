@@ -27,18 +27,18 @@
 //!   - `program.clone()` is used so the stored `program` field remains valid
 //!     after `evaluate_module_body` consumes its copy.
 
-open import "std/string";
-open import "std/fmt";
-open import "std/error";
-{ ArrayList } :: import "std/collections/array_list";
-{ Token, TokenKind } :: import "../lexer/token.yo";
-{ Parser } :: import "../parser/parser.yo";
-{ AstExpr } :: import "../expr/expr.yo";
-{ Environment } :: import "../env/env.yo";
-{ TypeValue } :: import "../types/type.yo";
-{ EvalValue } :: import "./value.yo";
-{ evaluate_module_body, set_module_loader } :: import "./eval.yo";
-{ register_evaluate_expression }           :: import "./exprs/_expr.yo";
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Token, TokenKind } :: import("../lexer/token.yo");
+{ Parser } :: import("../parser/parser.yo");
+{ AstExpr } :: import("../expr/expr.yo");
+{ Environment } :: import("../env/env.yo");
+{ TypeValue } :: import("../types/type.yo");
+{ EvalValue } :: import("./value.yo");
+{ evaluate_module_body, set_module_loader } :: import("./eval.yo");
+{ register_evaluate_expression }           :: import("./exprs/_expr.yo");
 
 // ---------------------------------------------------------------------------
 // Comment-attribute check
@@ -67,7 +67,7 @@ has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> b
   (found : bool) = false;
   (i : usize) = usize(0);
   n := tokens.len();
-  while runtime(((i < n) && (!(found)))), {
+  while(runtime(((i < n) && (!(found)))), {
     match(tokens.get(i),
       .Some(tok) => {
         is_plain_comment := cond(
@@ -82,7 +82,7 @@ has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> b
       .None => ()
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
 
@@ -109,7 +109,7 @@ impl(Evaluator,
   /// Phase 2i: file reading is the caller's responsibility.
   /// A `new_from_file` helper with `using(io : IO)` will be added later.
   ///
-  /// `load_module_fn` is called for every `import "..."` encountered during
+  /// `load_module_fn` is called for every `import("...")` encountered during
   /// evaluation, AND for loading the prelude (unless the `@skip_prelude` directive
   /// is present in the source).  Return `None` from the callback to signal
   /// that a module could not be found.
@@ -128,7 +128,7 @@ impl(Evaluator,
     // --- Create base environment ---
     (env : Environment) = Environment.new(module_path);
 
-    // Wire the module loader so `import "..."` resolves during evaluation.
+    // Wire the module loader so `import("...")` resolves during evaluation.
     set_module_loader(load_module_fn);
 
     // --- Prelude injection ---
@@ -145,7 +145,7 @@ impl(Evaluator,
               env.push_frame(true);
               (pi : usize) = usize(0);
               pn := pnames.len();
-              while runtime((pi < pn)), {
+              while(runtime((pi < pn)), {
                 match(pnames.get(pi),
                   .Some(pname) => {
                     match(pvalues.get(pi),
@@ -159,7 +159,7 @@ impl(Evaluator,
                   .None => ()
                 );
                 pi = (pi + usize(1));
-              };
+              });
             },
             _ => {
               module_error = .Some(String.from("Prelude is not a module value"));
@@ -178,7 +178,7 @@ impl(Evaluator,
     // Clone program so the stored `program` field remains valid after
     // `evaluate_module_body` consumes its copy.
     program_for_eval := program.clone();
-    module_value := evaluate_module_body(program_for_eval, &env);
+    module_value := evaluate_module_body(program_for_eval, &(env));
 
     Evaluator(
       input_string: input_string,
@@ -214,5 +214,5 @@ clear_generic_impls_from_module :: (fn(_module_path : String) -> unit)(());
 /// No-op stub. Mirrors `clearAllGlobalImplState` in `src/evaluator/values/impl.ts`.
 clear_all_global_impl_state :: (fn() -> unit)(());
 
-export has_comment_attribute, Evaluator;
-export clear_impls_from_module, clear_generic_impls_from_module, clear_all_global_impl_state;
+export(has_comment_attribute, Evaluator);
+export(clear_impls_from_module, clear_generic_impls_from_module, clear_all_global_impl_state);

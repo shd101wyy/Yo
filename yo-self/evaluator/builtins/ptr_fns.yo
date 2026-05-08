@@ -5,21 +5,21 @@
 //! Handles the `&(expr)` address-of operator. Creates a pointer type and,
 //! when the target is compile-time known, a PtrVal.
 
-open import "std/string";
-{ ArrayList }                                    :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id }         :: import "../../expr/expr.yo";
+open(import("std/string"));
+{ ArrayList }                                    :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id }         :: import("../../expr/expr.yo");
 { ExprInfo, ComptimeRef, new_expr_info,
   expr_info_table_set,
-  expr_info_table_get }                          :: import "../../expr/expr_info.yo";
-{ Variable, Environment }                        :: import "../../env/env.yo";
-{ EvalContext, ExpectedTypeCtx }                 :: import "../context.yo";
+  expr_info_table_get }                          :: import("../../expr/expr_info.yo");
+{ Variable, Environment }                        :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx }                 :: import("../context.yo");
 { EvalValue, is_unknown_val, create_unknown_val,
-  is_type_value }                                :: import "../value.yo";
-{ TypeValue, t_ptr }                             :: import "../../types/type.yo";
-{ format_error_message }                         :: import "../../error/error.yo";
-{ attach_temp_variable_to_expr }                 :: import "../utils.yo";
-{ evaluate_expression }                          :: import "../exprs/expr.yo";
-{ Exception }                                    :: import "std/error";
+  is_type_value }                                :: import("../value.yo");
+{ TypeValue, t_ptr }                             :: import("../../types/type.yo");
+{ format_error_message }                         :: import("../../error/error.yo");
+{ attach_temp_variable_to_expr }                 :: import("../utils.yo");
+{ evaluate_expression }                          :: import("../exprs/expr.yo");
+{ Exception }                                    :: import("std/error");
 
 evaluate_address_call :: (fn(
   expr : AstExpr,
@@ -27,8 +27,8 @@ evaluate_address_call :: (fn(
   ctx  : *(EvalContext),
   using(exn : Exception)
 ) -> AstExpr)({
-  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
+  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
+  arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
 
   // Adjust expected type: if expected is a pointer, use the pointee type.
   old_expected := ctx.expected_type;
@@ -54,26 +54,26 @@ evaluate_address_call :: (fn(
   match(arg_info_opt,
     .Some(_) => (),
     .None    => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("&: failed to evaluate the argument expression for reference."),
         false,
         .None
-      ));
+      )));
     }
   );
 
-  arg_info     := match(arg_info_opt, .Some(i) => i, .None => { return expr; });
+  arg_info     := match(arg_info_opt, .Some(i) => i, .None => { return(expr); });
   (cur_env : Environment) = arg_info.env;
 
   // Error if the argument is a type value — use * for pointer-to-type.
   if(is_type_value(arg_info.value), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       String.from("Cannot create a pointer to a type. Did you mean to use \"*\"?"),
       false,
       .None
-    ));
+    )));
   });
 
   arg_type     := arg_info.ty;
@@ -150,4 +150,4 @@ evaluate_address_call :: (fn(
   expr
 });
 
-export evaluate_address_call;
+export(evaluate_address_call);

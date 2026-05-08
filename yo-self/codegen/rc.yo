@@ -20,9 +20,9 @@
 //! Forward declarations go into ctx.emitter.declarations;
 //! Function bodies go into ctx.emitter.code.
 
-open import "std/string";
-{ TypeValue } :: import "../types/type.yo";
-{ CodegenContext } :: import "./context.yo";
+open(import("std/string"));
+{ TypeValue } :: import("../types/type.yo");
+{ CodegenContext } :: import("./context.yo");
 
 // ---------------------------------------------------------------------------
 // RC attribute prefix
@@ -145,7 +145,7 @@ emit_dup_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
   tmp_decl.push_str(c_type_name);
   tmp_decl.push_str(" __yo_dup_tmp = __yo_self;");
   ctx.*.emitter.emit_line(tmp_decl.as_str());
-  ctx.*.emitter.emit_line("  return __yo_dup_tmp;");
+  ctx.*.emitter.emit_line("  return(__yo_dup_tmp);");
   ctx.*.emitter.emit_line("}");
 });
 
@@ -208,9 +208,8 @@ generate_rc_fns :: (fn(
   )
 );
 
-export
-  RC_ATTR,
+export(RC_ATTR,
   rc_dispose_name, rc_drop_name, rc_dup_name,
   emit_rc_forward_decls,
   emit_dispose_fn, emit_drop_fn, emit_dup_fn,
-  generate_rc_fns_trivial, generate_rc_fns;
+  generate_rc_fns_trivial, generate_rc_fns);

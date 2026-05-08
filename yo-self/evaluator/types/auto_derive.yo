@@ -20,16 +20,16 @@
 //!   auto_derive_traits_for_enum_type(enum_id, variant_fields, env)
 //!   auto_derive_traits_for_union_type(union_id, field_types, env)
 
-open import "std/string";
+open(import("std/string"));
 
-{ ArrayList }                                                      :: import "std/collections/array_list";
-{ TypeValue }                                                      :: import "../../types/type.yo";
-{ Environment }                                                    :: import "../../env/env.yo";
-{ register_type_trait }                                            :: import "./trait_registry.yo";
+{ ArrayList }                                                      :: import("std/collections/array_list");
+{ TypeValue }                                                      :: import("../../types/type.yo");
+{ Environment }                                                    :: import("../../env/env.yo");
+{ register_type_trait }                                            :: import("./trait_registry.yo");
 { begin_send_derivation, end_send_derivation,
   type_implements_send, type_implements_acyclic,
-  type_implements_comptime, type_implements_runtime_full }         :: import "../trait_checking.yo";
-{ can_type_form_rc_cycle }                                         :: import "../../types/utils.yo";
+  type_implements_comptime, type_implements_runtime_full }         :: import("../trait_checking.yo");
+{ can_type_form_rc_cycle }                                         :: import("../../types/utils.yo");
 
 // ---------------------------------------------------------------------------
 // Helpers: check all field types for a trait
@@ -39,11 +39,11 @@ _all_fields_implement_send :: (fn(field_types : ArrayList(TypeValue), env : Envi
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
-  while runtime(((i < n) && all_ok)), {
+  while(runtime(((i < n) && all_ok)), {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     if(!(type_implements_send(ft, env)), { all_ok = false; });
     i = (i + usize(1));
-  };
+  });
   all_ok
 });
 
@@ -51,11 +51,11 @@ _all_fields_implement_acyclic :: (fn(field_types : ArrayList(TypeValue), env : E
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
-  while runtime(((i < n) && all_ok)), {
+  while(runtime(((i < n) && all_ok)), {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     if(!(type_implements_acyclic(ft, env)), { all_ok = false; });
     i = (i + usize(1));
-  };
+  });
   all_ok
 });
 
@@ -63,11 +63,11 @@ _all_fields_implement_comptime :: (fn(field_types : ArrayList(TypeValue), env : 
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
-  while runtime(((i < n) && all_ok)), {
+  while(runtime(((i < n) && all_ok)), {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     if(!(type_implements_comptime(ft, env)), { all_ok = false; });
     i = (i + usize(1));
-  };
+  });
   all_ok
 });
 
@@ -75,11 +75,11 @@ _all_fields_implement_runtime :: (fn(field_types : ArrayList(TypeValue), env : E
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
-  while runtime(((i < n) && all_ok)), {
+  while(runtime(((i < n) && all_ok)), {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     if(!(type_implements_runtime_full(ft, env)), { all_ok = false; });
     i = (i + usize(1));
-  };
+  });
   all_ok
 });
 
@@ -160,17 +160,17 @@ _flatten_variant_fields :: (fn(variant_fields : ArrayList(ArrayList(TypeValue)))
   result := ArrayList(TypeValue).new();
   n := variant_fields.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
+  while(runtime((i < n)), {
     vf := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
     m := vf.len();
     (j : usize) = usize(0);
-    while runtime((j < m)), {
+    while(runtime((j < m)), {
       ft := match(vf.get(j), .Some(t) => t, .None => TypeValue.Unit);
       ___ := result.push(ft);
       j = (j + usize(1));
-    };
+    });
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -245,6 +245,6 @@ auto_derive_traits_for_union_type :: (fn(
   });
 });
 
-export auto_derive_traits_for_struct_type;
-export auto_derive_traits_for_enum_type;
-export auto_derive_traits_for_union_type;
+export(auto_derive_traits_for_struct_type);
+export(auto_derive_traits_for_enum_type);
+export(auto_derive_traits_for_union_type);

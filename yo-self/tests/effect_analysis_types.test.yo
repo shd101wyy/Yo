@@ -1,18 +1,18 @@
 //! Tests for yo-self/evaluator/effects/effect_analysis_types.yo
 //! Mirrors src/evaluator/effects/effect-analysis-types.ts
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap }   :: import "std/collections/hash_map";
-{ TypeValue, t_unit } :: import "../types/type.yo";
-{ EvalValue }         :: import "../evaluator/value.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap }   :: import("std/collections/hash_map");
+{ TypeValue, t_unit } :: import("../types/type.yo");
+{ EvalValue }         :: import("../evaluator/value.yo");
 { SuspensionPoint, SuspensionCapturedVariable
-} :: import "../evaluator/shared/suspension_analysis_types.yo";
-{ AstExpr }           :: import "../expr/expr.yo";
-{ TokenKind, Token }  :: import "../lexer/token.yo";
+} :: import("../evaluator/shared/suspension_analysis_types.yo");
+{ AstExpr }           :: import("../expr/expr.yo");
+{ TokenKind, Token }  :: import("../lexer/token.yo");
 { EffectCallPoint, EffectCapturedVariable, EffectHandlerInfo, EffectAnalysisResult,
   effect_analysis_result_empty
-} :: import "../evaluator/effects/effect_analysis_types.yo";
+} :: import("../evaluator/effects/effect_analysis_types.yo");
 
 make_token :: (fn(v : str) -> Token)(
   Token(
@@ -40,7 +40,7 @@ make_sp :: (fn(idx : usize) -> SuspensionPoint)(
   )
 );
 
-test "effect_analysis_result_empty has no effects", {
+test("effect_analysis_result_empty has no effects", {
   r := effect_analysis_result_empty(String.from("raise"), t_unit());
   assert(!(r.has_effects),                         "has_effects false");
   assert((r.effect_call_points.len() == usize(0)), "no call points");
@@ -48,9 +48,9 @@ test "effect_analysis_result_empty has no effects", {
   assert((r.effect_parameter_name.as_str() == "raise"), "param name");
   has_infos := match(r.effect_handler_infos, .Some(_) => true, .None => false);
   assert(!(has_infos), "no handler infos");
-};
+});
 
-test "EffectCallPoint base fields accessible", {
+test("EffectCallPoint base fields accessible", {
   ecp := EffectCallPoint(
     base:                        make_sp(usize(2)),
     operation_arg_types:         ArrayList(TypeValue).new(),
@@ -62,9 +62,9 @@ test "EffectCallPoint base fields accessible", {
   assert((ecp.base.index == usize(2)), "base index");
   has_transitive := match(ecp.is_transitive_effect_call, .Some(_) => true, .None => false);
   assert(!(has_transitive), "no transitive flag");
-};
+});
 
-test "EffectCallPoint transitive flags can be set", {
+test("EffectCallPoint transitive flags can be set", {
   ecp := EffectCallPoint(
     base:                        make_sp(usize(0)),
     operation_arg_types:         ArrayList(TypeValue).new(),
@@ -77,9 +77,9 @@ test "EffectCallPoint transitive flags can be set", {
   assert(is_trans, "is transitive");
   eff_idx := match(ecp.effect_index, .Some(i) => i, .None => usize(999));
   assert((eff_idx == usize(1)), "effect_index");
-};
+});
 
-test "EffectCallPoint operation_arg_types can be populated", {
+test("EffectCallPoint operation_arg_types can be populated", {
   args := ArrayList(TypeValue).new();
   args.push(t_unit());
   ecp := EffectCallPoint(
@@ -91,9 +91,9 @@ test "EffectCallPoint operation_arg_types can be populated", {
     effect_index:                Option(usize).None
   );
   assert((ecp.operation_arg_types.len() == usize(1)), "one arg type");
-};
+});
 
-test "EffectCapturedVariable base fields accessible", {
+test("EffectCapturedVariable base fields accessible", {
   cv := EffectCapturedVariable(
     base: SuspensionCapturedVariable(
       id:   String.from("v0"),
@@ -107,9 +107,9 @@ test "EffectCapturedVariable base fields accessible", {
   assert((cv.base.name.as_str() == "counter"), "name");
   has_alias := match(cv.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(!(has_alias), "no alias");
-};
+});
 
-test "EffectCapturedVariable self-referential field (Box(Self))", {
+test("EffectCapturedVariable self-referential field (Box(Self))", {
   inner := Box(EffectCapturedVariable)(
     EffectCapturedVariable(
       base: SuspensionCapturedVariable(
@@ -132,9 +132,9 @@ test "EffectCapturedVariable self-referential field (Box(Self))", {
   );
   has_alias := match(outer.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(has_alias, "outer has alias");
-};
+});
 
-test "EffectHandlerInfo fields accessible", {
+test("EffectHandlerInfo fields accessible", {
   info := EffectHandlerInfo(
     effect_parameter_name: String.from("raise"),
     effect_parameter_type: t_unit(),
@@ -146,9 +146,9 @@ test "EffectHandlerInfo fields accessible", {
   assert((info.effect_parameter_name.as_str() == "raise"), "param name");
   has_field_path := match(info.effect_field_path, .Some(_) => true, .None => false);
   assert(!(has_field_path), "no field path");
-};
+});
 
-test "EffectHandlerInfo with field path", {
+test("EffectHandlerInfo with field path", {
   path := ArrayList(String).new();
   path.push(String.from("errors"));
   path.push(String.from("raise"));
@@ -162,9 +162,9 @@ test "EffectHandlerInfo with field path", {
   );
   path_got := match(info.effect_field_path, .Some(p) => p.len(), .None => usize(0));
   assert((path_got == usize(2)), "field path length");
-};
+});
 
-test "EffectAnalysisResult can hold effect_call_points", {
+test("EffectAnalysisResult can hold effect_call_points", {
   r := effect_analysis_result_empty(String.from("raise"), t_unit());
   ecp := EffectCallPoint(
     base:                        make_sp(usize(0)),
@@ -176,17 +176,17 @@ test "EffectAnalysisResult can hold effect_call_points", {
   );
   r.effect_call_points.push(ecp);
   assert((r.effect_call_points.len() == usize(1)), "one call point");
-};
+});
 
-test "EffectAnalysisResult variable_id_remapping", {
+test("EffectAnalysisResult variable_id_remapping", {
   r := effect_analysis_result_empty(String.from("exn"), t_unit());
   ___ := r.variable_id_remapping.set(String.from("old_v0"), String.from("new_v0"));
   got := r.variable_id_remapping.get(String.from("old_v0"));
   result := match(got, .Some(v) => v, .None => String.from(""));
   assert((result.as_str() == "new_v0"), "remapping lookup");
-};
+});
 
-test "EffectAnalysisResult effect_handler_infos can be set", {
+test("EffectAnalysisResult effect_handler_infos can be set", {
   r := effect_analysis_result_empty(String.from("raise"), t_unit());
   infos := ArrayList(EffectHandlerInfo).new();
   infos.push(EffectHandlerInfo(
@@ -200,4 +200,4 @@ test "EffectAnalysisResult effect_handler_infos can be set", {
   r.effect_handler_infos = Option(ArrayList(EffectHandlerInfo)).Some(infos);
   count := match(r.effect_handler_infos, .Some(is) => is.len(), .None => usize(0));
   assert((count == usize(1)), "one handler info");
-};
+});

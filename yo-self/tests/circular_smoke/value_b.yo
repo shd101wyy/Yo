@@ -3,8 +3,8 @@
 //! import to verify the partial-module mechanism works for late-defined
 //! exports too.
 
-open import "std/string";
-{ TypeShape } :: import "./type_a.yo";
+open(import("std/string"));
+{ TypeShape } :: import("./type_a.yo");
 
 ValueB :: enum(
   IntV(value : i32),
@@ -13,7 +13,7 @@ ValueB :: enum(
   FnV(declared_type : TypeShape)
 );
 
-export ValueB;
+export(ValueB);
 
 /// Helper that consumes a TypeShape (proves the back-edge is usable here).
 default_value :: (fn(t : TypeShape) -> ValueB)(
@@ -24,4 +24,4 @@ default_value :: (fn(t : TypeShape) -> ValueB)(
   )
 );
 
-export default_value;
+export(default_value);

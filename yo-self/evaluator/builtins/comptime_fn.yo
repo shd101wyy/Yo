@@ -10,23 +10,23 @@
 //!
 //! NOTE: This is builtins/comptime_fn.yo, distinct from calls/comptime_fn.yo.
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
 { new_expr_info, expr_info_table_set,
-  expr_info_table_get }                                  :: import "../../expr/expr_info.yo";
+  expr_info_table_get }                                  :: import("../../expr/expr_info.yo");
 { Variable, Environment, add_variable_to_env,
-  synthetic_token }                                      :: import "../../env/env.yo";
+  synthetic_token }                                      :: import("../../env/env.yo");
 { EvalContext, FuncOrAsyncBlockCtx,
-  FuncOrAsyncBlockKind }                                 :: import "../context.yo";
-{ EvalValue, is_func_val, create_unknown_val }           :: import "../value.yo";
-{ TypeValue, t_unit }                                    :: import "../../types/type.yo";
-{ is_function_type_and_returns_comptime_value }          :: import "../../types/guards.yo";
-{ type_prohibits_comptime_modifier }                     :: import "../../types/utils.yo";
-{ evaluate_expression_raw }                            :: import "../exprs/expr.yo";
-{ evaluate_begin_expression }                            :: import "../exprs/begin.yo";
-{ format_error_message }                                 :: import "../../error/error.yo";
-{ Exception }                                            :: import "std/error";
+  FuncOrAsyncBlockKind }                                 :: import("../context.yo");
+{ EvalValue, is_func_val, create_unknown_val }           :: import("../value.yo");
+{ TypeValue, t_unit }                                    :: import("../../types/type.yo");
+{ is_function_type_and_returns_comptime_value }          :: import("../../types/guards.yo");
+{ type_prohibits_comptime_modifier }                     :: import("../../types/utils.yo");
+{ evaluate_expression_raw }                            :: import("../exprs/expr.yo");
+{ evaluate_begin_expression }                            :: import("../exprs/begin.yo");
+{ format_error_message }                                 :: import("../../error/error.yo");
+{ Exception }                                            :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // _to_comptime_type
@@ -81,7 +81,7 @@ _analyze_ctfe_capability :: (fn(
 
   n_cap := cap_names.len();
   (cap_i : usize) = usize(0);
-  while runtime((cap_i < n_cap)), {
+  while(runtime((cap_i < n_cap)), {
     cn    := match(cap_names.get(cap_i),  .Some(n) => n, .None => String.from(""));
     ct    := match(cap_tys.get(cap_i),    .Some(t) => t, .None => t_unit());
     cv    := match(cap_vals.get(cap_i),   .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
@@ -89,7 +89,7 @@ _analyze_ctfe_capability :: (fn(
     _add  := add_variable_to_env(&(ctfe_env), cn, ct, cv, is_ct, false, false, false,
                                   synthetic_token(cn, env.module_path));
     cap_i = (cap_i + usize(1));
-  };
+  });
 
   _fr := ctfe_env.push_frame(false);
 
@@ -109,7 +109,7 @@ _analyze_ctfe_capability :: (fn(
   // Bind each parameter as UnknownVal with is_compile_time_only = true.
   n_p := param_labels.len();
   (p_i : usize) = usize(0);
-  while runtime((p_i < n_p)), {
+  while(runtime((p_i < n_p)), {
     plabel   := match(param_labels.get(p_i), .Some(l) => l, .None => String.from(""));
     ptype    := match(param_types.get(p_i),  .Some(t) => t, .None => t_unit());
     punknown := create_unknown_val(ptype);
@@ -122,7 +122,7 @@ _analyze_ctfe_capability :: (fn(
       ptok
     );
     p_i = (p_i + usize(1));
-  };
+  });
 
   // Save context state.
   (saved_analyzing : bool)                        = ctx_p.is_analyzing_ctfe_capability;
@@ -189,12 +189,12 @@ evaluate_comptime_fn :: (fn(
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
 
   arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       tok,
       String.from("comptime_fn requires exactly one argument (a function)"),
       false,
       .None
-    ));
+    )));
     make_err_expr()
   });
 
@@ -203,33 +203,33 @@ evaluate_comptime_fn :: (fn(
 
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
   arg_info := match(arg_info_opt, .Some(i) => i, .None => {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       String.from("Failed to evaluate argument to comptime_fn"),
       false,
       .None
-    ));
+    )));
     new_expr_info(env, t_unit())
   });
 
   // Require a compile-time function value.
   arg_val := match(arg_info.value, .Some(v) => v, .None => {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       String.from("comptime_fn: argument has no compile-time value"),
       false,
       .None
-    ));
+    )));
     EvalValue.UnitVal
   });
 
   if((!(is_func_val(arg_val))), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       String.from("comptime_fn requires a function argument"),
       false,
       .None
-    ));
+    )));
   });
 
   func_type := arg_info.ty;
@@ -239,7 +239,7 @@ evaluate_comptime_fn :: (fn(
     out_info       := new_expr_info(env, func_type);
     out_info.value  = Option(EvalValue).Some(arg_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-    return expr;
+    return(expr);
   });
 
   // Extract TypeValue.Func fields.
@@ -255,48 +255,48 @@ evaluate_comptime_fn :: (fn(
 
   // Skip functions with forall parameters — they need specialisation first.
   if((forall_labels.len() > usize(0)), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
       String.from("comptime_fn: cannot convert a generic (forall) function to comptime"),
       false,
       .None
-    ));
+    )));
   });
 
   // Check param types and return type are comptime-compatible.
   n_pt := param_types.len();
   (pti : usize) = usize(0);
-  while runtime((pti < n_pt)), {
+  while(runtime((pti < n_pt)), {
     pt := match(param_types.get(pti), .Some(t) => t, .None => t_unit());
     if(type_prohibits_comptime_modifier(pt, env), {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("comptime_fn: a parameter type prohibits the comptime modifier"),
         false,
         .None
-      ));
+      )));
     });
     pti = (pti + usize(1));
-  };
+  });
 
   if(type_prohibits_comptime_modifier(result_box.*, env), {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
-      String.from("comptime_fn: return type prohibits the comptime modifier"),
+      String.from("comptime_fn: return(type prohibits the comptime modifier)"),
       false,
       .None
-    ));
+    )));
   });
 
   // Convert return type to its comptime equivalent.
   comptime_result_opt := _to_comptime_type(result_box.*);
   comptime_result_ty  := match(comptime_result_opt, .Some(ct) => ct, .None => {
-    exn.throw(dyn format_error_message(
+    exn.throw(dyn(format_error_message(
       ast_expr_token(arg_expr),
-      String.from("comptime_fn: return type cannot be promoted to comptime"),
+      String.from("comptime_fn: return(type cannot be promoted to comptime)"),
       false,
       .None
-    ));
+    )));
     TypeValue.ComptimeInt
   });
 
@@ -343,15 +343,15 @@ evaluate_comptime_fn :: (fn(
       expr
     },
     .None => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(arg_expr),
         String.from("comptime_fn: Failed to create compile-time version of function. The function body cannot be evaluated at compile time."),
         false,
         .None
-      ));
+      )));
       make_err_expr()
     }
   )
 });
 
-export evaluate_comptime_fn;
+export(evaluate_comptime_fn);

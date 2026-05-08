@@ -5,22 +5,22 @@
 //! `comptime_print(args...)` accepts any number of arguments (≥ 1), evaluates
 //! each at compile time, and prints them to stdout when executing.  Returns unit.
 
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 
 { AstExpr, ast_expr_token, ast_expr_id,
   ast_expr_is_fn_call_of, BF_COMPTIME_PRINT,
-  ast_expr_to_string }                         :: import "../../expr/expr.yo";
+  ast_expr_to_string }                         :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                        :: import "../../expr/expr_info.yo";
-{ Environment }                                :: import "../../env/env.yo";
-{ EvalContext }                                :: import "../context.yo";
-{ EvalValue, value_to_string }                 :: import "../value.yo";
-{ t_unit }                                     :: import "../../types/type.yo";
-{ format_error_message }                       :: import "../../error/error.yo";
-{ evaluate_expression }                        :: import "../exprs/expr.yo";
-{ Exception }                                  :: import "std/error";
+  expr_info_table_get }                        :: import("../../expr/expr_info.yo");
+{ Environment }                                :: import("../../env/env.yo");
+{ EvalContext }                                :: import("../context.yo");
+{ EvalValue, value_to_string }                 :: import("../value.yo");
+{ t_unit }                                     :: import("../../types/type.yo");
+{ format_error_message }                       :: import("../../error/error.yo");
+{ evaluate_expression }                        :: import("../exprs/expr.yo");
+{ Exception }                                  :: import("std/error");
 
 evaluate_comptime_print :: (fn(
   expr : AstExpr,
@@ -32,21 +32,21 @@ evaluate_comptime_print :: (fn(
   match(expr,
     .FnCall(_, _, args, _, _) => {
       if((args.len() == usize(0)), {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(expr),
           `Expected at least 1 argument for "comptime_print", got 0`,
           false,
           .None
-        ));
+        )));
       });
     },
     .Atom(_, _) => {
-      exn.throw(dyn format_error_message(
+      exn.throw(dyn(format_error_message(
         ast_expr_token(expr),
         String.from("comptime_print: expected FnCall"),
         false,
         .None
-      ));
+      )));
     }
   );
 
@@ -60,8 +60,8 @@ evaluate_comptime_print :: (fn(
 
   (i : usize) = usize(0);
   (cur_env : Environment) = env;
-  while runtime((i < args.len())), {
-    arg_expr := match(args.get(i), .Some(a) => a, .None => { i = args.len(); return expr; });
+  while(runtime((i < args.len())), {
+    arg_expr := match(args.get(i), .Some(a) => a, .None => { i = args.len(); return(expr); });
 
     evaluated := evaluate_expression(arg_expr, cur_env, ctx);
     info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
@@ -69,12 +69,12 @@ evaluate_comptime_print :: (fn(
     info := match(info_opt,
       .Some(inf) => inf,
       .None => {
-        exn.throw(dyn format_error_message(
+        exn.throw(dyn(format_error_message(
           ast_expr_token(arg_expr),
           `Failed to evaluate argument for "comptime_print": ${ast_expr_to_string(arg_expr)}`,
           false,
           .None
-        ));
+        )));
         new_expr_info(cur_env, t_unit())
       }
     );
@@ -96,17 +96,17 @@ evaluate_comptime_print :: (fn(
     parts.push(s);
 
     i = (i + usize(1));
-  };
+  });
 
   // Print only when executing (not during function-definition validation).
   if((!(ctx.is_validating_function_definition) && ctx.is_executing), {
     (j : usize) = usize(0);
-    while runtime((j < parts.len())), {
+    while(runtime((j < parts.len())), {
       part := match(parts.get(j), .Some(p) => p, .None => String.new());
       if((j > usize(0)), { print(" "); });
       print(part.as_str());
       j = (j + usize(1));
-    };
+    });
     print("\n");
   });
 
@@ -117,4 +117,4 @@ evaluate_comptime_print :: (fn(
   expr
 });
 
-export evaluate_comptime_print;
+export(evaluate_comptime_print);

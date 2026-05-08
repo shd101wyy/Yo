@@ -1,20 +1,20 @@
 //! Tests for yo-self/evaluator/effects/effect_analysis.yo
 //! Mirrors src/evaluator/effects/effect-analysis.ts
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap }   :: import "std/collections/hash_map";
-{ TokenKind, Token } :: import "../lexer/token.yo";
-{ AstExpr } :: import "../expr/expr.yo";
-{ ExprInfo, new_expr_info } :: import "../expr/expr_info.yo";
-{ TypeValue, t_unit, t_bool } :: import "../types/type.yo";
-{ Environment } :: import "../env/env.yo";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap }   :: import("std/collections/hash_map");
+{ TokenKind, Token } :: import("../lexer/token.yo");
+{ AstExpr } :: import("../expr/expr.yo");
+{ ExprInfo, new_expr_info } :: import("../expr/expr_info.yo");
+{ TypeValue, t_unit, t_bool } :: import("../types/type.yo");
+{ Environment } :: import("../env/env.yo");
 {
   is_effect_call_,
   has_effect_in_spread_,
   is_transitive_effect_call_,
   analyze_effect_call_points
-} :: import "../evaluator/effects/effect_analysis.yo";
+} :: import("../evaluator/effects/effect_analysis.yo");
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -118,7 +118,7 @@ make_empty_env :: (fn() -> Environment)(
 // is_effect_call_: direct call to effect param
 // ---------------------------------------------------------------------------
 
-test "is_effect_call_: atom is not a call => false", {
+test("is_effect_call_: atom is not a call => false", {
   expr := make_ident("raise");
   result := is_effect_call_(
     expr,
@@ -128,9 +128,9 @@ test "is_effect_call_: atom is not a call => false", {
     get_info_none
   );
   assert(!(result), "atom should not be an effect call");
-};
+});
 
-test "is_effect_call_: call to matching name, allow_missing_type=true => true", {
+test("is_effect_call_: call to matching name, allow_missing_type=true => true", {
   // raise(x) — func name matches effect param, get_info returns None
   // With allow_missing_type=true, None type is allowed
   expr := make_simple_call("raise", make_ident("x"), usize(1));
@@ -142,9 +142,9 @@ test "is_effect_call_: call to matching name, allow_missing_type=true => true", 
     get_info_none
   );
   assert(result, "raise(x) should match when allow_missing_type=true");
-};
+});
 
-test "is_effect_call_: call to matching name, allow_missing_type=false => false (no type)", {
+test("is_effect_call_: call to matching name, allow_missing_type=false => false (no type)", {
   // raise(x) — func name matches but get_info returns None, strict mode
   expr := make_simple_call("raise", make_ident("x"), usize(1));
   result := is_effect_call_(
@@ -155,9 +155,9 @@ test "is_effect_call_: call to matching name, allow_missing_type=false => false 
     get_info_none
   );
   assert(!(result), "raise(x) should not match when type is unknown and allow_missing_type=false");
-};
+});
 
-test "is_effect_call_: call to non-matching name => false", {
+test("is_effect_call_: call to non-matching name => false", {
   // foo(x) — func name does not match "raise"
   expr := make_simple_call("foo", make_ident("x"), usize(1));
   result := is_effect_call_(
@@ -168,9 +168,9 @@ test "is_effect_call_: call to non-matching name => false", {
     get_info_none
   );
   assert(!(result), "foo(x) should not match raise");
-};
+});
 
-test "is_effect_call_: dotted call with field_path match => true", {
+test("is_effect_call_: dotted call with field_path match => true", {
   // ctl.raise(x) with field_path = Some(["raise"])
   expr := make_dot_call("ctl", "raise", make_ident("x"));
   field_path := ArrayList(String).new();
@@ -183,9 +183,9 @@ test "is_effect_call_: dotted call with field_path match => true", {
     get_info_none
   );
   assert(result, "ctl.raise(x) with field_path=[raise] should match");
-};
+});
 
-test "is_effect_call_: dotted call with wrong field_path => false", {
+test("is_effect_call_: dotted call with wrong field_path => false", {
   // ctl.other(x) with field_path = Some(["raise"])
   expr := make_dot_call("ctl", "other", make_ident("x"));
   field_path := ArrayList(String).new();
@@ -198,13 +198,13 @@ test "is_effect_call_: dotted call with wrong field_path => false", {
     get_info_none
   );
   assert(!(result), "ctl.other(x) should not match field_path=[raise]");
-};
+});
 
 // ---------------------------------------------------------------------------
 // has_effect_in_spread_: EffectsRowT detection
 // ---------------------------------------------------------------------------
 
-test "has_effect_in_spread_: direct EffectsRowT with matching name => true", {
+test("has_effect_in_spread_: direct EffectsRowT with matching name => true", {
   ert := make_effects_row_with("raise");
   env := make_empty_env();
   result := has_effect_in_spread_(
@@ -213,10 +213,10 @@ test "has_effect_in_spread_: direct EffectsRowT with matching name => true", {
     String.from("raise"),
     env
   );
-  assert(result, "EffectsRowT with 'raise' should return true");
-};
+  assert(result, "EffectsRowT with 'raise' should return(true)");
+});
 
-test "has_effect_in_spread_: direct EffectsRowT with struct evidence => true", {
+test("has_effect_in_spread_: direct EffectsRowT with struct evidence => true", {
   labels := ArrayList(String).new();
   labels.push(String.from("raise"));
   types := ArrayList(TypeValue).new();
@@ -239,10 +239,10 @@ test "has_effect_in_spread_: direct EffectsRowT with struct evidence => true", {
     String.from("raise"),
     env
   );
-  assert(result, "EffectsRowT with struct evidence should return true");
-};
+  assert(result, "EffectsRowT with struct(evidence should return(true))");
+});
 
-test "has_effect_in_spread_: direct EffectsRowT with non-matching name => false", {
+test("has_effect_in_spread_: direct EffectsRowT with non-matching name => false", {
   ert := make_effects_row_with("other_effect");
   env := make_empty_env();
   result := has_effect_in_spread_(
@@ -251,10 +251,10 @@ test "has_effect_in_spread_: direct EffectsRowT with non-matching name => false"
     String.from("raise"),
     env
   );
-  assert(!(result), "EffectsRowT without 'raise' should return false");
-};
+  assert(!(result), "EffectsRowT without 'raise' should return(false)");
+});
 
-test "has_effect_in_spread_: non-effects-row type (unit) => false", {
+test("has_effect_in_spread_: non-effects-row type (unit) => false", {
   env := make_empty_env();
   result := has_effect_in_spread_(
     String.from("effects"),
@@ -262,10 +262,10 @@ test "has_effect_in_spread_: non-effects-row type (unit) => false", {
     String.from("raise"),
     env
   );
-  assert(!(result), "unit type should return false for has_effect_in_spread_");
-};
+  assert(!(result), "unit type should return(false for has_effect_in_spread_)");
+});
 
-test "has_effect_in_spread_: bool type => false", {
+test("has_effect_in_spread_: bool type => false", {
   env := make_empty_env();
   result := has_effect_in_spread_(
     String.from("effects"),
@@ -273,14 +273,14 @@ test "has_effect_in_spread_: bool type => false", {
     String.from("raise"),
     env
   );
-  assert(!(result), "bool type should return false for has_effect_in_spread_");
-};
+  assert(!(result), "bool type should return(false for has_effect_in_spread_)");
+});
 
 // ---------------------------------------------------------------------------
 // is_transitive_effect_call_: basic structural tests
 // ---------------------------------------------------------------------------
 
-test "is_transitive_effect_call_: atom (non-call) => None", {
+test("is_transitive_effect_call_: atom (non-call) => None", {
   expr := make_ident("raise");
   result := is_transitive_effect_call_(
     expr,
@@ -288,10 +288,10 @@ test "is_transitive_effect_call_: atom (non-call) => None", {
     get_info_none
   );
   is_none := match(result, .None => true, .Some(_) => false);
-  assert(is_none, "atom should return None for transitive check");
-};
+  assert(is_none, "atom should return(None for transitive check)");
+});
 
-test "is_transitive_effect_call_: call where get_info returns None => None", {
+test("is_transitive_effect_call_: call where get_info returns None => None", {
   // foo(x) — no type info for foo, so can't check implicit params
   expr := make_simple_call("foo", make_ident("x"), usize(1));
   result := is_transitive_effect_call_(
@@ -301,13 +301,13 @@ test "is_transitive_effect_call_: call where get_info returns None => None", {
   );
   is_none := match(result, .None => true, .Some(_) => false);
   assert(is_none, "call with unknown func type returns None");
-};
+});
 
 // ---------------------------------------------------------------------------
 // analyze_effect_call_points: basic structural tests
 // ---------------------------------------------------------------------------
 
-test "analyze_effect_call_points: atom body => no effect call points", {
+test("analyze_effect_call_points: atom body => no effect call points", {
   body := make_ident("unit");
   result := analyze_effect_call_points(
     body,
@@ -320,9 +320,9 @@ test "analyze_effect_call_points: atom body => no effect call points", {
   assert(!(result.has_effects), "atom body should have no effects");
   assert((result.effect_call_points.len() == usize(0)), "no effect call points");
   assert((result.captured_variables.len() == usize(0)), "no captured vars");
-};
+});
 
-test "analyze_effect_call_points: non-effect call body => no effect call points", {
+test("analyze_effect_call_points: non-effect call body => no effect call points", {
   // foo(x) — not an effect call
   body := make_simple_call("foo", make_ident("x"), usize(0));
   result := analyze_effect_call_points(
@@ -335,9 +335,9 @@ test "analyze_effect_call_points: non-effect call body => no effect call points"
   );
   assert(!(result.has_effects), "non-effect call should have no effects");
   assert((result.effect_call_points.len() == usize(0)), "no effect call points for foo(x)");
-};
+});
 
-test "analyze_effect_call_points: effect call but no type info => no suspension point", {
+test("analyze_effect_call_points: effect call but no type info => no suspension point", {
   // raise(x) — matches name but get_info returns None, so no type to determine arg types
   // The detect function requires operation_arg_types.len() > 0 to push a suspension point
   body := make_simple_call("raise", make_ident("x"), usize(5));
@@ -351,9 +351,9 @@ test "analyze_effect_call_points: effect call but no type info => no suspension 
   );
   // No arg types known => no suspension point pushed
   assert((result.effect_call_points.len() == usize(0)), "no call points without type info");
-};
+});
 
-test "analyze_effect_call_points: result has correct param name", {
+test("analyze_effect_call_points: result has correct param name", {
   body := make_ident("unit");
   result := analyze_effect_call_points(
     body,
@@ -364,9 +364,9 @@ test "analyze_effect_call_points: result has correct param name", {
     get_info_none
   );
   assert((result.effect_parameter_name.as_str() == "my_effect"), "param name should be preserved");
-};
+});
 
-test "analyze_effect_call_points: result field_path is preserved", {
+test("analyze_effect_call_points: result field_path is preserved", {
   body := make_ident("unit");
   result := analyze_effect_call_points(
     body,
@@ -378,9 +378,9 @@ test "analyze_effect_call_points: result field_path is preserved", {
   );
   has_path := match(result.effect_field_path, .Some(_) => true, .None => false);
   assert(!(has_path), "None field_path should be preserved as None");
-};
+});
 
-test "analyze_effect_call_points: include_transitive=false does not change empty result", {
+test("analyze_effect_call_points: include_transitive=false does not change empty result", {
   body := make_ident("unit");
   result_notransitive := analyze_effect_call_points(
     body,
@@ -391,4 +391,4 @@ test "analyze_effect_call_points: include_transitive=false does not change empty
     get_info_none
   );
   assert((result_notransitive.effect_call_points.len() == usize(0)), "no call points, not transitive");
-};
+});

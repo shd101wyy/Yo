@@ -6,22 +6,22 @@
 ///   - Variable lookup: undefined variable throws
 ///   - throw_error_on_undefined=false does not throw for missing value
 
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 
-{ Token, TokenKind }               :: import "../lexer/token.yo";
-{ AstExpr, ast_expr_id }           :: import "../expr/expr.yo";
+{ Token, TokenKind }               :: import("../lexer/token.yo");
+{ AstExpr, ast_expr_id }           :: import("../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
-  :: import "../expr/expr_info.yo";
-{ Environment, add_variable_to_env } :: import "../env/env.yo";
-{ EvalContext, eval_context_new }  :: import "../evaluator/context.yo";
-{ EvalValue, is_type_val }         :: import "../evaluator/value.yo";
-{ TypeValue, t_i32, t_bool }       :: import "../types/type.yo";
-{ set_evaluate_expression_fn }     :: import "../evaluator/exprs/expr.yo";
+  :: import("../expr/expr_info.yo");
+{ Environment, add_variable_to_env } :: import("../env/env.yo");
+{ EvalContext, eval_context_new }  :: import("../evaluator/context.yo");
+{ EvalValue, is_type_val }         :: import("../evaluator/value.yo");
+{ TypeValue, t_i32, t_bool }       :: import("../types/type.yo");
+{ set_evaluate_expression_fn }     :: import("../evaluator/exprs/expr.yo");
 { evaluate_identifier_and_operator }
-  :: import "../evaluator/exprs/identifier_and_operator.yo";
-{ Exception }                      :: import "std/error";
+  :: import("../evaluator/exprs/identifier_and_operator.yo");
+{ Exception }                      :: import("std/error");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,9 +54,9 @@ stub_eval :: (fn(
 // Tests
 // ---------------------------------------------------------------------------
 
-test "evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
+test("evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
   env  := Environment.new(String.from("test"));
   ctx  := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(1), "i32");
@@ -73,11 +73,11 @@ test "evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
     },
     .None => assert(false, "no ExprInfo for i32")
   );
-};
+});
 
-test "evaluate_identifier_and_operator: builtin keyword bool → TypeVal", {
+test("evaluate_identifier_and_operator: builtin keyword bool → TypeVal", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
   env  := Environment.new(String.from("test"));
   ctx  := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(2), "bool");
@@ -88,11 +88,11 @@ test "evaluate_identifier_and_operator: builtin keyword bool → TypeVal", {
     .Some(info) => assert(info.value.is_some(), "value is TypeVal for bool"),
     .None       => assert(false, "no ExprInfo for bool")
   );
-};
+});
 
-test "evaluate_identifier_and_operator: defined variable returns type and value", {
+test("evaluate_identifier_and_operator: defined variable returns type and value", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
   env := Environment.new(String.from("test"));
   tok := mk_ident_token("x");
   _ := add_variable_to_env(
@@ -124,22 +124,22 @@ test "evaluate_identifier_and_operator: defined variable returns type and value"
     },
     .None => assert(false, "no ExprInfo for x")
   );
-};
+});
 
-test "evaluate_identifier_and_operator: undefined variable throws", {
+test("evaluate_identifier_and_operator: undefined variable throws", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(throw: ((err) -> { escape (); }));
+  given(exn) := Exception(throw: ((err) -> { escape(()); }));
   env  := Environment.new(String.from("test"));
   ctx  := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(4), "undefined_var");
   evaluate_identifier_and_operator(expr, env, (&(ctx)), true, using(exn));
   // If no exception was thrown, we reach here → test fails
   assert(false, "should have thrown for undefined variable");
-};
+});
 
-test "evaluate_identifier_and_operator: throw_error_on_undefined=false on uninitialized", {
+test("evaluate_identifier_and_operator: throw_error_on_undefined=false on uninitialized", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "should not throw when throw_error_on_undefined=false"); escape (); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "should not throw when throw_error_on_undefined=false"); escape(()); }));
   env := Environment.new(String.from("test"));
   tok := mk_ident_token("y");
   // Add variable with no value (simulate uninitialized / forward reference)
@@ -159,4 +159,4 @@ test "evaluate_identifier_and_operator: throw_error_on_undefined=false on uninit
   // throw_error_on_undefined=false: no error expected
   evaluate_identifier_and_operator(expr, env, (&(ctx)), false, using(exn));
   // Reaching here means no exception was thrown — correct
-};
+});
