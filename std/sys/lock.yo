@@ -6,7 +6,7 @@
 //! Operations can be OR'd with `LOCK_NB` for non-blocking.
 //! `LOCK_NB` returns -EWOULDBLOCK (-11) if the lock cannot be acquired immediately.
 
-{ __yo_sync_flock } :: import "./externs.yo";
+{ __yo_sync_flock } :: import("./externs.yo");
 
 // Lock operation constants
 LOCK_SH :: i32(1);  // Shared (read) lock
@@ -20,7 +20,5 @@ flock :: (fn(fd: i32, operation: i32) -> i32)(
   __yo_sync_flock(fd, operation)
 );
 
-export
-  flock,
-  LOCK_SH, LOCK_EX, LOCK_NB, LOCK_UN
-;
+export(flock,
+  LOCK_SH, LOCK_EX, LOCK_NB, LOCK_UN);

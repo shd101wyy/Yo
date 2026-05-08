@@ -1,4 +1,4 @@
-test "Test basic Iso related functions", {
+test("Test basic Iso related functions", {
   {
     x := Box(i32)(42);
 
@@ -34,12 +34,12 @@ test "Test basic Iso related functions", {
       }
     );
   };
-};
+});
 
-test "Test Iso dispose inner value when not extracted", {
+test("Test Iso dispose inner value when not extracted", {
   x := Box(i32)(12);
   
-  isolated := Option(Iso(Box(i32))).Some Iso(Box(i32))(x);
+  isolated := Option(Iso(Box(i32))).Some(Iso(Box(i32))(x));
 
   comptime_expect_error(y := x, "use of moved value: x");
 
@@ -52,10 +52,10 @@ test "Test Iso dispose inner value when not extracted", {
     }
   );
   
-  return ();
-};
+  return(());
+});
 
-test "Test ^ operator for constructing Iso value", {
+test("Test ^ operator for constructing Iso value", {
   x := Box(i32)(99);
   isolated := ^(x);
 
@@ -70,4 +70,4 @@ test "Test ^ operator for constructing Iso value", {
       assert(false, "Expected Some, got None");
     }
   );
-};
+});

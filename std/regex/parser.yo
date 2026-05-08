@@ -1,10 +1,10 @@
 //! Regex pattern parser — parses a regex pattern string into an AST
 //! of `RegexNode` objects. Uses an iterative stack-based approach.
 
-open import "std/collections/array_list";
-open import "std/string";
-{ RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import "./node.yo";
-{ unicode_property_ranges } :: import "./unicode.yo";
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import("./node.yo");
+{ unicode_property_ranges } :: import("./unicode.yo");
 
 // A parse frame for tracking alternation/sequence state
 ParseFrame :: struct(
@@ -48,7 +48,7 @@ impl(RegexParser,
   _advance : (fn(self : Self) -> Option(u8))({
     cond(
       (self._pos >= self._bytes.len()) => {
-        return .None;
+        return(.None);
       },
       true => ()
     );
@@ -97,13 +97,13 @@ impl(RegexParser,
 
   _lookup_group_name : (fn(self : Self, name : String) -> Option(usize))({
     i := usize(0);
-    while (i < self._group_names.len()), (i = (i + usize(1))), {
+    while((i < self._group_names.len()), (i = (i + usize(1))), {
       entry := self._group_names.get(i).unwrap();
       cond(
-        (entry.name == name) => { return .Some(entry.index); },
+        (entry.name == name) => { return(.Some(entry.index)); },
         true => ()
       );
-    };
+    });
     .None
   }),
 
@@ -121,7 +121,7 @@ impl(RegexParser,
 
   _parse_number : (fn(self : Self) -> Option(usize))({
     start := self._pos;
-    while (!(self._at_end())), {
+    while((!(self._at_end())), {
       pk := self._peek();
       is_digit := match(pk,
         .Some(b) => ((b >= u8(48)) && (b <= u8(57))),
@@ -133,19 +133,19 @@ impl(RegexParser,
         },
         true => { break; }
       );
-    };
+    });
     cond(
       (self._pos == start) => {
-        return .None;
+        return(.None);
       },
       true => ()
     );
     result := usize(0);
     i := start;
-    while (i < self._pos), (i = (i + usize(1))), {
+    while((i < self._pos), (i = (i + usize(1))), {
       d := self._bytes.get(i).unwrap();
       result = ((result * usize(10)) + usize((d - u8(48))));
-    };
+    });
     .Some(result)
   }),
 
@@ -158,7 +158,7 @@ impl(RegexParser,
     cond(
       is_question => {
         self._pos = (self._pos + usize(1));
-        return false;
+        return(false);
       },
       true => ()
     );
@@ -189,20 +189,20 @@ impl(RegexParser,
 
   // Parse \xHH hex escape — reads exactly 2 hex digits and returns the codepoint.
   _parse_hex_byte : (fn(self : Self) -> Option(u32))({
-    if(((self._pos + usize(2)) > self._bytes.len()), { return .None; });
+    if(((self._pos + usize(2)) > self._bytes.len()), { return(.None); });
     (h1 : u8) = self._bytes.get(self._pos).unwrap();
     (h2 : u8) = self._bytes.get((self._pos + usize(1))).unwrap();
     (v1 : i32) = cond(
       ((h1 >= u8(48)) && (h1 <= u8(57))) => (i32(h1) - i32(48)),
       ((h1 >= u8(65)) && (h1 <= u8(70))) => ((i32(h1) - i32(65)) + i32(10)),
       ((h1 >= u8(97)) && (h1 <= u8(102))) => ((i32(h1) - i32(97)) + i32(10)),
-      true => { return .None; }
+      true => { return(.None); }
     );
     (v2 : i32) = cond(
       ((h2 >= u8(48)) && (h2 <= u8(57))) => (i32(h2) - i32(48)),
       ((h2 >= u8(65)) && (h2 <= u8(70))) => ((i32(h2) - i32(65)) + i32(10)),
       ((h2 >= u8(97)) && (h2 <= u8(102))) => ((i32(h2) - i32(97)) + i32(10)),
-      true => { return .None; }
+      true => { return(.None); }
     );
     self._pos = (self._pos + usize(2));
     .Some(u32(((v1 << i32(4)) | v2)))
@@ -288,9 +288,9 @@ impl(RegexParser,
                       ranges.push(CharRange(low: low, high: low));
                       ranges.push(CharRange(low: u32(45), high: u32(45)));
                       j := usize(0);
-                      while (j < esc_ranges.len()), (j = (j + usize(1))), {
+                      while((j < esc_ranges.len()), (j = (j + usize(1))), {
                         ranges.push(esc_ranges.get(j).unwrap());
-                      };
+                      });
                     });
                   },
                   .Err(_e) => {
@@ -324,12 +324,12 @@ impl(RegexParser,
     pk2 := self._peek();
     b := match(pk2,
       .Some(v) => v,
-      .None => { return .Err(`Unterminated character class`); }
+      .None => { return(.Err(`Unterminated character class`)); }
     );
 
     cond(
       (b == u8(93)) => {
-        return .Ok(());
+        return(.Ok(()));
       },
       (b == u8(92)) => {
         self._pos = (self._pos + usize(1));
@@ -342,12 +342,12 @@ impl(RegexParser,
               self._try_parse_char_range(ranges, low);
             }, {
               j := usize(0);
-              while (j < esc_ranges.len()), (j = (j + usize(1))), {
+              while((j < esc_ranges.len()), (j = (j + usize(1))), {
                 ranges.push(esc_ranges.get(j).unwrap());
-              };
+              });
             });
           },
-          .Err(e) => { return .Err(e); }
+          .Err(e) => { return(.Err(e)); }
         );
       },
       true => {
@@ -378,7 +378,7 @@ impl(RegexParser,
     );
 
     // Parse class contents until ']'
-    while (!(self._at_end())), {
+    while((!(self._at_end())), {
       pk2 := self._peek();
       found_end := match(pk2,
         .Some(b) => (b == u8(93)),
@@ -387,7 +387,7 @@ impl(RegexParser,
       cond(
         found_end => {
           self._pos = (self._pos + usize(1));
-          return .Ok(RegexNode.char_class(ranges, negated));
+          return(.Ok(RegexNode.char_class(ranges, negated)));
         },
         true => ()
       );
@@ -395,9 +395,9 @@ impl(RegexParser,
       result := self._parse_char_class_content(ranges);
       match(result,
         .Ok(_) => (),
-        .Err(e) => { return .Err(e); }
+        .Err(e) => { return(.Err(e)); }
       );
-    };
+    });
     .Err(`Unterminated character class`)
   }),
 
@@ -412,7 +412,7 @@ impl(RegexParser,
     );
     cond(
       (!(is_brace)) => {
-        return .Err(`Expected '{' after \\p or \\P`);
+        return(.Err(`Expected '{' after \\p or \\P`));
       },
       true => ()
     );
@@ -420,7 +420,7 @@ impl(RegexParser,
 
     // Read property name until '}'
     name_bytes := ArrayList(u8).new();
-    while (!(self._at_end())), {
+    while((!(self._at_end())), {
       nb := self._peek();
       nb_val := match(nb,
         .Some(v) => v,
@@ -431,17 +431,17 @@ impl(RegexParser,
           self._pos = (self._pos + usize(1));
           name_str := String.from_bytes(name_bytes);
           lookup := unicode_property_ranges(name_str);
-          return match(lookup,
+          return(match(lookup,
             .Some(ranges) => .Ok(RegexNode.char_class(ranges, negated)),
             .None => .Err(`Unknown Unicode property: \\p{${name_str}}`)
-          );
+          ));
         },
         true => {
           name_bytes.push(nb_val);
           self._pos = (self._pos + usize(1));
         }
       );
-    };
+    });
     .Err(`Unterminated Unicode property \\p{...}`)
   }),
 
@@ -476,13 +476,13 @@ impl(RegexParser,
             );
             cond(
               (!(is_lt)) => {
-                return .Err(`Expected '<' after \\k`);
+                return(.Err(`Expected '<' after \\k`));
               },
               true => ()
             );
             self._pos = (self._pos + usize(1));
             name_bytes := ArrayList(u8).new();
-            while (!(self._at_end())), {
+            while((!(self._at_end())), {
               nb := self._peek();
               nb_val := match(nb,
                 .Some(v) => v,
@@ -493,17 +493,17 @@ impl(RegexParser,
                   self._pos = (self._pos + usize(1));
                   name_str := String.from_bytes(name_bytes);
                   lookup := self._lookup_group_name(name_str);
-                  return match(lookup,
+                  return(match(lookup,
                     .Some(idx) => .Ok(RegexNode.backreference(idx)),
                     .None => .Err(`Unknown named group in backreference`)
-                  );
+                  ));
                 },
                 true => {
                   name_bytes.push(nb_val);
                   self._pos = (self._pos + usize(1));
                 }
               );
-            };
+            });
             .Err(`Unterminated named backreference \\k<...>`)
           },
           // Unicode property \p{Name}
@@ -526,13 +526,13 @@ impl(RegexParser,
     min_opt := self._parse_number();
     mn := match(min_opt,
       .Some(v) => v,
-      .None => { return .Err(`Expected number after '{'`); }
+      .None => { return(.Err(`Expected number after '{'`)); }
     );
 
     pk := self._peek();
     b := match(pk,
       .Some(v) => v,
-      .None => { return .Err(`Unexpected end of pattern in quantifier`); }
+      .None => { return(.Err(`Unexpected end of pattern in quantifier`)); }
     );
 
     cond(
@@ -540,10 +540,10 @@ impl(RegexParser,
         // {n}
         self._pos = (self._pos + usize(1));
         greedy := self._parse_greedy_modifier();
-        return .Ok(RegexNode.quantifier(atom, mn, mn, greedy));
+        return(.Ok(RegexNode.quantifier(atom, mn, mn, greedy)));
       },
       (b != u8(44)) => {
-        return .Err(`Expected ',' or '}' in quantifier`);
+        return(.Err(`Expected ',' or '}' in quantifier`));
       },
       true => ()
     );
@@ -554,7 +554,7 @@ impl(RegexParser,
     pk2 := self._peek();
     b2 := match(pk2,
       .Some(v) => v,
-      .None => { return .Err(`Unexpected end of pattern in quantifier`); }
+      .None => { return(.Err(`Unexpected end of pattern in quantifier`)); }
     );
 
     cond(
@@ -562,7 +562,7 @@ impl(RegexParser,
         // {n,} — unbounded
         self._pos = (self._pos + usize(1));
         greedy := self._parse_greedy_modifier();
-        return .Ok(RegexNode.quantifier(atom, mn, usize(0), greedy));
+        return(.Ok(RegexNode.quantifier(atom, mn, usize(0), greedy)));
       },
       true => ()
     );
@@ -571,18 +571,18 @@ impl(RegexParser,
     max_opt := self._parse_number();
     mx := match(max_opt,
       .Some(v) => v,
-      .None => { return .Err(`Expected number after ',' in quantifier`); }
+      .None => { return(.Err(`Expected number after ',' in quantifier`)); }
     );
 
     pk3 := self._peek();
     b3 := match(pk3,
       .Some(v) => v,
-      .None => { return .Err(`Unexpected end of pattern in quantifier`); }
+      .None => { return(.Err(`Unexpected end of pattern in quantifier`)); }
     );
 
     cond(
       (b3 != u8(125)) => {
-        return .Err(`Expected '}' in quantifier`);
+        return(.Err(`Expected '}' in quantifier`));
       },
       true => ()
     );
@@ -590,7 +590,7 @@ impl(RegexParser,
 
     cond(
       (mx < mn) => {
-        return .Err(`Invalid quantifier: max less than min`);
+        return(.Err(`Invalid quantifier: max less than min`));
       },
       true => ()
     );
@@ -619,7 +619,7 @@ impl(RegexParser,
     pk := self._peek();
     b := match(pk,
       .Some(v) => v,
-      .None => { return .Ok(a); }
+      .None => { return(.Ok(a)); }
     );
 
     cond(
@@ -665,17 +665,17 @@ impl(RegexParser,
   _finalize_frame : (fn(self : Self, alts : ArrayList(ArrayList(RegexNode)), seq : ArrayList(RegexNode)) -> RegexNode)({
     cond(
       (alts.len() == usize(0)) => {
-        return self._make_sequence(seq);
+        return(self._make_sequence(seq));
       },
       true => ()
     );
     alts.push(seq);
     result := self._make_sequence(alts.get(usize(0)).unwrap());
     i := usize(1);
-    while (i < alts.len()), (i = (i + usize(1))), {
+    while((i < alts.len()), (i = (i + usize(1))), {
       right := self._make_sequence(alts.get(i).unwrap());
       result = RegexNode.alternation(result, right);
-    };
+    });
     result
   }),
 
@@ -689,7 +689,7 @@ impl(RegexParser,
     cur_is_lb := false;
     cur_is_pos := true;
 
-    while (!(self._at_end())), {
+    while((!(self._at_end())), {
       pk := self._peek();
       b := match(pk,
         .Some(v) => v,
@@ -781,7 +781,7 @@ impl(RegexParser,
                         true => {
                           self._pos = (self._pos + usize(2));
                           name_bytes := ArrayList(u8).new();
-                          while (!(self._at_end())), {
+                          while((!(self._at_end())), {
                             name_b := self._peek();
                             name_ch := match(name_b,
                               .Some(v) => v,
@@ -797,7 +797,7 @@ impl(RegexParser,
                                 self._pos = (self._pos + usize(1));
                               }
                             );
-                          };
+                          });
                           self._group_count = (self._group_count + usize(1));
                           g_idx = self._group_count;
                           group_name := String.from_bytes(name_bytes);
@@ -835,7 +835,7 @@ impl(RegexParser,
           self._pos = (self._pos + usize(1));
           cond(
             (stack.len() == usize(0)) => {
-              return .Err(`Unexpected ')' without matching '('`);
+              return(.Err(`Unexpected ')' without matching '('`));
             },
             true => ()
           );
@@ -872,7 +872,7 @@ impl(RegexParser,
               quantified := self._maybe_quantify(group_node);
               match(quantified,
                 .Ok(q) => { cur_seq.push(q); },
-                .Err(e) => { return .Err(e); }
+                .Err(e) => { return(.Err(e)); }
               );
             }
           );
@@ -887,15 +887,15 @@ impl(RegexParser,
           atom := self._parse_quantified();
           match(atom,
             .Ok(a) => { cur_seq.push(a); },
-            .Err(e) => { return .Err(e); }
+            .Err(e) => { return(.Err(e)); }
           );
         }
       );
-    };
+    });
 
     cond(
       (stack.len() > usize(0)) => {
-        return .Err(`Unterminated group — expected ')'`);
+        return(.Err(`Unterminated group — expected ')'`));
       },
       true => ()
     );
@@ -905,6 +905,4 @@ impl(RegexParser,
   })
 );
 
-export
-  RegexParser
-;
+export(RegexParser);

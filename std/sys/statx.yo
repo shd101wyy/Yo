@@ -5,7 +5,7 @@
 
 {
   S_IFMT, S_IFREG, S_IFDIR, S_IFLNK
-} :: import "./constants.yo";
+} :: import("./constants.yo");
 
 {
   __yo_statx_mode, __yo_statx_size, __yo_statx_uid, __yo_statx_gid,
@@ -13,7 +13,7 @@
   __yo_statx_mtime_sec, __yo_statx_mtime_nsec,
   __yo_statx_atime_sec, __yo_statx_atime_nsec,
   __yo_statx_ctime_sec, __yo_statx_ctime_nsec
-} :: import "./externs.yo";
+} :: import("./externs.yo");
 
 // ============================================================================
 // Statx - File status from async stat operations
@@ -28,19 +28,19 @@ impl(Statx,
   is_file : (fn(self: Self) -> bool)({
     mode := __yo_statx_mode(self._buf_ptr);
     file_type := (mode & S_IFMT);
-    return (file_type == S_IFREG);
+    return((file_type == S_IFREG));
   }),
 
   is_directory : (fn(self: Self) -> bool)({
     mode := __yo_statx_mode(self._buf_ptr);
     file_type := (mode & S_IFMT);
-    return (file_type == S_IFDIR);
+    return((file_type == S_IFDIR));
   }),
 
   is_symlink : (fn(self: Self) -> bool)({
     mode := __yo_statx_mode(self._buf_ptr);
     file_type := (mode & S_IFMT);
-    return (file_type == S_IFLNK);
+    return((file_type == S_IFLNK));
   }),
 
   size : (fn(self: Self) -> i64)(
@@ -92,4 +92,4 @@ impl(Statx,
   )
 );
 
-export Statx;
+export(Statx);

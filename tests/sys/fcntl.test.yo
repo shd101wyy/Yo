@@ -1,17 +1,17 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-{ platform, Platform, arch, Arch } :: import "std/process";
-{ EBADF, ENOSYS } :: import "std/libc/errno";
-file :: import "std/sys/file";
-pipe_io :: import "std/sys/pipe";
-fcntl_io :: import "std/sys/fcntl";
+open(import("std/libc/stdio"));
+{ platform, Platform, arch, Arch } :: import("std/process");
+{ EBADF, ENOSYS } :: import("std/libc/errno");
+file :: import("std/sys/file");
+pipe_io :: import("std/sys/pipe");
+fcntl_io :: import("std/sys/fcntl");
 
-test "fcntl invalid fd returns -EBADF", {
-  ret_getfl := fcntl_io.getfl(i32(-1));
-  ret_setfl := fcntl_io.setfl(i32(-1), i32(0));
-  ret_getfd := fcntl_io.getfd(i32(-1));
-  ret_setfd := fcntl_io.setfd(i32(-1), i32(0));
+test("fcntl invalid fd returns -EBADF", {
+  ret_getfl := fcntl_io.getfl(i32(-(1)));
+  ret_setfl := fcntl_io.setfl(i32(-(1)), i32(0));
+  ret_getfd := fcntl_io.getfd(i32(-(1)));
+  ret_setfd := fcntl_io.setfd(i32(-(1)), i32(0));
 
   printf("  getfl(-1) = %d\n", ret_getfl);
   printf("  setfl(-1) = %d\n", ret_setfl);
@@ -22,9 +22,9 @@ test "fcntl invalid fd returns -EBADF", {
   assert(ret_setfl == (i32(0) - i32(EBADF)));
   assert(ret_getfd == (i32(0) - i32(EBADF)));
   assert(ret_setfd == (i32(0) - i32(EBADF)));
-};
+});
 
-test "fcntl setfl toggles O_NONBLOCK on pipe", {
+test("fcntl setfl toggles O_NONBLOCK on pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -68,13 +68,13 @@ test "fcntl setfl toggles O_NONBLOCK on pipe", {
   c2 := io.await(file.close(write_fd));
   assert(c1 == i32(0));
   assert(c2 == i32(0));
-};
+});
 
-test "fcntl getfd/setfd toggles FD_CLOEXEC", {
+test("fcntl getfd/setfd toggles FD_CLOEXEC", {
   // WASM has no exec() so FD_CLOEXEC is meaningless; fcntl F_GETFD/F_SETFD not supported
   if((arch == Arch.Wasm32), {
     printf("  skipped on wasm32\n");
-    return ();
+    return(());
   });
 
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
@@ -114,4 +114,4 @@ test "fcntl getfd/setfd toggles FD_CLOEXEC", {
   c2 := io.await(file.close(write_fd));
   assert(c1 == i32(0));
   assert(c2 == i32(0));
-};
+});

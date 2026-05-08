@@ -1,45 +1,45 @@
 // @skip_wasm32-emscripten — no network stack in WASM (TCP sockets unavailable)
 // @skip_wasm32-wasi — no network stack in WASM (TCP sockets unavailable)
-open import "std/libc/stdio";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-{ ArrayList } :: import "std/collections/array_list";
-open import "std/string";
-open import "std/fmt";
-{ TcpListener, TcpStream } :: import "std/net/tcp";
-{ SocketAddr, IpAddr } :: import "std/net/addr";
-{ NetError } :: import "std/net/errors";
-{ SHUT_RDWR } :: import "std/sys/socket";
-{ Error, AnyError, Exception } :: import "std/error";
+{ ArrayList } :: import("std/collections/array_list");
+open(import("std/string"));
+open(import("std/fmt"));
+{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ SocketAddr, IpAddr } :: import("std/net/addr");
+{ NetError } :: import("std/net/errors");
+{ SHUT_RDWR } :: import("std/sys/socket");
+{ Error, AnyError, Exception } :: import("std/error");
 
 // ============================================================================
 // TcpListener tests
 // ============================================================================
 
-test "TcpListener bind and close", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TcpListener bind and close", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0))));
   printf("  listener fd = %d\n", listener.fd());
   assert((listener.fd() >= i32(0)), "fd should be valid");
   io.await(listener.close());
   printf("  close ok\n");
-};
+});
 
-test "TcpListener local_addr returns bound address", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TcpListener local_addr returns bound address", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0))));
   la := listener.local_addr();
   printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap());
   assert(la.ip.is_loopback(), "should be loopback");
   io.await(listener.close());
-};
+});
 
 // ============================================================================
 // TcpStream tests
 // ============================================================================
 
-test "TCP connect to listener and accept", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TCP connect to listener and accept", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   addr := SocketAddr.loopback(u16(19900));
   listener := io.await(TcpListener.bind(addr));
   printf("  listener fd = %d\n", listener.fd());
@@ -54,10 +54,10 @@ test "TCP connect to listener and accept", {
   io.await(server_stream.close());
   io.await(client.close());
   io.await(listener.close());
-};
+});
 
-test "TCP echo with write_str and read", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TCP echo with write_str and read", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   addr := SocketAddr.loopback(u16(19901));
   listener := io.await(TcpListener.bind(addr));
   client := io.await(TcpStream.connect(addr));
@@ -83,10 +83,10 @@ test "TCP echo with write_str and read", {
   io.await(server_stream.close());
   io.await(client.close());
   io.await(listener.close());
-};
+});
 
-test "TCP echo with write String", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TCP echo with write String", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   addr := SocketAddr.loopback(u16(19902));
   listener := io.await(TcpListener.bind(addr));
   client := io.await(TcpStream.connect(addr));
@@ -108,10 +108,10 @@ test "TCP echo with write String", {
   io.await(server_stream.close());
   io.await(client.close());
   io.await(listener.close());
-};
+});
 
-test "TCP write_bytes", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TCP write_bytes", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   addr := SocketAddr.loopback(u16(19903));
   listener := io.await(TcpListener.bind(addr));
   client := io.await(TcpStream.connect(addr));
@@ -141,10 +141,10 @@ test "TCP write_bytes", {
   io.await(server_stream.close());
   io.await(client.close());
   io.await(listener.close());
-};
+});
 
-test "TCP set_nodelay and set_keepalive", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TCP set_nodelay and set_keepalive", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   addr := SocketAddr.loopback(u16(19904));
   listener := io.await(TcpListener.bind(addr));
   client := io.await(TcpStream.connect(addr));
@@ -157,10 +157,10 @@ test "TCP set_nodelay and set_keepalive", {
 
   io.await(client.close());
   io.await(listener.close());
-};
+});
 
-test "TCP shutdown", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TCP shutdown", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   addr := SocketAddr.loopback(u16(19905));
   listener := io.await(TcpListener.bind(addr));
   client := io.await(TcpStream.connect(addr));
@@ -172,10 +172,10 @@ test "TCP shutdown", {
   io.await(server_stream.close());
   io.await(client.close());
   io.await(listener.close());
-};
+});
 
-test "TCP peer_addr returns remote address", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TCP peer_addr returns remote address", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   addr := SocketAddr.loopback(u16(19906));
   listener := io.await(TcpListener.bind(addr));
   client := io.await(TcpStream.connect(addr));
@@ -187,10 +187,10 @@ test "TCP peer_addr returns remote address", {
 
   io.await(client.close());
   io.await(listener.close());
-};
+});
 
-test "TCP read_bytes gets all data", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("TCP read_bytes gets all data", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape(()); }));
   addr := SocketAddr.loopback(u16(19907));
   listener := io.await(TcpListener.bind(addr));
   client := io.await(TcpStream.connect(addr));
@@ -213,4 +213,4 @@ test "TCP read_bytes gets all data", {
   io.await(server_stream.close());
   io.await(client.close());
   io.await(listener.close());
-};
+});

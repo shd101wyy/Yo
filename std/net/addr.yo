@@ -8,14 +8,14 @@
 //
 //   addr := SocketAddr.new(IpAddr.loopback_v4(), u16(8080));
 
-open import "../string";
-{ ToString } :: import "../fmt";
-{ Writer } :: import "../fmt/writer";
-{ NetError } :: import "./errors";
-{ snprintf } :: import "../libc/stdio";
-{ GlobalAllocator } :: import "../allocator";
+open(import("../string"));
+{ ToString } :: import("../fmt");
+{ Writer } :: import("../fmt/writer");
+{ NetError } :: import("./errors");
+{ snprintf } :: import("../libc/stdio");
+{ GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
-{ Error, AnyError, Exception } :: import "../error";
+{ Error, AnyError, Exception } :: import("../error");
 
 // ============================================================================
 // IpAddr
@@ -43,20 +43,20 @@ impl(IpAddr,
     part_idx := usize(0);
     val := u32(0);
     i := usize(0);
-    while runtime((i < bytes.len())), {
+    while(runtime((i < bytes.len())), {
       ch := bytes.get(i).unwrap();
       cond(
         (ch == _ASCII_DOT) => {
           // '.' separator
           cond(
             (part_idx >= usize(3)) => {
-              exn.throw(dyn NetError.Other(String.from("invalid IPv4 address")));
+              exn.throw(dyn(NetError.Other(String.from("invalid IPv4 address"))));
             },
             true => ()
           );
           cond(
             (val > u32(255)) => {
-              exn.throw(dyn NetError.Other(String.from("IPv4 octet out of range")));
+              exn.throw(dyn(NetError.Other(String.from("IPv4 octet out of range"))));
             },
             true => ()
           );
@@ -69,20 +69,20 @@ impl(IpAddr,
           val = ((val * u32(10)) + u32((ch - _ASCII_ZERO)));
         },
         true => {
-          exn.throw(dyn NetError.Other(String.from("invalid character in IPv4 address")));
+          exn.throw(dyn(NetError.Other(String.from("invalid character in IPv4 address"))));
         }
       );
       i = (i + usize(1));
-    };
+    });
     cond(
       (part_idx != usize(3)) => {
-        exn.throw(dyn NetError.Other(String.from("invalid IPv4 address")));
+        exn.throw(dyn(NetError.Other(String.from("invalid IPv4 address"))));
       },
       true => ()
     );
     cond(
       (val > u32(255)) => {
-        exn.throw(dyn NetError.Other(String.from("IPv4 octet out of range")));
+        exn.throw(dyn(NetError.Other(String.from("IPv4 octet out of range"))));
       },
       true => ()
     );
@@ -115,13 +115,13 @@ impl(IpAddr,
         // ::1
         all_zero := true;
         i := usize(0);
-        while runtime((i < usize(7))), {
+        while(runtime((i < usize(7))), {
           cond(
             (segs(i) != u16(0)) => { all_zero = false; },
             true => ()
           );
           i = (i + usize(1));
-        };
+        });
         (all_zero && (segs(usize(7)) == u16(1)))
       }
     )
@@ -146,7 +146,7 @@ impl(IpAddr,
 
 impl(IpAddr, ToString(
   to_string : (self -> {
-    return match(self.*,
+    return(match(self.*,
       .V4(a, b, c, d) => {
         buf := Array(u8, usize(16)).fill(u8(0));
         snprintf(*(char)(&(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d));
@@ -155,21 +155,21 @@ impl(IpAddr, ToString(
       .V6(segs) => {
         w := Writer.new();
         i := usize(0);
-        while runtime((i < usize(8))), {
+        while(runtime((i < usize(8))), {
           cond(
             (i > usize(0)) => { w.write_str(":"); },
             true => ()
           );
           w.write_hex(u64(segs(i)));
           i = (i + usize(1));
-        };
+        });
         w.to_string()
       }
-    );
+    ));
   })
 ));
 
-export IpAddr;
+export(IpAddr);
 
 // ============================================================================
 // SocketAddr
@@ -206,11 +206,11 @@ impl(SocketAddr, ToString(
     buf := Array(u8, usize(8)).fill(u8(0));
     snprintf(*(char)(&(buf(usize(0)))), usize(8), "%d", i32(self.port));
     port_str := String.from_cstr(&(buf(usize(0)))).unwrap();
-    return match(self.ip,
+    return(match(self.ip,
       .V4(_, _, _, _) => `${ip_str}:${port_str}`,
       .V6(_) => `[${ip_str}]:${port_str}`
-    );
+    ));
   })
 ));
 
-export SocketAddr;
+export(SocketAddr);

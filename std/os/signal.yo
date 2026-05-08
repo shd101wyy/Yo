@@ -11,12 +11,12 @@
 //! on_signal(.Interrupt, handler);
 //! ```
 
-{ IOError } :: import "../sys/errors";
+{ IOError } :: import("../sys/errors");
 {
   on_signal : _on_signal, off_signal : _off_signal, SignalHandler
-} :: import "../sys/signal";
-{ platform, Platform } :: import "../process";
-{ Error, AnyError, Exception } :: import "../error";
+} :: import("../sys/signal");
+{ platform, Platform } :: import("../process");
+{ Error, AnyError, Exception } :: import("../error");
 
 // ============================================================================
 // Signal enum
@@ -42,7 +42,7 @@ Signal :: enum(
   Child
 );
 
-export Signal;
+export(Signal);
 
 _signal_num :: (fn(sig: Signal) -> i32)(
   match(sig,
@@ -91,7 +91,7 @@ on_signal :: (fn(sig: Signal, handler: SignalHandler, using(exn : Exception)) ->
   r   := _on_signal(num, handler);
   cond(
     (r < i32(0)) => {
-      exn.throw(dyn IOError.from_errno((i32(0) - r)));
+      exn.throw(dyn(IOError.from_errno((i32(0) - r))));
     },
     true => ()
   );
@@ -103,10 +103,10 @@ off_signal :: (fn(sig: Signal, using(exn : Exception)) -> unit)({
   r   := _off_signal(num);
   cond(
     (r < i32(0)) => {
-      exn.throw(dyn IOError.from_errno((i32(0) - r)));
+      exn.throw(dyn(IOError.from_errno((i32(0) - r))));
     },
     true => ()
   );
 });
 
-export SignalHandler, on_signal, off_signal;
+export(SignalHandler, on_signal, off_signal);

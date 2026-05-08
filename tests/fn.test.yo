@@ -1,10 +1,10 @@
-test "Test simple functions", {
+test("Test simple functions", {
   {
-    swap :: (fn(a : *(i32), b : *(i32)) -> unit) {
+    swap :: (fn(a : *(i32), b : *(i32)) -> unit)({
       temp := a.*;
       a.* = b.*;
       b.* = temp;
-    };
+    });
 
     x := 5;
     y := 10;
@@ -28,50 +28,40 @@ test "Test simple functions", {
 
   {
     // Test 1: Compile-time true condition (should only evaluate first body)
-    test1 :: (fn() -> i32)
-      cond(
+    test1 :: (fn() -> i32)(cond(
         true => 42,
-        false => (div 1, 0)  // This should never be evaluated due to compile-time true above
+        false => (div(1), 0)  // This should never be evaluated due to compile-time true above
                              // even though we didn't even define `div` at all!
-      )
-    ;
+      ));
 
     // Test 2: Compile-time false conditions followed by true
-    test2 :: (fn() -> i32)
-      cond(
-        false => (div 1, 0), // This should be skipped
-        false => (div 1, 0), // This should be skipped
+    test2 :: (fn() -> i32)(cond(
+        false => (div(1), 0), // This should be skipped
+        false => (div(1), 0), // This should be skipped
         true => 100
-      )
-    ;
+      ));
 
     // Test 3: Mixed compile-time and runtime conditions
-    test3 :: (fn(x: i32) -> i32)
-      cond(
+    test3 :: (fn(x: i32) -> i32)(cond(
         false => 10,
         (x == 5) => 20, // Runtime condition
         true => 30
-      )
-    ;
+      ));
 
     // Test 4: All runtime conditions
-    test4 :: (fn(x: i32, y: i32) -> i32)
-      cond(
+    test4 :: (fn(x: i32, y: i32) -> i32)(cond(
         (x == 0) => 1,
         (x == 1) => 2,
         (y == 2) => 3,
         true => 4
-      )
-    ;
+      ));
 
     // Test 5: Type compatibility across branches
-    test5 :: (fn(flag: i32) -> i32)
-      cond(
+    test5 :: (fn(flag: i32) -> i32)(cond(
         (flag == 1) => 100,
         (flag == 2) => 200,
         true => 300
-      )
-    ;
+      ));
     
     assert(test1() == 42);
     assert(test2() == 100);
@@ -99,19 +89,19 @@ test "Test simple functions", {
     a := 4;
     MyI32 :: i32;
     // inner scope implicit add
-    add2 :: (fn(x : i32, y : i32) -> i32) {
+    add2 :: (fn(x : i32, y : i32) -> i32)({
       (z : MyI32) = 13; // Can use the comptime variables from the outer scope
       
       comptime_expect_error(x + a, "Cannot use `a` from outer scope");
       // To capture the outer scope variable, we need to use closure.
 
       (x + z)
-    };
+    });
   };
 
   // no runtime value in comptime fn
   {
-    no_runtime_in_comptime_fn :: (fn() -> comptime(unit)) {
+    no_runtime_in_comptime_fn :: (fn() -> comptime(unit))({
       // This is a comptime function.
       comptime_expect_error(
         a : i32 // runtime variable not allowed
@@ -122,79 +112,74 @@ test "Test simple functions", {
 
       (comptime(c) : i32) = 1;
       d :: 13;
-    };
+    });
   };
 
   // return self
   {
-    ReturnSelf :: (fn() -> comptime(Type)) {
-      return struct();
-    };
+    ReturnSelf :: (fn() -> comptime(Type))({
+      return(struct());
+    });
     impl(ReturnSelf(),
       test : (fn() -> Self)({
         s := Self();
-        return s;
-      })
-    );
+        return(s);
+      }));
 
     ReturnSelf();
   };
 
   // return in different places
   {
-    max :: (fn(x: i32, y: i32) -> i32)
-      cond(
+    max :: (fn(x: i32, y: i32) -> i32)(cond(
         (x > y) => {
-          return x;
+          return(x);
         },
         true => {
-          return y;
+          return(y);
         }
-      )
-    ;
+      ));
 
-    max2 :: (fn(x: i32, y: i32) -> i32) {
+    max2 :: (fn(x: i32, y: i32) -> i32)({
       max_val := 
         cond(
           (x > y) => {
-            return x;
+            return(x);
           },
           true => y
         );
-      return max_val;
-    };
+      return(max_val);
+    });
 
     assert(max(10, 20) == 20);
     assert(max2(30, 15) == 30);
 
     Color :: enum(Red, Green, Blue);
 
-    color_to_i32 :: (fn(color: Color) -> i32)
-      match(color,
+    color_to_i32 :: (fn(color: Color) -> i32)(match(color,
         .Red => {
-          return 0;
+          return(0);
         },
         .Green => {
-          return 1;
+          return(1);
         },
         .Blue => {
-          return 2;
+          return(2);
         }
-      )
-    ;
+      ));
 
-    color_to_i32_2 :: (fn(color: Color) -> i32) {
+    color_to_i32_2 :: (fn(color: Color) -> i32)({
       result := match(color,
         .Red => 0,
         .Green => {
-          return 1;
+          return(1);
         },
         .Blue => {
-          return 2;
+          return(2);
         }
       );
-      return result;
-    };
+      return(result);
+    });
 
     assert(color_to_i32(.Red) == 0);
     assert(color_to_i32(.Green) == 1);
@@ -203,31 +188,31 @@ test "Test simple functions", {
     assert(color_to_i32_2(.Green) == 1);
     assert(color_to_i32_2(.Blue) == 2);
 
-    comptime_return_in_while :: (fn(comptime(flag): bool) -> comptime(i32)) {
-      while comptime(flag), {
+    comptime_return_in_while :: (fn(comptime(flag): bool) -> comptime(i32))({
+      while(comptime(flag), {
         cond(
           flag => {
             x :: 1;
-            return x;
+            return(x);
           },
           true => {
             x :: 2;
           }
         );
-        return 4;
-      };
+        return(4);
+      });
       
       16
-    };
+    });
 
     x :: comptime_return_in_while(true);
     y :: comptime_return_in_while(false);
     comptime_assert(x == 1);
     comptime_assert(y == 16);
   };
-};
+});
 
-test "Test function default parameters", {
+test("Test function default parameters", {
   {
     // Default parameters
     // The default value for a parameter has to be compile-time known.
@@ -235,11 +220,9 @@ test "Test function default parameters", {
       (fn( comptime(Lhs): Type, 
         (comptime(Rhs): Type) ?= Lhs, 
         (comptime(Output) : Type) ?= Lhs
-      )-> comptime(Type))
-      struct(
+      )-> comptime(Type))(struct(
         (+): (fn(lhs: Lhs, rhs: Rhs)-> Output)
-      )
-    ;
+      ));
 
     // _ is used as the inferred, not the default value.
     // Default value is only used when the parameter is not provided.
@@ -250,24 +233,24 @@ test "Test function default parameters", {
     BoolAdd2 :: MyAdd(bool, undefined);
     BoolAdd3 :: MyAdd(bool, undefined, undefined);
   };
-};
+});
 
-test "Test callback regular function", {
-  use_cb :: (fn(v : i32, cb : (fn(u : i32) -> i32)) -> i32) {
-    return cb(v);
-  };
+test("Test callback regular function", {
+  use_cb :: (fn(v : i32, cb : (fn(u : i32) -> i32)) -> i32)({
+    return(cb(v));
+  });
 
   x := use_cb(10, (u)-> (u + 1));
   assert(x == 11);
 
   y := use_cb(20, (u)-> (u * 2));
   assert(y == 40);
-};
+});
 
-test "Test Impl closure callback", {
-  use_cb :: (fn(v : i32, cb : (Impl(Fn(u : i32) -> i32))) -> i32) {
-    return cb(v);
-  };
+test("Test Impl closure callback", {
+  use_cb :: (fn(v : i32, cb : (Impl(Fn(u : i32) -> i32))) -> i32)({
+    return(cb(v));
+  });
 
   a := 2;
   x := use_cb(10, (u) => ((u + 1) + a)); // capture variable 'a'
@@ -279,43 +262,43 @@ test "Test Impl closure callback", {
   b := Box(i32)(5);
   z := use_cb(10, (u) => ((u + 1) + b.*)); // capture variable 'a'
   assert(z == 16);
-};
+});
 
-test "Test Dyn closure callback", {
-  use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32) {
-    return cb(v);
-  };
+test("Test Dyn closure callback", {
+  use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32)({
+    return(cb(v));
+  });
 
   a := 2;
-  x := use_cb(10, dyn (u) => ((u + 1) + a)); // capture variable 'a'
+  x := use_cb(10, dyn((u) => ((u + 1) + a))); // capture variable 'a'
   assert(x == 13);
 
-  y := use_cb(20, dyn (u) => (u * 2)); // capture nothing
+  y := use_cb(20, dyn((u) => (u * 2))); // capture nothing
   assert(y == 40);
 
   b := Box(i32)(5);
-  z := use_cb(10, dyn (u) => ((u + 1) + b.*)); // capture variable 'b'
+  z := use_cb(10, dyn((u) => ((u + 1) + b.*))); // capture variable 'b'
   assert(z == 16);
-};
+});
 
-test "Test Dyn closure callback with manual boxing", {
-  use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32) {
-    return cb(v);
-  };
+test("Test Dyn closure callback with manual boxing", {
+  use_cb :: (fn(v : i32, cb : (Dyn(Fn(u : i32) -> i32))) -> i32)({
+    return(cb(v));
+  });
 
   a := 2;
-  x := use_cb(10, dyn box (u) => ((u + 1) + a)); // capture variable 'a'
+  x := use_cb(10, dyn(box((u) => ((u + 1) + a)))); // capture variable 'a'
   assert(x == 13);
 
-  y := use_cb(20, dyn box (u) => (u * 2)); // capture nothing
+  y := use_cb(20, dyn(box((u) => (u * 2)))); // capture nothing
   assert(y == 40);
 
   b := Box(i32)(5);
-  z := use_cb(10, dyn box (u) => ((u + 1) + b.*)); // capture variable 'b'
+  z := use_cb(10, dyn(box((u) => ((u + 1) + b.*)))); // capture variable 'b'
   assert(z == 16);
-};
+});
 
-test "Test the `where` scoping in functions", {
+test("Test the `where` scoping in functions", {
   Container :: (fn(comptime(T): Type) -> comptime(Type))(
     object(
       value : T
@@ -339,15 +322,15 @@ test "Test the `where` scoping in functions", {
     ) -> bool)({
       // This line should fail: T doesn't have Eq(T) in this function's scope
       comptime_expect_error(self.value == other);
-      return false;
+      return(false);
     })
   );
-};
+});
 
-test "Test variable name matching C reserved", {
-  test_fn :: (fn(errno : i32) -> i32) {
-    return errno;
-  };
+test("Test variable name matching C reserved", {
+  test_fn :: (fn(errno : i32) -> i32)({
+    return(errno);
+  });
 
   errno := 2; // This local variable matches C reserved `errno`.
   cond(
@@ -355,9 +338,9 @@ test "Test variable name matching C reserved", {
     true => "no"
   );
   assert(test_fn(errno) == 2);
-};
+});
 
-test "Test anonymous struct with type method", {
+test("Test anonymous struct with type method", {
   x := 1;
   y := 2;
 
@@ -373,25 +356,23 @@ test "Test anonymous struct with type method", {
 
   result := closure.call(3);
   assert(result == 6, "Expected 6");
-};
+});
 
-test "Test generic functions", {
+test("Test generic functions", {
   {
-    identity :: (fn(forall(T : Type), value : T) -> T) {
-      return value;
-    };
+    identity :: (fn(forall(T : Type), value : T) -> T)({
+      return(value);
+    });
 
     comptime_expect_error(
-      (fn(forall(T : Type), value : T) -> T) {
-        return i32(0);
-      }
-    );
+      (fn(forall(T : Type), value : T) -> T)({
+        return(i32(0));
+      }));
 
     comptime_expect_error(
-      (fn(forall(T : Type), value : T) -> Tuple(T)) {
-        return (i32(0),);
-      }
-    );
+      (fn(forall(T : Type), value : T) -> Tuple(T))({
+        return((i32(0),));
+      }));
   };
   {
     fn1 :: (fn(forall(T : Type), value : T) -> T);
@@ -399,27 +380,25 @@ test "Test generic functions", {
     fn3 :: (fn(forall(T : Type), value : T) -> Tuple(T));
 
     (comptime(identity1) : fn1) = (value -> {
-      return value;
+      return(value);
     });
 
     comptime_expect_error(
       (comptime(identity2) : fn2) = (value -> {
-        return i32(0);
+        return(i32(0));
       })
     );
 
     comptime_expect_error(
       (comptime(identity3) : fn3) = (value -> {
-        return (i32(0),);
+        return((i32(0),));
       })
     );
   };
 
 
   {
-    id :: (fn(comptime(T): Type, val: T) -> T)
-      val
-    ;
+    id :: (fn(comptime(T): Type, val: T) -> T)(val);
 
     x := id(i32, 12);
     y := id(f64, 3.14);
@@ -433,10 +412,10 @@ test "Test generic functions", {
   };
 
   {
-    id :: (fn(comptime(T): Type, val: T) -> T) {
+    id :: (fn(comptime(T): Type, val: T) -> T)({
       id2 :: (fn(val2: T) -> T)(val2);
-      return id2(val);
-    };
+      return(id2(val));
+    });
 
     x := id(i32, 12);
     y := id(f64, 3.14);
@@ -450,12 +429,10 @@ test "Test generic functions", {
   };
 
   {
-    id :: (fn(comptime(T): Type, val: T) -> T) {
-      id2 :: (fn(comptime(X): Type, val2: X) -> X) 
-        val2
-      ;
+    id :: (fn(comptime(T): Type, val: T) -> T)({
+      id2 :: (fn(comptime(X): Type, val2: X) -> X)(val2);
       id2(T, val)
-    };
+    });
 
     x := id(i32, 12);
     y := id(f64, 3.14);
@@ -469,8 +446,7 @@ test "Test generic functions", {
   };
 
   {
-    comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)
-      (x + y)
+    comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)(x + y)
     ;
     x := comptime_add(1, 1);
     y := comptime_add(2, 1);
@@ -527,10 +503,10 @@ test "Test generic functions", {
     comptime_expect_error(id : (fn(forall(T : Type), x : T) -> T));
   
     // Disallow to runtime function parameter with generic function type
-    comptime_expect_error(test_fn :: (fn(f : (fn(forall(T : Type), x : T) -> T)) -> unit) {
+    comptime_expect_error(test_fn :: (fn(f : (fn(forall(T : Type), x : T) -> T)) -> unit)({
       x := f(42);
       assert(x == 42);
-    });
+    }));
   };
 
   {
@@ -540,9 +516,9 @@ test "Test generic functions", {
       x : Tuple(T, Y),
       a : T,
       b : Y
-    ) -> Tuple(T, Y)) {
-      return (a, b);
-    };
+    ) -> Tuple(T, Y))({
+      return((a, b));
+    });
     t1 := tuple_func((12, true), 1, false);
     assert(t1.0 == 1);
     assert(t1.1 == false);
@@ -550,17 +526,15 @@ test "Test generic functions", {
 
   {
     // container struct
-    Container :: (fn(comptime(T) : Type)-> comptime(Type))
-      struct(value: T)
-    ;
+    Container :: (fn(comptime(T) : Type)-> comptime(Type))(struct(value: T));
 
     use_container :: (fn(
       forall(X : Type), 
       c : Container(X), 
       x : X
-    ) -> X) {
-      return x;
-    };
+    ) -> X)({
+      return(x);
+    });
 
     i32_container_value := Container(i32)(12);
     x11 := use_container(i32_container_value, 13);
@@ -578,9 +552,7 @@ test "Test generic functions", {
       forall(T : Type),
       x : T,
       callback : (fn(v : T)-> T)
-    ) -> T)
-      callback(x)
-    ;
+    ) -> T)(callback(x));
 
     a := generic_fn(1, (x)-> (x + 1));
     b := generic_fn(true, (x)-> !(x));
@@ -588,24 +560,20 @@ test "Test generic functions", {
     assert(a == 2);
     assert(b == false);
   };
-};
+});
 
-test "Test generic function callback", {
-  generic_fn :: (fn(forall(T: Type), x: T, callback: (fn(v: T)-> T))-> T)
-    callback(x)
-  ;
+test("Test generic function callback", {
+  generic_fn :: (fn(forall(T: Type), x: T, callback: (fn(v: T)-> T))-> T)(callback(x));
   assert(generic_fn(2, (x) -> (x + 16)) == 18); // anonymous function
   assert(generic_fn(2, (fn(y : i32) -> i32)(y + 18)) == 20); // regular function
-};
+});
 
-test "Test 'recur'", {
+test("Test 'recur'", {
   {
-    factorial :: (fn(x : i32) -> i32)
-      cond(
+    factorial :: (fn(x : i32) -> i32)(cond(
         (x < 1) => 1,
         true => (x * recur(x - 1))
-      )
-    ;
+      ));
     assert(factorial(6) == 720);
 
     // Try to evaluate in compile-time when possible
@@ -615,15 +583,15 @@ test "Test 'recur'", {
   };
 
   {
-    factorial :: (fn(x : i32) -> i32) {
-      factorial_acc :: (fn(x2 : i32, acc : i32) -> i32) {
-        return cond(
+    factorial :: (fn(x : i32) -> i32)({
+      factorial_acc :: (fn(x2 : i32, acc : i32) -> i32)({
+        return(cond(
           (x2 < 1) => acc,
           true => recur(x2 - 1, acc * x2)
-        );
-      };
-      return factorial_acc(x, 1);
-    };
+        ));
+      });
+      return(factorial_acc(x, 1));
+    });
     assert(factorial(6) == 720);
 
     // Try to evaluate in compile-time when possible
@@ -631,9 +599,9 @@ test "Test 'recur'", {
     result :: comptime_factorial(12);
     comptime_assert(result == 479001600);
   };
-};
+});
 
-test "Test comptime function", {
+test("Test comptime function", {
   // Runtime only function
   runt_id :: (fn(n : i32) -> i32)(
     n
@@ -674,12 +642,8 @@ test "Test comptime function", {
       y: i32
     );
 
-    runt_add_points :: (fn(p1: Point, p2: Point)-> Point)
-      Point(p1.x + p2.x, p1.y + p2.y)
-    ;
-    comptime_add_points :: (fn(comptime(p1): Point, comptime(p2): Point)-> comptime(Point))
-      Point(p1.x + p2.x, p1.y + p2.y)
-    ;
+    runt_add_points :: (fn(p1: Point, p2: Point)-> Point)(Point(p1.x + p2.x, p1.y + p2.y));
+    comptime_add_points :: (fn(comptime(p1): Point, comptime(p2): Point)-> comptime(Point))(Point(p1.x + p2.x, p1.y + p2.y));
 
     p1 :: Point(3, 4);
     p2 :: Point(5, 6);
@@ -691,50 +655,44 @@ test "Test comptime function", {
     );
     p4 :: comptime_add_points(p1, p2); // allowed, comptime
   };
-};
+});
 
-test "Test function overloading using module Call", {
-  add :: impl {
-    add1 :: (fn(x : i32) -> i32) x;
-    add2 :: (fn(x : i32, y : i32) -> i32) (x + y);
-    add3 :: (fn(x : i32, y : i32, z : i32) -> i32) ((x + y) + z);
-    add4 :: (fn(x : i32, y : i32, z : i32, w : i32) -> i32) (((x + y) + z) + w);
+test("Test function overloading using module Call", {
+  add :: impl({
+    add1 :: (fn(x : i32) -> i32)(x);
+    add2 :: (fn(x : i32, y : i32) -> i32)(x + y);
+    add3 :: (fn(x : i32, y : i32, z : i32) -> i32)((x + y) + z);
+    add4 :: (fn(x : i32, y : i32, z : i32, w : i32) -> i32)(((x + y) + z) + w);
     
     Call :: (add1, add2, add3); // Allow calling the module like a function
-    export Call;
-  };
+    export(Call);
+  });
   assert(add(1) == 1);
   assert(add(2, 3) == 5);
   assert(add(3, 4, 5) == 12);
   comptime_expect_error(
     add(4, 5, 6, 7) // This will not work because add4 is not used in "Call".
   );
-};
+});
 
-test "Test mutual recursion", {
+test("Test mutual recursion", {
   // Mutual recursion
   comptime(is_even) : (fn(n : i32) -> bool);
   comptime(is_odd) : (fn(n : i32) -> bool);
 
-  is_even = _
-    cond
-      (n == 0) => true,
-      true     => is_odd(n - 1)
-  ;
+  is_even = _(cond((n == 0) => true,
+      true     => is_odd(n - 1)));
 
-  is_odd  = _
-    cond
-      (n == 0) => false,
-      true     => is_even(n - 1)
-  ;
+  is_odd  = _(cond((n == 0) => false,
+      true     => is_even(n - 1)));
 
   assert(is_even(10) == true);
   assert(is_odd(10) == false);
   assert(is_even(11) == false);
   assert(is_odd(11) == true);
-};
+});
 
-test "Test contextual parameters (using/given)", {
+test("Test contextual parameters (using/given)", {
   // Basic implicit parameter resolution
   {
     add_numbers :: (fn(
@@ -897,12 +855,12 @@ test "Test contextual parameters (using/given)", {
     result := apply(41);
     assert(result == 42, "forall + using failed");
   };
-};
+});
 
 // ─────────────────────────────────────────────────────
 // Partial application tests
 // ─────────────────────────────────────────────────────
-test "Partial application on type constructors", {
+test("Partial application on type constructors", {
   // _ on second parameter of Result
   IntResult :: Result(_, i32);
   (a : IntResult(bool)) = .Ok(true);
@@ -922,9 +880,9 @@ test "Partial application on type constructors", {
   );
 
   ();
-};
+});
 
-test "Partial application on comptime value functions", {
+test("Partial application on comptime value functions", {
   // 2-arg function, _ on second position
   add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
   add1 :: add(i32(1), _);
@@ -948,9 +906,9 @@ test "Partial application on comptime value functions", {
   comptime_assert(!(equals_seven(i32(0))), "0 != 7");
 
   ();
-};
+});
 
-test "Partial application with multiple placeholders", {
+test("Partial application with multiple placeholders", {
   // 3-arg function, _ on first and third positions
   add3 :: (fn(comptime(a) : i32, comptime(b) : i32, comptime(c) : i32) -> comptime(i32))(((a + b) + c));
   fix_middle :: add3(_, i32(100), _);
@@ -973,9 +931,9 @@ test "Partial application with multiple placeholders", {
   comptime_assert((result4 == i32(18)), "5 + 6 + 7 = 18");
 
   ();
-};
+});
 
-test "Partial application with different types", {
+test("Partial application with different types", {
   // Mix i32 and bool parameters
   check :: (fn(comptime(x) : i32, comptime(flag) : bool, comptime(y) : i32) -> comptime(i32))(
     cond(
@@ -998,9 +956,9 @@ test "Partial application with different types", {
   comptime_assert((fixed_operands(false) == i32(2)), "5 - 3 = 2");
 
   ();
-};
+});
 
-test "Partial application chaining", {
+test("Partial application chaining", {
   // Chain partial applications: fix one arg at a time
   mul_add :: (fn(comptime(a) : i32, comptime(b) : i32, comptime(c) : i32) -> comptime(i32))(((a * b) + c));
 
@@ -1013,9 +971,9 @@ test "Partial application chaining", {
   comptime_assert((result == i32(16)), "2 * 3 + 10 = 16");
 
   ();
-};
+});
 
-test "Partial application on type constructors with multiple params", {
+test("Partial application on type constructors with multiple params", {
   // Define a 3-parameter generic type
   Triple :: (fn(comptime(A) : Type, comptime(B) : Type, comptime(C) : Type) -> comptime(Type))(struct(first : A, second : B, third : C));
 
@@ -1042,9 +1000,9 @@ test "Partial application on type constructors with multiple params", {
   assert((t3.third == u8(0)), "third = 0");
 
   ();
-};
+});
 
-test "Partial application preserves return type", {
+test("Partial application preserves return type", {
   // comptime string return
   greet :: (fn(comptime(prefix) : comptime_string, comptime(name) : comptime_string) -> comptime(comptime_string))(
     cond(
@@ -1061,9 +1019,9 @@ test "Partial application preserves return type", {
   comptime_assert((result2 == "Hi!"), "greeting should be Hi!");
 
   ();
-};
+});
 
-test "Chained unwrap call on Option of function type", {
+test("Chained unwrap call on Option of function type", {
   MyStruct :: struct(x: i32);
   MyFn :: (fn(s: *(MyStruct), a: i32) -> bool);
 
@@ -1072,7 +1030,7 @@ test "Chained unwrap call on Option of function type", {
   );
 
   chained_call :: (fn(opt: Option(MyFn), s: *(MyStruct), a: i32) -> bool)({
-    return opt.unwrap()(s, a);
+    return(opt.unwrap()(s, a));
   });
 
   (s : MyStruct) = MyStruct(x: i32(10));
@@ -1085,10 +1043,10 @@ test "Chained unwrap call on Option of function type", {
   result2 := fn_val(&(s), i32(2));
   assert(result2, "two-step unwrap should return true");
   ();
-};
+});
 
-test "Short-circuit operators with RC temporaries", {
-  open import "std/string";
+test("Short-circuit operators with RC temporaries", {
+  open(import("std/string"));
 
   // Test || with RC types (String) - should not use-after-free or leak
   make_str :: (fn(s: str) -> String)(String.from(s));
@@ -1110,7 +1068,7 @@ test "Short-circuit operators with RC temporaries", {
   result_and2 := ((make_str("").len() > usize(0)) && (make_str("never").len() > usize(0)));
   assert(!(result_and2), "&& should short-circuit on false");
   ();
-};
+});
 
 // TODO:
 /*

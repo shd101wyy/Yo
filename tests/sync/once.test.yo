@@ -1,24 +1,24 @@
 // @skip_wasm32-wasi — no pthread support in standalone WASI
-{ arch, Arch } :: import "std/process";
-open import "std/libc/stdio";
-{ Once } :: import "std/sync/once";
-{ ArrayList } :: import "std/collections/array_list";
-{ Thread } :: import "std/thread";
-{ WaitGroup } :: import "std/sync/waitgroup";
-Worker :: import "std/worker";
+{ arch, Arch } :: import("std/process");
+open(import("std/libc/stdio"));
+{ Once } :: import("std/sync/once");
+{ ArrayList } :: import("std/collections/array_list");
+{ Thread } :: import("std/thread");
+{ WaitGroup } :: import("std/sync/waitgroup");
+Worker :: import("std/worker");
 
-SharedCounter :: atomic object(value : i32);
+SharedCounter :: atomic(object(value : i32));
 
 // ============================================================================
 // Basic operations
 // ============================================================================
 
-test "Once new is not done", {
+test("Once new is not done", {
   o := Once.new();
   assert((!(o.is_done())), "new Once should not be done");
-};
+});
 
-test "Once call executes function", {
+test("Once call executes function", {
   o := Once.new();
   log := ArrayList(i32).new();
   o.call(() => {
@@ -26,9 +26,9 @@ test "Once call executes function", {
   });
   assert((log.len() == usize(1)), "function should have been called");
   assert(o.is_done(), "Once should be done after call");
-};
+});
 
-test "Once call executes only once", {
+test("Once call executes only once", {
   o := Once.new();
   log := ArrayList(i32).new();
   o.call(() => {
@@ -41,16 +41,16 @@ test "Once call executes only once", {
     log.push(i32(3));
   });
   assert((log.len() == usize(1)), "function should have been called exactly once");
-};
+});
 
-test "Once is_done after call", {
+test("Once is_done after call", {
   o := Once.new();
   assert((!(o.is_done())), "should not be done before call");
   o.call(() => ());
   assert(o.is_done(), "should be done after call");
-};
+});
 
-test "Once second call is no-op even with different function", {
+test("Once second call is no-op even with different function", {
   o := Once.new();
   log := ArrayList(i32).new();
   o.call(() => {
@@ -62,23 +62,23 @@ test "Once second call is no-op even with different function", {
   assert((log.len() == usize(1)), "only first function should have run");
   v := log.get(usize(0)).unwrap();
   assert((v == i32(42)), "value should be 42 from first call");
-};
+});
 
-test "Once many calls still executes once", {
+test("Once many calls still executes once", {
   o := Once.new();
   log := ArrayList(i32).new();
   i := i32(0);
-  while runtime((i < i32(100))), {
+  while(runtime((i < i32(100))), {
     o.call(() => {
       log.push(i32(1));
     });
     i = (i + i32(1));
-  };
+  });
   assert((log.len() == usize(1)), "function should have been called exactly once out of 100 attempts");
   assert(o.is_done(), "should be done");
-};
+});
 
-test "Once call with side effects", {
+test("Once call with side effects", {
   o := Once.new();
   values := ArrayList(i32).new();
   o.call(() => {
@@ -90,14 +90,14 @@ test "Once call with side effects", {
   assert((values.len() == usize(1)), "should have exactly one value");
   v := values.get(usize(0)).unwrap();
   assert((v == i32(42)), "value should be 42 from first call");
-};
+});
 
 // ============================================================================
 // Thread integration (atomic object — shared directly without Arc)
 // ============================================================================
 
-test "Once call from multiple threads executes only once", {
-  if((arch == Arch.Wasm32), return ());
+test("Once call from multiple threads executes only once", {
+  if((arch == Arch.Wasm32), return(()));
   o := Once.new();
   counter := SharedCounter(i32(0));
 
@@ -128,10 +128,10 @@ test "Once call from multiple threads executes only once", {
 
   assert((counter.value == i32(1)), "function should have executed exactly once");
   assert(o.is_done(), "should be done");
-};
+});
 
-test "Once is_done visible across threads after call", {
-  if((arch == Arch.Wasm32), return ());
+test("Once is_done visible across threads after call", {
+  if((arch == Arch.Wasm32), return(()));
   o := Once.new();
   counter := SharedCounter(i32(0));
 
@@ -150,10 +150,10 @@ test "Once is_done visible across threads after call", {
 
   t.join();
   assert((counter.value == i32(1)), "function should have executed only once");
-};
+});
 
-test "Once multiple threads race to call", {
-  if((arch == Arch.Wasm32), return ());
+test("Once multiple threads race to call", {
+  if((arch == Arch.Wasm32), return(()));
   o := Once.new();
   counter := SharedCounter(i32(0));
 
@@ -192,14 +192,14 @@ test "Once multiple threads race to call", {
 
   assert((counter.value == i32(1)), "should have executed exactly once despite 5 threads racing");
   assert(o.is_done(), "should be done");
-};
+});
 
 // ============================================================================
 // Worker integration (atomic object — shared directly without Arc)
 // ============================================================================
 
-test "Once with Workers executes only once", {
-  if((arch == Arch.Wasm32), return ());
+test("Once with Workers executes only once", {
+  if((arch == Arch.Wasm32), return(()));
   o := Once.new();
   counter := SharedCounter(i32(0));
   wg := WaitGroup.new();
@@ -228,4 +228,4 @@ test "Once with Workers executes only once", {
   wg.wait();
   assert((counter.value == i32(1)), "function should have executed only once across workers");
   assert(o.is_done(), "should be done");
-};
+});

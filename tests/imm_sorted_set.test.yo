@@ -1,29 +1,29 @@
-open import "std/fmt";
-{ SortedSet } :: import "std/imm/sorted_set";
-{ List } :: import "std/imm/list";
+open(import("std/fmt"));
+{ SortedSet } :: import("std/imm/sorted_set");
+{ List } :: import("std/imm/list");
 
-test "SortedSet new is empty", {
+test("SortedSet new is empty", {
   s := SortedSet(i32).new();
   assert(s.is_empty(), "new set should be empty");
   assert((s.len() == usize(0)), "len should be 0");
-};
+});
 
-test "SortedSet insert and contains", {
+test("SortedSet insert and contains", {
   s := SortedSet(i32).new();
   s = s.insert(i32(42));
   assert(s.contains(i32(42)), "should contain 42");
   assert(!(s.contains(i32(99))), "should not contain 99");
   assert((s.len() == usize(1)), "len should be 1");
-};
+});
 
-test "SortedSet insert duplicate", {
+test("SortedSet insert duplicate", {
   s := SortedSet(i32).new();
   s = s.insert(i32(1));
   s = s.insert(i32(1));
   assert((s.len() == usize(1)), "duplicate insert should not increase len");
-};
+});
 
-test "SortedSet insert multiple and sorted order", {
+test("SortedSet insert multiple and sorted order", {
   s := SortedSet(i32).new();
   s = s.insert(i32(5));
   s = s.insert(i32(3));
@@ -35,10 +35,10 @@ test "SortedSet insert multiple and sorted order", {
   assert((elems.len() == usize(4)), "list len 4");
   // Verify sorted: 1, 3, 5, 7
   (cur : List(i32)) = elems;
-  (prev : i32) = i32(-1);
+  (prev : i32) = i32(-(1));
   (sorted : bool) = true;
   (done : bool) = false;
-  while runtime(!(done)), {
+  while(runtime(!(done)), {
     match(cur.head(),
       .Some(v) => {
         if((v <= prev), {
@@ -51,11 +51,11 @@ test "SortedSet insert multiple and sorted order", {
         done = true;
       }
     );
-  };
+  });
   assert(sorted, "elements should be in sorted order");
-};
+});
 
-test "SortedSet remove", {
+test("SortedSet remove", {
   s := SortedSet(i32).new();
   s = s.insert(i32(1));
   s = s.insert(i32(2));
@@ -67,9 +67,9 @@ test "SortedSet remove", {
   assert(s2.contains(i32(3)), "3 still there");
   // original unchanged
   assert((s.len() == usize(3)), "original unchanged");
-};
+});
 
-test "SortedSet min and max", {
+test("SortedSet min and max", {
   s := SortedSet(i32).new();
   s = s.insert(i32(5));
   s = s.insert(i32(2));
@@ -88,9 +88,9 @@ test "SortedSet min and max", {
     .Some(v) => assert((v == i32(9)), "max should be 9"),
     .None => assert(false, "should have max")
   );
-};
+});
 
-test "SortedSet union", {
+test("SortedSet union", {
   a := SortedSet(i32).new();
   a = a.insert(i32(1));
   a = a.insert(i32(3));
@@ -104,9 +104,9 @@ test "SortedSet union", {
   assert(c.contains(i32(1)), "contains 1");
   assert(c.contains(i32(2)), "contains 2");
   assert(c.contains(i32(3)), "contains 3");
-};
+});
 
-test "SortedSet intersection", {
+test("SortedSet intersection", {
   a := SortedSet(i32).new();
   a = a.insert(i32(1));
   a = a.insert(i32(2));
@@ -121,9 +121,9 @@ test "SortedSet intersection", {
   assert((c.len() == usize(2)), "intersection has 2");
   assert(c.contains(i32(2)), "contains 2");
   assert(c.contains(i32(3)), "contains 3");
-};
+});
 
-test "SortedSet difference", {
+test("SortedSet difference", {
   a := SortedSet(i32).new();
   a = a.insert(i32(1));
   a = a.insert(i32(2));
@@ -137,9 +137,9 @@ test "SortedSet difference", {
   assert(c.contains(i32(1)), "contains 1");
   assert(c.contains(i32(3)), "contains 3");
   assert(!(c.contains(i32(2))), "does not contain 2");
-};
+});
 
-test "SortedSet is_subset", {
+test("SortedSet is_subset", {
   a := SortedSet(i32).new();
   a = a.insert(i32(1));
   a = a.insert(i32(2));
@@ -151,9 +151,9 @@ test "SortedSet is_subset", {
 
   assert(a.is_subset(b), "a is subset of b");
   assert(!(b.is_subset(a)), "b is not subset of a");
-};
+});
 
-test "SortedSet is_disjoint", {
+test("SortedSet is_disjoint", {
   a := SortedSet(i32).new();
   a = a.insert(i32(1));
   a = a.insert(i32(2));
@@ -167,9 +167,9 @@ test "SortedSet is_disjoint", {
   c := SortedSet(i32).new();
   c = c.insert(i32(2));
   assert(!(a.is_disjoint(c)), "a and c not disjoint");
-};
+});
 
-test "SortedSet Eq trait", {
+test("SortedSet Eq trait", {
   a := SortedSet(i32).new();
   a = a.insert(i32(1));
   a = a.insert(i32(2));
@@ -183,9 +183,9 @@ test "SortedSet Eq trait", {
   c := SortedSet(i32).new();
   c = c.insert(i32(1));
   assert(!((a == c)), "different sets not equal");
-};
+});
 
-test "SortedSet structural sharing", {
+test("SortedSet structural sharing", {
   s := SortedSet(i32).new();
   s = s.insert(i32(1));
   s = s.insert(i32(2));
@@ -193,29 +193,29 @@ test "SortedSet structural sharing", {
   assert((s.len() == usize(2)), "original still 2");
   assert((s2.len() == usize(3)), "new has 3");
   assert(!(s.contains(i32(3))), "original doesn't have 3");
-};
+});
 
-test "SortedSet many elements", {
+test("SortedSet many elements", {
   (s : SortedSet(i32)) = SortedSet(i32).new();
   (i : i32) = i32(0);
-  while runtime((i < i32(50))), {
+  while(runtime((i < i32(50))), {
     s = s.insert(i);
     i = (i + i32(1));
-  };
+  });
   assert((s.len() == usize(50)), "should have 50 elements");
   assert(s.contains(i32(0)), "contains 0");
   assert(s.contains(i32(25)), "contains 25");
   assert(s.contains(i32(49)), "contains 49");
-};
+});
 
-test "SortedSet from_slice single element", {
+test("SortedSet from_slice single element", {
   arr := [i32; 1](i32(42));
   s := SortedSet(i32).from_slice(arr(usize(0)..usize(1)));
   assert((s.len() == usize(1)), "len = 1");
   assert(s.contains(i32(42)), "contains 42");
-};
+});
 
-test "SortedSet from_slice with elements", {
+test("SortedSet from_slice with elements", {
   arr := [i32; 4](i32(30), i32(10), i32(40), i32(20));
   s := SortedSet(i32).from_slice(arr(usize(0)..usize(4)));
   assert((s.len() == usize(4)), "len = 4");
@@ -225,17 +225,17 @@ test "SortedSet from_slice with elements", {
   // should be sorted
   assert((s.min().unwrap() == i32(10)), "min = 10");
   assert((s.max().unwrap() == i32(40)), "max = 40");
-};
+});
 
-test "SortedSet from_slice duplicates", {
+test("SortedSet from_slice duplicates", {
   arr := [i32; 4](i32(1), i32(2), i32(1), i32(3));
   s := SortedSet(i32).from_slice(arr(usize(0)..usize(4)));
   assert((s.len() == usize(3)), "duplicates collapsed");
-};
+});
 
-test "SortedSet from_slice equals manual insert", {
+test("SortedSet from_slice equals manual insert", {
   s1_arr := [i32; 3](i32(1), i32(2), i32(3));
   s1 := SortedSet(i32).from_slice(s1_arr(usize(0)..usize(3)));
   s2 := SortedSet(i32).new().insert(i32(1)).insert(i32(2)).insert(i32(3));
   assert((s1 == s2), "from_slice equals manual insert");
-};
+});

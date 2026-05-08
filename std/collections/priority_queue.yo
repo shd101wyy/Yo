@@ -12,7 +12,7 @@
 //! x := pq.pop().unwrap();  // 1
 //! ```
 
-{ ArrayList } :: import "./array_list";
+{ ArrayList } :: import("./array_list");
 
 /// Min-heap backed by an ArrayList.
 /// Elements are ordered ascending (smallest first). Negate keys for max-heap behavior.
@@ -51,7 +51,7 @@ impl(forall(T : Type), PriorityQueue(T),
     self._data.push(val);
     // Sift up
     i := (self._data.len() - usize(1));
-    while (i > usize(0)), {
+    while((i > usize(0)), {
       parent := ((i - usize(1)) / usize(2));
       child_val  := self._data.get(i).unwrap();
       parent_val := self._data.get(parent).unwrap();
@@ -65,7 +65,7 @@ impl(forall(T : Type), PriorityQueue(T),
           break;
         }
       );
-    };
+    });
   }),
 
   // Remove and return the smallest element.
@@ -80,7 +80,7 @@ impl(forall(T : Type), PriorityQueue(T),
         self._data.pop();
         // Sift down
         i := usize(0);
-        while runtime(true), {
+        while(runtime(true), {
           left  := ((i * usize(2)) + usize(1));
           right := ((i * usize(2)) + usize(2));
           smallest := i;
@@ -109,7 +109,7 @@ impl(forall(T : Type), PriorityQueue(T),
               i = smallest;
             }
           );
-        };
+        });
         .Some(top)
       }
     )
@@ -181,8 +181,6 @@ impl(forall(T : Type), PriorityQueue(T),
   )
 );
 
-export
-  PriorityQueue,
+export(PriorityQueue,
   PriorityQueueIter,
-  PriorityQueueIterPtr
-;
+  PriorityQueueIterPtr);

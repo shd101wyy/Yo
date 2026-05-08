@@ -1,10 +1,10 @@
 // @skip_wasm32-emscripten — poll/epoll not available in WASM (no async I/O multiplexing)
 // @skip_wasm32-wasi — poll/epoll not available in WASM (no async I/O multiplexing)
-open import "std/libc/stdio";
-file :: import "std/sys/file";
-pipe_io :: import "std/sys/pipe";
-events :: import "std/sys/events";
-{ sleep } :: import "std/sys/timer";
+open(import("std/libc/stdio"));
+file :: import("std/sys/file");
+pipe_io :: import("std/sys/pipe");
+events :: import("std/sys/events");
+{ sleep } :: import("std/sys/timer");
 
 // Callback that records events into user_data (pointer to i32)
 on_poll_record :: (fn(events_mask: i32, status: i32, user_data: *(u8)) -> unit)({
@@ -13,7 +13,7 @@ on_poll_record :: (fn(events_mask: i32, status: i32, user_data: *(u8)) -> unit)(
   status;
 });
 
-test "poll init/start/stop", {
+test("poll init/start/stop", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -38,9 +38,9 @@ test "poll init/start/stop", {
   cr2 := io.await(file.close(write_fd));
   assert((cr1 == i32(0)), "close read_fd failed");
   assert((cr2 == i32(0)), "close write_fd failed");
-};
+});
 
-test "poll detects readable pipe", {
+test("poll detects readable pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -77,9 +77,9 @@ test "poll detects readable pipe", {
   cr2 := io.await(file.close(write_fd));
   assert((cr1 == i32(0)), "close read_fd failed");
   assert((cr2 == i32(0)), "close write_fd failed");
-};
+});
 
-test "poll detects writable pipe", {
+test("poll detects writable pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -112,9 +112,9 @@ test "poll detects writable pipe", {
   cr2 := io.await(file.close(write_fd));
   assert((cr1 == i32(0)), "close read_fd failed");
   assert((cr2 == i32(0)), "close write_fd failed");
-};
+});
 
-test "poll detects disconnect", {
+test("poll detects disconnect", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -148,9 +148,9 @@ test "poll detects disconnect", {
 
   cr1 := io.await(file.close(read_fd));
   assert((cr1 == i32(0)), "close read_fd failed");
-};
+});
 
-test "poll stop prevents further callbacks", {
+test("poll stop prevents further callbacks", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -189,4 +189,4 @@ test "poll stop prevents further callbacks", {
   cr2 := io.await(file.close(write_fd));
   assert((cr1 == i32(0)), "close read_fd failed");
   assert((cr2 == i32(0)), "close write_fd failed");
-};
+});

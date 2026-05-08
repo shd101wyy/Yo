@@ -1,54 +1,54 @@
-open import "std/libc/stdio";
-open import "std/string";
-open import "std/fmt";
-{ Instant } :: import "std/time/instant";
-{ Duration } :: import "std/time/duration";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/fmt"));
+{ Instant } :: import("std/time/instant");
+{ Duration } :: import("std/time/duration");
 
 // ============================================================================
 // Instant tests
 // ============================================================================
 
-test "Instant.now returns non-zero time", {
+test("Instant.now returns non-zero time", {
   t := Instant.now();
   // Monotonic clock should have a positive value
   total := ((t.secs * i64(1000000000)) + t.nanos);
   printf("  instant nanos = %lld\n", total);
   assert((total > i64(0)), "monotonic clock should be > 0");
-};
+});
 
-test "Instant.elapsed is non-negative", {
+test("Instant.elapsed is non-negative", {
   start := Instant.now();
   // Busy-wait to burn some time
   i := i64(0);
-  while (i < i64(100000)), (i = (i + i64(1))), {
+  while((i < i64(100000)), (i = (i + i64(1))), {
     ();
-  };
+  });
   elapsed := start.elapsed();
   printf("  elapsed nanos = %lld\n", elapsed.as_nanos());
   assert((elapsed.as_nanos() >= i64(0)), "elapsed should be >= 0");
-};
+});
 
-test "Instant.duration_since two instants", {
+test("Instant.duration_since two instants", {
   t1 := Instant.now();
   // Busy-wait
   i := i64(0);
-  while (i < i64(100000)), (i = (i + i64(1))), {
+  while((i < i64(100000)), (i = (i + i64(1))), {
     ();
-  };
+  });
   t2 := Instant.now();
   d := t2.duration_since(t1);
   printf("  duration_since nanos = %lld\n", d.as_nanos());
   assert((d.as_nanos() >= i64(0)), "should be non-negative");
-};
+});
 
-test "Instant.duration_since earlier returns zero", {
+test("Instant.duration_since earlier returns zero", {
   t1 := Instant.now();
   // Busy-wait
   i := i64(0);
-  while (i < i64(100000)), (i = (i + i64(1))), {
+  while((i < i64(100000)), (i = (i + i64(1))), {
     ();
-  };
+  });
   t2 := Instant.now();
   d := t1.duration_since(t2);
   assert(d.is_zero(), "earlier.duration_since(later) should be zero");
-};
+});

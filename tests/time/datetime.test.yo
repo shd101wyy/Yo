@@ -1,13 +1,13 @@
-open import "std/libc/stdio";
-open import "std/string";
-open import "std/fmt";
-{ DateTime } :: import "std/time/datetime";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/fmt"));
+{ DateTime } :: import("std/time/datetime");
 
 // ============================================================================
 // DateTime tests
 // ============================================================================
 
-test "DateTime.now_utc returns valid date", {
+test("DateTime.now_utc returns valid date", {
   now := DateTime.now_utc();
   printf("  now = %s\n", now.to_string().to_cstr().ptr().unwrap());
   // Year should be reasonable (2020-2099)
@@ -25,9 +25,9 @@ test "DateTime.now_utc returns valid date", {
   assert((now.minute <= u8(59)), "minute <= 59");
   // Second 0-59
   assert((now.second <= u8(59)), "second <= 59");
-};
+});
 
-test "DateTime.from_unix known epoch", {
+test("DateTime.from_unix known epoch", {
   // Unix epoch itself: 1970-01-01T00:00:00Z
   dt := DateTime.from_unix(i64(0), i64(0));
   printf("  epoch = %s\n", dt.to_string().to_cstr().ptr().unwrap());
@@ -37,9 +37,9 @@ test "DateTime.from_unix known epoch", {
   assert((dt.hour == u8(0)), "hour should be 0");
   assert((dt.minute == u8(0)), "minute should be 0");
   assert((dt.second == u8(0)), "second should be 0");
-};
+});
 
-test "DateTime.from_unix known date 2024-01-15", {
+test("DateTime.from_unix known date 2024-01-15", {
   // 2024-01-15T12:30:45Z = 1705321845
   dt := DateTime.from_unix(i64(1705321845), i64(0));
   printf("  known date = %s\n", dt.to_string().to_cstr().ptr().unwrap());
@@ -49,23 +49,23 @@ test "DateTime.from_unix known date 2024-01-15", {
   assert((dt.hour == u8(12)), "hour should be 12");
   assert((dt.minute == u8(30)), "minute should be 30");
   assert((dt.second == u8(45)), "second should be 45");
-};
+});
 
-test "DateTime.to_unix round-trip", {
+test("DateTime.to_unix round-trip", {
   original_secs := i64(1705321845);
   dt := DateTime.from_unix(original_secs, i64(0));
   result := dt.to_unix();
   printf("  original = %lld, round-trip = %lld\n", original_secs, result);
   assert((result == original_secs), "should round-trip");
-};
+});
 
-test "DateTime.to_unix epoch round-trip", {
+test("DateTime.to_unix epoch round-trip", {
   dt := DateTime.from_unix(i64(0), i64(0));
   result := dt.to_unix();
   assert((result == i64(0)), "epoch should round-trip to 0");
-};
+});
 
-test "DateTime.is_leap_year", {
+test("DateTime.is_leap_year", {
   // 2024 is a leap year
   dt_leap := DateTime.from_unix(i64(1704067200), i64(0)); // 2024-01-01
   assert(dt_leap.is_leap_year(), "2024 should be leap year");
@@ -85,9 +85,9 @@ test "DateTime.is_leap_year", {
     hour: u8(0), minute: u8(0), second: u8(0),
     nanosecond: u32(0), utc_offset_secs: i32(0));
   assert(dt_2000.is_leap_year(), "2000 should be leap year");
-};
+});
 
-test "DateTime.day_of_week", {
+test("DateTime.day_of_week", {
   // 2024-01-15 is a Monday (ISO 8601: 0 = Monday)
   dt := DateTime.from_unix(i64(1705318245), i64(0));
   dow := dt.day_of_week();
@@ -99,9 +99,9 @@ test "DateTime.day_of_week", {
   dow2 := dt2.day_of_week();
   printf("  2024-01-14 day_of_week = %u\n", dow2);
   assert((dow2 == u8(6)), "2024-01-14 should be Sunday (6)");
-};
+});
 
-test "DateTime.day_of_year", {
+test("DateTime.day_of_year", {
   // 2024-01-15 should be day 15
   dt := DateTime.from_unix(i64(1705318245), i64(0));
   doy := dt.day_of_year();
@@ -115,11 +115,11 @@ test "DateTime.day_of_year", {
   doy2 := dt2.day_of_year();
   printf("  2024-03-01 day_of_year = %u\n", doy2);
   assert((doy2 == u16(61)), "Mar 1 in leap year should be day 61");
-};
+});
 
-test "DateTime.to_string ISO 8601 format", {
+test("DateTime.to_string ISO 8601 format", {
   dt := DateTime.from_unix(i64(0), i64(0));
   s := dt.to_string();
   printf("  epoch string = %s\n", s.to_cstr().ptr().unwrap());
   assert((s == `1970-01-01T00:00:00Z`), "epoch should format as ISO 8601");
-};
+});

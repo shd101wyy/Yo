@@ -14,10 +14,10 @@
 // Imports as comptime structs are exercised implicitly by every other
 // .test.yo file via top-level `import` — no dedicated case needed here.
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
-test "Phase 4c: migrated struct effect record escape", {
+test("Phase 4c: migrated struct effect record escape", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -33,15 +33,15 @@ test "Phase 4c: migrated struct effect record escape", {
     raise :
       (msg) -> {
         println(msg);
-        escape ();
+        escape(());
       }
   );
 
   divide(10, 0);
   assert(false, "should not reach here after escape");
-};
+});
 
-test "Phase 4c: migrated struct effect record resume", {
+test("Phase 4c: migrated struct effect record resume", {
   Logger :: struct(
     log : (fn(msg : String) -> unit)
   );
@@ -54,17 +54,17 @@ test "Phase 4c: migrated struct effect record resume", {
     log :
       (msg) -> {
         println(msg);
-        return ();
+        return(());
       }
   );
 
   shout("hello-effect".to_string());
   // If we reach here, the continuation resumed correctly.
   assert(true, "logger resumed");
-};
+});
 
 
-test "Baseline: struct(...) builds a usable effect record type", {
+test("Baseline: struct(...) builds a usable effect record type", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -80,15 +80,15 @@ test "Baseline: struct(...) builds a usable effect record type", {
     raise :
       (msg) -> {
         println(msg);
-        escape ();
+        escape(());
       }
   );
 
   divide(10, 0);
   assert(false, "should not reach here after escape");
-};
+});
 
-test "Baseline: given/using round-trip with resume (struct)", {
+test("Baseline: given/using round-trip with resume (struct)", {
   Logger :: struct(
     log : (fn(msg : String) -> unit)
   );
@@ -102,14 +102,14 @@ test "Baseline: given/using round-trip with resume (struct)", {
     log :
       (msg) -> {
         println(msg);
-        return ();
+        return(());
       }
   );
 
   shout("hello-effect".to_string());
   // If we reach here, the continuation resumed correctly.
   assert(true, "logger resumed");
-};
+});
 
 // ----------------------------------------------------------------------
 // Phase 4 progress tests: runtime-built `given` evidence with structs.
@@ -121,7 +121,7 @@ test "Baseline: given/using round-trip with resume (struct)", {
 // which currently fails with "given variable has no compile-time value".
 // ----------------------------------------------------------------------
 
-test "Phase 4a: given(struct) inside a runtime branch", {
+test("Phase 4a: given(struct) inside a runtime branch", {
   Tag :: struct(
     name : (fn() -> str)
   );
@@ -138,9 +138,9 @@ test "Phase 4a: given(struct) inside a runtime branch", {
     (given(t) : Tag) = Tag(name : (() -> "beta"));
     assert((speak() == "beta"), "branch-false picked beta");
   });
-};
+});
 
-test "Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
+test("Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
   Counter :: struct(
     next : (fn() -> i32)
   );
@@ -151,15 +151,15 @@ test "Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
 
   i := Box(i32)(0);
   sum := Box(i32)(0);
-  while runtime(i.* < 3), {
+  while(runtime(i.* < 3), {
     (given(c) : Counter) = Counter(next : (() -> i32(7)));
     sum.* = (sum.* + step());
     i.* = (i.* + 1);
-  };
+  });
   assert((sum.* == 21), "3 iterations × 7 = 21");
-};
+});
 
-test "Phase 4b: given(struct) bound to runtime function-returned value", {
+test("Phase 4b: given(struct) bound to runtime function-returned value", {
   Counter :: struct(
     next : (fn() -> i32)
   );
@@ -192,9 +192,9 @@ test "Phase 4b: given(struct) bound to runtime function-returned value", {
     (given(c) : Counter) = make_counter(false);
     assert((step() == 2), "use_a=false -> 2");
   });
-};
+});
 
-test "Phase 1: comptime-only struct fields are erased from C layout", {
+test("Phase 1: comptime-only struct fields are erased from C layout", {
   ConfiguredCounter :: struct(
     tag :: "configured-counter",
     next : (fn() -> i32)
@@ -207,23 +207,23 @@ test "Phase 1: comptime-only struct fields are erased from C layout", {
 
   counter := make_counter();
   assert((counter.next() == 42), "runtime field remains callable");
-};
+});
 
-test "Phase 6: module and Module keywords are removed", {
+test("Phase 6: module and Module keywords are removed", {
   comptime_expect_error(module(x : i32));
   comptime_expect_error(Module);
-};
+});
 
 // Verify that open works correctly with struct-typed values
 // after the Module→Struct unification.
-test "open on struct-typed values", {
+test("open on struct-typed values", {
   MyStruct :: struct(
     x : i32,
     y : i32
   );
 
   s := MyStruct(x : i32(10), y : i32(20));
-  open s;
+  open(s);
   assert((x == i32(10)), "x should be 10");
   assert((y == i32(20)), "y should be 20");
-};
+});

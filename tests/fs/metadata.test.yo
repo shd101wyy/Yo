@@ -1,24 +1,24 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-open import "std/string";
-{ Path } :: import "std/path";
-{ IOError } :: import "std/sys/errors";
-{ Error, AnyError, Exception } :: import "std/error";
-fs_metadata :: import "std/fs/metadata";
-{ Metadata } :: import "std/fs/metadata";
-fs_file :: import "std/fs/file";
-fs_dir :: import "std/fs/dir";
-{ temp_dir, path_join } :: import "../helper";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ Path } :: import("std/path");
+{ IOError } :: import("std/sys/errors");
+{ Error, AnyError, Exception } :: import("std/error");
+fs_metadata :: import("std/fs/metadata");
+{ Metadata } :: import("std/fs/metadata");
+fs_file :: import("std/fs/file");
+fs_dir :: import("std/fs/dir");
+{ temp_dir, path_join } :: import("../helper");
 
 // ============================================================================
 // metadata on a regular file
 // ============================================================================
 
-test "metadata returns file info", {
+test("metadata returns file info", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -53,16 +53,16 @@ test "metadata returns file info", {
   assert((m.modified_time() > i64(0)), "mtime should be positive");
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
 // ============================================================================
 // metadata on a directory
 // ============================================================================
 
-test "metadata on directory", {
+test("metadata on directory", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -81,16 +81,16 @@ test "metadata on directory", {
   assert((!(m.is_file())), "should not be a file");
 
   io.await(fs_dir.remove_dir(dpath));
-};
+});
 
 // ============================================================================
 // metadata_str
 // ============================================================================
 
-test "metadata_str works with str path", {
+test("metadata_str works with str path", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -104,35 +104,35 @@ test "metadata_str works with str path", {
   assert(m.is_file(), "should be file");
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
 // ============================================================================
 // metadata on nonexistent
 // ============================================================================
 
-test "metadata nonexistent returns error", {
+test("metadata nonexistent returns error", {
   fpath := Path.new(`/nonexistent/yo_fs_meta_nope.txt`);
 
   given(exn) := Exception(throw : ((err) -> {
     printf("  got expected error\n");
-    escape ();
+    escape(());
   }));
   io.await(fs_metadata.metadata(fpath));
   assert(false, "metadata on nonexistent should fail");
-};
+});
 
 // ============================================================================
 // symlink_metadata
 // ============================================================================
 
-test "symlink_metadata on symlink reports symlink", {
+test("symlink_metadata on symlink reports symlink", {
   tmp := temp_dir();
   src := Path.new(path_join(tmp, `yo_fs_meta_sym_src.txt`));
   lnk := Path.new(path_join(tmp, `yo_fs_meta_sym_lnk.txt`));
 
   given(setup_exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception during setup");
-    escape ();
+    escape(());
   }));
 
   cond(io.await(fs_file.exists(lnk, using(io))) => {
@@ -158,13 +158,13 @@ test "symlink_metadata on symlink reports symlink", {
         assert(false, "unexpected error type");
       }
     );
-    escape ();
+    escape(());
   }));
   io.await(fs_dir.symlink(src, lnk));
 
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   // Regular metadata follows the symlink — should report file
@@ -182,16 +182,16 @@ test "symlink_metadata on symlink reports symlink", {
 
   io.await(fs_dir.remove_file(lnk));
   io.await(fs_dir.remove_file(src));
-};
+});
 
 // ============================================================================
 // File.metadata method
 // ============================================================================
 
-test "File.metadata returns correct info", {
+test("File.metadata returns correct info", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -199,7 +199,7 @@ test "File.metadata returns correct info", {
 
   io.await(fs_file.write_file(fpath, String.from("file meta")));
 
-  { File } :: import "std/fs/file";
+  { File } :: import("std/fs/file");
   f := io.await(File.open(fpath, .Read));
   m := io.await(f.metadata());
   printf("  File.metadata size = %lld\n", m.size());
@@ -208,4 +208,4 @@ test "File.metadata returns correct info", {
   io.await(f.close());
 
   io.await(fs_dir.remove_file(fpath));
-};
+});

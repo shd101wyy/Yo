@@ -14,8 +14,8 @@
 //! args := parser.parse();
 //! ```
 
-open import "../collections/array_list";
-open import "../string";
+open(import("../collections/array_list"));
+open(import("../string"));
 
 /// Kind of command-line argument.
 ArgKind :: enum(
@@ -99,7 +99,7 @@ impl(ParsedArgs,
     i := usize(0);
     len := names.len();
     (result : Option(String)) = .None;
-    while (i < len), (i = (i + usize(1))), {
+    while((i < len), (i = (i + usize(1))), {
       match(names.get(i),
         .Some(n) => {
           cond(
@@ -112,8 +112,8 @@ impl(ParsedArgs,
         },
         .None => ()
       );
-    };
-    return result;
+    });
+    return(result);
   }),
 
   get_option : (fn(self: Self, name: String) -> Option(String))(
@@ -149,7 +149,7 @@ impl(ArgParser,
     self._subcommand_names.push(name);
     self._subcommand_descriptions.push(description);
     self._subcommand_parsers.push(sub);
-    return sub;
+    return(sub);
   }),
 
   /// Looks up a subcommand parser by name.
@@ -157,7 +157,7 @@ impl(ArgParser,
     i := usize(0);
     len := self._subcommand_names.len();
     (result : Option(usize)) = .None;
-    while ((i < len) && result.is_none()), (i = (i + usize(1))), {
+    while(((i < len) && result.is_none()), (i = (i + usize(1))), {
       match(self._subcommand_names.get(i),
         .Some(n) => {
           cond(
@@ -167,8 +167,8 @@ impl(ArgParser,
         },
         .None => ()
       );
-    };
-    return result;
+    });
+    return(result);
   }),
 
   add_flag : (fn(self: Self, long_name: String, short_name: String, description: String) -> unit)({
@@ -208,7 +208,7 @@ impl(ArgParser,
     i := usize(0);
     len := self._args.len();
     (result : Option(usize)) = .None;
-    while (i < len), (i = (i + usize(1))), {
+    while((i < len), (i = (i + usize(1))), {
       match(self._args.get(i),
         .Some(arg_def) => {
           cond(
@@ -221,8 +221,8 @@ impl(ArgParser,
         },
         .None => ()
       );
-    };
-    return result;
+    });
+    return(result);
   }),
 
   help_text : (fn(self: Self) -> String)({
@@ -232,7 +232,7 @@ impl(ArgParser,
     has_flags_or_options := false;
     i := usize(0);
     len := self._args.len();
-    while (i < len), (i = (i + usize(1))), {
+    while((i < len), (i = (i + usize(1))), {
       match(self._args.get(i),
         .Some(arg_def) => {
           match(arg_def._kind,
@@ -243,13 +243,13 @@ impl(ArgParser,
         },
         .None => ()
       );
-    };
+    });
 
     cond(
       has_positionals => {
         text = text.concat(`Arguments:\n`);
         j := usize(0);
-        while (j < len), (j = (j + usize(1))), {
+        while((j < len), (j = (j + usize(1))), {
           match(self._args.get(j),
             .Some(arg_def) => {
               match(arg_def._kind,
@@ -262,7 +262,7 @@ impl(ArgParser,
             },
             .None => ()
           );
-        };
+        });
         text = text.concat(`\n`);
       },
       true => ()
@@ -272,7 +272,7 @@ impl(ArgParser,
       has_flags_or_options => {
         text = text.concat(`Options:\n`);
         k := usize(0);
-        while (k < len), (k = (k + usize(1))), {
+        while((k < len), (k = (k + usize(1))), {
           match(self._args.get(k),
             .Some(arg_def) => {
               match(arg_def._kind,
@@ -310,7 +310,7 @@ impl(ArgParser,
             },
             .None => ()
           );
-        };
+        });
       },
       true => ()
     );
@@ -322,7 +322,7 @@ impl(ArgParser,
       (sub_count > usize(0)) => {
         text = text.concat(`\nSubcommands:\n`);
         s := usize(0);
-        while (s < sub_count), (s = (s + usize(1))), {
+        while((s < sub_count), (s = (s + usize(1))), {
           match(self._subcommand_names.get(s),
             .Some(sn) => {
               match(self._subcommand_descriptions.get(s),
@@ -336,12 +336,12 @@ impl(ArgParser,
             },
             .None => ()
           );
-        };
+        });
       },
       true => ()
     );
 
-    return text;
+    return(text);
   })
 );
 
@@ -355,7 +355,7 @@ impl(ArgParser,
     positional_idx := usize(0);
     (err_msg : Option(String)) = .None;
 
-    while ((idx < args_len) && (err_msg.is_none())), {
+    while(((idx < args_len) && (err_msg.is_none())), {
       match(args.get(idx),
         .Some(current_arg) => {
           cond(
@@ -417,12 +417,12 @@ impl(ArgParser,
                             .None => { sub_args.push(self._name); }
                           );
                           j := (idx + usize(1));
-                          while (j < args_len), (j = (j + usize(1))), {
+                          while((j < args_len), (j = (j + usize(1))), {
                             match(args.get(j),
                               .Some(a) => { sub_args.push(a); },
                               .None => ()
                             );
-                          };
+                          });
                           // Recursively parse the subcommand.
                           match(recur(sub_parser, sub_args),
                             .Ok(sub_parsed) => {
@@ -446,11 +446,11 @@ impl(ArgParser,
                 true => ()
               );
               cond(
-                (!is_subcmd) => {
+                (!(is_subcmd)) => {
                   parsed._positionals.push(current_arg);
                   p_idx := usize(0);
                   p_count := usize(0);
-                  while (p_idx < arg_defs_len), (p_idx = (p_idx + usize(1))), {
+                  while((p_idx < arg_defs_len), (p_idx = (p_idx + usize(1))), {
                     match(self._args.get(p_idx),
                       .Some(p_def) => {
                         match(p_def._kind,
@@ -469,7 +469,7 @@ impl(ArgParser,
                       },
                       .None => ()
                     );
-                  };
+                  });
                   positional_idx = (positional_idx + usize(1));
                 },
                 true => ()
@@ -480,19 +480,19 @@ impl(ArgParser,
         .None => ()
       );
       idx = (idx + usize(1));
-    };
+    });
 
     // Check for errors
     match(err_msg,
       .Some(msg) => {
-        return .Err(msg);
+        return(.Err(msg));
       },
       .None => ()
     );
 
     // Apply defaults for options not explicitly set
     def_i := usize(0);
-    while (def_i < arg_defs_len), (def_i = (def_i + usize(1))), {
+    while((def_i < arg_defs_len), (def_i = (def_i + usize(1))), {
       match(self._args.get(def_i),
         .Some(def) => {
           match(def._kind,
@@ -511,15 +511,13 @@ impl(ArgParser,
         },
         .None => ()
       );
-    };
+    });
 
-    return .Ok(parsed);
+    return(.Ok(parsed));
   })
 );
 
-export
-  ArgKind,
+export(ArgKind,
   ArgDef,
   ParsedArgs,
-  ArgParser
-;
+  ArgParser);

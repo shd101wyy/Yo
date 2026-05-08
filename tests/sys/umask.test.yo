@@ -1,24 +1,24 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-open import "std/string";
-open import "std/collections/array_list";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/collections/array_list"));
 
-umask_io :: import "std/sys/umask";
-file :: import "std/sys/file";
-dir :: import "std/sys/dir";
-{ Statx } :: import "std/sys/statx";
-{ temp_dir, path_join } :: import "../helper";
-{ AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, STATX_BASIC_STATS } :: import "std/sys/constants";
-{ platform, Platform } :: import "std/process";
+umask_io :: import("std/sys/umask");
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+{ Statx } :: import("std/sys/statx");
+{ temp_dir, path_join } :: import("../helper");
+{ AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, STATX_BASIC_STATS } :: import("std/sys/constants");
+{ platform, Platform } :: import("std/process");
 
-make_test_file :: (fn(name: String) -> ArrayList(u8)) {
+make_test_file :: (fn(name: String) -> ArrayList(u8))({
   tmp := temp_dir();
   p := path_join(tmp, name);
   p.to_cstr()
-};
+});
 
-test "umask affects file creation mode and can be restored", {
+test("umask affects file creation mode and can be restored", {
   path_cstr := make_test_file(`yo_umask_test.txt`);
   test_path := path_cstr.ptr().unwrap();
 
@@ -55,4 +55,4 @@ test "umask affects file creation mode and can be restored", {
   assert((cleanup == i32(0)), "cleanup unlink should succeed");
 
   printf("  umask behavior validated\n");
-};
+});

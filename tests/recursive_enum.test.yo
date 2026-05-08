@@ -1,5 +1,5 @@
-open import "std/string";
-open import "std/collections/array_list";
+open(import("std/string"));
+open(import("std/collections/array_list"));
 
 // === Recursive enum with Box(Self) ===
 // Mirrors the AST MyExpr shape we'll need for the compiler port.
@@ -11,8 +11,8 @@ MyExpr :: enum(
   List(items : ArrayList(Self))
 );
 
-eval :: (fn(e : *(MyExpr)) -> i32) {
-  return match(e.*,
+eval :: (fn(e : *(MyExpr)) -> i32)({
+  return(match(e.*,
     .Lit(v) => v,
     .Add(l, r) => {
       lv := recur(&(l.*));
@@ -27,58 +27,58 @@ eval :: (fn(e : *(MyExpr)) -> i32) {
     .List(items) => {
       sum := i32(0);
       i := usize(0);
-      while ((i < items.len())), (i = (i + usize(1))), {
+      while(((i < items.len())), (i = (i + usize(1))), {
         match(items.get(i),
-          .Some(it) => { sum = (sum + recur(&it)); },
+          .Some(it) => { sum = (sum + recur(&(it))); },
           .None => ()
         );
-      };
+      });
       sum
     }
-  );
-};
+  ));
+});
 
-test "Recursive enum: construct + match Box(Self) leaves", {
+test("Recursive enum: construct + match Box(Self) leaves", {
   e := MyExpr.Add(
     box(MyExpr.Lit(i32(2))),
     box(MyExpr.Lit(i32(3)))
   );
-  v := eval(&e);
+  v := eval(&(e));
   assert((v == i32(5)), "2 + 3 == 5");
-};
+});
 
-test "Recursive enum: ArrayList(Self) variant", {
+test("Recursive enum: ArrayList(Self) variant", {
   items := ArrayList(MyExpr).new();
   items.push(MyExpr.Lit(i32(10)));
   items.push(MyExpr.Lit(i32(20)));
   items.push(MyExpr.Add(box(MyExpr.Lit(i32(3))), box(MyExpr.Lit(i32(4)))));
   e := MyExpr.List(items);
-  v := eval(&e);
+  v := eval(&(e));
   assert((v == i32(37)), "10 + 20 + 7 == 37");
-};
+});
 
-test "Recursive enum: nested Box(Self) tree", {
+test("Recursive enum: nested Box(Self) tree", {
   // ((1 + 2) * (3 + 4)) = 21
   tree := MyExpr.Mul(
     box(MyExpr.Add(box(MyExpr.Lit(i32(1))), box(MyExpr.Lit(i32(2))))),
     box(MyExpr.Add(box(MyExpr.Lit(i32(3))), box(MyExpr.Lit(i32(4)))))
   );
-  v := eval(&tree);
+  v := eval(&(tree));
   assert((v == i32(21)), "(1+2)*(3+4) == 21");
-};
+});
 
-build_spine :: (fn(n : i32) -> MyExpr) {
-  return cond(
+build_spine :: (fn(n : i32) -> MyExpr)({
+  return(cond(
     (n <= i32(0)) => MyExpr.Lit(i32(1)),
     true => MyExpr.Add(box(MyExpr.Lit(i32(1))), box(recur((n - i32(1)))))
-  );
-};
+  ));
+});
 
-test "Recursive enum: deeply nested drop terminates", {
+test("Recursive enum: deeply nested drop terminates", {
   spine := build_spine(i32(50));
-  v := eval(&spine);
+  v := eval(&(spine));
   assert((v == i32(51)), "spine of 50 Adds + 1 Lit sums to 51");
-};
+});
 
 // === derive(Clone) on a recursive type ===
 // Note: derive(Clone) on Box(Self) currently has a known codegen ordering

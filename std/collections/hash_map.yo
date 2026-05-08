@@ -1,6 +1,6 @@
 //! Hash map using SwissTable algorithm with SIMD-accelerated lookup.
 
-{ GlobalAllocator, AllocError } :: import "../allocator.yo";
+{ GlobalAllocator, AllocError } :: import("../allocator.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 
 /// Error variants for HashMap operations.
@@ -26,21 +26,16 @@ MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
 MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
 
 /// Key-value pair stored in a hash map bucket.
-Bucket :: (fn(comptime(K): Type, comptime(V): Type) -> comptime(Type))
-  struct(
+Bucket :: (fn(comptime(K): Type, comptime(V): Type) -> comptime(Type))(struct(
     key : K,
     value : V
-  )
-;
+  ));
 
 /// Extract H2 hash (lower 7 bits) from full hash for control byte comparison.
-h2_hash :: (fn(hash: u64) -> u8)
-  u8(hash & u64(127))
-;
+h2_hash :: (fn(hash: u64) -> u8)(u8(hash & u64(127)));
 
 /// Extract H1 hash (upper bits) for bucket index calculation.
-h1_hash :: (fn(hash: u64, capacity: usize) -> usize)
-  (usize((hash >> u64(7))) % capacity)
+h1_hash :: (fn(hash: u64, capacity: usize) -> usize)(usize((hash >> u64(7))) % capacity)
 ;
 
 /// High-performance hash map using SwissTable algorithm.
@@ -49,14 +44,12 @@ HashMap :: (fn(
   comptime(K): Type,
   comptime(V): Type,
   where(K <: (Eq(K), Hash))
-) -> comptime(Type))
-  object(
+) -> comptime(Type))(object(
     ctrl : ?*(u8),
     data : ?*(Bucket(K, V)),
     capacity : usize,
     size : usize
-  )
-;
+  ));
 
 impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
   /**
@@ -179,13 +172,13 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
         
         cond(
           (ctrl_byte == CTRL_EMPTY) => {
-            return .None;
+            return(.None);
           },
           (ctrl_byte == h2) => {
             bucket := (data_ptr &+ probe_index).*;
             cond(
               (bucket.key == key) => {
-                return .Some(probe_index);
+                return(.Some(probe_index));
               },
               true => ()
             );
@@ -214,7 +207,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
         
         cond(
           ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
-            return probe_index;
+            return(probe_index);
           },
           true => ()
         );
@@ -546,7 +539,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIter(K, V), I
         ctrl_ptr := self._map.ctrl.unwrap();
         data_ptr := self._map.data.unwrap();
         result := Option(Bucket(K, V)).None;
-        while ((self._index < self._map.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
+        while(((self._index < self._map.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
           ctrl_byte := (ctrl_ptr &+ self._index).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
@@ -554,7 +547,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIter(K, V), I
             },
             true => ()
           );
-        };
+        });
         result
       }
     )
@@ -587,7 +580,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIterPtr(K, V)
         ctrl_ptr := self._map.ctrl.unwrap();
         data_ptr := self._map.data.unwrap();
         result := Option(*(Bucket(K, V))).None;
-        while ((self._index < self._map.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
+        while(((self._index < self._map.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
           ctrl_byte := (ctrl_ptr &+ self._index).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
@@ -595,7 +588,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIterPtr(K, V)
             },
             true => ()
           );
-        };
+        });
         result
       }
     )
@@ -683,7 +676,7 @@ impl(forall(K : Type, V : Type),
            result := Self.new();
            it := self.iter();
            running := true;
-           while running, {
+           while(running, {
              nxt := it.next();
              match(nxt,
                .None => { running = false; },
@@ -693,21 +686,19 @@ impl(forall(K : Type, V : Type),
                  result.set(k, v);
                }
              );
-           };
+           });
            result
          }
        )
      ));
 
-export
-  HashMap,
+export(HashMap,
   HashMapError,
   Bucket,
   HashMapIter,
   HashMapIterPtr,
   HashMapKeys,
-  HashMapValues
-;
+  HashMapValues);
 
 // =============================================================================
 // hash_map! literal macro
@@ -743,7 +734,7 @@ __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList)
 /// ```rust
 /// m := hash_map(`a` => i32(1), `b` => i32(2));
 /// ```
-hash_map :: (fn(...(quote(entries))) -> unquote(Expr)) {
+hash_map :: (fn(...(quote(entries))) -> unquote(Expr))({
   __ :: comptime_assert((entries.len() > usize(0)),
     "hash_map requires at least one 'k => v' entry to infer K and V");
   first :: entries.car();
@@ -759,13 +750,12 @@ hash_map :: (fn(...(quote(entries))) -> unquote(Expr)) {
   k_tmp :: gensym("hash_map_k0");
   v_tmp :: gensym("hash_map_v0");
   rest_sets :: __hash_map_build_sets(tmp, rest);
-  quote {
+  quote({
     unquote(k_tmp) := unquote(first_key);
     unquote(v_tmp) := unquote(first_val);
     unquote(tmp) := HashMap(typeof(unquote(k_tmp)), typeof(unquote(v_tmp))).new();
     unquote(tmp).set(unquote(k_tmp), unquote(v_tmp)).unwrap();
     unquote_splicing(rest_sets);
     unquote(tmp)
-  }
-};
-export hash_map;
+  })});
+export(hash_map);

@@ -9,22 +9,18 @@ LinkedListError :: enum(
 );
 
 /// Internal node for the linked list. Reference-counted via `object`.
-Node :: (fn(comptime(T): Type) -> comptime(Type))
-  object(
+Node :: (fn(comptime(T): Type) -> comptime(Type))(object(
     value : T,
     next : Option(Self),
     prev : Option(Self)
-  )
-;
+  ));
 
 /// Doubly-linked list with O(1) push/pop at both ends.
-LinkedList :: (fn(comptime(T): Type) -> comptime(Type))
-  object(
+LinkedList :: (fn(comptime(T): Type) -> comptime(Type))(object(
     head : Option(Node(T)),
     tail : Option(Node(T)),
     length : usize
-  )
-;
+  ));
 
 impl(forall(T : Type), LinkedList(T),
   /**
@@ -194,7 +190,7 @@ impl(forall(T : Type), LinkedList(T),
         while(i < index, i = (i + usize(1)), {
           match(current_opt,
             .None => {
-              return .None;
+              return(.None);
             },
             .Some(current) => {
               current_opt = current.next;
@@ -233,7 +229,7 @@ impl(forall(T : Type), LinkedList(T),
         while(i < index, i = (i + usize(1)), {
           match(current_opt,
             .None => {
-              return .Err(.IndexOutOfBounds(index: index, length: self.length));
+              return(.Err(.IndexOutOfBounds(index: index, length: self.length)));
             },
             .Some(current) => {
               current_opt = current.next;
@@ -295,7 +291,7 @@ impl(forall(T : Type), LinkedList(T),
         while(i < index, i = (i + usize(1)), {
           match(current_opt,
             .None => {
-              return .Err(.IndexOutOfBounds(index: index, length: self.length));
+              return(.Err(.IndexOutOfBounds(index: index, length: self.length)));
             },
             .Some(current) => {
               current_opt = current.next;
@@ -363,12 +359,12 @@ impl(forall(T : Type), LinkedList(T),
       while(i < self.length, i = (i + usize(1)), {
         match(current_opt,
           .None => {
-            return false;
+            return(false);
           },
           .Some(current) => {
             cond(
               (current.value == value) => {
-                return true;
+                return(true);
               },
               true => {
                 current_opt = current.next;
@@ -480,9 +476,7 @@ impl(forall(T : Type), LinkedList(T),
   )
 );
 
-export
-  LinkedList,
+export(LinkedList,
   LinkedListError,
   LinkedListIter,
-  LinkedListIterPtr
-;
+  LinkedListIterPtr);

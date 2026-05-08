@@ -9,10 +9,10 @@
 //! println(now.to_string());   // "2026-02-26T17:41:24Z"
 //! ```
 
-{ String } :: import "../string";
-{ ToString } :: import "../fmt";
-{ CLOCK_REALTIME, clock_gettime } :: import "../sys/clock";
-{ snprintf } :: import "../libc/stdio";
+{ String } :: import("../string");
+{ ToString } :: import("../fmt");
+{ CLOCK_REALTIME, clock_gettime } :: import("../sys/clock");
+{ snprintf } :: import("../libc/stdio");
 
 /// Calendar date and time with nanosecond precision.
 /// Values are in UTC unless `utc_offset_secs` is non-zero.
@@ -98,7 +98,7 @@ impl(DateTime,
   now_utc : (fn() -> Self)({
     sec  := i64(0);
     nsec := i64(0);
-    clock_gettime(CLOCK_REALTIME, (&sec), (&nsec));
+    clock_gettime(CLOCK_REALTIME, (&(sec)), (&(nsec)));
     _from_unix_secs(sec, nsec)
   }),
 
@@ -170,7 +170,7 @@ impl(DateTime,
     // Sum days in preceding months
     days := d;
     i := i32(1);
-    while (i < m), (i = (i + i32(1))), {
+    while((i < m), (i = (i + i32(1))), {
       idx := usize((i - i32(1)));
       days = (days + i32(_DAYS_IN_MONTH(idx)));
       // Add leap day after Feb in a leap year
@@ -180,7 +180,7 @@ impl(DateTime,
         },
         true => ()
       );
-    };
+    });
     u16(days)
   })
 );
@@ -196,4 +196,4 @@ impl(DateTime, ToString(
   })
 ));
 
-export DateTime;
+export(DateTime);

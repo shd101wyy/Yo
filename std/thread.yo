@@ -1,16 +1,14 @@
 //! OS thread creation and management with per-thread IO event loops.
 
-extern "Yo",
+extern("Yo",
   __yo_thread_get_hardware_threads : (fn() -> usize),
   __yo_get_thread_id : (fn() -> usize),
-  __yo_get_cpu_id : (fn() -> i32)
-;
+  __yo_get_cpu_id : (fn() -> i32));
 
-extern "Yo",
+extern("Yo",
   __yo_thread_t : Type,
   __yo_thread_spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> __yo_thread_t),
-  __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
-;
+  __yo_thread_join : (fn(t : __yo_thread_t) -> unit));
 
 /// OS thread handle. Each spawned thread gets its own IO event loop.
 Thread :: struct(
@@ -39,9 +37,7 @@ get_thread_id :: __yo_get_thread_id;
 /// Get the current CPU core ID.
 get_cpu_id :: __yo_get_cpu_id;
 
-export
-  get_hardware_threads,
+export(get_hardware_threads,
   get_thread_id,
   get_cpu_id,
-  Thread
-;
+  Thread);

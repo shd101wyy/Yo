@@ -12,11 +12,11 @@
 //! assert((result == `& < & &`), "decoded entities");
 //! ```
 
-open import "../string";
-{ HashMap } :: import "../collections/hash_map";
-{ HashSet } :: import "../collections/hash_set";
-{ is_valid_entity_code, from_code_point } :: import "./html_char_utils";
-{ _build_entity_map, _build_legacy_set } :: import "./html_entities";
+open(import("../string"));
+{ HashMap } :: import("../collections/hash_map");
+{ HashSet } :: import("../collections/hash_set");
+{ is_valid_entity_code, from_code_point } :: import("./html_char_utils");
+{ _build_entity_map, _build_legacy_set } :: import("./html_entities");
 
 // Module-level state: lazily initialized entity map and legacy set.
 _state_initialized := false;
@@ -35,7 +35,7 @@ _ensure_init :: (fn() -> unit)({
 _parse_hex :: (fn(s: String) -> i32)({
   (result : i32) = i32(0);
   (i : usize) = usize(0);
-  while ((i < s.len())), {
+  while(((i < s.len())), {
     c := s.at(i).unwrap();
     result = (result * i32(16));
     if(((c >= rune(u32('0'))) && (c <= rune(u32('9')))), {
@@ -46,7 +46,7 @@ _parse_hex :: (fn(s: String) -> i32)({
       result = (result + ((i32(c.to_u32()) - i32(65)) + i32(10)));
     })));
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -54,11 +54,11 @@ _parse_hex :: (fn(s: String) -> i32)({
 _parse_dec :: (fn(s: String) -> i32)({
   (result : i32) = i32(0);
   (i : usize) = usize(0);
-  while ((i < s.len())), {
+  while(((i < s.len())), {
     c := s.at(i).unwrap();
     result = ((result * i32(10)) + (i32(c.to_u32()) - i32(48)));
     i = (i + usize(1));
-  };
+  });
   result
 });
 
@@ -76,18 +76,18 @@ decode_html :: (fn(input: String) -> String)({
 
   (len : usize) = input.len();
   if(((len == usize(0))), {
-    return input;
+    return(input);
   });
 
   // Quick check: if no '&', return as-is
   if(!(input.contains(`&`)), {
-    return input;
+    return(input);
   });
 
   (result : String) = ``;
   (i : usize) = usize(0);
 
-  while ((i < len)), {
+  while(((i < len)), {
     c := input.at(i).unwrap();
 
     if((c != rune(u32('&'))), {
@@ -115,7 +115,7 @@ decode_html :: (fn(input: String) -> String)({
               // Hex: &#xHH;
               (digit_start : usize) = (i + usize(1));
               (digit_end : usize) = digit_start;
-              while (((digit_end < len))), {
+              while((((digit_end < len))), {
                 dc := input.at(digit_end).unwrap();
                 if(((((dc >= rune(u32('0'))) && (dc <= rune(u32('9')))) || (((dc >= rune(u32('a'))) && (dc <= rune(u32('f')))) || ((dc >= rune(u32('A'))) && (dc <= rune(u32('F'))))))), {
                   digit_end = (digit_end + usize(1));
@@ -127,19 +127,19 @@ decode_html :: (fn(input: String) -> String)({
                   // TODO: proper break
                   digit_end = (len + usize(1));
                 });
-              };
+              });
               // Fix digit_end if it overflowed
               if(((digit_end > len)), {
                 // We used the overflow trick - find actual end
                 digit_end = digit_start;
-                while ((digit_end < len)), {
+                while(((digit_end < len)), {
                   dc2 := input.at(digit_end).unwrap();
                   if(((((dc2 >= rune(u32('0'))) && (dc2 <= rune(u32('9')))) || (((dc2 >= rune(u32('a'))) && (dc2 <= rune(u32('f')))) || ((dc2 >= rune(u32('A'))) && (dc2 <= rune(u32('F'))))))), {
                     digit_end = (digit_end + usize(1));
                   }, {
                     digit_end = ((len + digit_end) + usize(1));
                   });
-                };
+                });
                 if(((digit_end > len)), {
                   digit_end = ((digit_end - len) - usize(1));
                 });
@@ -172,14 +172,14 @@ decode_html :: (fn(input: String) -> String)({
               // Decimal: &#DD;
               (digit_start : usize) = i;
               (digit_end : usize) = digit_start;
-              while ((digit_end < len)), {
+              while(((digit_end < len)), {
                 dc := input.at(digit_end).unwrap();
                 if((((dc >= rune(u32('0'))) && (dc <= rune(u32('9'))))), {
                   digit_end = (digit_end + usize(1));
                 }, {
                   digit_end = ((len + digit_end) + usize(1));
                 });
-              };
+              });
               if(((digit_end > len)), {
                 digit_end = ((digit_end - len) - usize(1));
               });
@@ -212,7 +212,7 @@ decode_html :: (fn(input: String) -> String)({
           // Named entity: &name; or &name (legacy)
           (name_start : usize) = i;
           (name_end : usize) = name_start;
-          while ((name_end < len)), {
+          while(((name_end < len)), {
             nc := input.at(name_end).unwrap();
             if(((nc == rune(u32(';')))), {
               // Found semicolon — end of entity name
@@ -223,7 +223,7 @@ decode_html :: (fn(input: String) -> String)({
               // Non-alphanumeric, non-semicolon — end of potential entity
               name_end = ((len + name_end) + usize(1));
             }));
-          };
+          });
           // Decode the overflow trick
           (found_end : bool) = false;
           if(((name_end > len)), {
@@ -254,7 +254,7 @@ decode_html :: (fn(input: String) -> String)({
             (matched : bool) = false;
             (try_end : usize) = name_end;
 
-            while ((((try_end > name_start) && !(matched)))), {
+            while(((((try_end > name_start) && !(matched)))), {
               try_name := input.substring(name_start, try_end);
               if(_legacy_set.contains(try_name), {
                 match(_entity_map.get(try_name),
@@ -270,7 +270,7 @@ decode_html :: (fn(input: String) -> String)({
               }, {
                 try_end = (try_end - usize(1));
               });
-            };
+            });
 
             if(!(matched), {
               // No legacy match — output '&' literally and continue
@@ -281,9 +281,9 @@ decode_html :: (fn(input: String) -> String)({
         });
       });
     });
-  };
+  });
 
   result
 });
 
-export decode_html, is_valid_entity_code, from_code_point;
+export(decode_html, is_valid_entity_code, from_code_point);

@@ -1,35 +1,35 @@
-open import "std/collections/priority_queue";
+open(import("std/collections/priority_queue"));
 
 // ===== Construction Tests =====
 
-test "PriorityQueue.new creates empty queue", {
+test("PriorityQueue.new creates empty queue", {
   pq := PriorityQueue(i32).new();
   assert(pq.len() == usize(0), "len should be 0");
   assert(pq.is_empty(), "should be empty");
-};
+});
 
 // ===== Push Tests =====
 
-test "PriorityQueue.push adds single element", {
+test("PriorityQueue.push adds single element", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(42));
 
   assert(pq.len() == usize(1), "len should be 1");
   assert(!(pq.is_empty()), "should not be empty");
-};
+});
 
-test "PriorityQueue.push adds multiple elements", {
+test("PriorityQueue.push adds multiple elements", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(1));
   pq.push(i32(3));
 
   assert(pq.len() == usize(3), "len should be 3");
-};
+});
 
 // ===== Peek Tests =====
 
-test "PriorityQueue.peek returns smallest element", {
+test("PriorityQueue.peek returns smallest element", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(30));
   pq.push(i32(10));
@@ -39,26 +39,26 @@ test "PriorityQueue.peek returns smallest element", {
   assert(v.is_some(), "peek should return Some");
   assert(v.unwrap() == i32(10), "smallest should be 10");
   assert(pq.len() == usize(3), "len should still be 3 after peek");
-};
+});
 
-test "PriorityQueue.peek returns None for empty queue", {
+test("PriorityQueue.peek returns None for empty queue", {
   pq := PriorityQueue(i32).new();
   assert(pq.peek().is_none(), "peek on empty should be None");
-};
+});
 
 
-test "PriorityQueue.peek does not remove element", {
+test("PriorityQueue.peek does not remove element", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(42));
 
   pq.peek();
   pq.peek();
   assert(pq.len() == usize(1), "peek should not change len");
-};
+});
 
 // ===== Pop Tests =====
 
-test "PriorityQueue.pop returns smallest element", {
+test("PriorityQueue.pop returns smallest element", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(1));
@@ -68,14 +68,14 @@ test "PriorityQueue.pop returns smallest element", {
   assert(v.is_some(), "pop should return Some");
   assert(v.unwrap() == i32(1), "smallest should be 1");
   assert(pq.len() == usize(2), "len should be 2 after pop");
-};
+});
 
-test "PriorityQueue.pop returns None for empty queue", {
+test("PriorityQueue.pop returns None for empty queue", {
   pq := PriorityQueue(i32).new();
   assert(pq.pop().is_none(), "pop on empty should be None");
-};
+});
 
-test "PriorityQueue.pop returns elements in ascending order", {
+test("PriorityQueue.pop returns elements in ascending order", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(50));
   pq.push(i32(10));
@@ -89,18 +89,18 @@ test "PriorityQueue.pop returns elements in ascending order", {
   assert(pq.pop().unwrap() == i32(40), "4th pop should be 40");
   assert(pq.pop().unwrap() == i32(50), "5th pop should be 50");
   assert(pq.pop().is_none(), "6th pop should be None");
-};
+});
 
-test "PriorityQueue.pop single element", {
+test("PriorityQueue.pop single element", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(99));
 
   v := pq.pop();
   assert(v.unwrap() == i32(99), "should return 99");
   assert(pq.is_empty(), "should be empty");
-};
+});
 
-test "PriorityQueue.pop two elements", {
+test("PriorityQueue.pop two elements", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(20));
   pq.push(i32(10));
@@ -108,11 +108,11 @@ test "PriorityQueue.pop two elements", {
   assert(pq.pop().unwrap() == i32(10), "first pop should be 10");
   assert(pq.pop().unwrap() == i32(20), "second pop should be 20");
   assert(pq.is_empty(), "should be empty");
-};
+});
 
 // ===== Duplicate elements =====
 
-test "PriorityQueue handles duplicate elements", {
+test("PriorityQueue handles duplicate elements", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(5));
@@ -123,11 +123,11 @@ test "PriorityQueue handles duplicate elements", {
   assert(pq.pop().unwrap() == i32(3), "2nd pop should be 3");
   assert(pq.pop().unwrap() == i32(5), "3rd pop should be 5");
   assert(pq.pop().unwrap() == i32(5), "4th pop should be 5");
-};
+});
 
 // ===== Sorted input =====
 
-test "PriorityQueue with already sorted input", {
+test("PriorityQueue with already sorted input", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(1));
   pq.push(i32(2));
@@ -140,9 +140,9 @@ test "PriorityQueue with already sorted input", {
   assert(pq.pop().unwrap() == i32(3), "3rd should be 3");
   assert(pq.pop().unwrap() == i32(4), "4th should be 4");
   assert(pq.pop().unwrap() == i32(5), "5th should be 5");
-};
+});
 
-test "PriorityQueue with reverse sorted input", {
+test("PriorityQueue with reverse sorted input", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(4));
@@ -155,11 +155,11 @@ test "PriorityQueue with reverse sorted input", {
   assert(pq.pop().unwrap() == i32(3), "3rd should be 3");
   assert(pq.pop().unwrap() == i32(4), "4th should be 4");
   assert(pq.pop().unwrap() == i32(5), "5th should be 5");
-};
+});
 
 // ===== Interleaved push and pop =====
 
-test "PriorityQueue interleaved push and pop", {
+test("PriorityQueue interleaved push and pop", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(5));
@@ -174,11 +174,11 @@ test "PriorityQueue interleaved push and pop", {
   assert(pq.pop().unwrap() == i32(8), "should get 8");
   assert(pq.pop().unwrap() == i32(10), "should get 10");
   assert(pq.is_empty(), "should be empty");
-};
+});
 
 // ===== Many elements =====
 
-test "PriorityQueue with many elements", {
+test("PriorityQueue with many elements", {
   pq := PriorityQueue(i32).new();
   // Push 0..19 in a scrambled order
   pq.push(i32(15));
@@ -205,19 +205,19 @@ test "PriorityQueue with many elements", {
   assert(pq.len() == usize(20), "len should be 20");
 
   // Pop all and verify ascending order
-  prev := i32(-1);
+  prev := i32(-(1));
   remaining := usize(20);
-  while (remaining > usize(0)), (remaining = (remaining - usize(1))), {
+  while((remaining > usize(0)), (remaining = (remaining - usize(1))), {
     v := pq.pop().unwrap();
     assert(v > prev, "elements should come out in ascending order");
     prev = v;
-  };
+  });
   assert(pq.is_empty(), "should be empty after popping all");
-};
+});
 
 // ===== Peek after pop =====
 
-test "PriorityQueue.peek reflects new minimum after pop", {
+test("PriorityQueue.peek reflects new minimum after pop", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(5));
@@ -228,20 +228,20 @@ test "PriorityQueue.peek reflects new minimum after pop", {
   assert(pq.peek().unwrap() == i32(10), "min should be 10 after removing 5");
   pq.pop();
   assert(pq.peek().unwrap() == i32(15), "min should be 15 after removing 10");
-};
+});
 
 // ---- Iterator Tests ----
 
-test "PriorityQueue into_iter - empty queue", {
+test("PriorityQueue into_iter - empty queue", {
   pq := PriorityQueue(i32).new();
   count := i32(0);
-  for pq.into_iter(), (x) => {
+  for(pq.into_iter(), (x) => {
     count = (count + i32(1));
-  };
+  });
   assert(count == i32(0));
-};
+});
 
-test "PriorityQueue into_iter - visits all elements", {
+test("PriorityQueue into_iter - visits all elements", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(30));
   pq.push(i32(10));
@@ -249,39 +249,39 @@ test "PriorityQueue into_iter - visits all elements", {
 
   sum := i32(0);
   count := i32(0);
-  for pq.into_iter(), (x) => {
+  for(pq.into_iter(), (x) => {
     sum = (sum + x);
     count = (count + i32(1));
-  };
+  });
   assert(sum == i32(60));
   assert(count == i32(3));
-};
+});
 
-test "PriorityQueue iter - yields pointers", {
+test("PriorityQueue iter - yields pointers", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(20));
 
   sum := i32(0);
-  for pq.iter(), (ptr) => {
+  for(pq.iter(), (ptr) => {
     sum = (sum + ptr.*);
-  };
+  });
   assert(sum == i32(30));
-};
+});
 
-test "PriorityQueue iter - mutate through pointer", {
+test("PriorityQueue iter - mutate through pointer", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(10));
 
-  for pq.iter(), (ptr) => {
+  for(pq.iter(), (ptr) => {
     ptr.* = (ptr.* * i32(100));
-  };
+  });
 
   // Elements are multiplied but in heap order
   sum := i32(0);
-  for pq.into_iter(), (x) => {
+  for(pq.into_iter(), (x) => {
     sum = (sum + x);
-  };
+  });
   assert(sum == i32(1500));
-};
+});

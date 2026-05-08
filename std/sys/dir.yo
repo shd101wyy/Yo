@@ -21,7 +21,7 @@
 //     assert(result == i32(0));
 //   };
 
-{ IOFuture } :: import "./future.yo";
+{ IOFuture } :: import("./future.yo");
 {
   __yo_async_mkdirat_start, __yo_async_unlinkat_start,
   __yo_async_renameat_start, __yo_async_symlinkat_start,
@@ -30,7 +30,7 @@
   __yo_async_getdents_start,
   __yo_dirent_size, __yo_dirent_reclen, __yo_dirent_type,
   __yo_dirent_name, __yo_dirent_ino
-} :: import "./externs.yo";
+} :: import("./externs.yo");
 
 // ============================================================================
 // Async Directory Operations (return IOFuture, use with await)
@@ -145,9 +145,7 @@ dirent_ino :: (fn(entry: *(u8)) -> u64)(
   __yo_dirent_ino(entry)
 );
 
-export
-  mkdir, unlink, rename,
+export(mkdir, unlink, rename,
   symlink, link, readlink,
   getdents,
-  dirent_size, dirent_reclen, dirent_type, dirent_name, dirent_ino
-;
+  dirent_size, dirent_reclen, dirent_type, dirent_name, dirent_ino);

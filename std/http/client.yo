@@ -17,20 +17,20 @@
 //     println(resp.body);
 //   });
 
-open import "../string";
-{ ArrayList } :: import "../collections/array_list";
-{ GlobalAllocator } :: import "../allocator";
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
-open import "../fmt";
-{ Error, AnyError, Exception } :: import "../error";
-{ TcpStream } :: import "../net/tcp";
-{ IpAddr, SocketAddr } :: import "../net/addr";
-{ lookup_host } :: import "../net/dns";
-{ Url, UrlError } :: import "../url";
+open(import("../fmt"));
+{ Error, AnyError, Exception } :: import("../error");
+{ TcpStream } :: import("../net/tcp");
+{ IpAddr, SocketAddr } :: import("../net/addr");
+{ lookup_host } :: import("../net/dns");
+{ Url, UrlError } :: import("../url");
 {
   HttpMethod, HttpHeader, HttpRequest, HttpResponse,
   parse_response, http_status_text
-} :: import "./http.yo";
+} :: import("./http.yo");
 
 // ============================================================================
 // HttpError
@@ -70,7 +70,7 @@ impl(HttpError, ToString(
 
 impl(HttpError, Error());
 
-export HttpError;
+export(HttpError);
 
 // ============================================================================
 // FetchOptions
@@ -112,7 +112,7 @@ impl(FetchOptions,
   })
 );
 
-export FetchOptions;
+export(FetchOptions);
 
 // ============================================================================
 // Internal helpers
@@ -122,23 +122,23 @@ export FetchOptions;
 _find_header_end :: (fn(data: ArrayList(u8)) -> usize)({
   len := data.len();
   cond(
-    (len < usize(4)) => { return usize(0); },
+    (len < usize(4)) => { return(usize(0)); },
     true => ()
   );
   i := usize(0);
   limit := (len - usize(3));
-  while runtime((i < limit)), {
+  while(runtime((i < limit)), {
     cond(
       ((data.get(i).unwrap() == u8(13)) &&
        ((data.get((i + usize(1))).unwrap() == u8(10)) &&
         ((data.get((i + usize(2))).unwrap() == u8(13)) &&
          (data.get((i + usize(3))).unwrap() == u8(10))))) => {
-        return i;
+        return(i);
       },
       true => ()
     );
     i = (i + usize(1));
-  };
+  });
   usize(0)
 });
 
@@ -147,10 +147,10 @@ _find_content_length :: (fn(data: ArrayList(u8), header_end: usize) -> i32)({
   // Build header string up to header_end
   header_bytes := ArrayList(u8).new();
   i := usize(0);
-  while runtime((i < header_end)), {
+  while(runtime((i < header_end)), {
     header_bytes.push(data.get(i).unwrap());
     i = (i + usize(1));
-  };
+  });
   header_str := String.from_bytes(header_bytes).to_lowercase();
   match(header_str.index_of(`content-length:`),
     .Some(pos) => {
@@ -162,19 +162,19 @@ _find_content_length :: (fn(data: ArrayList(u8), header_end: usize) -> i32)({
           val_str := rest.substring(usize(0), eol).trim();
           match(val_str.parse_i32(),
             .Some(n) => n,
-            .None => i32(-1)
+            .None => i32(-(1))
           )
         },
         .None => {
           val_str := rest.trim();
           match(val_str.parse_i32(),
             .Some(n) => n,
-            .None => i32(-1)
+            .None => i32(-(1))
           )
         }
       )
     },
-    .None => i32(-1)
+    .None => i32(-(1))
   )
 });
 
@@ -189,7 +189,7 @@ _read_http_response :: (fn(stream: TcpStream, using(io : IO, exn : Exception)) -
 
   // Read until connection closes or we've read the full response
   done := false;
-  while runtime(!(done)), {
+  while(runtime(!(done)), {
     n := io.await(stream.read(buf, buf_size, using(io)));
     cond(
       (n <= i32(0)) => {
@@ -197,10 +197,10 @@ _read_http_response :: (fn(stream: TcpStream, using(io : IO, exn : Exception)) -
       },
       true => {
         i := usize(0);
-        while runtime((i < usize(n))), {
+        while(runtime((i < usize(n))), {
           result.push((buf &+ i).*);
           i = (i + usize(1));
-        };
+        });
         // Check if we've received the full response by looking for
         // Content-Length or end of chunked transfer
         // For simplicity, check if the header section is complete
@@ -234,7 +234,7 @@ _read_http_response :: (fn(stream: TcpStream, using(io : IO, exn : Exception)) -
         );
       }
     );
-  };
+  });
   free(.Some(*(void)(buf)));
   String.from_bytes(result)
 });
@@ -265,7 +265,7 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
     cond(
       (is_http || is_https) => (),
       true => {
-        exn.throw(dyn HttpError.UnsupportedScheme(scheme));
+        exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
       }
     );
 
@@ -273,7 +273,7 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
     host := match(url.host(),
       .Some(h) => h,
       .None => {
-        exn.throw(dyn HttpError.InvalidUrl(`missing host`));
+        exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
         `_` // unreachable
       }
     );
@@ -291,7 +291,7 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
     addrs := io.await(lookup_host(host, using(io)));
     cond(
       (addrs.len() == usize(0)) => {
-        exn.throw(dyn HttpError.ConnectionFailed(`DNS resolution failed for ${host}`));
+        exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${host}`)));
       },
       true => ()
     );
@@ -318,11 +318,11 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
 
     // Add user-provided headers
     hi := usize(0);
-    while runtime((hi < opts.headers.len())), {
+    while(runtime((hi < opts.headers.len())), {
       h := opts.headers.get(hi).unwrap();
       req.set_header(h.name, h.value);
       hi = (hi + usize(1));
-    };
+    });
 
     // Set Content-Length if body is provided
     cond(
@@ -350,14 +350,14 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
     match(parse_response(raw_response),
       .Ok(resp) => resp,
       .Err(e) => {
-        exn.throw(dyn HttpError.Other(e));
+        exn.throw(dyn(HttpError.Other(e)));
         HttpResponse.new(i32(0), ``) // unreachable
       }
     )
   })
 );
 
-export fetch_with;
+export(fetch_with);
 
 /// Perform an HTTP GET request to the given URL string.
 /// Returns the `HttpResponse` on success.
@@ -372,8 +372,8 @@ fetch :: (fn(url_str: String, using(io : IO)) ->
   Impl(Future(HttpResponse, IO, Exception))
 )(
   io.async((using(io : IO, exn : Exception)) => {
-    return io.await(fetch_with(url_str, FetchOptions.new(), using(io)));
+    return(io.await(fetch_with(url_str, FetchOptions.new(), using(io))));
   })
 );
 
-export fetch;
+export(fetch);

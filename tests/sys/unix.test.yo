@@ -1,16 +1,16 @@
 // @skip_wasm32-emscripten — no network stack in WASM (Unix domain sockets unavailable)
 // @skip_wasm32-wasi — no network stack in WASM (Unix domain sockets unavailable)
-open import "std/libc/stdio";
-open import "std/string";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-{ AT_FDCWD } :: import "std/sys/constants";
-{ temp_dir, path_join } :: import "../helper";
-unix :: import "std/sys/unix";
-{ sockaddr_storage_size } :: import "std/sys/socket";
-dir :: import "std/sys/dir";
+{ AT_FDCWD } :: import("std/sys/constants");
+{ temp_dir, path_join } :: import("../helper");
+unix :: import("std/sys/unix");
+{ sockaddr_storage_size } :: import("std/sys/socket");
+dir :: import("std/sys/dir");
 
-test "Unix stream socket echo", {
+test("Unix stream socket echo", {
   tmp_dir := temp_dir();
   sock_path_str := path_join(tmp_dir, `yo_unix_sock_test`);
   sock_path_c := sock_path_str.to_cstr();
@@ -108,4 +108,4 @@ test "Unix stream socket echo", {
 
   unix.free_addr(addr);
   io.await(dir.unlink(AT_FDCWD, sock_path, i32(0)));
-};
+});

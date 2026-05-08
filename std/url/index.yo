@@ -1,9 +1,9 @@
 //! URL parsing and formatting per RFC 3986 (simplified).
 
-open import "../string";
-{ ArrayList } :: import "../collections/array_list";
-{ ToString } :: import "../fmt";
-{ Error, AnyError, Exception } :: import "../error";
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ ToString } :: import("../fmt");
+{ Error, AnyError, Exception } :: import("../error");
 
 /// Errors that can occur during URL parsing.
 UrlError :: enum(
@@ -57,30 +57,30 @@ _DOT       :: u8(46);   // '.'
 _parse_port :: (fn(s: str, start: usize, end: usize, using(exn : Exception)) -> u16)({
   cond(
     (start >= end) => {
-      exn.throw(dyn UrlError.InvalidPort);
+      exn.throw(dyn(UrlError.InvalidPort));
     },
     true => ()
   );
   val := u32(0);
   i := start;
-  while runtime((i < end)), {
+  while(runtime((i < end)), {
     ch := s.bytes(i);
     cond(
       ((ch >= _ZERO) && (ch <= _NINE)) => {
         val = ((val * u32(10)) + u32((ch - _ZERO)));
         cond(
           (val > u32(65535)) => {
-            exn.throw(dyn UrlError.InvalidPort);
+            exn.throw(dyn(UrlError.InvalidPort));
           },
           true => ()
         );
       },
       true => {
-        exn.throw(dyn UrlError.InvalidPort);
+        exn.throw(dyn(UrlError.InvalidPort));
       }
     );
     i = (i + usize(1));
-  };
+  });
   u16(val)
 });
 
@@ -102,7 +102,7 @@ impl(Url,
   parse : (fn(s: str, using(exn : Exception)) -> Url)({
     cond(
       (s.len() == usize(0)) => {
-        exn.throw(dyn UrlError.EmptyInput);
+        exn.throw(dyn(UrlError.EmptyInput));
       },
       true => ()
     );
@@ -115,7 +115,7 @@ impl(Url,
     scheme_end := usize(0);
     cond(
       (src_len == usize(0)) => {
-        exn.throw(dyn UrlError.MissingScheme);
+        exn.throw(dyn(UrlError.MissingScheme));
       },
       true => ()
     );
@@ -125,13 +125,13 @@ impl(Url,
     cond(
       ((((first >= _LOWER_A) && (first <= _LOWER_Z)) || ((first >= _UPPER_A) && (first <= _UPPER_Z)))) => (),
       true => {
-        exn.throw(dyn UrlError.MissingScheme);
+        exn.throw(dyn(UrlError.MissingScheme));
       }
     );
 
     i := usize(1);
     found_colon := false;
-    while runtime((i < src_len)), {
+    while(runtime((i < src_len)), {
       ch := s.bytes(i);
       cond(
         (ch == _COLON) => {
@@ -141,21 +141,21 @@ impl(Url,
         },
         (((((first >= _LOWER_A) && (first <= _LOWER_Z)) || ((first >= _UPPER_A) && (first <= _UPPER_Z))) || (((ch >= _LOWER_A) && (ch <= _LOWER_Z)) || ((ch >= _UPPER_A) && (ch <= _UPPER_Z)))) || ((((ch >= _ZERO) && (ch <= _NINE)) || (ch == _PLUS)) || ((ch == _MINUS) || (ch == _DOT)))) => (),
         true => {
-          exn.throw(dyn UrlError.MissingScheme);
+          exn.throw(dyn(UrlError.MissingScheme));
         }
       );
       i = (i + usize(1));
-    };
+    });
     cond(
       (!(found_colon)) => {
-        exn.throw(dyn UrlError.MissingScheme);
+        exn.throw(dyn(UrlError.MissingScheme));
       },
       true => ()
     );
 
     scheme_bytes := ArrayList(u8).new();
     j := usize(0);
-    while runtime((j < scheme_end)), {
+    while(runtime((j < scheme_end)), {
       b := s.bytes(j);
       // Normalize to lowercase
       cond(
@@ -163,7 +163,7 @@ impl(Url,
         true => scheme_bytes.push(b)
       );
       j = (j + usize(1));
-    };
+    });
     scheme := String.from_bytes(scheme_bytes);
     pos = (scheme_end + usize(1));  // skip ':'
 
@@ -189,7 +189,7 @@ impl(Url,
         auth_start := pos;
         auth_end := src_len;
         k := pos;
-        while runtime((k < src_len)), {
+        while(runtime((k < src_len)), {
           ch := s.bytes(k);
           cond(
             (((ch == _SLASH) || (ch == _QUESTION)) || (ch == _HASH)) => {
@@ -199,21 +199,21 @@ impl(Url,
             true => ()
           );
           k = (k + usize(1));
-        };
+        });
 
         // Check for userinfo (look for '@')
         host_start := auth_start;
         m := auth_start;
-        while runtime((m < auth_end)), {
+        while(runtime((m < auth_end)), {
           cond(
             (s.bytes(m) == _AT) => {
               // Everything before '@' is userinfo
               ui_bytes := ArrayList(u8).new();
               n := auth_start;
-              while runtime((n < m)), {
+              while(runtime((n < m)), {
                 ui_bytes.push(s.bytes(n));
                 n = (n + usize(1));
-              };
+              });
               userinfo = .Some(String.from_bytes(ui_bytes));
               host_start = (m + usize(1));
               break;
@@ -221,7 +221,7 @@ impl(Url,
             true => ()
           );
           m = (m + usize(1));
-        };
+        });
 
         // Parse host[:port]
         // Check for IPv6 literal [...]
@@ -229,19 +229,19 @@ impl(Url,
           ((host_start < auth_end) && (s.bytes(host_start) == _LBRACKET)) => {
             // IPv6: find closing ']'
             bracket_end := (host_start + usize(1));
-            while runtime(((bracket_end < auth_end) && (s.bytes(bracket_end) != _RBRACKET))), {
+            while(runtime(((bracket_end < auth_end) && (s.bytes(bracket_end) != _RBRACKET))), {
               bracket_end = (bracket_end + usize(1));
-            };
+            });
 
             host_bytes := ArrayList(u8).new();
             hh := host_start;
-            while runtime((hh <= bracket_end)), {
+            while(runtime((hh <= bracket_end)), {
               cond(
                 (hh < auth_end) => { host_bytes.push(s.bytes(hh)); },
                 true => ()
               );
               hh = (hh + usize(1));
-            };
+            });
             host = .Some(String.from_bytes(host_bytes));
 
             // Check for port after ']:'
@@ -257,7 +257,7 @@ impl(Url,
             // Regular host — find ':' for port
             (colon_pos : Option(usize)) = .None;
             cp := host_start;
-            while runtime((cp < auth_end)), {
+            while(runtime((cp < auth_end)), {
               cond(
                 (s.bytes(cp) == _COLON) => {
                   colon_pos = .Some(cp);
@@ -266,17 +266,17 @@ impl(Url,
                 true => ()
               );
               cp = (cp + usize(1));
-            };
+            });
 
             match(colon_pos,
               .Some(cp_val) => {
                 // host is before colon, port is after
                 host_b := ArrayList(u8).new();
                 hh2 := host_start;
-                while runtime((hh2 < cp_val)), {
+                while(runtime((hh2 < cp_val)), {
                   host_b.push(s.bytes(hh2));
                   hh2 = (hh2 + usize(1));
-                };
+                });
                 host = .Some(String.from_bytes(host_b));
 
                 port = .Some(_parse_port(s, (cp_val + usize(1)), auth_end));
@@ -285,10 +285,10 @@ impl(Url,
                 // No port, entire range is host
                 host_b := ArrayList(u8).new();
                 hh3 := host_start;
-                while runtime((hh3 < auth_end)), {
+                while(runtime((hh3 < auth_end)), {
                   host_b.push(s.bytes(hh3));
                   hh3 = (hh3 + usize(1));
-                };
+                });
                 h := String.from_bytes(host_b);
                 cond(
                   (!(h.is_empty())) => {
@@ -310,7 +310,7 @@ impl(Url,
     path_start := pos;
     path_end := src_len;
     pp := pos;
-    while runtime((pp < src_len)), {
+    while(runtime((pp < src_len)), {
       ch := s.bytes(pp);
       cond(
         ((ch == _QUESTION) || (ch == _HASH)) => {
@@ -320,16 +320,16 @@ impl(Url,
         true => ()
       );
       pp = (pp + usize(1));
-    };
+    });
 
     cond(
       (path_start < path_end) => {
         path_bytes := ArrayList(u8).new();
         pb := path_start;
-        while runtime((pb < path_end)), {
+        while(runtime((pb < path_end)), {
           path_bytes.push(s.bytes(pb));
           pb = (pb + usize(1));
-        };
+        });
         path_str = String.from_bytes(path_bytes);
       },
       true => ()
@@ -344,7 +344,7 @@ impl(Url,
         q_start := pos;
         q_end := src_len;
         qq := pos;
-        while runtime((qq < src_len)), {
+        while(runtime((qq < src_len)), {
           cond(
             (s.bytes(qq) == _HASH) => {
               q_end = qq;
@@ -353,13 +353,13 @@ impl(Url,
             true => ()
           );
           qq = (qq + usize(1));
-        };
+        });
         q_bytes := ArrayList(u8).new();
         qb := q_start;
-        while runtime((qb < q_end)), {
+        while(runtime((qb < q_end)), {
           q_bytes.push(s.bytes(qb));
           qb = (qb + usize(1));
-        };
+        });
         query = .Some(String.from_bytes(q_bytes));
         pos = q_end;
       },
@@ -373,10 +373,10 @@ impl(Url,
         pos = (pos + usize(1));  // skip '#'
         f_bytes := ArrayList(u8).new();
         fb := pos;
-        while runtime((fb < src_len)), {
+        while(runtime((fb < src_len)), {
           f_bytes.push(s.bytes(fb));
           fb = (fb + usize(1));
-        };
+        });
         fragment = .Some(String.from_bytes(f_bytes));
       },
       true => ()
@@ -385,7 +385,7 @@ impl(Url,
     // Ensure authority-based URLs have a path starting with "/" or empty
     cond(
       (has_authority && ((!(path_str.is_empty())) && (path_str.as_bytes().get(usize(0)).unwrap() != _SLASH))) => {
-        exn.throw(dyn UrlError.Other(`authority path must start with '/'`));
+        exn.throw(dyn(UrlError.Other(`authority path must start with '/'`)));
       },
       true => ()
     );
@@ -501,4 +501,4 @@ impl(Url, ToString(
   })
 ));
 
-export Url, UrlError;
+export(Url, UrlError);

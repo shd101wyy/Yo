@@ -1,8 +1,8 @@
 // @skip_wasm32-emscripten — no terminal in WASM (ioctl/termios unavailable)
 // @skip_wasm32-wasi — no terminal in WASM (ioctl/termios unavailable)
-open import "std/libc/stdio";
-{ platform, Platform } :: import "std/process";
-tty :: import "std/sys/tty";
+open(import("std/libc/stdio"));
+{ platform, Platform } :: import("std/process");
+tty :: import("std/sys/tty");
 
 print_bool :: (fn(value: bool) -> i32)(
   cond(
@@ -11,13 +11,13 @@ print_bool :: (fn(value: bool) -> i32)(
   )
 );
 
-test "isatty and winsize", {
+test("isatty and winsize", {
   cond(
     (platform == Platform.Windows) => {
       ();
     },
     true => {
-      { STDIN_FILENO } :: import "std/libc/unistd";
+      { STDIN_FILENO } :: import("std/libc/unistd");
 
       stdin_fd := i32(STDIN_FILENO);
       is_tty := tty.isatty(stdin_fd);
@@ -40,15 +40,15 @@ test "isatty and winsize", {
       );
     }
   );
-};
+});
 
-test "set and reset tty mode", {
+test("set and reset tty mode", {
   cond(
     (platform == Platform.Windows) => {
       ();
     },
     true => {
-      { STDIN_FILENO } :: import "std/libc/unistd";
+      { STDIN_FILENO } :: import("std/libc/unistd");
 
       stdin_fd := i32(STDIN_FILENO);
       is_tty := tty.isatty(stdin_fd);
@@ -71,4 +71,4 @@ test "set and reset tty mode", {
       );
     }
   );
-};
+});

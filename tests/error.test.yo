@@ -1,8 +1,8 @@
-open import "std/string";
-open import "std/fmt";
-open import "std/error";
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
 
-test "Test String as Error via AnyError", {
+test("Test String as Error via AnyError", {
   (err : AnyError) = dyn(`something went wrong`);
 
   // Downcast back to String and check the message
@@ -10,30 +10,30 @@ test "Test String as Error via AnyError", {
     .Some(s) => assert(s == `something went wrong`, "Expected error message to match"),
     .None => assert(false, "Expected Some(String), got None")
   );
-};
+});
 
-test "Test downcast AnyError back to String", {
+test("Test downcast AnyError back to String", {
   (err : AnyError) = dyn(`file not found`);
 
   match(downcast(err, String),
     .Some(s) => assert(s == `file not found`, "Expected 'file not found'"),
     .None => assert(false, "Expected Some(String), got None")
   );
-};
+});
 
-test "Test Error source returns None by default", {
+test("Test Error source returns None by default", {
   (err : AnyError) = dyn(`default source`);
 
   match(err.source(),
     .Some(s) => assert(false, "Expected None source"),
     .None => assert(true)
   );
-};
+});
 
-test "Test Exception throwing and catching with String", {
+test("Test Exception throwing and catching with String", {
   safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
     cond(
-      (y == i32(0)) => exn.throw(dyn `division by zero`),
+      (y == i32(0)) => exn.throw(dyn(`division by zero`)),
       true => (x / y)
     )
   );
@@ -45,7 +45,7 @@ test "Test Exception throwing and catching with String", {
         .Some(msg) => assert(msg == `division by zero`, "Expected error message to be 'division by zero'"),
         .None => assert(false, "Expected error to be a String")
       );
-      escape ();
+      escape(());
     })
   );
 
@@ -54,9 +54,9 @@ test "Test Exception throwing and catching with String", {
 
   safe_divide(10, 0, using(exn));
   assert(false, "Expected division by zero to throw an exception"); // Shouldn't enter this line
-};
+});
 
-test "Test Exception with custom MathError enum", {
+test("Test Exception with custom MathError enum", {
   MathError :: enum(
     DivisionByZero,
     NegativeSqrt
@@ -71,7 +71,7 @@ test "Test Exception with custom MathError enum", {
 
   safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
     cond(
-      (y == i32(0)) => exn.throw(dyn MathError.DivisionByZero),
+      (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
       true => (x / y)
     )
   );
@@ -87,7 +87,7 @@ test "Test Exception with custom MathError enum", {
           ),
         .None => assert(false, "Expected error to be a MathError")
       );
-      escape ();
+      escape(());
     })
   );
 
@@ -96,12 +96,12 @@ test "Test Exception with custom MathError enum", {
 
   safe_divide(10, 0, using(exn));
   assert(false, "Expected division by zero to throw an exception");
-};
+});
 
-test "Test ResumableException throwing and catching with String", {
+test("Test ResumableException throwing and catching with String", {
   safe_divide :: (fn(x: i32, y: i32, using(exn : ResumableException(i32))) -> i32)(
     cond(
-      (y == i32(0)) => exn.throw(dyn `division by zero`),
+      (y == i32(0)) => exn.throw(dyn(`division by zero`)),
       true => (x / y)
     )
   );
@@ -113,7 +113,7 @@ test "Test ResumableException throwing and catching with String", {
         .Some(msg) => assert(msg == `division by zero`, "Expected error message to be 'division by zero'"),
         .None => assert(false, "Expected error to be a String")
       );
-      return 666; // Return a default value for the resumable exception
+      return(666); // Return a default value for the resumable exception
     })
   );
 
@@ -122,9 +122,9 @@ test "Test ResumableException throwing and catching with String", {
 
   result = safe_divide(10, 0, using(exn));
   assert(result == 666, "Expected division by zero to resume with value 666");
-};
+});
 
-test "Test ResumableException with custom MathError enum", {
+test("Test ResumableException with custom MathError enum", {
   MathError :: enum(
     DivisionByZero,
     NegativeSqrt
@@ -139,7 +139,7 @@ test "Test ResumableException with custom MathError enum", {
 
   safe_divide :: (fn(x: i32, y: i32, using(exn : ResumableException(i32))) -> i32)(
     cond(
-      (y == i32(0)) => exn.throw(dyn MathError.DivisionByZero),
+      (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
       true => (x / y)
     )
   );
@@ -155,7 +155,7 @@ test "Test ResumableException with custom MathError enum", {
           ),
         .None => assert(false, "Expected error to be a MathError")
       );
-      return 888;
+      return(888);
     })
   );
 
@@ -164,4 +164,4 @@ test "Test ResumableException with custom MathError enum", {
 
   result = safe_divide(10, 0, using(exn));
   assert(result == 888, "Expected division by zero to resume with value 888");
-};
+});

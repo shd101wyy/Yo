@@ -1,6 +1,6 @@
 //! Hash set using SwissTable algorithm with set-theoretic operations.
 
-{ GlobalAllocator, AllocError } :: import "../allocator.yo";
+{ GlobalAllocator, AllocError } :: import("../allocator.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 
 /// Error variants for HashSet operations.
@@ -26,13 +26,11 @@ MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
 MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
 
 /// Extract H2 hash (lower 7 bits) from full hash.
-h2_hash :: (fn(hash: u64) -> u8)
-  (u8((hash & u64(127))))
+h2_hash :: (fn(hash: u64) -> u8)(u8((hash & u64(127))))
 ;
 
 /// Extract H1 hash (upper bits) for slot index.
-h1_hash :: (fn(hash: u64, capacity: usize) -> usize)
-  ((usize((hash >> u64(7))) % capacity))
+h1_hash :: (fn(hash: u64, capacity: usize) -> usize)((usize((hash >> u64(7))) % capacity))
 ;
 
 /// High-performance hash set using SwissTable algorithm.
@@ -40,14 +38,12 @@ h1_hash :: (fn(hash: u64, capacity: usize) -> usize)
 HashSet :: (fn(
   comptime(T): Type,
   where(T <: (Eq(T), Hash))
-) -> comptime(Type))
-  object(
+) -> comptime(Type))(object(
     ctrl : ?*(u8),
     data : ?*(T),
     capacity : usize,
     size : usize
-  )
-;
+  ));
 impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
   /**
     * Allocate memory for HashSet with given capacity
@@ -171,13 +167,13 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
         
         cond(
           (ctrl_byte == CTRL_EMPTY) => {
-            return .None;
+            return(.None);
           },
           (ctrl_byte == h2) => {
             stored_element := (data_ptr &+ probe_index).*;
             cond(
               (stored_element == element) => {
-                return .Some(probe_index);
+                return(.Some(probe_index));
               },
               true => ()
             );
@@ -206,7 +202,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
         
         cond(
           ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
-            return probe_index;
+            return(probe_index);
           },
           true => ()
         );
@@ -277,11 +273,11 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
           );
           
           match(self.ctrl,
-            .Some(ptr) => free(.Some(*(void) ptr)),
+            .Some(ptr) => free(.Some(*(void)(ptr))),
             .None => ()
           );
           match(self.data,
-            .Some(ptr) => free(.Some(*(void) ptr)),
+            .Some(ptr) => free(.Some(*(void)(ptr))),
             .None => ()
           );
           
@@ -734,11 +730,11 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), Dispose(
       );
       
       match(self.ctrl,
-        .Some(ptr) => free(.Some(*(void) ptr)),
+        .Some(ptr) => free(.Some(*(void)(ptr))),
         .None => ()
       );
       match(self.data,
-        .Some(ptr) => free(.Some(*(void) ptr)),
+        .Some(ptr) => free(.Some(*(void)(ptr))),
         .None => ()
       );
     }
@@ -765,7 +761,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIter(T), Iterator(
         ctrl_ptr := self._set.ctrl.unwrap();
         data_ptr := self._set.data.unwrap();
         result := Option(T).None;
-        while ((self._index < self._set.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
+        while(((self._index < self._set.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
           ctrl_byte := (ctrl_ptr &+ self._index).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
@@ -773,7 +769,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIter(T), Iterator(
             },
             true => ()
           );
-        };
+        });
         result
       }
     )
@@ -806,7 +802,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIterPtr(T), Iterator(
         ctrl_ptr := self._set.ctrl.unwrap();
         data_ptr := self._set.data.unwrap();
         result := Option(*(T)).None;
-        while ((self._index < self._set.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
+        while(((self._index < self._set.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
           ctrl_byte := (ctrl_ptr &+ self._index).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
@@ -814,7 +810,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIterPtr(T), Iterator(
             },
             true => ()
           );
-        };
+        });
         result
       }
     )
@@ -827,12 +823,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
   )
 );
 
-export
-  HashSet,
+export(HashSet,
   HashSetError,
   HashSetIter,
-  HashSetIterPtr
-;
+  HashSetIterPtr);
 
 // =============================================================================
 // hash_set! literal macro
@@ -860,7 +854,7 @@ __hash_set_build_adds :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -
 /// ```rust
 /// s := hash_set(i32(1), i32(2), i32(3));
 /// ```
-hash_set :: (fn(...(quote(elems))) -> unquote(Expr)) {
+hash_set :: (fn(...(quote(elems))) -> unquote(Expr))({
   __ :: comptime_assert((elems.len() > usize(0)),
     "hash_set requires at least one element to infer the element type");
   first :: elems.car();
@@ -868,12 +862,11 @@ hash_set :: (fn(...(quote(elems))) -> unquote(Expr)) {
   tmp :: gensym("hash_set");
   first_tmp :: gensym("hash_set_first");
   rest_adds :: __hash_set_build_adds(tmp, rest);
-  quote {
+  quote({
     unquote(first_tmp) := unquote(first);
     unquote(tmp) := HashSet(typeof(unquote(first_tmp))).new();
     unquote(tmp).add(unquote(first_tmp)).unwrap();
     unquote_splicing(rest_adds);
     unquote(tmp)
-  }
-};
-export hash_set;
+  })});
+export(hash_set);

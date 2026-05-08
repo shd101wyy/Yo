@@ -13,11 +13,11 @@
 //! io.await(writer.flush(using(io)));
 //! ```
 
-{ ArrayList } :: import "../../collections/array_list";
-open import "../../string";
-{ IOError } :: import "../errors";
-IO_file :: import "../file";
-{ GlobalAllocator } :: import "../../allocator";
+{ ArrayList } :: import("../../collections/array_list");
+open(import("../../string"));
+{ IOError } :: import("../errors");
+IO_file :: import("../file");
+{ GlobalAllocator } :: import("../../allocator");
 { malloc, free } :: GlobalAllocator;
 
 _DEFAULT_BUF_SIZE :: usize(4096);
@@ -71,7 +71,7 @@ impl(BufWriter,
           written := usize(0);
           total := self._buf.len();
 
-          while runtime(((written < total) && write_err.is_none())), {
+          while(runtime(((written < total) && write_err.is_none())), {
             remaining := u32((total - written));
             buf_ptr := self._buf.ptr().unwrap();
             n := io.await(IO_file.write(the_fd, (buf_ptr &+ written), remaining, self._offset));
@@ -84,7 +84,7 @@ impl(BufWriter,
                 self._offset = (self._offset + u64(n));
               }
             );
-          };
+          });
 
           self._buf = ArrayList(u8).with_capacity(self._capacity);
         },
@@ -108,7 +108,7 @@ impl(BufWriter,
       src_pos := usize(0);
       (write_err : Option(IOError)) = .None;
 
-      while runtime(((remaining > usize(0)) && write_err.is_none())), {
+      while(runtime(((remaining > usize(0)) && write_err.is_none())), {
         space := (self._capacity - self._buf.len());
         cond(
           (space == usize(0)) => {
@@ -125,15 +125,15 @@ impl(BufWriter,
               true => space
             );
             i := usize(0);
-            while runtime((i < to_copy)), {
+            while(runtime((i < to_copy)), {
               self._buf.push((data &+ (src_pos + i)).*);
               i = (i + usize(1));
-            };
+            });
             src_pos = (src_pos + to_copy);
             remaining = (remaining - to_copy);
           }
         );
-      };
+      });
 
       match(write_err,
         .Some(e) => .Err(e),
@@ -168,4 +168,4 @@ impl(BufWriter,
   )
 );
 
-export BufWriter;
+export(BufWriter);

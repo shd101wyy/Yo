@@ -11,10 +11,10 @@
 //! b := hex_decode("deadbeef");
 //! ```
 
-open import "../string";
-{ ArrayList } :: import "../collections/array_list";
-{ Error, AnyError, Exception } :: import "../error";
-{ ToString } :: import "../fmt";
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ Error, AnyError, Exception } :: import("../error");
+{ ToString } :: import("../fmt");
 
 // ============================================================================
 // Error type
@@ -39,7 +39,7 @@ impl(EncodingError, ToString(
 
 impl(EncodingError, Error());
 
-export EncodingError;
+export(EncodingError);
 
 // ============================================================================
 // Encoding
@@ -51,13 +51,13 @@ _HEX_CHARS :: "0123456789abcdef";
 _hex_encode_impl :: (fn(data: ArrayList(u8), hex_chars: str) -> String)({
   out := ArrayList(u8).with_capacity((data.len() * usize(2)));
   i := usize(0);
-  while (i < data.len()), (i = (i + usize(1))), {
+  while((i < data.len()), (i = (i + usize(1))), {
     b := data.get(i).unwrap();
     hi := usize(((b >> u8(4)) & u8(0xF)));
     lo := usize((b & u8(0xF)));
     out.push(hex_chars.bytes(hi));
     out.push(hex_chars.bytes(lo));
-  };
+  });
   String.from_bytes(out)
 });
 
@@ -66,7 +66,7 @@ hex_encode :: (fn(data: ArrayList(u8)) -> String)(
   _hex_encode_impl(data, _HEX_CHARS)
 );
 
-export hex_encode;
+export(hex_encode);
 
 // ============================================================================
 // Decoding
@@ -77,7 +77,7 @@ _hex_nibble :: (fn(c: u8, using(exn : Exception)) -> u8)(
     ((c >= u8(48)) && (c <= u8(57)))  => (c - u8(48)),         // '0'-'9'
     ((c >= u8(97)) && (c <= u8(102))) => ((c - u8(97)) + u8(10)), // 'a'-'f'
     ((c >= u8(65)) && (c <= u8(70)))  => ((c - u8(65)) + u8(10)), // 'A'-'F'
-    true => exn.throw(dyn EncodingError.InvalidChar(c))
+    true => exn.throw(dyn(EncodingError.InvalidChar(c)))
   )
 );
 
@@ -85,18 +85,18 @@ _hex_nibble :: (fn(c: u8, using(exn : Exception)) -> u8)(
 hex_decode :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8))({
   cond(
     (((s.len() % usize(2)) != usize(0))) => {
-      exn.throw(dyn EncodingError.OddLength);
+      exn.throw(dyn(EncodingError.OddLength));
     },
     true => ()
   );
   out := ArrayList(u8).with_capacity((s.len() / usize(2)));
   i   := usize(0);
-  while (i < s.len()), (i = (i + usize(2))), {
+  while((i < s.len()), (i = (i + usize(2))), {
     hi := _hex_nibble(s.bytes(i));
     lo := _hex_nibble(s.bytes((i + usize(1))));
     out.push(((hi << u8(4)) | lo));
-  };
+  });
   out
 });
 
-export hex_decode;
+export(hex_decode);

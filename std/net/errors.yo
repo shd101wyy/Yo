@@ -6,10 +6,10 @@
 // Example:
 //   { NetError } :: import "std/net/errors";
 
-open import "../string";
-{ IOError } :: import "../sys/errors";
-{ ToString } :: import "../fmt";
-{ Error, AnyError, Exception } :: import "../error";
+open(import("../string"));
+{ IOError } :: import("../sys/errors");
+{ ToString } :: import("../fmt");
+{ Error, AnyError, Exception } :: import("../error");
 
 // ============================================================================
 // NetError
@@ -73,7 +73,7 @@ impl(NetError, ToString(
       .IO(err) => err.to_string(),
       .Other(msg) => msg
     );
-    return s;
+    return(s);
   })
 ));
 
@@ -85,9 +85,9 @@ impl(NetError,
   check : (fn(result: i32, using(exn : Exception)) -> i32)(
     cond(
       (result >= i32(0)) => result,
-      true => exn.throw(dyn Self.from_io(IOError.from_errno((i32(0) - result))))
+      true => exn.throw(dyn(Self.from_io(IOError.from_errno((i32(0) - result)))))
     )
   )
 );
 
-export NetError;
+export(NetError);

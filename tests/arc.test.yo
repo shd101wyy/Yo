@@ -1,70 +1,68 @@
 // @skip_wasm32-wasi — no pthread support in standalone WASI
-test "Test basic Arc with primitive type", {
+test("Test basic Arc with primitive type", {
   a := arc(i32(42));
   val := a.(*);
   assert(val == 42);
-};
+});
 
-test "Test Arc copy shares value", {
+test("Test Arc copy shares value", {
   a := arc(i32(100));
   b := a;
   assert(a.(*) == 100);
   assert(b.(*) == 100);
-};
+});
 
-test "Test Arc with direct constructor", {
+test("Test Arc with direct constructor", {
   a := Arc(i32)(i32(99));
   assert(a.(*) == 99);
-};
+});
 
-test "Test Arc with struct type", {
+test("Test Arc with struct type", {
   Counter :: struct(count : i32);
 
   c := arc(Counter(i32(10)));
   assert(c.(*).count == 10);
-};
+});
 
-test "Test Arc copy of struct type", {
+test("Test Arc copy of struct type", {
   Counter :: struct(count : i32);
 
   c := arc(Counter(i32(20)));
   d := c;
   assert(c.(*).count == 20);
   assert(d.(*).count == 20);
-};
+});
 
-test "Test Arc with method delegation through deref", {
+test("Test Arc with method delegation through deref", {
   Counter :: struct(count : i32);
   impl(Counter,
-    get_count : ((fn(self : Self) -> i32) self.count)
+    get_count : ((fn(self : Self) -> i32)(self.count))
   );
 
   c := arc(Counter(i32(30)));
   assert(c.(*).get_count() == 30);
-};
+});
 
-test "Test Arc passed to function", {
+test("Test Arc passed to function", {
   Counter :: struct(count : i32);
 
-  read_arc :: (fn(a : Arc(Counter)) -> i32)
-    a.(*).count
-  ;
+  read_arc :: (fn(a : Arc(Counter)) -> i32)(a.(*).count);
 
   c := arc(Counter(i32(50)));
   result := read_arc(c);
   assert(result == 50);
   // c is still valid after passing to function (Arc copies on pass)
   assert(c.(*).count == 50);
-};
+});
 
-test "Test Arc rejects non-Send object type", {
+test("Test Arc rejects non-Send object type", {
   Counter :: object(count : i32);
 
   comptime_expect_error(Arc(Counter));
   comptime_expect_error(arc(Counter(i32(1))));
-};
+});
 
-test "Test Arc multiple copies", {
+test("Test Arc multiple copies", {
   a := arc(i32(7));
   b := a;
   c := a;
@@ -73,22 +71,22 @@ test "Test Arc multiple copies", {
   assert(b.(*) == 7);
   assert(c.(*) == 7);
   assert(d.(*) == 7);
-};
+});
 
-test "Test Arc implements Send", {
+test("Test Arc implements Send", {
   f :: Type.impls(Arc(i32), Send);
   comptime_assert(f, "Arc(i32) should implement Send");
-};
+});
 
-test "Test Arc of struct type", {
+test("Test Arc of struct type", {
   Point :: struct(x : i32, y : i32);
 
   p := arc(Point(i32(3), i32(4)));
   assert(p.(*).x == 3);
   assert(p.(*).y == 4);
-};
+});
 
-test "Test Arc scope cleanup", {
+test("Test Arc scope cleanup", {
   // Arc should be properly cleaned up when going out of scope
   // ASAN will detect any leaks
   {
@@ -98,22 +96,22 @@ test "Test Arc scope cleanup", {
     ()
   };
   assert(true);
-};
+});
 
 // --- Arc + Thread tests ---
 
-{ Thread } :: import "std/thread";
+{ Thread } :: import("std/thread");
 
-test "Test Arc shared across thread", {
+test("Test Arc shared across thread", {
   shared := arc(i32(42));
   t := Thread.spawn(() => {
     assert(shared.(*) == 42);
   });
   t.join();
   assert(shared.(*) == 42);
-};
+});
 
-test "Test Arc of struct shared across thread", {
+test("Test Arc of struct shared across thread", {
   Counter :: struct(count : i32);
 
   shared := arc(Counter(i32(99)));
@@ -122,9 +120,9 @@ test "Test Arc of struct shared across thread", {
   });
   t.join();
   assert(shared.(*).count == 99);
-};
+});
 
-test "Test Arc shared across multiple threads", {
+test("Test Arc shared across multiple threads", {
   shared := arc(i32(7));
   t1 := Thread.spawn(() => {
     assert(shared.(*) == 7);
@@ -135,4 +133,4 @@ test "Test Arc shared across multiple threads", {
   t1.join();
   t2.join();
   assert(shared.(*) == 7);
-};
+});

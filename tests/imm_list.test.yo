@@ -1,43 +1,43 @@
-open import "std/fmt";
-{ List } :: import "std/imm/list";
+open(import("std/fmt"));
+{ List } :: import("std/imm/list");
 
-test "List new creates empty list", {
+test("List new creates empty list", {
   xs := List(i32).new();
   assert(xs.is_empty(), "new list should be empty");
   assert((xs.len() == usize(0)), "new list length should be 0");
-};
+});
 
-test "List prepend and head", {
+test("List prepend and head", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   assert((xs.len() == usize(3)), "length should be 3");
   assert((xs.head().unwrap() == i32(3)), "head should be 3");
-};
+});
 
-test "List tail shares structure", {
+test("List tail shares structure", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   ys := xs.tail();
   assert((ys.len() == usize(2)), "tail length should be 2");
   assert((ys.head().unwrap() == i32(2)), "tail head should be 2");
   assert((xs.head().unwrap() == i32(3)), "original still has head 3");
-};
+});
 
-test "List get by index", {
+test("List get by index", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   assert((xs.get(usize(0)).unwrap() == i32(3)), "index 0 should be 3");
   assert((xs.get(usize(1)).unwrap() == i32(2)), "index 1 should be 2");
   assert((xs.get(usize(2)).unwrap() == i32(1)), "index 2 should be 1");
   assert(xs.get(usize(3)).is_none(), "index 3 should be None");
-};
+});
 
-test "List reverse", {
+test("List reverse", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   rev := xs.reverse();
   assert((rev.head().unwrap() == i32(1)), "reversed head should be 1");
   assert((rev.get(usize(1)).unwrap() == i32(2)), "reversed index 1 should be 2");
   assert((rev.get(usize(2)).unwrap() == i32(3)), "reversed index 2 should be 3");
-};
+});
 
-test "List concat", {
+test("List concat", {
   xs := List(i32).new().prepend(i32(2)).prepend(i32(1));
   ys := List(i32).new().prepend(i32(4)).prepend(i32(3));
   zs := xs.concat(ys);
@@ -46,37 +46,37 @@ test "List concat", {
   assert((zs.get(usize(1)).unwrap() == i32(2)), "concat[1] should be 2");
   assert((zs.get(usize(2)).unwrap() == i32(3)), "concat[2] should be 3");
   assert((zs.get(usize(3)).unwrap() == i32(4)), "concat[3] should be 4");
-};
+});
 
-test "List map", {
+test("List map", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   doubled := xs.map((x) => (x * i32(2)));
   assert((doubled.get(usize(0)).unwrap() == i32(6)), "doubled[0] should be 6");
   assert((doubled.get(usize(1)).unwrap() == i32(4)), "doubled[1] should be 4");
   assert((doubled.get(usize(2)).unwrap() == i32(2)), "doubled[2] should be 2");
-};
+});
 
-test "List filter", {
+test("List filter", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3)).prepend(i32(4));
   evens := xs.filter((x) => ((x % i32(2)) == i32(0)));
   assert((evens.len() == usize(2)), "filter length should be 2");
   assert((evens.get(usize(0)).unwrap() == i32(4)), "evens[0] should be 4");
   assert((evens.get(usize(1)).unwrap() == i32(2)), "evens[1] should be 2");
-};
+});
 
-test "List fold", {
+test("List fold", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   sum := xs.fold(i32(0), (acc, x) => (acc + x));
   assert((sum == i32(6)), "fold sum should be 6");
-};
+});
 
-test "List contains", {
+test("List contains", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   assert(xs.contains(i32(2)), "should contain 2");
   assert(!(xs.contains(i32(5))), "should not contain 5");
-};
+});
 
-test "List from_slice", {
+test("List from_slice", {
   arr := [i32(10), i32(20), i32(30)];
   slice := arr(usize(0)..usize(3));
   xs := List(i32).from_slice(slice);
@@ -84,17 +84,17 @@ test "List from_slice", {
   assert((xs.get(usize(0)).unwrap() == i32(10)), "from_slice[0] should be 10");
   assert((xs.get(usize(1)).unwrap() == i32(20)), "from_slice[1] should be 20");
   assert((xs.get(usize(2)).unwrap() == i32(30)), "from_slice[2] should be 30");
-};
+});
 
-test "List equality", {
+test("List equality", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2));
   ys := List(i32).new().prepend(i32(1)).prepend(i32(2));
   zs := List(i32).new().prepend(i32(1)).prepend(i32(3));
   assert((xs == ys), "equal lists should be equal");
   assert((xs != zs), "different lists should not be equal");
-};
+});
 
-test "List structural sharing", {
+test("List structural sharing", {
   base := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   branch1 := base.prepend(i32(10));
   branch2 := base.prepend(i32(20));
@@ -103,13 +103,13 @@ test "List structural sharing", {
   assert((branch1.head().unwrap() == i32(10)), "branch1 head should be 10");
   assert((branch2.head().unwrap() == i32(20)), "branch2 head should be 20");
   assert((branch1.tail() == branch2.tail()), "branches share the same tail");
-};
+});
 
-test "List Send check", {
+test("List Send check", {
   comptime_assert(Type.impls(List(i32), Send), "List(i32) should implement Send");
-};
+});
 
-test "List for_each", {
+test("List for_each", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   // Closures capture by value, so we verify each element via assert inside the closure
   xs.for_each((x) => {
@@ -119,12 +119,12 @@ test "List for_each", {
   List(i32).new().for_each((x) => {
     assert(false, "should not be called on empty list");
   });
-};
+});
 
-test "List empty operations", {
+test("List empty operations", {
   xs := List(i32).new();
   assert(xs.head().is_none(), "empty head should be None");
   assert(xs.tail().is_empty(), "empty tail should be empty");
   assert(xs.get(usize(0)).is_none(), "empty get should be None");
   assert((xs.reverse().len() == usize(0)), "empty reverse should be empty");
-};
+});

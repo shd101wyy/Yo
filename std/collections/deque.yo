@@ -11,7 +11,7 @@
 //! x := d.pop_front().unwrap();  // 0
 //! ```
 
-{ GlobalAllocator, AllocError } :: import "../allocator";
+{ GlobalAllocator, AllocError } :: import("../allocator");
 { malloc, realloc, free } :: GlobalAllocator;
 
 /// Circular buffer supporting efficient push/pop at both front and back.
@@ -47,26 +47,26 @@ impl(forall(T : Type), Deque(T),
       (self._capacity == usize(0)) => usize(8),
       true => (self._capacity * usize(2))
     );
-    while (new_cap < min_cap), (new_cap = (new_cap * usize(2))), ();
+    while((new_cap < min_cap), (new_cap = (new_cap * usize(2))), ());
     size := (new_cap * sizeof(T));
     new_buf := *(T)(malloc(size).unwrap());
     // Linearise existing elements into the new buffer
     i := usize(0);
-    while (i < self._len), (i = (i + usize(1))), {
+    while((i < self._len), (i = (i + usize(1))), {
       idx := ((self._head + i) % self._capacity);
       buf := self._buf.unwrap();
       consume((new_buf &+ i).* = (buf &+ idx).*);
-    };
+    });
     // Drop old elements for RC types before freeing old buffer
     // (the copy above duped each element, so old slots still hold references)
     cond(
       Type.contains_rc_type(T) => {
         j := usize(0);
-        while (j < self._len), (j = (j + usize(1))), {
+        while((j < self._len), (j = (j + usize(1))), {
           old_idx := ((self._head + j) % self._capacity);
           old_buf := self._buf.unwrap();
           unsafe.drop((old_buf &+ old_idx).*);
-        };
+        });
       },
       true => ()
     );
@@ -108,7 +108,7 @@ impl(forall(T : Type), Deque(T),
   }),
 
   // Remove and return the front element.
-  pop_front : (fn(self: Self) -> ?T)(
+  pop_front : (fn(self: Self) -> ?(T))(
     cond(
       (self._len == usize(0)) => .None,
       true => {
@@ -124,7 +124,7 @@ impl(forall(T : Type), Deque(T),
   ),
 
   // Remove and return the back element.
-  pop_back : (fn(self: Self) -> ?T)(
+  pop_back : (fn(self: Self) -> ?(T))(
     cond(
       (self._len == usize(0)) => .None,
       true => {
@@ -143,7 +143,7 @@ impl(forall(T : Type), Deque(T),
   ),
 
   // Get an element by logical index (0 = front).
-  get : (fn(self: Self, index: usize) -> ?T)(
+  get : (fn(self: Self, index: usize) -> ?(T))(
     cond(
       (index >= self._len) => .None,
       true => {
@@ -162,10 +162,10 @@ impl(forall(T : Type), Deque(T), Dispose(
         cond(
           Type.contains_rc_type(T) => {
             i := usize(0);
-            while (i < self._len), (i = (i + usize(1))), {
+            while((i < self._len), (i = (i + usize(1))), {
               idx := ((self._head + i) % self._capacity);
               unsafe.drop((p &+ idx).*);
-            };
+            });
           },
           true => ()
         );
@@ -258,8 +258,6 @@ impl(forall(T : Type), Deque(T), Index(usize)(
   })
 ));
 
-export
-  Deque,
+export(Deque,
   DequeIter,
-  DequeIterPtr
-;
+  DequeIterPtr);

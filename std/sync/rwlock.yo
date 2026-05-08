@@ -17,18 +17,18 @@
 //! lock.write_unlock();
 //! ```
 
-{ Mutex } :: import "./mutex";
-{ Cond } :: import "./cond";
+{ Mutex } :: import("./mutex");
+{ Cond } :: import("./cond");
 
 /// Reader-writer lock built on `Mutex` and `Cond`.
 /// Uses atomic reference counting for safe cross-thread sharing.
-RwLock :: atomic object(
+RwLock :: atomic(object(
   _readers  : i32,
   _writer   : bool,
   _mutex    : Mutex,
   _read_cv  : Cond,
   _write_cv : Cond
-);
+));
 
 impl(RwLock,
   // Create a new reader-writer lock.
@@ -46,9 +46,9 @@ impl(RwLock,
   // Multiple readers can hold the lock simultaneously.
   read_lock : (fn(self: Self) -> unit)({
     self._mutex.lock();
-    while runtime(self._writer), {
+    while(runtime(self._writer), {
       self._read_cv.wait(self._mutex);
-    };
+    });
     self._readers = (self._readers + i32(1));
     self._mutex.unlock();
   }),
@@ -67,9 +67,9 @@ impl(RwLock,
   // Acquire a write lock. Blocks until all readers and writers release.
   write_lock : (fn(self: Self) -> unit)({
     self._mutex.lock();
-    while runtime((self._writer || (self._readers > i32(0)))), {
+    while(runtime((self._writer || (self._readers > i32(0)))), {
       self._write_cv.wait(self._mutex);
-    };
+    });
     self._writer = true;
     self._mutex.unlock();
   }),
@@ -84,4 +84,4 @@ impl(RwLock,
   })
 );
 
-export RwLock;
+export(RwLock);

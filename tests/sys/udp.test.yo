@@ -1,18 +1,18 @@
 // @skip_wasm32-emscripten — no network stack in WASM (UDP sockets unavailable)
 // @skip_wasm32-wasi — no network stack in WASM (UDP sockets unavailable)
-open import "std/libc/stdio";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-open import "std/string";
-{ platform, Platform } :: import "std/process";
-udp :: import "std/sys/udp";
-tcp :: import "std/sys/tcp";
+open(import("std/string"));
+{ platform, Platform } :: import("std/process");
+udp :: import("std/sys/udp");
+tcp :: import("std/sys/tcp");
 {
   AF_INET, SOCK_DGRAM,
   SOL_SOCKET, SO_REUSEADDR
-} :: import "std/sys/socket";
+} :: import("std/sys/socket");
 
-test "UDP socket creation and close", {
+test("UDP socket creation and close", {
   sockfd := io.await(udp.socket(AF_INET, i32(0)));
   printf("  socket fd = %d\n", sockfd);
   assert(sockfd >= i32(0));
@@ -20,9 +20,9 @@ test "UDP socket creation and close", {
   close_result := io.await(udp.close(sockfd));
   printf("  close = %d\n", close_result);
   assert(close_result == i32(0));
-};
+});
 
-test "UDP socket bind to loopback", {
+test("UDP socket bind to loopback", {
   sockfd := io.await(udp.socket(AF_INET, i32(0)));
   assert(sockfd >= i32(0));
 
@@ -33,9 +33,9 @@ test "UDP socket bind to loopback", {
 
   io.await(udp.close(sockfd));
   tcp.free_sockaddr(addr);
-};
+});
 
-test "UDP setsockopt SO_REUSEADDR", {
+test("UDP setsockopt SO_REUSEADDR", {
   sockfd := io.await(udp.socket(AF_INET, i32(0)));
   assert(sockfd >= i32(0));
 
@@ -50,9 +50,9 @@ test "UDP setsockopt SO_REUSEADDR", {
   free(.Some(*(void)(optval)));
 
   io.await(udp.close(sockfd));
-};
+});
 
-test "UDP sendto and recvfrom", {
+test("UDP sendto and recvfrom", {
   // Create server socket
   server_fd := io.await(udp.socket(AF_INET, i32(0)));
   assert(server_fd >= i32(0));
@@ -111,9 +111,9 @@ test "UDP sendto and recvfrom", {
   io.await(udp.close(server_fd));
   tcp.free_sockaddr(server_addr);
   tcp.free_sockaddr(client_addr);
-};
+});
 
-test "UDP bidirectional ping-pong", {
+test("UDP bidirectional ping-pong", {
   // Create and bind server
   server_fd := io.await(udp.socket(AF_INET, i32(0)));
   assert(server_fd >= i32(0));
@@ -181,9 +181,9 @@ test "UDP bidirectional ping-pong", {
   io.await(udp.close(server_fd));
   tcp.free_sockaddr(server_addr);
   tcp.free_sockaddr(client_addr);
-};
+});
 
-test "UDP sockaddr helpers from tcp module", {
+test("UDP sockaddr helpers from tcp module", {
   // Test that tcp.make_sockaddr_in works for UDP too
   addr := tcp.make_sockaddr_in_loopback(u16(12345));
   family := tcp.get_family(addr.buf);
@@ -195,4 +195,4 @@ test "UDP sockaddr helpers from tcp module", {
   assert(port == u16(12345));
 
   tcp.free_sockaddr(addr);
-};
+});

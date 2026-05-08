@@ -7,7 +7,7 @@
 //! - Encoded error pointer on failure (negative errno cast to pointer)
 // Use is_error(ptr) and error_code(ptr) to detect/decode mmap failures.
 
-{ platform, Platform } :: import "../process";
+{ platform, Platform } :: import("../process");
 {
   __yo_sync_mmap,
   __yo_sync_mmap_is_error,
@@ -15,7 +15,7 @@
   __yo_sync_munmap,
   __yo_sync_mprotect,
   __yo_sync_msync
-} :: import "./externs.yo";
+} :: import("./externs.yo");
 
 // Protection constants
 PROT_NONE  :: i32(0);
@@ -81,10 +81,8 @@ msync :: (fn(addr: *(u8), length: usize, flags: i32) -> i32)(
   __yo_sync_msync(addr, length, flags)
 );
 
-export
-  mmap, is_error, error_code,
+export(mmap, is_error, error_code,
   munmap, mprotect, msync,
   PROT_NONE, PROT_READ, PROT_WRITE, PROT_EXEC,
   MAP_SHARED, MAP_PRIVATE, MAP_ANONYMOUS,
-  MS_ASYNC, MS_INVALIDATE, MS_SYNC
-;
+  MS_ASYNC, MS_INVALIDATE, MS_SYNC);

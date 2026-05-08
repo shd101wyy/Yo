@@ -18,7 +18,7 @@
 //! assert((m.len() == usize(2)), "two entries");
 //! ```
 
-{ GlobalAllocator } :: import "../allocator.yo";
+{ GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
 
 /// Number of bits per HAMT level.
@@ -45,12 +45,11 @@ MapLeaf :: (fn(
   comptime(V) : Type,
   where(K <: (Eq(K), Hash, Send), V <: Send)
 ) -> comptime(Type))(
-  atomic object(
+  atomic(object(
     hash : u64,
     key : K,
     value : V
-  )
-);
+  )));
 
 /// HAMT collision node -- multiple entries sharing the same hash.
 MapCollision :: (fn(
@@ -58,20 +57,19 @@ MapCollision :: (fn(
   comptime(V) : Type,
   where(K <: (Eq(K), Hash, Send), V <: Send)
 ) -> comptime(Type))(
-  atomic object(
+  atomic(object(
     hash : u64,
     _pairs_ptr : *(Pair(K, V)),
     _pairs_len : usize
-  )
-);
+  )));
 
 impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: Send),
   MapCollision(K, V), Dispose(
   dispose : (fn(self: Self) -> unit)({
     i := usize(0);
-    while (i < self._pairs_len), (i = (i + usize(1))), {
+    while((i < self._pairs_len), (i = (i + usize(1))), {
       unsafe.drop((self._pairs_ptr &+ i).*);
-    };
+    });
     free(.Some(*(void)(self._pairs_ptr)));
   })
 ));
@@ -85,12 +83,11 @@ MapBranch :: (fn(
   comptime(V) : Type,
   where(K <: (Eq(K), Hash, Send), V <: Send)
 ) -> comptime(Type))(
-  atomic object(
+  atomic(object(
     bitmap : u32,
     _children_ptr : *(void),
     _children_len : u8
-  )
-);
+  )));
 
 /// Tagged union representing a single HAMT node.
 MapNode :: (fn(
@@ -110,9 +107,9 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: Send),
   dispose : (fn(self: Self) -> unit)({
     children := *(MapNode(K, V))(self._children_ptr);
     i := u8(0);
-    while (i < self._children_len), (i = (i + u8(1))), {
+    while((i < self._children_len), (i = (i + u8(1))), {
       unsafe.drop((children &+ usize(i)).*);
-    };
+    });
     free(.Some(self._children_ptr));
   })
 ));
@@ -169,11 +166,11 @@ _copy_children :: (fn(
 ) -> unit)({
   node_sz := sizeof(MapNode(K, V));
   i := u8(0);
-  while (i < count), (i = (i + u8(1))), {
+  while((i < count), (i = (i + u8(1))), {
     src_ptr := *(MapNode(K, V))((src &+ (node_sz * usize((src_offset + i)))));
     dst_ptr := *(MapNode(K, V))((dst &+ (node_sz * usize((dst_offset + i)))));
     consume(dst_ptr.* = src_ptr.*);
-  };
+  });
 });
 
 _branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch: MapBranch(K, V), bit: u32, child: MapNode(K, V), where(K <: (Eq(K), Hash, Send), V <: Send)) -> MapBranch(K, V))({
@@ -228,11 +225,11 @@ _alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count: usize, where(
 
 _coll_find_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision(K, V), k: K, where(K <: (Eq(K), Hash, Send), V <: Send)) -> Option(usize))({
   i := usize(0);
-  while (i < coll._pairs_len), (i = (i + usize(1))), {
+  while((i < coll._pairs_len), (i = (i + usize(1))), {
     if(((coll._pairs_ptr &+ i).*.key == k), {
-      return .Some(i);
+      return(.Some(i));
     });
-  };
+  });
   .None
 });
 
@@ -244,9 +241,9 @@ _copy_pairs :: (fn(
   where(K <: (Eq(K), Hash, Send), V <: Send)
 ) -> unit)({
   i := usize(0);
-  while (i < count), (i = (i + usize(1))), {
+  while((i < count), (i = (i + usize(1))), {
     consume((dst &+ (dst_offset + i)).* = (src &+ (src_offset + i)).*);
-  };
+  });
 });
 
 _coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollision(K, V), k: K, v: V, where(K <: (Eq(K), Hash, Send), V <: Send)) -> MapCollision(K, V))(
@@ -255,14 +252,14 @@ _coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollisio
       new_ptr := _alloc_pairs(K, V, coll._pairs_len);
       _copy_pairs(K, V, new_ptr, coll._pairs_ptr, usize(0), usize(0), coll._pairs_len);
       (new_ptr &+ idx).* = Pair(K, V)(key: k, value: v);
-      return MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: coll._pairs_len);
+      return(MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: coll._pairs_len));
     },
     .None => {
       new_len := (coll._pairs_len + usize(1));
       new_ptr := _alloc_pairs(K, V, new_len);
       _copy_pairs(K, V, new_ptr, coll._pairs_ptr, usize(0), usize(0), coll._pairs_len);
       consume((new_ptr &+ coll._pairs_len).* = Pair(K, V)(key: k, value: v));
-      return MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: new_len);
+      return(MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: new_len));
     }
   )
 );
@@ -271,7 +268,7 @@ _coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollis
   match(_coll_find_key(K, V, coll, k),
     .Some(idx) => {
       if((coll._pairs_len <= usize(2)), {
-        return .None;
+        return(.None);
       });
       new_len := (coll._pairs_len - usize(1));
       new_ptr := _alloc_pairs(K, V, new_len);
@@ -282,7 +279,7 @@ _coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll: MapCollis
       if((usize(remaining) > usize(0)), {
         _copy_pairs(K, V, new_ptr, coll._pairs_ptr, idx, (idx + usize(1)), remaining);
       });
-      return .Some(MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: new_len));
+      return(.Some(MapCollision(K, V)(hash: coll.hash, _pairs_ptr: new_ptr, _pairs_len: new_len)));
     },
     .None => .Some(coll)
   )
@@ -314,11 +311,11 @@ _make_branch :: (fn(
     child := recur(K, V, (shift + BITS), node1, hash1, node2, hash2);
     ptr := _alloc_map_children(K, V, u8(1));
     consume((*(MapNode(K, V))(ptr)).* = child);
-    return .Branch(MapBranch(K, V)(
+    return(.Branch(MapBranch(K, V)(
       bitmap: _bit_for(frag1),
       _children_ptr: ptr,
       _children_len: u8(1)
-    ));
+    )));
   });
   bit1 := _bit_for(frag1);
   bit2 := _bit_for(frag2);
@@ -357,24 +354,24 @@ _node_insert :: (fn(
     .Leaf(leaf) => {
       if((leaf.hash == hash), {
         if((leaf.key == k), {
-          return InsertResult(K, V)(
+          return(InsertResult(K, V)(
             node: .Leaf(MapLeaf(K, V)(hash: hash, key: k, value: v)),
             added: false
-          );
+          ));
         });
         pairs_ptr := _alloc_pairs(K, V, usize(2));
         consume(pairs_ptr.* = Pair(K, V)(key: leaf.key, value: leaf.value));
         consume((pairs_ptr &+ usize(1)).* = Pair(K, V)(key: k, value: v));
-        return InsertResult(K, V)(
+        return(InsertResult(K, V)(
           node: .Collision(MapCollision(K, V)(hash: hash, _pairs_ptr: pairs_ptr, _pairs_len: usize(2))),
           added: true
-        );
+        ));
       });
       new_leaf := MapNode(K, V).Leaf(MapLeaf(K, V)(hash: hash, key: k, value: v));
-      return InsertResult(K, V)(
+      return(InsertResult(K, V)(
         node: _make_branch(K, V, shift, node, leaf.hash, new_leaf, hash),
         added: true
-      );
+      ));
     },
     .Branch(branch) => {
       frag := _fragment(hash, shift);
@@ -383,31 +380,31 @@ _node_insert :: (fn(
         idx := _branch_index_for(K, V, branch, bit);
         child := _branch_child_at(K, V, branch, idx);
         result := recur(K, V, child, (shift + BITS), hash, k, v);
-        return InsertResult(K, V)(
+        return(InsertResult(K, V)(
           node: .Branch(_branch_replace_child(K, V, branch, bit, result.node)),
           added: result.added
-        );
+        ));
       });
       new_leaf_node := MapNode(K, V).Leaf(MapLeaf(K, V)(hash: hash, key: k, value: v));
-      return InsertResult(K, V)(
+      return(InsertResult(K, V)(
         node: .Branch(_branch_with_child(K, V, branch, bit, new_leaf_node)),
         added: true
-      );
+      ));
     },
     .Collision(coll) => {
       if((coll.hash == hash), {
         found := _coll_find_key(K, V, coll, k);
-        return InsertResult(K, V)(
+        return(InsertResult(K, V)(
           node: .Collision(_coll_with_pair(K, V, coll, k, v)),
           added: found.is_none()
-        );
+        ));
       });
       coll_node := MapNode(K, V).Collision(coll);
       new_leaf := MapNode(K, V).Leaf(MapLeaf(K, V)(hash: hash, key: k, value: v));
-      return InsertResult(K, V)(
+      return(InsertResult(K, V)(
         node: _make_branch(K, V, shift, coll_node, coll.hash, new_leaf, hash),
         added: true
-      );
+      ));
     }
   )
 );
@@ -430,22 +427,22 @@ _node_get :: (fn(
       frag := _fragment(hash, shift);
       bit := _bit_for(frag);
       if(!(_branch_has_child(K, V, branch, bit)), {
-        return .None;
+        return(.None);
       });
       idx := _branch_index_for(K, V, branch, bit);
-      return recur(K, V, _branch_child_at(K, V, branch, idx), (shift + BITS), hash, k);
+      return(recur(K, V, _branch_child_at(K, V, branch, idx), (shift + BITS), hash, k));
     },
     .Collision(coll) => {
       if((coll.hash != hash), {
-        return .None;
+        return(.None);
       });
       i := usize(0);
-      while (i < coll._pairs_len), (i = (i + usize(1))), {
+      while((i < coll._pairs_len), (i = (i + usize(1))), {
         pair := (coll._pairs_ptr &+ i).*;
         if((pair.key == k), {
-          return .Some(pair.value);
+          return(.Some(pair.value));
         });
-      };
+      });
       .None
     }
   )
@@ -475,55 +472,55 @@ _node_remove :: (fn(
       frag := _fragment(hash, shift);
       bit := _bit_for(frag);
       if(!(_branch_has_child(K, V, branch, bit)), {
-        return RemoveResult(K, V)(node: .Some(node), removed: false);
+        return(RemoveResult(K, V)(node: .Some(node), removed: false));
       });
       idx := _branch_index_for(K, V, branch, bit);
       child := _branch_child_at(K, V, branch, idx);
       sub := recur(K, V, child, (shift + BITS), hash, k);
       if(!(sub.removed), {
-        return RemoveResult(K, V)(node: .Some(node), removed: false);
+        return(RemoveResult(K, V)(node: .Some(node), removed: false));
       });
       match(sub.node,
         .Some(new_child) => {
-          return RemoveResult(K, V)(
+          return(RemoveResult(K, V)(
             node: .Some(.Branch(_branch_replace_child(K, V, branch, bit, new_child))),
             removed: true
-          );
+          ));
         },
         .None => {
           if((branch._children_len == u8(1)), {
-            return RemoveResult(K, V)(node: .None, removed: true);
+            return(RemoveResult(K, V)(node: .None, removed: true));
           });
           if((branch._children_len == u8(2)), {
             other_idx := cond((idx == u8(0)) => u8(1), true => u8(0));
             remaining := _branch_child_at(K, V, branch, other_idx);
             match(remaining,
               .Leaf(_) => {
-                return RemoveResult(K, V)(node: .Some(remaining), removed: true);
+                return(RemoveResult(K, V)(node: .Some(remaining), removed: true));
               },
               _ => ()
             );
           });
-          return RemoveResult(K, V)(
+          return(RemoveResult(K, V)(
             node: .Some(.Branch(_branch_without_child(K, V, branch, bit))),
             removed: true
-          );
+          ));
         }
       );
     },
     .Collision(coll) => {
       if((coll.hash != hash), {
-        return RemoveResult(K, V)(node: .Some(node), removed: false);
+        return(RemoveResult(K, V)(node: .Some(node), removed: false));
       });
       match(_coll_without_key(K, V, coll, k),
         .Some(new_coll) => {
           if((new_coll._pairs_len == coll._pairs_len), {
-            return RemoveResult(K, V)(node: .Some(node), removed: false);
+            return(RemoveResult(K, V)(node: .Some(node), removed: false));
           });
-          return RemoveResult(K, V)(
+          return(RemoveResult(K, V)(
             node: .Some(.Collision(new_coll)),
             removed: true
-          );
+          ));
         },
         .None => {
           remaining_idx := cond(
@@ -531,10 +528,10 @@ _node_remove :: (fn(
             true => usize(0)
           );
           remaining_pair := (coll._pairs_ptr &+ remaining_idx).*;
-          return RemoveResult(K, V)(
+          return(RemoveResult(K, V)(
             node: .Some(.Leaf(MapLeaf(K, V)(hash: coll.hash, key: remaining_pair.key, value: remaining_pair.value))),
             removed: true
-          );
+          ));
         }
       );
     }
@@ -543,7 +540,7 @@ _node_remove :: (fn(
 
 // -- Collection helpers --
 
-{ List } :: import "./list.yo";
+{ List } :: import("./list.yo");
 
 // -- Eq trait --
 
@@ -559,18 +556,18 @@ _merge_from_node :: (fn(
     .Branch(branch) => {
       (result : Map(K, V)) = acc;
       i := u8(0);
-      while (i < branch._children_len), (i = (i + u8(1))), {
+      while((i < branch._children_len), (i = (i + u8(1))), {
         result = recur(K, V, result, _branch_child_at(K, V, branch, i));
-      };
+      });
       result
     },
     .Collision(coll) => {
       (result : Map(K, V)) = acc;
       i := usize(0);
-      while (i < coll._pairs_len), (i = (i + usize(1))), {
+      while((i < coll._pairs_len), (i = (i + usize(1))), {
         pair := (coll._pairs_ptr &+ i).*;
         result = result.insert(pair.key, pair.value);
-      };
+      });
       result
     }
   )
@@ -588,17 +585,17 @@ _collect_keys :: (fn(
     .Branch(branch) => {
       (result : List(K)) = acc;
       i := u8(0);
-      while (i < branch._children_len), (i = (i + u8(1))), {
+      while((i < branch._children_len), (i = (i + u8(1))), {
         result = recur(K, V, _branch_child_at(K, V, branch, i), result);
-      };
+      });
       result
     },
     .Collision(coll) => {
       (result : List(K)) = acc;
       i := usize(0);
-      while (i < coll._pairs_len), (i = (i + usize(1))), {
+      while((i < coll._pairs_len), (i = (i + usize(1))), {
         result = result.prepend((coll._pairs_ptr &+ i).*.key);
-      };
+      });
       result
     }
   )
@@ -616,17 +613,17 @@ _collect_values :: (fn(
     .Branch(branch) => {
       (result : List(V)) = acc;
       i := u8(0);
-      while (i < branch._children_len), (i = (i + u8(1))), {
+      while((i < branch._children_len), (i = (i + u8(1))), {
         result = recur(K, V, _branch_child_at(K, V, branch, i), result);
-      };
+      });
       result
     },
     .Collision(coll) => {
       (result : List(V)) = acc;
       i := usize(0);
-      while (i < coll._pairs_len), (i = (i + usize(1))), {
+      while((i < coll._pairs_len), (i = (i + usize(1))), {
         result = result.prepend((coll._pairs_ptr &+ i).*.value);
-      };
+      });
       result
     }
   )
@@ -644,17 +641,17 @@ _collect_entries :: (fn(
     .Branch(branch) => {
       (result : List(Pair(K, V))) = acc;
       i := u8(0);
-      while (i < branch._children_len), (i = (i + u8(1))), {
+      while((i < branch._children_len), (i = (i + u8(1))), {
         result = recur(K, V, _branch_child_at(K, V, branch, i), result);
-      };
+      });
       result
     },
     .Collision(coll) => {
       (result : List(Pair(K, V))) = acc;
       i := usize(0);
-      while (i < coll._pairs_len), (i = (i + usize(1))), {
+      while((i < coll._pairs_len), (i = (i + usize(1))), {
         result = result.prepend((coll._pairs_ptr &+ i).*);
-      };
+      });
       result
     }
   )
@@ -674,9 +671,9 @@ _map_values_node :: (fn(
       new_ptr := _alloc_map_children(K, U, branch._children_len);
       new_children := *(MapNode(K, U))(new_ptr);
       i := u8(0);
-      while (i < branch._children_len), (i = (i + u8(1))), {
+      while((i < branch._children_len), (i = (i + u8(1))), {
         consume((new_children &+ usize(i)).* = recur(K, V, U, _branch_child_at(K, V, branch, i), f));
-      };
+      });
       .Branch(MapBranch(K, U)(
         bitmap: branch.bitmap,
         _children_ptr: new_ptr,
@@ -686,10 +683,10 @@ _map_values_node :: (fn(
     .Collision(coll) => {
       new_ptr := _alloc_pairs(K, U, coll._pairs_len);
       i := usize(0);
-      while (i < coll._pairs_len), (i = (i + usize(1))), {
+      while((i < coll._pairs_len), (i = (i + usize(1))), {
         old_pair := (coll._pairs_ptr &+ i).*;
         consume((new_ptr &+ i).* = Pair(K, U)(key: old_pair.key, value: f(old_pair.value)));
-      };
+      });
       .Collision(MapCollision(K, U)(
         hash: coll.hash,
         _pairs_ptr: new_ptr,
@@ -715,20 +712,20 @@ _filter_from_node :: (fn(
     .Branch(branch) => {
       (result : Map(K, V)) = acc;
       i := u8(0);
-      while (i < branch._children_len), (i = (i + u8(1))), {
+      while((i < branch._children_len), (i = (i + u8(1))), {
         result = recur(K, V, result, _branch_child_at(K, V, branch, i), f);
-      };
+      });
       result
     },
     .Collision(coll) => {
       (result : Map(K, V)) = acc;
       i := usize(0);
-      while (i < coll._pairs_len), (i = (i + usize(1))), {
+      while((i < coll._pairs_len), (i = (i + usize(1))), {
         pair := (coll._pairs_ptr &+ i).*;
         if(f(pair.key, pair.value), {
           result = result.insert(pair.key, pair.value);
         });
-      };
+      });
       result
     }
   )
@@ -749,17 +746,17 @@ _all_entries_match :: (fn(
     .Branch(branch) => {
       i := u8(0);
       (ok : bool) = true;
-      while ((i < branch._children_len) && ok), (i = (i + u8(1))), {
+      while(((i < branch._children_len) && ok), (i = (i + u8(1))), {
         if(!(recur(K, V, _branch_child_at(K, V, branch, i), target)), {
           ok = false;
         });
-      };
+      });
       ok
     },
     .Collision(coll) => {
       i := usize(0);
       (ok : bool) = true;
-      while ((i < coll._pairs_len) && ok), (i = (i + usize(1))), {
+      while(((i < coll._pairs_len) && ok), (i = (i + usize(1))), {
         pair := (coll._pairs_ptr &+ i).*;
         match(target.get(pair.key),
           .Some(tv) => {
@@ -771,7 +768,7 @@ _all_entries_match :: (fn(
             ok = false;
           }
         );
-      };
+      });
       ok
     }
   )
@@ -810,7 +807,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: Send), Map
       .Some(root) => {
         result := _node_insert(K, V, root, usize(0), key.hash(), key, value);
         new_len := cond(result.added => (self._len + usize(1)), true => self._len);
-        return Self(_root: .Some(result.node), _len: new_len);
+        return(Self(_root: .Some(result.node), _len: new_len));
       },
       .None => Self(
         _root: .Some(.Leaf(MapLeaf(K, V)(hash: key.hash(), key: key, value: value))),
@@ -825,10 +822,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: Send), Map
       .Some(root) => {
         result := _node_remove(K, V, root, usize(0), key.hash(), key);
         if(!(result.removed), {
-          return self;
+          return(self);
         });
         new_len := (self._len - usize(1));
-        return Self(_root: result.node, _len: new_len);
+        return(Self(_root: result.node, _len: new_len));
       },
       .None => self
     )
@@ -891,10 +888,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: Send), Map
     (result : Self) = Self.new();
     i := usize(0);
     plen := pairs.len();
-    while (i < plen), (i = (i + usize(1))), {
+    while((i < plen), (i = (i + usize(1))), {
       p := (pairs.ptr() &+ i).*;
       result = result.insert(p.key, p.value);
-    };
+    });
     result
   })
 );
@@ -902,10 +899,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: Send), Map
 impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: (Send, Eq(V))), Map(K, V), Eq(Map(K, V))(
   (==) : (fn(lhs: Self, rhs: Self) -> bool)({
     if((lhs._len != rhs._len), {
-      return false;
+      return(false);
     });
     if(((lhs._len == usize(0)) && (rhs._len == usize(0))), {
-      return true;
+      return(true);
     });
     match(lhs._root,
       .Some(root) => _all_entries_match(K, V, root, rhs),
@@ -914,4 +911,4 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash, Send), V <: (Send, Eq(
   })
 ));
 
-export Map, MapNode, MapBranch, MapLeaf, MapCollision, Pair, InsertResult, RemoveResult;
+export(Map, MapNode, MapBranch, MapLeaf, MapCollision, Pair, InsertResult, RemoveResult);

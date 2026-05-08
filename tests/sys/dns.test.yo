@@ -1,19 +1,19 @@
 // @skip_wasm32-emscripten — no network stack in WASM (DNS resolution unavailable)
 // @skip_wasm32-wasi — no network stack in WASM (DNS resolution unavailable)
-open import "std/libc/stdio";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-open import "std/string";
-{ platform, Platform } :: import "std/process";
-dns :: import "std/sys/dns";
-tcp :: import "std/sys/tcp";
+open(import("std/string"));
+{ platform, Platform } :: import("std/process");
+dns :: import("std/sys/dns");
+tcp :: import("std/sys/tcp");
 {
   AF_INET, AF_INET6,
   SOCK_STREAM, SOCK_DGRAM,
   NI_NUMERICHOST
-} :: import "std/sys/socket";
+} :: import("std/sys/socket");
 
-test "DNS resolve localhost", {
+test("DNS resolve localhost", {
   result_ptr := dns.alloc_result();
   ret := io.await(dns.getaddrinfo(*(u8)("localhost"), .None, .None, result_ptr));
   assert(ret == i32(0));
@@ -26,7 +26,7 @@ test "DNS resolve localhost", {
 
   count := i32(0);
   cur := dns.get_result(result_ptr);
-  while runtime(true), {
+  while(runtime(true), {
     match(cur,
       .Some(ai) => {
         family := dns.addrinfo_family(ai);
@@ -38,7 +38,7 @@ test "DNS resolve localhost", {
       },
       .None => { break; }
     );
-  };
+  });
   assert(count >= i32(1));
 
   match(dns.get_result(result_ptr),
@@ -46,9 +46,9 @@ test "DNS resolve localhost", {
     .None => ()
   );
   dns.free_result(result_ptr);
-};
+});
 
-test "DNS resolve numeric IP 127.0.0.1", {
+test("DNS resolve numeric IP 127.0.0.1", {
   result_ptr := dns.alloc_result();
   ret := io.await(dns.getaddrinfo(*(u8)("127.0.0.1"), .None, .None, result_ptr));
   assert(ret == i32(0));
@@ -67,9 +67,9 @@ test "DNS resolve numeric IP 127.0.0.1", {
     .None => assert(false)
   );
   dns.free_result(result_ptr);
-};
+});
 
-test "DNS resolve with service port", {
+test("DNS resolve with service port", {
   result_ptr := dns.alloc_result();
   ret := io.await(dns.getaddrinfo(*(u8)("127.0.0.1"), .Some(*(u8)("80")), .None, result_ptr));
   assert(ret == i32(0));
@@ -84,9 +84,9 @@ test "DNS resolve with service port", {
     .None => assert(false)
   );
   dns.free_result(result_ptr);
-};
+});
 
-test "DNS getnameinfo reverse lookup", {
+test("DNS getnameinfo reverse lookup", {
   sa := tcp.make_sockaddr_in_loopback(u16(0));
   host_buf := *(u8)(malloc(usize(256)).unwrap());
   serv_buf := *(u8)(malloc(usize(64)).unwrap());
@@ -101,9 +101,9 @@ test "DNS getnameinfo reverse lookup", {
   free(.Some(*(void)(host_buf)));
   free(.Some(*(void)(serv_buf)));
   tcp.free_sockaddr(sa);
-};
+});
 
-test "DNS failed resolution for nonexistent host", {
+test("DNS failed resolution for nonexistent host", {
   result_ptr := dns.alloc_result();
   ret := io.await(dns.getaddrinfo(*(u8)("this.host.definitely.does.not.exist.invalid"), .None, .None, result_ptr));
   // Normally returns non-zero EAI_* error, but some networks have DNS interceptors
@@ -124,11 +124,11 @@ test "DNS failed resolution for nonexistent host", {
     true => ()
   );
   dns.free_result(result_ptr);
-};
+});
 
-test "DNS alloc_hints and addrinfo_size", {
+test("DNS alloc_hints and addrinfo_size", {
   size := dns.addrinfo_size();
   assert(size > usize(0));
   hints := dns.alloc_hints();
   dns.free_hints(hints);
-};
+});

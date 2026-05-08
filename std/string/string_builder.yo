@@ -1,8 +1,8 @@
 //! Mutable UTF-8 string builder for efficient incremental construction.
 
-{ ArrayList } :: import "../collections/array_list.yo";
-{ rune } :: import "./rune.yo";
-{ String } :: import "./string.yo";
+{ ArrayList } :: import("../collections/array_list.yo");
+{ rune } :: import("./rune.yo");
+{ String } :: import("./string.yo");
 
 /**
  * Mutable buffer for building a `String` incrementally.
@@ -74,7 +74,7 @@ impl(StringBuilder,
       .Some(al) => {
         i := usize(0);
         n := al.len();
-        while ((i < n)),
+        while(((i < n)),
               (i = (i + usize(1))),
         {
           byte_opt := al.get(i);
@@ -82,7 +82,7 @@ impl(StringBuilder,
             .Some(b) => { self._buf.push(b); },
             .None => ()
           );
-        };
+        });
       }
     )
   ),
@@ -147,7 +147,7 @@ impl(StringBuilder,
       true => {
         buf := ArrayList(u8).with_capacity(n);
         i := usize(0);
-        while ((i < n)),
+        while(((i < n)),
               (i = (i + usize(1))),
         {
           byte_opt := self._buf.get(i);
@@ -155,7 +155,7 @@ impl(StringBuilder,
             .Some(b) => { buf.push(b); },
             .None => ()
           );
-        };
+        });
         self._buf = ArrayList(u8).new();
         String(_bytes: .Some(buf))
       }
@@ -170,4 +170,4 @@ impl(StringBuilder,
   })
 );
 
-export StringBuilder;
+export(StringBuilder);

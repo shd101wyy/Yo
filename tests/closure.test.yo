@@ -1,4 +1,4 @@
-open import "std/libc/stdio.yo";
+open(import("std/libc/stdio.yo"));
 
 MyBox :: object(
   (*) : i32
@@ -9,14 +9,14 @@ impl(MyBox, Dispose(
   })
 ));
 
-test "Test ClosureType({...}) to create closure value", {
+test("Test ClosureType({...}) to create closure value", {
   x := 1;
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
   T :: Type.to_comptime_string(ClosureType);
-  closure := (ClosureType {
+  closure := ClosureType({
     x = (x + y);
-    return x;
+    return(x);
   });
 
   closure2 := closure;  // Test dup on closure
@@ -28,14 +28,14 @@ test "Test ClosureType({...}) to create closure value", {
   printf("Final result: %d\n", result);
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
-};
+});
 
-test "Test anonymous closure value =>", {
+test("Test anonymous closure value =>", {
   x := 1;
 
   (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
     x = (x + y);
-    return x;
+    return(x);
   });
 
   closure2 := closure;  // Test dup on closure
@@ -47,27 +47,27 @@ test "Test anonymous closure value =>", {
   printf("Final result: %d\n", result);
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
-};
+});
 
-some_cond :: (fn() -> bool) {
-  return true;
-};
+some_cond :: (fn() -> bool)({
+  return(true);
+});
 
 // This should fail
-test "Test multiple expected errors", {
+test("Test multiple expected errors", {
   comptime_expect_error({
     closure : Impl(Fn(y : i32) -> i32);
     cond(
       some_cond() => {
         a := 1;
         closure = ((y) => {
-          return y + a;
+          return(y + a);
         });
       },
       true => {
         b := 1;
         closure = ((y) => {
-          return y + b;
+          return(y + b);
         });
       }
     );
@@ -79,13 +79,13 @@ test "Test multiple expected errors", {
       some_cond() => {
         a := 1;
         closure = ((y) => {
-          return y + a;
+          return(y + a);
         });
       },
       true => {
         a := 2;
         closure = ((y) => {
-          return y + a;
+          return(y + a);
         });
       }
     );
@@ -97,13 +97,13 @@ test "Test multiple expected errors", {
       some_cond() => {
         a := 1;
         ((y) => {
-          return y + a;
+          return(y + a);
         })
       },
       true => {
         a := 2;
         ((y) => {
-          return y + a;
+          return(y + a);
         })
       }
     )
@@ -122,16 +122,16 @@ test "Test multiple expected errors", {
     (closure : Impl(Fn(y : i32) -> i32)) = ((y) => (y + a));
     closure = ((y) => (y + a));
   }, "cannot reassign to variable of Impl");
-};
+});
 
 
-test "Test closure with Dyn", {
+test("Test closure with Dyn", {
   x := 1;
 
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box((y) => {
     x = (x + y);
-    return x;
-  });
+    return(x);
+  }));
 
   closure2 := closure;  // Test dup on closure
 
@@ -142,15 +142,15 @@ test "Test closure with Dyn", {
   printf("Final result: %d\n", result);
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
-};
+});
 
-test "Test closure with Impl that captures Rc object", {
+test("Test closure with Impl that captures Rc object", {
   x := MyBox(1);
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
-  closure := (ClosureType {
+  closure := ClosureType({
     x.* = (x.* + y);
-    return x.*;
+    return(x.*);
   });
 
   closure2 := closure;  // Test dup on closure
@@ -162,25 +162,25 @@ test "Test closure with Impl that captures Rc object", {
   printf("Final result: %d\n", result);
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
-};
+});
 
-test "Test closure captured Rc survives nested early return", {
+test("Test closure captured Rc survives nested early return", {
   x := MyBox(1);
   take_return := true;
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
-  closure := (ClosureType {
+  closure := ClosureType({
     cond(
       take_return => {
         x.* = (x.* + y);
-        return x.*;
+        return(x.*);
       },
       true => {
         x.* = (x.* + i32(100));
-        return x.*;
+        return(x.*);
       }
     );
-    return i32(-1);
+    return(i32(-(1)));
   });
 
   closure2 := closure;
@@ -192,16 +192,16 @@ test "Test closure captured Rc survives nested early return", {
   result2 := closure2(2);
   assert(result2 == i32(7), "duplicated closure should share captured box");
   assert(x.* == i32(7), "captured box should remain alive after duplicate call");
-};
+});
 
 
-test "Test anonymous closure value with Impl that captures Rc object", {
+test("Test anonymous closure value with Impl that captures Rc object", {
   x := MyBox(1);
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
   (closure : ClosureType) = ((y) => {
     x.* = (x.* + y);
-    return x.*;
+    return(x.*);
   });
 
   closure2 := closure;  // Test dup on closure
@@ -213,15 +213,15 @@ test "Test anonymous closure value with Impl that captures Rc object", {
   printf("Final result: %d\n", result);
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
-};
+});
 
-test "Test anonymous closure value with Dyn that captures Rc object", {
+test("Test anonymous closure value with Dyn that captures Rc object", {
   x := MyBox(1);
 
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box (y) => {
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box((y) => {
     x.* = (x.* + y);
-    return x.*;
-  });
+    return(x.*);
+  }));
 
   closure2 := closure;  // Test dup on closure
 
@@ -232,14 +232,14 @@ test "Test anonymous closure value with Dyn that captures Rc object", {
   printf("Final result: %d\n", result);
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
-};
+});
 
-test "Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
+test("Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
   x := MyBox(1);
 
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => { // without explicitly calling `box`
     x.* = (x.* + y);
-    return x.*;
+    return(x.*);
   });
 
   closure2 := closure;  // Test dup on closure
@@ -251,4 +251,4 @@ test "Test anonymous closure value with Dyn that captures Rc object with auto bo
   printf("Final result: %d\n", result);
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
-};
+});

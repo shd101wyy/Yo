@@ -11,8 +11,8 @@
 //! println(elapsed.as_millis());
 //! ```
 
-{ Duration } :: import "./duration";
-{ CLOCK_MONOTONIC, clock_gettime } :: import "../sys/clock";
+{ Duration } :: import("./duration");
+{ CLOCK_MONOTONIC, clock_gettime } :: import("../sys/clock");
 
 /// Snapshot from the monotonic clock. Use `elapsed` to measure durations.
 Instant :: struct(
@@ -26,7 +26,7 @@ impl(Instant,
     clk    := CLOCK_MONOTONIC;
     out_s  := i64(0);
     out_ns := i64(0);
-    clock_gettime(clk, (&out_s), (&out_ns));
+    clock_gettime(clk, (&(out_s)), (&(out_ns)));
     Self(secs: out_s, nanos: out_ns)
   }),
 
@@ -49,4 +49,4 @@ impl(Instant,
   })
 );
 
-export Instant;
+export(Instant);

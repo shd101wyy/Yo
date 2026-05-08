@@ -14,87 +14,87 @@
 // 11. Global flag / match_all
 // 12. Escape sequences
 
-open import "std/collections/array_list";
-open import "std/string";
-{ Regex, RegexMatch } :: import "std/regex";
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ Regex, RegexMatch } :: import("std/regex");
 
 // ============================================================================
 // 1. Literal Matching
 // ============================================================================
 
-test "Literal match finds substring", {
+test("Literal match finds substring", {
   re := Regex.new(`abc`, ``).unwrap();
   m := re.exec(`xabcy`);
   assert(m.is_some(), "should match abc in xabcy");
   result := m.unwrap();
   assert((result.value() == `abc`), "matched text should be abc");
   assert((result.index() == usize(1)), "match should start at char index 1");
-};
+});
 
-test "Literal match returns None when no match", {
+test("Literal match returns None when no match", {
   re := Regex.new(`abc`, ``).unwrap();
   m := re.exec(`xyz`);
   assert(m.is_none(), "should not match abc in xyz");
-};
+});
 
-test "Literal match at start of string", {
+test("Literal match at start of string", {
   re := Regex.new(`hello`, ``).unwrap();
   m := re.exec(`hello world`);
   assert(m.is_some(), "should match hello");
   assert((m.unwrap().index() == usize(0)), "should match at index 0");
-};
+});
 
-test "Literal match at end of string", {
+test("Literal match at end of string", {
   re := Regex.new(`world`, ``).unwrap();
   m := re.exec(`hello world`);
   assert(m.is_some(), "should match world");
   assert((m.unwrap().index() == usize(6)), "should match at index 6");
-};
+});
 
 // ============================================================================
 // 2. Character Classes
 // ============================================================================
 
-test "Character class [a-z] matches lowercase", {
+test("Character class [a-z] matches lowercase", {
   re := Regex.new(`[a-z]+`, ``).unwrap();
   m := re.exec(`ABC123abc`);
   assert(m.is_some(), "should match lowercase");
   assert((m.unwrap().value() == `abc`), "should match abc");
-};
+});
 
-test "Negated character class [^0-9]", {
+test("Negated character class [^0-9]", {
   re := Regex.new(`[^0-9]+`, ``).unwrap();
   m := re.exec(`123abc456`);
   assert(m.is_some(), "should match non-digits");
   assert((m.unwrap().value() == `abc`), "should match abc");
-};
+});
 
-test "Character class \\d matches digits", {
+test("Character class \\d matches digits", {
   re := Regex.new(`\\d+`, ``).unwrap();
   m := re.exec(`abc123def`);
   assert(m.is_some(), "should match digits");
   assert((m.unwrap().value() == `123`), "should match 123");
-};
+});
 
-test "Character class \\w matches word characters", {
+test("Character class \\w matches word characters", {
   re := Regex.new(`\\w+`, ``).unwrap();
   m := re.exec(`  hello  `);
   assert(m.is_some(), "should match word chars");
   assert((m.unwrap().value() == `hello`), "should match hello");
-};
+});
 
-test "Character class \\s matches whitespace", {
+test("Character class \\s matches whitespace", {
   re := Regex.new(`\\s+`, ``).unwrap();
   m := re.exec(`hello world`);
   assert(m.is_some(), "should match whitespace");
   assert((m.unwrap().value() == ` `), "should match space");
-};
+});
 
 // ============================================================================
 // 3. Dot (Any Character)
 // ============================================================================
 
-test "Dot matches any character", {
+test("Dot matches any character", {
   re := Regex.new(`a.c`, ``).unwrap();
   m1 := re.exec(`abc`);
   assert(m1.is_some(), "should match abc");
@@ -102,47 +102,47 @@ test "Dot matches any character", {
   assert(m2.is_some(), "should match a1c");
   m3 := re.exec(`a c`);
   assert(m3.is_some(), "should match a c");
-};
+});
 
-test "Dot does not match when no char between", {
+test("Dot does not match when no char between", {
   re := Regex.new(`a.c`, ``).unwrap();
   m := re.exec(`ac`);
   assert(m.is_none(), "should not match ac");
-};
+});
 
 // ============================================================================
 // 4. Anchors
 // ============================================================================
 
-test "Caret anchor matches start of string", {
+test("Caret anchor matches start of string", {
   re := Regex.new(`^abc`, ``).unwrap();
   m1 := re.exec(`abcdef`);
   assert(m1.is_some(), "should match at start");
   m2 := re.exec(`xabc`);
   assert(m2.is_none(), "should not match in middle");
-};
+});
 
-test "Dollar anchor matches end of string", {
+test("Dollar anchor matches end of string", {
   re := Regex.new(`abc$`, ``).unwrap();
   m1 := re.exec(`xyzabc`);
   assert(m1.is_some(), "should match at end");
   m2 := re.exec(`abcxyz`);
   assert(m2.is_none(), "should not match at start");
-};
+});
 
-test "Word boundary matches whole word", {
+test("Word boundary matches whole word", {
   re := Regex.new(`\\bword\\b`, ``).unwrap();
   m1 := re.exec(`a word here`);
   assert(m1.is_some(), "should match whole word");
   m2 := re.exec(`swords`);
   assert(m2.is_none(), "should not match inside word");
-};
+});
 
 // ============================================================================
 // 5. Quantifiers
 // ============================================================================
 
-test "Star quantifier matches zero or more", {
+test("Star quantifier matches zero or more", {
   re := Regex.new(`ab*c`, ``).unwrap();
   m1 := re.exec(`ac`);
   assert(m1.is_some(), "should match ac (zero b's)");
@@ -150,9 +150,9 @@ test "Star quantifier matches zero or more", {
   assert(m2.is_some(), "should match abc (one b)");
   m3 := re.exec(`abbbbc`);
   assert(m3.is_some(), "should match abbbbc (many b's)");
-};
+});
 
-test "Plus quantifier matches one or more", {
+test("Plus quantifier matches one or more", {
   re := Regex.new(`ab+c`, ``).unwrap();
   m1 := re.exec(`ac`);
   assert(m1.is_none(), "should not match ac (zero b's)");
@@ -160,9 +160,9 @@ test "Plus quantifier matches one or more", {
   assert(m2.is_some(), "should match abc");
   m3 := re.exec(`abbbbc`);
   assert(m3.is_some(), "should match abbbbc");
-};
+});
 
-test "Question mark quantifier matches zero or one", {
+test("Question mark quantifier matches zero or one", {
   re := Regex.new(`ab?c`, ``).unwrap();
   m1 := re.exec(`ac`);
   assert(m1.is_some(), "should match ac (zero b's)");
@@ -170,17 +170,17 @@ test "Question mark quantifier matches zero or one", {
   assert(m2.is_some(), "should match abc (one b)");
   m3 := re.exec(`abbc`);
   assert(m3.is_none(), "should not match abbc (two b's)");
-};
+});
 
-test "Counted quantifier {n} matches exactly n", {
+test("Counted quantifier {n} matches exactly n", {
   re := Regex.new(`a{3}`, ``).unwrap();
   m1 := re.exec(`aa`);
   assert(m1.is_none(), "should not match 2 a's");
   m2 := re.exec(`aaa`);
   assert(m2.is_some(), "should match 3 a's");
-};
+});
 
-test "Counted quantifier {n,m} matches range", {
+test("Counted quantifier {n,m} matches range", {
   re := Regex.new(`a{2,4}`, ``).unwrap();
   m1 := re.exec(`a`);
   assert(m1.is_none(), "should not match 1 a");
@@ -189,70 +189,70 @@ test "Counted quantifier {n,m} matches range", {
   m3 := re.exec(`aaaa`);
   assert(m3.is_some(), "should match 4 a's");
   assert((m3.unwrap().value() == `aaaa`), "greedy: should match all 4");
-};
+});
 
-test "Counted quantifier {n,} matches n or more", {
+test("Counted quantifier {n,} matches n or more", {
   re := Regex.new(`a{2,}`, ``).unwrap();
   m := re.exec(`aaaaa`);
   assert(m.is_some(), "should match 5 a's");
   assert((m.unwrap().value() == `aaaaa`), "greedy: should match all 5");
-};
+});
 
 // ============================================================================
 // 6. Non-Greedy Quantifiers
 // ============================================================================
 
-test "Non-greedy star", {
+test("Non-greedy star", {
   re := Regex.new(`a*?`, ``).unwrap();
   m := re.exec(`aaa`);
   // Non-greedy * prefers zero matches
   assert(m.is_some(), "should match");
   assert((m.unwrap().value() == ``), "non-greedy * should match empty");
-};
+});
 
-test "Non-greedy plus matches minimal", {
+test("Non-greedy plus matches minimal", {
   re := Regex.new(`a+?`, ``).unwrap();
   m := re.exec(`aaa`);
   assert(m.is_some(), "should match");
   assert((m.unwrap().value() == `a`), "non-greedy + should match single a");
-};
+});
 
-test "Non-greedy angle brackets", {
+test("Non-greedy angle brackets", {
   re := Regex.new(`<.+?>`, ``).unwrap();
   m := re.exec(`<a><b>`);
   assert(m.is_some(), "should match");
   assert((m.unwrap().value() == `<a>`), "should match minimal <a>");
-};
+});
 
 // ============================================================================
 // 7. Alternation
 // ============================================================================
 
-test "Alternation matches first alternative", {
+test("Alternation matches first alternative", {
   re := Regex.new(`cat|dog`, ``).unwrap();
   m := re.exec(`I have a cat`);
   assert(m.is_some(), "should match cat");
   assert((m.unwrap().value() == `cat`), "should match cat");
-};
+});
 
-test "Alternation matches second alternative", {
+test("Alternation matches second alternative", {
   re := Regex.new(`cat|dog`, ``).unwrap();
   m := re.exec(`I have a dog`);
   assert(m.is_some(), "should match dog");
   assert((m.unwrap().value() == `dog`), "should match dog");
-};
+});
 
-test "Alternation with no match", {
+test("Alternation with no match", {
   re := Regex.new(`cat|dog`, ``).unwrap();
   m := re.exec(`I have a bird`);
   assert(m.is_none(), "should not match bird");
-};
+});
 
 // ============================================================================
 // 8. Capturing Groups
 // ============================================================================
 
-test "Capturing group basic", {
+test("Capturing group basic", {
   re := Regex.new(`(\\d+)-(\\d+)`, ``).unwrap();
   m := re.exec(`foo 123-456 bar`);
   assert(m.is_some(), "should match");
@@ -266,9 +266,9 @@ test "Capturing group basic", {
   g2 := result.group(usize(2));
   assert(g2.is_some(), "group 2 should exist");
   assert((g2.unwrap() == `456`), "group 2 should be 456");
-};
+});
 
-test "Nested capturing groups", {
+test("Nested capturing groups", {
   re := Regex.new(`((a)(b))`, ``).unwrap();
   m := re.exec(`ab`);
   assert(m.is_some(), "should match");
@@ -286,25 +286,25 @@ test "Nested capturing groups", {
   g3 := result.group(usize(3));
   assert(g3.is_some(), "group 3 should exist");
   assert((g3.unwrap() == `b`), "group 3 should be b");
-};
+});
 
 // ============================================================================
 // 9. Non-Capturing Groups
 // ============================================================================
 
-test "Non-capturing group does not create capture", {
+test("Non-capturing group does not create capture", {
   re := Regex.new(`(?:abc)+`, ``).unwrap();
   m := re.exec(`abcabc`);
   assert(m.is_some(), "should match");
   assert((m.unwrap().value() == `abcabc`), "should match abcabc");
   assert((m.unwrap().group_count() == usize(0)), "no capture groups");
-};
+});
 
 // ============================================================================
 // 10. Case-Insensitive Flag
 // ============================================================================
 
-test "Case insensitive flag matches different cases", {
+test("Case insensitive flag matches different cases", {
   re := Regex.new(`abc`, `i`).unwrap();
   m1 := re.exec(`ABC`);
   assert(m1.is_some(), "should match ABC");
@@ -312,85 +312,85 @@ test "Case insensitive flag matches different cases", {
   assert(m2.is_some(), "should match Abc");
   m3 := re.exec(`aBc`);
   assert(m3.is_some(), "should match aBc");
-};
+});
 
 // ============================================================================
 // 11. Global Flag / match_all
 // ============================================================================
 
-test "match_all finds all occurrences", {
+test("match_all finds all occurrences", {
   re := Regex.new(`\\d+`, ``).unwrap();
   matches := re.match_all(`a1b23c456`);
   assert((matches.len() == usize(3)), "should find 3 matches");
   assert((matches.get(usize(0)).unwrap().value() == `1`), "first match");
   assert((matches.get(usize(1)).unwrap().value() == `23`), "second match");
   assert((matches.get(usize(2)).unwrap().value() == `456`), "third match");
-};
+});
 
-test "match_all with no matches returns empty", {
+test("match_all with no matches returns empty", {
   re := Regex.new(`\\d+`, ``).unwrap();
   matches := re.match_all(`abc`);
   assert((matches.len() == usize(0)), "should find no matches");
-};
+});
 
 // ============================================================================
 // 12. Escape Sequences
 // ============================================================================
 
-test "Escaped dot matches literal dot", {
+test("Escaped dot matches literal dot", {
   re := Regex.new(`a\\.b`, ``).unwrap();
   m1 := re.exec(`a.b`);
   assert(m1.is_some(), "should match literal dot");
   m2 := re.exec(`axb`);
   assert(m2.is_none(), "should not match non-dot");
-};
+});
 
-test "Escaped backslash matches literal backslash", {
+test("Escaped backslash matches literal backslash", {
   re := Regex.new(`a\\\\b`, ``).unwrap();
   m := re.exec(`a\\b`);
   assert(m.is_some(), "should match literal backslash");
-};
+});
 
 // ============================================================================
 // 13. Edge Cases
 // ============================================================================
 
-test "Empty pattern matches empty string", {
+test("Empty pattern matches empty string", {
   re := Regex.new(``, ``).unwrap();
   m := re.exec(``);
   assert(m.is_some(), "should match empty");
   assert((m.unwrap().value() == ``), "match should be empty string");
-};
+});
 
-test "Test method returns bool", {
+test("Test method returns bool", {
   re := Regex.new(`hello`, ``).unwrap();
   assert(re.test(`hello world`), "should return true for match");
   assert((!(re.test(`goodbye`))), "should return false for no match");
-};
+});
 
-test "Pattern with only anchors matches empty", {
+test("Pattern with only anchors matches empty", {
   re := Regex.new(`^$`, ``).unwrap();
   m1 := re.exec(``);
   assert(m1.is_some(), "should match empty string");
   m2 := re.exec(`x`);
   assert(m2.is_none(), "should not match non-empty string");
-};
+});
 
-test "Invalid pattern returns error", {
+test("Invalid pattern returns error", {
   result := Regex.new(`[abc`, ``);
   assert(result.is_err(), "unterminated class should error");
-};
+});
 
-test "Invalid quantifier range returns error", {
+test("Invalid quantifier range returns error", {
   result := Regex.new(`a{5,2}`, ``);
   assert(result.is_err(), "max < min should error");
-};
+});
 
 // ============================================================================
 // 14. Named Capturing Groups
 // ============================================================================
 
-test "Named group captures value", {
+test("Named group captures value", {
   re := Regex.new(`(?<year>\\d{4})-(?<month>\\d{2})-(?<day>\\d{2})`, ``).unwrap();
   m := re.exec(`date: 2024-03-17 end`);
   assert(m.is_some(), "should match date");
@@ -408,9 +408,9 @@ test "Named group captures value", {
   d := result.named_group(`day`);
   assert(d.is_some(), "day should exist");
   assert((d.unwrap() == `17`), "day should be 17");
-};
+});
 
-test "Named group also accessible by index", {
+test("Named group also accessible by index", {
   re := Regex.new(`(?<first>\\w+)\\s+(?<last>\\w+)`, ``).unwrap();
   m := re.exec(`John Smith`);
   assert(m.is_some(), "should match");
@@ -423,35 +423,35 @@ test "Named group also accessible by index", {
   // By index (same groups)
   assert((result.group(usize(1)).unwrap() == `John`), "first by index");
   assert((result.group(usize(2)).unwrap() == `Smith`), "last by index");
-};
+});
 
-test "Named group unknown name returns None", {
+test("Named group unknown name returns None", {
   re := Regex.new(`(?<x>a)`, ``).unwrap();
   m := re.exec(`a`);
   assert(m.is_some(), "should match");
   result := m.unwrap();
   assert((result.named_group(`x`).unwrap() == `a`), "x exists");
   assert(result.named_group(`y`).is_none(), "y should not exist");
-};
+});
 
 // ============================================================================
 // 15. Numeric Backreferences
 // ============================================================================
 
-test "Numeric backref matches repeated group", {
+test("Numeric backref matches repeated group", {
   re := Regex.new(`(\\w+)\\s+\\1`, ``).unwrap();
   m := re.exec(`hello hello world`);
   assert(m.is_some(), "should match repeated word");
   assert((m.unwrap().value() == `hello hello`), "should match hello hello");
-};
+});
 
-test "Numeric backref fails when not repeated", {
+test("Numeric backref fails when not repeated", {
   re := Regex.new(`(\\w+)\\s+\\1`, ``).unwrap();
   m := re.exec(`hello world`);
   assert(m.is_none(), "should not match different words");
-};
+});
 
-test "Numeric backref with literal", {
+test("Numeric backref with literal", {
   re := Regex.new(`(a+)b\\1`, ``).unwrap();
   m1 := re.exec(`aabaa`);
   assert(m1.is_some(), "should match aabaa");
@@ -460,203 +460,203 @@ test "Numeric backref with literal", {
   m2 := re.exec(`aba`);
   assert(m2.is_some(), "should match aba");
   assert((m2.unwrap().value() == `aba`), "full match aba");
-};
+});
 
-test "Numeric backref empty group matches", {
+test("Numeric backref empty group matches", {
   re := Regex.new(`(a?)b\\1`, ``).unwrap();
   m := re.exec(`b`);
   assert(m.is_some(), "empty group backref should match b");
   assert((m.unwrap().value() == `b`), "should match just b");
-};
+});
 
 // ============================================================================
 // 16. Named Backreferences
 // ============================================================================
 
-test "Named backref matches repeated group", {
+test("Named backref matches repeated group", {
   re := Regex.new(`(?<word>\\w+)\\s+\\k<word>`, ``).unwrap();
   m := re.exec(`hello hello world`);
   assert(m.is_some(), "should match repeated word");
   result := m.unwrap();
   assert((result.value() == `hello hello`), "should match hello hello");
   assert((result.named_group(`word`).unwrap() == `hello`), "group captures first word");
-};
+});
 
-test "Named backref fails when not repeated", {
+test("Named backref fails when not repeated", {
   re := Regex.new(`(?<word>\\w+)\\s+\\k<word>`, ``).unwrap();
   m := re.exec(`hello world`);
   assert(m.is_none(), "should not match different words");
-};
+});
 
 // ===== 15. Lookahead =====
 
-test "Positive lookahead matches position", {
+test("Positive lookahead matches position", {
   re := Regex.new(`foo(?=bar)`, ``).unwrap();
   m := re.exec(`foobar`);
   result := m.unwrap();
   assert((result.value() == `foo`), "should match foo before bar");
   assert((result.index() == usize(0)), "at index 0");
-};
+});
 
-test "Positive lookahead fails when not followed", {
+test("Positive lookahead fails when not followed", {
   re := Regex.new(`foo(?=bar)`, ``).unwrap();
   m := re.exec(`foobaz`);
   assert(m.is_none(), "should not match foo not followed by bar");
-};
+});
 
-test "Negative lookahead matches position", {
+test("Negative lookahead matches position", {
   re := Regex.new(`foo(?!bar)`, ``).unwrap();
   m := re.exec(`foobaz`);
   result := m.unwrap();
   assert((result.value() == `foo`), "should match foo not followed by bar");
-};
+});
 
-test "Negative lookahead fails when followed", {
+test("Negative lookahead fails when followed", {
   re := Regex.new(`foo(?!bar)`, ``).unwrap();
   m := re.exec(`foobar`);
   assert(m.is_none(), "should not match foo followed by bar");
-};
+});
 
-test "Lookahead with quantifier in main pattern", {
+test("Lookahead with quantifier in main pattern", {
   re := Regex.new(`\\w+(?=\\d)`, ``).unwrap();
   m := re.exec(`abc3`);
   result := m.unwrap();
   assert((result.value() == `abc`), "should match word before digit");
-};
+});
 
-test "Lookahead is zero-width", {
+test("Lookahead is zero-width", {
   re := Regex.new(`a(?=b)b`, ``).unwrap();
   m := re.exec(`ab`);
   result := m.unwrap();
   assert((result.value() == `ab`), "lookahead does not consume characters");
-};
+});
 
 // ===== 16. Lookbehind =====
 
-test "Positive lookbehind matches position", {
+test("Positive lookbehind matches position", {
   re := Regex.new(`(?<=foo)bar`, ``).unwrap();
   m := re.exec(`foobar`);
   result := m.unwrap();
   assert((result.value() == `bar`), "should match bar after foo");
   assert((result.index() == usize(3)), "at index 3");
-};
+});
 
-test "Positive lookbehind fails when not preceded", {
+test("Positive lookbehind fails when not preceded", {
   re := Regex.new(`(?<=foo)bar`, ``).unwrap();
   m := re.exec(`bazbar`);
   assert(m.is_none(), "should not match bar not preceded by foo");
-};
+});
 
-test "Negative lookbehind matches position", {
+test("Negative lookbehind matches position", {
   re := Regex.new(`(?<!foo)bar`, ``).unwrap();
   m := re.exec(`bazbar`);
   result := m.unwrap();
   assert((result.value() == `bar`), "should match bar not preceded by foo");
-};
+});
 
-test "Negative lookbehind fails when preceded", {
+test("Negative lookbehind fails when preceded", {
   re := Regex.new(`(?<!foo)bar`, ``).unwrap();
   m := re.exec(`foobar`);
   assert(m.is_none(), "should not match bar preceded by foo");
-};
+});
 
-test "Lookbehind with digit class", {
+test("Lookbehind with digit class", {
   re := Regex.new(`(?<=\\d)px`, ``).unwrap();
   m := re.exec(`10px`);
   result := m.unwrap();
   assert((result.value() == `px`), "should match px after digit");
-};
+});
 
-test "Combined lookahead and lookbehind", {
+test("Combined lookahead and lookbehind", {
   re := Regex.new(`(?<=\\d)\\w+(?=\\.)`, ``).unwrap();
   m := re.exec(`3items.`);
   result := m.unwrap();
   assert((result.value() == `items`), "should match word between digit and dot");
-};
+});
 
 // ===== Phase 9: String Integration =====
 
 // --- search ---
 
-test "search returns index of first match", {
+test("search returns index of first match", {
   re := Regex.new(`\\d+`, ``).unwrap();
   result := re.search(`abc123def`);
   assert((result.unwrap() == usize(3)), "should find digits at index 3");
-};
+});
 
-test "search returns None when no match", {
+test("search returns None when no match", {
   re := Regex.new(`\\d+`, ``).unwrap();
   result := re.search(`abcdef`);
   assert(result.is_none(), "should return None");
-};
+});
 
 // --- replace ---
 
-test "replace first occurrence", {
+test("replace first occurrence", {
   re := Regex.new(`\\d+`, ``).unwrap();
   result := re.replace(`abc123def456`, `NUM`);
   assert((result == `abcNUMdef456`), "should replace first match only");
-};
+});
 
-test "replace with no match returns input", {
+test("replace with no match returns input", {
   re := Regex.new(`\\d+`, ``).unwrap();
   result := re.replace(`abcdef`, `NUM`);
   assert((result == `abcdef`), "should return original input");
-};
+});
 
-test "replace with group reference", {
+test("replace with group reference", {
   re := Regex.new(`(\\w+)@(\\w+)`, ``).unwrap();
   result := re.replace(`user@host`, `$2-$1`);
   assert((result == `host-user`), "should swap groups");
-};
+});
 
-test "replace with full match ref", {
+test("replace with full match ref", {
   re := Regex.new(`\\d+`, ``).unwrap();
   result := re.replace(`abc123def`, `[$&]`);
   assert((result == `abc[123]def`), "should wrap match in brackets");
-};
+});
 
-test "replace with escaped dollar", {
+test("replace with escaped dollar", {
   re := Regex.new(`\\d+`, ``).unwrap();
   result := re.replace(`abc123def`, `$$`);
   assert((result == `abc$def`), "should produce literal dollar");
-};
+});
 
-test "replace with named group reference", {
+test("replace with named group reference", {
   re := Regex.new(`(?<first>\\w+)-(?<second>\\w+)`, ``).unwrap();
   result := re.replace(`hello-world`, `\${second} \${first}`);
   assert((result == `world hello`), "should swap named groups");
-};
+});
 
 // --- replace_all ---
 
-test "replace_all replaces all occurrences", {
+test("replace_all replaces all occurrences", {
   re := Regex.new(`\\d+`, ``).unwrap();
   result := re.replace_all(`a1b2c3`, `#`);
   assert((result == `a#b#c#`), "should replace all digit sequences");
-};
+});
 
-test "replace_all with group references", {
+test("replace_all with group references", {
   re := Regex.new(`(\\w)(\\d)`, ``).unwrap();
   result := re.replace_all(`a1b2c3`, `$2$1`);
   assert((result == `1a2b3c`), "should swap char and digit");
-};
+});
 
-test "replace_all with no match", {
+test("replace_all with no match", {
   re := Regex.new(`\\d+`, ``).unwrap();
   result := re.replace_all(`abcdef`, `#`);
   assert((result == `abcdef`), "should return original when no match");
-};
+});
 
-test "replace_all adjacent matches", {
+test("replace_all adjacent matches", {
   re := Regex.new(`[a-z]`, ``).unwrap();
   result := re.replace_all(`abc`, `[$&]`);
   assert((result == `[a][b][c]`), "should replace each letter");
-};
+});
 
 // --- split ---
 
-test "split by regex pattern", {
+test("split by regex pattern", {
   re := Regex.new(`[,;\\s]+`, ``).unwrap();
   parts := re.split(`a,b; c  d`);
   assert((parts.len() == usize(4)), "should have 4 parts");
@@ -664,16 +664,16 @@ test "split by regex pattern", {
   assert((parts.get(usize(1)).unwrap() == `b`), "second part");
   assert((parts.get(usize(2)).unwrap() == `c`), "third part");
   assert((parts.get(usize(3)).unwrap() == `d`), "fourth part");
-};
+});
 
-test "split with no match returns whole string", {
+test("split with no match returns whole string", {
   re := Regex.new(`\\d+`, ``).unwrap();
   parts := re.split(`abcdef`);
   assert((parts.len() == usize(1)), "should have 1 part");
   assert((parts.get(usize(0)).unwrap() == `abcdef`), "only part is whole string");
-};
+});
 
-test "split at start and end", {
+test("split at start and end", {
   re := Regex.new(`,`, ``).unwrap();
   parts := re.split(`,a,b,`);
   assert((parts.len() == usize(4)), "should have 4 parts including empties");
@@ -681,9 +681,9 @@ test "split at start and end", {
   assert((parts.get(usize(1)).unwrap() == `a`), "second part");
   assert((parts.get(usize(2)).unwrap() == `b`), "third part");
   assert((parts.get(usize(3)).unwrap() == ``), "last part empty");
-};
+});
 
-test "split with capture groups", {
+test("split with capture groups", {
   re := Regex.new(`(-)`, ``).unwrap();
   parts := re.split(`a-b-c`);
   // JS behavior: captured groups included in result
@@ -693,155 +693,155 @@ test "split with capture groups", {
   assert((parts.get(usize(2)).unwrap() == `b`), "second part");
   assert((parts.get(usize(3)).unwrap() == `-`), "second separator");
   assert((parts.get(usize(4)).unwrap() == `c`), "third part");
-};
+});
 
-test "replace with pre-match and post-match refs", {
+test("replace with pre-match and post-match refs", {
   re := Regex.new(`\\d+`, ``).unwrap();
   // $` is pre-match text, $' is post-match text
   result := re.replace(`abc123def`, `[$\`|$']`);
   assert((result == `abc[abc|def]def`), "should insert pre and post match");
-};
+});
 
 // ===== Phase 10: Performance optimization correctness =====
 
-test "literal prefix optimization: simple literal", {
+test("literal prefix optimization: simple literal", {
   // Pattern starts with literal "hello" — prefix scan should jump to it
   re := Regex.new(`hello world`, ``).unwrap();
   m := re.exec(`xxxxxx hello world yyyy`);
   assert(m.is_some(), "should find match");
   assert((m.unwrap().value() == `hello world`), "should match full string");
-};
+});
 
-test "literal prefix optimization: no match fast exit", {
+test("literal prefix optimization: no match fast exit", {
   re := Regex.new(`xyz123`, ``).unwrap();
   m := re.exec(`aaaaaaaaaaaa`);
   assert(m.is_none(), "should not find match when prefix absent");
-};
+});
 
-test "literal prefix optimization: match_all finds all occurrences", {
+test("literal prefix optimization: match_all finds all occurrences", {
   re := Regex.new(`ab.`, ``).unwrap();
   matches := re.match_all(`--abc--abd--abe--`);
   assert((matches.len() == usize(3)), "should find 3 matches");
   assert((matches.get(usize(0)).unwrap().value() == `abc`), "first match");
   assert((matches.get(usize(1)).unwrap().value() == `abd`), "second match");
   assert((matches.get(usize(2)).unwrap().value() == `abe`), "third match");
-};
+});
 
-test "literal prefix optimization: case insensitive disables prefix", {
+test("literal prefix optimization: case insensitive disables prefix", {
   re := Regex.new(`hello`, `i`).unwrap();
   m := re.exec(`xxxHELLOxxx`);
   assert(m.is_some(), "case insensitive should still match without prefix");
   assert((m.unwrap().value() == `HELLO`), "should match uppercase");
-};
+});
 
-test "literal prefix optimization: prefix shorter than input", {
+test("literal prefix optimization: prefix shorter than input", {
   re := Regex.new(`ab`, ``).unwrap();
   m := re.exec(`a`);
   assert(m.is_none(), "input shorter than prefix should not crash");
-};
+});
 
-test "literal prefix optimization: alternation has no prefix", {
+test("literal prefix optimization: alternation has no prefix", {
   // Pattern starts with alternation — no literal prefix
   re := Regex.new(`(a|b)c`, ``).unwrap();
   m1 := re.exec(`xxacxx`);
   assert(m1.is_some(), "should match ac");
   m2 := re.exec(`xxbcxx`);
   assert(m2.is_some(), "should match bc");
-};
+});
 
-test "early break in char class: large class still matches", {
+test("early break in char class: large class still matches", {
   // [a-z] has 26 entries; early break should still find the match
   re := Regex.new(`[a-z]+`, ``).unwrap();
   m := re.exec(`123hello456`);
   assert(m.is_some(), "should match lowercase run");
   assert((m.unwrap().value() == `hello`), "should match the letters");
-};
+});
 
-test "early break in char class: negated class with early break", {
+test("early break in char class: negated class with early break", {
   re := Regex.new(`[^0-9]+`, ``).unwrap();
   m := re.exec(`123hello456`);
   assert(m.is_some(), "should match non-digit run");
   assert((m.unwrap().value() == `hello`), "should match the letters");
-};
+});
 
 // ===== Multi-byte UTF-8 / Chinese character tests =====
 
-test "Chinese literal match", {
+test("Chinese literal match", {
   re := Regex.new(`你好`, ``).unwrap();
   m := re.exec(`你好世界`);
   assert(m.is_some(), "should match 你好");
   assert((m.unwrap().value() == `你好`), "should match exact Chinese text");
-};
+});
 
-test "Chinese literal no match", {
+test("Chinese literal no match", {
   re := Regex.new(`你好`, ``).unwrap();
   m := re.exec(`再见世界`);
   assert(m.is_none(), "should not match when absent");
-};
+});
 
-test "Chinese literal in middle of string", {
+test("Chinese literal in middle of string", {
   re := Regex.new(`世界`, ``).unwrap();
   m := re.exec(`你好世界再见`);
   assert(m.is_some(), "should find 世界 in middle");
   assert((m.unwrap().value() == `世界`), "should match exact substring");
-};
+});
 
-test "dot matches Chinese characters", {
+test("dot matches Chinese characters", {
   re := Regex.new(`.`, ``).unwrap();
   m := re.exec(`你`);
   assert(m.is_some(), "dot should match Chinese character");
   assert((m.unwrap().value() == `你`), "dot should match full character");
-};
+});
 
-test "dot-star matches Chinese string", {
+test("dot-star matches Chinese string", {
   re := Regex.new(`你.*界`, ``).unwrap();
   m := re.exec(`你好世界`);
   assert(m.is_some(), "should match 你...界");
   assert((m.unwrap().value() == `你好世界`), "should match full span");
-};
+});
 
-test "Chinese character class", {
+test("Chinese character class", {
   re := Regex.new(`[你我他]`, ``).unwrap();
   m1 := re.exec(`你好`);
   assert(m1.is_some(), "should match 你");
   assert((m1.unwrap().value() == `你`), "should match single Chinese char");
   m2 := re.exec(`她好`);
   assert(m2.is_none(), "should not match 她 (not in class)");
-};
+});
 
-test "Chinese character range in class", {
+test("Chinese character range in class", {
   // Unicode range: 一 (U+4E00) through 龥 (U+9FA5) covers CJK Unified Ideographs
   re := Regex.new(`[一-龥]+`, ``).unwrap();
   m := re.exec(`hello你好world`);
   assert(m.is_some(), "should match Chinese chars in CJK range");
   assert((m.unwrap().value() == `你好`), "should match the Chinese substring");
-};
+});
 
-test "Chinese with quantifier", {
+test("Chinese with quantifier", {
   re := Regex.new(`你{2}`, ``).unwrap();
   m1 := re.exec(`你`);
   assert(m1.is_none(), "one 你 should not match {2}");
   m2 := re.exec(`你你`);
   assert(m2.is_some(), "two 你 should match {2}");
-};
+});
 
-test "mixed Chinese and ASCII", {
+test("mixed Chinese and ASCII", {
   re := Regex.new(`hello你好world`, ``).unwrap();
   m := re.exec(`xxhello你好worldxx`);
   assert(m.is_some(), "should match mixed string");
   assert((m.unwrap().value() == `hello你好world`), "should match full mixed text");
-};
+});
 
-test "Chinese capture group", {
+test("Chinese capture group", {
   re := Regex.new(`(你)(好)`, ``).unwrap();
   m := re.exec(`你好世界`);
   assert(m.is_some(), "should match with groups");
   mg := m.unwrap();
   assert((mg.group(usize(1)).unwrap() == `你`), "group 1 should be 你");
   assert((mg.group(usize(2)).unwrap() == `好`), "group 2 should be 好");
-};
+});
 
-test "Chinese alternation", {
+test("Chinese alternation", {
   re := Regex.new(`你好|再见`, ``).unwrap();
   m1 := re.exec(`你好`);
   assert(m1.is_some(), "should match first alt");
@@ -849,330 +849,330 @@ test "Chinese alternation", {
   m2 := re.exec(`再见`);
   assert(m2.is_some(), "should match second alt");
   assert((m2.unwrap().value() == `再见`), "should match 再见");
-};
+});
 
-test "Chinese match_all finds all occurrences", {
+test("Chinese match_all finds all occurrences", {
   re := Regex.new(`你好`, ``).unwrap();
   matches := re.match_all(`你好世界你好`);
   assert((matches.len() == usize(2)), "should find 2 occurrences");
-};
+});
 
-test "Chinese replace", {
+test("Chinese replace", {
   re := Regex.new(`世界`, ``).unwrap();
   result := re.replace(`你好世界`, `朋友`);
   assert((result == `你好朋友`), "should replace Chinese text");
-};
+});
 
-test "Chinese split", {
+test("Chinese split", {
   re := Regex.new(`，`, ``).unwrap();
   parts := re.split(`你好，世界，再见`);
   assert((parts.len() == usize(3)), "should split into 3 parts");
   assert((parts.get(usize(0)).unwrap() == `你好`), "first part");
   assert((parts.get(usize(1)).unwrap() == `世界`), "second part");
   assert((parts.get(usize(2)).unwrap() == `再见`), "third part");
-};
+});
 
-test "emoji matching", {
+test("emoji matching", {
   // 😀 is U+1F600 (4-byte UTF-8: F0 9F 98 80)
   re := Regex.new(`😀`, ``).unwrap();
   m := re.exec(`hello😀world`);
   assert(m.is_some(), "should match emoji");
   assert((m.unwrap().value() == `😀`), "should match exact emoji");
-};
+});
 
 // ===== Flag tests =====
 
 // --- ignore_case (i) flag ---
 
-test "flag i: basic case insensitive", {
+test("flag i: basic case insensitive", {
   re := Regex.new(`hello`, `i`).unwrap();
   m1 := re.exec(`HELLO`);
   assert(m1.is_some(), "should match uppercase");
   assert((m1.unwrap().value() == `HELLO`), "should capture uppercase");
   m2 := re.exec(`HeLLo`);
   assert(m2.is_some(), "should match mixed case");
-};
+});
 
-test "flag i: case insensitive char class", {
+test("flag i: case insensitive char class", {
   re := Regex.new(`[a-z]+`, `i`).unwrap();
   m := re.exec(`ABCdef`);
   assert(m.is_some(), "should match uppercase with [a-z]");
   assert((m.unwrap().value() == `ABCdef`), "should match all letters");
-};
+});
 
-test "flag i: case insensitive alternation", {
+test("flag i: case insensitive alternation", {
   re := Regex.new(`cat|dog`, `i`).unwrap();
   m1 := re.exec(`CAT`);
   assert(m1.is_some(), "should match CAT");
   m2 := re.exec(`Dog`);
   assert(m2.is_some(), "should match Dog");
-};
+});
 
 // --- multiline (m) flag ---
 
-test "flag m: caret matches start of line", {
+test("flag m: caret matches start of line", {
   re := Regex.new(`^world`, `m`).unwrap();
   m := re.exec(`hello\nworld`);
   assert(m.is_some(), "^ should match after newline with m flag");
   assert((m.unwrap().value() == `world`), "should match world");
-};
+});
 
-test "flag m: caret without flag only matches start of string", {
+test("flag m: caret without flag only matches start of string", {
   re := Regex.new(`^world`, ``).unwrap();
   m := re.exec(`hello\nworld`);
   assert(m.is_none(), "^ should not match after newline without m flag");
-};
+});
 
-test "flag m: dollar matches end of line", {
+test("flag m: dollar matches end of line", {
   re := Regex.new(`hello$`, `m`).unwrap();
   m := re.exec(`hello\nworld`);
   assert(m.is_some(), "$ should match before newline with m flag");
   assert((m.unwrap().value() == `hello`), "should match hello");
-};
+});
 
-test "flag m: dollar without flag only matches end of string", {
+test("flag m: dollar without flag only matches end of string", {
   re := Regex.new(`hello$`, ``).unwrap();
   m := re.exec(`hello\nworld`);
   assert(m.is_none(), "$ should not match before newline without m flag");
-};
+});
 
-test "flag m: match multiple lines", {
+test("flag m: match multiple lines", {
   re := Regex.new(`^\\w+`, `m`).unwrap();
   matches := re.match_all(`foo\nbar\nbaz`);
   assert((matches.len() == usize(3)), "should match start of each line");
   assert((matches.get(usize(0)).unwrap().value() == `foo`), "first line");
   assert((matches.get(usize(1)).unwrap().value() == `bar`), "second line");
   assert((matches.get(usize(2)).unwrap().value() == `baz`), "third line");
-};
+});
 
 // --- dotAll (s) flag ---
 
-test "flag s: dot matches newline", {
+test("flag s: dot matches newline", {
   re := Regex.new(`a.b`, `s`).unwrap();
   m := re.exec(`a\nb`);
   assert(m.is_some(), "dot should match newline with s flag");
   assert((m.unwrap().value() == `a\nb`), "should match across newline");
-};
+});
 
-test "flag s: dot without flag does not match newline", {
+test("flag s: dot without flag does not match newline", {
   re := Regex.new(`a.b`, ``).unwrap();
   m := re.exec(`a\nb`);
   assert(m.is_none(), "dot should not match newline without s flag");
-};
+});
 
-test "flag s: dot-star spans multiple lines", {
+test("flag s: dot-star spans multiple lines", {
   re := Regex.new(`start.*end`, `s`).unwrap();
   m := re.exec(`start\nmiddle\nend`);
   assert(m.is_some(), "dot-star should span newlines with s flag");
   assert((m.unwrap().value() == `start\nmiddle\nend`), "should match full span");
-};
+});
 
 // --- combined flags ---
 
-test "flags im: case insensitive multiline", {
+test("flags im: case insensitive multiline", {
   re := Regex.new(`^hello`, `im`).unwrap();
   m := re.exec(`world\nHELLO`);
   assert(m.is_some(), "should match case-insensitive at line start");
   assert((m.unwrap().value() == `HELLO`), "should capture HELLO");
-};
+});
 
-test "flags is: case insensitive dotAll", {
+test("flags is: case insensitive dotAll", {
   re := Regex.new(`hello.world`, `is`).unwrap();
   m := re.exec(`HELLO\nWORLD`);
   assert(m.is_some(), "should match case-insensitive across newline");
   assert((m.unwrap().value() == `HELLO\nWORLD`), "should capture full span");
-};
+});
 
-test "flags ms: multiline dotAll combined", {
+test("flags ms: multiline dotAll combined", {
   re := Regex.new(`^.+$`, `ms`).unwrap();
   m := re.exec(`hello\nworld`);
   assert(m.is_some(), "should match with both m and s");
   // With s, dot matches \n. With m, ^ and $ match line boundaries.
   // Greedy .+ from ^, with s flag dot matches \n, so it matches the whole string
   assert((m.unwrap().value() == `hello\nworld`), "greedy .+ should match everything with s flag");
-};
+});
 
 // --- invalid flags ---
 
-test "invalid flag returns error", {
+test("invalid flag returns error", {
   result := Regex.new(`test`, `x`);
   assert(result.is_err(), "invalid flag should return error");
-};
+});
 
-test "duplicate flag returns error", {
+test("duplicate flag returns error", {
   result := Regex.new(`test`, `ii`);
   assert(result.is_err(), "duplicate flag should return error");
-};
+});
 
 // ===== Sticky (y) flag tests =====
 
-test "flag y: sticky matches at start only", {
+test("flag y: sticky matches at start only", {
   re := Regex.new(`\\d+`, `y`).unwrap();
   m1 := re.exec(`123abc`);
   assert(m1.is_some(), "should match digits at start");
   assert((m1.unwrap().value() == `123`), "should match 123");
-};
+});
 
-test "flag y: sticky no match when not at start", {
+test("flag y: sticky no match when not at start", {
   re := Regex.new(`\\d+`, `y`).unwrap();
   m := re.exec(`abc123`);
   assert(m.is_none(), "should not match digits in middle with sticky");
-};
+});
 
-test "flag y: sticky match_all consecutive", {
+test("flag y: sticky match_all consecutive", {
   re := Regex.new(`[a-z]+`, `y`).unwrap();
   matches := re.match_all(`abcdef`);
   assert((matches.len() == usize(1)), "should match entire string as one");
   assert((matches.get(usize(0)).unwrap().value() == `abcdef`), "should match all");
-};
+});
 
-test "flag y: sticky match_all stops on failure", {
+test("flag y: sticky match_all stops on failure", {
   re := Regex.new(`\\d`, `y`).unwrap();
   matches := re.match_all(`12x45`);
   assert((matches.len() == usize(2)), "should stop at non-digit");
   assert((matches.get(usize(0)).unwrap().value() == `1`), "first digit");
   assert((matches.get(usize(1)).unwrap().value() == `2`), "second digit");
-};
+});
 
-test "flag y: sticky with anchored pattern", {
+test("flag y: sticky with anchored pattern", {
   re := Regex.new(`^hello`, `y`).unwrap();
   m := re.exec(`hello world`);
   assert(m.is_some(), "should match at start with sticky + anchor");
-};
+});
 
-test "flag y: sticky empty string match", {
+test("flag y: sticky empty string match", {
   re := Regex.new(``, `y`).unwrap();
   m := re.exec(`hello`);
   assert(m.is_some(), "should match empty at start");
   assert((m.unwrap().value() == ``), "should be empty match");
-};
+});
 
 // ===== Unicode property (u) flag tests =====
 
-test "unicode \\p{Letter} matches letters", {
+test("unicode \\p{Letter} matches letters", {
   re := Regex.new(`\\p{Letter}+`, `u`).unwrap();
   m := re.exec(`123hello456`);
   assert(m.is_some(), "should match letters");
   assert((m.unwrap().value() == `hello`), "should match hello");
-};
+});
 
-test "unicode \\p{L} short form matches letters", {
+test("unicode \\p{L} short form matches letters", {
   re := Regex.new(`\\p{L}+`, `u`).unwrap();
   m := re.exec(`---abc---`);
   assert(m.is_some(), "should match with short form");
   assert((m.unwrap().value() == `abc`), "should match abc");
-};
+});
 
-test "unicode \\p{L} matches Chinese characters", {
+test("unicode \\p{L} matches Chinese characters", {
   re := Regex.new(`\\p{L}+`, `u`).unwrap();
   m := re.exec(`123你好世界456`);
   assert(m.is_some(), "should match Chinese as letters");
   assert((m.unwrap().value() == `你好世界`), "should match all Chinese");
-};
+});
 
-test "unicode \\P{L} matches non-letters", {
+test("unicode \\P{L} matches non-letters", {
   re := Regex.new(`\\P{L}+`, `u`).unwrap();
   m := re.exec(`hello 123 world`);
   assert(m.is_some(), "should match non-letters");
   assert((m.unwrap().value() == ` 123 `), "should match space-digits-space");
-};
+});
 
-test "unicode \\p{Number} matches digits", {
+test("unicode \\p{Number} matches digits", {
   re := Regex.new(`\\p{Number}+`, `u`).unwrap();
   m := re.exec(`abc123def`);
   assert(m.is_some(), "should match digits");
   assert((m.unwrap().value() == `123`), "should match 123");
-};
+});
 
-test "unicode \\p{Nd} matches decimal digits", {
+test("unicode \\p{Nd} matches decimal digits", {
   re := Regex.new(`\\p{Nd}+`, `u`).unwrap();
   m := re.exec(`abc456def`);
   assert(m.is_some(), "should match decimal digits");
   assert((m.unwrap().value() == `456`), "should match 456");
-};
+});
 
-test "unicode \\p{P} matches punctuation", {
+test("unicode \\p{P} matches punctuation", {
   re := Regex.new(`\\p{P}+`, `u`).unwrap();
   m := re.exec(`hello, world!`);
   assert(m.is_some(), "should match punctuation");
   assert((m.unwrap().value() == `,`), "should match comma");
-};
+});
 
-test "unicode \\p{Han} matches CJK characters", {
+test("unicode \\p{Han} matches CJK characters", {
   re := Regex.new(`\\p{Han}+`, `u`).unwrap();
   m := re.exec(`hello你好world`);
   assert(m.is_some(), "should match CJK characters");
   assert((m.unwrap().value() == `你好`), "should match Chinese");
-};
+});
 
-test "unicode \\p{Emoji} matches emoji", {
+test("unicode \\p{Emoji} matches emoji", {
   re := Regex.new(`\\p{Emoji}`, `u`).unwrap();
   m := re.exec(`hello😀world`);
   assert(m.is_some(), "should match emoji");
   assert((m.unwrap().value() == `😀`), "should match the emoji");
-};
+});
 
-test "unicode \\p{ASCII} matches ASCII only", {
+test("unicode \\p{ASCII} matches ASCII only", {
   re := Regex.new(`\\p{ASCII}+`, `u`).unwrap();
   m := re.exec(`你好hello世界`);
   assert(m.is_some(), "should match ASCII portion");
   assert((m.unwrap().value() == `hello`), "should match hello");
-};
+});
 
-test "unicode \\p{Lu} matches uppercase letters", {
+test("unicode \\p{Lu} matches uppercase letters", {
   re := Regex.new(`\\p{Lu}+`, `u`).unwrap();
   m := re.exec(`helloWORLDbye`);
   assert(m.is_some(), "should match uppercase");
   assert((m.unwrap().value() == `WORLD`), "should match WORLD");
-};
+});
 
-test "unicode \\p{Ll} matches lowercase letters", {
+test("unicode \\p{Ll} matches lowercase letters", {
   re := Regex.new(`\\p{Ll}+`, `u`).unwrap();
   m := re.exec(`ABChelloDEF`);
   assert(m.is_some(), "should match lowercase");
   assert((m.unwrap().value() == `hello`), "should match hello");
-};
+});
 
-test "unicode \\p{White_Space} matches whitespace", {
+test("unicode \\p{White_Space} matches whitespace", {
   re := Regex.new(`\\p{White_Space}+`, `u`).unwrap();
   m := re.exec(`hello world`);
   assert(m.is_some(), "should match whitespace");
   assert((m.unwrap().value() == ` `), "should match space");
-};
+});
 
-test "unicode \\p{Latin} matches Latin script", {
+test("unicode \\p{Latin} matches Latin script", {
   re := Regex.new(`\\p{Latin}+`, `u`).unwrap();
   m := re.exec(`123hello456`);
   assert(m.is_some(), "should match Latin chars");
   assert((m.unwrap().value() == `hello`), "should match hello");
-};
+});
 
-test "unicode unknown property returns error", {
+test("unicode unknown property returns error", {
   result := Regex.new(`\\p{FooBar}`, `u`);
   assert(result.is_err(), "unknown property should be error");
-};
+});
 
-test "unicode \\p without u flag still works", {
+test("unicode \\p without u flag still works", {
   // Our engine allows \p{...} without u flag for convenience
   re := Regex.new(`\\p{L}+`, ``).unwrap();
   m := re.exec(`123hello456`);
   assert(m.is_some(), "should work without u flag");
   assert((m.unwrap().value() == `hello`), "should match letters");
-};
+});
 
-test "unicode property in alternation", {
+test("unicode property in alternation", {
   re := Regex.new(`\\p{Han}|\\p{Latin}`, `u`).unwrap();
   m1 := re.exec(`你`);
   assert(m1.is_some(), "should match Han");
   m2 := re.exec(`A`);
   assert(m2.is_some(), "should match Latin");
-};
+});
 
-test "unicode property with quantifier", {
+test("unicode property with quantifier", {
   re := Regex.new(`\\p{N}{3,}`, `u`).unwrap();
   m1 := re.exec(`ab12cd`);
   assert(m1.is_none(), "should not match only 2 digits");
   m2 := re.exec(`ab123cd`);
   assert(m2.is_some(), "should match 3+ digits");
   assert((m2.unwrap().value() == `123`), "should match 123");
-};
+});

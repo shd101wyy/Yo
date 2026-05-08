@@ -1,14 +1,14 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-open import "std/string";
-file :: import "std/sys/file";
-copy_io :: import "std/sys/copy";
-dir :: import "std/sys/dir";
-{ AT_FDCWD, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } :: import "std/sys/constants";
-{ temp_dir, path_join } :: import "../helper";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+file :: import("std/sys/file");
+copy_io :: import("std/sys/copy");
+dir :: import("std/sys/dir");
+{ AT_FDCWD, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } :: import("std/sys/constants");
+{ temp_dir, path_join } :: import("../helper");
 
-test "copyfile copies file contents", {
+test("copyfile copies file contents", {
   tmp := temp_dir();
   src_path_str := path_join(tmp, `yo_io_copy_src.txt`);
   dst_path_str := path_join(tmp, `yo_io_copy_dst.txt`);
@@ -51,9 +51,9 @@ test "copyfile copies file contents", {
 
   io.await(dir.unlink(AT_FDCWD, dst_path, i32(0)));
   io.await(dir.unlink(AT_FDCWD, src_path, i32(0)));
-};
+});
 
-test "sendfile transfers bytes", {
+test("sendfile transfers bytes", {
   tmp := temp_dir();
   src_path_str := path_join(tmp, `yo_io_sendfile_src.txt`);
   dst_path_str := path_join(tmp, `yo_io_sendfile_dst.txt`);
@@ -106,4 +106,4 @@ test "sendfile transfers bytes", {
 
   io.await(dir.unlink(AT_FDCWD, dst_path, i32(0)));
   io.await(dir.unlink(AT_FDCWD, src_path, i32(0)));
-};
+});

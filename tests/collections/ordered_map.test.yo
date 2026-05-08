@@ -1,16 +1,16 @@
-{ OrderedMap, OrderedMapEntry } :: import "std/collections/ordered_map";
-open import "std/collections/array_list";
-open import "std/string";
+{ OrderedMap, OrderedMapEntry } :: import("std/collections/ordered_map");
+open(import("std/collections/array_list"));
+open(import("std/string"));
 
-test "OrderedMap empty new", {
+test("OrderedMap empty new", {
   m := OrderedMap(String, i32).new();
   assert((m.len() == usize(0)), "new map should be empty");
   assert(m.is_empty(), "is_empty true");
   assert((!(m.contains_key(`x`))), "contains_key false");
   assert(m.get(`x`).is_none(), "get returns None");
-};
+});
 
-test "OrderedMap set and get", {
+test("OrderedMap set and get", {
   m := OrderedMap(String, i32).new();
   r1 := m.set(`a`, i32(1));
   assert(r1.is_ok(), "set ok");
@@ -23,9 +23,9 @@ test "OrderedMap set and get", {
   assert(m.contains_key(`b`), "has b");
   assert((m.get(`a`).unwrap() == i32(1)), "a is 1");
   assert((m.get(`b`).unwrap() == i32(2)), "b is 2");
-};
+});
 
-test "OrderedMap update existing key preserves order", {
+test("OrderedMap update existing key preserves order", {
   m := OrderedMap(String, i32).new();
   r1 := m.set(`alpha`, i32(1));
   r2 := m.set(`beta`,  i32(2));
@@ -53,9 +53,9 @@ test "OrderedMap update existing key preserves order", {
   assert((k2 == `beta`), "second beta");
   assert((k3 == `gamma`), "third gamma");
   assert(it.next().is_none(), "no more");
-};
+});
 
-test "OrderedMap iteration in insertion order", {
+test("OrderedMap iteration in insertion order", {
   m := OrderedMap(String, i32).new();
   m.set(`z`, i32(26));
   m.set(`a`, i32(1));
@@ -64,10 +64,10 @@ test "OrderedMap iteration in insertion order", {
   // keys
   ks := ArrayList(String).new();
   it := m.keys();
-  while true, {
+  while(true, {
     n := it.next();
     cond(n.is_none() => break, true => { ks.push(n.unwrap()); });
-  };
+  });
   assert((ks.len() == usize(3)), "3 keys");
   assert((ks.get(usize(0)).unwrap() == `z`), "z first");
   assert((ks.get(usize(1)).unwrap() == `a`), "a second");
@@ -76,17 +76,17 @@ test "OrderedMap iteration in insertion order", {
   // values
   vs := ArrayList(i32).new();
   vit := m.values();
-  while true, {
+  while(true, {
     n := vit.next();
     cond(n.is_none() => break, true => { vs.push(n.unwrap()); });
-  };
+  });
   assert((vs.len() == usize(3)), "3 values");
   assert((vs.get(usize(0)).unwrap() == i32(26)), "26 first");
   assert((vs.get(usize(1)).unwrap() == i32(1)), "1 second");
   assert((vs.get(usize(2)).unwrap() == i32(13)), "13 third");
-};
+});
 
-test "OrderedMap iter pairs", {
+test("OrderedMap iter pairs", {
   m := OrderedMap(String, i32).new();
   m.set(`one`, i32(1));
   m.set(`two`, i32(2));
@@ -99,9 +99,9 @@ test "OrderedMap iter pairs", {
   assert((e1.value == i32(1)), "first value");
   assert((e2.key == `two`), "second key");
   assert((e2.value == i32(2)), "second value");
-};
+});
 
-test "OrderedMap remove", {
+test("OrderedMap remove", {
   m := OrderedMap(String, i32).new();
   m.set(`a`, i32(1));
   m.set(`b`, i32(2));
@@ -125,9 +125,9 @@ test "OrderedMap remove", {
   miss := m.remove(`z`);
   assert(miss.is_none(), "miss none");
   assert((m.len() == usize(2)), "len unchanged");
-};
+});
 
-test "OrderedMap clear", {
+test("OrderedMap clear", {
   m := OrderedMap(String, i32).new();
   m.set(`a`, i32(1));
   m.set(`b`, i32(2));
@@ -135,9 +135,9 @@ test "OrderedMap clear", {
   assert((m.len() == usize(0)), "len 0");
   assert(m.is_empty(), "is empty");
   assert(m.keys().next().is_none(), "no keys");
-};
+});
 
-test "OrderedMap re-insert after remove appends to end", {
+test("OrderedMap re-insert after remove appends to end", {
   m := OrderedMap(String, i32).new();
   m.set(`a`, i32(1));
   m.set(`b`, i32(2));
@@ -154,20 +154,20 @@ test "OrderedMap re-insert after remove appends to end", {
   assert((k2 == `c`), "c second");
   assert((k3 == `a`), "a last (re-inserted)");
   assert((m.get(`a`).unwrap() == i32(99)), "a is 99");
-};
+});
 
-test "OrderedMap many entries preserves order", {
+test("OrderedMap many entries preserves order", {
   m := OrderedMap(String, i32).new();
   i := i32(0);
-  while (i < i32(50)), (i = (i + i32(1))), {
+  while((i < i32(50)), (i = (i + i32(1))), {
     key := i.to_string();
     m.set(key, i);
-  };
+  });
   assert((m.len() == usize(50)), "50 entries");
 
   it := m.keys();
   expected := i32(0);
-  while true, {
+  while(true, {
     n := it.next();
     cond(
       n.is_none() => break,
@@ -177,6 +177,6 @@ test "OrderedMap many entries preserves order", {
         expected = (expected + i32(1));
       }
     );
-  };
+  });
   assert((expected == i32(50)), "saw all 50");
-};
+});

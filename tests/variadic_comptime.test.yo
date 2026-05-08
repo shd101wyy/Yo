@@ -1,63 +1,63 @@
 // Tests for variadic comptime parameters
 // Syntax: ...(comptime(name) : ComptimeList(Type))
 
-open import "std/fmt";
+open(import("std/fmt"));
 
 // === Count variadic Type args ===
 count_types :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(usize))(
   types.len()
 );
 
-test "variadic comptime count types", {
+test("variadic comptime count types", {
   comptime_assert((count_types() == usize(0)), "count 0");
   comptime_assert((count_types(i32) == usize(1)), "count 1");
   comptime_assert((count_types(i32, bool) == usize(2)), "count 2");
   comptime_assert((count_types(i32, bool, u8) == usize(3)), "count 3");
   comptime_assert((count_types(i32, bool, u8, f32, f64) == usize(5)), "count 5");
-};
+});
 
 // === Mix regular comptime param with variadic ===
 mixed_count :: (fn(comptime(A) : Type, ...(comptime(rest) : ComptimeList(Type))) -> comptime(usize))(
   rest.len()
 );
 
-test "variadic comptime mixed with regular params", {
+test("variadic comptime mixed with regular params", {
   comptime_assert((mixed_count(i32) == usize(0)), "mixed 0 rest");
   comptime_assert((mixed_count(i32, bool) == usize(1)), "mixed 1 rest");
   comptime_assert((mixed_count(i32, bool, u8) == usize(2)), "mixed 2 rest");
-};
+});
 
 // === Variadic comptime_string ===
 str_count :: (fn(...(comptime(strs) : ComptimeList(comptime_string))) -> comptime(usize))(
   strs.len()
 );
 
-test "variadic comptime_string", {
+test("variadic comptime_string", {
   comptime_assert((str_count() == usize(0)), "str 0");
   comptime_assert((str_count("a") == usize(1)), "str 1");
   comptime_assert((str_count("a", "b", "c") == usize(3)), "str 3");
-};
+});
 
 // === Without explicit type annotation ===
 count_no_annotation :: (fn(...(comptime(types))) -> comptime(usize))(
   types.len()
 );
 
-test "variadic comptime without type annotation", {
+test("variadic comptime without type annotation", {
   comptime_assert((count_no_annotation() == usize(0)), "count 0");
   comptime_assert((count_no_annotation(i32) == usize(1)), "count 1");
   comptime_assert((count_no_annotation(i32, bool) == usize(2)), "count 2");
-};
+});
 
 // === Get first type from variadic ===
 first_type :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(Type))(
   types.first()
 );
 
-test "variadic comptime first type", {
+test("variadic comptime first type", {
   comptime_assert(__yo_are_types_compatible(first_type(i32, bool), i32), "first is i32");
   comptime_assert(__yo_are_types_compatible(first_type(bool), bool), "first is bool");
-};
+});
 
 // === Use variadic to build a type check function (recursive) ===
 _is_one_of_impl :: (fn(comptime(T) : Type, comptime(types) : ComptimeList(Type)) -> comptime(bool))(
@@ -72,24 +72,24 @@ is_one_of :: (fn(comptime(T) : Type, ...(comptime(types) : ComptimeList(Type))) 
   _is_one_of_impl(T, types)
 );
 
-test "variadic comptime is_one_of", {
+test("variadic comptime is_one_of", {
   comptime_assert(is_one_of(i32, i32, bool, u8), "i32 is in list");
   comptime_assert(is_one_of(bool, i32, bool, u8), "bool is in list");
   comptime_assert(is_one_of(u8, i32, bool, u8), "u8 is in list");
   comptime_assert(!(is_one_of(f32, i32, bool, u8)), "f32 is not in list");
   comptime_assert(!(is_one_of(i32)), "i32 not in empty list");
-};
+});
 
 // === Variadic with Trait values ===
 count_traits :: (fn(...(comptime(traits) : ComptimeList(Trait))) -> comptime(usize))(
   traits.len()
 );
 
-test "variadic comptime Trait", {
+test("variadic comptime Trait", {
   comptime_assert((count_traits() == usize(0)), "traits 0");
   comptime_assert((count_traits(Hash) == usize(1)), "traits 1");
   comptime_assert((count_traits(Hash, Clone) == usize(2)), "traits 2");
-};
+});
 
 // === Compute size sum with variadics (recursive) ===
 _size_sum_impl :: (fn(comptime(types) : ComptimeList(Type)) -> comptime(usize))(
@@ -103,12 +103,12 @@ size_sum :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(usize))(
   _size_sum_impl(types)
 );
 
-test "variadic comptime sizeOf sum", {
+test("variadic comptime sizeOf sum", {
   comptime_assert((size_sum(u8) == usize(1)), "u8 size");
   comptime_assert((size_sum(i32) == usize(4)), "i32 size");
   comptime_assert((size_sum(i32, i32) == usize(8)), "2xi32 size");
   comptime_assert((size_sum(u8, i32) == usize(5)), "u8+i32 size");
-};
+});
 
 // === Variadic comptime_int sum (recursive) ===
 _sum_impl :: (fn(comptime(acc) : comptime_int, comptime(vals) : ComptimeList(comptime_int)) -> comptime(comptime_int))(
@@ -122,19 +122,19 @@ sum_ints :: (fn(...(comptime(values) : ComptimeList(comptime_int))) -> comptime(
   _sum_impl(0, values)
 );
 
-test "variadic comptime_int sum", {
+test("variadic comptime_int sum", {
   comptime_assert((sum_ints() == 0), "sum 0");
   comptime_assert((sum_ints(1) == 1), "sum 1");
   comptime_assert((sum_ints(1, 2, 3) == 6), "sum 6");
   comptime_assert((sum_ints(10, 20, 30) == 60), "sum 60");
-};
+});
 
 // === Variadic rest chaining ===
 second_type :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(Type))(
   types.rest().first()
 );
 
-test "variadic comptime second type", {
+test("variadic comptime second type", {
   comptime_assert(__yo_are_types_compatible(second_type(i32, bool), bool), "second is bool");
   comptime_assert(__yo_are_types_compatible(second_type(i32, bool, u8), bool), "second is bool 2");
-};
+});

@@ -3,11 +3,11 @@
 //! Synchronous wrappers for `uname`/`gethostname`.
 //! Returns 0 on success, -errno / negative platform error on failure.
 
-{ platform, Platform } :: import "../process";
+{ platform, Platform } :: import("../process");
 {
   __yo_sync_uname,
   __yo_sync_gethostname
-} :: import "./externs.yo";
+} :: import("./externs.yo");
 
 // uname() layout constants.
 // Linux uses 65-byte fields (6 fields total including domainname).
@@ -39,9 +39,7 @@ gethostname :: (fn(name: *(u8), len: usize) -> i32)(
   __yo_sync_gethostname(name, len)
 );
 
-export
-  uname, gethostname,
+export(uname, gethostname,
   UTSNAME_SIZE, UTSNAME_FIELD_SIZE,
   UTSNAME_SYSNAME, UTSNAME_NODENAME,
-  UTSNAME_RELEASE, UTSNAME_VERSION, UTSNAME_MACHINE
-;
+  UTSNAME_RELEASE, UTSNAME_VERSION, UTSNAME_MACHINE);

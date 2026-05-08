@@ -1,13 +1,13 @@
 // @skip_wasm32-emscripten — statfs/fstatfs not available in Emscripten WASM
 // @skip_wasm32-wasi — statfs/fstatfs not available in WASI
-open import "std/libc/stdio";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-open import "std/string";
-statfs :: import "std/sys/statfs";
-{ temp_dir } :: import "../helper";
+open(import("std/string"));
+statfs :: import("std/sys/statfs");
+{ temp_dir } :: import("../helper");
 
-test "statfs returns block statistics", {
+test("statfs returns block statistics", {
   dir_str := temp_dir();
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
@@ -29,4 +29,4 @@ test "statfs returns block statistics", {
   assert(bavail <= blocks);
 
   free(.Some(*(void)(buf)));
-};
+});

@@ -1,9 +1,9 @@
 //! NFA compiler — compiles a `RegexNode` AST into a flat list of NFA instructions
 //! using Thompson's construction algorithm.
 
-open import "std/collections/array_list";
-open import "std/string";
-{ RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import "./node.yo";
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import("./node.yo");
 
 /// NFA instruction types.
 InstrKind :: enum(
@@ -171,10 +171,10 @@ impl(NfaCompiler,
         ),
       .Sequence => {
         i := usize(0);
-        while (i < node.children.len()), (i = (i + usize(1))), {
+        while((i < node.children.len()), (i = (i + usize(1))), {
           child := node.children.get(i).unwrap();
           recur(self, child);
-        };
+        });
       },
       .Alternation => {
         left := node.children.get(usize(0)).unwrap();
@@ -199,10 +199,10 @@ impl(NfaCompiler,
         // Emit min required copies, tracking start of last copy for loop-back
         (last_body_start : usize) = self._current_pc();
         qi := usize(0);
-        while (qi < min_val), (qi = (qi + usize(1))), {
+        while((qi < min_val), (qi = (qi + usize(1))), {
           last_body_start = self._current_pc();
           recur(self, child);
-        };
+        });
 
         cond(
           ((max_val == usize(0)) && (min_val == usize(0))) => {
@@ -239,7 +239,7 @@ impl(NfaCompiler,
             // {min, max} — emit (max - min) optional copies
             remaining := (max_val - min_val);
             qj := usize(0);
-            while (qj < remaining), (qj = (qj + usize(1))), {
+            while((qj < remaining), (qj = (qj + usize(1))), {
               split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
               body_start := self._current_pc();
               recur(self, child);
@@ -252,7 +252,7 @@ impl(NfaCompiler,
                   &(self._program.instructions(split_pc)).* = Instr.split_instr(after, body_start);
                 }
               );
-            };
+            });
           }
         );
       },
@@ -306,7 +306,7 @@ impl(NfaCompiler,
     instrs := self._program.instructions;
     (done : bool) = false;
 
-    while ((pc < instrs.len()) && (!(done))), {
+    while(((pc < instrs.len()) && (!(done))), {
       instr := instrs.get(pc).unwrap();
       match(instr.kind,
         .Save => { pc = (pc + usize(1)); },
@@ -323,7 +323,7 @@ impl(NfaCompiler,
         },
         _ => { done = true; }
       );
-    };
+    });
 
     self._program.literal_prefix = prefix;
   })
@@ -343,11 +343,9 @@ impl(NfaCompiler,
   })
 );
 
-export
-  NfaCompiler,
+export(NfaCompiler,
   NfaProgram,
   Instr,
   InstrKind,
   ClassEntry,
-  GroupNameEntry
-;
+  GroupNameEntry);

@@ -2,7 +2,7 @@
 // Also covers: P.method (type-name dispatch from outside the impl block).
 // Tracking issue: docs/en-US/IMPL_FORWARD_REFERENCES.md
 
-open import "std/string";
+open(import("std/string"));
 
 P :: struct(x : i32);
 
@@ -17,9 +17,9 @@ impl(P,
   )
 );
 
-test "Self.method forward reference within single impl", {
+test("Self.method forward reference within single impl", {
   assert((P.caller(i32(10)) == i32(11)), "Self.callee(10) + 1");
-};
+});
 
 // Mutual recursion via Self.method
 N :: struct(value : i32);
@@ -39,7 +39,7 @@ impl(N,
   )
 );
 
-test "Self.method mutual recursion via static-style call", {
+test("Self.method mutual recursion via static-style call", {
   assert(N.is_even_static(i32(10)), "10 is even");
   assert(N.is_odd_static(i32(7)), "7 is odd");
-};
+});

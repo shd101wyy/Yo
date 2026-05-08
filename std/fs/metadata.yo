@@ -19,19 +19,19 @@
 //! });
 //! ```
 
-{ GlobalAllocator } :: import "../allocator";
+{ GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
-open import "../string";
-{ Path } :: import "../path";
-{ IOError } :: import "../sys/errors";
-{ Error, AnyError, Exception } :: import "../error";
-{ Statx } :: import "../sys/statx";
-IO_file :: import "../sys/file";
+open(import("../string"));
+{ Path } :: import("../path");
+{ IOError } :: import("../sys/errors");
+{ Error, AnyError, Exception } :: import("../error");
+{ Statx } :: import("../sys/statx");
+IO_file :: import("../sys/file");
 {
   AT_FDCWD, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT,
   STATX_BASIC_STATS, S_IFMT, S_IFREG, S_IFDIR, S_IFLNK,
   S_IWUSR, S_IWGRP, S_IWOTH
-} :: import "../sys/constants";
+} :: import("../sys/constants");
 
 /// File metadata wrapper around `Statx`.
 Metadata :: object(
@@ -113,15 +113,14 @@ impl(Metadata, Dispose(
   })
 ));
 
-export Metadata;
+export(Metadata);
 
 // ============================================================================
 // Statx buffer size extern
 // ============================================================================
 
-extern "Yo",
-  __yo_statx_buf_size : (fn() -> usize)
-;
+extern("Yo",
+  __yo_statx_buf_size : (fn() -> usize));
 
 // ============================================================================
 // Internal helper to stat a path
@@ -137,7 +136,7 @@ _stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Metadat
     cond(
       (result < i32(0)) => {
         free(.Some(*(void)(buf)));
-        exn.throw(dyn IOError.from_errno((i32(0) - result)))
+        exn.throw(dyn(IOError.from_errno((i32(0) - result))))
       },
       true => {
         sx := Statx(_buf_ptr: buf, _buf_size: buf_size);
@@ -148,23 +147,15 @@ _stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Metadat
 );
 
 /// Get metadata for a path (follows symlinks).
-metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
-  _stat_path(path, AT_STATX_SYNC_AS_STAT)
-;
+metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, AT_STATX_SYNC_AS_STAT));
 
 /// Get metadata for a path given as a raw string (follows symlinks).
-metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
-  metadata(Path.new(String.from(path)))
-;
+metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(metadata(Path.new(String.from(path))));
 
 /// Get metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
-  _stat_path(path, (AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT))
-;
+symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, (AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT)));
 
 /// Get metadata for a path given as a raw string (does NOT follow symlinks).
-symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
-  symlink_metadata(Path.new(String.from(path)))
-;
+symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(symlink_metadata(Path.new(String.from(path))));
 
-export metadata, metadata_str, symlink_metadata, symlink_metadata_str;
+export(metadata, metadata_str, symlink_metadata, symlink_metadata_str);

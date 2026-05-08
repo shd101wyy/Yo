@@ -8,7 +8,7 @@
 //! - `copyfile`: 0 on success, -errno on failure
 //! - `sendfile`: bytes transferred on success, -errno on failure
 
-{ __yo_sync_copyfile, __yo_sync_sendfile } :: import "./externs.yo";
+{ __yo_sync_copyfile, __yo_sync_sendfile } :: import("./externs.yo");
 
 // Copy a file using kernel-accelerated copy.
 // flags: 0 = default, 1 = COPYFILE_EXCL (fail if dst exists)
@@ -23,6 +23,4 @@ sendfile :: (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> i32)(
   __yo_sync_sendfile(out_fd, in_fd, offset, count)
 );
 
-export
-  copyfile, sendfile
-;
+export(copyfile, sendfile);

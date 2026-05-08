@@ -13,10 +13,10 @@
 // it and mark `isEffectRecordMember=true` so `generateEscape` uses the
 // thread-local `__yo_effect_escaped` flag for escape propagation.
 
-open import "std/libc/stdio";
-{ Exception, Error, AnyError } :: import "std/error";
-{ yield } :: import "std/async";
-Worker :: import "std/worker";
+open(import("std/libc/stdio"));
+{ Exception, Error, AnyError } :: import("std/error");
+{ yield } :: import("std/async");
+Worker :: import("std/worker");
 
 // Top-level fn with a locally installed effect handler that escapes.
 // The body pattern mirrors a server accept loop: install handler,
@@ -24,7 +24,7 @@ Worker :: import "std/worker";
 do_work :: (fn(iterations : i32, using(io : IO)) -> i32)({
   given(exn) := Exception(throw : ((err) -> {
     printf("do_work: unexpected exception\n");
-    escape i32(-1);
+    escape(i32(-(1)));
   }));
 
   // An await forces this function to be a state-machine function.
@@ -32,19 +32,19 @@ do_work :: (fn(iterations : i32, using(io : IO)) -> i32)({
 
   total := i32(0);
   i := i32(0);
-  while runtime((i < iterations)), {
+  while(runtime((i < iterations)), {
     total = (total + i);
     i = (i + i32(1));
-  };
-  return total;
+  });
+  return(total);
 });
 
-test "control fn called as regular function from single site", {
+test("control fn called as regular function from single site", {
   result := do_work(i32(10), using(io));
   assert(result == i32(45), "sum 0..9 should be 45");
-};
+});
 
-test "control fn called as regular function from multiple sites", {
+test("control fn called as regular function from multiple sites", {
   // Multiple direct call sites in the same scope — exercises that the
   // function is registered once and dispatched by name at each site.
   a := do_work(i32(5), using(io));
@@ -53,9 +53,9 @@ test "control fn called as regular function from multiple sites", {
   assert(a == i32(10), "sum 0..4");
   assert(b == i32(15), "sum 0..5");
   assert(c == i32(21), "sum 0..6");
-};
+});
 
-test "control fn called from worker closures", {
+test("control fn called from worker closures", {
   // Match the yo_http_benchmark multi-threaded pattern: call the
   // control fn from main AND from a Worker.spawn closure.
   Worker.set_num_threads(2);
@@ -67,4 +67,4 @@ test "control fn called from worker closures", {
 
   main_result := do_work(i32(4), using(io));
   assert(main_result == i32(6), "main sum 0..3 should be 6");
-};
+});

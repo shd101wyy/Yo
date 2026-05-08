@@ -18,20 +18,20 @@
 //! });
 //! ```
 
-{ GlobalAllocator } :: import "../allocator";
+{ GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
-open import "../string";
-open import "../fmt";
-{ Path } :: import "../path";
-{ IOError } :: import "../sys/errors";
-{ Error, AnyError, Exception } :: import "../error";
-_file_mod :: import "./file";
-_dir_mod :: import "./dir";
-IO_temp :: import "../sys/temp";
-IO_file :: import "../sys/file";
-{ memcpy } :: import "../libc/string";
-{ platform, Platform } :: import "../process";
-{ env } :: import "../env";
+open(import("../string"));
+open(import("../fmt"));
+{ Path } :: import("../path");
+{ IOError } :: import("../sys/errors");
+{ Error, AnyError, Exception } :: import("../error");
+_file_mod :: import("./file");
+_dir_mod :: import("./dir");
+IO_temp :: import("../sys/temp");
+IO_file :: import("../sys/file");
+{ memcpy } :: import("../libc/string");
+{ platform, Platform } :: import("../process");
+{ env } :: import("../env");
 
 _default_tmp_dir :: (fn() -> String)(
   cond(
@@ -76,7 +76,7 @@ impl(TempDir,
       cond(
         (result < i32(0)) => {
           free(.Some(*(void)(buf)));
-          exn.throw(dyn IOError.from_errno((i32(0) - result)));
+          exn.throw(dyn(IOError.from_errno((i32(0) - result))));
         },
         true => ()
       );
@@ -111,7 +111,7 @@ impl(TempDir,
   })
 );
 
-export TempDir;
+export(TempDir);
 
 /// Temporary file backed by a `File` handle.
 TempFile :: object(
@@ -136,7 +136,7 @@ impl(TempFile,
       cond(
         (fd < i32(0)) => {
           free(.Some(*(void)(buf)));
-          exn.throw(dyn IOError.from_errno((i32(0) - fd)));
+          exn.throw(dyn(IOError.from_errno((i32(0) - fd))));
         },
         true => ()
       );
@@ -180,4 +180,4 @@ impl(TempFile,
   })
 );
 
-export TempFile;
+export(TempFile);

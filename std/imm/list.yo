@@ -16,17 +16,16 @@
 //! assert((xs.len() == usize(3)), "length is 3");
 //! ```
 
-{ GlobalAllocator } :: import "../allocator.yo";
+{ GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
-{ memcpy } :: import "../libc/string.yo";
+{ memcpy } :: import("../libc/string.yo");
 
 /// Internal cons cell — atomic object for thread-safe structural sharing.
 ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  atomic object(
+  atomic(object(
     _value : T,
     _next : Option(Self)
-  )
-);
+  )));
 
 // Manual Acyclic impl — ListNode is self-referential, so auto-derivation skips it.
 // This is safe because ListNode is immutable: all operations create new nodes and never
@@ -90,24 +89,24 @@ impl(forall(T : Type), where(T <: Send), List(T),
   /// Returns `.None` if index is out of bounds.
   get : (fn(self : Self, index : usize) -> Option(T))({
     if((index >= self._len), {
-      return .None;
+      return(.None);
     });
     (current : Option(ListNode(T))) = self._head;
     (i : usize) = usize(0);
-    while runtime(true), {
+    while(runtime(true), {
       match(current,
         .Some(node) => {
           if((i == index), {
-            return .Some(node._value);
+            return(.Some(node._value));
           });
           current = node._next;
           i = (i + usize(1));
         },
         .None => {
-          return .None;
+          return(.None);
         }
       );
-    };
+    });
     .None
   }),
 
@@ -115,11 +114,11 @@ impl(forall(T : Type), where(T <: Send), List(T),
   reverse : (fn(self : Self) -> Self)({
     (result : Self) = Self.new();
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       result = result.prepend(node._value);
       current = node._next;
-    };
+    });
     result
   }),
 
@@ -129,11 +128,11 @@ impl(forall(T : Type), where(T <: Send), List(T),
     reversed := self.reverse();
     (result : Self) = other;
     (current : Option(ListNode(T))) = reversed._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       result = result.prepend(node._value);
       current = node._next;
-    };
+    });
     result
   }),
 
@@ -141,11 +140,11 @@ impl(forall(T : Type), where(T <: Send), List(T),
   map : (fn(forall(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: Send)) -> List(U))({
     (result : List(U)) = List(U).new();
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       result = result.prepend(f(node._value));
       current = node._next;
-    };
+    });
     result.reverse()
   }),
 
@@ -153,13 +152,13 @@ impl(forall(T : Type), where(T <: Send), List(T),
   filter : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> Self)({
     (result : Self) = Self.new();
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       if(f(node._value), {
         result = result.prepend(node._value);
       });
       current = node._next;
-    };
+    });
     result.reverse()
   }),
 
@@ -167,41 +166,41 @@ impl(forall(T : Type), where(T <: Send), List(T),
   fold : (fn(forall(U : Type), self : Self, init : U, f : Impl(Fn(acc : U, item : T) -> U)) -> U)({
     (acc : U) = init;
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       acc = f(acc, node._value);
       current = node._next;
-    };
+    });
     acc
   }),
 
   /// Execute a function for each element. O(n).
   for_each : (fn(self : Self, f : Impl(Fn(a : T) -> unit)) -> unit)({
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       f(node._value);
       current = node._next;
-    };
+    });
   }),
 
   /// Check if the list contains a value. O(n).
   /// Requires T to implement Eq.
   contains : (fn(self : Self, value : T, where(T <: Eq(T))) -> bool)({
     (current : Option(ListNode(T))) = self._head;
-    while runtime(true), {
+    while(runtime(true), {
       match(current,
         .Some(node) => {
           if((node._value == value), {
-            return true;
+            return(true);
           });
           current = node._next;
         },
         .None => {
-          return false;
+          return(false);
         }
       );
-    };
+    });
     false
   }),
 
@@ -209,10 +208,10 @@ impl(forall(T : Type), where(T <: Send), List(T),
   from_slice : (fn(s : Slice(T)) -> Self)({
     (result : Self) = Self.new();
     (i : usize) = s.len();
-    while ((i > usize(0))), {
+    while(((i > usize(0))), {
       i = (i - usize(1));
       result = result.prepend(s(i));
-    };
+    });
     result
   })
 );
@@ -221,34 +220,32 @@ impl(forall(T : Type), where(T <: Send), List(T),
 impl(forall(T : Type), where(T <: (Send, Eq(T))), List(T), Eq(List(T))(
   (==) : (fn(lhs : Self, rhs : Self) -> bool)({
     if((lhs._len != rhs._len), {
-      return false;
+      return(false);
     });
     (l : Option(ListNode(T))) = lhs._head;
     (r : Option(ListNode(T))) = rhs._head;
-    while runtime(true), {
+    while(runtime(true), {
       match(l,
         .Some(ln) => match(r,
           .Some(rn) => {
             if((ln._value != rn._value), {
-              return false;
+              return(false);
             });
             l = ln._next;
             r = rn._next;
           },
           .None => {
-            return false;
+            return(false);
           }
         ),
         .None => {
-          return true;
+          return(true);
         }
       );
-    };
+    });
     true
   })
 ));
 
-export
-  List,
-  ListNode
-;
+export(List,
+  ListNode);

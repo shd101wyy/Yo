@@ -1,6 +1,6 @@
-open import "std/string";
-open import "std/error";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/error"));
+open(import("std/fmt"));
 
 // Regression for issues/escape-cleanup-references-uninitialized-vars.md
 //
@@ -31,7 +31,7 @@ get_opt_token :: (fn(present : bool) -> Option(Token))(
 // Pattern 1 — escape inside (var : T) = match(...) initializer.
 parse_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
   (tok : Token) = match(get_opt_token(present),
-    .None    => exn.throw(dyn ParseError(message: `eof`)),
+    .None    => exn.throw(dyn(ParseError(message: `eof`))),
     .Some(t) => t
   );
   ParseResult(label: tok.name, index: usize(0))
@@ -41,7 +41,7 @@ parse_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
 // with an RC-typed binding declared after the break.
 collect_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
   (final_label : String) = `default`;
-  while runtime(true), {
+  while(runtime(true), {
     match(get_opt_token(present),
       .None    => { break; },
       .Some(next_tok) => {
@@ -51,37 +51,37 @@ collect_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
         break;
       }
     );
-  };
+  });
   ParseResult(label: final_label, index: usize(0))
 });
 
 // Helpers (so escape value type matches enclosing fn return type).
 run_parse_one :: (fn(present : bool) -> ParseResult)({
   given(exn) := Exception(throw : ((err) -> {
-    escape ParseResult(label: `caught`, index: usize(7));
+    escape(ParseResult(label: `caught`, index: usize(7)));
   }));
   parse_one(present, using(exn))
 });
 
 run_collect_one :: (fn(present : bool) -> ParseResult)({
   given(exn) := Exception(throw : ((err) -> {
-    escape ParseResult(label: `err`, index: usize(99));
+    escape(ParseResult(label: `err`, index: usize(99)));
   }));
   collect_one(present, using(exn))
 });
 
-test "Pattern 1: escape from (var : T) = match initializer compiles and runs", {
+test("Pattern 1: escape from (var : T) = match initializer compiles and runs", {
   ok_result := run_parse_one(true);
   assert((ok_result.index == usize(0)), "ok index");
 
   err_result := run_parse_one(false);
   assert((err_result.index == usize(7)), "escape index");
-};
+});
 
-test "Pattern 2: break inside match arm before later RC binding compiles and runs", {
+test("Pattern 2: break inside match arm before later RC binding compiles and runs", {
   ok_result := run_collect_one(true);
   assert((ok_result.index == usize(0)), "loop completed");
 
   none_result := run_collect_one(false);
   assert((none_result.index == usize(0)), "loop none branch");
-};
+});

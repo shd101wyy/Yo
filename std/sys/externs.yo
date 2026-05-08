@@ -2,13 +2,13 @@
 //!
 //! All low-level extern functions for async I/O operations.
 
-{ IOFuture } :: import "./future.yo";
+{ IOFuture } :: import("./future.yo");
 
 // ============================================================================
 // Extern C runtime functions
 // ============================================================================
 
-extern "Yo",
+extern("Yo",
   // ========================================================================
   // File Operations
   // ========================================================================
@@ -250,11 +250,9 @@ extern "Yo",
   __yo_iovec_size : (fn() -> usize),
   __yo_iovec_set : (fn(iov: *(u8), index: usize, base: *(u8), len: usize) -> unit),
   __yo_sync_fadvise : (fn(fd: i32, offset: i64, len: i64, advice: i32) -> i32),
-  __yo_sync_madvise : (fn(addr: *(u8), length: usize, advice: i32) -> i32)
-;
+  __yo_sync_madvise : (fn(addr: *(u8), length: usize, advice: i32) -> i32));
 
-export
-  // File operations
+export(// File operations
   __yo_async_read_start, __yo_async_write_start,
   __yo_async_openat_start, __yo_async_close_start,
   __yo_async_statx_start, __yo_async_mkdirat_start,
@@ -366,5 +364,4 @@ export
   __yo_sync_readv, __yo_sync_writev,
   __yo_sync_preadv, __yo_sync_pwritev,
   __yo_iovec_size, __yo_iovec_set,
-  __yo_sync_fadvise, __yo_sync_madvise
-;
+  __yo_sync_fadvise, __yo_sync_madvise);

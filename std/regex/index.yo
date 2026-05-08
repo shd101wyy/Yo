@@ -1,12 +1,12 @@
 //! Regular expression engine with an NFA-based virtual machine.
 
-open import "std/collections/array_list";
-open import "std/string";
-{ RegexParser } :: import "./parser.yo";
-{ NfaCompiler, NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import "./compiler.yo";
-{ NfaVm, VmMatch } :: import "./vm.yo";
-{ RegexFlags } :: import "./flags.yo";
-{ RegexMatch } :: import "./match.yo";
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ RegexParser } :: import("./parser.yo");
+{ NfaCompiler, NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import("./compiler.yo");
+{ NfaVm, VmMatch } :: import("./vm.yo");
+{ RegexFlags } :: import("./flags.yo");
+{ RegexMatch } :: import("./match.yo");
 
 /// Compiled regular expression backed by an NFA program.
 Regex :: object(
@@ -58,16 +58,16 @@ impl(Regex,
   _extract_substring : (fn(self : Self, bytes : ArrayList(u8), start : usize, end_pos : usize) -> String)({
     result_bytes := ArrayList(u8).with_capacity((end_pos - start));
     i := start;
-    while (i < end_pos), (i = (i + usize(1))), {
+    while((i < end_pos), (i = (i + usize(1))), {
       result_bytes.push(bytes.get(i).unwrap());
-    };
+    });
     String.from_bytes(result_bytes)
   }),
 
   _byte_to_char_index : (fn(self : Self, bytes : ArrayList(u8), byte_pos : usize) -> usize)({
     char_idx := usize(0);
     i := usize(0);
-    while (i < byte_pos), {
+    while((i < byte_pos), {
       b := bytes.get(i).unwrap();
       char_len := cond(
         (b < u8(0x80)) => usize(1),
@@ -77,7 +77,7 @@ impl(Regex,
       );
       i = (i + char_len);
       char_idx = (char_idx + usize(1));
-    };
+    });
     char_idx
   }),
 
@@ -96,20 +96,20 @@ impl(Regex,
         (pos : usize) = from_byte;
         (found : bool) = false;
 
-        while ((pos <= (input_len - prefix_len)) && (!(found))), {
+        while(((pos <= (input_len - prefix_len)) && (!(found))), {
           cond(
             (input_bytes.get(pos).unwrap() == first_byte) => {
               // Check remaining prefix bytes
               (match_ok : bool) = true;
               pi := usize(1);
-              while ((pi < prefix_len) && match_ok), (pi = (pi + usize(1))), {
+              while(((pi < prefix_len) && match_ok), (pi = (pi + usize(1))), {
                 cond(
                   (input_bytes.get((pos + pi)).unwrap() != prefix.get(pi).unwrap()) => {
                     match_ok = false;
                   },
                   true => ()
                 );
-              };
+              });
               cond(
                 match_ok => { found = true; },
                 true => { pos = (pos + usize(1)); }
@@ -117,7 +117,7 @@ impl(Regex,
             },
             true => { pos = (pos + usize(1)); }
           );
-        };
+        });
 
         cond(
           found => pos,
@@ -142,7 +142,7 @@ impl(Regex,
 
     groups := ArrayList(Option(String)).new();
     g := usize(1);
-    while (g <= self._n_groups), (g = (g + usize(1))), {
+    while((g <= self._n_groups), (g = (g + usize(1))), {
       start_slot := (g * usize(2));
       end_slot := ((g * usize(2)) + usize(1));
 
@@ -164,7 +164,7 @@ impl(Regex,
           groups.push(.None);
         }
       );
-    };
+    });
 
     RegexMatch.new(match_text, match_char_index, input, groups, self._group_names)
   })
@@ -193,13 +193,13 @@ impl(Regex,
           true => usize(0)
         );
 
-        while (byte_pos <= input_len), {
+        while((byte_pos <= input_len), {
           result := vm.exec_at(byte_pos);
 
           cond(
             result.matched => {
               m := self._build_match(result.slots, input);
-              return .Some(m);
+              return(.Some(m));
             },
             true => ()
           );
@@ -221,7 +221,7 @@ impl(Regex,
               );
             }
           );
-        };
+        });
 
         .None
       }
@@ -238,7 +238,7 @@ impl(Regex,
       self._flags.sticky => {
         // Sticky: only try at position 0, then at end of each match
         (byte_pos : usize) = usize(0);
-        while (byte_pos <= input_len), {
+        while((byte_pos <= input_len), {
           result := vm.exec_at(byte_pos);
 
           cond(
@@ -271,7 +271,7 @@ impl(Regex,
             },
             true => { break; }
           );
-        };
+        });
       },
       true => {
         has_prefix := (self._program.literal_prefix.len() > usize(0));
@@ -280,7 +280,7 @@ impl(Regex,
           true => usize(0)
         );
 
-        while (byte_pos <= input_len), {
+        while((byte_pos <= input_len), {
           result := vm.exec_at(byte_pos);
 
           cond(
@@ -339,7 +339,7 @@ impl(Regex,
               );
             }
           );
-        };
+        });
       }
     );
 
@@ -360,8 +360,7 @@ impl(Regex,
       .Some(m) => .Some(m.index()),
       .None => .None
     )
-  })
-);
+  }));
 
 // Block 5: _apply_replacement helper (depends on Block 2)
 impl(Regex,
@@ -373,7 +372,7 @@ impl(Regex,
     result := ArrayList(u8).new();
     i := usize(0);
 
-    while (i < rep_len), {
+    while((i < rep_len), {
       b := rep_bytes.get(i).unwrap();
       cond(
         ((b == u8(36)) && ((i + usize(1)) < rep_len)) => {
@@ -389,9 +388,9 @@ impl(Regex,
               // $& → full match
               match_bytes := m.value().as_bytes();
               mi := usize(0);
-              while (mi < match_bytes.len()), (mi = (mi + usize(1))), {
+              while((mi < match_bytes.len()), (mi = (mi + usize(1))), {
                 result.push(match_bytes.get(mi).unwrap());
-              };
+              });
               i = (i + usize(2));
             },
             (next_b == u8(96)) => {
@@ -401,7 +400,7 @@ impl(Regex,
               char_idx := m.index();
               byte_idx := usize(0);
               ci := usize(0);
-              while (ci < char_idx), {
+              while((ci < char_idx), {
                 cb := input_bytes.get(byte_idx).unwrap();
                 cbl := cond(
                   (cb < u8(0x80)) => usize(1),
@@ -411,11 +410,11 @@ impl(Regex,
                 );
                 byte_idx = (byte_idx + cbl);
                 ci = (ci + usize(1));
-              };
+              });
               pi := usize(0);
-              while (pi < byte_idx), (pi = (pi + usize(1))), {
+              while((pi < byte_idx), (pi = (pi + usize(1))), {
                 result.push(input_bytes.get(pi).unwrap());
-              };
+              });
               i = (i + usize(2));
             },
             (next_b == u8(39)) => {
@@ -425,7 +424,7 @@ impl(Regex,
               char_idx := m.index();
               byte_idx := usize(0);
               ci := usize(0);
-              while (ci < char_idx), {
+              while((ci < char_idx), {
                 cb := input_bytes.get(byte_idx).unwrap();
                 cbl := cond(
                   (cb < u8(0x80)) => usize(1),
@@ -435,14 +434,14 @@ impl(Regex,
                 );
                 byte_idx = (byte_idx + cbl);
                 ci = (ci + usize(1));
-              };
+              });
               // Advance past the matched text
               match_bytes := m.value().as_bytes();
               byte_idx = (byte_idx + match_bytes.len());
               pi := byte_idx;
-              while (pi < input_bytes.len()), (pi = (pi + usize(1))), {
+              while((pi < input_bytes.len()), (pi = (pi + usize(1))), {
                 result.push(input_bytes.get(pi).unwrap());
-              };
+              });
               i = (i + usize(2));
             },
             ((next_b >= u8(48)) && (next_b <= u8(57))) => {
@@ -453,9 +452,9 @@ impl(Regex,
                 .Some(g) => {
                   g_bytes := g.as_bytes();
                   gi := usize(0);
-                  while (gi < g_bytes.len()), (gi = (gi + usize(1))), {
+                  while((gi < g_bytes.len()), (gi = (gi + usize(1))), {
                     result.push(g_bytes.get(gi).unwrap());
-                  };
+                  });
                 },
                 .None => ()
               );
@@ -466,7 +465,7 @@ impl(Regex,
               name_start := (i + usize(2));
               (name_end : usize) = name_start;
               (found_close : bool) = false;
-              while (name_end < rep_len), {
+              while((name_end < rep_len), {
                 nb := rep_bytes.get(name_end).unwrap();
                 cond(
                   (nb == u8(125)) => {
@@ -477,23 +476,23 @@ impl(Regex,
                     name_end = (name_end + usize(1));
                   }
                 );
-              };
+              });
               cond(
                 found_close => {
                   name_bytes := ArrayList(u8).with_capacity((name_end - name_start));
                   ni := name_start;
-                  while (ni < name_end), (ni = (ni + usize(1))), {
+                  while((ni < name_end), (ni = (ni + usize(1))), {
                     name_bytes.push(rep_bytes.get(ni).unwrap());
-                  };
+                  });
                   name := String.from_bytes(name_bytes);
                   grp := m.named_group(name);
                   match(grp,
                     .Some(g) => {
                       g_bytes := g.as_bytes();
                       gi := usize(0);
-                      while (gi < g_bytes.len()), (gi = (gi + usize(1))), {
+                      while((gi < g_bytes.len()), (gi = (gi + usize(1))), {
                         result.push(g_bytes.get(gi).unwrap());
-                      };
+                      });
                     },
                     .None => ()
                   );
@@ -518,7 +517,7 @@ impl(Regex,
           i = (i + usize(1));
         }
       );
-    };
+    });
 
     String.from_bytes(result)
   })
@@ -536,7 +535,7 @@ impl(Regex,
         char_idx := m.index();
         (match_start_byte : usize) = usize(0);
         ci := usize(0);
-        while (ci < char_idx), {
+        while((ci < char_idx), {
           cb := input_bytes.get(match_start_byte).unwrap();
           cbl := cond(
             (cb < u8(0x80)) => usize(1),
@@ -546,25 +545,25 @@ impl(Regex,
           );
           match_start_byte = (match_start_byte + cbl);
           ci = (ci + usize(1));
-        };
+        });
         match_end_byte := (match_start_byte + m.value().as_bytes().len());
 
         // Build result: pre-match + replacement + post-match
         out := ArrayList(u8).new();
         pi := usize(0);
-        while (pi < match_start_byte), (pi = (pi + usize(1))), {
+        while((pi < match_start_byte), (pi = (pi + usize(1))), {
           out.push(input_bytes.get(pi).unwrap());
-        };
+        });
         rep := self._apply_replacement(replacement, m);
         rep_bytes := rep.as_bytes();
         ri := usize(0);
-        while (ri < rep_bytes.len()), (ri = (ri + usize(1))), {
+        while((ri < rep_bytes.len()), (ri = (ri + usize(1))), {
           out.push(rep_bytes.get(ri).unwrap());
-        };
+        });
         pi = match_end_byte;
-        while (pi < input_bytes.len()), (pi = (pi + usize(1))), {
+        while((pi < input_bytes.len()), (pi = (pi + usize(1))), {
           out.push(input_bytes.get(pi).unwrap());
-        };
+        });
         String.from_bytes(out)
       }
     )
@@ -580,13 +579,13 @@ impl(Regex,
         (last_end_byte : usize) = usize(0);
 
         mi := usize(0);
-        while (mi < all_matches.len()), (mi = (mi + usize(1))), {
+        while((mi < all_matches.len()), (mi = (mi + usize(1))), {
           m := all_matches.get(mi).unwrap();
           // Convert char index to byte index for match start
           char_idx := m.index();
           (match_start_byte : usize) = usize(0);
           ci := usize(0);
-          while (ci < char_idx), {
+          while((ci < char_idx), {
             cb := input_bytes.get(match_start_byte).unwrap();
             cbl := cond(
               (cb < u8(0x80)) => usize(1),
@@ -596,31 +595,31 @@ impl(Regex,
             );
             match_start_byte = (match_start_byte + cbl);
             ci = (ci + usize(1));
-          };
+          });
           match_end_byte := (match_start_byte + m.value().as_bytes().len());
 
           // Copy text between last match end and this match start
           pi := last_end_byte;
-          while (pi < match_start_byte), (pi = (pi + usize(1))), {
+          while((pi < match_start_byte), (pi = (pi + usize(1))), {
             out.push(input_bytes.get(pi).unwrap());
-          };
+          });
 
           // Apply replacement
           rep := self._apply_replacement(replacement, m);
           rep_bytes := rep.as_bytes();
           ri := usize(0);
-          while (ri < rep_bytes.len()), (ri = (ri + usize(1))), {
+          while((ri < rep_bytes.len()), (ri = (ri + usize(1))), {
             out.push(rep_bytes.get(ri).unwrap());
-          };
+          });
 
           last_end_byte = match_end_byte;
-        };
+        });
 
         // Copy remaining text after last match
         pi := last_end_byte;
-        while (pi < input_bytes.len()), (pi = (pi + usize(1))), {
+        while((pi < input_bytes.len()), (pi = (pi + usize(1))), {
           out.push(input_bytes.get(pi).unwrap());
-        };
+        });
 
         String.from_bytes(out)
       }
@@ -640,13 +639,13 @@ impl(Regex,
         (last_end_byte : usize) = usize(0);
 
         mi := usize(0);
-        while (mi < all_matches.len()), (mi = (mi + usize(1))), {
+        while((mi < all_matches.len()), (mi = (mi + usize(1))), {
           m := all_matches.get(mi).unwrap();
           // Convert char index to byte index for match start
           char_idx := m.index();
           (match_start_byte : usize) = usize(0);
           ci := usize(0);
-          while (ci < char_idx), {
+          while((ci < char_idx), {
             cb := input_bytes.get(match_start_byte).unwrap();
             cbl := cond(
               (cb < u8(0x80)) => usize(1),
@@ -656,36 +655,36 @@ impl(Regex,
             );
             match_start_byte = (match_start_byte + cbl);
             ci = (ci + usize(1));
-          };
+          });
           match_end_byte := (match_start_byte + m.value().as_bytes().len());
 
           // Extract text from last_end_byte to match_start_byte
           part_bytes := ArrayList(u8).new();
           pi := last_end_byte;
-          while (pi < match_start_byte), (pi = (pi + usize(1))), {
+          while((pi < match_start_byte), (pi = (pi + usize(1))), {
             part_bytes.push(input_bytes.get(pi).unwrap());
-          };
+          });
           parts.push(String.from_bytes(part_bytes));
 
           // Include capture groups in split result (like JS)
           gi := usize(1);
-          while (gi <= m.group_count()), (gi = (gi + usize(1))), {
+          while((gi <= m.group_count()), (gi = (gi + usize(1))), {
             grp := m.group(gi);
             match(grp,
               .Some(g) => { parts.push(g); },
               .None => { parts.push(`undefined`); }
             );
-          };
+          });
 
           last_end_byte = match_end_byte;
-        };
+        });
 
         // Add remaining text after last match
         remaining := ArrayList(u8).new();
         pi := last_end_byte;
-        while (pi < input_bytes.len()), (pi = (pi + usize(1))), {
+        while((pi < input_bytes.len()), (pi = (pi + usize(1))), {
           remaining.push(input_bytes.get(pi).unwrap());
-        };
+        });
         parts.push(String.from_bytes(remaining));
       }
     );
@@ -694,8 +693,6 @@ impl(Regex,
   })
 );
 
-export
-  Regex,
+export(Regex,
   RegexMatch,
-  RegexFlags
-;
+  RegexFlags);

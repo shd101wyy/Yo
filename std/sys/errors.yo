@@ -1,15 +1,15 @@
 //! `IOError` type — comprehensive I/O error type with errno-to-error mapping.
 
-{ String } :: import "../string";
-{ ToString } :: import "../fmt";
-{ Error, Exception } :: import "../error";
+{ String } :: import("../string");
+{ ToString } :: import("../fmt");
+{ Error, Exception } :: import("../error");
 {
   ENOENT, EPERM, EACCES, EEXIST, ENOTDIR, EISDIR, ENOTEMPTY, EPIPE,
   EAGAIN, EWOULDBLOCK, EINVAL, EINTR, EMFILE, ENFILE, EFBIG, ENOSPC,
   EROFS, EXDEV, EMLINK, ENAMETOOLONG, ENOTSUP, EOPNOTSUPP, ETIMEDOUT, EBUSY,
   ECONNREFUSED, ECONNRESET, ECONNABORTED, ENOTCONN, EADDRINUSE, EADDRNOTAVAIL,
   ENETUNREACH, EHOSTUNREACH, ENETDOWN, EISCONN, EBADF, EIO
-} :: import "../libc/errno";
+} :: import("../libc/errno");
 
 // ============================================================================
 // IOError - I/O error type
@@ -171,7 +171,7 @@ impl(IOError, ToString(
       .AlreadyConnected => String.from("socket already connected"),
       .Other(errno) => String.from("unknown I/O error")
     );
-    return s;
+    return(s);
   })
 ));
 impl(IOError, Error());
@@ -181,9 +181,9 @@ impl(IOError,
   check : (fn(result: i32, using(exn : Exception)) -> i32)(
     cond(
       (result >= i32(0)) => result,
-      true => exn.throw(dyn Self.from_errno(i32(0) - result))
+      true => exn.throw(dyn(Self.from_errno(i32(0) - result)))
     )
   )
 );
 
-export IOError;
+export(IOError);

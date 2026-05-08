@@ -1,81 +1,81 @@
-open import "std/path";
-open import "std/string";
+open(import("std/path"));
+open(import("std/string"));
 
-test "Path.new creates path from string", {
+test("Path.new creates path from string", {
   path := Path.new(`src/main.yo`);
   s := path.to_string();
   assert(s == `src/main.yo`);
-};
+});
 
-test "Path.new handles absolute paths", {
+test("Path.new handles absolute paths", {
   path := Path.new(`/usr/local/bin`);
   assert(path.is_absolute());
-  assert(!path.is_relative());
+  assert(!(path.is_relative()));
   s := path.to_string();
   assert(s == `/usr/local/bin`);
-};
+});
 
-test "Path.new handles relative paths", {
+test("Path.new handles relative paths", {
   path := Path.new(`./src/main.yo`);
   assert(path.is_relative());
-  assert(!path.is_absolute());
-};
+  assert(!(path.is_absolute()));
+});
 
-test "Path.new normalizes . in paths", {
+test("Path.new normalizes . in paths", {
   path := Path.new(`/usr/./local/./bin`);
   s := path.to_string();
   assert(s == `/usr/local/bin`);
-};
+});
 
-test "Path.new normalizes .. in paths", {
+test("Path.new normalizes .. in paths", {
   path := Path.new(`/usr/local/../bin`);
   s := path.to_string();
   assert(s == `/usr/bin`);
-};
+});
 
-test "Path.new handles complex normalization", {
+test("Path.new handles complex normalization", {
   path := Path.new(`/usr/local/../bin/./test`);
   s := path.to_string();
   assert(s == `/usr/bin/test`);
-};
+});
 
-test "Path.new handles empty path", {
+test("Path.new handles empty path", {
   path := Path.new(``);
   s := path.to_string();
   assert(s == ``);
-};
+});
 
-test "Path.new strips trailing slashes", {
+test("Path.new strips trailing slashes", {
   path := Path.new(`/usr/local/bin/`);
   s := path.to_string();
   assert(s == `/usr/local/bin`);
-};
+});
 
-test "Path.join concatenates two relative paths", {
+test("Path.join concatenates two relative paths", {
   base := Path.new(`home/user`);
   other := Path.new(`documents/work`);
   joined := base.join(other);
   s := joined.to_string();
   assert(s == `home/user/documents/work`);
-};
+});
 
-test "Path.join with absolute base path", {
+test("Path.join with absolute base path", {
   base := Path.new(`/home/user`);
   other := Path.new(`documents/work`);
   joined := base.join(other);
   s := joined.to_string();
   assert(s == `/home/user/documents/work`);
-};
+});
 
-test "Path.join with absolute other path returns other", {
+test("Path.join with absolute other path returns other", {
   base := Path.new(`/home/user`);
   other := Path.new(`/usr/local`);
   joined := base.join(other);
   s := joined.to_string();
   assert(s == `/usr/local`);
-};
+});
 
-test "Path.parent returns parent directory", {
+test("Path.parent returns parent directory", {
   path := Path.new(`/usr/local/bin`);
   parent_opt := path.parent();
   match(parent_opt,
@@ -87,9 +87,9 @@ test "Path.parent returns parent directory", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.parent of root returns Some with empty segments", {
+test("Path.parent of root returns Some with empty segments", {
   path := Path.new(`/usr`);
   parent_opt := path.parent();
   match(parent_opt,
@@ -102,9 +102,9 @@ test "Path.parent of root returns Some with empty segments", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.parent of empty path returns None", {
+test("Path.parent of empty path returns None", {
   path := Path.new(``);
   parent_opt := path.parent();
   match(parent_opt,
@@ -115,9 +115,9 @@ test "Path.parent of empty path returns None", {
       assert(true);
     }
   );
-};
+});
 
-test "Path.file_name returns last segment", {
+test("Path.file_name returns last segment", {
   path := Path.new(`/home/user/document.txt`);
   name_opt := path.file_name();
   match(name_opt,
@@ -128,9 +128,9 @@ test "Path.file_name returns last segment", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.file_name on directory path", {
+test("Path.file_name on directory path", {
   path := Path.new(`/usr/local/bin`);
   name_opt := path.file_name();
   match(name_opt,
@@ -141,9 +141,9 @@ test "Path.file_name on directory path", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.file_name of empty path returns None", {
+test("Path.file_name of empty path returns None", {
   path := Path.new(``);
   name_opt := path.file_name();
   match(name_opt,
@@ -154,9 +154,9 @@ test "Path.file_name of empty path returns None", {
       assert(true);
     }
   );
-};
+});
 
-test "Path.file_stem extracts file name without extension", {
+test("Path.file_stem extracts file name without extension", {
   path := Path.new(`main.yo`);
   stem_opt := path.file_stem();
   match(stem_opt,
@@ -167,9 +167,9 @@ test "Path.file_stem extracts file name without extension", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.file_stem with multiple dots", {
+test("Path.file_stem with multiple dots", {
   path := Path.new(`archive.tar.gz`);
   stem_opt := path.file_stem();
   match(stem_opt,
@@ -180,9 +180,9 @@ test "Path.file_stem with multiple dots", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.file_stem with no extension", {
+test("Path.file_stem with no extension", {
   path := Path.new(`README`);
   stem_opt := path.file_stem();
   match(stem_opt,
@@ -193,9 +193,9 @@ test "Path.file_stem with no extension", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.file_stem with full path", {
+test("Path.file_stem with full path", {
   path := Path.new(`/home/user/document.txt`);
   stem_opt := path.file_stem();
   match(stem_opt,
@@ -206,9 +206,9 @@ test "Path.file_stem with full path", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.extension extracts file extension", {
+test("Path.extension extracts file extension", {
   path := Path.new(`main.yo`);
   ext_opt := path.extension();
   match(ext_opt,
@@ -219,9 +219,9 @@ test "Path.extension extracts file extension", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.extension with multiple dots", {
+test("Path.extension with multiple dots", {
   path := Path.new(`archive.tar.gz`);
   ext_opt := path.extension();
   match(ext_opt,
@@ -232,9 +232,9 @@ test "Path.extension with multiple dots", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.extension with no extension returns None", {
+test("Path.extension with no extension returns None", {
   path := Path.new(`README`);
   ext_opt := path.extension();
   match(ext_opt,
@@ -245,9 +245,9 @@ test "Path.extension with no extension returns None", {
       assert(true);
     }
   );
-};
+});
 
-test "Path.extension with trailing dot returns None", {
+test("Path.extension with trailing dot returns None", {
   path := Path.new(`file.`);
   ext_opt := path.extension();
   match(ext_opt,
@@ -258,78 +258,78 @@ test "Path.extension with trailing dot returns None", {
       assert(true);
     }
   );
-};
+});
 
-test "Path.with_extension changes file extension", {
+test("Path.with_extension changes file extension", {
   path := Path.new(`main.yo`);
   new_path := path.with_extension(`js`);
   s := new_path.to_string();
   assert(s == `main.js`);
-};
+});
 
-test "Path.with_extension on path with no extension", {
+test("Path.with_extension on path with no extension", {
   path := Path.new(`README`);
   new_path := path.with_extension(`md`);
   s := new_path.to_string();
   assert(s == `README.md`);
-};
+});
 
-test "Path.with_extension with full path", {
+test("Path.with_extension with full path", {
   path := Path.new(`/home/user/document.txt`);
   new_path := path.with_extension(`pdf`);
   s := new_path.to_string();
   assert(s == `/home/user/document.pdf`);
-};
+});
 
-test "Path.with_extension on empty path returns self", {
+test("Path.with_extension on empty path returns self", {
   path := Path.new(``);
   new_path := path.with_extension(`txt`);
   s := new_path.to_string();
   assert(s == ``);
-};
+});
 
-test "Path.with_extension preserves directory structure", {
+test("Path.with_extension preserves directory structure", {
   path := Path.new(`src/test/main.yo`);
   new_path := path.with_extension(`js`);
   s := new_path.to_string();
   assert(s == `src/test/main.js`);
-};
+});
 
-test "Path.is_absolute identifies absolute Unix paths", {
+test("Path.is_absolute identifies absolute Unix paths", {
   path := Path.new(`/usr/local/bin`);
   assert(path.is_absolute());
-};
+});
 
-test "Path.is_absolute identifies relative paths", {
+test("Path.is_absolute identifies relative paths", {
   path := Path.new(`usr/local/bin`);
-  assert(!path.is_absolute());
-};
+  assert(!(path.is_absolute()));
+});
 
-test "Path.is_relative identifies relative paths", {
+test("Path.is_relative identifies relative paths", {
   path := Path.new(`./src/main.yo`);
   assert(path.is_relative());
-};
+});
 
-test "Path.is_relative identifies absolute paths", {
+test("Path.is_relative identifies absolute paths", {
   path := Path.new(`/src/main.yo`);
-  assert(!path.is_relative());
-};
+  assert(!(path.is_relative()));
+});
 
-test "Path with single segment", {
+test("Path with single segment", {
   path := Path.new(`main.yo`);
   s := path.to_string();
   assert(s == `main.yo`);
   assert(path.is_relative());
-};
+});
 
-test "Path root directory", {
+test("Path root directory", {
   path := Path.new(`/`);
   s := path.to_string();
   assert(s == `/`);
   assert(path.is_absolute());
-};
+});
 
-test "Path complex join scenario", {
+test("Path complex join scenario", {
   base := Path.new(`/home/user`);
   sub1 := Path.new(`documents`);
   sub2 := Path.new(`work/projects`);
@@ -339,9 +339,9 @@ test "Path complex join scenario", {
   
   s := joined2.to_string();
   assert(s == `/home/user/documents/work/projects`);
-};
+});
 
-test "Path parent chain", {
+test("Path parent chain", {
   path := Path.new(`/usr/local/bin/tools`);
   
   // First parent: /usr/local/bin
@@ -376,157 +376,157 @@ test "Path parent chain", {
       assert(false);
     }
   );
-};
+});
 
-test "Path normalization removes multiple ..", {
+test("Path normalization removes multiple ..", {
   path := Path.new(`/usr/local/../../etc`);
   s := path.to_string();
   assert(s == `/etc`);
-};
+});
 
-test "Path with only dots", {
+test("Path with only dots", {
   path := Path.new(`./././.`);
   s := path.to_string();
   assert(s == ``);
-};
+});
 
-test "Path .. beyond root is ignored for relative paths", {
+test("Path .. beyond root is ignored for relative paths", {
   path := Path.new(`../../../etc`);
   s := path.to_string();
   assert(s == `etc`);
-};
+});
 
 // ============================================
 // Tests for new Path methods
 // ============================================
 
-test "Path.with_file_name replaces filename", {
+test("Path.with_file_name replaces filename", {
   p := Path.new(`/usr/local/bin`);
   p2 := p.with_file_name(`lib`);
   assert(p2.to_string() == `/usr/local/lib`);
-};
+});
 
-test "Path.with_file_name on single segment", {
+test("Path.with_file_name on single segment", {
   p := Path.new(`foo`);
   p2 := p.with_file_name(`bar`);
   assert(p2.to_string() == `bar`);
-};
+});
 
-test "Path.with_file_name on empty path", {
+test("Path.with_file_name on empty path", {
   p := Path.new(``);
   p2 := p.with_file_name(`foo`);
   assert(p2.to_string() == `foo`);
-};
+});
 
-test "Path.with_file_name preserves absolute flag", {
+test("Path.with_file_name preserves absolute flag", {
   p := Path.new(`/usr/local/bin`);
   p2 := p.with_file_name(`lib`);
   assert(p2.is_absolute());
-};
+});
 
-test "Path.with_file_name with complex path", {
+test("Path.with_file_name with complex path", {
   p := Path.new(`foo/bar/baz.txt`);
   p2 := p.with_file_name(`qux.md`);
   assert(p2.to_string() == `foo/bar/qux.md`);
-};
+});
 
-test "Path.starts_with matching prefix", {
+test("Path.starts_with matching prefix", {
   p := Path.new(`/usr/local/bin`);
   base := Path.new(`/usr`);
   assert(p.starts_with(base));
-};
+});
 
-test "Path.starts_with exact match", {
+test("Path.starts_with exact match", {
   p := Path.new(`/usr/local`);
   base := Path.new(`/usr/local`);
   assert(p.starts_with(base));
-};
+});
 
-test "Path.starts_with non-matching prefix", {
+test("Path.starts_with non-matching prefix", {
   p := Path.new(`/usr/local/bin`);
   base := Path.new(`/var`);
-  assert(!p.starts_with(base));
-};
+  assert(!(p.starts_with(base)));
+});
 
-test "Path.starts_with longer base", {
+test("Path.starts_with longer base", {
   p := Path.new(`/usr`);
   base := Path.new(`/usr/local`);
-  assert(!p.starts_with(base));
-};
+  assert(!(p.starts_with(base)));
+});
 
-test "Path.starts_with relative vs absolute", {
+test("Path.starts_with relative vs absolute", {
   p := Path.new(`/usr/local`);
   base := Path.new(`usr`);
-  assert(!p.starts_with(base));
-};
+  assert(!(p.starts_with(base)));
+});
 
-test "Path.starts_with both relative", {
+test("Path.starts_with both relative", {
   p := Path.new(`foo/bar/baz`);
   base := Path.new(`foo/bar`);
   assert(p.starts_with(base));
-};
+});
 
-test "Path.starts_with empty base", {
+test("Path.starts_with empty base", {
   p := Path.new(`foo/bar`);
   base := Path.new(``);
   assert(p.starts_with(base));
-};
+});
 
-test "Path.starts_with root", {
+test("Path.starts_with root", {
   p := Path.new(`/usr/local`);
   base := Path.new(`/`);
   assert(p.starts_with(base));
-};
+});
 
-test "Path.ends_with matching suffix", {
+test("Path.ends_with matching suffix", {
   p := Path.new(`/usr/local/bin`);
   suffix := Path.new(`local/bin`);
   assert(p.ends_with(suffix));
-};
+});
 
-test "Path.ends_with exact match", {
+test("Path.ends_with exact match", {
   p := Path.new(`foo/bar`);
   suffix := Path.new(`foo/bar`);
   assert(p.ends_with(suffix));
-};
+});
 
-test "Path.ends_with non-matching suffix", {
+test("Path.ends_with non-matching suffix", {
   p := Path.new(`/usr/local/bin`);
   suffix := Path.new(`lib`);
-  assert(!p.ends_with(suffix));
-};
+  assert(!(p.ends_with(suffix)));
+});
 
-test "Path.ends_with longer suffix", {
+test("Path.ends_with longer suffix", {
   p := Path.new(`foo`);
   suffix := Path.new(`foo/bar`);
-  assert(!p.ends_with(suffix));
-};
+  assert(!(p.ends_with(suffix)));
+});
 
-test "Path.ends_with absolute suffix match", {
+test("Path.ends_with absolute suffix match", {
   p := Path.new(`/usr/local/bin`);
   suffix := Path.new(`/usr/local/bin`);
   assert(p.ends_with(suffix));
-};
+});
 
-test "Path.ends_with absolute suffix mismatch", {
+test("Path.ends_with absolute suffix mismatch", {
   p := Path.new(`usr/local/bin`);
   suffix := Path.new(`/local/bin`);
-  assert(!p.ends_with(suffix));
-};
+  assert(!(p.ends_with(suffix)));
+});
 
-test "Path.ends_with empty suffix", {
+test("Path.ends_with empty suffix", {
   p := Path.new(`foo/bar`);
   suffix := Path.new(``);
   assert(p.ends_with(suffix));
-};
+});
 
-test "Path.ends_with single segment", {
+test("Path.ends_with single segment", {
   p := Path.new(`/usr/local/bin`);
   suffix := Path.new(`bin`);
   assert(p.ends_with(suffix));
-};
+});
 
-test "Path.components of relative path", {
+test("Path.components of relative path", {
   p := Path.new(`foo/bar/baz`);
   comps := p.components();
   assert(comps.len() == usize(3));
@@ -560,9 +560,9 @@ test "Path.components of relative path", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.components of absolute path", {
+test("Path.components of absolute path", {
   p := Path.new(`/usr/local`);
   comps := p.components();
   assert(comps.len() == usize(3));
@@ -596,9 +596,9 @@ test "Path.components of absolute path", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.components of root", {
+test("Path.components of root", {
   p := Path.new(`/`);
   comps := p.components();
   assert(comps.len() == usize(1));
@@ -612,15 +612,15 @@ test "Path.components of root", {
       assert(false);
     }
   );
-};
+});
 
-test "Path.components of empty path", {
+test("Path.components of empty path", {
   p := Path.new(``);
   comps := p.components();
   assert(comps.len() == usize(0));
-};
+});
 
-test "Path.components of single segment", {
+test("Path.components of single segment", {
   p := Path.new(`foo`);
   comps := p.components();
   assert(comps.len() == usize(1));
@@ -634,4 +634,4 @@ test "Path.components of single segment", {
       assert(false);
     }
   );
-};
+});

@@ -4,11 +4,11 @@
 //! Uses Thompson's NFA simulation with parallel state tracking
 //! for O(n×m) worst-case time complexity.
 
-open import "std/collections/array_list";
-open import "std/string";
-{ NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import "./compiler.yo";
-{ CharRange } :: import "./node.yo";
-{ RegexFlags } :: import "./flags.yo";
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import("./compiler.yo");
+{ CharRange } :: import("./node.yo");
+{ RegexFlags } :: import("./flags.yo");
 
 // Max number of capture slots (group 0 + up to 99 groups = 200 slots)
 MAX_SLOTS :: 200;
@@ -126,13 +126,13 @@ impl(NfaVm,
 
   _find_prev_char_start : (fn(self : Self, pos : usize) -> usize)({
     p := (pos - usize(1));
-    while (p > usize(0)), (p = (p - usize(1))), {
+    while((p > usize(0)), (p = (p - usize(1))), {
       b := self._bytes.get(p).unwrap();
       cond(
-        ((b < u8(0x80)) || (b >= u8(0xC0))) => { return p; },
+        ((b < u8(0x80)) || (b >= u8(0xC0))) => { return(p); },
         true => ()
       );
-    };
+    });
     p
   }),
 
@@ -175,7 +175,7 @@ impl(NfaVm,
 
     (found : bool) = false;
     i := usize(0);
-    while ((i < cls.ranges.len()) && (!(found))), (i = (i + usize(1))), {
+    while(((i < cls.ranges.len()) && (!(found))), (i = (i + usize(1))), {
       r := cls.ranges.get(i).unwrap();
       (low : u32) = cond(
         self._flags.ignore_case => self._to_lower(r.low),
@@ -189,18 +189,18 @@ impl(NfaVm,
         ((check_cp >= low) && (check_cp <= high)) => { found = true; },
         true => ()
       );
-    };
+    });
 
     cond(
       ((!(found)) && self._flags.ignore_case) => {
         i2 := usize(0);
-        while ((i2 < cls.ranges.len()) && (!(found))), (i2 = (i2 + usize(1))), {
+        while(((i2 < cls.ranges.len()) && (!(found))), (i2 = (i2 + usize(1))), {
           r := cls.ranges.get(i2).unwrap();
           cond(
             ((cp >= r.low) && (cp <= r.high)) => { found = true; },
             true => ()
           );
-        };
+        });
       },
       true => ()
     );
@@ -235,14 +235,14 @@ impl(NfaVm,
 impl(NfaVm,
   _add_thread : (fn(self : Self, list : *(ArrayList(NfaThread)), thread : NfaThread, byte_pos : usize, seen : *(ArrayList(bool))) -> unit)({
     cond(
-      (thread.pc >= self._program.instructions.len()) => { return (); },
+      (thread.pc >= self._program.instructions.len()) => { return(()); },
       true => ()
     );
 
     // Already checked bounds above: thread.pc < instructions.len()
     is_seen := (seen.*)(thread.pc);
     cond(
-      is_seen => { return (); },
+      is_seen => { return(()); },
       true => ()
     );
     &((seen.*)(thread.pc)).* = true;
@@ -341,7 +341,7 @@ impl(NfaVm,
     sub_pos := start_byte;
     input_len := self._bytes.len();
 
-    while (sub_pos <= input_len), {
+    while((sub_pos <= input_len), {
       cond(
         (sub_current.len() == usize(0)) => { break; },
         true => ()
@@ -349,20 +349,20 @@ impl(NfaVm,
 
       // Check for Match in current threads
       st := usize(0);
-      while (st < sub_current.len()), (st = (st + usize(1))), {
+      while((st < sub_current.len()), (st = (st + usize(1))), {
         st_thread := sub_current.get(st).unwrap();
         st_instr := self._program.instructions.get(st_thread.pc).unwrap();
         match(st_instr.kind,
           .Match => {
             cond(
-              (required_end == unset) => { return true; },
-              (sub_pos == required_end) => { return true; },
+              (required_end == unset) => { return(true); },
+              (sub_pos == required_end) => { return(true); },
               true => ()
             );
           },
           _ => ()
         );
-      };
+      });
 
       cond(
         (sub_pos >= input_len) => { break; },
@@ -384,7 +384,7 @@ impl(NfaVm,
 
       // Process consuming instructions
       st2 := usize(0);
-      while (st2 < sub_current.len()), (st2 = (st2 + usize(1))), {
+      while((st2 < sub_current.len()), (st2 = (st2 + usize(1))), {
         st_thread := sub_current.get(st2).unwrap();
         st_instr := self._program.instructions.get(st_thread.pc).unwrap();
         match(st_instr.kind,
@@ -427,7 +427,7 @@ impl(NfaVm,
           },
           _ => ()
         );
-      };
+      });
 
       // Swap sub_current/sub_next and clear for reuse
       tmp_sub := sub_current;
@@ -435,7 +435,7 @@ impl(NfaVm,
       sub_next = tmp_sub;
       sub_next.clear();
       sub_pos = (sub_pos + sub_blen);
-    };
+    });
 
     false
   })
@@ -463,7 +463,7 @@ impl(NfaVm,
     input_len := self._bytes.len();
     unset := usize.MAX;
 
-    while (byte_pos <= input_len), {
+    while((byte_pos <= input_len), {
       (cur_cp : u32) = u32(0);
       (char_byte_len : usize) = usize(0);
       (at_end : bool) = (byte_pos >= input_len);
@@ -484,7 +484,7 @@ impl(NfaVm,
       // Process deferred threads targeting this byte_pos
       new_deferred := ArrayList(DeferredThread).new();
       di := usize(0);
-      while (di < deferred.len()), (di = (di + usize(1))), {
+      while((di < deferred.len()), (di = (di + usize(1))), {
         d := deferred.get(di).unwrap();
         cond(
           (d.target_byte_pos == byte_pos) => {
@@ -494,7 +494,7 @@ impl(NfaVm,
             new_deferred.push(d);
           }
         );
-      };
+      });
       deferred = new_deferred;
 
       // Break if no threads and no deferred
@@ -506,7 +506,7 @@ impl(NfaVm,
       // Process each thread (priority order — first match wins in gen)
       (found_match_in_gen : bool) = false;
       t := usize(0);
-      while ((t < current.len()) && (!(found_match_in_gen))), (t = (t + usize(1))), {
+      while(((t < current.len()) && (!(found_match_in_gen))), (t = (t + usize(1))), {
         thread := current.get(t).unwrap();
         instr := self._program.instructions.get(thread.pc).unwrap();
 
@@ -573,7 +573,7 @@ impl(NfaVm,
                         // Compare captured bytes against input at current position
                         (bytes_match : bool) = true;
                         bi := usize(0);
-                        while (bi < captured_len), (bi = (bi + usize(1))), {
+                        while((bi < captured_len), (bi = (bi + usize(1))), {
                           expected := self._bytes.get((gs + bi)).unwrap();
                           actual := self._bytes.get((byte_pos + bi)).unwrap();
                           cond(
@@ -598,7 +598,7 @@ impl(NfaVm,
                               );
                             }
                           );
-                        };
+                        });
                         cond(
                           bytes_match => {
                             new_pos := (byte_pos + captured_len);
@@ -660,7 +660,7 @@ impl(NfaVm,
               true => {
                 // Try from byte_pos backwards to 0
                 (try_pos : usize) = byte_pos;
-                while (!(lb_matched)), {
+                while((!(lb_matched)), {
                   cond(
                     (try_pos == usize(0)) => {
                       cond(
@@ -677,10 +677,10 @@ impl(NfaVm,
                       cond(
                         (try_pos > usize(0)) => {
                           tb := self._bytes.get(try_pos).unwrap();
-                          while (((tb >= u8(0x80)) && (tb < u8(0xC0))) && (try_pos > usize(0))), {
+                          while((((tb >= u8(0x80)) && (tb < u8(0xC0))) && (try_pos > usize(0))), {
                             try_pos = (try_pos - usize(1));
                             tb = self._bytes.get(try_pos).unwrap();
-                          };
+                          });
                         },
                         true => ()
                       );
@@ -692,7 +692,7 @@ impl(NfaVm,
                       );
                     }
                   );
-                };
+                });
               }
             );
 
@@ -712,7 +712,7 @@ impl(NfaVm,
           },
           _ => ()
         );
-      };
+      });
 
       // Swap current/next and clear for reuse
       tmp_c := current;
@@ -726,7 +726,7 @@ impl(NfaVm,
           byte_pos = (byte_pos + char_byte_len);
         }
       );
-    };
+    });
 
     // Store seen buffers back for reuse in next exec_at call
     self._seen = seen;
@@ -736,9 +736,7 @@ impl(NfaVm,
   })
 );
 
-export
-  NfaVm,
+export(NfaVm,
   NfaThread,
   VmMatch,
-  DecodedChar
-;
+  DecodedChar);

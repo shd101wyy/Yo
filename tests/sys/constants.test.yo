@@ -1,12 +1,12 @@
 // @skip_wasm32-wasi
-constants :: import "std/sys/constants";
-socket :: import "std/sys/socket";
-signals :: import "std/sys/signals";
-events :: import "std/sys/events";
-{ IOError } :: import "std/sys/errors";
-{ platform, Platform } :: import "std/process";
+constants :: import("std/sys/constants");
+socket :: import("std/sys/socket");
+signals :: import("std/sys/signals");
+events :: import("std/sys/events");
+{ IOError } :: import("std/sys/errors");
+{ platform, Platform } :: import("std/process");
 
-test "Test IO constants", {
+test("Test IO constants", {
   // =========================================================================
   // Test: module structure and constant imports
   // =========================================================================
@@ -19,8 +19,8 @@ test "Test IO constants", {
 
   // AT_* flags
   cond(
-    (platform == Platform.Macos) => assert(constants.AT_FDCWD == i32(-2)),
-    true => assert(constants.AT_FDCWD == i32(-100))
+    (platform == Platform.Macos) => assert(constants.AT_FDCWD == i32(-(2))),
+    true => assert(constants.AT_FDCWD == i32(-(100)))
   );
 
   // Access mode constants
@@ -85,10 +85,10 @@ test "Test IO constants", {
   assert(events.POLL_WRITABLE == i32(2));
 
   // IOError
-  { ENOENT } :: import "std/libc/errno";
+  { ENOENT } :: import("std/libc/errno");
   err := IOError.from_errno(i32(ENOENT));
   match(err,
     .NotFound => assert(true, "IOError.from_errno(ENOENT) should be NotFound"),
     _ => assert(false, "IOError.from_errno(ENOENT) should be NotFound")
   );
-};
+});

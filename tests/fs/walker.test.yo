@@ -1,16 +1,16 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-open import "std/string";
-{ Path } :: import "std/path";
-{ IOError } :: import "std/sys/errors";
-{ Error, AnyError, Exception } :: import "std/error";
-fs_walker :: import "std/fs/walker";
-{ WalkEntry, WalkOptions } :: import "std/fs/walker";
-{ FileType } :: import "std/fs/dir";
-fs_dir :: import "std/fs/dir";
-fs_file :: import "std/fs/file";
-{ temp_dir, path_join } :: import "../helper";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ Path } :: import("std/path");
+{ IOError } :: import("std/sys/errors");
+{ Error, AnyError, Exception } :: import("std/error");
+fs_walker :: import("std/fs/walker");
+{ WalkEntry, WalkOptions } :: import("std/fs/walker");
+{ FileType } :: import("std/fs/dir");
+fs_dir :: import("std/fs/dir");
+fs_file :: import("std/fs/file");
+{ temp_dir, path_join } :: import("../helper");
 
 // ============================================================================
 // Helper to set up a test directory tree
@@ -56,10 +56,10 @@ _cleanup_walk_tree :: (fn(root: String, using(io : IO, exn : Exception)) -> unit
 // walk with default options
 // ============================================================================
 
-test "walk lists all entries recursively", {
+test("walk lists all entries recursively", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -74,25 +74,25 @@ test "walk lists all entries recursively", {
   // Should have: sub, deep (dirs) + a.txt, b.txt, c.txt, d.txt (files) = 6
   // Default include_dirs = true
   i := usize(0);
-  while runtime((i < entries.len())), {
+  while(runtime((i < entries.len())), {
     e := entries.get(i).unwrap();
     printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap());
     i = (i + usize(1));
-  };
+  });
 
   assert((entries.len() == usize(6)), "expected 6 entries (2 dirs + 4 files)");
 
   _cleanup_walk_tree(root);
-};
+});
 
 // ============================================================================
 // walk_with max_depth
 // ============================================================================
 
-test "walk_with max_depth limits traversal", {
+test("walk_with max_depth limits traversal", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -112,25 +112,25 @@ test "walk_with max_depth limits traversal", {
 
   // At depth 0: a.txt, b.txt, sub (dir) = 3
   i := usize(0);
-  while runtime((i < entries.len())), {
+  while(runtime((i < entries.len())), {
     e := entries.get(i).unwrap();
     printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap());
     i = (i + usize(1));
-  };
+  });
 
   assert((entries.len() == usize(3)), "expected 3 entries at depth 0");
 
   _cleanup_walk_tree(root);
-};
+});
 
 // ============================================================================
 // walk_with include_dirs = false
 // ============================================================================
 
-test "walk_with include_dirs false excludes directories", {
+test("walk_with include_dirs false excludes directories", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -150,52 +150,52 @@ test "walk_with include_dirs false excludes directories", {
 
   // Only files: a.txt, b.txt, c.txt, d.txt = 4
   i := usize(0);
-  while runtime((i < entries.len())), {
+  while(runtime((i < entries.len())), {
     e := entries.get(i).unwrap();
     printf("  %s\n", e.name.to_cstr().ptr().unwrap());
     is_file := match(e.file_type, .File => true, _ => false);
     assert(is_file, "should only have files");
     i = (i + usize(1));
-  };
+  });
 
   assert((entries.len() == usize(4)), "expected 4 files");
 
   _cleanup_walk_tree(root);
-};
+});
 
 // ============================================================================
 // WalkOptions.defaults
 // ============================================================================
 
-test "WalkOptions.defaults has expected values", {
+test("WalkOptions.defaults has expected values", {
   opts := WalkOptions.defaults();
   assert((!(opts.follow_symlinks)), "follow_symlinks should be false");
   assert(opts.include_dirs, "include_dirs should be true");
   max_is_none := match(opts.max_depth, .None => true, _ => false);
   assert(max_is_none, "max_depth should be None");
-};
+});
 
 // ============================================================================
 // walk on nonexistent
 // ============================================================================
 
-test "walk nonexistent returns error", {
+test("walk nonexistent returns error", {
   given(exn) := Exception(throw : ((err) -> {
     printf("  got expected error\n");
-    escape ();
+    escape(());
   }));
   io.await(fs_walker.walk(Path.new(`/nonexistent/yo_fs_walk_nope`)));
   assert(false, "walk on nonexistent should fail");
-};
+});
 
 // ============================================================================
 // walk_cstr
 // ============================================================================
 
-test "walk_cstr works with C string path", {
+test("walk_cstr works with C string path", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -212,4 +212,4 @@ test "walk_cstr works with C string path", {
 
   io.await(fs_dir.remove_file(Path.new(path_join(root, `x.txt`))));
   io.await(fs_dir.remove_dir(Path.new(root)));
-};
+});

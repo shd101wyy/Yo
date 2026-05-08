@@ -3,8 +3,8 @@
 //! Provides a synchronous wrapper for reading wall-clock and monotonic time.
 //! Returns 0 on success, -errno / negative platform error on failure.
 
-{ platform, Platform } :: import "../process";
-{ __yo_sync_clock_gettime } :: import "./externs.yo";
+{ platform, Platform } :: import("../process");
+{ __yo_sync_clock_gettime } :: import("./externs.yo");
 
 // Wall clock time (Unix epoch seconds + nanoseconds)
 CLOCK_REALTIME :: i32(0);
@@ -20,4 +20,4 @@ clock_gettime :: (fn(clock_id: i32, sec: *(i64), nsec: *(i64)) -> i32)(
   __yo_sync_clock_gettime(clock_id, sec, nsec)
 );
 
-export CLOCK_REALTIME, CLOCK_MONOTONIC, clock_gettime;
+export(CLOCK_REALTIME, CLOCK_MONOTONIC, clock_gettime);

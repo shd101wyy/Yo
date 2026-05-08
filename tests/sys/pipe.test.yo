@@ -1,10 +1,10 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-file :: import "std/sys/file";
-pipe_io :: import "std/sys/pipe";
+open(import("std/libc/stdio"));
+file :: import("std/sys/file");
+pipe_io :: import("std/sys/pipe");
 
-test "pipe read/write", {
+test("pipe read/write", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -35,9 +35,9 @@ test "pipe read/write", {
   c2 := io.await(file.close(write_fd));
   assert(c1 == i32(0));
   assert(c2 == i32(0));
-};
+});
 
-test "dup reads from original pipe", {
+test("dup reads from original pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -69,9 +69,9 @@ test "dup reads from original pipe", {
   c2 := io.await(file.close(write_fd));
   assert(c1 == i32(0));
   assert(c2 == i32(0));
-};
+});
 
-test "dup2 redirects to target fd", {
+test("dup2 redirects to target fd", {
   pipefd_a_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd_a := *(i32)(pipefd_a_uninit.as_ptr());
   pr1 := pipe_io.pipe(pipefd_a);
@@ -112,4 +112,4 @@ test "dup2 redirects to target fd", {
   c4 := io.await(file.close(write_fd_dst));
   assert(c3 == i32(0));
   assert(c4 == i32(0));
-};
+});

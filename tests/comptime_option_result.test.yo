@@ -1,26 +1,26 @@
-open import "std/fmt";
+open(import("std/fmt"));
 
 // === Option comptime tests ===
 
-test "Option comptime_unwrap on Some", {
+test("Option comptime_unwrap on Some", {
   x :: Option(i32).Some(42);
   val :: x.comptime_unwrap();
   comptime_assert((val == 42), "comptime_unwrap should return 42");
-};
+});
 
-test "Option comptime_unwrap_or on Some", {
+test("Option comptime_unwrap_or on Some", {
   x :: Option(i32).Some(42);
   val :: x.comptime_unwrap_or(0);
   comptime_assert((val == 42), "comptime_unwrap_or should return 42 for Some");
-};
+});
 
-test "Option comptime_unwrap_or on None", {
+test("Option comptime_unwrap_or on None", {
   x :: Option(i32).None;
   val :: x.comptime_unwrap_or(99);
   comptime_assert((val == 99), "comptime_unwrap_or should return default for None");
-};
+});
 
-test "Option comptime_is_some and comptime_is_none", {
+test("Option comptime_is_some and comptime_is_none", {
   some :: Option(i32).Some(42);
   comptime_assert(some.comptime_is_some(), "Some should be some");
   comptime_assert(!(some.comptime_is_none()), "Some should not be none");
@@ -28,9 +28,9 @@ test "Option comptime_is_some and comptime_is_none", {
   none :: Option(i32).None;
   comptime_assert(none.comptime_is_none(), "None should be none");
   comptime_assert(!(none.comptime_is_some()), "None should not be some");
-};
+});
 
-test "Option runtime methods still work", {
+test("Option runtime methods still work", {
   x := Option(i32).Some(i32(42));
   val := x.unwrap();
   assert((val == i32(42)), "runtime unwrap should work");
@@ -40,32 +40,32 @@ test "Option runtime methods still work", {
   y := Option(i32).Some(i32(10));
   val2 := y.unwrap_or(i32(0));
   assert((val2 == i32(10)), "runtime unwrap_or should work");
-};
+});
 
-test "Option comptime with bool type", {
+test("Option comptime with bool type", {
   x :: Option(bool).Some(true);
   val :: x.comptime_unwrap();
   comptime_assert(val, "comptime_unwrap of bool Some should return true");
 
   y :: Option(bool).None;
   comptime_assert(y.comptime_is_none(), "bool None should be none");
-};
+});
 
 // === Result comptime tests ===
 
-test "Result comptime_unwrap on Ok", {
+test("Result comptime_unwrap on Ok", {
   x :: Result(i32, bool).Ok(42);
   val :: x.comptime_unwrap();
   comptime_assert((val == 42), "comptime_unwrap should return 42");
-};
+});
 
-test "Result comptime_unwrap_err on Err", {
+test("Result comptime_unwrap_err on Err", {
   x :: Result(i32, bool).Err(false);
   err :: x.comptime_unwrap_err();
   comptime_assert((err == false), "comptime_unwrap_err should return false");
-};
+});
 
-test "Result comptime_is_ok and comptime_is_err", {
+test("Result comptime_is_ok and comptime_is_err", {
   ok :: Result(i32, bool).Ok(42);
   comptime_assert(ok.comptime_is_ok(), "Ok should be ok");
   comptime_assert(!(ok.comptime_is_err()), "Ok should not be err");
@@ -73,28 +73,28 @@ test "Result comptime_is_ok and comptime_is_err", {
   err :: Result(i32, bool).Err(true);
   comptime_assert(err.comptime_is_err(), "Err should be err");
   comptime_assert(!(err.comptime_is_ok()), "Err should not be ok");
-};
+});
 
-test "Result runtime methods still work", {
+test("Result runtime methods still work", {
   x := Result(i32, bool).Ok(i32(42));
   val := x.unwrap();
   assert((val == i32(42)), "runtime unwrap should work");
   assert(x.is_ok(), "runtime is_ok should work");
   assert(!(x.is_err()), "runtime is_err should work");
-};
+});
 
 // === Method extraction tests ===
 
-test "Option method extraction from type", {
+test("Option method extraction from type", {
   f :: Option(i32).unwrap;
   x := Option(i32).Some(i32(42));
   val := f(x);
   assert((val == i32(42)), "extracted unwrap should work");
-};
+});
 
-test "Result method extraction from type", {
+test("Result method extraction from type", {
   f :: Result(i32, bool).unwrap;
   x := Result(i32, bool).Ok(i32(42));
   val := f(x);
   assert((val == i32(42)), "extracted Result.unwrap should work");
-};
+});

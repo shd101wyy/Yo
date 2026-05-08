@@ -11,10 +11,10 @@
 //! s := utf16_to_utf8(words);
 //! ```
 
-open import "../string";
-{ ArrayList } :: import "../collections/array_list";
-{ EncodingError } :: import "./hex";
-{ Error, AnyError, Exception } :: import "../error";
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ EncodingError } :: import("./hex");
+{ Error, AnyError, Exception } :: import("../error");
 
 // ============================================================================
 // UTF-8 → UTF-16
@@ -26,7 +26,7 @@ open import "../string";
 utf8_to_utf16 :: (fn(s: str) -> ArrayList(u16))({
   out := ArrayList(u16).new();
   i   := usize(0);
-  while (i < s.len()), {
+  while((i < s.len()), {
     b0 := u32(s.bytes(i));
     cond(
       (b0 < u32(0x80)) => {
@@ -60,11 +60,11 @@ utf8_to_utf16 :: (fn(s: str) -> ArrayList(u16))({
         i = (i + usize(4));
       }
     );
-  };
+  });
   out
 });
 
-export utf8_to_utf16;
+export(utf8_to_utf16);
 
 // ============================================================================
 // UTF-16 → UTF-8
@@ -77,21 +77,21 @@ export utf8_to_utf16;
 utf16_to_utf8 :: (fn(data: ArrayList(u16), using(exn : Exception)) -> String)({
   out := ArrayList(u8).new();
   i   := usize(0);
-  while (i < data.len()), {
+  while((i < data.len()), {
     w := u32(data.get(i).unwrap());
     cond(
       // Surrogate pair: high surrogate 0xD800-0xDBFF
       ((w >= u32(0xD800)) && (w <= u32(0xDBFF))) => {
         cond(
           ((i + usize(1)) >= data.len()) => {
-            exn.throw(dyn EncodingError.InvalidChar(u8(0)));
+            exn.throw(dyn(EncodingError.InvalidChar(u8(0))));
           },
           true => ()
         );
         w2 := u32(data.get((i + usize(1))).unwrap());
         cond(
           ((w2 < u32(0xDC00)) || (w2 > u32(0xDFFF))) => {
-            exn.throw(dyn EncodingError.InvalidChar(u8(0)));
+            exn.throw(dyn(EncodingError.InvalidChar(u8(0))));
           },
           true => ()
         );
@@ -119,8 +119,8 @@ utf16_to_utf8 :: (fn(data: ArrayList(u16), using(exn : Exception)) -> String)({
         i = (i + usize(1));
       }
     );
-  };
+  });
   String.from_bytes(out)
 });
 
-export utf16_to_utf8;
+export(utf16_to_utf8);

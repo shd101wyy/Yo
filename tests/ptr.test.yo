@@ -1,6 +1,6 @@
-open import "std/libc/stdio.yo";
-{ GlobalAllocator } :: import "std/allocator";
-open GlobalAllocator;
+open(import("std/libc/stdio.yo"));
+{ GlobalAllocator } :: import("std/allocator");
+open(GlobalAllocator);
 
 MyBox :: object(
   (*) : i32
@@ -11,7 +11,7 @@ impl(MyBox, Dispose(
   })
 ));
 
-test "Test basic pointer arithmetic operations", {
+test("Test basic pointer arithmetic operations", {
   x := 12;
   p := &(x);
   
@@ -26,9 +26,9 @@ test "Test basic pointer arithmetic operations", {
   assert(z &== p); // Test &==
   assert(z &<= p); // Test &<=
   assert(p &>= z); // Test &>=
-};
+});
 
-test "Test pointer to object type value and `consume` builtin function", {
+test("Test pointer to object type value and `consume` builtin function", {
   b := MyBox(42);
   p := malloc(sizeof(Option(MyBox)));
   match(p,
@@ -41,11 +41,11 @@ test "Test pointer to object type value and `consume` builtin function", {
       // Test the `consume` function here.
       // In theory, the old value will be dropped.
       // So we need to `consume` it here as this is our initialization of the pointer value.
-      consume(casted_ptr.* = .Some b);
+      consume(casted_ptr.* = .Some(b));
 
       // Test moving out the `b`.        
       casted_ptr.* = .None;
     }
   );
   free(p);
-};
+});

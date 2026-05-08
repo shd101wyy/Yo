@@ -1,6 +1,6 @@
-{ Reader } :: import "std/io/reader";
-{ Writer } :: import "std/io/writer";
-{ Exception } :: import "std/error";
+{ Reader } :: import("std/io/reader");
+{ Writer } :: import("std/io/writer");
+{ Exception } :: import("std/error");
 
 // Simple fixed-size byte buffer for testing Reader and Writer traits
 TestBuf :: struct(
@@ -46,10 +46,10 @@ impl(TestBuf, Reader(
   })
 ));
 
-test "Write and read bytes through traits", {
+test("Write and read bytes through traits", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   buf := TestBuf.new();
@@ -59,4 +59,4 @@ test "Write and read bytes through traits", {
   read_buf := Array(u8, 16).fill(0);
   n := buf.read(&(read_buf(0)), usize(16), using(exn));
   assert((n == usize(5)), "should read 5 bytes");
-};
+});

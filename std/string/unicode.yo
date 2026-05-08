@@ -9,17 +9,17 @@
 //! upper := unicode_to_uppercase(`hello wörld`);  // "HELLO WÖRLD"
 //! ```
 
-open import "../string";
-{ ArrayList } :: import "../collections/array_list";
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
 
 // Declare towlower/towupper directly with i32 to avoid wint_t cast issues.
 // On all major platforms, wint_t is compatible with int/i32.
-c_include "<wctype.h>",
+c_include("<wctype.h>",
   towlower :
     fn(wc : i32) -> i32,
   towupper :
     fn(wc : i32) -> i32
-;
+);
 
 // Result of decoding a single UTF-8 codepoint
 _DecodeResult :: struct(
@@ -170,7 +170,7 @@ unicode_to_lowercase :: (fn(input: String) -> String)({
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);
 
-  while (i < bytes.len()), {
+  while((i < bytes.len()), {
     (b0 : i32) = i32(bytes.get(i).unwrap());
     // Fast path for ASCII
     if(((b0 & i32(0x80)) == i32(0)), {
@@ -187,15 +187,15 @@ unicode_to_lowercase :: (fn(input: String) -> String)({
       (len : usize) = result.bytes_consumed;
 
       // Try special case folding first
-      if(!(_special_to_lower(cp, (&out))), {
+      if(!(_special_to_lower(cp, (&(out)))), {
         // Use C towlower for standard Unicode lowercase
         (lower : i32) = i32(towlower(cp));
-        _encode_utf8(lower, (&out));
+        _encode_utf8(lower, (&(out)));
       });
 
       i = (i + len);
     });
-  };
+  });
 
   String.from_bytes(out)
 });
@@ -208,7 +208,7 @@ unicode_to_uppercase :: (fn(input: String) -> String)({
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);
 
-  while (i < bytes.len()), {
+  while((i < bytes.len()), {
     (b0 : i32) = i32(bytes.get(i).unwrap());
     // Fast path for ASCII
     if(((b0 & i32(0x80)) == i32(0)), {
@@ -225,17 +225,17 @@ unicode_to_uppercase :: (fn(input: String) -> String)({
       (len : usize) = result.bytes_consumed;
 
       // Try special case folding first
-      if(!(_special_to_upper(cp, (&out))), {
+      if(!(_special_to_upper(cp, (&(out)))), {
         // Use C towupper for standard Unicode uppercase
         (upper : i32) = i32(towupper(cp));
-        _encode_utf8(upper, (&out));
+        _encode_utf8(upper, (&(out)));
       });
 
       i = (i + len);
     });
-  };
+  });
 
   String.from_bytes(out)
 });
 
-export unicode_to_lowercase, unicode_to_uppercase;
+export(unicode_to_lowercase, unicode_to_uppercase);

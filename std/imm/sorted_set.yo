@@ -18,8 +18,8 @@
 //! // elements are always sorted: 1, 2, 3
 //! ```
 
-{ SortedMap } :: import "./sorted_map.yo";
-{ List } :: import "./list.yo";
+{ SortedMap } :: import("./sorted_map.yo");
+{ List } :: import("./list.yo");
 
 /// Persistent immutable sorted set backed by a left-leaning red-black tree.
 SortedSet :: (fn(comptime(T) : Type, where(T <: (Eq(T), Ord(T), Send))) -> comptime(Type))(
@@ -74,7 +74,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
     (result : Self) = self;
     (cur : List(T)) = elems;
     (done : bool) = false;
-    while runtime(!(done)), {
+    while(runtime(!(done)), {
       match(cur.head(),
         .Some(elem) => {
           result = result.insert(elem);
@@ -84,7 +84,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
           done = true;
         }
       );
-    };
+    });
     result
   }),
 
@@ -94,7 +94,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
     (done : bool) = false;
-    while runtime(!(done)), {
+    while(runtime(!(done)), {
       match(cur.head(),
         .Some(elem) => {
           if(other.contains(elem), {
@@ -106,7 +106,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
           done = true;
         }
       );
-    };
+    });
     result
   }),
 
@@ -116,7 +116,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
     (done : bool) = false;
-    while runtime(!(done)), {
+    while(runtime(!(done)), {
       match(cur.head(),
         .Some(elem) => {
           if(!(other.contains(elem)), {
@@ -128,19 +128,19 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
           done = true;
         }
       );
-    };
+    });
     result
   }),
 
   /// Check if `self` is a subset of `other`.
   is_subset : (fn(self: Self, other: Self) -> bool)({
     if((self.len() > other.len()), {
-      return false;
+      return(false);
     });
     elems := self.to_list();
     (cur : List(T)) = elems;
     (result : bool) = true;
-    while runtime((result && !(cur.is_empty()))), {
+    while(runtime((result && !(cur.is_empty()))), {
       match(cur.head(),
         .Some(elem) => {
           if(!(other.contains(elem)), {
@@ -150,7 +150,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
         },
         .None => ()
       );
-    };
+    });
     result
   }),
 
@@ -167,7 +167,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
     elems := smaller.to_list();
     (cur : List(T)) = elems;
     (result : bool) = true;
-    while runtime((result && !(cur.is_empty()))), {
+    while(runtime((result && !(cur.is_empty()))), {
       match(cur.head(),
         .Some(elem) => {
           if(larger.contains(elem), {
@@ -177,7 +177,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
         },
         .None => ()
       );
-    };
+    });
     result
   }),
 
@@ -186,9 +186,9 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
     (result : Self) = Self.new();
     i := usize(0);
     slen := s.len();
-    while (i < slen), (i = (i + usize(1))), {
+    while((i < slen), (i = (i + usize(1))), {
       result = result.insert((s.ptr() &+ i).*);
-    };
+    });
     result
   })
 );
@@ -199,4 +199,4 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T), Eq(Sorte
   )
 ));
 
-export SortedSet;
+export(SortedSet);

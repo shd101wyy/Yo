@@ -1,24 +1,24 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-open import "std/string";
-open import "std/fmt";
-{ Path } :: import "std/path";
-{ IOError } :: import "std/sys/errors";
-{ Error, AnyError, Exception } :: import "std/error";
-fs_file :: import "std/fs/file";
-{ File, OpenMode } :: import "std/fs/file";
-fs_dir :: import "std/fs/dir";
-{ temp_dir, path_join } :: import "../helper";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/fmt"));
+{ Path } :: import("std/path");
+{ IOError } :: import("std/sys/errors");
+{ Error, AnyError, Exception } :: import("std/error");
+fs_file :: import("std/fs/file");
+{ File, OpenMode } :: import("std/fs/file");
+fs_dir :: import("std/fs/dir");
+{ temp_dir, path_join } :: import("../helper");
 
 // ============================================================================
 // is_file tests
 // ============================================================================
 
-test "is_file returns true for a regular file", {
+test("is_file returns true for a regular file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -31,12 +31,12 @@ test "is_file returns true for a regular file", {
   assert(r, "should be a file");
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "is_file returns false for a directory", {
+test("is_file returns false for a directory", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -49,23 +49,23 @@ test "is_file returns false for a directory", {
   assert((!(r)), "directory should not be a file");
 
   io.await(fs_dir.remove_dir(dpath));
-};
+});
 
-test "is_file returns false for nonexistent path", {
+test("is_file returns false for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_no_such_file.txt`);
   r := io.await(fs_file.is_file(fpath, using(io)));
   printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
   assert((!(r)), "nonexistent path should return false");
-};
+});
 
 // ============================================================================
 // is_dir tests
 // ============================================================================
 
-test "is_dir returns true for a directory", {
+test("is_dir returns true for a directory", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -78,12 +78,12 @@ test "is_dir returns true for a directory", {
   assert(r, "should be a directory");
 
   io.await(fs_dir.remove_dir(dpath));
-};
+});
 
-test "is_dir returns false for a file", {
+test("is_dir returns false for a file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -96,24 +96,24 @@ test "is_dir returns false for a file", {
   assert((!(r)), "file should not be a directory");
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "is_dir returns false for nonexistent path", {
+test("is_dir returns false for nonexistent path", {
   dpath := Path.new(`/nonexistent/yo_fs_conv_no_such_dir`);
   r := io.await(fs_file.is_dir(dpath, using(io)));
   printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
   assert((!(r)), "nonexistent path should return false");
-};
+});
 
 // ============================================================================
 // canonical tests
 // ============================================================================
 
-test "canonical resolves a real path", {
+test("canonical resolves a real path", {
   given(exn) := Exception(throw : ((err) -> {
     println(`  unexpected error: ${err}`);
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -127,13 +127,13 @@ test "canonical resolves a real path", {
   assert(resolved.is_absolute(), "canonical path should be absolute");
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "canonical resolves dot-dot segments", {
+test("canonical resolves dot-dot segments", {
   given(exn) := Exception(throw : ((err) -> {
     println(`  unexpected error: ${err}`);
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -159,16 +159,16 @@ test "canonical resolves dot-dot segments", {
   io.await(fs_dir.remove_file(file_path));
   io.await(fs_dir.remove_dir(sub_path));
   io.await(fs_dir.remove_dir(dir_path));
-};
+});
 
-test "canonical throws for nonexistent path", {
+test("canonical throws for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_canonical_missing`);
 
   given(exn) := Exception(throw : ((err) -> {
     printf("  got expected error\n");
-    escape ();
+    escape(());
   }));
 
   io.await(fs_file.canonical(fpath));
   assert(false, "should have thrown");
-};
+});

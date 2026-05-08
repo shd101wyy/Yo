@@ -1,4 +1,4 @@
-open import "std/libc/stdio.yo";
+open(import("std/libc/stdio.yo"));
 
 TestDyn :: trait(
   print : (fn(self : *(Self)) -> unit),
@@ -7,10 +7,10 @@ TestDyn :: trait(
 
 use_test_dyn :: (fn(
   value : Dyn(TestDyn)
-) -> i32) {
+) -> i32)({
   value.print();
-  return value.return_i32();
-};
+  return(value.return_i32());
+});
 
 MyBox :: object(
   x : i32
@@ -26,7 +26,7 @@ impl(i32, TestDyn(
     printf("i32 value: %d\n", self.*);
   }),
   return_i32 : ((self) -> {
-    return self.*;
+    return(self.*);
   })
 ));
 
@@ -40,8 +40,7 @@ impl(bool, TestDyn(
   return_i32 : ((self) ->
     cond(
       self.* => 1,
-      true => return 0
-    )
+      true => return(0))
   )
 ));
 
@@ -52,36 +51,36 @@ impl(MyBox, TestDyn(
   }),
   // Let's x2 here
   return_i32 : ((self) -> {
-    return self.x + (self.*.x);
+    return(self.x + (self.*.x));
   })
 ));
 
-add :: (fn(x : i32, y : i32) -> i32) {
-  return (x + y);
-};
+add :: (fn(x : i32, y : i32) -> i32)({
+  return((x + y));
+});
 
-test "Test simple dynamic dispatch with `box`", {
-  assert(use_test_dyn(dyn box i32(42)) == 42);
-  assert(use_test_dyn(dyn box true) == 1);
+test("Test simple dynamic dispatch with `box`", {
+  assert(use_test_dyn(dyn(box(i32(42)))) == 42);
+  assert(use_test_dyn(dyn(box(true))) == 1);
   bi := MyBox(100);
-  assert(use_test_dyn(dyn bi) == 200);
-};
+  assert(use_test_dyn(dyn(bi)) == 200);
+});
 
-test "Test simple dynamic dispatch with `Box(T)`", {
-  assert(use_test_dyn(dyn Box(i32) i32(42)) == 42);
-  assert(use_test_dyn(dyn Box(bool) true) == 1);
+test("Test simple dynamic dispatch with `Box(T)`", {
+  assert(use_test_dyn(dyn(Box(i32)(i32(42)))) == 42);
+  assert(use_test_dyn(dyn(Box(bool)(true))) == 1);
   bi := MyBox(100);
-  assert(use_test_dyn(dyn bi) == 200);
-};
+  assert(use_test_dyn(dyn(bi)) == 200);
+});
 
-test "Test simple dynamic dispatch with automatic `box` call on value types", {
-  assert(use_test_dyn(dyn i32(42)) == 42);
-  assert(use_test_dyn(dyn true) == 1);
+test("Test simple dynamic dispatch with automatic `box` call on value types", {
+  assert(use_test_dyn(dyn(i32(42))) == 42);
+  assert(use_test_dyn(dyn(true)) == 1);
   bi := MyBox(100);
-  assert(use_test_dyn(dyn bi) == 200);
-};
+  assert(use_test_dyn(dyn(bi)) == 200);
+});
 
-test "Test Dyn with multiple traits", {
+test("Test Dyn with multiple traits", {
   Speak :: trait(
     speak : (fn(self : Self) -> i32)
   );
@@ -93,34 +92,32 @@ test "Test Dyn with multiple traits", {
   // Dog :: struct(); // This should give error working with `dyn`.
   Dog :: object();
 
-  DogSpeak :: impl(Dog, Speak
+  DogSpeak :: impl(Dog, Speak(
     speak : ((self : Self) -> {
       printf("Woof!\n");
-      return 1;
+      return(1);
     })
-  );
+  ));
 
-  DogRun :: impl(Dog, Run
+  DogRun :: impl(Dog, Run(
     run : ((self : Self) -> {
       printf("The dog is running!\n");
-      return 2;
+      return(2);
     })
-  );
+  ));
 
-  act :: (fn(s : Dyn(Speak, Run)) -> i32)
-    s.speak() + s.run()
-  ;
+  act :: (fn(s : Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
 
   dog := Dog();
   result := act(dyn(dog));
   assert(result == 3, "Expected result to be 3");
   assert(dog.speak() == 1, "Expected dog.speak() to return 1");
-};
+});
 
-open import "std/string";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/fmt"));
 
-test "Test downcast success", {
+test("Test downcast success", {
   Cat :: object(name : String);
   impl(Cat, ToString(to_string : ((self) -> self.*.name)));
 
@@ -136,9 +133,9 @@ test "Test downcast success", {
       assert(false, "Expected Some(Cat), got None");
     }
   );
-};
+});
 
-test "Test downcast failure", {
+test("Test downcast failure", {
   Cat :: object(name : String);
   impl(Cat, ToString(to_string : ((self) -> self.*.name)));
 
@@ -157,9 +154,9 @@ test "Test downcast failure", {
       assert(true);
     }
   );
-};
+});
 
-test "Test downcast type check via is_some", {
+test("Test downcast type check via is_some", {
   Cat :: object(name : String);
   impl(Cat, ToString(to_string : ((self) -> self.*.name)));
 
@@ -171,9 +168,9 @@ test "Test downcast type check via is_some", {
 
   assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
   assert(downcast(animal, Dog).is_none(), "Expected animal to not be a Dog");
-};
+});
 
-test "Test downcast with multiple concrete types", {
+test("Test downcast with multiple concrete types", {
   Cat :: object(name : String);
   impl(Cat, ToString(to_string : ((self) -> self.*.name)));
 
@@ -206,4 +203,4 @@ test "Test downcast with multiple concrete types", {
     .Some(c) => assert(false, "dog_animal should not be Cat"),
     .None => assert(true)
   );
-};
+});

@@ -1,9 +1,9 @@
 //! HTTP core types — methods, headers, requests, and responses.
 // std/http/http.yo - HTTP types and request/response builders
 
-open import "../string";
-{ ArrayList } :: import "../collections/array_list";
-{ ToString } :: import "../fmt";
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ ToString } :: import("../fmt");
 
 /// Standard HTTP request methods.
 HttpMethod :: enum(GET, POST, PUT, DELETE, HEAD, PATCH);
@@ -76,10 +76,10 @@ impl(HttpRequest,
   to_string : (fn(self: Self) -> String)({
     result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
     i := usize(0);
-    while (i < self.headers.len()), (i = (i + usize(1))), {
+    while((i < self.headers.len()), (i = (i + usize(1))), {
       h := self.headers.get(i).unwrap();
       result = `${result}${h.name}: ${h.value}\r\n`;
-    };
+    });
     result = `${result}\r\n`;
     cond(
       (!(self.body.is_empty())) => { result = `${result}${self.body}`; },
@@ -107,10 +107,10 @@ impl(HttpResponse,
   get_header : (fn(self: Self, name: String) -> Option(String))({
     lower_name := name.to_lowercase();
     i := usize(0);
-    while (i < self.headers.len()), (i = (i + usize(1))), {
+    while((i < self.headers.len()), (i = (i + usize(1))), {
       h := self.headers.get(i).unwrap();
-      cond((h.name.to_lowercase() == lower_name) => { return .Some(h.value); }, true => ());
-    };
+      cond((h.name.to_lowercase() == lower_name) => { return(.Some(h.value)); }, true => ());
+    });
     .None
   }),
 
@@ -133,31 +133,31 @@ impl(HttpResponse,
 /// Parse a raw HTTP response string into an `HttpResponse`.
 parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
   lines := raw.split(`\r\n`);
-  cond((lines.len() == usize(0)) => { return .Err(`Empty response`); }, true => ());
+  cond((lines.len() == usize(0)) => { return(.Err(`Empty response`)); }, true => ());
 
   status_line := lines.get(usize(0)).unwrap();
-  cond((!(status_line.starts_with(`HTTP/`))) => { return .Err(`Invalid status line`); }, true => ());
+  cond((!(status_line.starts_with(`HTTP/`))) => { return(.Err(`Invalid status line`)); }, true => ());
 
   sp1_opt := status_line.index_of(` `);
-  cond(sp1_opt.is_none() => { return .Err(`Invalid status line format`); }, true => ());
+  cond(sp1_opt.is_none() => { return(.Err(`Invalid status line format`)); }, true => ());
   sp1 := sp1_opt.unwrap();
   rest := status_line.substring((sp1 + usize(1)), status_line.len());
 
   sp2_opt := rest.index_of(` `);
-  cond(sp2_opt.is_none() => { return .Err(`Invalid status line format`); }, true => ());
+  cond(sp2_opt.is_none() => { return(.Err(`Invalid status line format`)); }, true => ());
   sp2 := sp2_opt.unwrap();
   code_str := rest.substring(usize(0), sp2);
   status_text := rest.substring((sp2 + usize(1)), rest.len());
 
   code_opt := code_str.parse_i32();
-  cond(code_opt.is_none() => { return .Err(`Invalid status code`); }, true => ());
+  cond(code_opt.is_none() => { return(.Err(`Invalid status code`)); }, true => ());
   code := code_opt.unwrap();
 
   resp := HttpResponse.new(code, status_text);
 
   j := usize(1);
   body_start := lines.len();
-  while (j < lines.len()), (j = (j + usize(1))), {
+  while((j < lines.len()), (j = (j + usize(1))), {
     hline := lines.get(j).unwrap();
     cond(
       hline.is_empty() => {
@@ -177,15 +177,15 @@ parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
         );
       }
     );
-  };
+  });
 
   cond(
     (body_start < lines.len()) => {
       resp.body = lines.get(body_start).unwrap();
       m := (body_start + usize(1));
-      while (m < lines.len()), (m = (m + usize(1))), {
+      while((m < lines.len()), (m = (m + usize(1))), {
         resp.body = `${resp.body}\r\n${lines.get(m).unwrap()}`;
-      };
+      });
     },
     true => ()
   );
@@ -212,5 +212,5 @@ http_status_text :: (fn(code: i32) -> String)(
   )
 );
 
-export HttpMethod, HttpHeader, HttpRequest, HttpResponse;
-export parse_response, http_status_text;
+export(HttpMethod, HttpHeader, HttpRequest, HttpResponse);
+export(parse_response, http_status_text);

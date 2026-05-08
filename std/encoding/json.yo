@@ -13,11 +13,11 @@
 //! println(json_stringify(v));
 //! ```
 
-open import "../string";
-{ ArrayList } :: import "../collections/array_list";
-{ snprintf } :: import "../libc/stdio";
-{ Error, AnyError, Exception } :: import "../error";
-{ ToString } :: import "../fmt";
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ snprintf } :: import("../libc/stdio");
+{ Error, AnyError, Exception } :: import("../error");
+{ ToString } :: import("../fmt");
 
 // ============================================================================
 // JsonError
@@ -54,7 +54,7 @@ impl(JsonError, ToString(
 
 impl(JsonError, Error());
 
-export JsonError;
+export(JsonError);
 
 // ============================================================================
 // JsonValue
@@ -92,14 +92,14 @@ impl(JsonValue,
     match(self,
       .Object(keys, values) => {
         i := usize(0);
-        while (i < keys.len()), (i = (i + usize(1))), {
+        while((i < keys.len()), (i = (i + usize(1))), {
           cond(
             (keys.get(i).unwrap() == key) => {
-              return .Some(values.get(i).unwrap());
+              return(.Some(values.get(i).unwrap()));
             },
             true => ()
           );
-        };
+        });
         .None
       },
       _ => .None
@@ -152,9 +152,9 @@ impl(JsonValue,
       .Object(keys, values) => {
         result := ArrayList(JsonKV).new();
         i := usize(0);
-        while (i < keys.len()), (i = (i + usize(1))), {
+        while((i < keys.len()), (i = (i + usize(1))), {
           result.push(JsonKV(key: keys.get(i).unwrap(), value: values.get(i).unwrap()));
-        };
+        });
         .Some(result)
       },
       _ => .None
@@ -162,7 +162,7 @@ impl(JsonValue,
   )
 );
 
-export JsonValue, JsonKV;
+export(JsonValue, JsonKV);
 
 // ============================================================================
 // Parser state
@@ -190,7 +190,7 @@ impl(_Parser,
   }),
 
   skip_ws : (fn(self: Self) -> unit)({
-    while runtime(true), {
+    while(runtime(true), {
       match(self.peek(),
         .None => break,
         .Some(c) => {
@@ -202,7 +202,7 @@ impl(_Parser,
           );
         }
       );
-    };
+    });
   }),
 
   expect : (fn(self: Self, ch: u8) -> Result(unit, JsonError))({
@@ -223,9 +223,9 @@ impl(_Parser,
   parse_string : (fn(self: Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();
-    while runtime(true), {
+    while(runtime(true), {
       match(self.peek(),
-        .None => { return .Err(.UnexpectedEnd); },
+        .None => { return(.Err(.UnexpectedEnd)); },
         .Some(c) => {
           cond(
             (c == u8(34)) => { // '"'
@@ -235,7 +235,7 @@ impl(_Parser,
             (c == u8(92)) => { // '\'
               self.advance();
               match(self.peek(),
-                .None => { return .Err(.UnexpectedEnd); },
+                .None => { return(.Err(.UnexpectedEnd)); },
                 .Some(e) => {
                   self.advance();
                   cond(
@@ -247,7 +247,7 @@ impl(_Parser,
                     (e == u8(47))  => bytes.push(u8(47)),  // \/
                     (e == u8(98))  => bytes.push(u8(8)),   // \b
                     (e == u8(102)) => bytes.push(u8(12)),  // \f
-                    true           => { return .Err(.InvalidEscape); }
+                    true           => { return(.Err(.InvalidEscape)); }
                   );
                 }
               );
@@ -259,7 +259,7 @@ impl(_Parser,
           );
         }
       );
-    };
+    });
     .Ok(String.from_bytes(bytes))
   }),
 
@@ -274,7 +274,7 @@ impl(_Parser,
       },
       .None => ()
     );
-    while runtime(true), {
+    while(runtime(true), {
       match(self.peek(),
         .Some(c) => {
           cond(
@@ -284,13 +284,13 @@ impl(_Parser,
         },
         .None => break
       );
-    };
+    });
     match(self.peek(),
       .Some(c) => {
         cond(
           (c == u8(46)) => { // '.'
             self.advance();
-            while runtime(true), {
+            while(runtime(true), {
               match(self.peek(),
                 .Some(d) => {
                   cond(
@@ -300,7 +300,7 @@ impl(_Parser,
                 },
                 .None => break
               );
-            };
+            });
           },
           true => ()
         );
@@ -321,7 +321,7 @@ impl(_Parser,
               },
               .None => ()
             );
-            while runtime(true), {
+            while(runtime(true), {
               match(self.peek(),
                 .Some(d) => {
                   cond(
@@ -331,7 +331,7 @@ impl(_Parser,
                 },
                 .None => break
               );
-            };
+            });
           },
           true => ()
         );
@@ -341,12 +341,12 @@ impl(_Parser,
     num_len := (self.pos - start);
     num_buf := ArrayList(u8).with_capacity((num_len + usize(1)));
     j := usize(0);
-    while (j < num_len), (j = (j + usize(1))), {
+    while((j < num_len), (j = (j + usize(1))), {
       num_buf.push(self.src.bytes((start + j)));
-    };
+    });
     num_buf.push(u8(0));
     num_ptr := *(char)(num_buf.ptr().unwrap());
-    { atof } :: import "../libc/stdlib";
+    { atof } :: import("../libc/stdlib");
     val := atof(num_ptr);
     .Ok(val)
   })
@@ -388,35 +388,35 @@ _parse_value :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
               cond(
                 (c2 == u8(125)) => {
                   p.advance();
-                  return .Ok(.Object(keys, vals));
+                  return(.Ok(.Object(keys, vals)));
                 },
                 true => ()
               );
             },
             .None => ()
           );
-          while runtime(true), {
+          while(runtime(true), {
             p.skip_ws();
             match(p.peek(),
-              .None => { return .Err(.UnexpectedEnd); },
+              .None => { return(.Err(.UnexpectedEnd)); },
               .Some(c2) => {
                 cond(
-                  (c2 != u8(34)) => { return .Err(.UnexpectedChar(c2, p.pos)); },
+                  (c2 != u8(34)) => { return(.Err(.UnexpectedChar(c2, p.pos))); },
                   true => ()
                 );
               }
             );
             key_r := p.parse_string();
             match(key_r,
-              .Err(e) => { return .Err(e); },
+              .Err(e) => { return(.Err(e)); },
               .Ok(key) => {
                 p.skip_ws();
                 match(p.expect(u8(58)),
-                  .Err(e) => { return .Err(e); },
+                  .Err(e) => { return(.Err(e)); },
                   .Ok(_)  => ()
                 );
                 match(recur(p),
-                  .Err(e) => { return .Err(e); },
+                  .Err(e) => { return(.Err(e)); },
                   .Ok(val) => {
                     keys.push(key);
                     vals.push(val);
@@ -430,12 +430,12 @@ _parse_value :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
                 cond(
                   (c2 == u8(44)) => { p.advance(); },
                   (c2 == u8(125)) => { p.advance(); break; },
-                  true => { return .Err(.UnexpectedChar(c2, p.pos)); }
+                  true => { return(.Err(.UnexpectedChar(c2, p.pos))); }
                 );
               },
-              .None => { return .Err(.UnexpectedEnd); }
+              .None => { return(.Err(.UnexpectedEnd)); }
             );
-          };
+          });
           .Ok(.Object(keys, vals))
         },
         (c == u8(91)) => {  // '[' — parse array
@@ -447,16 +447,16 @@ _parse_value :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
               cond(
                 (c2 == u8(93)) => {
                   p.advance();
-                  return .Ok(.Array(items));
+                  return(.Ok(.Array(items)));
                 },
                 true => ()
               );
             },
             .None => ()
           );
-          while runtime(true), {
+          while(runtime(true), {
             match(recur(p),
-              .Err(e) => { return .Err(e); },
+              .Err(e) => { return(.Err(e)); },
               .Ok(v)  => { items.push(v); }
             );
             p.skip_ws();
@@ -465,12 +465,12 @@ _parse_value :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
                 cond(
                   (c2 == u8(44)) => { p.advance(); },
                   (c2 == u8(93)) => { p.advance(); break; },
-                  true => { return .Err(.UnexpectedChar(c2, p.pos)); }
+                  true => { return(.Err(.UnexpectedChar(c2, p.pos))); }
                 );
               },
-              .None => { return .Err(.UnexpectedEnd); }
+              .None => { return(.Err(.UnexpectedEnd)); }
             );
-          };
+          });
           .Ok(.Array(items))
         },
         (c == u8(116)) => _parse_true_lit(p),
@@ -491,11 +491,11 @@ json_parse :: (fn(s: str, using(exn : Exception)) -> JsonValue)({
   p := _Parser.new(s);
   match(_parse_value(p),
     .Ok(v) => v,
-    .Err(e) => exn.throw(dyn e)
+    .Err(e) => exn.throw(dyn(e))
   )
 });
 
-export json_parse;
+export(json_parse);
 
 // ============================================================================
 // Serialisation
@@ -505,7 +505,7 @@ _write_str_escaped :: (fn(s: String, out: ArrayList(u8)) -> unit)({
   out.push(u8(34)); // '"'
   bytes := s.as_bytes();
   i := usize(0);
-  while (i < bytes.len()), (i = (i + usize(1))), {
+  while((i < bytes.len()), (i = (i + usize(1))), {
     b := bytes.get(i).unwrap();
     cond(
       (b == u8(34)) => { out.push(u8(92)); out.push(u8(34)); },
@@ -515,7 +515,7 @@ _write_str_escaped :: (fn(s: String, out: ArrayList(u8)) -> unit)({
       (b == u8(13)) => { out.push(u8(92)); out.push(u8(114)); },
       true           => { out.push(b); }
     );
-  };
+  });
   out.push(u8(34)); // '"'
 });
 
@@ -541,9 +541,9 @@ _stringify_into :: (fn(value: JsonValue, out: ArrayList(u8)) -> unit)({
       s2 := String.from_cstr(buf_ptr).unwrap();
       bytes := s2.as_bytes();
       i := usize(0);
-      while (i < bytes.len()), (i = (i + usize(1))), {
+      while((i < bytes.len()), (i = (i + usize(1))), {
         out.push(bytes.get(i).unwrap());
-      };
+      });
     },
     .Str(s) => {
       _write_str_escaped(s, out);
@@ -551,19 +551,19 @@ _stringify_into :: (fn(value: JsonValue, out: ArrayList(u8)) -> unit)({
     .Array(items) => {
       out.push(u8(91)); // '['
       i := usize(0);
-      while (i < items.len()), (i = (i + usize(1))), {
+      while((i < items.len()), (i = (i + usize(1))), {
         cond(
           (i > usize(0)) => { out.push(u8(44)); },
           true => ()
         );
         recur(items.get(i).unwrap(), out);
-      };
+      });
       out.push(u8(93)); // ']'
     },
     .Object(keys, values) => {
       out.push(u8(123)); // '{'
       i := usize(0);
-      while (i < keys.len()), (i = (i + usize(1))), {
+      while((i < keys.len()), (i = (i + usize(1))), {
         cond(
           (i > usize(0)) => { out.push(u8(44)); },
           true => ()
@@ -571,7 +571,7 @@ _stringify_into :: (fn(value: JsonValue, out: ArrayList(u8)) -> unit)({
         _write_str_escaped(keys.get(i).unwrap(), out);
         out.push(u8(58)); // ':'
         recur(values.get(i).unwrap(), out);
-      };
+      });
       out.push(u8(125)); // '}'
     }
   );
@@ -589,4 +589,4 @@ json_stringify_pretty :: (fn(value: JsonValue, _indent: usize) -> String)(
   json_stringify(value)
 );
 
-export json_stringify, json_stringify_pretty;
+export(json_stringify, json_stringify_pretty);

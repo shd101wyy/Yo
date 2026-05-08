@@ -1,14 +1,14 @@
 //! ToString trait and implementations for all primitive types.
 
-{ String, rune } :: import "../string";
-{ snprintf } :: import "../libc/stdio";
+{ String, rune } :: import("../string");
+{ snprintf } :: import("../libc/stdio");
 
 /// Trait for converting values to their `String` representation.
 /// Types implementing this trait can be used with `println`, `print`, and template strings.
 ToString :: trait(
   to_string : (fn(self: *(Self)) -> String)
 );
-export ToString;
+export(ToString);
 
 
 // === Helper function for integer conversion ===
@@ -180,7 +180,7 @@ impl(String, ToString(
 impl(str, ToString(
   to_string : (fn(self: *(Self)) -> String)({
     // Convert byte array to String assuming UTF-8
-    return String.from(self.*);
+    return(String.from(self.*));
   })
 ));
 

@@ -1,19 +1,19 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-open import "std/string";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
 
-{ AT_FDCWD, O_RDWR, O_CREAT, O_TRUNC } :: import "std/sys/constants";
-file :: import "std/sys/file";
-dir :: import "std/sys/dir";
-pipe_io :: import "std/sys/pipe";
-seek_io :: import "std/sys/seek";
-iov_io :: import "std/sys/iov";
-helper :: import "../helper";
+{ AT_FDCWD, O_RDWR, O_CREAT, O_TRUNC } :: import("std/sys/constants");
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+pipe_io :: import("std/sys/pipe");
+seek_io :: import("std/sys/seek");
+iov_io :: import("std/sys/iov");
+helper :: import("../helper");
 
-test "iov writev and readv on pipe", {
+test("iov writev and readv on pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
 
@@ -59,9 +59,9 @@ test "iov writev and readv on pipe", {
   free(.Some(*(void)(read_iov)));
   free(.Some(*(void)(recv_a)));
   free(.Some(*(void)(recv_b)));
-};
+});
 
-test "iov pwritev and preadv on regular file", {
+test("iov pwritev and preadv on regular file", {
   tmp := helper.temp_dir();
   path_str := helper.path_join(tmp, `yo_iov_regular_test.txt`);
   path_c := path_str.to_cstr();
@@ -115,4 +115,4 @@ test "iov pwritev and preadv on regular file", {
   free(.Some(*(void)(recv_b)));
 
   printf("  iov readv/writev/preadv/pwritev behavior validated\n");
-};
+});

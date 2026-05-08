@@ -1,25 +1,25 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-open import "std/string";
-{ Path } :: import "std/path";
-{ IOError } :: import "std/sys/errors";
-{ Error, AnyError, Exception } :: import "std/error";
-fs_file :: import "std/fs/file";
-{ File, OpenMode, FilePermission } :: import "std/fs/file";
-{ temp_dir, path_join } :: import "../helper";
-fs_dir :: import "std/fs/dir";
-open import "std/fmt";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ Path } :: import("std/path");
+{ IOError } :: import("std/sys/errors");
+{ Error, AnyError, Exception } :: import("std/error");
+fs_file :: import("std/fs/file");
+{ File, OpenMode, FilePermission } :: import("std/fs/file");
+{ temp_dir, path_join } :: import("../helper");
+fs_dir :: import("std/fs/dir");
+open(import("std/fmt"));
 
 // ============================================================================
 // Convenience function tests
 // ============================================================================
 
-test "write_file and read_string round-trip", {
+test("write_file and read_string round-trip", {
   given(exn) := Exception(throw : ((err) -> {
     println(`  unexpected error: ${err}`);
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -34,12 +34,12 @@ test "write_file and read_string round-trip", {
 
   // Cleanup
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "write_file_cstr and read_string_cstr", {
+test("write_file_cstr and read_string_cstr", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -55,12 +55,12 @@ test "write_file_cstr and read_string_cstr", {
   assert((s == `str path test`), "content mismatch");
 
   io.await(fs_dir.remove_file(Path.new(fpath_s)));
-};
+});
 
-test "read_file returns bytes", {
+test("read_file returns bytes", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -76,12 +76,12 @@ test "read_file returns bytes", {
   assert((bytes.get(usize(2)).unwrap() == u8(67)), "C=67");
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "append_file appends to existing content", {
+test("append_file appends to existing content", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -95,12 +95,12 @@ test "append_file appends to existing content", {
   assert((s == `first second`), "append content mismatch");
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "exists returns true for existing file", {
+test("exists returns true for existing file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -113,24 +113,24 @@ test "exists returns true for existing file", {
   assert(e, "file should exist");
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "exists returns false for nonexistent file", {
+test("exists returns false for nonexistent file", {
   fpath := Path.new(`/nonexistent/path/yo_fs_no_such_file.txt`);
   e := io.await(fs_file.exists(fpath, using(io)));
   printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
   assert((!(e)), "file should not exist");
-};
+});
 
 // ============================================================================
 // File object tests
 // ============================================================================
 
-test "File.open write and read_string", {
+test("File.open write and read_string", {
   given(exn) := Exception(throw : ((err) -> {
     println(`  unexpected error: ${err}`);
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -150,24 +150,24 @@ test "File.open write and read_string", {
   io.await(f2.close());
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "File.open nonexistent returns error", {
+test("File.open nonexistent returns error", {
   fpath := Path.new(`/nonexistent/path/yo_fs_no_such.txt`);
 
   given(exn) := Exception(throw : ((err) -> {
     printf("  got error as expected\n");
-    escape ();
+    escape(());
   }));
 
   io.await(File.open(fpath, .Read));
   assert(false, "should not open nonexistent file");
-};
+});
 
-test "File.size returns correct size", {
+test("File.size returns correct size", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -182,12 +182,12 @@ test "File.size returns correct size", {
   io.await(f.close());
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "File.path returns correct path", {
+test("File.path returns correct path", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -203,32 +203,32 @@ test "File.path returns correct path", {
   io.await(f.close());
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "OpenMode.CreateNew fails if file exists", {
+test("OpenMode.CreateNew fails if file exists", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_create_new.txt`));
 
   // Create file first (with success handler)
   given(setup_exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception during setup");
-    escape ();
+    escape(());
   }));
   io.await(fs_file.write_file(fpath, String.from("first")));
 
   // Try CreateNew on existing file - should fail
   given(exn) := Exception(throw : ((err) -> {
     printf("  CreateNew correctly failed\n");
-    escape ();
+    escape(());
   }));
   io.await(File.open(fpath, .CreateNew));
   assert(false, "CreateNew should fail on existing file");
-};
+});
 
-test "OpenMode.CreateNew succeeds on new file", {
+test("OpenMode.CreateNew succeeds on new file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -244,12 +244,12 @@ test "OpenMode.CreateNew succeeds on new file", {
   io.await(f.close());
 
   io.await(fs_dir.remove_file(fpath));
-};
+});
 
-test "File.open_cstr convenience", {
+test("File.open_cstr convenience", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -266,4 +266,4 @@ test "File.open_cstr convenience", {
   io.await(f.close());
 
   io.await(fs_dir.remove_file(fpath));
-};
+});

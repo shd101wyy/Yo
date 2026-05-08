@@ -37,16 +37,16 @@
 //     dns.free_result(result_ptr);
 //   };
 
-{ GlobalAllocator } :: import "../allocator";
+{ GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
-{ IOFuture } :: import "./future.yo";
+{ IOFuture } :: import("./future.yo");
 {
   __yo_async_getaddrinfo_start, __yo_async_getnameinfo_start,
   __yo_freeaddrinfo,
   __yo_addrinfo_size, __yo_addrinfo_flags, __yo_addrinfo_family,
   __yo_addrinfo_socktype, __yo_addrinfo_protocol, __yo_addrinfo_addrlen,
   __yo_addrinfo_addr, __yo_addrinfo_canonname, __yo_addrinfo_next
-} :: import "./externs.yo";
+} :: import("./externs.yo");
 
 // ============================================================================
 // DNS Resolution (return IOFuture, use with await)
@@ -87,11 +87,11 @@ freeaddrinfo :: (fn(res: *(u8)) -> unit)(
 
 // Allocate a *(?*(u8)) to hold the getaddrinfo result pointer.
 // Initialized to .None. Caller must free with free_result() after use.
-alloc_result :: (fn() -> *(?*(u8))) {
+alloc_result :: (fn() -> *(?*(u8)))({
   ptr := *(?*(u8))(malloc(usize(8)).unwrap());
   ptr.* = .None;
   ptr
-};
+});
 
 // Read the addrinfo head pointer from the result slot.
 // Returns .Some(ai) if the result is non-null, .None otherwise.
@@ -160,29 +160,27 @@ addrinfo_next :: (fn(ai: *(u8)) -> ?*(u8))(
 // Allocate and zero-initialize a hints struct for getaddrinfo.
 // Set family, socktype, protocol, and flags as needed before passing to getaddrinfo.
 // Caller must free with free_hints() after the getaddrinfo call.
-alloc_hints :: (fn() -> *(u8)) {
+alloc_hints :: (fn() -> *(u8))({
   size := __yo_addrinfo_size();
   ptr := *(u8)(malloc(size).unwrap());
   i := usize(0);
-  while (i < size), {
+  while((i < size), {
     (ptr &+ i).* = u8(0);
     i = (i + usize(1));
-  };
+  });
   ptr
-};
+});
 
 // Free a hints buffer allocated with alloc_hints.
 free_hints :: (fn(hints: *(u8)) -> unit)(
   free(.Some(*(void)(hints)))
 );
 
-export
-  getaddrinfo, getnameinfo,
+export(getaddrinfo, getnameinfo,
   freeaddrinfo,
   alloc_result, get_result, free_result,
   addrinfo_size,
   addrinfo_flags, addrinfo_family, addrinfo_socktype,
   addrinfo_protocol, addrinfo_addrlen, addrinfo_addr,
   addrinfo_canonname, addrinfo_next,
-  alloc_hints, free_hints
-;
+  alloc_hints, free_hints);

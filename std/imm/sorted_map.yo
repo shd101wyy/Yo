@@ -18,8 +18,8 @@
 //! // keys are always sorted: 1, 2, 3
 //! ```
 
-{ List } :: import "./list.yo";
-{ Pair } :: import "./map.yo";
+{ List } :: import("./list.yo");
+{ Pair } :: import("./map.yo");
 
 /// Color of a red-black tree node.
 Color :: enum(Red, Black);
@@ -30,14 +30,13 @@ RBNode :: (fn(
   comptime(V) : Type,
   where(K <: (Eq(K), Ord(K), Send), V <: Send)
 ) -> comptime(Type))(
-  atomic object(
+  atomic(object(
     _key : K,
     _value : V,
     _color : Color,
     _left : Option(Self),
     _right : Option(Self)
-  )
-);
+  )));
 
 // Manual Acyclic impl — RBNode is self-referential, so auto-derivation skips it.
 // This is safe because RBNode is immutable: all tree operations create new nodes
@@ -380,7 +379,7 @@ _node_remove :: (fn(
       .None => false
     );
     if((is_eq && !(has_right)), {
-      return .None;
+      return(.None);
     });
 
     // Ensure right child is not a 2-node
@@ -506,7 +505,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), S
       .Some(root) => {
         existed := _node_contains(K, V, .Some(root), key);
         if(!(existed), {
-          return self;
+          return(self);
         });
         result := _node_remove(K, V, root, key);
         (new_root : Option(RBNode(K, V))) = match(result,
@@ -536,7 +535,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), S
       .Some(root) => {
         (cur : RBNode(K, V)) = root;
         (done : bool) = false;
-        while runtime(!(done)), {
+        while(runtime(!(done)), {
           match(cur._right,
             .Some(r) => {
               cur = r;
@@ -545,7 +544,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), S
               done = true;
             }
           );
-        };
+        });
         .Some(cur._key)
       }
     )
@@ -566,10 +565,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), S
     (result : Self) = Self.new();
     i := usize(0);
     plen := pairs.len();
-    while (i < plen), (i = (i + usize(1))), {
+    while((i < plen), (i = (i + usize(1))), {
       p := (pairs.ptr() &+ i).*;
       result = result.insert(p.key, p.value);
-    };
+    });
     result
   })
 );
@@ -577,10 +576,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), S
 impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: (Eq(V), Send)), SortedMap(K, V), Eq(SortedMap(K, V))(
   (==) : (fn(lhs: Self, rhs: Self) -> bool)({
     if((lhs._len != rhs._len), {
-      return false;
+      return(false);
     });
     if(((lhs._len == usize(0)) && (rhs._len == usize(0))), {
-      return true;
+      return(true);
     });
     lhs_keys := lhs.keys();
     lhs_vals := lhs.values();
@@ -590,6 +589,6 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: (Eq(V), 
   })
 ));
 
-export SortedMap;
-export RBNode;
-export Color;
+export(SortedMap);
+export(RBNode);
+export(Color);

@@ -22,14 +22,14 @@
 //! });
 //! ```
 
-{ ArrayList } :: import "../collections/array_list";
-open import "../string";
-{ Path } :: import "../path";
-{ IOError } :: import "../sys/errors";
-{ Error, AnyError, Exception } :: import "../error";
-{ FileType } :: import "./dir";
-{ DirEntry } :: import "./dir";
-_dir :: import "./dir";
+{ ArrayList } :: import("../collections/array_list");
+open(import("../string"));
+{ Path } :: import("../path");
+{ IOError } :: import("../sys/errors");
+{ Error, AnyError, Exception } :: import("../error");
+{ FileType } :: import("./dir");
+{ DirEntry } :: import("./dir");
+_dir :: import("./dir");
 
 /// Entry returned by the directory walker.
 WalkEntry :: struct(
@@ -39,7 +39,7 @@ WalkEntry :: struct(
   file_type : FileType
 );
 
-export WalkEntry;
+export(WalkEntry);
 
 /// Options controlling directory walk behavior.
 WalkOptions :: struct(
@@ -58,7 +58,7 @@ impl(WalkOptions,
   )
 );
 
-export WalkOptions;
+export(WalkOptions);
 
 // ============================================================================
 // Internal path join helper
@@ -84,7 +84,7 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Futur
     stack := ArrayList(struct(path: String, depth: u32)).new();
     stack.push({ path: root_s, depth: u32(0) });
 
-    while runtime((stack.len() > usize(0))), {
+    while(runtime((stack.len() > usize(0))), {
       item := stack.pop().unwrap();
       cur_path := item.path;
       cur_depth := item.depth;
@@ -99,7 +99,7 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Futur
         should_continue => {
           entries := io.await(_dir.read_dir(Path.new(cur_path)));
           i := usize(0);
-          while runtime((i < entries.len())), {
+          while(runtime((i < entries.len())), {
             entry := entries.get(i).unwrap();
             entry_path := _join_path(cur_path, entry.name);
             match(entry.file_type,
@@ -128,11 +128,11 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Futur
               }
             );
             i = (i + usize(1));
-          };
+          });
         },
         true => ()
       );
-    };
+    });
 
     results
   })
@@ -143,12 +143,8 @@ walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl
 );
 
 /// Walk a directory tree with default options.
-walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))
-  walk_with(root, WalkOptions.defaults())
-;
+walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(walk_with(root, WalkOptions.defaults()));
 
-walk_cstr :: (fn(root: *(u8), using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))
-  walk(Path.from_cstr(root))
-;
+walk_cstr :: (fn(root: *(u8), using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(walk(Path.from_cstr(root)));
 
-export walk, walk_cstr, walk_with, walk_with_cstr;
+export(walk, walk_cstr, walk_with, walk_with_cstr);

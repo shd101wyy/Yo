@@ -1,16 +1,16 @@
-{ HttpMethod, HttpRequest, HttpResponse, parse_response } :: import "std/http/http";
-{ HttpHeader, http_status_text } :: import "std/http/http";
-open import "std/string";
+{ HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
+{ HttpHeader, http_status_text } :: import("std/http/http");
+open(import("std/string"));
 
-test "HttpRequest build GET request", {
+test("HttpRequest build GET request", {
   req := HttpRequest.new(HttpMethod.GET, `/index.html`);
   req.set_host(`example.com`);
   s := req.to_string();
   assert(s.contains(`GET /index.html HTTP/1.1`), "should contain request line");
   assert(s.contains(`Host: example.com`), "should contain host header");
-};
+});
 
-test "HttpRequest build POST with body", {
+test("HttpRequest build POST with body", {
   req := HttpRequest.new(HttpMethod.POST, `/api/data`);
   req.set_host(`api.example.com`);
   req.set_body(`body_data`);
@@ -18,9 +18,9 @@ test "HttpRequest build POST with body", {
   assert(s.contains(`POST /api/data HTTP/1.1`), "should contain POST request line");
   assert(s.contains(`Host: api.example.com`), "should contain host");
   assert(s.contains(`body_data`), "should contain body");
-};
+});
 
-test "HttpRequest set multiple headers", {
+test("HttpRequest set multiple headers", {
   req := HttpRequest.new(HttpMethod.GET, `/`);
   req.set_header(`Accept`, `text/html`);
   req.set_header(`User-Agent`, `YoHTTP/1.0`);
@@ -29,26 +29,26 @@ test "HttpRequest set multiple headers", {
   assert(s.contains(`Accept: text/html`), "should contain Accept header");
   assert(s.contains(`User-Agent: YoHTTP/1.0`), "should contain User-Agent header");
   assert(s.contains(`Connection: close`), "should contain Connection header");
-};
+});
 
-test "HttpRequest to_string format", {
+test("HttpRequest to_string format", {
   req := HttpRequest.new(HttpMethod.GET, `/path`);
   req.set_host(`host.com`);
   s := req.to_string();
   assert(s.starts_with(`GET /path HTTP/1.1`), "should start with request line");
   assert(s.contains(`Host: host.com`), "should contain host header");
-};
+});
 
-test "Parse simple HTTP response", {
+test("Parse simple HTTP response", {
   raw := `HTTP/1.1 200 OK\r\n\r\n`;
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
   resp := result.unwrap();
   assert((resp.status_code == i32(200)), "status code should be 200");
   assert((resp.status_text == `OK`), "status text should be OK");
-};
+});
 
-test "Parse response with headers", {
+test("Parse response with headers", {
   raw := `HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nX-Custom: hello\r\n\r\n`;
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
@@ -56,18 +56,18 @@ test "Parse response with headers", {
   assert((resp.status_code == i32(404)), "status code should be 404");
   assert((resp.status_text == `Not Found`), "status text should be Not Found");
   assert((resp.headers.len() == usize(2)), "should have 2 headers");
-};
+});
 
-test "Parse response with body", {
+test("Parse response with body", {
   raw := `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello World`;
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
   resp := result.unwrap();
   assert((resp.status_code == i32(200)), "status code should be 200");
   assert((resp.body == `Hello World`), "body should match");
-};
+});
 
-test "HttpResponse get_header case-insensitive", {
+test("HttpResponse get_header case-insensitive", {
   raw := `HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nX-Request-Id: abc123\r\n\r\n`;
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
@@ -87,9 +87,9 @@ test "HttpResponse get_header case-insensitive", {
 
   missing := resp.get_header(`Authorization`);
   assert(missing.is_none(), "missing header should be None");
-};
+});
 
-test "HttpMethod enum values", {
+test("HttpMethod enum values", {
   m_get := HttpMethod.GET;
   m_post := HttpMethod.POST;
   m_put := HttpMethod.PUT;
@@ -102,4 +102,4 @@ test "HttpMethod enum values", {
   assert((m_del.to_string() == `DELETE`), "DELETE to_string");
   assert((m_head.to_string() == `HEAD`), "HEAD to_string");
   assert((m_patch.to_string() == `PATCH`), "PATCH to_string");
-};
+});

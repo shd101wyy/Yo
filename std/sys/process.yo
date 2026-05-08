@@ -8,12 +8,12 @@
 //! `argv`/`envp` are NULL-terminated arrays of C strings.
 // Use `?*(u8)` for entries so .None can be used as the terminator.
 
-{ IOFuture } :: import "./future.yo";
+{ IOFuture } :: import("./future.yo");
 {
   __yo_async_spawn_start, __yo_async_waitpid_start,
   __yo_process_exit_status, __yo_process_term_signal,
   __yo_kill
-} :: import "./externs.yo";
+} :: import("./externs.yo");
 
 // Spawn a child process.
 // Returns the child pid on success, -errno on failure.
@@ -53,7 +53,5 @@ term_signal :: (fn(status: i32) -> i32)(
   __yo_process_term_signal(status)
 );
 
-export
-  spawn, waitpid, kill,
-  exit_status, term_signal
-;
+export(spawn, waitpid, kill,
+  exit_status, term_signal);

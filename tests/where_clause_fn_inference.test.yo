@@ -11,7 +11,7 @@
 //! traits. The fix introduces `typeImplementsTraitWithBindings` which
 //! propagates that env back through where-clause validation.
 
-open import "std/collections/array_list";
+open(import("std/collections/array_list"));
 
 LocalMapIter :: (fn(comptime(I) : Type, comptime(A) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
@@ -29,15 +29,14 @@ impl(forall(I : Type, A : Type, B : Type, F : Type),
 impl(forall(I : Type), where(I <: Iterator), I,
   local_map_to : (fn(forall(A : Type, B : Type, F : Type),
                self : Self, f : F,
-               where(Self <: Iterator(Item := A), F <: (Fn(a : A) -> B)))
-            -> LocalMapIter(Self, A, B, F))(
+               where(Self <: Iterator(Item := A), F <: (Fn(a : A) -> B))) -> LocalMapIter(Self, A, B, F))(
     LocalMapIter(Self, A, B, F)(_inner: self, _f: f)
   )
 );
 
 double :: (fn(x : i32) -> i32)((x * i32(2)));
 
-test "where-clause associated-type inference binds A and B from impl + Fn signature", {
+test("where-clause associated-type inference binds A and B from impl + Fn signature", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   it1 := list.into_iter();
@@ -49,9 +48,9 @@ test "where-clause associated-type inference binds A and B from impl + Fn signat
     .None => assert(true, "stub returns None"),
     .Some(v) => assert(false, "should not produce a value")
   );
-};
+});
 
-test "where-clause inference with bool callback return type", {
+test("where-clause inference with bool callback return type", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   it1 := list.into_iter();
@@ -61,4 +60,4 @@ test "where-clause inference with bool callback return type", {
     .None => assert(true, "stub returns None"),
     .Some(v) => assert(false, "should not produce a value")
   );
-};
+});

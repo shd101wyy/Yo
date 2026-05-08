@@ -1,12 +1,12 @@
 // @skip_wasm32-emscripten — no process model in WASM (spawn/wait/exec unavailable)
 // @skip_wasm32-wasi — no process model in WASM (spawn/wait/exec unavailable)
-open import "std/libc/stdio";
-file :: import "std/sys/file";
-pipe_io :: import "std/sys/pipe";
-process :: import "std/sys/process";
-{ platform, Platform } :: import "std/process";
+open(import("std/libc/stdio"));
+file :: import("std/sys/file");
+pipe_io :: import("std/sys/pipe");
+process :: import("std/sys/process");
+{ platform, Platform } :: import("std/process");
 
-test "spawn and waitpid", {
+test("spawn and waitpid", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
@@ -38,7 +38,7 @@ test "spawn and waitpid", {
     true => *(u8)("echo")
   );
 
-  pid := io.await(process.spawn(file_path, argv, .None, i32(-1), write_fd, i32(-1)));
+  pid := io.await(process.spawn(file_path, argv, .None, i32(-(1)), write_fd, i32(-(1))));
   printf("  pid = %d\n", pid);
   assert((pid > i32(0)), "spawn failed");
 
@@ -82,4 +82,4 @@ test "spawn and waitpid", {
 
   sig := process.term_signal(status);
   assert((sig == i32(0)), "term signal mismatch");
-};
+});

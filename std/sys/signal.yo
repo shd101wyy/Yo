@@ -2,7 +2,7 @@
 //!
 //! Provides low-level wrappers for signal registration and delivery.
 
-{ __yo_signal_start, __yo_signal_stop, __yo_kill } :: import "./externs.yo";
+{ __yo_signal_start, __yo_signal_stop, __yo_kill } :: import("./externs.yo");
 
 SignalHandler :: (fn(data: *(u8)) -> unit);
 
@@ -24,9 +24,7 @@ kill :: (fn(pid: i32, signum: i32) -> i32)(
   __yo_kill(pid, signum)
 );
 
-export
-  SignalHandler,
+export(SignalHandler,
   on_signal,
   off_signal,
-  kill
-;
+  kill);

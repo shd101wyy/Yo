@@ -1,21 +1,21 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-open import "std/string";
-{ platform, Platform, arch, Arch } :: import "std/process";
+open(import("std/string"));
+{ platform, Platform, arch, Arch } :: import("std/process");
 {
   O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
   AT_FDCWD, AT_REMOVEDIR, DT_DIR, DT_REG
-} :: import "std/sys/constants";
+} :: import("std/sys/constants");
 {
   openat, close, read, write
-} :: import "std/sys/file";
-dir :: import "std/sys/dir";
-{ temp_dir, path_join } :: import "../helper";
+} :: import("std/sys/file");
+dir :: import("std/sys/dir");
+{ temp_dir, path_join } :: import("../helper");
 
-test "async mkdir and rmdir", {
+test("async mkdir and rmdir", {
   tmp_dir := temp_dir();
   dir_path_str := path_join(tmp_dir, `yo_io_dir_test`);
   dir_path_c := dir_path_str.to_cstr();
@@ -28,9 +28,9 @@ test "async mkdir and rmdir", {
   rm_result := io.await(dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR));
   printf("  rmdir = %d\n", rm_result);
   assert(rm_result == i32(0));
-};
+});
 
-test "mkdir existing returns -EEXIST", {
+test("mkdir existing returns -EEXIST", {
   tmp_dir := temp_dir();
   dir_path_str := path_join(tmp_dir, `yo_io_dir_test2`);
   dir_path_c := dir_path_str.to_cstr();
@@ -42,9 +42,9 @@ test "mkdir existing returns -EEXIST", {
   printf("  mkdir existing = %d\n", mk2);
   assert(mk2 < i32(0));
   io.await(dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR));
-};
+});
 
-test "async rename", {
+test("async rename", {
   tmp_dir := temp_dir();
   old_path_str := path_join(tmp_dir, `yo_io_rename_src`);
   new_path_str := path_join(tmp_dir, `yo_io_rename_dst`);
@@ -79,9 +79,9 @@ test "async rename", {
   io.await(close(new_open));
   free(.Some(*(void)(buf)));
   io.await(dir.unlink(AT_FDCWD, new_path, i32(0)));
-};
+});
 
-test "async symlink and readlink", {
+test("async symlink and readlink", {
   tmp_dir := temp_dir();
   target_str := path_join(tmp_dir, `yo_io_symlink_target`);
   link_path_str := path_join(tmp_dir, `yo_io_symlink_link`);
@@ -105,25 +105,25 @@ test "async symlink and readlink", {
   readlink_buf := *(u8)(malloc(usize(256)).unwrap());
   rl_result := dir.readlink(AT_FDCWD, link_path, readlink_buf, usize(256));
   printf("  readlink = %d\n", rl_result);
-  assert(((!sym_ok) || (rl_result > i32(0))));
+  assert(((!(sym_ok)) || (rl_result > i32(0))));
   first_byte := (readlink_buf &+ usize(0)).*;
-  assert(((!sym_ok) || ((first_byte == u8(47)) || (first_byte == u8(92)))));
+  assert(((!(sym_ok)) || ((first_byte == u8(47)) || (first_byte == u8(92)))));
   fd2 := io.await(openat(AT_FDCWD, link_path, O_RDONLY, i32(0)));
   printf("  open via link = %d\n", fd2);
-  assert(((!sym_ok) || (fd2 >= i32(0))));
+  assert(((!(sym_ok)) || (fd2 >= i32(0))));
   read_buf := *(u8)(malloc(usize(64)).unwrap());
   rd := io.await(read(fd2, read_buf, u32(64), u64(0)));
   printf("  read via link = %d\n", rd);
-  assert(((!sym_ok) || (rd == i32(14))));
-  assert(((!sym_ok) || ((read_buf &+ usize(0)).* == u8(115))));
+  assert(((!(sym_ok)) || (rd == i32(14))));
+  assert(((!(sym_ok)) || ((read_buf &+ usize(0)).* == u8(115))));
   io.await(close(fd2));
   free(.Some(*(void)(readlink_buf)));
   free(.Some(*(void)(read_buf)));
   io.await(dir.unlink(AT_FDCWD, link_path, i32(0)));
   io.await(dir.unlink(AT_FDCWD, target, i32(0)));
-};
+});
 
-test "async hard link", {
+test("async hard link", {
   tmp_dir := temp_dir();
   orig_path_str := path_join(tmp_dir, `yo_io_link_orig`);
   link_path_str := path_join(tmp_dir, `yo_io_link_hard`);
@@ -165,9 +165,9 @@ test "async hard link", {
       io.await(dir.unlink(AT_FDCWD, link_path, i32(0)));
     }
   );
-};
+});
 
-test "async unlink file", {
+test("async unlink file", {
   tmp_dir := temp_dir();
   file_path_str := path_join(tmp_dir, `yo_io_unlink_file`);
   file_path_c := file_path_str.to_cstr();
@@ -191,9 +191,9 @@ test "async unlink file", {
   gone_fd := io.await(openat(AT_FDCWD, file_path, O_RDONLY, i32(0)));
   printf("  after unlink = %d\n", gone_fd);
   assert(gone_fd < i32(0));
-};
+});
 
-test "unlink nonexistent returns -ENOENT", {
+test("unlink nonexistent returns -ENOENT", {
   tmp_dir := temp_dir();
   bad_path_str := path_join(tmp_dir, `yo_io_nonexistent_file_999`);
   bad_path_c := bad_path_str.to_cstr();
@@ -201,9 +201,9 @@ test "unlink nonexistent returns -ENOENT", {
   result := io.await(dir.unlink(AT_FDCWD, bad_path, i32(0)));
   printf("  unlink nonexistent = %d\n", result);
   assert(result < i32(0));
-};
+});
 
-test "async getdents lists directory entries", {
+test("async getdents lists directory entries", {
   tmp_dir := temp_dir();
   test_dir_str := path_join(tmp_dir, `yo_io_readdir_test`);
   file_a_str := path_join(test_dir_str, `file_a.txt`);
@@ -250,14 +250,14 @@ test "async getdents lists directory entries", {
   dir_count := i32(0);
   file_count := i32(0);
 
-  while runtime(true), {
+  while(runtime(true), {
     n := io.await(dir.getdents(dir_fd, buf, u32(4096)));
     printf("  getdents = %d\n", n);
     cond(
       (n <= i32(0)) => { break; },
       true => {
         offset := u32(0);
-        while runtime(true), {
+        while(runtime(true), {
           cond(
             (offset >= u32(n)) => { break; },
             true => {
@@ -275,10 +275,10 @@ test "async getdents lists directory entries", {
               offset = (offset + u32(reclen));
             }
           );
-        };
+        });
       }
     );
-  };
+  });
 
   printf("  total entries = %d\n", entry_count);
   printf("  dir entries = %d\n", dir_count);
@@ -295,4 +295,4 @@ test "async getdents lists directory entries", {
   io.await(dir.unlink(AT_FDCWD, file_b, i32(0)));
   io.await(dir.unlink(AT_FDCWD, subdir, AT_REMOVEDIR));
   io.await(dir.unlink(AT_FDCWD, test_dir, AT_REMOVEDIR));
-};
+});

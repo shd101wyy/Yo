@@ -1,7 +1,7 @@
 //! Dynamic array (vector) with amortized O(1) push and O(1) indexed access.
 
-{ GlobalAllocator, AllocError } :: import "../allocator.yo";
-{ memmove, memcpy, memset } :: import "../libc/string.yo";
+{ GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ memmove, memcpy, memset } :: import("../libc/string.yo");
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
 
 /// Error variants for ArrayList operations.
@@ -25,11 +25,11 @@ ArrayList :: (fn(comptime(T): Type) -> comptime(Type))(
 );
 impl(forall(T : Type), ArrayList(T),
   len : (fn(self: Self) -> usize)({
-    return self._length;
+    return(self._length);
   }),
 
   capacity : (fn(self: Self) -> usize)({
-    return self._capacity;
+    return(self._capacity);
   }),
 
   /**
@@ -106,17 +106,16 @@ impl(forall(T : Type), ArrayList(T),
     cond(
       (self._length >= self._capacity) => {
         // Need to grow - calculate new capacity
-        new_capacity := cond
-          (self._capacity == usize(0)) => usize(4),
-          true => (self._capacity * usize(2));
+        new_capacity := cond((self._capacity == usize(0)) => usize(4),
+          true => (self._capacity * usize(2)));
         
         // Allocate or reallocate
-        new_some_ptr := match self._ptr,
+        new_some_ptr := match(self._ptr,
           .None => GlobalAllocator.malloc(sizeof(T) * new_capacity),
           .Some(old_ptr) => GlobalAllocator.realloc(
             .Some((*(void))(old_ptr)), 
             sizeof(T) * new_capacity
-          );
+          ));
         
         match(new_some_ptr,
           .Some(new_ptr) => {
@@ -397,9 +396,9 @@ impl(forall(T : Type), ArrayList(T),
           (self._capacity == usize(0)) => min_cap,
           true => {
             cap := self._capacity;
-            while (cap < min_cap), {
+            while((cap < min_cap), {
               cap = (cap * usize(2));
-            };
+            });
             cap
           }
         );
@@ -608,7 +607,7 @@ impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T),
       },
       .None => ()
     );
-    return found;
+    return(found);
   }),
 
   /**
@@ -633,7 +632,7 @@ impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T),
       },
       .None => ()
     );
-    return result;
+    return(result);
   })
 );
 
@@ -706,7 +705,7 @@ impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T), Eq(ArrayList(T))(
       true => {
         (i : usize) = usize(0);
         (equal : bool) = true;
-        while runtime(((i < n) && equal)), {
+        while(runtime(((i < n) && equal)), {
           match(lhs.get(i),
             .Some(a) => match(rhs.get(i),
               .Some(b) => { equal = (a == b); },
@@ -715,7 +714,7 @@ impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T), Eq(ArrayList(T))(
             .None => { equal = false; }
           );
           i = (i + usize(1));
-        };
+        });
         equal
       }
     )
@@ -729,25 +728,23 @@ impl(forall(T : Type), where(T <: Clone), ArrayList(T), Clone(
       n := self.*.len();
       result := Self.with_capacity(n);
       i := usize(0);
-      while (i < n), {
+      while((i < n), {
         item_opt := self.*.get(i);
         match(item_opt,
-          .Some(item) => { result.push((&item).clone()); },
+          .Some(item) => { result.push((&(item)).clone()); },
           .None => ()
         );
         i = (i + usize(1));
-      };
+      });
       result
     }
   )
 ));
 
-export
-  ArrayList,
+export(ArrayList,
   ArrayListError,
   ArrayListIter,
-  ArrayListIterPtr
-;
+  ArrayListIterPtr);
 
 // =============================================================================
 // array_list! literal macro
@@ -788,7 +785,7 @@ __array_list_build_pushes :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprLis
 ///   __tmp
 /// }
 /// ```
-array_list :: (fn(...(quote(elems))) -> unquote(Expr)) {
+array_list :: (fn(...(quote(elems))) -> unquote(Expr))({
   __ :: comptime_assert((elems.len() > usize(0)),
     "array_list requires at least one element to infer the element type");
   first :: elems.car();
@@ -796,12 +793,11 @@ array_list :: (fn(...(quote(elems))) -> unquote(Expr)) {
   tmp :: gensym("array_list");
   first_tmp :: gensym("array_list_first");
   rest_pushes :: __array_list_build_pushes(tmp, rest);
-  quote {
+  quote({
     unquote(first_tmp) := unquote(first);
     unquote(tmp) := ArrayList(typeof(unquote(first_tmp))).new();
     unquote(tmp).push(unquote(first_tmp));
     unquote_splicing(rest_pushes);
     unquote(tmp)
-  }
-};
-export array_list;
+  })});
+export(array_list);

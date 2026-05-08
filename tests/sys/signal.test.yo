@@ -1,15 +1,15 @@
 // @skip_wasm32-emscripten — POSIX signals are limited/stubbed in Emscripten WASM
 // @skip_wasm32-wasi — POSIX signals not available in WASI
-open import "std/libc/stdio";
-{ platform, Platform } :: import "std/process";
-{ SIGUSR1 } :: import "std/sys/signals";
-Sig :: import "std/sys/signal";
+open(import("std/libc/stdio"));
+{ platform, Platform } :: import("std/process");
+{ SIGUSR1 } :: import("std/sys/signals");
+Sig :: import("std/sys/signal");
 
 signal_handler :: (fn(data: *(u8)) -> unit)({
   ();
 });
 
-test "signal handler installs and handles SIGUSR1", {
+test("signal handler installs and handles SIGUSR1", {
   cond(
     (platform == Platform.Windows) => {
       r1 := Sig.on_signal(SIGUSR1, signal_handler);
@@ -25,7 +25,7 @@ test "signal handler installs and handles SIGUSR1", {
       assert(r3 == i32(0));
     },
     true => {
-      open import "std/libc/unistd";
+      open(import("std/libc/unistd"));
 
       r1 := Sig.on_signal(SIGUSR1, signal_handler);
       printf("  on_signal = %d\n", r1);
@@ -43,4 +43,4 @@ test "signal handler installs and handles SIGUSR1", {
       assert(r3 == i32(0));
     }
   );
-};
+});

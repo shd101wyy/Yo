@@ -31,7 +31,7 @@ Optimize :: enum(
   /// Compiler Flags `-O2`
   ReleaseSmall
 );
-export Optimize;
+export(Optimize);
 
 // ── Memory allocators ────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ Allocator :: enum(
   /// Standard C library malloc.
   Libc
 );
-export Allocator;
+export(Allocator);
 
 // ── Sanitizers ───────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ Sanitize :: enum(
   /// LeakSanitizer — detects memory leaks only.
   Leak
 );
-export Sanitize;
+export(Sanitize);
 
 // ── Step kinds ───────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ StepKind :: enum(
   Custom,
   Documentation
 );
-export StepKind;
+export(StepKind);
 
 // ── Compilation targets ──────────────────────────────────────────────
 
@@ -85,13 +85,13 @@ CompilationTarget :: {
   Wasm32_Emscripten: "wasm32-emscripten",
   Wasm32_Wasi: "wasm32-wasi"
 };
-export CompilationTarget;
+export(CompilationTarget);
 
 // ── Target utilities ─────────────────────────────────────────────────
 
 /// Host compilation target string.
 target_host :: __yo_build_target_host();
-export target_host;
+export(target_host);
 
 // ── Config struct types ──────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ Executable :: struct(
   /// Runtime sanitizer.
   (sanitize : Sanitize) ?= Sanitize.None
 );
-export Executable;
+export(Executable);
 
 /// Configuration for building a static library.
 StaticLibrary :: struct(
@@ -123,7 +123,7 @@ StaticLibrary :: struct(
   /// Optimization level.
   (optimize : Optimize) ?= Optimize.Debug
 );
-export StaticLibrary;
+export(StaticLibrary);
 
 /// Configuration for building a shared/dynamic library.
 SharedLibrary :: struct(
@@ -136,7 +136,7 @@ SharedLibrary :: struct(
   /// Optimization level.
   (optimize : Optimize) ?= Optimize.Debug
 );
-export SharedLibrary;
+export(SharedLibrary);
 
 /// Configuration for a test suite.
 TestSuite :: struct(
@@ -147,7 +147,7 @@ TestSuite :: struct(
   /// Compilation target triple (defaults to host).
   (target : comptime_string) ?= __yo_build_target_host()
 );
-export TestSuite;
+export(TestSuite);
 
 // ── Build module type ────────────────────────────────────────────────
 
@@ -160,7 +160,7 @@ BuildModule :: struct(
   root : comptime_string,
   _dep : comptime_string
 );
-export BuildModule;
+export(BuildModule);
 
 // ── Import entry type ────────────────────────────────────────────────
 
@@ -169,9 +169,8 @@ ImportEntry :: struct(
   /// Import alias used in source code.
   name : comptime_string,
   /// The module to import.
-  module : BuildModule
-);
-export ImportEntry;
+  module : BuildModule);
+export(ImportEntry);
 
 // ── Step type ────────────────────────────────────────────────────────
 
@@ -183,7 +182,7 @@ Step :: struct(
   /// Kind of step.
   kind : StepKind
 );
-export Step;
+export(Step);
 
 // ── Step methods ─────────────────────────────────────────────────────
 
@@ -238,7 +237,7 @@ BuildOption :: struct(
   /// Default value if not provided.
   (default : comptime_string) ?= ""
 );
-export BuildOption;
+export(BuildOption);
 
 // ── Dependency config types ──────────────────────────────────────────
 
@@ -253,7 +252,7 @@ GitDependency :: struct(
   /// Subdirectory within the repository.
   (path : comptime_string) ?= ""
 );
-export GitDependency;
+export(GitDependency);
 
 /// Local path dependency configuration.
 PathDependency :: struct(
@@ -262,7 +261,7 @@ PathDependency :: struct(
   /// Filesystem path to the dependency root.
   path : comptime_string
 );
-export PathDependency;
+export(PathDependency);
 
 /// System C library discovered via `pkg-config`.
 SystemLibrary :: struct(
@@ -277,7 +276,7 @@ SystemLibrary :: struct(
   /// Extra C preprocessor defines.
   (defines : comptime_string) ?= ""
 );
-export SystemLibrary;
+export(SystemLibrary);
 
 // ── Dependency handle ────────────────────────────────────────────────
 // Returned by build.dependency() and build.path_dependency().
@@ -287,7 +286,7 @@ export SystemLibrary;
 Dependency :: struct(
   name : comptime_string
 );
-export Dependency;
+export(Dependency);
 
 impl(Dependency,
   /// Access a named artifact from the dependency's `build.yo`.
@@ -301,15 +300,14 @@ impl(Dependency,
   module : (fn(comptime(self) : Self, (comptime(module_name) : comptime_string) ?= "") -> comptime(BuildModule))({
     _encoded :: __yo_build_dep_module(self.name, module_name);
     BuildModule(name: module_name, root: "", _dep: self.name)
-  })
-);
+  }));
 
 // ── Build functions ──────────────────────────────────────────────────
 // All registration functions return a Step value, allowing steps to be
 // wired together as dependencies via step.depend_on(dep).
 
 /// Register an executable artifact. Returns a `Step` for dependency wiring.
-executable :: (fn(comptime(config) : Executable) -> comptime(Step)) {
+executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
   opt_str :: match(config.optimize,
     .Debug => "debug",
     .ReleaseSafe => "release-safe",
@@ -327,11 +325,11 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step)) {
   );
   __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str);
   Step(name: config.name, kind: StepKind.Executable)
-};
-export executable;
+});
+export(executable);
 
 /// Register a static library artifact. Returns a `Step` for dependency wiring.
-static_library :: (fn(comptime(config) : StaticLibrary) -> comptime(Step)) {
+static_library :: (fn(comptime(config) : StaticLibrary) -> comptime(Step))({
   opt_str :: match(config.optimize,
     .Debug => "debug",
     .ReleaseSafe => "release-safe",
@@ -340,11 +338,11 @@ static_library :: (fn(comptime(config) : StaticLibrary) -> comptime(Step)) {
   );
   __yo_build_static_library(config.name, config.root, config.target, opt_str);
   Step(name: config.name, kind: StepKind.StaticLibrary)
-};
-export static_library;
+});
+export(static_library);
 
 /// Register a shared/dynamic library artifact. Returns a `Step` for dependency wiring.
-shared_library :: (fn(comptime(config) : SharedLibrary) -> comptime(Step)) {
+shared_library :: (fn(comptime(config) : SharedLibrary) -> comptime(Step))({
   opt_str :: match(config.optimize,
     .Debug => "debug",
     .ReleaseSafe => "release-safe",
@@ -353,53 +351,53 @@ shared_library :: (fn(comptime(config) : SharedLibrary) -> comptime(Step)) {
   );
   __yo_build_shared_library(config.name, config.root, config.target, opt_str);
   Step(name: config.name, kind: StepKind.SharedLibrary)
-};
-export shared_library;
+});
+export(shared_library);
 
 /// Register a test-suite artifact. Returns a `Step` for dependency wiring.
-test :: (fn(comptime(config) : TestSuite) -> comptime(Step)) {
+test :: (fn(comptime(config) : TestSuite) -> comptime(Step))({
   __yo_build_test(config.name, config.root, config.target);
   Step(name: config.name, kind: StepKind.TestSuite)
-};
-export test;
+});
+export(test);
 
 /// Create a run step (compile + execute an artifact). Returns a `Step`.
-run :: (fn(comptime(artifact) : Step) -> comptime(Step)) {
+run :: (fn(comptime(artifact) : Step) -> comptime(Step))({
   __yo_build_run(artifact.name);
   Step(name: artifact.name, kind: StepKind.Run)
-};
-export run;
+});
+export(run);
 
 /// Register a named build step. Use `step.depend_on(dep)` to add dependencies.
 step :: (fn(
   comptime(name) : comptime_string,
   comptime(description) : comptime_string
-) -> comptime(Step)) {
+) -> comptime(Step))({
   __yo_build_step(name, description);
   Step(name: name, kind: StepKind.Custom)
-};
-export step;
+});
+export(step);
 
 /// Register a git-hosted dependency. Returns a `Dependency` handle for accessing artifacts.
-dependency :: (fn(comptime(config) : GitDependency) -> comptime(Dependency)) {
+dependency :: (fn(comptime(config) : GitDependency) -> comptime(Dependency))({
   __yo_build_dependency(config.name, config.url, config.ref, config.path);
   Dependency(name: config.name)
-};
-export dependency;
+});
+export(dependency);
 
 /// Register a local path dependency. Returns a `Dependency` handle for accessing artifacts.
-path_dependency :: (fn(comptime(config) : PathDependency) -> comptime(Dependency)) {
+path_dependency :: (fn(comptime(config) : PathDependency) -> comptime(Dependency))({
   __yo_build_path_dependency(config.name, config.path);
   Dependency(name: config.name)
-};
-export path_dependency;
+});
+export(path_dependency);
 
 /// Register a system C library discovered via `pkg-config`. Returns a `Step` for linking.
-system_library :: (fn(comptime(config) : SystemLibrary) -> comptime(Step)) {
+system_library :: (fn(comptime(config) : SystemLibrary) -> comptime(Step))({
   __yo_build_system_library(config.name, config.fallback_include, config.fallback_lib, config.fallback_link, config.defines);
   Step(name: config.name, kind: StepKind.SystemLibrary)
-};
-export system_library;
+});
+export(system_library);
 
 /// Module configuration for shared compilation units.
 ModuleConfig :: struct(
@@ -408,15 +406,15 @@ ModuleConfig :: struct(
   /// Root source file for the module.
   root : comptime_string
 );
-export ModuleConfig;
+export(ModuleConfig);
 
 /// Register a named module. Returns a `BuildModule` for linking system libraries
 /// and importing into executables/libraries.
-_module :: (fn(comptime(config) : ModuleConfig) -> comptime(BuildModule)) {
+_module :: (fn(comptime(config) : ModuleConfig) -> comptime(BuildModule))({
   __yo_build_module(config.name, config.root);
   BuildModule(name: config.name, root: config.root, _dep: "")
-};
-export module : _module;
+});
+export(module(: _module));
 
 /// Declare a user-configurable build option.
 /// Returns the option value (from CLI `-Dname=value`, or the default).
@@ -432,7 +430,7 @@ export module : _module;
 option :: (fn(comptime(config) : BuildOption) -> comptime(str))(
   __yo_build_option(config.name, config.description, config.default)
 );
-export option;
+export(option);
 
 // ── Documentation generation ─────────────────────────────────────────
 
@@ -442,7 +440,7 @@ DocFormat :: enum(
   Markdown,
   Json
 );
-export DocFormat;
+export(DocFormat);
 
 /// Configuration for documentation generation.
 DocConfig :: struct(
@@ -468,7 +466,7 @@ DocConfig :: struct(
   /// Path to favicon.
   (favicon : comptime_string) ?= ""
 );
-export DocConfig;
+export(DocConfig);
 
 /// Register a documentation generation step. Returns a Step for dependency wiring.
 ///
@@ -493,7 +491,7 @@ export DocConfig;
 /// install :: build.step("install", "Build all artifacts");
 /// install.depend_on(doc_step);
 /// ```
-doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
+doc :: (fn(comptime(config) : DocConfig) -> comptime(Step))({
   fmt_str :: match(config.format,
     .Html => "html",
     .Markdown => "markdown",
@@ -506,5 +504,5 @@ doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
     config.version
   );
   Step(name: config.name, kind: StepKind.Documentation)
-};
-export doc;
+});
+export(doc);

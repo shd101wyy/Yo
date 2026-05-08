@@ -1,11 +1,11 @@
-open import "std/libc/stdio";
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 
 Point :: struct(x : i32, y : i32);
 Wrapper :: struct(v : Box(i32));
 
-test "Test 'rc' function", {
+test("Test 'rc' function", {
   // Value type
   {
     p1 := Point(3, 4);
@@ -52,9 +52,9 @@ test "Test 'rc' function", {
     assert(rc(w1.v) == 2, "rc(w1.v) == 2"); // Also no change, due to dup/drop cancellation.
     assert(rc(w2.v) == 2, "rc(w2.v) == 2");
   };
-};
+});
 
-test "Test explicit return and implicit return", {
+test("Test explicit return and implicit return", {
   Foo :: object(
     data: Box(i32)
   );
@@ -70,7 +70,7 @@ test "Test explicit return and implicit return", {
 
     // THIS WORKS:
     get_data_explicit : (fn(self: Self) -> Box(i32))({
-      return self.data;
+      return(self.data);
     })
   );
 
@@ -79,9 +79,9 @@ test "Test explicit return and implicit return", {
   assert(d1.* == 42, "d1.* == 42");
   d2 := foo.get_data_explicit();
   assert(d2.* == 42, "d2.* == 42");
-};
+});
 
-test "Test Rc in different data structures", {
+test("Test Rc in different data structures", {
   // Anonymous struct
   {
     x := Box(i32)(3);
@@ -136,9 +136,9 @@ test "Test Rc in different data structures", {
     assert(m.0.0.0.* == 3, "m.0.0.0.* == 3");
     assert(n.0.0.0.0.* == 3, "n.0.0.0.0.* == 3");
   };
-};
+});
 
-test "Test Rc with Iso", {
+test("Test Rc with Iso", {
   {
     x := box(123);
     z := ^(x);
@@ -156,13 +156,13 @@ test "Test Rc with Iso", {
       .None => assert(true)
     );
   };
-};
+});
 
 // --- Phantom drop regression tests ---
 // These test that match/cond inside function arguments don't cause phantom drops
 // of undeclared temp variables (fixed in consumeCaseBodyTempVar).
 
-test "Test match inside function arg - no phantom drop", {
+test("Test match inside function arg - no phantom drop", {
   Color :: enum(Red, Green, Blue);
   color_name :: (fn(c: Color) -> String)(
     match(c,
@@ -175,9 +175,9 @@ test "Test match inside function arg - no phantom drop", {
   assert((result == `red`), "match inside fn arg should work");
   result2 := color_name(.Blue);
   assert((result2 == `blue`), "match inside fn arg should work for Blue");
-};
+});
 
-test "Test cond inside function arg - no phantom drop", {
+test("Test cond inside function arg - no phantom drop", {
   classify :: (fn(x: i32) -> String)(
     cond(
       (x > i32(0)) => `positive`,
@@ -189,9 +189,9 @@ test "Test cond inside function arg - no phantom drop", {
   assert((result == `positive`), "cond inside fn arg should work");
   result2 := classify(i32(0));
   assert((result2 == `zero`), "cond inside fn arg should work for zero");
-};
+});
 
-test "Test match returning RC object - no phantom drop", {
+test("Test match returning RC object - no phantom drop", {
   Tag :: enum(A, B);
   make_string :: (fn(t: Tag) -> String)(
     match(t,
@@ -203,24 +203,24 @@ test "Test match returning RC object - no phantom drop", {
   s2 := make_string(.B);
   assert((s1 == `alpha`), "match returning RC String A");
   assert((s2 == `beta`), "match returning RC String B");
-};
+});
 
 // Regression for inline-enum-match-subject-phantom-drop.md:
 // constructing an enum with at least one object-payload variant directly as
 // the subject of a match (not via a named local) used to emit a drop on an
 // undeclared temp variable.
-test "Test inline enum construction as match subject - no phantom drop", {
+test("Test inline enum construction as match subject - no phantom drop", {
   Kind :: enum(Func, Arr, Obj(s : String));
   match(Kind.Func, .Func => (), _ => ());
   match(Kind.Arr, .Arr => (), _ => ());
   match(Kind.Obj(`payload`), .Obj(s) => assert((s == `payload`), "Obj payload"), _ => ());
-};
+});
 
 // --- Array index access with RC types ---
 // Regression tests for the inline incr_rc leak (array-index-rc-leak.md).
 // Only ubuntu/Linux detected the leak via LeakSanitizer; macOS ARM lacks it.
 
-test "Test array index access - no RC leak for inline use", {
+test("Test array index access - no RC leak for inline use", {
   // Inline access: y(0).* should NOT dup (no ownership transfer)
   {
     x := Box(i32)(42);
@@ -267,9 +267,9 @@ test "Test array index access - no RC leak for inline use", {
     result := identity(y(0));
     assert(result.* == 55, "array index as fn arg should dup correctly");
   };
-};
+});
 
-test "Test ArrayList index access - no RC leak", {
+test("Test ArrayList index access - no RC leak", {
   // ArrayList of Box(i32) - inline access
   {
     list := ArrayList(Box(i32)).new();
@@ -314,9 +314,9 @@ test "Test ArrayList index access - no RC leak", {
     s := list(usize(0));
     assert((s == `test`), "assigned string from ArrayList should work");
   };
-};
+});
 
-test "Test array of objects - no RC leak", {
+test("Test array of objects - no RC leak", {
   Container :: object(value : i32);
 
   // Inline access to array of objects
@@ -346,9 +346,9 @@ test "Test array of objects - no RC leak", {
     val := arr(0).value;
     assert(val == i32(77), "inline field read works");
   };
-};
+});
 
-test "Test array index in expressions - no RC leak", {
+test("Test array index in expressions - no RC leak", {
   // Array index inside comparison
   {
     x := Box(i32)(10);
@@ -386,9 +386,9 @@ test "Test array index in expressions - no RC leak", {
     d := [c,];
     assert(d(0)(0)(0)(0).* == 1, "4-deep nested inline access should not leak");
   };
-};
+});
 
-test "Test chained method calls - no duplicate var", {
+test("Test chained method calls - no duplicate var", {
   // Regression test: chained method calls on ArrayList should not
   // cause duplicate temp variable declarations in generated C.
   list := ArrayList(i32).new();
@@ -402,9 +402,9 @@ test "Test chained method calls - no duplicate var", {
 
   val2 := list(usize(0));
   assert((val2 == i32(10)), "index access should work at index 0");
-};
+});
 
-test "Test nested && with RC temps - no phantom drop", {
+test("Test nested && with RC temps - no phantom drop", {
   // Regression test: nested && should not emit drops for temp vars
   // declared inside inner conditional branches
   make_str :: (fn(s : str) -> String)(String.from(s));
@@ -425,8 +425,8 @@ test "Test nested && with RC temps - no phantom drop", {
   result3 := (((a.len() > usize(0)) && (b.len() > usize(0))) && ((c.len() > usize(0)) || (make_str("x").len() > usize(0))));
   assert(result3, "triple nested && || should work with RC temps");
   ();
-};
-test "Test early return of reassigned RC variable does not leak", {
+});
+test("Test early return of reassigned RC variable does not leak", {
   // Regression test for: issues/early-return-reassigned-rc-variable-leak.md
   //
   // When an RC variable is reassigned inside a while loop and returned early
@@ -437,17 +437,17 @@ test "Test early return of reassigned RC variable does not leak", {
   build_string :: (fn(parts : ArrayList(str)) -> String)({
     result := String.new();
     i := usize(0);
-    while (i < parts.len()), {
+    while((i < parts.len()), {
       match(parts.get(i),
         .Some(s) => {
           result = result.concat(String.from(s));
           i = (i + usize(1));
         },
         .None => {
-          return result;
+          return(result);
         }
       );
-    };
+    });
     result
   });
 
@@ -458,4 +458,4 @@ test "Test early return of reassigned RC variable does not leak", {
   assert((s.len() == usize(11)), "result should be 'hello world' (11 chars)");
   // If the RC is wrong (leak), ASAN will report it.
   assert((rc(s) == 1), "rc(s) should be 1 after early return");
-};
+});

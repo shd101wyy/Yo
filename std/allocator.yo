@@ -1,6 +1,6 @@
 //! Memory allocation abstractions and global allocator interface.
 
-{ SIZE_MAX } :: import "./libc/stdint.yo";
+{ SIZE_MAX } :: import("./libc/stdint.yo");
 
 /// Memory allocation error variants.
 AllocError :: enum(
@@ -24,22 +24,20 @@ Layout :: struct(
 
 /// Get the memory layout (size and alignment) of a type at compile time.
 layout_of ::
-  (fn(comptime(T): Type) -> comptime(Layout))
-    Layout(
+  (fn(comptime(T): Type) -> comptime(Layout))(Layout(
       size: sizeof(T),
       alignment: alignof(T)
-    )
-;
+    ));
 
 /// Check if allocating `count` elements of type T would overflow `usize`.
 size_would_overflow :: 
-  (fn(comptime(T): Type, count: usize) -> bool) {
+  (fn(comptime(T): Type, count: usize) -> bool)({
     type_size :: sizeof(T);
     cond(
       (type_size == usize(0)) => false,
       true => (count > (SIZE_MAX / type_size))
     )
-  };
+  });
 
 /// User-implementable memory allocator interface.
 /// Implement this trait to provide custom allocation strategies.
@@ -63,7 +61,7 @@ CustomAllocator :: trait(
 /// Type-erased dynamic allocator wrapping any `CustomAllocator` implementation.
 Allocator :: Dyn(CustomAllocator);
 
-extern "Yo",
+extern("Yo",
   __yo_malloc : 
     fn(size: usize) -> ?*(void),
   __yo_calloc :
@@ -73,33 +71,28 @@ extern "Yo",
   __yo_free :
     fn(ptr : ?*(void)) -> unit,
   __yo_aligned_alloc :
-    fn(alignment : usize, size : usize) -> ?*(void)
-;
+    fn(alignment : usize, size : usize) -> ?*(void));
 
 /// The process-wide global allocator (mimalloc by default, falls back to libc).
-GlobalAllocator :: impl {
+GlobalAllocator :: impl({
   malloc :: __yo_malloc;
   calloc :: __yo_calloc;
   realloc :: __yo_realloc;
   free :: __yo_free;
   aligned_alloc :: __yo_aligned_alloc;
 
-  export
-    malloc,
+  export(malloc,
     calloc,
     realloc,
     free,
-    aligned_alloc
-  ;
-};
+    aligned_alloc);
+});
 
-export
-  size_would_overflow,
+export(size_would_overflow,
   CustomAllocator,
   Allocator,
   Layout,
   layout_of,
   AllocError,
 
-  GlobalAllocator
-;
+  GlobalAllocator);

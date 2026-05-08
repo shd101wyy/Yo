@@ -1,15 +1,15 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-open import "std/string";
-{ platform, Platform } :: import "std/process";
-{ temp_dir, path_join } :: import "../helper";
-dir :: import "std/sys/dir";
-file :: import "std/sys/file";
-{ AT_FDCWD, AT_REMOVEDIR, O_RDONLY, O_DIRECTORY } :: import "std/sys/constants";
-temp_io :: import "std/sys/temp";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ platform, Platform } :: import("std/process");
+{ temp_dir, path_join } :: import("../helper");
+dir :: import("std/sys/dir");
+file :: import("std/sys/file");
+{ AT_FDCWD, AT_REMOVEDIR, O_RDONLY, O_DIRECTORY } :: import("std/sys/constants");
+temp_io :: import("std/sys/temp");
 
-test "mkdtemp creates and removes directory", {
+test("mkdtemp creates and removes directory", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_mkdtemp_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -28,9 +28,9 @@ test "mkdtemp creates and removes directory", {
   rm := io.await(dir.unlink(AT_FDCWD, template_path, AT_REMOVEDIR));
   printf("  rmdir = %d\n", rm);
   assert(rm == i32(0));
-};
+});
 
-test "mkstemp creates and removes file", {
+test("mkstemp creates and removes file", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_mkstemp_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -46,4 +46,4 @@ test "mkstemp creates and removes file", {
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
   printf("  unlink = %d\n", rm);
   assert(rm == i32(0));
-};
+});

@@ -1,12 +1,12 @@
 // @skip_wasm32-emscripten — no network stack in WASM (socketpair unavailable)
 // @skip_wasm32-wasi — no network stack in WASM (socketpair unavailable)
-open import "std/libc/stdio";
+open(import("std/libc/stdio"));
 
-socketpair_io :: import "std/sys/socketpair";
-tcp :: import "std/sys/tcp";
-{ AF_UNIX, SOCK_STREAM } :: import "std/sys/socket";
+socketpair_io :: import("std/sys/socketpair");
+tcp :: import("std/sys/tcp");
+{ AF_UNIX, SOCK_STREAM } :: import("std/sys/socket");
 
-test "socketpair create and close", {
+test("socketpair create and close", {
   sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
   sv := *(i32)(sv_uninit.as_ptr());
 
@@ -24,9 +24,9 @@ test "socketpair create and close", {
   c1 := io.await(tcp.close(fd1));
   assert((c0 == i32(0)), "closing socketpair fd0 should succeed");
   assert((c1 == i32(0)), "closing socketpair fd1 should succeed");
-};
+});
 
-test "socketpair bidirectional send and recv", {
+test("socketpair bidirectional send and recv", {
   sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
   sv := *(i32)(sv_uninit.as_ptr());
 
@@ -62,4 +62,4 @@ test "socketpair bidirectional send and recv", {
   c1 := io.await(tcp.close(fd1));
   assert((c0 == i32(0)), "closing socketpair fd0 should succeed after transfer");
   assert((c1 == i32(0)), "closing socketpair fd1 should succeed after transfer");
-};
+});

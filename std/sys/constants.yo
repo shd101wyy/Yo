@@ -4,21 +4,21 @@
 //! access mode constants, copyfile flags, directory entry types,
 //! and default permission modes.
 
-{ platform, Platform } :: import "../process";
+{ platform, Platform } :: import("../process");
 
 // Import platform-correct open flags from libc
 {
   O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND,
   O_NONBLOCK, O_CLOEXEC, O_DIRECTORY
-} :: import "../libc/fcntl";
+} :: import("../libc/fcntl");
 
 // ============================================================================
 // AT_* Flags
 // ============================================================================
 
 AT_FDCWD :: cond(
-  (platform == Platform.Macos) => i32(-2),
-  true => i32(-100)
+  (platform == Platform.Macos) => i32(-(2)),
+  true => i32(-(100))
 );
 AT_REMOVEDIR :: cond(
   (platform == Platform.Macos) => i32(0x80),
@@ -99,8 +99,7 @@ COPYFILE_EXCL          :: i32(1);
 COPYFILE_FICLONE       :: i32(2);
 COPYFILE_FICLONE_FORCE :: i32(4);
 
-export
-  // Open flags (re-exported from libc)
+export(// Open flags (re-exported from libc)
   O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND,
   O_NONBLOCK, O_CLOEXEC, O_DIRECTORY,
 
@@ -124,5 +123,4 @@ export
   F_OK, R_OK, W_OK, X_OK,
 
   // Copyfile flags
-  COPYFILE_EXCL, COPYFILE_FICLONE, COPYFILE_FICLONE_FORCE
-;
+  COPYFILE_EXCL, COPYFILE_FICLONE, COPYFILE_FICLONE_FORCE);

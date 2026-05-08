@@ -6,7 +6,7 @@
 /// Current target platform as a compile-time string.
 /// One of: "linux", "macos", "windows", "freebsd", "emscripten", "wasi".
 platform :: __yo_process_platform();
-export platform;
+export(platform);
 
 /// Platform constants for compile-time platform comparisons.
 Platform :: {
@@ -17,12 +17,12 @@ Platform :: {
   Emscripten : "emscripten",
   Wasi : "wasi"
 };
-export Platform;
+export(Platform);
 
 /// Current target architecture as a compile-time string.
 /// One of: "x86_64", "aarch64", "x86", "arm", "wasm32".
 arch :: __yo_process_arch();
-export arch;
+export(arch);
 
 /// Architecture constants for compile-time architecture comparisons.
 Arch :: {
@@ -32,14 +32,14 @@ Arch :: {
   Arm : "arm",
   Wasm32 : "wasm32"
 };
-export Arch;
+export(Arch);
 
 /// Exit the process with the given status code.
-exit :: (fn(code : usize) -> unit) {
-  { exit : _exit } :: import "../libc/stdlib";
+exit :: (fn(code : usize) -> unit)({
+  { exit : _exit } :: import("../libc/stdlib");
   _exit(int(code));
-};
-export exit;
+});
+export(exit);
 
-_command :: import "./command.yo";
-export ...(_command);
+_command :: import("./command.yo");
+export(...(_command));

@@ -1,10 +1,10 @@
 // @skip_wasm32-wasi
 
-open import "std/libc/stdio";
-clock_io :: import "std/sys/clock";
-{ sleep } :: import "std/sys/timer";
+open(import("std/libc/stdio"));
+clock_io :: import("std/sys/clock");
+{ sleep } :: import("std/sys/timer");
 
-test "clock_gettime monotonic is non-decreasing", {
+test("clock_gettime monotonic is non-decreasing", {
   t1_uninit := MaybeUninit(Array(i64, usize(2))).new();
   t1 := *(i64)(t1_uninit.as_ptr());
 
@@ -34,9 +34,9 @@ test "clock_gettime monotonic is non-decreasing", {
     true => false
   );
   assert(non_decreasing, "CLOCK_MONOTONIC must not go backwards");
-};
+});
 
-test "clock_gettime realtime returns plausible epoch", {
+test("clock_gettime realtime returns plausible epoch", {
   now_uninit := MaybeUninit(Array(i64, usize(2))).new();
   now := *(i64)(now_uninit.as_ptr());
 
@@ -50,4 +50,4 @@ test "clock_gettime realtime returns plausible epoch", {
   assert(((nsec >= i64(0)) && (nsec < i64(1000000000))), "CLOCK_REALTIME nsec must be in [0, 1e9)");
 
   printf("  CLOCK_REALTIME sec=%lld nsec=%lld\n", sec, nsec);
-};
+});

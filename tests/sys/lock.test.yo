@@ -1,23 +1,23 @@
 
 // @skip_wasm32-emscripten — Emscripten does not implement flock()
 // @skip_wasm32-wasi — flock() not available in WASI
-open import "std/libc/stdio";
-open import "std/string";
-{ platform, Platform } :: import "std/process";
-{ EBADF, EWOULDBLOCK } :: import "std/libc/errno";
-file :: import "std/sys/file";
-temp_io :: import "std/sys/temp";
-dir :: import "std/sys/dir";
-{ AT_FDCWD } :: import "std/sys/constants";
-lock_io :: import "std/sys/lock";
-{ temp_dir, path_join } :: import "../helper";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ platform, Platform } :: import("std/process");
+{ EBADF, EWOULDBLOCK } :: import("std/libc/errno");
+file :: import("std/sys/file");
+temp_io :: import("std/sys/temp");
+dir :: import("std/sys/dir");
+{ AT_FDCWD } :: import("std/sys/constants");
+lock_io :: import("std/sys/lock");
+{ temp_dir, path_join } :: import("../helper");
 
-test "flock on invalid fd returns -EBADF", {
-  ret := lock_io.flock(i32(-1), lock_io.LOCK_EX);
+test("flock on invalid fd returns -EBADF", {
+  ret := lock_io.flock(i32(-(1)), lock_io.LOCK_EX);
   assert((ret == (i32(0) - i32(EBADF))), "flock on fd -1 should return -EBADF");
-};
+});
 
-test "flock exclusive lock and unlock on temp file", {
+test("flock exclusive lock and unlock on temp file", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_lock_ex_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -37,9 +37,9 @@ test "flock exclusive lock and unlock on temp file", {
 
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
   assert((rm == i32(0)), "unlinking temp file after lock test should succeed");
-};
+});
 
-test "flock shared lock and unlock on temp file", {
+test("flock shared lock and unlock on temp file", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_lock_sh_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -59,9 +59,9 @@ test "flock shared lock and unlock on temp file", {
 
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
   assert((rm == i32(0)), "unlinking temp file after shared lock test should succeed");
-};
+});
 
-test "flock LOCK_NB exclusive lock conflict with self returns EWOULDBLOCK", {
+test("flock LOCK_NB exclusive lock conflict with self returns EWOULDBLOCK", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_lock_nb_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -100,9 +100,9 @@ test "flock LOCK_NB exclusive lock conflict with self returns EWOULDBLOCK", {
 
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
   assert((rm == i32(0)), "unlinking temp file after LOCK_NB test should succeed");
-};
+});
 
-test "flock multiple shared locks coexist but block exclusive", {
+test("flock multiple shared locks coexist but block exclusive", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_lock_multi_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -151,9 +151,9 @@ test "flock multiple shared locks coexist but block exclusive", {
 
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
   assert((rm == i32(0)), "unlinking temp file after multi-lock test should succeed");
-};
+});
 
-test "flock upgrade shared lock to exclusive lock", {
+test("flock upgrade shared lock to exclusive lock", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_lock_upgrade_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -179,9 +179,9 @@ test "flock upgrade shared lock to exclusive lock", {
 
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
   assert((rm == i32(0)), "unlinking temp file after upgrade test should succeed");
-};
+});
 
-test "flock unlock without prior lock succeeds", {
+test("flock unlock without prior lock succeeds", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_lock_noop_XXXXXX`);
   template_c := template_str.to_cstr();
@@ -199,4 +199,4 @@ test "flock unlock without prior lock succeeds", {
 
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
   assert((rm == i32(0)), "unlinking temp file after no-op unlock test should succeed");
-};
+});

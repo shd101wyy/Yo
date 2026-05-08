@@ -1,25 +1,25 @@
 // @skip_wasm32-wasi — no pthread support in standalone WASI
-open import "std/libc/stdio";
-{ get_thread_id, Thread } :: import "std/thread";
-{ yield } :: import "std/async";
+open(import("std/libc/stdio"));
+{ get_thread_id, Thread } :: import("std/thread");
+{ yield } :: import("std/async");
 
-test "Thread spawn and join without captures", {
+test("Thread spawn and join without captures", {
   thread := Thread.spawn(
     () => ()     // Thread runs with no captures
   );
   thread.join();
-};
+});
 
-test "Thread spawn and join with i32 capture", {
+test("Thread spawn and join with i32 capture", {
   value := 42;
   thread := Thread.spawn(() => {
     // Use captured value
     assert(value == 42);
   });
   thread.join();
-};
+});
 
-test "Thread spawn and join with multiple captures", {
+test("Thread spawn and join with multiple captures", {
   x := 100;
   y := 200;
   thread := Thread.spawn(() => {
@@ -27,9 +27,9 @@ test "Thread spawn and join with multiple captures", {
     assert((x + y) == 300);
   });
   thread.join();
-};
+});
 
-test "Thread with async task", {
+test("Thread with async task", {
   thread := Thread.spawn((using(io)) => {
     task := io.async((using(io : IO)) => {
       io.await(yield());
@@ -37,54 +37,54 @@ test "Thread with async task", {
     io.await(task);
   });
   thread.join();
-};
+});
 
-test "Thread with async returning value", {
+test("Thread with async returning value", {
   thread := Thread.spawn((using(io)) => {
     x := 10;
     y := 20;
     task := io.async((using(io : IO)) => {
       io.await(yield());
-      return (x + y);
+      return((x + y));
     });
     result := io.await(task);
     assert(result == i32(30), "async result should be 30");
   });
   thread.join();
-};
+});
 
-test "Thread with async loop", {
+test("Thread with async loop", {
   thread := Thread.spawn((using(io)) => {
     task := io.async((using(io : IO)) => {
       counter := 0;
-      while runtime(counter < i32(5)), {
+      while(runtime(counter < i32(5)), {
         counter = (counter + 1);
         io.await(yield());
-      };
-      return counter;
+      });
+      return(counter);
     });
     result := io.await(task);
     assert(result == i32(5), "counter should be 5");
   });
   thread.join();
-};
+});
 
-test "Thread with multiple async tasks", {
+test("Thread with multiple async tasks", {
   thread := Thread.spawn((using(io)) => {
     task1 := io.async((using(io : IO)) => {
       io.await(yield());
-      return i32(1);
+      return(i32(1));
     });
     task2 := io.async((using(io : IO)) => {
       io.await(yield());
-      return i32(2);
+      return(i32(2));
     });
     r1 := io.await(task1);
     r2 := io.await(task2);
     assert((r1 + r2) == i32(3), "sum should be 3");
   });
   thread.join();
-};
+});
 
 /*
 // FIXME: This example is wrong. We shouldn't be able to pass Rc-managed value to another thread.

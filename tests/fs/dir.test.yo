@@ -1,24 +1,24 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-open import "std/string";
-{ Path } :: import "std/path";
-{ arch, Arch } :: import "std/process";
-{ IOError } :: import "std/sys/errors";
-{ Error, AnyError, Exception } :: import "std/error";
-fs_dir :: import "std/fs/dir";
-{ FileType, DirEntry } :: import "std/fs/dir";
-fs_file :: import "std/fs/file";
-{ temp_dir, path_join } :: import "../helper";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ Path } :: import("std/path");
+{ arch, Arch } :: import("std/process");
+{ IOError } :: import("std/sys/errors");
+{ Error, AnyError, Exception } :: import("std/error");
+fs_dir :: import("std/fs/dir");
+{ FileType, DirEntry } :: import("std/fs/dir");
+fs_file :: import("std/fs/file");
+{ temp_dir, path_join } :: import("../helper");
 
 // ============================================================================
 // create_dir / remove_dir
 // ============================================================================
 
-test "create_dir and remove_dir", {
+test("create_dir and remove_dir", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -39,12 +39,12 @@ test "create_dir and remove_dir", {
   // Remove
   io.await(fs_dir.remove_dir(dpath));
   printf("  remove_dir ok\n");
-};
+});
 
-test "create_dir_str", {
+test("create_dir_str", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -58,16 +58,16 @@ test "create_dir_str", {
   printf("  create_dir_str ok\n");
 
   io.await(fs_dir.remove_dir(dpath));
-};
+});
 
-test "create_dir on existing returns error", {
+test("create_dir on existing returns error", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_dir_exists`));
 
   // Setup: create the directory
   given(setup_exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception during setup");
-    escape ();
+    escape(());
   }));
 
   cond(io.await(fs_file.exists(dpath, using(io))) => {
@@ -78,20 +78,20 @@ test "create_dir on existing returns error", {
   // Second create should fail
   given(exn) := Exception(throw : ((err) -> {
     printf("  got expected error\n");
-    escape ();
+    escape(());
   }));
   io.await(fs_dir.create_dir(dpath));
   assert(false, "create_dir on existing should fail");
-};
+});
 
 // ============================================================================
 // create_dir_all
 // ============================================================================
 
-test "create_dir_all creates nested directories", {
+test("create_dir_all creates nested directories", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -108,12 +108,12 @@ test "create_dir_all creates nested directories", {
   io.await(fs_dir.remove_dir(nested));
   io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`))));
   io.await(fs_dir.remove_dir(Path.new(path_join(tmp, `yo_fs_dir_all`))));
-};
+});
 
-test "create_dir_all on existing directory succeeds", {
+test("create_dir_all on existing directory succeeds", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -129,16 +129,16 @@ test "create_dir_all on existing directory succeeds", {
   printf("  create_dir_all on existing ok\n");
 
   io.await(fs_dir.remove_dir(dpath));
-};
+});
 
 // ============================================================================
 // remove_file
 // ============================================================================
 
-test "remove_file removes a file", {
+test("remove_file removes a file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -152,27 +152,27 @@ test "remove_file removes a file", {
   // Verify gone
   e := io.await(fs_file.exists(fpath, using(io)));
   assert((!(e)), "file should not exist after remove");
-};
+});
 
-test "remove_file nonexistent returns error", {
+test("remove_file nonexistent returns error", {
   fpath := Path.new(`/nonexistent/yo_fs_rm_nope.txt`);
 
   given(exn) := Exception(throw : ((err) -> {
     printf("  got expected error\n");
-    escape ();
+    escape(());
   }));
   io.await(fs_dir.remove_file(fpath));
   assert(false, "remove nonexistent should fail");
-};
+});
 
 // ============================================================================
 // rename
 // ============================================================================
 
-test "rename moves a file", {
+test("rename moves a file", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -196,22 +196,22 @@ test "rename moves a file", {
   assert((s == `rename me`), "renamed content mismatch");
 
   io.await(fs_dir.remove_file(new_path));
-};
+});
 
 // ============================================================================
 // hard_link
 // ============================================================================
 
-test "hard_link creates a link", {
+test("hard_link creates a link", {
   // WASM NODERAWFS does not support hard links (link() returns EMLINK)
   if((arch == Arch.Wasm32), {
     printf("  skipped on wasm32\n");
-    return ();
+    return(());
   });
 
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -232,20 +232,20 @@ test "hard_link creates a link", {
 
   io.await(fs_dir.remove_file(src));
   io.await(fs_dir.remove_file(dst));
-};
+});
 
 // ============================================================================
 // symlink
 // ============================================================================
 
-test "symlink creates a symbolic link", {
+test("symlink creates a symbolic link", {
   tmp := temp_dir();
   src := Path.new(path_join(tmp, `yo_fs_symlink_src.txt`));
   lnk := Path.new(path_join(tmp, `yo_fs_symlink_lnk.txt`));
 
   given(setup_exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception during setup");
-    escape ();
+    escape(());
   }));
 
   cond(io.await(fs_file.exists(lnk, using(io))) => {
@@ -271,7 +271,7 @@ test "symlink creates a symbolic link", {
         assert(false, "unexpected error type");
       }
     );
-    escape ();
+    escape(());
   }));
   io.await(fs_dir.symlink(src, lnk));
   printf("  symlink ok\n");
@@ -279,23 +279,23 @@ test "symlink creates a symbolic link", {
   // Read via symlink
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
   s := io.await(fs_file.read_string(lnk));
   assert((s == `symlink data`), "symlink content mismatch");
 
   io.await(fs_dir.remove_file(lnk));
   io.await(fs_dir.remove_file(src));
-};
+});
 
 // ============================================================================
 // read_dir
 // ============================================================================
 
-test "read_dir lists directory entries", {
+test("read_dir lists directory entries", {
   given(exn) := Exception(throw : ((err) -> {
     assert(false, "unexpected exception");
-    escape ();
+    escape(());
   }));
 
   tmp := temp_dir();
@@ -319,7 +319,7 @@ test "read_dir lists directory entries", {
   found_b := false;
   found_sub := false;
   i := usize(0);
-  while runtime((i < entries.len())), {
+  while(runtime((i < entries.len())), {
     entry := entries.get(i).unwrap();
     printf("  entry: %s\n", entry.name.to_cstr().ptr().unwrap());
     cond(
@@ -338,7 +338,7 @@ test "read_dir lists directory entries", {
       true => ()
     );
     i = (i + usize(1));
-  };
+  });
   assert(found_a, "should find a.txt");
   assert(found_b, "should find b.txt");
   assert(found_sub, "should find subdir");
@@ -348,15 +348,15 @@ test "read_dir lists directory entries", {
   io.await(fs_dir.remove_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `b.txt`))));
   io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `subdir`))));
   io.await(fs_dir.remove_dir(dpath));
-};
+});
 
-test "read_dir on nonexistent returns error", {
+test("read_dir on nonexistent returns error", {
   dpath := Path.new(`/nonexistent/yo_fs_read_dir_nope`);
 
   given(exn) := Exception(throw : ((err) -> {
     printf("  got expected error\n");
-    escape ();
+    escape(());
   }));
   io.await(fs_dir.read_dir(dpath));
   assert(false, "read_dir nonexistent should fail");
-};
+});

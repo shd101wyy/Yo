@@ -2,9 +2,9 @@
 // Tracking issue: forward-fn-ref-in-toplevel-holder.md
 // Bootstrapping prerequisite: parser needs mutually recursive methods.
 
-open import "std/string";
-open import "std/error";
-open import "std/fmt";
+open(import("std/string"));
+open(import("std/error"));
+open(import("std/fmt"));
 
 P :: struct(x : i32, y : i32);
 
@@ -20,10 +20,10 @@ impl(P,
   )
 );
 
-test "forward call within single impl", {
+test("forward call within single impl", {
   p := P(x: i32(7), y: i32(0));
   assert((p.caller() == i32(7)), "forward call should return 7");
-};
+});
 
 // ---------- Test 2: mutual recursion between two impl methods ----------
 //
@@ -41,11 +41,11 @@ impl(Q,
   )
 );
 
-test "mutual recursion in single impl", {
+test("mutual recursion in single impl", {
   assert(Q(n: i32(4)).is_even(), "4 is even");
   assert(Q(n: i32(5)).is_odd(),  "5 is odd");
   assert(!(Q(n: i32(7)).is_even()), "7 is not even");
-};
+});
 
 // ---------- Test 3: forward call with effect parameters ----------
 //
@@ -62,17 +62,17 @@ impl(R,
     self.inner(using(exn))
   ),
   inner : (fn(self : *(Self), using(exn : Exception)) -> i32)(
-    cond((self.v < i32(0)) => exn.throw(dyn MyErr(msg: `neg`)),
+    cond((self.v < i32(0)) => exn.throw(dyn(MyErr(msg: `neg`))),
          true              => self.v)
   )
 );
 
-test "forward call with effect params", {
+test("forward call with effect params", {
   r := R(v: i32(99));
-  given(exn) := Exception(throw : (e -> { escape (); }));
+  given(exn) := Exception(throw : (e -> { escape(()); }));
   result := r.outer(using(exn));
   assert((result == i32(99)), "outer should return 99");
-};
+});
 
 // ---------- Test 4: mutual recursion with effect parameters ----------
 //
@@ -95,13 +95,13 @@ impl(S,
   )
 );
 
-test "mutual recursion with effect params (specialization-cycle)", {
+test("mutual recursion with effect params (specialization-cycle)", {
   s := S(tag: i32(0));
-  given(exn) := Exception(throw : (e -> { escape (); }));
+  given(exn) := Exception(throw : (e -> { escape(()); }));
   assert(s.s_even(i32(10), using(exn)), "10 is even");
   assert(s.s_odd(i32(11), using(exn)),  "11 is odd");
   assert(!(s.s_even(i32(7), using(exn))), "7 is not even");
-};
+});
 
 // ---------- Test 5: shell merge does not emit duplicate orphan FunctionValue
 //
@@ -125,14 +125,14 @@ impl(QQ,
     self.data
   ),
   get_explicit : (fn(self : Self) -> Box(i32))({
-    return self.data;
+    return(self.data);
   })
 );
 
-test "no duplicate function emission for shell + orphan", {
+test("no duplicate function emission for shell + orphan", {
   q := QQ.new(i32(42));
   d1 := q.get_implicit();
   assert((d1.* == i32(42)), "d1 == 42");
   d2 := q.get_explicit();
   assert((d2.* == i32(42)), "d2 == 42");
-};
+});

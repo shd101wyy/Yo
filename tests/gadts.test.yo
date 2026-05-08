@@ -11,14 +11,14 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-test "GADT basic construction", {
+test("GADT basic construction", {
   v1 := Value(i32).IntVal(i32(42));
   v2 := Value(bool).BoolVal(true);
   v3 := Value(i32).PairVal(i32(1), false);
 
   // Verify they compile and can be used
   assert(true, "GADT construction works");
-};
+});
 
 // =============================================================================
 // GADT Match Type Refinement Tests
@@ -33,23 +33,23 @@ eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
   )
 );
 
-test "GADT match type refinement - IntVal", {
+test("GADT match type refinement - IntVal", {
   v := Value(i32).IntVal(i32(42));
   result := eval_value(v);
   assert((result == i32(42)), "eval IntVal should return 42");
-};
+});
 
-test "GADT match type refinement - BoolVal", {
+test("GADT match type refinement - BoolVal", {
   v := Value(bool).BoolVal(true);
   result := eval_value(v);
   assert(result, "eval BoolVal should return true");
-};
+});
 
-test "GADT match type refinement - PairVal", {
+test("GADT match type refinement - PairVal", {
   v := Value(i32).PairVal(i32(99), false);
   result := eval_value(v);
   assert((result == i32(99)), "eval PairVal should return 99");
-};
+});
 
 // =============================================================================
 // GADT Exhaustiveness Tests
@@ -64,11 +64,11 @@ eval_int_only :: (fn(v : Value(i32)) -> i32)(
   )
 );
 
-test "GADT exhaustiveness - concrete type excludes unreachable variants", {
+test("GADT exhaustiveness - concrete type excludes unreachable variants", {
   v := Value(i32).IntVal(i32(77));
   result := eval_int_only(v);
   assert((result == i32(77)), "eval_int_only should return 77");
-};
+});
 
 // =============================================================================
 // GADT with Multiple Type Parameters
@@ -97,17 +97,17 @@ my_snd :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> B)(
   )
 );
 
-test "GADT multiple type params - fst", {
+test("GADT multiple type params - fst", {
   p := MyPair(i32, bool).MkIntBool(i32(10), true);
   result := my_fst(p);
   assert((result == i32(10)), "fst should return 10");
-};
+});
 
-test "GADT multiple type params - snd", {
+test("GADT multiple type params - snd", {
   p := MyPair(i32, bool).MkIntBool(i32(10), true);
   result := my_snd(p);
   assert(result, "snd should return true");
-};
+});
 
 // =============================================================================
 // GADT with Discriminant Values
@@ -116,10 +116,8 @@ test "GADT multiple type params - snd", {
 // GADT variants with explicit discriminant values (multiline syntax)
 Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
-    (TagInt(i : i32)
-      -> recur(i32)) = 10,
-    (TagBool(b : bool)
-      -> recur(bool)) = 20
+    (TagInt(i : i32) -> recur(i32)) = 10,
+    (TagBool(b : bool) -> recur(bool)) = 20
   )
 );
 
@@ -130,11 +128,11 @@ eval_tagged :: (fn(forall(T : Type), t : Tagged(T)) -> T)(
   )
 );
 
-test "GADT with discriminant values", {
+test("GADT with discriminant values", {
   t := Tagged(i32).TagInt(i32(55));
   result := eval_tagged(t);
   assert((result == i32(55)), "eval_tagged should return 55");
-};
+});
 
 // =============================================================================
 // GADT mixed with non-GADT variants
@@ -157,14 +155,14 @@ eval_mixed :: (fn(forall(T : Type), mv : MixedVal(T)) -> T)(
   )
 );
 
-test "GADT mixed variants - IntVal", {
+test("GADT mixed variants - IntVal", {
   mv := MixedVal(i32).MInt(i32(33));
   result := eval_mixed(mv);
   assert((result == i32(33)), "eval_mixed MInt should return 33");
-};
+});
 
-test "GADT mixed variants - Generic", {
+test("GADT mixed variants - Generic", {
   mv := MixedVal(i32).MGeneric(i32(44));
   result := eval_mixed(mv);
   assert((result == i32(44)), "eval_mixed MGeneric should return 44");
-};
+});

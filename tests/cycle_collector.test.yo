@@ -1,5 +1,5 @@
-open import "std/libc/stdio.yo";
-Gc :: import "std/gc";
+open(import("std/libc/stdio.yo"));
+Gc :: import("std/gc");
 
 List :: object(
   value : i32,
@@ -11,47 +11,47 @@ impl(List, Dispose(
   })
 ));
 
-form_cycle :: (fn() -> unit) {
+form_cycle :: (fn() -> unit)({
   a := List(3, .None);
   b := List(5, .None);
 
   a.next = .Some(b);
   b.next = .Some(a); // Create a cycle
-};
+});
 
-test "Gc initial state", {
+test("Gc initial state", {
   assert(Gc.tracked_count() == 0, "Expected 0 tracked objects at start");
-};
+});
 
-test "Test cycle collection", {
-  test_list :: (fn() -> unit) {
+test("Test cycle collection", {
+  test_list :: (fn() -> unit)({
     form_cycle(); // create cycle
     c := List(7, .None);
     assert(Gc.tracked_count() == 3, "Expected 3 tracked objects before GC");
     Gc.collect(); // manually trigger the GC collection
     assert(Gc.tracked_count() == 1, "Expected 1 tracked object after GC");
-  };
+  });
 
   test_list();
-};
+});
 
 
-test "Test freeing many objects", {
-  test_leak :: (fn() -> unit) {
+test("Test freeing many objects", {
+  test_leak :: (fn() -> unit)({
     z := List(3, .None);
     y := List(2, .Some(z));
     x := List(1, .Some(y));
-  };
+  });
 
   // Run 100 times to accumulate leaks
   i := 0;
-  while i < 100, {
+  while(i < 100, {
     test_leak();
     i = (i + 1);
-  };
+  });
 
   assert(Gc.tracked_count() == 0, "Expect no leak from test_leak();");
-};
+});
 
 // --- New tests for Bug 1: Reachable objects through cycles ---
 
@@ -66,17 +66,17 @@ impl(Node, Dispose(
   })
 ));
 
-test "Live root reaching into cycle - reachable objects preserved", {
+test("Live root reaching into cycle - reachable objects preserved", {
   // Bug 1 test: root → b ↔ c cycle. root is live (on stack).
   // After GC, b and c must NOT be freed (reachable from root).
-  create_chain_with_cycle :: (fn() -> Node) {
+  create_chain_with_cycle :: (fn() -> Node)({
     b := Node(2, .None);
     c := Node(3, .Some(b));
     b.child = .Some(c);
-    return Node(1, .Some(b));
-  };
+    return(Node(1, .Some(b)));
+  });
 
-  do_test :: (fn() -> unit) {
+  do_test :: (fn() -> unit)({
     root := create_chain_with_cycle();
 
     // root(1), b(2), c(3) — all tracked
@@ -107,25 +107,25 @@ test "Live root reaching into cycle - reachable objects preserved", {
         assert(false, "b should exist");
       }
     );
-  };
+  });
 
   do_test();
   // After do_test, root is freed by RC. b ↔ c cycle remains — need GC to collect.
   Gc.collect();
   assert((Gc.tracked_count() == u64(0)), "All should be freed after scope exit + GC");
-};
+});
 
-test "Longer chain into cycle - all reachable objects preserved", {
+test("Longer chain into cycle - all reachable objects preserved", {
   // root → a → b → c → b (cycle between b and c)
-  create_long_chain :: (fn() -> Node) {
+  create_long_chain :: (fn() -> Node)({
     b := Node(20, .None);
     c := Node(30, .Some(b));
     b.child = .Some(c);
     a := Node(10, .Some(b));
-    return Node(1, .Some(a));
-  };
+    return(Node(1, .Some(a)));
+  });
 
-  do_test :: (fn() -> unit) {
+  do_test :: (fn() -> unit)({
     root := create_long_chain();
     assert((Gc.tracked_count() == u64(4)), "Expected 4 tracked objects");
 
@@ -134,25 +134,25 @@ test "Longer chain into cycle - all reachable objects preserved", {
     // All 4 should survive — all reachable from root
     assert((Gc.tracked_count() == u64(4)), "Expected 4 after GC (all reachable from root)");
     assert((root.value == 1), "root intact");
-  };
+  });
 
   do_test();
   Gc.collect();
   assert((Gc.tracked_count() == u64(0)), "All freed after scope exit + GC");
-};
+});
 
-test "Mixed live and garbage - only garbage collected", {
+test("Mixed live and garbage - only garbage collected", {
   // Create two independent structures:
   // 1. live_root → live_child (live, on stack)
   // 2. cycle: a ↔ b (garbage after leaving scope)
-  create_garbage_cycle :: (fn() -> unit) {
+  create_garbage_cycle :: (fn() -> unit)({
     a := Node(100, .None);
     b := Node(200, .Some(a));
     a.child = .Some(b);
     // a and b become garbage when this function returns
-  };
+  });
 
-  do_test :: (fn() -> unit) {
+  do_test :: (fn() -> unit)({
     live_root := Node(1, .None);
     live_child := Node(2, .None);
     live_root.child = .Some(live_child);
@@ -177,20 +177,20 @@ test "Mixed live and garbage - only garbage collected", {
         assert(false, "live_child should exist");
       }
     );
-  };
+  });
 
   do_test();
   Gc.collect();
   assert((Gc.tracked_count() == u64(0)), "All freed after scope exit + GC");
-};
+});
 
-test "Garbage cycle collected while live objects survive", {
+test("Garbage cycle collected while live objects survive", {
   // Yo uses ownership-transfer (move) semantics for .Some(obj) and constructor args.
   // After `garbage_a := Node(2, .Some(live))`, live's RC=1 is owned by garbage_a.child.
   // When garbage_a.child is reassigned, the old .Some(live) is saved to a temp variable
   // that owns live's reference. The garbage cycle (a ↔ b) has only internal references
   // and is correctly collected. live survives because the temp variable owns its RC.
-  do_test :: (fn() -> unit) {
+  do_test :: (fn() -> unit)({
     live := Node(1, .None);
     garbage_a := Node(2, .Some(live));
     garbage_b := Node(3, .Some(garbage_a));
@@ -206,51 +206,51 @@ test "Garbage cycle collected while live objects survive", {
     // live survives (its RC=1 from the saved temp, no cycle edges)
     assert((Gc.tracked_count() == u64(1)), "Only live remains after collecting garbage cycle");
     assert((live.value == 1), "live intact after GC");
-  };
+  });
 
   do_test();
   Gc.collect();
   assert((Gc.tracked_count() == u64(0)), "All freed after scope exit + GC");
-};
+});
 
-test "Multiple GC passes don't corrupt state", {
-  do_test :: (fn() -> unit) {
+test("Multiple GC passes don't corrupt state", {
+  do_test :: (fn() -> unit)({
     root := Node(1, .None);
 
     // Create and abandon multiple cycles
     i := 0;
-    while i < 10, {
+    while(i < 10, {
       a := Node(((i * 2) + 100), .None);
       b := Node(((i * 2) + 101), .Some(a));
       a.child = .Some(b);
       i = (i + 1);
-    };
+    });
 
     // Multiple GC passes
     j := 0;
-    while j < 5, {
+    while(j < 5, {
       Gc.collect();
       j = (j + 1);
-    };
+    });
 
     // Only root should remain
     assert((Gc.tracked_count() == u64(1)), "Only root should remain after multiple GC passes");
     assert((root.value == 1), "root intact after multiple GC passes");
-  };
+  });
 
   do_test();
   Gc.collect();
   assert((Gc.tracked_count() == u64(0)), "All freed after scope exit + GC");
-};
+});
 
-test "Self-referential object collected correctly", {
-  do_test :: (fn() -> unit) {
+test("Self-referential object collected correctly", {
+  do_test :: (fn() -> unit)({
     a := Node(42, .None);
     a.child = .Some(a);
     // a points to itself — simplest possible cycle
 
     assert((Gc.tracked_count() == u64(1)), "Expected 1 tracked");
-  };
+  });
   // After do_test, 'a' stack ref is dropped → RC=1 (self-ref only)
   // Normal RC can't free it (RC never reaches 0), but the cycle should be collectable
   do_test();
@@ -259,26 +259,26 @@ test "Self-referential object collected correctly", {
   // (depends on whether RC drop triggered dealloc or it needs GC)
   Gc.collect();
   assert((Gc.tracked_count() == u64(0)), "Self-referential cycle collected");
-};
+});
 
-test "Three-node cycle all garbage", {
-  do_test :: (fn() -> unit) {
+test("Three-node cycle all garbage", {
+  do_test :: (fn() -> unit)({
     a := Node(1, .None);
     b := Node(2, .None);
     c := Node(3, .None);
     a.child = .Some(b);
     b.child = .Some(c);
     c.child = .Some(a);
-  };
+  });
 
   do_test();
   Gc.collect();
   assert((Gc.tracked_count() == u64(0)), "Three-node cycle collected");
-};
+});
 
-test "Diamond reference pattern - all reachable", {
+test("Diamond reference pattern - all reachable", {
   // root → a, root → b, a → shared, b → shared, shared → a (cycle)
-  do_test :: (fn() -> unit) {
+  do_test :: (fn() -> unit)({
     shared := Node(4, .None);
     a := Node(2, .Some(shared));
     b := Node(3, .Some(shared));
@@ -295,9 +295,9 @@ test "Diamond reference pattern - all reachable", {
     assert((a.value == 2), "a intact");
     assert((b.value == 3), "b intact");
     assert((shared.value == 4), "shared intact");
-  };
+  });
 
   do_test();
   Gc.collect();
   assert((Gc.tracked_count() == u64(0)), "All freed after scope + GC");
-};
+});

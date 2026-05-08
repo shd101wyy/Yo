@@ -16,7 +16,7 @@
 Comptime :: trait(
   id := "Comptime"
 );
-export Comptime;
+export(Comptime);
 
 /// Runtime trait — indicates a type that can be used at runtime.
 /// Examples: `i32`, `bool`, `*(i32)`, `void`.
@@ -24,10 +24,10 @@ export Comptime;
 Runtime :: trait(
   id := "Runtime"
 );
-export Runtime;
+export(Runtime);
 
 // === Builtin Yo functions ===
-extern "Yo",
+extern("Yo",
   __yo_return_self : (fn(forall(T: Type), self: T) -> T),
   __yo_noop : (fn(forall(T : Type))-> T),
   __yo_as : (fn(forall(_Self: Type), self: _Self, comptime(Target): Type) -> Target),
@@ -121,21 +121,19 @@ extern "Yo",
   __yo_process_arch : (fn() -> comptime(comptime_string)),
   __yo_process_cwd : (fn() -> comptime(comptime_string)),
   __yo_process_env_get : (fn(comptime(key) : comptime_string) -> comptime(comptime_string)),
-  __yo_process_node_version : (fn() -> comptime(comptime_string))
-;
-export __yo_as;
+  __yo_process_node_version : (fn() -> comptime(comptime_string)));
+export(__yo_as);
 
 /// The `unsafe` module — provides low-level escape hatches.
-unsafe :: impl {
+unsafe :: impl({
   /// Manually drop `value`, running its destructor immediately.
-  drop :: (fn(quote(value) : Expr) -> unquote(Expr))
-    quote(___drop(unquote(value)));
-  export drop;
+  drop :: (fn(quote(value) : Expr) -> unquote(Expr))(quote(___drop(unquote(value))));
+  export(drop);
 
   cast :: __yo_as;
-  export cast;
-};
-export unsafe;
+  export(cast);
+});
+export(unsafe);
 
 // IDEA:
 // c_macro :: impl {
@@ -169,7 +167,7 @@ export unsafe;
 Send :: trait(
   id := "Send"
 );
-export Send;
+export(Send);
 
 /// Acyclic trait - indicates a type that cannot form reference cycles.
 /// Types that implement Acyclic don't need cycle collection tracking.
@@ -178,13 +176,13 @@ export Send;
 Acyclic :: trait(
   id := "Acyclic"
 );
-export Acyclic;
+export(Acyclic);
 
 /// The Rc trait means the type is reference counted `object` type.
 Rc :: trait(
   id := "Rc"
 );
-export Rc;
+export(Rc);
 
 /// Dispose trait - defines a dispose method for cleaning up resources.
 Dispose :: trait(
@@ -192,7 +190,7 @@ Dispose :: trait(
   dispose : (fn(self: Self) -> unit),
   where(Self <: Rc)
 );
-export Dispose;
+export(Dispose);
 
 /// Index trait — enables `container(idx)` subscript syntax at runtime.
 /// The `Idx` parameter is the index type (e.g., `usize`, `Range(usize)`).
@@ -203,7 +201,7 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
     index : (fn(self: *(Self), idx: Idx) -> *(Self.Output))
   )
 );
-export Index;
+export(Index);
 
 /// ComptimeIndex — compile-time indexing trait for constant expressions.
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
@@ -213,34 +211,34 @@ ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(T
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeIndex;
+export(ComptimeIndex);
 
 /// Half-open range `start..end` (excludes `end`).
 Range :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
 );
-export Range;
+export(Range);
 
 /// Inclusive range `start..=end` (includes `end`).
 RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
 );
-export RangeInclusive;
+export(RangeInclusive);
 
 /// RangeOp trait — enables `start..end` operator syntax.
 RangeOp :: trait(
   (..) : (fn(start: Self, end: Self) -> Range(Self))
 );
-export RangeOp;
+export(RangeOp);
 
 /// RangeInclusiveOp trait — enables `start..=end` operator syntax.
 RangeInclusiveOp :: trait(
   (..=) : (fn(start: Self, end: Self) -> RangeInclusive(Self))
 );
-export RangeInclusiveOp;
+export(RangeInclusiveOp);
 
 // array/slice range indexing builtins (declared after Range/RangeInclusive types)
-extern "Yo",
+extern("Yo",
   __yo_array_index_range :
     fn(forall(T: Type, N: usize), self: *(Array(T, N)), idx: Range(usize)) -> *(Slice(T)),
   __yo_array_index_range_inclusive :
@@ -248,11 +246,10 @@ extern "Yo",
   __yo_slice_index_range :
     fn(forall(T: Type), self: *(Slice(T)), idx: Range(usize)) -> *(Slice(T)),
   __yo_slice_index_range_inclusive :
-    fn(forall(T: Type), self: *(Slice(T)), idx: RangeInclusive(usize)) -> *(Slice(T))
-;
+    fn(forall(T: Type), self: *(Slice(T)), idx: RangeInclusive(usize)) -> *(Slice(T)));
 
 // comptime array/slice/string indexing builtins (used by ComptimeIndex trait impls)
-extern "Yo",
+extern("Yo",
   __yo_comptime_array_index :
     (fn(forall(T: Type, N: usize), comptime(self): *(Array(T, N)), comptime(idx): usize, where(T <: Comptime)) -> comptime(*(T))),
   __yo_comptime_slice_index :
@@ -276,20 +273,19 @@ extern "Yo",
   __yo_comptime_list_index_range :
     (fn(forall(T: Type), comptime(self): *(ComptimeList(T)), comptime(idx): Range(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T)))),
   __yo_comptime_list_index_range_inclusive :
-    (fn(forall(T: Type), comptime(self): *(ComptimeList(T)), comptime(idx): RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T))))
-;
+    (fn(forall(T: Type), comptime(self): *(ComptimeList(T)), comptime(idx): RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T)))));
 
 ComptimeRangeOp :: trait(
   (..) : (fn(comptime(start): Self, comptime(end): Self) -> comptime(Range(Self))),
   where(Self <: Comptime)
 );
-export ComptimeRangeOp;
+export(ComptimeRangeOp);
 
 ComptimeRangeInclusiveOp :: trait(
   (..=) : (fn(comptime(start): Self, comptime(end): Self) -> comptime(RangeInclusive(Self))),
   where(Self <: Comptime)
 );
-export ComptimeRangeInclusiveOp;
+export(ComptimeRangeInclusiveOp);
 
 /// Add trait — enables `lhs + rhs` operator. Parameterized by `Rhs` type.
 Add :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
@@ -299,7 +295,7 @@ Add :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
     (+) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export Add;
+export(Add);
 
 /// Compile-time variant of `Add`.
 ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
@@ -309,7 +305,7 @@ ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeAdd;
+export(ComptimeAdd);
 
 /// Sub trait — enables `lhs - rhs` operator.
 Sub :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
@@ -318,7 +314,7 @@ Sub :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
     (-) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export Sub;
+export(Sub);
 
 ComptimeSub :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -327,7 +323,7 @@ ComptimeSub :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeSub;
+export(ComptimeSub);
 
 /// Mul trait — enables `lhs * rhs` operator.
 Mul :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
@@ -336,7 +332,7 @@ Mul :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
     (*) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export Mul;
+export(Mul);
 
 ComptimeMul :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -345,7 +341,7 @@ ComptimeMul :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeMul;
+export(ComptimeMul);
 
 /// Div trait — enables `lhs / rhs` operator.
 Div :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
@@ -354,7 +350,7 @@ Div :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
     (/) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export Div;
+export(Div);
 
 ComptimeDiv :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -363,7 +359,7 @@ ComptimeDiv :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeDiv;
+export(ComptimeDiv);
 
 /// Mod trait — enables `lhs % rhs` operator.
 Mod :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
@@ -372,7 +368,7 @@ Mod :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
     (%) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export Mod;
+export(Mod);
 
 ComptimeMod :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -381,7 +377,7 @@ ComptimeMod :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeMod;
+export(ComptimeMod);
 
 /// BitLeftShift trait — enables `lhs << rhs` operator.
 BitLeftShift :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
@@ -390,7 +386,7 @@ BitLeftShift :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
     (<<) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export BitLeftShift;
+export(BitLeftShift);
 
 ComptimeBitLeftShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -399,7 +395,7 @@ ComptimeBitLeftShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comp
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeBitLeftShift;
+export(ComptimeBitLeftShift);
 
 /// BitRightShift trait — enables `lhs >> rhs` operator.
 BitRightShift :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
@@ -408,7 +404,7 @@ BitRightShift :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
     (>>) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export BitRightShift;
+export(BitRightShift);
 
 ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -417,7 +413,7 @@ ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> com
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeBitRightShift;
+export(ComptimeBitRightShift);
 
 /// Exponentiation trait — enables `lhs ** rhs` operator.
 Exponentiation :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
@@ -426,7 +422,7 @@ Exponentiation :: (fn(comptime(Rhs) : Type)-> comptime(Trait))(
     (**) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export Exponentiation;
+export(Exponentiation);
 
 ComptimeExponentiation :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -435,47 +431,43 @@ ComptimeExponentiation :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> co
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeExponentiation;
+export(ComptimeExponentiation);
 
 /// Negate trait — enables unary `-value` operator.
 Negate :: trait(
   Output : Type,
   (neg): (fn(self: Self) -> Self.Output)
 );
-export Negate;
+export(Negate);
 
 ComptimeNegate :: trait(
   Output : Type,
   (neg) : (fn(comptime(self): Self) -> comptime(Self.Output)),
   where(Self <: Comptime, Self.Output <: Comptime)
 );
-export ComptimeNegate;
+export(ComptimeNegate);
 
 /// LogicalNot trait — enables `!value` boolean negation.
-LogicalNot :: trait
-  (!)  : (fn(self: Self)-> bool)
-;
-export LogicalNot;
+LogicalNot :: trait((!)  : (fn(self: Self)-> bool));
+export(LogicalNot);
 
-ComptimeLogicalNot :: trait
-  (!)  : (fn(comptime(self): Self) -> comptime(bool)),
-  where(Self <: Comptime)
-;
-export ComptimeLogicalNot;
+ComptimeLogicalNot :: trait((!)  : (fn(comptime(self): Self) -> comptime(bool)),
+  where(Self <: Comptime));
+export(ComptimeLogicalNot);
 
 /// BitNot trait — enables `~value` bitwise complement.
 BitNot :: trait(
   Output : Type,
   (~) : (fn(self: Self) -> Self.Output)
 );
-export BitNot;
+export(BitNot);
 
 ComptimeBitNot :: trait(
   Output : Type,
   (~) : (fn(comptime(self): Self) -> comptime(Self.Output)),
   where(Self <: Comptime, Self.Output <: Comptime)
 );
-export ComptimeBitNot;
+export(ComptimeBitNot);
 
 /// BitAnd trait — enables `lhs & rhs` bitwise AND.
 BitAnd :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
@@ -484,7 +476,7 @@ BitAnd :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
     (&) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export BitAnd;
+export(BitAnd);
 
 ComptimeBitAnd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -493,7 +485,7 @@ ComptimeBitAnd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(T
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeBitAnd;
+export(ComptimeBitAnd);
 
 /// BitOr trait — enables `lhs | rhs` bitwise OR.
 BitOr :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
@@ -502,7 +494,7 @@ BitOr :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
     (|) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export BitOr;
+export(BitOr);
 
 ComptimeBitOr :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -511,7 +503,7 @@ ComptimeBitOr :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Tr
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeBitOr;
+export(ComptimeBitOr);
 
 /// BitXor trait — enables `lhs ^ rhs` bitwise XOR.
 BitXor :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
@@ -520,7 +512,7 @@ BitXor :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
     (^) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
   )
 );
-export BitXor;
+export(BitXor);
 
 ComptimeBitXor :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
   trait(
@@ -529,77 +521,63 @@ ComptimeBitXor :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(T
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
-export ComptimeBitXor;
+export(ComptimeBitXor);
 
-(!) :: impl {
+(!) :: impl({
   (not) :: (fn(forall(_Self : Type),
             self : _Self,
             where(_Self <: LogicalNot)
-          ) -> bool)
-    self.(!)()
-  ;
+          ) -> bool)(self.(!)());
 
   (comptime_not) :: (fn(forall(_Self : Type),
           comptime(self) : _Self,
           where(_Self <: (Comptime, ComptimeLogicalNot))
-        ) -> comptime(bool))
-    self.(!)()
-  ;
+        ) -> comptime(bool))(self.(!)());
 
   Call :: (not, comptime_not);
 
-  export
-    Call
-  ;
-};
+  export(Call);
+});
 (not) :: (!);
-export not, (!);
+export(not, (!));
 
-(~) :: impl {
+(~) :: impl({
   (bit_not) :: (fn(forall(_Self : Type),
             self : _Self,
             where(_Self <: BitNot)
-          ) -> _Self)
-    self.(~)()
-  ;
+          ) -> _Self)(self.(~)());
 
   (comptime_bit_not) :: (fn(forall(_Self : Type),
           comptime(self) : _Self,
           where(_Self <: (Comptime, ComptimeBitNot))
-        ) -> comptime(_Self))
-    self.(~)()
-  ;
+        ) -> comptime(_Self))(self.(~)());
 
   Call :: (bit_not, comptime_bit_not);
 
-  export
-    Call
-  ;
-};
-export (~);
+  export(Call);
+});
+export((~));
 
-(-) :: impl {
+(-) :: impl({
   (neg) :: (fn(forall(_Self : Type),
             self : _Self,
             where(_Self <: Negate)
-          ) -> _Self) {
-    return self.neg();
-  };
+          ) -> _Self)({
+    return(self.neg());
+  });
 
   (comptime_neg) :: (fn(forall(_Self : Type), 
           comptime(self) : _Self,
           where(_Self <: (Comptime, ComptimeNegate))
-        ) -> comptime(_Self)) {
-    return self.neg();
-  };
+        ) -> comptime(_Self))({
+    return(self.neg());
+  });
 
   Call :: (neg, comptime_neg);
 
-  export
-    Call
-  ;
-};
-export (-);
+  export(Call);
+});
+export((-));
 
 /**
  * logic for bool
@@ -621,20 +599,18 @@ impl(bool, ComptimeLogicalNot(
 /// Eq trait — enables `==` and `!=` comparison operators.
 /// The `!=` method has a default implementation that negates `==`.
 Eq ::
-  (fn(comptime(Rhs) : Type) -> comptime(Trait))
-  trait(
+  (fn(comptime(Rhs) : Type) -> comptime(Trait))(trait(
     (==) : (fn(lhs: Self, rhs: Rhs) -> bool),
 
     ((!=) : (fn(lhs: Self, rhs: Rhs) -> bool)) ?= 
       ((lhs, rhs) ->
         not(Self.(==)(lhs, rhs))
       )
-  );
-export Eq;
+  ));
+export(Eq);
 
 ComptimeEq ::
-  (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))
-  trait(
+  (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(trait(
     (==) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool)),
 
     ((!=) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool))) ?= 
@@ -643,9 +619,8 @@ ComptimeEq ::
       ),
 
     where(Self <: Comptime)
-  )
-;
-export ComptimeEq;
+  ));
+export(ComptimeEq);
 
 /// Ordering — result of a comparison.
 Ordering :: enum(
@@ -656,15 +631,14 @@ Ordering :: enum(
   /// Left-hand side is greater than right-hand side.
   Greater
 );
-export Ordering;
+export(Ordering);
 
 /// Ord trait — enables `<`, `<=`, `>`, `>=` comparison operators.
 /// Requires the type to also implement `Eq`.
 Ord :: (
   fn(
     comptime(Rhs) : Type
-  ) -> comptime(Trait))
-  trait(
+  ) -> comptime(Trait))(trait(
     (<) :
       fn(lhs: Self, rhs: Rhs) -> bool,
     (<=) :
@@ -674,16 +648,14 @@ Ord :: (
     (>=) :
       fn(lhs: Self, rhs: Rhs) -> bool,
     where(Self <: Eq(Rhs))
-  )
-;
-export Ord;
+  ));
+export(Ord);
 
 ComptimeOrd :: (
   fn(
     comptime(Rhs) : Type,
     where(Rhs <: Comptime)
-  ) -> comptime(Trait))
-  trait(
+  ) -> comptime(Trait))(trait(
     (<) :
       fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool),
     (<=) :
@@ -693,8 +665,7 @@ ComptimeOrd :: (
     (>=) :
       fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool),
     where(Self <: (Comptime, ComptimeEq(Rhs)))
-  )
-;
+  ));
 
 /**
  * Hash trait - Similar to Rust's std::hash::Hash
@@ -716,9 +687,7 @@ Hash :: trait(
     */
   (hash): (fn(self : *(Self)) -> u64)
 );
-export
-  Hash
-;
+export(Hash);
 
 /// Clone trait — deep-copy a value.
 Clone :: trait(
@@ -726,13 +695,13 @@ Clone :: trait(
   clone : 
     fn(self: *(Self)) -> Self
 );
-export Clone;
+export(Clone);
 
 /// Isolation trait — runtime check whether a value can be safely transferred.
 Isolation :: trait(
   can_isolate : (fn(self : Self) -> bool)
 );
-export Isolation;
+export(Isolation);
 
 /// ComptimeToString trait — compile-time string conversion.
 ComptimeToString :: trait(
@@ -825,7 +794,7 @@ impl(comptime_int, ComptimeRangeInclusiveOp(
   (..=): ((start, end) -> RangeInclusive(comptime_int)(start: start, end: end))
 ));
 _comptime_int :: comptime_int;
-export comptime_int : _comptime_int;
+export(comptime_int : _comptime_int);
 
 /// comptime_float
 impl(comptime_float, Acyclic());
@@ -886,7 +855,7 @@ impl(comptime_float, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_float_to_comptime_string(self))
 ));
 _comptime_float :: comptime_float;
-export comptime_float : _comptime_float;
+export(comptime_float : _comptime_float);
 
 /// comptime_string
 impl(comptime_string, Acyclic());
@@ -941,7 +910,7 @@ impl(comptime_string,
   )
 );
 _comptime_string :: comptime_string;
-export comptime_string : _comptime_string;
+export(comptime_string : _comptime_string);
 
 /// bool
 impl(bool, Send());
@@ -979,11 +948,11 @@ impl(bool, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_bool_to_comptime_string(self))
 ));
 _boolean :: bool;
-export bool : _boolean;
+export(bool : _boolean);
 
 /// i8
 impl(i8,
-  MIN : i8(-128),
+  MIN : i8(-(128)),
   MAX : i8(127)
 );
 impl(i8, Send());
@@ -1155,11 +1124,11 @@ impl(i8, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_i8_to_comptime_string(self))
 ));
 _i8 :: i8;
-export i8 : _i8;
+export(i8 : _i8);
 
 /// i16
 impl(i16,
-  MIN : i16(-32768),
+  MIN : i16(-(32768)),
   MAX : i16(32767)
 );
 impl(i16, Send());
@@ -1331,11 +1300,11 @@ impl(i16, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_i16_to_comptime_string(self))
 ));
 _i16 :: i16;
-export i16 : _i16;
+export(i16 : _i16);
 
 /// i32
 impl(i32,
-  MIN : i32(-2147483648),
+  MIN : i32(-(2147483648)),
   MAX : i32(2147483647)
 );
 impl(i32, Send());
@@ -1512,11 +1481,11 @@ impl(i32, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_i32_to_comptime_string(self))
 ));
 _i32 :: i32;
-export i32 : _i32;
+export(i32 : _i32);
 
 /// i64
 impl(i64,
-  MIN : i64(-9223372036854775808),
+  MIN : i64(-(9223372036854775808)),
   MAX : i64(9223372036854775807)
 );
 impl(i64, Send());
@@ -1688,7 +1657,7 @@ impl(i64, ComptimeToString(
   to_comptime_string : (self ->  __yo_comptime_i64_to_comptime_string(self))
 ));
 _i64 :: i64;
-export i64 : _i64;
+export(i64 : _i64);
 
 /// u8
 impl(u8,
@@ -1858,7 +1827,7 @@ impl(u8, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_u8_to_comptime_string(self))
 ));
 _u8 :: u8;
-export u8 : _u8;
+export(u8 : _u8);
 
 /// u16
 impl(u16,
@@ -2028,7 +1997,7 @@ impl(u16, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_u16_to_comptime_string(self))
 ));
 _u16 :: u16;
-export u16 : _u16;
+export(u16 : _u16);
 
 /// u32
 impl(u32,
@@ -2198,7 +2167,7 @@ impl(u32, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_u32_to_comptime_string(self))
 ));
 _u32 :: u32;
-export u32 : _u32;
+export(u32 : _u32);
 
 /// u64
 impl(u64,
@@ -2368,7 +2337,7 @@ impl(u64, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_u64_to_comptime_string(self))
 ));
 _u64 :: u64;
-export u64 : _u64;
+export(u64 : _u64);
 
 /// f32
 impl(f32, Send());
@@ -2490,7 +2459,7 @@ impl(f32, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_f32_to_comptime_string(self))
 ));
 _f32 :: f32;
-export f32 : _f32;
+export(f32 : _f32);
 
 /// f64
 impl(f64, Send());
@@ -2612,13 +2581,13 @@ impl(f64, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_f64_to_comptime_string(self))
 ));
 _f64 :: f64;
-export f64 : _f64;
+export(f64 : _f64);
 
 /// isize
 impl(isize,
   MIN : cond(
-    (__yo_pointer_size_bits() == 32) => isize(-2147483648),
-    true => isize(-9223372036854775808)
+    (__yo_pointer_size_bits() == 32) => isize(-(2147483648)),
+    true => isize(-(9223372036854775808))
   ),
   MAX : cond(
     (__yo_pointer_size_bits() == 32) => isize(2147483647),
@@ -2794,7 +2763,7 @@ impl(isize, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_isize_to_comptime_string(self))
 ));
 _isize :: isize;
-export isize : _isize;
+export(isize : _isize);
 
 /// usize
 impl(usize,
@@ -2979,7 +2948,7 @@ impl(usize, ComptimeToString(
   to_comptime_string : (self -> __yo_comptime_usize_to_comptime_string(self))
 ));
 _usize :: usize;
-export usize : _usize;
+export(usize : _usize);
 
 /// char
 impl(char, Send());
@@ -3045,7 +3014,7 @@ impl(char, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _char :: char;
-export char : _char;
+export(char : _char);
 
 /// int
 impl(int, Send());
@@ -3111,7 +3080,7 @@ impl(int, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _int :: int;
-export int : _int;
+export(int : _int);
 
 /// uint
 impl(uint, Send());
@@ -3177,7 +3146,7 @@ impl(uint, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _uint :: uint;
-export uint : _uint;
+export(uint : _uint);
 
 /// short
 impl(short, Send());
@@ -3243,7 +3212,7 @@ impl(short, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _short :: short;
-export short : _short;
+export(short : _short);
 
 /// ushort
 impl(ushort, Send());
@@ -3309,7 +3278,7 @@ impl(ushort, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _ushort :: ushort;
-export ushort : _ushort;
+export(ushort : _ushort);
 
 /// long
 impl(long, Send());
@@ -3375,7 +3344,7 @@ impl(long, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _long :: long;
-export long : _long;
+export(long : _long);
 
 /// ulong
 impl(ulong, Send());
@@ -3441,7 +3410,7 @@ impl(ulong, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _ulong :: ulong;
-export ulong : _ulong;
+export(ulong : _ulong);
 
 /// longlong
 impl(longlong, Send());
@@ -3507,7 +3476,7 @@ impl(longlong, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _longlong :: longlong;
-export longlong : _longlong;
+export(longlong : _longlong);
 
 /// ulonglong
 impl(ulonglong, Send());
@@ -3573,7 +3542,7 @@ impl(ulonglong, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _ulonglong :: ulonglong;
-export ulonglong : _ulonglong;
+export(ulonglong : _ulonglong);
 
 /// longdouble
 impl(longdouble, Send());
@@ -3639,7 +3608,7 @@ impl(longdouble, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
 _longdouble :: longdouble;
-export longdouble : _longdouble;
+export(longdouble : _longdouble);
 
 /// Ptr
 impl(forall(T : Type), where(T <: Send), *(T), Send());
@@ -3708,7 +3677,7 @@ impl(forall(T : Type, U : usize), where(T <: Comptime), Array(T, U), Comptime())
 impl(forall(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
 impl(forall(T : Type, U : usize), Array(T, U),
   len : (fn(self : *(Self)) -> usize)({
-    return U;
+    return(U);
   })
 
   /*
@@ -3724,7 +3693,7 @@ impl(forall(T : Type, U : usize), Array(T, U),
 
 impl(forall(T : Type, U : usize), where(T <: Comptime), Array(T, U),
   fill : (fn(comptime(val) : T) -> comptime(Self))({
-    return __yo_array_fill(Self, val);
+    return(__yo_array_fill(Self, val));
   })
 );
 
@@ -3889,23 +3858,23 @@ impl(str, Eq(str)(
     lhs_len := lhs.len();
     cond(
       (lhs_len != rhs.len()) => {
-        return false;
+        return(false);
       },
       true => ()
     );
     i := usize(0);
-    while (i < lhs_len), (i = (i + usize(1))), {
+    while((i < lhs_len), (i = (i + usize(1))), {
       cond(
         (lhs.bytes(i) != rhs.bytes(i)) => {
-          return false;
+          return(false);
         },
         true => ()
       );
-    };
+    });
     true
   }),
   (!=) : (fn(lhs: Self, rhs: Self) -> bool)({
-    return !(Self.(==)(lhs, rhs));
+    return(!(Self.(==)(lhs, rhs)));
   })
 ));
 
@@ -3915,35 +3884,33 @@ impl(str, Ord(str)(
     rhs_len := rhs.len();
     min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
     i := usize(0);
-    while (i < min_len), (i = (i + usize(1))), {
+    while((i < min_len), (i = (i + usize(1))), {
       cond(
-        (lhs.bytes(i) < rhs.bytes(i)) => { return true; },
-        (lhs.bytes(i) > rhs.bytes(i)) => { return false; },
+        (lhs.bytes(i) < rhs.bytes(i)) => { return(true); },
+        (lhs.bytes(i) > rhs.bytes(i)) => { return(false); },
         true => ()
       );
-    };
+    });
     (lhs_len < rhs_len)
   }),
   (<=) : (fn(lhs: Self, rhs: Self) -> bool)({
-    return !(rhs < lhs);
+    return(!(rhs < lhs));
   }),
   (>) : (fn(lhs: Self, rhs: Self) -> bool)({
-    return (rhs < lhs);
+    return((rhs < lhs));
   }),
   (>=) : (fn(lhs: Self, rhs: Self) -> bool)({
-    return !(lhs < rhs);
+    return(!(lhs < rhs));
   })
 ));
 
-export str;
+export(str);
 
-assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)
-  cond(
+assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)(cond(
     flag => (),
     true => panic(msg)
-  )
-;
-export assert;
+  ));
+export(assert);
 
 /// ComptimeList
 impl(forall(T : Type), ComptimeList(T), Comptime());
@@ -3996,7 +3963,7 @@ impl(forall(T : Type), where(T <: Comptime), ComptimeList(T), ComptimeIndex(Rang
 
 /// ExprList
 ExprList :: ComptimeList(Expr);
-export ExprList;
+export(ExprList);
 
 /// Expr
 impl(Expr, Comptime());
@@ -4031,41 +3998,41 @@ impl(Expr, ComptimeToString(
   to_comptime_string : (self -> __yo_expr_to_string(self))
 ));
 _Expr :: Expr;
-export Expr : _Expr;
+export(Expr : _Expr);
 
 // Type
 impl(Type, Comptime());
 impl(Type,
   is_compatible_with : (fn(comptime(self): Type, comptime(expected_type): Type) -> comptime(bool))({
-     return __yo_are_types_compatible(expected_type, self);
+     return(__yo_are_types_compatible(expected_type, self));
   }),
 
   contains_rc_type : (fn(comptime(self): Type) -> comptime(bool))({
-    return __yo_type_contains_rc_type(self);
+    return(__yo_type_contains_rc_type(self));
   }),
 
   can_form_rc_cycle : (fn(comptime(self): Type) -> comptime(bool))({
-    return __yo_type_can_form_rc_cycle(self);
+    return(__yo_type_can_form_rc_cycle(self));
   }),
 
   impls : (fn(comptime(self): Type, comptime(marker): Trait) -> comptime(bool))({
-    return __yo_type_impls(self, marker);
+    return(__yo_type_impls(self, marker));
   }),
 
   eq : (fn(comptime(a): Type, comptime(b): Type) -> comptime(bool))({
-    return __yo_are_types_equal(a, b);
+    return(__yo_are_types_equal(a, b));
   }),
 
   neq : (fn(comptime(a): Type, comptime(b): Type) -> comptime(bool))({
-    return !((__yo_are_types_equal(a, b)));
+    return(!((__yo_are_types_equal(a, b))));
   }),
 
   to_comptime_string : (fn(comptime(self): Type) -> comptime(comptime_string))({
-    return __yo_type_to_comptime_string(self);
+    return(__yo_type_to_comptime_string(self));
   })
 );
 _Type :: Type;
-export Type : _Type;
+export(Type : _Type);
 
 /// Type reflection metadata structs — used by `Type.get_info()`.
 
@@ -4081,7 +4048,7 @@ StructKind :: enum(
   NewType
 );
 impl(StructKind, Comptime());
-export StructKind;
+export(StructKind);
 
 /// TypeFieldInfo — metadata for a single struct/object field.
 TypeFieldInfo :: struct(
@@ -4097,7 +4064,7 @@ impl(TypeFieldInfo,
     __yo_comptime_string_to_expr(self.name)
   )
 );
-export TypeFieldInfo;
+export(TypeFieldInfo);
 
 /// TraitInfo — lightweight reference to a trait type.
 TraitInfo :: struct(
@@ -4105,7 +4072,7 @@ TraitInfo :: struct(
   trait_type : Type
 );
 impl(TraitInfo, Comptime());
-export TraitInfo;
+export(TraitInfo);
 
 /// TraitFieldInfo — metadata for a single trait field.
 TraitFieldInfo :: struct(
@@ -4117,7 +4084,7 @@ TraitFieldInfo :: struct(
   is_associated_type : bool
 );
 impl(TraitFieldInfo, Comptime());
-export TraitFieldInfo;
+export(TraitFieldInfo);
 
 /// ParamInfo — metadata for a function parameter.
 ParamInfo :: struct(
@@ -4133,7 +4100,7 @@ ParamInfo :: struct(
   is_variadic : bool
 );
 impl(ParamInfo, Comptime());
-export ParamInfo;
+export(ParamInfo);
 
 /// ForallParamInfo — metadata for a forall type parameter.
 ForallParamInfo :: struct(
@@ -4141,7 +4108,7 @@ ForallParamInfo :: struct(
   param_type : Type
 );
 impl(ForallParamInfo, Comptime());
-export ForallParamInfo;
+export(ForallParamInfo);
 
 /// ImplicitParamInfo — metadata for a `using`/effect parameter.
 ImplicitParamInfo :: struct(
@@ -4149,7 +4116,7 @@ ImplicitParamInfo :: struct(
   param_type : Type
 );
 impl(ImplicitParamInfo, Comptime());
-export ImplicitParamInfo;
+export(ImplicitParamInfo);
 
 /// FunctionInfo — metadata for a function type.
 FunctionInfo :: struct(
@@ -4165,7 +4132,7 @@ FunctionInfo :: struct(
   is_closure : bool
 );
 impl(FunctionInfo, Comptime());
-export FunctionInfo;
+export(FunctionInfo);
 
 /// TraitKind — discriminant for different trait flavors.
 TraitKind :: enum(
@@ -4177,7 +4144,7 @@ TraitKind :: enum(
   Normal
 );
 impl(TraitKind, Comptime());
-export TraitKind;
+export(TraitKind);
 
 /// VariantInfo — metadata for an enum variant.
 VariantInfo :: struct(
@@ -4189,7 +4156,7 @@ VariantInfo :: struct(
   _variant_index : usize
 );
 impl(VariantInfo, Comptime());
-export VariantInfo;
+export(VariantInfo);
 
 /// TypeInfo — compile-time enum representing rich type metadata.
 /// Returned by `Type.get_info()` for compile-time type reflection.
@@ -4347,14 +4314,14 @@ impl(TypeInfo,
     )
   )
 );
-export TypeInfo;
+export(TypeInfo);
 
 /// `Type.get_info()` — returns compile-time type metadata.
 /// Defined after `TypeInfo` so the return type is available.
 impl(Type,
   /// Return rich metadata about this type at compile-time.
   get_info : (fn(comptime(self): Type) -> comptime(TypeInfo))({
-    return __yo_type_get_info(self);
+    return(__yo_type_get_info(self));
   }),
 
   /// Return the list of struct fields for this type at compile-time.
@@ -4383,7 +4350,7 @@ impl(FieldInfo,
     __yo_comptime_string_to_expr(self.name)
   )
 );
-export FieldInfo;
+export(FieldInfo);
 
 /// Function type for mapping over struct fields during derive.
 MapFieldsFn :: (fn(comptime(_) : FieldInfo) -> comptime(Expr));
@@ -4394,13 +4361,13 @@ impl(Type,
   /// Join struct fields by applying a mapper to each field and combining with
   /// a combiner expression. Used by derive macros.
   join_fields : (fn(comptime(self): Type, comptime(mapper): MapFieldsFn, comptime(combiner): Expr) -> comptime(Expr))({
-    return __yo_type_join_fields(self, mapper, combiner);
+    return(__yo_type_join_fields(self, mapper, combiner));
   }),
 
   /// Map over enum variants, applying a mapper function to each variant.
   /// Returns a compile-time list of expressions. Used by derive macros.
   map_variants : (fn(comptime(self): Type, comptime(mapper): MapVariantsFn) -> comptime(ComptimeList(Expr)))({
-    return __yo_type_map_variants(self, mapper);
+    return(__yo_type_map_variants(self, mapper));
   })
 );
 
@@ -4410,26 +4377,26 @@ impl(Type,
 /// such as ownership status and alias information.
 Var :: impl({
   /// Print debug information about a variable at compile-time.
-  print_info :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
-    return quote {
+  print_info :: (fn(quote(variable) : Expr) -> unquote(Expr))({
+    return(quote({
       __yo_var_print_info(unquote(variable));
-    };
-  };
-  export print_info;
+    }));
+  });
+  export(print_info);
 
   /// Returns whether the variable is the owner of a reference-counted value.
-  is_owning_the_rc_value :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
-    return quote __yo_var_is_owning_the_rc_value(unquote(variable));
-  };
-  export is_owning_the_rc_value;
+  is_owning_the_rc_value :: (fn(quote(variable) : Expr) -> unquote(Expr))({
+    return(quote(__yo_var_is_owning_the_rc_value(unquote(variable))));
+  });
+  export(is_owning_the_rc_value);
 
   /// Returns whether the variable has other aliases pointing to the same value.
-  has_other_aliases :: (fn(quote(variable) : Expr) -> unquote(Expr)) {
-    return quote __yo_var_has_other_aliases(unquote(variable));
-  };
-  export has_other_aliases;
+  has_other_aliases :: (fn(quote(variable) : Expr) -> unquote(Expr))({
+    return(quote(__yo_var_has_other_aliases(unquote(variable))));
+  });
+  export(has_other_aliases);
 });
-export Var;
+export(Var);
 
 /// Option — a value that may or may not be present.
 ///
@@ -4610,14 +4577,10 @@ impl(forall(T : Type), where(T <: Comptime), Option(T),
 /// `?` is a shorthand alias for `Option`.
 ? :: Option;
 /// `?*(T)` is a nullable pointer — equivalent to `Option(*(T))`.
-(?*) :: (fn(comptime(T): Type) -> comptime(Type))
-  Option(*(T))
-;
-export 
-  Option,
+(?*) :: (fn(comptime(T): Type) -> comptime(Type))(Option(*(T)));
+export(Option,
   ?,
-  (?*)
-;
+  (?*));
 
 /// DeriveContext — context passed to derive rule functions (needs Option).
 /// Used by the `derive` macro to generate trait implementations.
@@ -4656,7 +4619,7 @@ impl(DeriveContext,
     )
   )
 );
-export DeriveContext;
+export(DeriveContext);
 
 // ============================================================
 // Built-in derive rules
@@ -4707,7 +4670,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
           )
         );
         ctx.make_impl(quote(
-          Eq(...#(trait_params))(
+          Eq(...(#(trait_params)))(
             (==) : ((lhs, rhs) -> #(eq_body))
           )
         ))
@@ -4775,14 +4738,14 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
         );
         match_body :: __s3("match(lhs,\n    ", eq_branches, "\n  )");
         ctx.make_impl(quote(
-          Eq(...#(trait_params))(
+          Eq(...(#(trait_params)))(
             (==) : ((lhs, rhs) -> #(match_body.to_expr()))
           )
         ))
       },
       true => 
         ctx.make_impl(quote(
-          Eq(...#(trait_params))(
+          Eq(...(#(trait_params)))(
             (==) : ((lhs, rhs) -> true)
           )
         ))
@@ -4915,7 +4878,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
                 }
               )
             );
-            hash_body :: __s3("{\n    ", hash_stmts, ";\n    return h;\n  }");
+            hash_body :: __s3("{\n    ", hash_stmts, ";\n    return(h);\n  }");
             ctx.make_impl(quote(
               Hash(
                 (hash) : ((self) -> #(hash_body.to_expr()))
@@ -5066,7 +5029,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
         cond(
           (fc == 0) => 
             ctx.make_impl(quote(
-              Ord(...#(trait_params))(
+              Ord(...(#(trait_params)))(
                 (<) : ((lhs, rhs) -> false),
                 (<=) : ((lhs, rhs) -> true),
                 (>) : ((lhs, rhs) -> false),
@@ -5080,7 +5043,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
             gt_body :: __derive_ord_struct_body(T, ">");
             ge_body :: __derive_ord_struct_body(T, ">=");
             ctx.make_impl(quote(
-              Ord(...#(trait_params))(
+              Ord(...(#(trait_params)))(
                 (<) : ((lhs, rhs) -> #(lt_body.to_expr())),
                 (<=) : ((lhs, rhs) -> #(le_body.to_expr())),
                 (>) : ((lhs, rhs) -> #(gt_body.to_expr())),
@@ -5151,7 +5114,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
         gt_match :: __gen_op_branches(">", "false");
         ge_match :: __gen_op_branches(">=", "true");
         ctx.make_impl(quote(
-          Ord(...#(trait_params))(
+          Ord(...(#(trait_params)))(
             (<) : ((lhs, rhs) -> #(lt_match.to_expr())),
             (<=) : ((lhs, rhs) -> #(le_match.to_expr())),
             (>) : ((lhs, rhs) -> #(gt_match.to_expr())),
@@ -5161,7 +5124,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
       },
       true => 
         ctx.make_impl(quote(
-          Ord(...#(trait_params))(
+          Ord(...(#(trait_params)))(
             (<) : ((lhs, rhs) -> false),
             (<=) : ((lhs, rhs) -> true),
             (>) : ((lhs, rhs) -> false),
@@ -5185,12 +5148,10 @@ derive_rule(Ord, __derive_ord);
 /// (r : Result(i32, str)) = .Ok(i32(42));
 /// assert(r.is_ok(), "expected Ok");
 /// ```
-Result :: (fn(comptime(OkType): Type, comptime(ErrorType): Type) -> comptime(Type))
-  enum(
+Result :: (fn(comptime(OkType): Type, comptime(ErrorType): Type) -> comptime(Type))(enum(
     Ok(value: OkType),
     Err(error: ErrorType)
-  )
-;
+  ));
 impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
   /// Extract the `Ok` value, panicking if `Err`.
   unwrap : (fn(self : Self) -> OkType)(
@@ -5375,7 +5336,7 @@ impl(forall(T : Type), where(T <: Clone), Option(T), Clone(
   clone : ((self) ->
     match(self.*,
       .None => Option(T).None,
-      .Some(v) => Option(T).Some((&v).clone())
+      .Some(v) => Option(T).Some((&(v)).clone())
     )
   )
 ));
@@ -5397,8 +5358,8 @@ impl(forall(T : Type), where(T <: Eq(T)), Option(T), Eq(Option(T))(
 impl(forall(T : Type, E : Type), where(T <: Clone, E <: Clone), Result(T, E), Clone(
   clone : ((self) ->
     match(self.*,
-      .Ok(v) => Result(T, E).Ok((&v).clone()),
-      .Err(e) => Result(T, E).Err((&e).clone())
+      .Ok(v) => Result(T, E).Ok((&(v)).clone()),
+      .Err(e) => Result(T, E).Err((&(e)).clone())
     )
   )
 ));
@@ -5419,9 +5380,7 @@ impl(forall(T : Type, E : Type), where(T <: Eq(T), E <: Eq(E)), Result(T, E), Eq
   )
 ));
 
-export
-  Result
-;
+export(Result);
 
 /// Box — a heap-allocated, reference-counted container for a single value.
 ///
@@ -5432,15 +5391,11 @@ export
 /// b := box(i32(42));
 /// assert((b.* == i32(42)), "inner value is 42");
 /// ```
-Box :: (fn(comptime(V) : Type) -> comptime(Type))
-  object(
+Box :: (fn(comptime(V) : Type) -> comptime(Type))(object(
     (*) : V
-  )
-;
+  ));
 /// Allocate a value on the heap, returning a `Box(V)`.
-box :: (fn(forall(V : Type), own(value) : V) -> Box(V))
-  Box(V)(value)
-;
+box :: (fn(forall(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 impl(forall(T : Type), Box(T), Isolation(
   can_isolate : ((self) -> (rc(self) == 1))
 ));
@@ -5466,10 +5421,8 @@ impl(forall(T : Type),
        )
 );
 
-export
-  Box,
-  box
-;
+export(Box,
+  box);
 
 /// Iso — an isolated reference-counted value that can be sent across threads.
 impl(forall(T : Type), Iso(T), Send());
@@ -5491,7 +5444,7 @@ impl(forall(T : Type), Iso(T),
     v.is_atom() => quote(()),
     true => quote(unquote(temp) := unquote(v))
   );
-  return quote {
+  return(quote({
     unquote(assignment);
     unquote(temp_type) :: typeof(unquote(temp));
     cond(
@@ -5524,9 +5477,9 @@ impl(forall(T : Type), Iso(T),
         Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp)))
       }
     )
-  };
+  }));
 });
-export (^);
+export((^));
 
 /// === Arc ===
 /// Arc — an atomically reference-counted, thread-safe container for a single value.
@@ -5538,29 +5491,24 @@ export (^);
 /// a := arc(i32(42));
 /// assert((a.* == i32(42)), "inner value is 42");
 /// ```
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))
-  atomic object(
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(atomic(object(
     (*) : V
-  )
-;
+  )));
 /// Allocate a value inside an Arc, returning an `Arc(V)`.
-arc :: (fn(forall(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))
-  Arc(V)(value)
-;
+arc :: (fn(forall(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(Arc(V)(value));
 
 impl(forall(T : Type), where(T <: (Send, Acyclic)), Arc(T), Send());
 
-export Arc, arc;
+export(Arc, arc);
 
 /// === MaybeUninit ===
-extern "Yo",
+extern("Yo",
   __yo_maybe_uninit_new : 
     (fn(comptime(_Self) : Type) -> _Self),
   __yo_maybe_uninit_as_ptr : 
     (fn(comptime(_Self) : Type, comptime(BaseType): Type, self: *(_Self)) -> *(BaseType)),
   __yo_maybe_uninit_assume_init : 
-    (fn(comptime(_Self) : Type, comptime(BaseType): Type, self: _Self) -> BaseType)
-;
+    (fn(comptime(_Self) : Type, comptime(BaseType): Type, self: _Self) -> BaseType));
 
 /// MaybeUninit — a wrapper that allows holding an uninitialized value.
 ///
@@ -5579,11 +5527,9 @@ extern "Yo",
 /// time(.Some(ptr));
 /// timer := uninitialized_timer.assume_init();
 /// ```
-MaybeUninit :: (fn(comptime(BaseType): Type) -> comptime(Type))
-  newtype(
+MaybeUninit :: (fn(comptime(BaseType): Type) -> comptime(Type))(newtype(
     value: BaseType
-  )
-;
+  ));
 impl(forall(BaseType : Type), MaybeUninit(BaseType),
   /// Create a new uninitialized value.
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
@@ -5599,9 +5545,7 @@ impl(forall(BaseType : Type), MaybeUninit(BaseType),
   )
 );
 
-export
-  MaybeUninit
-;
+export(MaybeUninit);
 
 /// Iterator trait — lazy, pull-based sequence traversal.
 Iterator :: trait(
@@ -5611,7 +5555,7 @@ Iterator :: trait(
   next :
     fn(self : *(Self)) -> Option(Self.Item)
 );
-export Iterator;
+export(Iterator);
 
 /// IntoIterator trait — convert a collection into an iterator.
 IntoIterator :: trait(
@@ -5621,7 +5565,7 @@ IntoIterator :: trait(
     fn(self : Self) -> Self.IntoIter,
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
-export IntoIterator;
+export(IntoIterator);
 
 /// === Array Iterator ===
 /**
@@ -5656,7 +5600,7 @@ impl(forall(T : Type, N : usize), Array(T, N),
   )
 );
 
-export ArrayIterPtr;
+export(ArrayIterPtr);
 
 /// === Slice Iterator ===
 /**
@@ -5690,7 +5634,7 @@ impl(forall(T : Type), Slice(T),
   )
 );
 
-export SliceIterPtr;
+export(SliceIterPtr);
 
 /// TryFrom trait — fallible conversion from one type to another.
 TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
@@ -5702,7 +5646,7 @@ TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
       (fn(value : From) -> Result(Self, Self.Error))
   )
 );
-export TryFrom;
+export(TryFrom);
 
 /// TryInto trait — fallible conversion of `Self` into another type.
 TryInto :: (fn(comptime(To) : Type) -> comptime(Trait))(
@@ -5714,7 +5658,7 @@ TryInto :: (fn(comptime(To) : Type) -> comptime(Trait))(
       (fn(self : Self, (comptime(_To) : Type) = To) -> Result(To, Self.Error))
   )
 );
-export TryInto;
+export(TryInto);
 
 /// `if` macro — expands to `cond(condition => then, true => else)`.
 ///
@@ -5725,15 +5669,9 @@ export TryInto;
 if :: (fn(quote(condition) : Expr,
         quote(then) : Expr,
         (quote(else) : Expr) ?= quote(())
-      ) -> unquote(Expr))
-  quote
-    cond 
-      unquote(condition) => unquote(then),
-      true => unquote(else)
-;
-export 
-  if
-;
+      ) -> unquote(Expr))(quote(cond(unquote(condition) => unquote(then),
+      true => unquote(else))));
+export(if);
 
 /// `try` macro — unwrap a `Result`, returning early on `Err`.
 ///
@@ -5741,19 +5679,18 @@ export
 /// ```rust
 /// value := try(might_fail());
 /// ```
-try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
+try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr))({
   temp :: gensym("try");
-  quote {
+  quote({
     unquote(temp) := unquote(expr_to_try);
     match(unquote(temp),
       .Ok(value) => value,
       .Err(error) => {
-        return .Err(error);
+        return(.Err(error));
       }
     )
-  }
-};
-export try;
+  })});
+export(try);
 
 /// `for` macro — iterate over a collection using the `Iterator` trait.
 ///
@@ -5766,9 +5703,9 @@ export try;
 for :: (fn(
   quote(iter) : Expr,
   quote(handle) : Expr
-  ) -> unquote(Expr)) {
+  ) -> unquote(Expr))({
   // Check if `handle` is a function call of `=>`
-  return cond(
+  return(cond(
     (handle.is_fn_call()) => {
       callee :: handle.get_callee();
       cond(
@@ -5782,13 +5719,13 @@ for :: (fn(
           temp_var :: gensym("for_temp_var");
           quote({
             unquote(iter_var) := unquote(iter);
-            while runtime(true), {
+            while(runtime(true), {
               unquote(temp_var) := &(unquote(iter_var)).next();
               match(unquote(temp_var),
                 .Some(unquote(variable)) => unquote(body),
                 .None => { break; }
               )
-            };
+            });
           })
         },
         true => {
@@ -5800,9 +5737,9 @@ for :: (fn(
     true => {
       comptime_assert(false, "for macro requires a function handle with `=>`");
       quote(false)
-    });
-};
-export for;
+    }));
+});
+export(for);
 
 // =============================================================================
 // Iterator Combinators
@@ -5812,7 +5749,7 @@ export for;
 IterPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(_0 : A, _1 : B)
 );
-export IterPair;
+export(IterPair);
 
 // ---------------------------------------------------------------------------
 // IterMap
@@ -5841,7 +5778,7 @@ impl(forall(I : Type, A : Type, B : Type, F : Type),
   )
 );
 
-export IterMap;
+export(IterMap);
 
 // ---------------------------------------------------------------------------
 // IterFilter
@@ -5864,13 +5801,13 @@ impl(forall(I : Type, A : Type, F : Type),
     next : (fn(self : *(Self)) -> Option(A))(
       {
         (loop_result : Option(A)) = .None;
-        while runtime(true), {
+        while(runtime(true), {
           candidate := &(self._inner).next();
           match(candidate,
             .None => { break; },
             .Some(item) => {
               cond(
-                (self._f)(&item) => {
+                (self._f)(&(item)) => {
                   loop_result = .Some(item);
                   break;
                 },
@@ -5878,14 +5815,14 @@ impl(forall(I : Type, A : Type, F : Type),
               );
             }
           );
-        };
+        });
         loop_result
       }
     )
   )
 );
 
-export IterFilter;
+export(IterFilter);
 
 // ---------------------------------------------------------------------------
 // IterTake
@@ -5915,7 +5852,7 @@ impl(forall(I : Type, A : Type),
   )
 );
 
-export IterTake;
+export(IterTake);
 
 // ---------------------------------------------------------------------------
 // IterSkip
@@ -5936,23 +5873,23 @@ impl(forall(I : Type, A : Type),
     Item : A,
     next : (fn(self : *(Self)) -> Option(A))(
       {
-        while (self._to_skip > usize(0)), {
+        while((self._to_skip > usize(0)), {
           result := &(self._inner).next();
           match(result,
             .None => {
               self._to_skip = usize(0);
-              return .None;
+              return(.None);
             },
             .Some(_) => { self._to_skip = (self._to_skip - usize(1)); }
           );
-        };
+        });
         &(self._inner).next()
       }
     )
   )
 );
 
-export IterSkip;
+export(IterSkip);
 
 // ---------------------------------------------------------------------------
 // IterEnumerate
@@ -5985,7 +5922,7 @@ impl(forall(I : Type, A : Type),
   )
 );
 
-export IterEnumerate;
+export(IterEnumerate);
 
 // ---------------------------------------------------------------------------
 // IterZip
@@ -6017,7 +5954,7 @@ impl(forall(I : Type, J : Type, A : Type, B : Type),
   )
 );
 
-export IterZip;
+export(IterZip);
 
 // ---------------------------------------------------------------------------
 // Blanket methods — added to all types implementing Iterator
@@ -6066,12 +6003,12 @@ impl(forall(I : Type), where(I <: Iterator), I,
     {
       acc := init;
       iter := self;
-      while runtime(true), {
-        match((&iter).next(),
+      while(runtime(true), {
+        match((&(iter)).next(),
           .None => { break; },
           .Some(item) => { acc = (f)(acc, item); }
         );
-      };
+      });
       acc
     }
   ),
@@ -6081,12 +6018,12 @@ impl(forall(I : Type), where(I <: Iterator), I,
                  where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> unit))) -> unit)(
     {
       iter := self;
-      while runtime(true), {
-        match((&iter).next(),
+      while(runtime(true), {
+        match((&(iter)).next(),
           .None => { break; },
           .Some(item) => { (f)(item); }
         );
-      };
+      });
     }
   ),
 
@@ -6096,12 +6033,12 @@ impl(forall(I : Type), where(I <: Iterator), I,
     {
       n := usize(0);
       iter := self;
-      while runtime(true), {
-        match((&iter).next(),
+      while(runtime(true), {
+        match((&(iter)).next(),
           .None => { break; },
           .Some(_) => { n = (n + usize(1)); }
         );
-      };
+      });
       n
     }
   ),
@@ -6112,8 +6049,8 @@ impl(forall(I : Type), where(I <: Iterator), I,
     {
       result := false;
       iter := self;
-      while runtime(true), {
-        match((&iter).next(),
+      while(runtime(true), {
+        match((&(iter)).next(),
           .None => { break; },
           .Some(item) => {
             cond(
@@ -6122,7 +6059,7 @@ impl(forall(I : Type), where(I <: Iterator), I,
             );
           }
         );
-      };
+      });
       result
     }
   ),
@@ -6133,8 +6070,8 @@ impl(forall(I : Type), where(I <: Iterator), I,
     {
       result := true;
       iter := self;
-      while runtime(true), {
-        match((&iter).next(),
+      while(runtime(true), {
+        match((&(iter)).next(),
           .None => { break; },
           .Some(item) => {
             cond(
@@ -6143,7 +6080,7 @@ impl(forall(I : Type), where(I <: Iterator), I,
             );
           }
         );
-      };
+      });
       result
     }
   )
@@ -6167,7 +6104,7 @@ impl(FutureState, Eq(FutureState)(
   (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
   (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
-export FutureState;
+export(FutureState);
 
 /// JoinHandle — a handle to a spawned async task.
 /// Wraps a raw pointer to the spawned future's state machine.
@@ -6178,7 +6115,7 @@ JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
     __future : *(T)
   )
 );
-export JoinHandle;
+export(JoinHandle);
 
 /// IO module — the async runtime effect.
 ///
@@ -6194,14 +6131,13 @@ IO :: struct(
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
   spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
 );
-export IO;
+export(IO);
 
-extern "Yo",
+extern("Yo",
   __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   __yo_io_await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
   __yo_io_state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
-  __yo_io_spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
-;
+  __yo_io_spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T)));
 
 /// Built-in IO module instance. Automatically injected for `main` functions
 /// with `using(io : IO)`.
@@ -6211,12 +6147,11 @@ __yo_builtin_io :: IO(
   state : __yo_io_state,
   spawn : __yo_io_spawn
 );
-export __yo_builtin_io;
+export(__yo_builtin_io);
 
 /// JoinHandle methods — defined after IO so `using(io : IO)` resolves.
-extern "Yo",
-  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), using(io : IO)) -> Option(T))
-;
+extern("Yo",
+  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), using(io : IO)) -> Option(T)));
 
 impl(forall(T : Type), JoinHandle(T),
   await : __yo_join_handle_await

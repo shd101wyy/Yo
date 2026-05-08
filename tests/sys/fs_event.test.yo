@@ -1,13 +1,13 @@
 // @skip_wasm32-emscripten — no inotify/kqueue in WASM (filesystem event watching unavailable)
 // @skip_wasm32-wasi — no inotify/kqueue in WASM (filesystem event watching unavailable)
-open import "std/libc/stdio";
-open import "std/string";
-{ temp_dir, path_join } :: import "../helper";
-events :: import "std/sys/events";
-file :: import "std/sys/file";
-dir :: import "std/sys/dir";
-{ sleep } :: import "std/sys/timer";
-{ AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC } :: import "std/sys/constants";
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ temp_dir, path_join } :: import("../helper");
+events :: import("std/sys/events");
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+{ sleep } :: import("std/sys/timer");
+{ AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC } :: import("std/sys/constants");
 
 // Callback that records event type into user_data (pointer to i32)
 on_fs_event_record :: (fn(path: *(u8), events_mask: i32, user_data: *(u8)) -> unit)({
@@ -16,7 +16,7 @@ on_fs_event_record :: (fn(path: *(u8), events_mask: i32, user_data: *(u8)) -> un
   printf("  fs_event callback: path=%s events=%d\n", path, events_mask);
 });
 
-test "fs_event init/start/stop", {
+test("fs_event init/start/stop", {
   handle := events.fs_event_init();
   dir_str := temp_dir();
   dir_c := dir_str.to_cstr();
@@ -32,9 +32,9 @@ test "fs_event init/start/stop", {
   stop_ret := events.fs_event_stop(handle);
   assert((stop_ret == i32(0)), "fs_event_stop failed");
   events.fs_event_close(handle);
-};
+});
 
-test "fs_event detects file creation", {
+test("fs_event detects file creation", {
   dir_str := temp_dir();
   test_file := path_join(dir_str, `yo_test_fs_event_create.txt`);
   test_file_c := test_file.to_cstr();
@@ -78,9 +78,9 @@ test "fs_event detects file creation", {
 
   // Cleanup
   io.await(dir.unlink(AT_FDCWD, test_file_path, i32(0)));
-};
+});
 
-test "fs_event detects file modification", {
+test("fs_event detects file modification", {
   dir_str := temp_dir();
   test_file := path_join(dir_str, `yo_test_fs_event_modify.txt`);
   test_file_c := test_file.to_cstr();
@@ -130,9 +130,9 @@ test "fs_event detects file modification", {
 
   // Cleanup
   io.await(dir.unlink(AT_FDCWD, test_file_path, i32(0)));
-};
+});
 
-test "fs_event stop prevents further callbacks", {
+test("fs_event stop prevents further callbacks", {
   dir_str := temp_dir();
   test_file := path_join(dir_str, `yo_test_fs_event_stopped.txt`);
   test_file_c := test_file.to_cstr();
@@ -175,9 +175,9 @@ test "fs_event stop prevents further callbacks", {
 
   // Cleanup
   io.await(dir.unlink(AT_FDCWD, test_file_path, i32(0)));
-};
+});
 
-test "fs_event detects file deletion", {
+test("fs_event detects file deletion", {
   dir_str := temp_dir();
   test_file := path_join(dir_str, `yo_test_fs_event_delete.txt`);
   test_file_c := test_file.to_cstr();
@@ -215,4 +215,4 @@ test "fs_event detects file deletion", {
   stop_ret := events.fs_event_stop(handle);
   assert((stop_ret == i32(0)), "fs_event_stop failed");
   events.fs_event_close(handle);
-};
+});

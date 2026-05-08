@@ -4,9 +4,9 @@
 //! Reuses the socket ops (bind/listen/accept/connect/send/recv/close) from the
 //! generic socket externs. Uses `sockaddr_un` helpers to build address buffers.
 
-{ GlobalAllocator } :: import "../allocator.yo";
+{ GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
-{ IOFuture } :: import "./future.yo";
+{ IOFuture } :: import("./future.yo");
 {
   __yo_async_socket_start, __yo_async_bind_start,
   __yo_async_listen_start, __yo_async_accept_start,
@@ -14,11 +14,11 @@
   __yo_async_recv_start, __yo_async_close_start,
   __yo_sockaddr_un_set_path,
   __yo_sockaddr_un_get_path, __yo_sockaddr_set_family
-} :: import "./externs.yo";
+} :: import("./externs.yo");
 {
   AF_UNIX, SOCK_STREAM, SOCK_DGRAM,
   sockaddr_un_size
-} :: import "./socket.yo";
+} :: import("./socket.yo");
 
 // ============================================================================
 // UnixAddr - sockaddr_un buffer with pointer and length
@@ -28,7 +28,7 @@ UnixAddr :: struct(
   buf : ?*(u8),
   len : u32
 );
-export UnixAddr;
+export(UnixAddr);
 
 // ============================================================================
 // Core Unix Socket Operations (return IOFuture, use with await)
@@ -102,10 +102,10 @@ make_sockaddr_un :: (fn(path: *(u8)) -> UnixAddr)({
     true => {
       buf := *(u8)(malloc(size).unwrap());
       i := usize(0);
-      while runtime((i < size)), {
+      while(runtime((i < size)), {
         (buf &+ i).* = u8(0);
         i = (i + usize(1));
-      };
+      });
       __yo_sockaddr_set_family(buf, u16(AF_UNIX));
       __yo_sockaddr_un_set_path(buf, path);
       UnixAddr(.Some(buf), u32(size))
@@ -126,9 +126,7 @@ free_addr :: (fn(addr: UnixAddr) -> unit)(
   )
 );
 
-export
-  socket_stream, socket_dgram,
+export(socket_stream, socket_dgram,
   bind, listen, accept, connect,
   send, recv, close,
-  make_sockaddr_un, get_path, free_addr
-;
+  make_sockaddr_un, get_path, free_addr);

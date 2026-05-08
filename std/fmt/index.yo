@@ -1,10 +1,10 @@
 //! Formatted output to stdout and stderr.
 
-{ fwrite, stdout, stderr } :: import "../libc/stdio";
-{ String } :: import "../string";
-{ ToString } :: import "./to_string.yo";
+{ fwrite, stdout, stderr } :: import("../libc/stdio");
+{ String } :: import("../string");
+{ ToString } :: import("./to_string.yo");
 
-export ToString;
+export(ToString);
 
 /// Print a value that implements `ToString` to stdout, followed by a newline.
 println :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
@@ -20,7 +20,7 @@ println :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
   );
   fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), stdout);
 });
-export println;
+export(println);
 
 /// Print a value that implements `ToString` to stdout, without a trailing newline.
 print :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
@@ -35,7 +35,7 @@ print :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
     true => ()
   );
 });
-export print;
+export(print);
 
 /// Print a value that implements `ToString` to stderr, followed by a newline.
 eprintln :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
@@ -51,7 +51,7 @@ eprintln :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
   );
   fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), stderr);
 });
-export eprintln;
+export(eprintln);
 
 /// Print a value that implements `ToString` to stderr, without a trailing newline.
 eprint :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
@@ -66,4 +66,4 @@ eprint :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
     true => ()
   );
 });
-export eprint;
+export(eprint);

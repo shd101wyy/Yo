@@ -1,8 +1,8 @@
 //! Structured logging with configurable level and output destination.
 
-open import "./string";
-{ ToString } :: import "./fmt";
-{ fwrite, stdout, stderr, FILE } :: import "./libc/stdio";
+open(import("./string"));
+{ ToString } :: import("./fmt");
+{ fwrite, stdout, stderr, FILE } :: import("./libc/stdio");
 
 /// Log severity level.
 Level :: enum(Trace, Debug, Info, Warn, Error);
@@ -19,7 +19,7 @@ impl(Level, ToString(
   )
 ));
 
-export Level;
+export(Level);
 
 /// Where log messages are written.
 LogOutput :: enum(
@@ -27,7 +27,7 @@ LogOutput :: enum(
   Stdout
 );
 
-export LogOutput;
+export(LogOutput);
 
 // ============================================================================
 // Global logger state (module-level mutable)
@@ -48,7 +48,7 @@ set_output :: (fn(output: LogOutput) -> unit)({
   _global_output = output;
 });
 
-export set_level, set_output;
+export(set_level, set_output);
 
 // ============================================================================
 // Core log function
@@ -78,7 +78,7 @@ _write_string :: (fn(s: String, dest: *(FILE)) -> unit)({
 
 log :: (fn(level: Level, msg: String) -> unit)({
   cond(
-    (_level_value(level) < _level_value(_global_level)) => { return (); },
+    (_level_value(level) < _level_value(_global_level)) => { return(()); },
     true => ()
   );
   level_str := level.to_string();
@@ -96,7 +96,7 @@ log :: (fn(level: Level, msg: String) -> unit)({
   fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), dest);
 });
 
-export log;
+export(log);
 
 // ============================================================================
 // Convenience functions
@@ -108,4 +108,4 @@ info  :: (fn(msg: String) -> unit)( log(.Info,  msg) );
 warn  :: (fn(msg: String) -> unit)( log(.Warn,  msg) );
 error :: (fn(msg: String) -> unit)( log(.Error, msg) );
 
-export trace, debug, info, warn, error;
+export(trace, debug, info, warn, error);

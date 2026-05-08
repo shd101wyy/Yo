@@ -1,26 +1,26 @@
-open import "std/collections/deque";
-open import "std/string";
+open(import("std/collections/deque"));
+open(import("std/string"));
 
 // ===== Construction Tests =====
 
-test "Deque.new creates empty deque", {
+test("Deque.new creates empty deque", {
   d := Deque(i32).new();
   assert(d.len() == usize(0), "len should be 0");
   assert(d.is_empty(), "should be empty");
-};
+});
 
 // ===== push_back Tests =====
 
-test "Deque.push_back adds single element", {
+test("Deque.push_back adds single element", {
   d := Deque(i32).new();
   d.push_back(i32(42));
 
   assert(d.len() == usize(1), "len should be 1");
   assert(!(d.is_empty()), "should not be empty");
   assert(d.get(usize(0)).unwrap() == i32(42), "element should be 42");
-};
+});
 
-test "Deque.push_back adds multiple elements in order", {
+test("Deque.push_back adds multiple elements in order", {
   d := Deque(i32).new();
   d.push_back(i32(10));
   d.push_back(i32(20));
@@ -30,33 +30,33 @@ test "Deque.push_back adds multiple elements in order", {
   assert(d.get(usize(0)).unwrap() == i32(10), "index 0 should be 10");
   assert(d.get(usize(1)).unwrap() == i32(20), "index 1 should be 20");
   assert(d.get(usize(2)).unwrap() == i32(30), "index 2 should be 30");
-};
+});
 
-test "Deque.push_back triggers growth", {
+test("Deque.push_back triggers growth", {
   d := Deque(i32).new();
   i := i32(0);
-  while (i < i32(20)), (i = (i + i32(1))), {
+  while((i < i32(20)), (i = (i + i32(1))), {
     d.push_back(i);
-  };
+  });
   assert(d.len() == usize(20), "len should be 20");
 
   j := i32(0);
-  while (j < i32(20)), (j = (j + i32(1))), {
+  while((j < i32(20)), (j = (j + i32(1))), {
     assert(d.get(usize(j)).unwrap() == j, "element should match");
-  };
-};
+  });
+});
 
 // ===== push_front Tests =====
 
-test "Deque.push_front adds single element", {
+test("Deque.push_front adds single element", {
   d := Deque(i32).new();
   d.push_front(i32(42));
 
   assert(d.len() == usize(1), "len should be 1");
   assert(d.get(usize(0)).unwrap() == i32(42), "element should be 42");
-};
+});
 
-test "Deque.push_front adds elements in reverse logical order", {
+test("Deque.push_front adds elements in reverse logical order", {
   d := Deque(i32).new();
   d.push_front(i32(10));
   d.push_front(i32(20));
@@ -67,25 +67,25 @@ test "Deque.push_front adds elements in reverse logical order", {
   assert(d.get(usize(0)).unwrap() == i32(30), "index 0 should be 30");
   assert(d.get(usize(1)).unwrap() == i32(20), "index 1 should be 20");
   assert(d.get(usize(2)).unwrap() == i32(10), "index 2 should be 10");
-};
+});
 
-test "Deque.push_front triggers growth", {
+test("Deque.push_front triggers growth", {
   d := Deque(i32).new();
   i := i32(0);
-  while (i < i32(20)), (i = (i + i32(1))), {
+  while((i < i32(20)), (i = (i + i32(1))), {
     d.push_front(i);
-  };
+  });
   assert(d.len() == usize(20), "len should be 20");
 
   // Front element should be the last pushed (19)
   assert(d.get(usize(0)).unwrap() == i32(19), "front should be 19");
   // Back element should be the first pushed (0)
   assert(d.get(usize(19)).unwrap() == i32(0), "back should be 0");
-};
+});
 
 // ===== Mixed push_front and push_back =====
 
-test "Deque mixed push_front and push_back", {
+test("Deque mixed push_front and push_back", {
   d := Deque(i32).new();
   d.push_back(i32(2));
   d.push_front(i32(1));
@@ -98,11 +98,11 @@ test "Deque mixed push_front and push_back", {
   assert(d.get(usize(1)).unwrap() == i32(1), "index 1 should be 1");
   assert(d.get(usize(2)).unwrap() == i32(2), "index 2 should be 2");
   assert(d.get(usize(3)).unwrap() == i32(3), "index 3 should be 3");
-};
+});
 
 // ===== pop_front Tests =====
 
-test "Deque.pop_front removes and returns front element", {
+test("Deque.pop_front removes and returns front element", {
   d := Deque(i32).new();
   d.push_back(i32(10));
   d.push_back(i32(20));
@@ -112,15 +112,15 @@ test "Deque.pop_front removes and returns front element", {
   assert(v.is_some(), "should return Some");
   assert(v.unwrap() == i32(10), "front should be 10");
   assert(d.len() == usize(2), "len should be 2");
-};
+});
 
-test "Deque.pop_front returns None for empty deque", {
+test("Deque.pop_front returns None for empty deque", {
   d := Deque(i32).new();
   v := d.pop_front();
   assert(v.is_none(), "should return None for empty deque");
-};
+});
 
-test "Deque.pop_front until empty", {
+test("Deque.pop_front until empty", {
   d := Deque(i32).new();
   d.push_back(i32(1));
   d.push_back(i32(2));
@@ -131,11 +131,11 @@ test "Deque.pop_front until empty", {
   assert(d.pop_front().unwrap() == i32(3), "third pop should be 3");
   assert(d.pop_front().is_none(), "fourth pop should be None");
   assert(d.len() == usize(0), "len should be 0");
-};
+});
 
 // ===== pop_back Tests =====
 
-test "Deque.pop_back removes and returns back element", {
+test("Deque.pop_back removes and returns back element", {
   d := Deque(i32).new();
   d.push_back(i32(10));
   d.push_back(i32(20));
@@ -145,15 +145,15 @@ test "Deque.pop_back removes and returns back element", {
   assert(v.is_some(), "should return Some");
   assert(v.unwrap() == i32(30), "back should be 30");
   assert(d.len() == usize(2), "len should be 2");
-};
+});
 
-test "Deque.pop_back returns None for empty deque", {
+test("Deque.pop_back returns None for empty deque", {
   d := Deque(i32).new();
   v := d.pop_back();
   assert(v.is_none(), "should return None for empty deque");
-};
+});
 
-test "Deque.pop_back until empty", {
+test("Deque.pop_back until empty", {
   d := Deque(i32).new();
   d.push_back(i32(1));
   d.push_back(i32(2));
@@ -164,11 +164,11 @@ test "Deque.pop_back until empty", {
   assert(d.pop_back().unwrap() == i32(1), "third pop should be 1");
   assert(d.pop_back().is_none(), "fourth pop should be None");
   assert(d.len() == usize(0), "len should be 0");
-};
+});
 
 // ===== get Tests =====
 
-test "Deque.get returns element at valid index", {
+test("Deque.get returns element at valid index", {
   d := Deque(i32).new();
   d.push_back(i32(100));
   d.push_back(i32(200));
@@ -177,46 +177,46 @@ test "Deque.get returns element at valid index", {
   assert(d.get(usize(0)).unwrap() == i32(100), "index 0 should be 100");
   assert(d.get(usize(1)).unwrap() == i32(200), "index 1 should be 200");
   assert(d.get(usize(2)).unwrap() == i32(300), "index 2 should be 300");
-};
+});
 
-test "Deque.get returns None for out of bounds index", {
+test("Deque.get returns None for out of bounds index", {
   d := Deque(i32).new();
   d.push_back(i32(10));
 
   assert(d.get(usize(5)).is_none(), "should return None for out of bounds");
-};
+});
 
-test "Deque.get returns None for empty deque", {
+test("Deque.get returns None for empty deque", {
   d := Deque(i32).new();
   assert(d.get(usize(0)).is_none(), "should return None for empty deque");
-};
+});
 
 // ===== Wrap-around Tests =====
 
-test "Deque handles wrap-around correctly", {
+test("Deque handles wrap-around correctly", {
   d := Deque(i32).new();
   // Fill and drain from front to create wrap-around
   i := i32(0);
-  while (i < i32(8)), (i = (i + i32(1))), {
+  while((i < i32(8)), (i = (i + i32(1))), {
     d.push_back(i);
-  };
+  });
   // Pop 4 from front so head advances
   j := i32(0);
-  while (j < i32(4)), (j = (j + i32(1))), {
+  while((j < i32(4)), (j = (j + i32(1))), {
     d.pop_front();
-  };
+  });
   // Now push more to back — should wrap around
   k := i32(8);
-  while (k < i32(12)), (k = (k + i32(1))), {
+  while((k < i32(12)), (k = (k + i32(1))), {
     d.push_back(k);
-  };
+  });
 
   assert(d.len() == usize(8), "len should be 8");
   assert(d.get(usize(0)).unwrap() == i32(4), "front should be 4");
   assert(d.get(usize(7)).unwrap() == i32(11), "back should be 11");
-};
+});
 
-test "Deque push_front creates wrap-around", {
+test("Deque push_front creates wrap-around", {
   d := Deque(i32).new();
   // Push some from back first
   d.push_back(i32(5));
@@ -232,11 +232,11 @@ test "Deque push_front creates wrap-around", {
   assert(d.get(usize(2)).unwrap() == i32(5), "index 2 should be 5");
   assert(d.get(usize(3)).unwrap() == i32(6), "index 3 should be 6");
   assert(d.get(usize(4)).unwrap() == i32(7), "index 4 should be 7");
-};
+});
 
 // ===== LIFO/FIFO patterns =====
 
-test "Deque as FIFO queue (push_back + pop_front)", {
+test("Deque as FIFO queue (push_back + pop_front)", {
   d := Deque(i32).new();
   d.push_back(i32(1));
   d.push_back(i32(2));
@@ -245,9 +245,9 @@ test "Deque as FIFO queue (push_back + pop_front)", {
   assert(d.pop_front().unwrap() == i32(1), "FIFO: first out is 1");
   assert(d.pop_front().unwrap() == i32(2), "FIFO: second out is 2");
   assert(d.pop_front().unwrap() == i32(3), "FIFO: third out is 3");
-};
+});
 
-test "Deque as LIFO stack (push_back + pop_back)", {
+test("Deque as LIFO stack (push_back + pop_back)", {
   d := Deque(i32).new();
   d.push_back(i32(1));
   d.push_back(i32(2));
@@ -256,11 +256,11 @@ test "Deque as LIFO stack (push_back + pop_back)", {
   assert(d.pop_back().unwrap() == i32(3), "LIFO: first out is 3");
   assert(d.pop_back().unwrap() == i32(2), "LIFO: second out is 2");
   assert(d.pop_back().unwrap() == i32(1), "LIFO: first out is 1");
-};
+});
 
 // ===== Reuse after drain =====
 
-test "Deque can be reused after draining", {
+test("Deque can be reused after draining", {
   d := Deque(i32).new();
   d.push_back(i32(1));
   d.push_back(i32(2));
@@ -272,21 +272,21 @@ test "Deque can be reused after draining", {
   d.push_back(i32(99));
   assert(d.len() == usize(1), "len should be 1 after reuse");
   assert(d.get(usize(0)).unwrap() == i32(99), "element should be 99");
-};
+});
 
 // ===== String (RC heap type) Tests =====
 // These tests verify proper memory management with reference-counted types.
 
-test "Deque of String - push_back and disposal", {
+test("Deque of String - push_back and disposal", {
   d := Deque(String).new();
   d.push_back(String.from("hello"));
   d.push_back(String.from("world"));
   d.push_back(String.from("foo"));
   assert(d.len() == usize(3));
   // When d goes out of scope, all 3 Strings must be properly dropped
-};
+});
 
-test "Deque of String - push_front and disposal", {
+test("Deque of String - push_front and disposal", {
   d := Deque(String).new();
   d.push_front(String.from("c"));
   d.push_front(String.from("b"));
@@ -295,9 +295,9 @@ test "Deque of String - push_front and disposal", {
   assert((d.get(usize(0)).unwrap() == String.from("a")));
   assert((d.get(usize(1)).unwrap() == String.from("b")));
   assert((d.get(usize(2)).unwrap() == String.from("c")));
-};
+});
 
-test "Deque of String - pop_front returns and drops correctly", {
+test("Deque of String - pop_front returns and drops correctly", {
   d := Deque(String).new();
   d.push_back(String.from("first"));
   d.push_back(String.from("second"));
@@ -314,9 +314,9 @@ test "Deque of String - pop_front returns and drops correctly", {
 
   v4 := d.pop_front();
   assert(v4.is_none());
-};
+});
 
-test "Deque of String - pop_back returns and drops correctly", {
+test("Deque of String - pop_back returns and drops correctly", {
   d := Deque(String).new();
   d.push_back(String.from("alpha"));
   d.push_back(String.from("beta"));
@@ -330,9 +330,9 @@ test "Deque of String - pop_back returns and drops correctly", {
 
   v3 := d.pop_back();
   assert((v3.unwrap() == String.from("alpha")));
-};
+});
 
-test "Deque of String - pop then disposal drops remaining", {
+test("Deque of String - pop then disposal drops remaining", {
   d := Deque(String).new();
   d.push_back(String.from("stay1"));
   d.push_back(String.from("stay2"));
@@ -341,9 +341,9 @@ test "Deque of String - pop then disposal drops remaining", {
   d.pop_back();
   assert(d.len() == usize(2));
   // "stay1" and "stay2" must be cleaned up when d is disposed
-};
+});
 
-test "Deque of String - mixed push and pop", {
+test("Deque of String - mixed push and pop", {
   d := Deque(String).new();
   d.push_back(String.from("b"));
   d.push_front(String.from("a"));
@@ -357,9 +357,9 @@ test "Deque of String - mixed push and pop", {
   d.pop_back();
   assert(d.len() == usize(1));
   assert((d.get(usize(0)).unwrap() == String.from("b")));
-};
+});
 
-test "Deque of String - growth with wrap-around", {
+test("Deque of String - growth with wrap-around", {
   d := Deque(String).new();
   // Push initial elements
   i := 0;
@@ -377,9 +377,9 @@ test "Deque of String - growth with wrap-around", {
     d.push_back(String.from("new"));
   });
   assert(d.len() == usize(10));
-};
+});
 
-test "Deque of String - FIFO queue pattern", {
+test("Deque of String - FIFO queue pattern", {
   d := Deque(String).new();
   d.push_back(String.from("msg1"));
   d.push_back(String.from("msg2"));
@@ -389,9 +389,9 @@ test "Deque of String - FIFO queue pattern", {
   assert((d.pop_front().unwrap() == String.from("msg2")));
   assert((d.pop_front().unwrap() == String.from("msg3")));
   assert(d.pop_front().is_none());
-};
+});
 
-test "Deque of String - reuse after drain", {
+test("Deque of String - reuse after drain", {
   d := Deque(String).new();
   d.push_back(String.from("old1"));
   d.push_back(String.from("old2"));
@@ -402,30 +402,30 @@ test "Deque of String - reuse after drain", {
   d.push_back(String.from("reused"));
   assert(d.len() == usize(1));
   assert((d.get(usize(0)).unwrap() == String.from("reused")));
-};
+});
 
 // ---- Iterator Tests ----
 
-test "Deque into_iter - empty deque", {
+test("Deque into_iter - empty deque", {
   d := Deque(i32).new();
   count := i32(0);
-  for d.into_iter(), (x) => {
+  for(d.into_iter(), (x) => {
     count = (count + i32(1));
-  };
+  });
   assert(count == i32(0));
-};
+});
 
-test "Deque into_iter - single element", {
+test("Deque into_iter - single element", {
   d := Deque(i32).new();
   d.push_back(i32(42));
   result := i32(0);
-  for d.into_iter(), (x) => {
+  for(d.into_iter(), (x) => {
     result = x;
-  };
+  });
   assert(result == i32(42));
-};
+});
 
-test "Deque into_iter - multiple elements in order", {
+test("Deque into_iter - multiple elements in order", {
   d := Deque(i32).new();
   d.push_back(i32(10));
   d.push_back(i32(20));
@@ -434,17 +434,17 @@ test "Deque into_iter - multiple elements in order", {
   sum := i32(0);
   count := i32(0);
   prev := i32(0);
-  for d.into_iter(), (x) => {
+  for(d.into_iter(), (x) => {
     sum = (sum + x);
     count = (count + i32(1));
     assert(x > prev);
     prev = x;
-  };
+  });
   assert(sum == i32(60));
   assert(count == i32(3));
-};
+});
 
-test "Deque into_iter - wrapping circular buffer", {
+test("Deque into_iter - wrapping circular buffer", {
   d := Deque(i32).new();
   // Push and pop to advance head, creating wrap-around
   d.push_back(i32(99));
@@ -457,44 +457,44 @@ test "Deque into_iter - wrapping circular buffer", {
   d.push_back(i32(3));
 
   sum := i32(0);
-  for d.into_iter(), (x) => {
+  for(d.into_iter(), (x) => {
     sum = (sum + x);
-  };
+  });
   assert(sum == i32(6));
-};
+});
 
-test "Deque iter - empty deque", {
+test("Deque iter - empty deque", {
   d := Deque(i32).new();
   count := i32(0);
-  for d.iter(), (ptr) => {
+  for(d.iter(), (ptr) => {
     count = (count + i32(1));
-  };
+  });
   assert(count == i32(0));
-};
+});
 
-test "Deque iter - yields pointers to elements", {
+test("Deque iter - yields pointers to elements", {
   d := Deque(i32).new();
   d.push_back(i32(10));
   d.push_back(i32(20));
 
   sum := i32(0);
-  for d.iter(), (ptr) => {
+  for(d.iter(), (ptr) => {
     sum = (sum + ptr.*);
-  };
+  });
   assert(sum == i32(30));
-};
+});
 
-test "Deque iter - mutate through pointer", {
+test("Deque iter - mutate through pointer", {
   d := Deque(i32).new();
   d.push_back(i32(1));
   d.push_back(i32(2));
   d.push_back(i32(3));
 
-  for d.iter(), (ptr) => {
+  for(d.iter(), (ptr) => {
     ptr.* = (ptr.* * i32(10));
-  };
+  });
 
   assert(d.get(usize(0)).unwrap() == i32(10));
   assert(d.get(usize(1)).unwrap() == i32(20));
   assert(d.get(usize(2)).unwrap() == i32(30));
-};
+});

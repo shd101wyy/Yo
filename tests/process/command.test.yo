@@ -1,13 +1,13 @@
 // @skip_wasm32-emscripten — no process model in WASM
 // @skip_wasm32-wasi — no process model in WASM
-{ Command, ExitStatus, Output } :: import "std/process/command";
-{ Exception, AnyError } :: import "std/error";
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ platform, Platform } :: import "std/process";
+{ Command, ExitStatus, Output } :: import("std/process/command");
+{ Exception, AnyError } :: import("std/error");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ platform, Platform } :: import("std/process");
 
-test "Command.new + status (echo exits 0)", {
-  given(exn) := Exception(throw : ((err) -> { escape (); }));
+test("Command.new + status (echo exits 0)", {
+  given(exn) := Exception(throw : ((err) -> { escape(()); }));
 
   cmd := cond(
     (platform == Platform.Windows) => {
@@ -27,10 +27,10 @@ test "Command.new + status (echo exits 0)", {
   st := io.await(cmd.status());
   assert(st.success(), "echo should succeed");
   assert((st.code() == i32(0)), "echo exit code 0");
-};
+});
 
-test "Command.output captures stdout", {
-  given(exn) := Exception(throw : ((err) -> { escape (); }));
+test("Command.output captures stdout", {
+  given(exn) := Exception(throw : ((err) -> { escape(()); }));
 
   cmd := cond(
     (platform == Platform.Windows) => {
@@ -54,10 +54,10 @@ test "Command.output captures stdout", {
   assert((out.stdout.get(usize(1)).unwrap() == u8(111)), "o");
   assert((out.stdout.get(usize(2)).unwrap() == u8(95)), "_");
   assert((out.stdout.get(usize(10)).unwrap() == u8(116)), "t");
-};
+});
 
-test "Command.status non-zero exit", {
-  given(exn) := Exception(throw : ((err) -> { escape (); }));
+test("Command.status non-zero exit", {
+  given(exn) := Exception(throw : ((err) -> { escape(()); }));
 
   cmd := cond(
     (platform == Platform.Windows) => {
@@ -73,4 +73,4 @@ test "Command.status non-zero exit", {
   st := io.await(cmd.status());
   assert(!(st.success()), "should not be success");
   assert((st.code() == i32(1)), "exit code 1");
-};
+});

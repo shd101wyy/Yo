@@ -1,21 +1,21 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
 
-open import "std/libc/stdio";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-open import "std/string";
-{ platform, Platform } :: import "std/process";
-{ ENOENT, EACCES } :: import "std/libc/errno";
-perm :: import "std/sys/perm";
-file :: import "std/sys/file";
-dir :: import "std/sys/dir";
+open(import("std/string"));
+{ platform, Platform } :: import("std/process");
+{ ENOENT, EACCES } :: import("std/libc/errno");
+perm :: import("std/sys/perm");
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
 {
   AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
   F_OK, R_OK, W_OK, X_OK
-} :: import "std/sys/constants";
-{ temp_dir, path_join } :: import "../helper";
+} :: import("std/sys/constants");
+{ temp_dir, path_join } :: import("../helper");
 
-test "access F_OK R_OK W_OK on existing file", {
+test("access F_OK R_OK W_OK on existing file", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -38,14 +38,14 @@ test "access F_OK R_OK W_OK on existing file", {
 
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
+});
 
-test "access on nonexistent file returns -ENOENT", {
+test("access on nonexistent file returns -ENOENT", {
   ret := perm.access(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_file_12345.txt"), F_OK);
   assert(ret == (i32(0) - i32(ENOENT)));
-};
+});
 
-test "chmodat changes and restores permissions", {
+test("chmodat changes and restores permissions", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -77,9 +77,9 @@ test "chmodat changes and restores permissions", {
 
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
+});
 
-test "fchmod by fd sets executable bit", {
+test("fchmod by fd sets executable bit", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -113,14 +113,14 @@ test "fchmod by fd sets executable bit", {
 
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
+});
 
-test "chmodat on nonexistent file returns -ENOENT", {
+test("chmodat on nonexistent file returns -ENOENT", {
   ret := perm.chmodat(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_12345.txt"), u32(0o644), i32(0));
   assert(ret == (i32(0) - i32(ENOENT)));
-};
+});
 
-test "fchown with -1 -1 succeeds (no change)", {
+test("fchown with -1 -1 succeeds (no change)", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -146,4 +146,4 @@ test "fchown with -1 -1 succeeds (no change)", {
 
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
+});
