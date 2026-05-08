@@ -78,6 +78,21 @@ test("Test fn escape called directly without intermediate using function", {
   });
   run_test();
 });
+
+test("Test zero-arg escape exits unit function", {
+  Raise :: (fn() -> unit);
+
+  run_test :: (fn() -> unit)({
+    (given(raise) : Raise) = (() -> {
+      escape();
+    });
+    raise();
+    assert(false, "This line should not be reached");
+  });
+
+  run_test();
+});
+
 test("Test nested fn escape inside resume handler", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
 

@@ -4,6 +4,7 @@ import { controlFlowOf, type Expr, type FnCallExpr } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { isSomeType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
+import { VUnit } from "../../unit-value";
 import type { EvaluatorContext } from "../context";
 import { _evaluateExpression } from "./_expr";
 
@@ -33,13 +34,40 @@ export function evaluateEscape({
     });
   }
 
+  if (expr.args.length > 1) {
+    throw formatErrorMessage({
+      token: expr.func.token,
+      errorMessage: `\`escape\` accepts at most one argument.`,
+    });
+  }
+
   // Evaluate the argument (the value to return from the enclosing function)
   const arg = expr.args[0];
   if (!arg) {
-    throw formatErrorMessage({
-      token: expr.func.token,
-      errorMessage: `\`escape\` requires exactly one argument.`,
-    });
+    if (
+      !isSomeType(enclosingReturnType) &&
+      !areTypesCompatible(
+        { type: enclosingReturnType, env },
+        { type: VUnit.type, env }
+      )
+    ) {
+      throw formatErrorMessage({
+        token: expr.func.token,
+        errorMessage: `Incompatible type for \`escape\` argument:
+- Expected (enclosing function return type): ${typeToString(enclosingReturnType)}
+- Got: ${typeToString(VUnit.type)}`,
+      });
+    }
+
+    expr.$ = {
+      ...expr.$,
+      env,
+      type: VUnit.type,
+      value: undefined,
+      pathCollection: [],
+      controlFlow: controlFlowOf("escape"),
+    };
+    return expr;
   }
 
   const evaluatedArg = _evaluateExpression({
