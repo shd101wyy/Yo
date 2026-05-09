@@ -383,6 +383,10 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
               next.position.row > token.position.row)
           ) {
             newline();
+            // Preserve at most one blank line between statements.
+            if (next.position.row - token.position.row >= 2) {
+              result += "\n";
+            }
           }
         }
         break;

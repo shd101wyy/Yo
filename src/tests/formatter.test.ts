@@ -127,6 +127,7 @@ true => (x / y)
 
     expect(formatYoSource(source)).toBe(`test("format effect", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
+
   // Use an effect in a function (effect becomes an implicit parameter)
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -153,6 +154,33 @@ true => (x / y)
     const twice = formatYoSource(once);
 
     expect(twice).toBe(once);
+  });
+
+  test("preserves blank lines between statements, collapses multiple to one", () => {
+    const source = `open(import("std/fmt"));
+
+main :: (fn() -> unit)({
+  x := 1;
+
+  y := 2;
+});
+
+
+export(main);`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`open(import("std/fmt"));
+
+main :: (fn() -> unit)({
+  x := 1;
+
+  y := 2;
+});
+
+export(main);
+`);
+    expect(formatYoSource(once)).toBe(once);
   });
 
   test("preserves operator rhs newline needed for right-associative parsing", () => {
