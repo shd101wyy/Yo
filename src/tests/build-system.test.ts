@@ -672,7 +672,7 @@ describe("Dependency cache integrity", () => {
 
       try {
         const cachedDir = createCachedDependency(cacheRoot, dep.name, commit, {
-          "build.yo": 'build :: import "std/build";\n',
+          "build.yo": 'build :: import("std/build");\n',
           "src/lib.yo": "value :: i32(1);\n",
         });
         const hash = computeContentHash(cachedDir);
@@ -700,7 +700,7 @@ describe("Dependency cache integrity", () => {
 
       try {
         createCachedDependency(cacheRoot, dep.name, commit, {
-          "build.yo": 'build :: import "std/build";\n',
+          "build.yo": 'build :: import("std/build");\n',
         });
 
         writeDependencyLockFile(projectDir, {
@@ -726,7 +726,7 @@ describe("Dependency cache integrity", () => {
 
       try {
         createCachedDependency(cacheRoot, dep.name, commit, {
-          "build.yo": 'build :: import "std/build";\n',
+          "build.yo": 'build :: import("std/build");\n',
         });
 
         writeDependencyLockFile(projectDir, {
@@ -750,7 +750,7 @@ describe("Dependency cache integrity", () => {
     withTemporaryYoCache((cacheRoot) => {
       const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-project-"));
       const repo = createTempGitRepo({
-        "build.yo": 'build :: import "std/build";\n',
+        "build.yo": 'build :: import("std/build");\n',
         "src/lib.yo": "answer :: i32(42);\n",
       });
       const dep = createTestDependency("demo-dep", repo.url, "HEAD");
