@@ -381,6 +381,8 @@ yo-self/
     eval_5i_1.test.yo       -- Phase 5i proto-evaluator tests (part 1)
     eval_5i_2.test.yo       -- Phase 5i proto-evaluator tests (part 2, 105 tests)
     eval_5j_1.test.yo       -- Phase 5j proto-evaluator tests: trait impl via trait constructor syntax (50 tests)
+    eval_5k_1.test.yo       -- Phase 5k proto-evaluator tests: helper fns, enum fields, bool logic, array accum, while/recur (50 tests)
+    eval_5l_1.test.yo       -- Phase 5l proto-evaluator tests: nested struct, str fields, method-calls-method, multi-export, combos (50 tests)
     eval_basics.test.yo     -- basic proto-evaluator tests
     eval_tail_1.test.yo     -- tail call proto-evaluator tests (part 1)
     eval_tail_2.test.yo     -- tail call proto-evaluator tests (part 2)
@@ -2812,6 +2814,30 @@ All four failing tests had `i32(-1)` or `i32(-3)` in their source strings; these
 - Phase 5je: complex method bodies (cond branches, two-branch sign, fibonacci step, modulo check, while loop, two structs same trait name, bool field, three methods one bool, combined array ops, GCD)
 
 **Test results**: 3027/3027 yo-self tests passing ✅ (including all 50 new Phase 5j tests and 2977 prior tests).
+
+---
+
+### Phase 6o — Phase 5k and 5l eval tests (100 more tests, 3177 total) ✅ Done
+
+Added 100 proto-evaluator integration tests across two new test files, exercising advanced impl method patterns.
+
+**`yo-self/tests/eval_5k_1.test.yo`** — 50 tests:
+
+- Phase 5ka: impl methods calling standalone helper functions (abs, min, max, clamp, LCM, power, digit ops)
+- Phase 5kb: enum field in struct — trait method dispatching on enum variant (Color luminance, Priority score, Direction vertical, Status/Suit/Season/Sign/Tier/Quadrant variants)
+- Phase 5kc: boolean-logic-heavy methods (and/not, or, XOR, all-true/any-true, in-range, count-true, NAND/NOR, bool-to-i32, sorted ascending, logical implication)
+- Phase 5kd: array accumulation via for-loop with struct method calls (double/is_even/volume/inc/vsum+vdiff/is_large/contrib/max_val across array items)
+- Phase 5ke: complex while-loop and recur patterns (digit reversal, GCD Euclidean, iterative Fibonacci, bit popcount, sum-of-squares, iterative power, Collatz, factorial, count divisors, triangular number)
+
+**`yo-self/tests/eval_5l_1.test.yo`** — 50 tests:
+
+- Phase 5la: nested struct field access — `x.inner.field`, `x.inner.val + x.extra`, triple nesting `a.b.c.v`, nested comparison, clamp via nested limits, volume via nested dimensions, while loop using `x.ctrl.limit`, two different inner struct types
+- Phase 5lb: string field methods — `x.s.starts_with("prefix")`, `x.s.ends_with(".yo")`, `x.s.contains("@")` all returning bool; combined `&&` and `||` of string predicates; two str fields; negated contains
+- Phase 5lc: impl method calling sibling impl method — `x.double()` inside `x.quad()`, perimeter = `2*width()+2*height()`, chained `oct=quad*2=double*4`, cond on method result, product of two method results, score = `base()+bonus()`, min via bool method
+- Phase 5ld: multi-export patterns — two exports from one struct, two structs each exporting one result, three exports (sum/product/max), four exports, two instances same struct, enum+struct two exports, fibonacci+factorial two exports, method result + standalone const, two while-loop results
+- Phase 5le: complex combinations — nested struct + while + helper, string field + method chain + `is_src_not_test`, nested struct + enum field + match, method-calls-method + nested field, helper + multi-export + nested + bool, while + method chain + enum match, bool+string+active user access, recur + method-calls-method (double_sigma), two nested structs + unit_cost via method chain + two exports, string keyword filter via nested method chain
+
+**Test results**: 3177/3177 yo-self tests passing ✅ (including all 100 new Phase 5k/5l tests and 3077 prior tests).
 
 ---
 
