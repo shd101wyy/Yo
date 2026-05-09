@@ -55,7 +55,7 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 
 If a C codegen bug is very hard to debug from TypeScript, modify the generated C code directly to make it work, document the bugs found, then go back to fix the TypeScript codegen.
 
-When you find a test that causes a C codegen bug, don't weaken the test. Create a new `.yo` file with minimal reproduction code, a `main` function, and `export main;` at the end.
+When you find a test that causes a C codegen bug, don't weaken the test. Create a new `.yo` file with minimal reproduction code, a `main` function, and `export(main);` at the end.
 
 ## Reference counting
 
@@ -126,7 +126,7 @@ See `issues/sync-effect-inlining-inside-async-context.md` for the full design ra
 - A handler may `return` in one branch and `escape` in another. Both paths work with evidence passing:
   - Return path: handler function returns normally; caller uses the resume value
   - Escape path: handler sets `__yo_effect_escaped = 1` and returns a dummy; caller checks the flag and propagates
-- Non-unit `escape value` is supported — the escape value is stored in a thread-local and retrieved at the handler installation site.
+- Non-unit `escape(value)` is supported — the escape value is stored in a thread-local and retrieved at the handler installation site.
 
 ### Escape detection in sync_fut_t resume functions
 

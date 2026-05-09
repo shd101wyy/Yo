@@ -13,10 +13,8 @@
 //! parser.option(`output`, `o`, `Output file`, `out.txt`);
 //! args := parser.parse();
 //! ```
-
-open import "../collections/array_list";
-open import "../string";
-
+open(import("../collections/array_list"));
+open(import("../string"));
 /// Kind of command-line argument.
 ArgKind :: enum(
   /// Boolean flag (e.g. `--verbose`).
@@ -26,7 +24,6 @@ ArgKind :: enum(
   /// Positional argument.
   Positional
 );
-
 /// Definition of a single command-line argument.
 ArgDef :: object(
   /// Long name (e.g. `"verbose"` for `--verbose`).
@@ -42,7 +39,6 @@ ArgDef :: object(
   /// Whether this argument is required.
   _required : bool
 );
-
 /// Result of parsing command-line arguments.
 ParsedArgs :: object(
   _set_flags : ArrayList(String),
@@ -55,7 +51,6 @@ ParsedArgs :: object(
   /// Parsed arguments for the chosen subcommand (`.None` if no subcommand).
   _subcommand_args : Option(Self)
 );
-
 /// Command-line argument parser.
 ArgParser :: object(
   /// Application name shown in help text.
@@ -71,36 +66,33 @@ ArgParser :: object(
   /// Subcommand parsers (parallel to `_subcommand_names`).
   _subcommand_parsers : ArrayList(Self)
 );
-
-impl(ParsedArgs,
+impl(
+  ParsedArgs,
   new : (fn() -> Self)(
     Self(
-      _set_flags: ArrayList(String).new(),
-      _option_names: ArrayList(String).new(),
-      _option_values: ArrayList(String).new(),
-      _positionals: ArrayList(String).new(),
-      _positional_names: ArrayList(String).new(),
-      _subcommand: .None,
-      _subcommand_args: .None
+      _set_flags : ArrayList(String).new(),
+      _option_names : ArrayList(String).new(),
+      _option_values : ArrayList(String).new(),
+      _positionals : ArrayList(String).new(),
+      _positional_names : ArrayList(String).new(),
+      _subcommand :.None,
+      _subcommand_args :.None
     )
   ),
-
   /// Returns the name of the chosen subcommand, if any.
-  get_subcommand : (fn(self: Self) -> Option(String))(self._subcommand),
-
+  get_subcommand : (fn(self : Self) -> Option(String))(self._subcommand),
   /// Returns the parsed arguments of the chosen subcommand, if any.
-  get_subcommand_args : (fn(self: Self) -> Option(Self))(self._subcommand_args),
-
-  get_flag : (fn(self: Self, name: String) -> bool)(
+  get_subcommand_args : (fn(self : Self) -> Option(Self))(self._subcommand_args),
+  get_flag : (fn(self : Self, name : String) -> bool)(
     self._set_flags.contains(name)
   ),
-
-  _lookup : (fn(self: Self, names: ArrayList(String), values: ArrayList(String), name: String) -> Option(String))({
+  _lookup : (fn(self : Self, names : ArrayList(String), values : ArrayList(String), name : String) -> Option(String))({
     i := usize(0);
     len := names.len();
-    (result : Option(String)) = .None;
-    while (i < len), (i = (i + usize(1))), {
-      match(names.get(i),
+    (result : Option(String)) =.None;
+    while(i < len, i = (i + usize(1)), {
+      match(
+        names.get(i),
         .Some(n) => {
           cond(
             (n == name) => {
@@ -112,108 +104,109 @@ impl(ParsedArgs,
         },
         .None => ()
       );
-    };
-    return result;
+    });
+    return(result);
   }),
-
-  get_option : (fn(self: Self, name: String) -> Option(String))(
+  get_option : (fn(self : Self, name : String) -> Option(String))(
     self._lookup(self._option_names, self._option_values, name)
   ),
-
-  get_positional : (fn(self: Self, name: String) -> Option(String))(
+  get_positional : (fn(self : Self, name : String) -> Option(String))(
     self._lookup(self._positional_names, self._positionals, name)
   ),
-
-  get_positional_at : (fn(self: Self, index: usize) -> Option(String))(
+  get_positional_at : (fn(self : Self, index : usize) -> Option(String))(
     self._positionals.get(index)
   )
 );
-
-impl(ArgParser,
-  new : (fn(name: String, description: String) -> Self)(
+impl(
+  ArgParser,
+  new : (fn(name : String, description : String) -> Self)(
     Self(
-      _name: name,
-      _description: description,
-      _args: ArrayList(ArgDef).new(),
-      _subcommand_names: ArrayList(String).new(),
-      _subcommand_descriptions: ArrayList(String).new(),
-      _subcommand_parsers: ArrayList(Self).new()
+      _name : name,
+      _description : description,
+      _args : ArrayList(ArgDef).new(),
+      _subcommand_names : ArrayList(String).new(),
+      _subcommand_descriptions : ArrayList(String).new(),
+      _subcommand_parsers : ArrayList(Self).new()
     )
   ),
-
   /// Registers a subcommand with the given name and description.
   /// Returns the new sub-parser, which can be configured with its own
   /// flags, options, positionals, and nested subcommands.
-  add_subcommand : (fn(self: Self, name: String, description: String) -> Self)({
+  add_subcommand : (fn(self : Self, name : String, description : String) -> Self)({
     sub := Self.new(name, description);
     self._subcommand_names.push(name);
     self._subcommand_descriptions.push(description);
     self._subcommand_parsers.push(sub);
-    return sub;
+    return(sub);
   }),
-
   /// Looks up a subcommand parser by name.
-  _find_subcommand : (fn(self: Self, name: String) -> Option(usize))({
+  _find_subcommand : (fn(self : Self, name : String) -> Option(usize))({
     i := usize(0);
     len := self._subcommand_names.len();
-    (result : Option(usize)) = .None;
-    while ((i < len) && result.is_none()), (i = (i + usize(1))), {
-      match(self._subcommand_names.get(i),
+    (result : Option(usize)) =.None;
+    while((i < len) && result.is_none(), i = (i + usize(1)), {
+      match(
+        self._subcommand_names.get(i),
         .Some(n) => {
           cond(
-            (n == name) => { result = .Some(i); },
+            (n == name) => {
+              result =.Some(i);
+            },
             true => ()
           );
         },
         .None => ()
       );
-    };
-    return result;
+    });
+    return(result);
   }),
-
-  add_flag : (fn(self: Self, long_name: String, short_name: String, description: String) -> unit)({
-    self._args.push(ArgDef(
-      _long_name: long_name,
-      _short_name: short_name,
-      _description: description,
-      _kind: .Flag,
-      _default_value: ``,
-      _required: false
-    ));
+  add_flag : (fn(self : Self, long_name : String, short_name : String, description : String) -> unit)({
+    self._args.push(
+      ArgDef(
+        _long_name : long_name,
+        _short_name : short_name,
+        _description : description,
+        _kind :.Flag,
+        _default_value : ``,
+        _required : false
+      )
+    );
   }),
-
-  add_option : (fn(self: Self, long_name: String, short_name: String, description: String, default_value: String) -> unit)({
-    self._args.push(ArgDef(
-      _long_name: long_name,
-      _short_name: short_name,
-      _description: description,
-      _kind: .Opt,
-      _default_value: default_value,
-      _required: false
-    ));
+  add_option : (fn(self : Self, long_name : String, short_name : String, description : String, default_value : String) -> unit)({
+    self._args.push(
+      ArgDef(
+        _long_name : long_name,
+        _short_name : short_name,
+        _description : description,
+        _kind :.Opt,
+        _default_value : default_value,
+        _required : false
+      )
+    );
   }),
-
-  add_positional : (fn(self: Self, name: String, description: String) -> unit)({
-    self._args.push(ArgDef(
-      _long_name: name,
-      _short_name: ``,
-      _description: description,
-      _kind: .Positional,
-      _default_value: ``,
-      _required: true
-    ));
+  add_positional : (fn(self : Self, name : String, description : String) -> unit)({
+    self._args.push(
+      ArgDef(
+        _long_name : name,
+        _short_name : ``,
+        _description : description,
+        _kind :.Positional,
+        _default_value : ``,
+        _required : true
+      )
+    );
   }),
-
-  _find_arg_index : (fn(self: Self, name: String) -> Option(usize))({
+  _find_arg_index : (fn(self : Self, name : String) -> Option(usize))({
     i := usize(0);
     len := self._args.len();
-    (result : Option(usize)) = .None;
-    while (i < len), (i = (i + usize(1))), {
-      match(self._args.get(i),
+    (result : Option(usize)) =.None;
+    while(i < len, i = (i + usize(1)), {
+      match(
+        self._args.get(i),
         .Some(arg_def) => {
           cond(
             ((arg_def._long_name == name) || (arg_def._short_name == name)) => {
-              result = .Some(i);
+              result =.Some(i);
               i = len;
             },
             true => ()
@@ -221,38 +214,45 @@ impl(ArgParser,
         },
         .None => ()
       );
-    };
-    return result;
+    });
+    return(result);
   }),
-
-  help_text : (fn(self: Self) -> String)({
+  help_text : (fn(self : Self) -> String)({
     text := `Usage: ${self._name}\n${self._description}\n\n`;
-
     has_positionals := false;
     has_flags_or_options := false;
     i := usize(0);
     len := self._args.len();
-    while (i < len), (i = (i + usize(1))), {
-      match(self._args.get(i),
+    while(i < len, i = (i + usize(1)), {
+      match(
+        self._args.get(i),
         .Some(arg_def) => {
-          match(arg_def._kind,
-            .Flag => { has_flags_or_options = true; },
-            .Opt => { has_flags_or_options = true; },
-            .Positional => { has_positionals = true; }
+          match(
+            arg_def._kind,
+            .Flag => {
+              has_flags_or_options = true;
+            },
+            .Opt => {
+              has_flags_or_options = true;
+            },
+            .Positional => {
+              has_positionals = true;
+            }
           );
         },
         .None => ()
       );
-    };
-
+    });
     cond(
       has_positionals => {
         text = text.concat(`Arguments:\n`);
         j := usize(0);
-        while (j < len), (j = (j + usize(1))), {
-          match(self._args.get(j),
+        while(j < len, j = (j + usize(1)), {
+          match(
+            self._args.get(j),
             .Some(arg_def) => {
-              match(arg_def._kind,
+              match(
+                arg_def._kind,
                 .Positional => {
                   text = text.concat(`  ${arg_def._long_name}\t${arg_def._description}\n`);
                 },
@@ -262,20 +262,21 @@ impl(ArgParser,
             },
             .None => ()
           );
-        };
+        });
         text = text.concat(`\n`);
       },
       true => ()
     );
-
     cond(
       has_flags_or_options => {
         text = text.concat(`Options:\n`);
         k := usize(0);
-        while (k < len), (k = (k + usize(1))), {
-          match(self._args.get(k),
+        while(k < len, k = (k + usize(1)), {
+          match(
+            self._args.get(k),
             .Some(arg_def) => {
-              match(arg_def._kind,
+              match(
+                arg_def._kind,
                 .Flag => {
                   line := `  ${arg_def._long_name}`;
                   cond(
@@ -310,22 +311,22 @@ impl(ArgParser,
             },
             .None => ()
           );
-        };
+        });
       },
       true => ()
     );
-
     text = text.concat(`  --help, -h\tShow this help message\n`);
-
     sub_count := self._subcommand_names.len();
     cond(
       (sub_count > usize(0)) => {
         text = text.concat(`\nSubcommands:\n`);
         s := usize(0);
-        while (s < sub_count), (s = (s + usize(1))), {
-          match(self._subcommand_names.get(s),
+        while(s < sub_count, s = (s + usize(1)), {
+          match(
+            self._subcommand_names.get(s),
             .Some(sn) => {
-              match(self._subcommand_descriptions.get(s),
+              match(
+                self._subcommand_descriptions.get(s),
                 .Some(sd) => {
                   text = text.concat(`  ${sn}\t${sd}\n`);
                 },
@@ -336,38 +337,39 @@ impl(ArgParser,
             },
             .None => ()
           );
-        };
+        });
       },
       true => ()
     );
-
-    return text;
+    return(text);
   })
 );
-
-impl(ArgParser,
-  parse : (fn(self: Self, args: ArrayList(String)) -> Result(ParsedArgs, String))({
+impl(
+  ArgParser,
+  parse : (fn(self : Self, args : ArrayList(String)) -> Result(ParsedArgs, String))({
     parsed := ParsedArgs.new();
     arg_defs_len := self._args.len();
-
     idx := usize(1);
     args_len := args.len();
     positional_idx := usize(0);
-    (err_msg : Option(String)) = .None;
-
-    while ((idx < args_len) && (err_msg.is_none())), {
-      match(args.get(idx),
+    (err_msg : Option(String)) =.None;
+    while((idx < args_len) && (err_msg.is_none()), {
+      match(
+        args.get(idx),
         .Some(current_arg) => {
           cond(
             ((current_arg == `--help`) || (current_arg == `-h`)) => {
-              err_msg = .Some(self.help_text());
+              err_msg =.Some(self.help_text());
             },
             current_arg.starts_with(`-`) => {
-              match(self._find_arg_index(current_arg),
+              match(
+                self._find_arg_index(current_arg),
                 .Some(arg_idx) => {
-                  match(self._args.get(arg_idx),
+                  match(
+                    self._args.get(arg_idx),
                     .Some(def) => {
-                      match(def._kind,
+                      match(
+                        def._kind,
                         .Flag => {
                           parsed._set_flags.push(def._long_name);
                         },
@@ -375,18 +377,19 @@ impl(ArgParser,
                           idx = (idx + usize(1));
                           cond(
                             (idx < args_len) => {
-                              match(args.get(idx),
+                              match(
+                                args.get(idx),
                                 .Some(val) => {
                                   parsed._option_names.push(def._long_name);
                                   parsed._option_values.push(val);
                                 },
                                 .None => {
-                                  err_msg = .Some(`Missing value for option: ${def._long_name}`);
+                                  err_msg =.Some(`Missing value for option: ${def._long_name}`);
                                 }
                               );
                             },
                             true => {
-                              err_msg = .Some(`Missing value for option: ${def._long_name}`);
+                              err_msg =.Some(`Missing value for option: ${def._long_name}`);
                             }
                           );
                         },
@@ -397,7 +400,7 @@ impl(ArgParser,
                   );
                 },
                 .None => {
-                  err_msg = .Some(`Unknown argument: ${current_arg}`);
+                  err_msg =.Some(`Unknown argument: ${current_arg}`);
                 }
               );
             },
@@ -406,33 +409,44 @@ impl(ArgParser,
               is_subcmd := false;
               cond(
                 (self._subcommand_names.len() > usize(0)) => {
-                  match(self._find_subcommand(current_arg),
+                  match(
+                    self._find_subcommand(current_arg),
                     .Some(sub_idx) => {
-                      match(self._subcommand_parsers.get(sub_idx),
+                      match(
+                        self._subcommand_parsers.get(sub_idx),
                         .Some(sub_parser) => {
                           // Build new args list: [program_name, ...remaining args after subcommand name].
                           sub_args := ArrayList(String).new();
-                          match(args.get(usize(0)),
-                            .Some(prog) => { sub_args.push(prog); },
-                            .None => { sub_args.push(self._name); }
+                          match(
+                            args.get(usize(0)),
+                            .Some(prog) => {
+                              sub_args.push(prog);
+                            },
+                            .None => {
+                              sub_args.push(self._name);
+                            }
                           );
                           j := (idx + usize(1));
-                          while (j < args_len), (j = (j + usize(1))), {
-                            match(args.get(j),
-                              .Some(a) => { sub_args.push(a); },
+                          while(j < args_len, j = (j + usize(1)), {
+                            match(
+                              args.get(j),
+                              .Some(a) => {
+                                sub_args.push(a);
+                              },
                               .None => ()
                             );
-                          };
+                          });
                           // Recursively parse the subcommand.
-                          match(recur(sub_parser, sub_args),
+                          match(
+                            recur(sub_parser, sub_args),
                             .Ok(sub_parsed) => {
-                              parsed._subcommand = .Some(current_arg);
-                              parsed._subcommand_args = .Some(sub_parsed);
+                              parsed._subcommand =.Some(current_arg);
+                              parsed._subcommand_args =.Some(sub_parsed);
                               idx = args_len;
                               is_subcmd = true;
                             },
                             .Err(sub_err) => {
-                              err_msg = .Some(sub_err);
+                              err_msg =.Some(sub_err);
                               is_subcmd = true;
                             }
                           );
@@ -446,14 +460,16 @@ impl(ArgParser,
                 true => ()
               );
               cond(
-                (!is_subcmd) => {
+                (!(is_subcmd)) => {
                   parsed._positionals.push(current_arg);
                   p_idx := usize(0);
                   p_count := usize(0);
-                  while (p_idx < arg_defs_len), (p_idx = (p_idx + usize(1))), {
-                    match(self._args.get(p_idx),
+                  while(p_idx < arg_defs_len, p_idx = (p_idx + usize(1)), {
+                    match(
+                      self._args.get(p_idx),
                       .Some(p_def) => {
-                        match(p_def._kind,
+                        match(
+                          p_def._kind,
                           .Positional => {
                             cond(
                               (p_count == positional_idx) => {
@@ -469,7 +485,7 @@ impl(ArgParser,
                       },
                       .None => ()
                     );
-                  };
+                  });
                   positional_idx = (positional_idx + usize(1));
                 },
                 true => ()
@@ -480,22 +496,23 @@ impl(ArgParser,
         .None => ()
       );
       idx = (idx + usize(1));
-    };
-
+    });
     // Check for errors
-    match(err_msg,
+    match(
+      err_msg,
       .Some(msg) => {
-        return .Err(msg);
+        return(.Err(msg));
       },
       .None => ()
     );
-
     // Apply defaults for options not explicitly set
     def_i := usize(0);
-    while (def_i < arg_defs_len), (def_i = (def_i + usize(1))), {
-      match(self._args.get(def_i),
+    while(def_i < arg_defs_len, def_i = (def_i + usize(1)), {
+      match(
+        self._args.get(def_i),
         .Some(def) => {
-          match(def._kind,
+          match(
+            def._kind,
             .Opt => {
               cond(
                 ((!(parsed._option_names.contains(def._long_name))) && (!(def._default_value.is_empty()))) => {
@@ -511,15 +528,13 @@ impl(ArgParser,
         },
         .None => ()
       );
-    };
-
-    return .Ok(parsed);
+    });
+    return(.Ok(parsed));
   })
 );
-
-export
+export(
   ArgKind,
   ArgDef,
   ParsedArgs,
   ArgParser
-;
+);

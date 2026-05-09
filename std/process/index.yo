@@ -2,44 +2,25 @@
 //!
 //! Environment variables, command-line arguments, and current working
 //! directory live in `std/env`.
-
 /// Current target platform as a compile-time string.
 /// One of: "linux", "macos", "windows", "freebsd", "emscripten", "wasi".
 platform :: __yo_process_platform();
-export platform;
-
+export(platform);
 /// Platform constants for compile-time platform comparisons.
-Platform :: {
-  Linux : "linux",
-  Macos : "macos",
-  Windows : "windows",
-  FreeBSD : "freebsd",
-  Emscripten : "emscripten",
-  Wasi : "wasi"
-};
-export Platform;
-
+Platform :: { Linux : "linux", Macos : "macos", Windows : "windows", FreeBSD : "freebsd", Emscripten : "emscripten", Wasi : "wasi" };
+export(Platform);
 /// Current target architecture as a compile-time string.
 /// One of: "x86_64", "aarch64", "x86", "arm", "wasm32".
 arch :: __yo_process_arch();
-export arch;
-
+export(arch);
 /// Architecture constants for compile-time architecture comparisons.
-Arch :: {
-  X86_64 : "x86_64",
-  Aarch64 : "aarch64",
-  X86 : "x86",
-  Arm : "arm",
-  Wasm32 : "wasm32"
-};
-export Arch;
-
+Arch :: { X86_64 : "x86_64", Aarch64 : "aarch64", X86 : "x86", Arm : "arm", Wasm32 : "wasm32" };
+export(Arch);
 /// Exit the process with the given status code.
-exit :: (fn(code : usize) -> unit) {
-  { exit : _exit } :: import "../libc/stdlib";
+exit :: (fn(code : usize) -> unit)({
+  { exit : _exit } :: import("../libc/stdlib");
   _exit(int(code));
-};
-export exit;
-
-_command :: import "./command.yo";
-export ...(_command);
+});
+export(exit);
+_command :: import("./command.yo");
+export(...(_command));

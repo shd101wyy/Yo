@@ -4,24 +4,33 @@
 //! the `setExprAsConsumed` helper from `src/expr.ts`.
 //!
 //! `set_variable_as_consumed` is also exported for use by drop.yo and dup.yo.
-
-open import "std/string";
-{ ArrayList }                                    :: import "std/collections/array_list";
-{ Token }                                        :: import "../../lexer/token.yo";
-{ AstExpr, ast_expr_token, ast_expr_id }         :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                          :: import "../../expr/expr_info.yo";
-{ Variable, Environment, get_variables_from_env,
-  update_existing_variable }                     :: import "../../env/env.yo";
-{ EvalContext }                                  :: import "../context.yo";
-{ EvalValue }                                    :: import "../value.yo";
-{ TypeValue }                                    :: import "../../types/type.yo";
-{ t_unit }                                       :: import "../../types/type.yo";
-{ TokenAndError, format_error_messages,
-  format_error_message }                         :: import "../../error/error.yo";
-{ evaluate_expression }                          :: import "../exprs/expr.yo";
-{ Exception }                                    :: import "std/error";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Token } :: import("../../lexer/token.yo");
+{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{
+  Variable,
+  Environment,
+  get_variables_from_env,
+  update_existing_variable
+} :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../value.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ t_unit } :: import("../../types/type.yo");
+{
+  TokenAndError,
+  format_error_messages,
+  format_error_message
+} :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
 /// Mark the variable identified by `variable_name` in `env` as consumed at `token`.
 /// If the variable is already consumed and `allow_consume_again` is false, throws.
 /// If `is_type_val` is true, skips consumption (type values are always reusable).
@@ -29,41 +38,59 @@ open import "std/string";
 /// This is the core of `setExprAsConsumed` from `src/expr.ts`, split to allow
 /// callers in yo-self to pass the ExprInfo fields explicitly (since yo-self stores
 /// ExprInfo in a separate table rather than inline on the AST node).
-set_variable_as_consumed :: (fn(
-  variable_name       : String,
-  token               : Token,
-  env                 : Environment,
-  allow_consume_again : bool,
-  is_type_val         : bool,
-  using(exn : Exception)
-) -> unit)({
+set_variable_as_consumed :: (
+  fn(
+    variable_name : String,
+    token : Token,
+    env : Environment,
+    allow_consume_again : bool,
+    is_type_val : bool,
+    using(exn : Exception)
+  ) -> unit
+)({
   // Don't consume type values — they should be reusable.
-  if(is_type_val, { return (); });
-
-  variables := get_variables_from_env(env, variable_name);
-  n_vars    := variables.len();
-  if((n_vars == usize(0)), {
-    exn.throw(dyn format_error_message(
-      token,
-      (`Variable "${variable_name}" is not defined.`),
-      false,
-      .None
-    ));
+  if(is_type_val, {
+    return(());
   });
-  variable  := match(variables.get((n_vars - usize(1))), .Some(v) => v, .None => { return (); });
-  match(variable.consumed_at_token,
+  variables := get_variables_from_env(env, variable_name);
+  n_vars := variables.len();
+  if(n_vars == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          token,
+          `Variable "${variable_name}" is not defined.`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  variable := match(
+    variables.get(n_vars - usize(1)),
+    .Some(v) => v,
+    .None => {
+      return(());
+    }
+  );
+  match(
+    variable.consumed_at_token,
     .Some(consumed_token) => {
       if(!(allow_consume_again), {
         entries := ArrayList(TokenAndError).new();
-        entries.push(TokenAndError(
-          token: token,
-          error_message: (`use of moved value: \`${variable_name}\``)
-        ));
-        entries.push(TokenAndError(
-          token: consumed_token,
-          error_message: String.from("value moved here")
-        ));
-        exn.throw(dyn format_error_messages(entries, false, .None));
+        entries.push(
+          TokenAndError(
+            token : token,
+            error_message : `use of moved value: \`${variable_name}\``
+          )
+        );
+        entries.push(
+          TokenAndError(
+            token : consumed_token,
+            error_message : String.from("value moved here")
+          )
+        );
+        exn.throw(dyn(format_error_messages(entries, false,.None)));
       });
     },
     .None => {
@@ -74,54 +101,69 @@ set_variable_as_consumed :: (fn(
     }
   );
 });
-
-evaluate_consume :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-
-  eval_arg      := evaluate_expression(arg_expr, env, ctx);
-  arg_info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
-  (cur_env : Environment) = match(arg_info_opt, .Some(i) => i.env, .None => env);
-  match(arg_info_opt,
-    .Some(_) => (),
-    .None    => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(arg_expr),
-        String.from("consume: failed to evaluate expression."),
-        false,
-        .None
-      ));
+evaluate_consume :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(expr);
     }
   );
-
+  arg_expr := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
+  eval_arg := evaluate_expression(arg_expr, env, ctx);
+  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
+  (cur_env : Environment) = match(arg_info_opt,.Some(i) => i.env,.None => env);
+  match(
+    arg_info_opt,
+    .Some(_) => (),
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("consume: failed to evaluate expression."),
+            false,
+            .None
+          )
+        )
+      );
+    }
+  );
   // Determine if value is a TypeVal.
-  is_tv := match(arg_info_opt,
-    .Some(info) => match(info.value,
-      .Some(v) => match(v, .TypeVal(_) => true, _ => false),
-      .None    => false
+  is_tv := match(
+    arg_info_opt,
+    .Some(info) => match(
+      info.value,
+      .Some(v) => match(v,.TypeVal(_) => true, _ => false),
+      .None => false
     ),
     .None => false
   );
-
   // Get variable name from ExprInfo.
-  variable_name_opt := match(arg_info_opt, .Some(i) => i.variable_name, .None => Option(String).None);
-
-  match(variable_name_opt,
+  variable_name_opt := match(arg_info_opt,.Some(i) => i.variable_name,.None => Option(String).None);
+  match(
+    variable_name_opt,
     .Some(vname) => {
       set_variable_as_consumed(vname, ast_expr_token(arg_expr), cur_env, false, is_tv, using(exn));
     },
     .None => ()
   );
-
   out_info := new_expr_info(cur_env, t_unit());
   out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-
-export evaluate_consume, set_variable_as_consumed;
+export(evaluate_consume, set_variable_as_consumed);

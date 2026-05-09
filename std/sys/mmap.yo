@@ -6,23 +6,13 @@
 //! - Mapped pointer on success
 //! - Encoded error pointer on failure (negative errno cast to pointer)
 // Use is_error(ptr) and error_code(ptr) to detect/decode mmap failures.
-
-{ platform, Platform } :: import "../process";
-{
-  __yo_sync_mmap,
-  __yo_sync_mmap_is_error,
-  __yo_sync_mmap_errno,
-  __yo_sync_munmap,
-  __yo_sync_mprotect,
-  __yo_sync_msync
-} :: import "./externs.yo";
-
+{ platform, Platform } :: import("../process");
+{ __yo_sync_mmap, __yo_sync_mmap_is_error, __yo_sync_mmap_errno, __yo_sync_munmap, __yo_sync_mprotect, __yo_sync_msync } :: import("./externs.yo");
 // Protection constants
-PROT_NONE  :: i32(0);
-PROT_READ  :: i32(1);
+PROT_NONE :: i32(0);
+PROT_READ :: i32(1);
 PROT_WRITE :: i32(2);
-PROT_EXEC  :: i32(4);
-
+PROT_EXEC :: i32(4);
 // Mapping flags
 MAP_SHARED :: i32(1);
 MAP_PRIVATE :: i32(2);
@@ -30,7 +20,6 @@ MAP_ANONYMOUS :: cond(
   (platform == Platform.Macos) => i32(0x1000),
   true => i32(0x20)
 );
-
 // msync flags
 MS_ASYNC :: i32(1);
 MS_INVALIDATE :: i32(2);
@@ -38,53 +27,59 @@ MS_SYNC :: cond(
   (platform == Platform.Macos) => i32(0x10),
   true => i32(4)
 );
-
 // Map a file or anonymous memory region.
 // For anonymous mappings, pass flags including MAP_ANONYMOUS and fd = -1.
-mmap :: (fn(
-  addr: ?*(u8),
-  length: usize,
-  prot: i32,
-  flags: i32,
-  fd: i32,
-  offset: i64
-) -> ?*(u8))(
+mmap :: (
+  fn(
+    addr : ?*(u8),
+    length : usize,
+    prot : i32,
+    flags : i32,
+    fd : i32,
+    offset : i64
+  ) -> ?*(u8)
+)(
   __yo_sync_mmap(addr, length, prot, flags, fd, offset)
 );
-
 // Returns true if mmap returned an encoded error pointer.
-is_error :: (fn(addr: ?*(u8)) -> bool)(
+is_error :: (fn(addr : ?*(u8)) -> bool)(
   __yo_sync_mmap_is_error(addr)
 );
-
 // Decode errno from an encoded mmap error pointer.
 // Returns 0 if addr is not an encoded error pointer.
-error_code :: (fn(addr: ?*(u8)) -> i32)(
+error_code :: (fn(addr : ?*(u8)) -> i32)(
   __yo_sync_mmap_errno(addr)
 );
-
 // Unmap a previously mapped region.
 // Returns 0 on success, -errno on failure.
-munmap :: (fn(addr: *(u8), length: usize) -> i32)(
+munmap :: (fn(addr : *(u8), length : usize) -> i32)(
   __yo_sync_munmap(addr, length)
 );
-
 // Change memory protection on a mapped region.
 // Returns 0 on success, -errno on failure.
-mprotect :: (fn(addr: *(u8), length: usize, prot: i32) -> i32)(
+mprotect :: (fn(addr : *(u8), length : usize, prot : i32) -> i32)(
   __yo_sync_mprotect(addr, length, prot)
 );
-
 // Flush mapped pages to storage.
 // Returns 0 on success, -errno on failure.
-msync :: (fn(addr: *(u8), length: usize, flags: i32) -> i32)(
+msync :: (fn(addr : *(u8), length : usize, flags : i32) -> i32)(
   __yo_sync_msync(addr, length, flags)
 );
-
-export
-  mmap, is_error, error_code,
-  munmap, mprotect, msync,
-  PROT_NONE, PROT_READ, PROT_WRITE, PROT_EXEC,
-  MAP_SHARED, MAP_PRIVATE, MAP_ANONYMOUS,
-  MS_ASYNC, MS_INVALIDATE, MS_SYNC
-;
+export(
+  mmap,
+  is_error,
+  error_code,
+  munmap,
+  mprotect,
+  msync,
+  PROT_NONE,
+  PROT_READ,
+  PROT_WRITE,
+  PROT_EXEC,
+  MAP_SHARED,
+  MAP_PRIVATE,
+  MAP_ANONYMOUS,
+  MS_ASYNC,
+  MS_INVALIDATE,
+  MS_SYNC
+);

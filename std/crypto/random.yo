@@ -9,56 +9,52 @@
 //!
 //! id := uuid_v4();  // "550e8400-e29b-41d4-a716-446655440000"
 //! ```
-
-{ ArrayList } :: import "../collections/array_list";
-{ platform, Platform } :: import "../process";
-open import "../string";
-{ snprintf } :: import "../libc/stdio";
-{ hex_encode } :: import "../encoding/hex";
-{ Error, AnyError, Exception } :: import "../error";
-{ ToString } :: import "../fmt";
-
+{ ArrayList } :: import("../collections/array_list");
+{ platform, Platform } :: import("../process");
+open(import("../string"));
+{ snprintf } :: import("../libc/stdio");
+{ hex_encode } :: import("../encoding/hex");
+{ Error, AnyError, Exception } :: import("../error");
+{ ToString } :: import("../fmt");
 // ============================================================================
 // Error type
 // ============================================================================
-
 /// Errors that can occur during cryptographic random operations.
 CryptoError :: enum(
   /// Platform does not support secure random generation.
   Unavailable,
   /// Other platform-specific error.
-  Other(msg: String)
+  Other(msg : String)
 );
-
-impl(CryptoError, ToString(
-  to_string : (self ->
-    match(self,
-      .Unavailable => `crypto: platform random unavailable`,
-      .Other(msg) => `crypto error: ${msg}`
+impl(
+  CryptoError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .Unavailable => `crypto: platform random unavailable`,
+          .Other(msg) => `crypto error: ${msg}`
+        )
     )
   )
-));
-
+);
 impl(CryptoError, Error());
-
-export CryptoError;
-
+export(CryptoError);
 // ============================================================================
 // Platform externs
 // ============================================================================
-
-extern "Yo",
-  __yo_getrandom     : (fn(buf: *(u8), buflen: usize, flags: u32) -> isize),
-  __yo_arc4random_buf: (fn(buf: *(u8), nbytes: usize) -> unit),
-  __yo_bcrypt_gen_random: (fn(buf: *(u8), size: u32) -> i32),
-  __yo_getentropy: (fn(buf: *(u8), buflen: usize) -> i32)
-;
-
+extern(
+  "Yo",
+  __yo_getrandom : (fn(buf : *(u8), buflen : usize, flags : u32) -> isize),
+  __yo_arc4random_buf : (fn(buf : *(u8), nbytes : usize) -> unit),
+  __yo_bcrypt_gen_random : (fn(buf : *(u8), size : u32) -> i32),
+  __yo_getentropy : (fn(buf : *(u8), buflen : usize) -> i32)
+);
 // ============================================================================
 // Fill a buffer with cryptographically secure random bytes.
 // ============================================================================
-
-random_bytes :: (fn(buf: *(u8), size: usize, using(exn : Exception)) -> unit)(
+random_bytes :: (fn(buf : *(u8), size : usize, using(exn : Exception)) -> unit)(
   cond(
     (platform == Platform.Macos) => {
       __yo_arc4random_buf(buf, size);
@@ -67,82 +63,79 @@ random_bytes :: (fn(buf: *(u8), size: usize, using(exn : Exception)) -> unit)(
       r := __yo_bcrypt_gen_random(buf, u32(size));
       cond(
         (r == i32(0)) => (),
-        true => { exn.throw(dyn CryptoError.Unavailable); }
+        true => {
+          exn.throw(dyn(CryptoError.Unavailable));
+        }
       );
     },
     ((platform == Platform.Emscripten) || (platform == Platform.Wasi)) => {
       // WASM/Emscripten/WASI: getentropy() via WASI random_get (max 256 bytes per call)
       remaining := size;
       offset := usize(0);
-      while (remaining > usize(0)), {
+      while(remaining > usize(0), {
         chunk := cond(
           (remaining > usize(256)) => usize(256),
           true => remaining
         );
-        ret := __yo_getentropy((buf &+ offset), chunk);
+        ret := __yo_getentropy(buf &+ offset, chunk);
         cond(
-          (ret < i32(0)) => { exn.throw(dyn CryptoError.Unavailable); },
+          (ret < i32(0)) => {
+            exn.throw(dyn(CryptoError.Unavailable));
+          },
           true => ()
         );
         offset = (offset + chunk);
         remaining = (remaining - chunk);
-      };
+      });
     },
     true => {
       // Linux: getrandom syscall
       ret := __yo_getrandom(buf, size, u32(0));
       cond(
-        (ret < isize(0)) => { exn.throw(dyn CryptoError.Unavailable); },
+        (ret < isize(0)) => {
+          exn.throw(dyn(CryptoError.Unavailable));
+        },
         true => ()
       );
     }
   )
 );
-
-export random_bytes;
-
+export(random_bytes);
 // ============================================================================
 // Typed helpers
 // ============================================================================
-
 random_u32 :: (fn(using(exn : Exception)) -> u32)({
   buf := Array(u8, usize(4)).fill(u8(0));
   buf_ptr := &(buf(usize(0)));
   random_bytes(buf_ptr, usize(4));
-  (u32(buf(usize(0))) |
-   (u32(buf(usize(1))) << u32(8)) |
-   (u32(buf(usize(2))) << u32(16)) |
-   (u32(buf(usize(3))) << u32(24)))
-});
-
+  u32(buf(usize(0))) |
+    (u32(buf(usize(1))) << u32(8)) |
+      (u32(buf(usize(2))) << u32(16)) |
+        (u32(buf(usize(3))) << u32(24))
+      });
 random_u64 :: (fn(using(exn : Exception)) -> u64)({
   lo := u64(random_u32());
   hi := u64(random_u32());
-  (lo | (hi << u64(32)))
+  lo | (hi << u64(32))
 });
-
 random_f64 :: (fn(using(exn : Exception)) -> f64)(
-  (f64(random_u64()) / f64(18446744073709551615.0))
+  f64(random_u64()) / f64(18446744073709551615.0)
 );
-
 // Return a random integer in the half-open range [min, max).
-random_range :: (fn(min: i64, max: i64, using(exn : Exception)) -> i64)({
+random_range :: (fn(min : i64, max : i64, using(exn : Exception)) -> i64)({
   span := (max - min);
   cond(
     (span <= i64(0)) => min,
     true => {
       r := random_u64();
-      (min + i64((r % u64(span))))
+      min + i64(r % u64(span))
     }
   )
 });
-
-export random_u32, random_u64, random_f64, random_range;
-
+export(random_u32, random_u64, random_f64, random_range);
 // ============================================================================
 // UUID v4
 // ============================================================================
-
 // Generate a random UUID v4 string: "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
 uuid_v4 :: (fn(using(exn : Exception)) -> String)({
   bytes := ArrayList(u8).with_capacity(usize(16));
@@ -154,9 +147,9 @@ uuid_v4 :: (fn(using(exn : Exception)) -> String)({
   // Set variant bits
   buf(usize(8)) = ((buf(usize(8)) & u8(0x3F)) | u8(0x80));
   i := usize(0);
-  while (i < usize(16)), (i = (i + usize(1))), {
+  while(i < usize(16), i = (i + usize(1)), {
     bytes.push(buf(i));
-  };
+  });
   hex := hex_encode(bytes);
   hex_bytes := hex.as_bytes();
   // Insert dashes: 8-4-4-4-12
@@ -164,7 +157,7 @@ uuid_v4 :: (fn(using(exn : Exception)) -> String)({
   positions := Array(usize, usize(4))(usize(8), usize(12), usize(16), usize(20));
   j := usize(0);
   dash_idx := usize(0);
-  while (j < hex_bytes.len()), (j = (j + usize(1))), {
+  while(j < hex_bytes.len(), j = (j + usize(1)), {
     cond(
       ((dash_idx < usize(4)) && (j == positions(dash_idx))) => {
         out.push(u8(45)); // '-'
@@ -173,8 +166,7 @@ uuid_v4 :: (fn(using(exn : Exception)) -> String)({
       true => ()
     );
     out.push(hex_bytes.get(j).unwrap());
-  };
+  });
   String.from_bytes(out)
 });
-
-export uuid_v4;
+export(uuid_v4);

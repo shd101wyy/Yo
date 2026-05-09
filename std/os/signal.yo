@@ -10,18 +10,13 @@
 //! handler :: (fn(data: *(u8)) -> unit)({ println("Caught SIGINT"); });
 //! on_signal(.Interrupt, handler);
 //! ```
-
-{ IOError } :: import "../sys/errors";
-{
-  on_signal : _on_signal, off_signal : _off_signal, SignalHandler
-} :: import "../sys/signal";
-{ platform, Platform } :: import "../process";
-{ Error, AnyError, Exception } :: import "../error";
-
+{ IOError } :: import("../sys/errors");
+{ on_signal : _on_signal, off_signal : _off_signal, SignalHandler } :: import("../sys/signal");
+{ platform, Platform } :: import("../process");
+{ Error, AnyError, Exception } :: import("../error");
 // ============================================================================
 // Signal enum
 // ============================================================================
-
 /// Portable signal identifiers.
 Signal :: enum(
   /// SIGINT — interrupt from keyboard (Ctrl-C).
@@ -41,11 +36,10 @@ Signal :: enum(
   /// SIGCHLD — child process status change.
   Child
 );
-
-export Signal;
-
-_signal_num :: (fn(sig: Signal) -> i32)(
-  match(sig,
+export(Signal);
+_signal_num :: (fn(sig : Signal) -> i32)(
+  match(
+    sig,
     .Interrupt => cond(
       (platform == Platform.Macos) => i32(2),
       true => i32(2)
@@ -80,33 +74,29 @@ _signal_num :: (fn(sig: Signal) -> i32)(
     )
   )
 );
-
 // ============================================================================
 // on_signal / off_signal
 // ============================================================================
-
 /// Register a handler for the given signal.
-on_signal :: (fn(sig: Signal, handler: SignalHandler, using(exn : Exception)) -> unit)({
+on_signal :: (fn(sig : Signal, handler : SignalHandler, using(exn : Exception)) -> unit)({
   num := _signal_num(sig);
-  r   := _on_signal(num, handler);
+  r := _on_signal(num, handler);
   cond(
     (r < i32(0)) => {
-      exn.throw(dyn IOError.from_errno((i32(0) - r)));
+      exn.throw(dyn(IOError.from_errno(i32(0) - r)));
     },
     true => ()
   );
 });
-
 /// Remove the handler for the given signal.
-off_signal :: (fn(sig: Signal, using(exn : Exception)) -> unit)({
+off_signal :: (fn(sig : Signal, using(exn : Exception)) -> unit)({
   num := _signal_num(sig);
-  r   := _off_signal(num);
+  r := _off_signal(num);
   cond(
     (r < i32(0)) => {
-      exn.throw(dyn IOError.from_errno((i32(0) - r)));
+      exn.throw(dyn(IOError.from_errno(i32(0) - r)));
     },
     true => ()
   );
 });
-
-export SignalHandler, on_signal, off_signal;
+export(SignalHandler, on_signal, off_signal);

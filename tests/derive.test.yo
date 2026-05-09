@@ -1,486 +1,400 @@
 // Tests for derive(Type, Trait(Type)) — auto-generated trait implementations
-open import "std/string";
-open import "std/fmt";
-
+open(import("std/string"));
+open(import("std/fmt"));
 // === Basic struct for testing ===
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point));
-
 // === Test derive Eq for struct ===
-test "derive Eq for struct", {
+test("derive Eq for struct", {
   p1 := Point(i32(1), i32(2));
   p2 := Point(i32(1), i32(2));
   p3 := Point(i32(3), i32(4));
-
-  assert((p1 == p2), "equal points should be equal");
-  assert((p1 != p3), "different points should not be equal");
+  assert(p1 == p2, "equal points should be equal");
+  assert(p1 != p3, "different points should not be equal");
   assert(!(p1 == p3), "negation of equal should work");
   assert(!(p1 != p2), "negation of not-equal should work");
-};
-
+});
 // === Test derive Eq for empty struct ===
 Empty :: struct();
 derive(Empty, Eq(Empty));
-
-test "derive Eq for empty struct", {
+test("derive Eq for empty struct", {
   e1 := Empty();
   e2 := Empty();
-  assert((e1 == e2), "empty structs should be equal");
-};
-
+  assert(e1 == e2, "empty structs should be equal");
+});
 // === Test derive Eq for single-field struct ===
 Wrapper :: struct(value : i32);
 derive(Wrapper, Eq(Wrapper));
-
-test "derive Eq for single-field struct", {
+test("derive Eq for single-field struct", {
   w1 := Wrapper(i32(42));
   w2 := Wrapper(i32(42));
   w3 := Wrapper(i32(99));
-
-  assert((w1 == w2), "same value wrappers should be equal");
-  assert((w1 != w3), "different value wrappers should not be equal");
-};
-
+  assert(w1 == w2, "same value wrappers should be equal");
+  assert(w1 != w3, "different value wrappers should not be equal");
+});
 // === Test derive Hash for struct ===
 derive(Point, Hash);
-
-test "derive Hash for struct", {
+test("derive Hash for struct", {
   p1 := Point(i32(1), i32(2));
   p2 := Point(i32(1), i32(2));
   p3 := Point(i32(3), i32(4));
-
-  h1 := (&p1).hash();
-  h2 := (&p2).hash();
-  h3 := (&p3).hash();
-
-  assert((h1 == h2), "equal points should have equal hashes");
-  assert((h1 != h3), "different points should likely have different hashes");
-};
-
+  h1 := (&(p1)).hash();
+  h2 := (&(p2)).hash();
+  h3 := (&(p3)).hash();
+  assert(h1 == h2, "equal points should have equal hashes");
+  assert(h1 != h3, "different points should likely have different hashes");
+});
 // === Test derive Clone for struct ===
 derive(Point, Clone);
-
-test "derive Clone for struct", {
+test("derive Clone for struct", {
   p1 := Point(i32(1), i32(2));
-  p2 := (&p1).clone();
-
-  assert((p1 == p2), "cloned point should equal original");
-};
-
+  p2 := (&(p1)).clone();
+  assert(p1 == p2, "cloned point should equal original");
+});
 // === Test derive Ord for struct ===
 derive(Point, Ord(Point));
-
-test "derive Ord for struct", {
+test("derive Ord for struct", {
   p1 := Point(i32(1), i32(2));
   p2 := Point(i32(1), i32(3));
   p3 := Point(i32(2), i32(1));
-
   // Lexicographic: (1,2) < (1,3)
-  assert((p1 < p2), "(1,2) should be < (1,3)");
-  assert((p1 <= p2), "(1,2) should be <= (1,3)");
+  assert(p1 < p2, "(1,2) should be < (1,3)");
+  assert(p1 <= p2, "(1,2) should be <= (1,3)");
   assert(!(p1 > p2), "(1,2) should not be > (1,3)");
   assert(!(p1 >= p2), "(1,2) should not be >= (1,3)");
-
   // Lexicographic: (1,2) < (2,1)
-  assert((p1 < p3), "(1,2) should be < (2,1)");
-
+  assert(p1 < p3, "(1,2) should be < (2,1)");
   // Equal points
   p4 := Point(i32(1), i32(2));
-  assert((p1 <= p4), "equal points should be <=");
-  assert((p1 >= p4), "equal points should be >=");
+  assert(p1 <= p4, "equal points should be <=");
+  assert(p1 >= p4, "equal points should be >=");
   assert(!(p1 < p4), "equal points should not be <");
   assert(!(p1 > p4), "equal points should not be >");
-};
-
+});
 // === Test derive ToString for struct ===
 derive(Point, ToString);
-
-test "derive ToString for struct", {
+test("derive ToString for struct", {
   p := Point(i32(1), i32(2));
-  s := (&p).to_string();
-  assert((s == `Point(1, 2)`), "toString should format as Point(1, 2)");
-};
-
+  s := (&(p)).to_string();
+  assert(s == `Point(1, 2)`, "toString should format as Point(1, 2)");
+});
 // === Test multiple derives in one call ===
 Color :: struct(r : i32, g : i32, b : i32);
 derive(Color, Eq(Color), Hash, Clone, Ord(Color), ToString);
-
-test "multiple derives in one call", {
+test("multiple derives in one call", {
   c1 := Color(i32(255), i32(0), i32(0));
   c2 := Color(i32(255), i32(0), i32(0));
   c3 := Color(i32(0), i32(255), i32(0));
-
   // Eq
-  assert((c1 == c2), "same colors should be equal");
-  assert((c1 != c3), "different colors should not be equal");
-
+  assert(c1 == c2, "same colors should be equal");
+  assert(c1 != c3, "different colors should not be equal");
   // Hash
-  assert(((&c1).hash() == (&c2).hash()), "same colors should have same hash");
-
+  assert((&(c1)).hash() == (&(c2)).hash(), "same colors should have same hash");
   // Clone
-  c4 := (&c1).clone();
-  assert((c1 == c4), "cloned color should equal original");
-
+  c4 := (&(c1)).clone();
+  assert(c1 == c4, "cloned color should equal original");
   // Ord
-  assert((c3 < c1), "(0,255,0) should be < (255,0,0)");
-
+  assert(c3 < c1, "(0,255,0) should be < (255,0,0)");
   // ToString
-  s := (&c1).to_string();
-  assert((s == `Color(255, 0, 0)`), "toString should format correctly");
-};
-
+  s := (&(c1)).to_string();
+  assert(s == `Color(255, 0, 0)`, "toString should format correctly");
+});
 // === Test derive for struct with bool fields ===
 Flags :: struct(a : bool, b : bool);
 derive(Flags, Eq(Flags), Hash, Clone);
-
-test "derive for struct with bool fields", {
+test("derive for struct with bool fields", {
   f1 := Flags(true, false);
   f2 := Flags(true, false);
   f3 := Flags(false, true);
-
-  assert((f1 == f2), "same flags should be equal");
-  assert((f1 != f3), "different flags should not be equal");
-
-  f4 := (&f1).clone();
-  assert((f1 == f4), "cloned flags should equal original");
-};
-
+  assert(f1 == f2, "same flags should be equal");
+  assert(f1 != f3, "different flags should not be equal");
+  f4 := (&(f1)).clone();
+  assert(f1 == f4, "cloned flags should equal original");
+});
 // === Test derive Eq for fieldless enum ===
 Direction :: enum(North, South, East, West);
 derive(Direction, Eq(Direction));
-
-test "derive Eq for fieldless enum", {
+test("derive Eq for fieldless enum", {
   d1 := Direction.North;
   d2 := Direction.North;
   d3 := Direction.South;
-
-  assert((d1 == d2), "same direction should be equal");
-  assert((d1 != d3), "different directions should not be equal");
-};
-
+  assert(d1 == d2, "same direction should be equal");
+  assert(d1 != d3, "different directions should not be equal");
+});
 // === Test derive Hash for fieldless enum ===
 derive(Direction, Hash);
-
-test "derive Hash for fieldless enum", {
+test("derive Hash for fieldless enum", {
   d1 := Direction.North;
   d2 := Direction.North;
   d3 := Direction.South;
-
-  assert(((&d1).hash() == (&d2).hash()), "same direction should have same hash");
-  assert(((&d1).hash() != (&d3).hash()), "different directions should have different hashes");
-};
-
+  assert((&(d1)).hash() == (&(d2)).hash(), "same direction should have same hash");
+  assert((&(d1)).hash() != (&(d3)).hash(), "different directions should have different hashes");
+});
 // === Test derive Clone for fieldless enum ===
 derive(Direction, Clone);
-
-test "derive Clone for fieldless enum", {
+test("derive Clone for fieldless enum", {
   d1 := Direction.North;
-  d2 := (&d1).clone();
-  assert((d1 == d2), "cloned direction should equal original");
-};
-
+  d2 := (&(d1)).clone();
+  assert(d1 == d2, "cloned direction should equal original");
+});
 // === Test derive Ord for fieldless enum ===
 derive(Direction, Ord(Direction));
-
-test "derive Ord for fieldless enum", {
-  assert((Direction.North < Direction.South), "North < South");
-  assert((Direction.North <= Direction.North), "North <= North");
-  assert((Direction.West > Direction.East), "West > East");
-};
-
+test("derive Ord for fieldless enum", {
+  assert(Direction.North < Direction.South, "North < South");
+  assert(Direction.North <= Direction.North, "North <= North");
+  assert(Direction.West > Direction.East, "West > East");
+});
 // === Test derive ToString for fieldless enum ===
 derive(Direction, ToString);
-
-test "derive ToString for fieldless enum", {
+test("derive ToString for fieldless enum", {
   d := Direction.North;
-  s := (&d).to_string();
-  assert((s == `Direction.North`), "toString should format as Direction.North");
-};
-
+  s := (&(d)).to_string();
+  assert(s == `Direction.North`, "toString should format as Direction.North");
+});
 // === Test derive for enum with fields ===
 Shape :: enum(
   Circle(radius : i32),
   Rectangle(width : i32, height : i32)
 );
 derive(Shape, Eq(Shape), Hash, Clone, ToString);
-
-test "derive Eq for enum with fields", {
+test("derive Eq for enum with fields", {
   s1 := Shape.Circle(i32(5));
   s2 := Shape.Circle(i32(5));
   s3 := Shape.Circle(i32(10));
   s4 := Shape.Rectangle(i32(3), i32(4));
-
-  assert((s1 == s2), "same circles should be equal");
-  assert((s1 != s3), "different circles should not be equal");
-  assert((s1 != s4), "circle should not equal rectangle");
-};
-
-test "derive Clone for enum with fields", {
+  assert(s1 == s2, "same circles should be equal");
+  assert(s1 != s3, "different circles should not be equal");
+  assert(s1 != s4, "circle should not equal rectangle");
+});
+test("derive Clone for enum with fields", {
   s1 := Shape.Circle(i32(5));
-  s2 := (&s1).clone();
-  assert((s1 == s2), "cloned shape should equal original");
-
+  s2 := (&(s1)).clone();
+  assert(s1 == s2, "cloned shape should equal original");
   s3 := Shape.Rectangle(i32(3), i32(4));
-  s4 := (&s3).clone();
-  assert((s3 == s4), "cloned rectangle should equal original");
-};
-
-test "derive ToString for enum with fields", {
+  s4 := (&(s3)).clone();
+  assert(s3 == s4, "cloned rectangle should equal original");
+});
+test("derive ToString for enum with fields", {
   s1 := Shape.Circle(i32(5));
-  assert(((&s1).to_string() == `Shape.Circle(5)`), "circle toString");
-
+  assert((&(s1)).to_string() == `Shape.Circle(5)`, "circle toString");
   s2 := Shape.Rectangle(i32(3), i32(4));
-  assert(((&s2).to_string() == `Shape.Rectangle(3, 4)`), "rectangle toString");
-};
-
+  assert((&(s2)).to_string() == `Shape.Rectangle(3, 4)`, "rectangle toString");
+});
 // === Test derive for struct containing derived struct ===
 Line :: struct(start : Point, end_ : Point);
 derive(Line, Eq(Line), Clone);
-
-test "derive for nested struct", {
+test("derive for nested struct", {
   l1 := Line(Point(i32(0), i32(0)), Point(i32(1), i32(1)));
   l2 := Line(Point(i32(0), i32(0)), Point(i32(1), i32(1)));
   l3 := Line(Point(i32(0), i32(0)), Point(i32(2), i32(2)));
-
-  assert((l1 == l2), "same lines should be equal");
-  assert((l1 != l3), "different lines should not be equal");
-
-  l4 := (&l1).clone();
-  assert((l1 == l4), "cloned line should equal original");
-};
-
+  assert(l1 == l2, "same lines should be equal");
+  assert(l1 != l3, "different lines should not be equal");
+  l4 := (&(l1)).clone();
+  assert(l1 == l4, "cloned line should equal original");
+});
 // ============================================================
 // v2: Explicit trait argument syntax
 // ============================================================
-
 // Test: derive(Type, Trait(Type)) — explicit trait args
 Vec2 :: struct(x : i32, y : i32);
 derive(Vec2, Eq(Vec2));
-
-test "derive with explicit trait arg Eq(Type)", {
+test("derive with explicit trait arg Eq(Type)", {
   v1 := Vec2(i32(3), i32(4));
   v2 := Vec2(i32(3), i32(4));
   v3 := Vec2(i32(1), i32(2));
-  assert((v1 == v2), "explicit trait arg: equal");
-  assert((v1 != v3), "explicit trait arg: not equal");
-};
-
+  assert(v1 == v2, "explicit trait arg: equal");
+  assert(v1 != v3, "explicit trait arg: not equal");
+});
 // Test: multiple explicit trait args
 Vec3 :: struct(x : i32, y : i32, z : i32);
 derive(Vec3, Eq(Vec3), Hash, Clone);
-
-test "derive with multiple explicit trait args", {
+test("derive with multiple explicit trait args", {
   v1 := Vec3(i32(1), i32(2), i32(3));
-  v2 := (&v1).clone();
-  assert((v1 == v2), "mixed args: clone equals original");
-  h1 := (&v1).hash();
-  h2 := (&v2).hash();
-  assert((h1 == h2), "mixed args: equal values same hash");
-};
-
+  v2 := (&(v1)).clone();
+  assert(v1 == v2, "mixed args: clone equals original");
+  h1 := (&(v1)).hash();
+  h2 := (&(v2)).hash();
+  assert(h1 == h2, "mixed args: equal values same hash");
+});
 // ============================================================
 // v2: comptime_eval
 // ============================================================
-
 EvalPoint :: struct(a : i32, b : i32);
-
 comptime_eval("derive(EvalPoint, Eq(EvalPoint))");
-
-test "comptime_eval derive", {
+test("comptime_eval derive", {
   ep1 := EvalPoint(i32(5), i32(10));
   ep2 := EvalPoint(i32(5), i32(10));
   ep3 := EvalPoint(i32(1), i32(2));
-  assert((ep1 == ep2), "comptime_eval: equal");
-  assert((ep1 != ep3), "comptime_eval: not equal");
-};
-
+  assert(ep1 == ep2, "comptime_eval: equal");
+  assert(ep1 != ep3, "comptime_eval: not equal");
+});
 // =============================================================================
 // === derive_rule tests (Phase 2) — user-defined derive rules via macros ===
 // =============================================================================
-
 // Define a custom equality trait
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     my_eq : (fn(self : Self, other : Rhs) -> bool)
   )
 );
-
-impl(i32, MyEq(i32)(
-  my_eq : ((self, other) -> (self == other))
-));
-
-impl(bool, MyEq(bool)(
-  my_eq : ((self, other) -> (self == other))
-));
-
+impl(
+  i32,
+  MyEq(i32)(
+    my_eq : ((self, other) -> (self == other))
+  )
+);
+impl(
+  bool,
+  MyEq(bool)(
+    my_eq : ((self, other) -> (self == other))
+  )
+);
 // Register derive rule for MyEq: field-wise equality (structs and fieldless enums)
-my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
-  {
-    info :: Type.get_info(T);
-    eq_body :: cond(
-      info.is_struct() => cond(
-        (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
-        true => Type.join_fields(
-          T,
-          (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-            quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
-          ),
-          quote(&&)
-        )
-      ),
-      info.is_enum() => {
-        match_branches :: Type.map_variants(
-          T,
-          (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
-            cond(
-              (variant.fields.len() == usize(0)) => quote(
-                .(#(variant.name.to_expr())) => match(other,
-                  .(#(variant.name.to_expr())) => true,
-                  _ => false
-                )
-              ),
-              true => quote(
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  info :: Type.get_info(T);
+  eq_body :: cond(
+    info.is_struct() => cond(
+      (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
+      true => Type.join_fields(
+        T,
+        (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+          quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+        ),
+        quote(&&)
+      )
+    ),
+    info.is_enum() => {
+      match_branches :: Type.map_variants(
+        T,
+        (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
+          cond(
+            (variant.fields.len() == usize(0)) => quote(
+              .(#(variant.name.to_expr())) => match(
+                other,
+                .(#(variant.name.to_expr())) => true,
                 _ => false
               )
+            ),
+            true => quote(
+              _ => false
             )
           )
-        );
-        quote(match(self, ...#(match_branches)))
-      },
-      true => quote(false)
-    );
-    ctx.make_impl(quote(
-      MyEq(...#(trait_params))(
+        )
+      );
+      quote(match(self, ...(#(match_branches))))
+    },
+    true => quote(false)
+  );
+  ctx.make_impl(
+    quote(
+      MyEq(...(#(trait_params)))(
         my_eq : ((self, other) -> #(eq_body))
       )
-    ))
-  }
-);
-
+    )
+  )
+});
 derive_rule(MyEq, my_derive_eq);
-
 UsesEq :: trait(
   uses_eq : (fn(self : Self, other : Self) -> bool)
 );
-
 __derive_uses_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
-  ctx.make_impl(quote(
-    UsesEq(
-      uses_eq : ((self, other) -> (self == other))
+  ctx.make_impl(
+    quote(
+      UsesEq(
+        uses_eq : ((self, other) -> (self == other))
+      )
     )
-  ))
+  )
 );
-
 derive_rule(UsesEq, __derive_uses_eq);
-
 // Test: derive_rule for 2-field struct
 DRPoint :: struct(x : i32, y : i32);
 derive(DRPoint, MyEq(DRPoint));
-
-test "derive_rule MyEq for 2-field struct", {
+test("derive_rule MyEq for 2-field struct", {
   p1 := DRPoint(i32(1), i32(2));
   p2 := DRPoint(i32(1), i32(2));
   p3 := DRPoint(i32(1), i32(3));
   assert(p1.my_eq(p2), "equal points should be equal");
   assert(!(p1.my_eq(p3)), "different points should not be equal");
-};
-
+});
 // Test: derive_rule for 3-field struct
 DRVec3 :: struct(x : i32, y : i32, z : i32);
 derive(DRVec3, MyEq(DRVec3));
-
-test "derive_rule MyEq for 3-field struct", {
+test("derive_rule MyEq for 3-field struct", {
   v1 := DRVec3(i32(1), i32(2), i32(3));
   v2 := DRVec3(i32(1), i32(2), i32(3));
   v3 := DRVec3(i32(1), i32(2), i32(4));
   assert(v1.my_eq(v2), "equal vec3 should be equal");
   assert(!(v1.my_eq(v3)), "different vec3 should not be equal");
-};
-
+});
 // Test: derive_rule for empty struct
 DREmpty :: struct();
 derive(DREmpty, MyEq(DREmpty));
-
-test "derive_rule MyEq for empty struct", {
+test("derive_rule MyEq for empty struct", {
   e1 := DREmpty();
   e2 := DREmpty();
   assert(e1.my_eq(e2), "empty structs should be equal");
-};
-
+});
 // Test: derive_rule for mixed-type struct
 DRRecord :: struct(id : i32, active : bool);
 derive(DRRecord, MyEq(DRRecord));
-
-test "derive_rule MyEq for mixed-type struct", {
+test("derive_rule MyEq for mixed-type struct", {
   r1 := DRRecord(i32(1), true);
   r2 := DRRecord(i32(1), true);
   r3 := DRRecord(i32(1), false);
   assert(r1.my_eq(r2), "equal records should be equal");
   assert(!(r1.my_eq(r3)), "different records should not be equal");
-};
-
+});
 // Test: derive_rule for fieldless enum
 DRColor :: enum(Red, Green, Blue);
 derive(DRColor, MyEq(DRColor));
-
-test "derive_rule MyEq for fieldless enum", {
+test("derive_rule MyEq for fieldless enum", {
   r := DRColor.Red;
   g := DRColor.Green;
   r2 := DRColor.Red;
   assert(r.my_eq(r2), "Red should equal Red");
   assert(!(r.my_eq(g)), "Red should not equal Green");
   assert(!(g.my_eq(DRColor.Blue)), "Green should not equal Blue");
-};
-
+});
 UsesEqPoint :: struct(x : i32, y : i32);
 derive(UsesEqPoint, Eq(UsesEqPoint), UsesEq);
-
-test "multiple derives in one call share accumulated impl env", {
+test("multiple derives in one call share accumulated impl env", {
   p1 := UsesEqPoint(i32(1), i32(2));
   p2 := UsesEqPoint(i32(1), i32(2));
   p3 := UsesEqPoint(i32(2), i32(3));
   assert(p1.uses_eq(p2), "UsesEq derive should see Eq derived earlier in the same call");
   assert(!(p1.uses_eq(p3)), "UsesEq derive should use the derived Eq implementation");
-};
-
+});
 // ========== Test: generic derive_rule with forall/where ==========
-
 // Generic struct type constructor
 DRPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(first : A, second : B)
 );
-
 // Generic derive with forall/where
-derive(forall(T1, T2), DRPair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(DRPair(T1, T2)));
-
-test "derive_rule MyEq for generic struct with forall/where", {
+derive(forall(T1, T2), DRPair(T1, T2), where(T1 <: MyEq(T1), T2 <: MyEq(T2)), MyEq(DRPair(T1, T2)));
+test("derive_rule MyEq for generic struct with forall/where", {
   p1 := DRPair(i32, i32)(i32(1), i32(2));
   p2 := DRPair(i32, i32)(i32(1), i32(2));
   p3 := DRPair(i32, i32)(i32(1), i32(3));
   assert(p1.my_eq(p2), "equal pairs should be equal");
   assert(!(p1.my_eq(p3)), "different pairs should not be equal");
-};
-
-test "derive_rule MyEq for generic struct with mixed types", {
+});
+test("derive_rule MyEq for generic struct with mixed types", {
   m1 := DRPair(i32, bool)(i32(42), true);
   m2 := DRPair(i32, bool)(i32(42), true);
   m3 := DRPair(i32, bool)(i32(42), false);
   assert(m1.my_eq(m2), "equal mixed pairs should be equal");
   assert(!(m1.my_eq(m3)), "different mixed pairs should not be equal");
-};
-
+});
 // ========== Test: built-in derive with forall/where ==========
-
 DRGenericBox :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(value : T)
 );
-
-derive(forall(T), DRGenericBox(T), where((T <: Eq(T))), Eq(DRGenericBox(T)));
-
-test "built-in derive Eq for generic struct with forall/where", {
+derive(forall(T), DRGenericBox(T), where(T <: Eq(T)), Eq(DRGenericBox(T)));
+test("built-in derive Eq for generic struct with forall/where", {
   b1 := DRGenericBox(i32)(i32(10));
   b2 := DRGenericBox(i32)(i32(10));
   b3 := DRGenericBox(i32)(i32(20));
-  assert((b1 == b2), "equal boxes should be equal");
+  assert(b1 == b2, "equal boxes should be equal");
   assert(!(b1 == b3), "different boxes should not be equal");
-};
+});

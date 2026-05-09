@@ -26,88 +26,71 @@
 //     await udp.close(sockfd);
 //     tcp.free_sockaddr(addr);
 //   };
-
-{ IOFuture } :: import "./future.yo";
-{
-  __yo_async_socket_start, __yo_async_bind_start,
-  __yo_async_send_start, __yo_async_recv_start,
-  __yo_async_sendto_start, __yo_async_recvfrom_start,
-  __yo_async_close_start,
-  __yo_async_setsockopt_start, __yo_async_getsockopt_start
-} :: import "./externs.yo";
-{
-  SOCK_DGRAM
-} :: import "./socket.yo";
-
+{ IOFuture } :: import("./future.yo");
+{ __yo_async_socket_start, __yo_async_bind_start, __yo_async_send_start, __yo_async_recv_start, __yo_async_sendto_start, __yo_async_recvfrom_start, __yo_async_close_start, __yo_async_setsockopt_start, __yo_async_getsockopt_start } :: import("./externs.yo");
+{ SOCK_DGRAM } :: import("./socket.yo");
 // ============================================================================
 // Core UDP Operations (return IOFuture, use with await)
 // ============================================================================
-
 // Create a UDP socket.
 // domain: AF_INET or AF_INET6
 // protocol: typically 0
 // Returns fd on success, -errno on failure.
-socket :: (fn(domain: i32, protocol: i32) -> IOFuture)(
+socket :: (fn(domain : i32, protocol : i32) -> IOFuture)(
   __yo_async_socket_start(domain, SOCK_DGRAM, protocol)
 );
-
 // Bind a UDP socket to a local address.
 // Returns 0 on success, -errno on failure.
-bind :: (fn(sockfd: i32, addr: *(u8), addrlen: u32) -> IOFuture)(
+bind :: (fn(sockfd : i32, addr : *(u8), addrlen : u32) -> IOFuture)(
   __yo_async_bind_start(sockfd, addr, addrlen)
 );
-
 // Send a datagram to a specific destination address.
 // Returns number of bytes sent on success, -errno on failure.
-sendto :: (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32, dest_addr: *(u8), addrlen: u32) -> IOFuture)(
+sendto :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32, dest_addr : *(u8), addrlen : u32) -> IOFuture)(
   __yo_async_sendto_start(sockfd, buf, len, flags, dest_addr, addrlen)
 );
-
 // Receive a datagram and get the source address.
 // src_addr/addrlen are filled with the sender's address.
 // Returns number of bytes received on success, -errno on failure.
-recvfrom :: (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32, src_addr: *(u8), addrlen: *(u32)) -> IOFuture)(
+recvfrom :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32, src_addr : *(u8), addrlen : *(u32)) -> IOFuture)(
   __yo_async_recvfrom_start(sockfd, buf, len, flags, src_addr, addrlen)
 );
-
 // Send data on a connected UDP socket (after connect()).
 // Returns number of bytes sent on success, -errno on failure.
-send :: (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32) -> IOFuture)(
+send :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IOFuture)(
   __yo_async_send_start(sockfd, buf, len, flags)
 );
-
 // Receive data on a connected UDP socket (after connect()).
 // Returns number of bytes received on success, -errno on failure.
-recv :: (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32) -> IOFuture)(
+recv :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IOFuture)(
   __yo_async_recv_start(sockfd, buf, len, flags)
 );
-
 // Close a UDP socket file descriptor.
 // Returns 0 on success, -errno on failure.
-close :: (fn(fd: i32) -> IOFuture)(
+close :: (fn(fd : i32) -> IOFuture)(
   __yo_async_close_start(fd)
 );
-
 // ============================================================================
 // Socket Options
 // ============================================================================
-
 // Set a socket option (raw).
 // Returns 0 on success, -errno on failure.
-setsockopt :: (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: u32) -> IOFuture)(
+setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : u32) -> IOFuture)(
   __yo_async_setsockopt_start(sockfd, level, optname, optval, optlen)
 );
-
 // Get a socket option (raw).
 // Returns 0 on success, -errno on failure.
-getsockopt :: (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: *(u32)) -> IOFuture)(
+getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : *(u32)) -> IOFuture)(
   __yo_async_getsockopt_start(sockfd, level, optname, optval, optlen)
 );
-
-export
-  socket, bind,
-  sendto, recvfrom,
-  send, recv,
+export(
+  socket,
+  bind,
+  sendto,
+  recvfrom,
+  send,
+  recv,
   close,
-  setsockopt, getsockopt
-;
+  setsockopt,
+  getsockopt
+);

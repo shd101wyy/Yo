@@ -106,25 +106,25 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 );
 
 // Handle the effect — without resume (discarding continuation via `escape`)
-raise_const :: (fn() -> i64) {
+raise_const :: (fn() -> i64)({
   (given(raise) : Raise) = ((msg, msg2) -> {
     println(msg);
     println(msg2);
-    escape i64(42); // escape returns from enclosing function with this value
+    escape(i64(42)); // escape returns from enclosing function with this value
   });
   (i64(8) + i64(safe_divide(1, 0))) + i64(10)
-};
+});
 // Returns 42 — continuation is discarded
 
 // Handle the effect — with resume (invoking continuation via `return`)
-raise_resume :: (fn() -> i64) {
+raise_resume :: (fn() -> i64)({
   (given(raise) : Raise) = (fn(msg : String, msg2 : String) -> i32)({
     println(msg);
     println(msg2);
-    return i32(42); // return(value) resumes the continuation with value
+    return(i32(42)); // return(value) resumes the continuation with value
   });
   (i64(8) + i64(safe_divide(1, 0))) + i64(10)
-};
+});
 // Returns 60 — return(42) continues after the raise call site
 ```
 
@@ -135,9 +135,9 @@ raise_resume :: (fn() -> i64) {
 - The handler body receives the effect's arguments (e.g., `msg`, `msg2`).
 - Inside the handler body:
   - **`return(value)`** — resumes the captured continuation with `value` as the result of the effect call.
-  - **`escape expr`** — discards the continuation entirely and returns `expr` from the enclosing function that installed the handler.
+  - **`escape(expr)`** — discards the continuation entirely and returns `expr` from the enclosing function that installed the handler.
 - Two handler forms:
-  - **Anonymous function handler** (no-resume): `(given(raise) : Raise) = ((msg, msg2) -> { escape expr; });`
+  - **Anonymous function handler** (no-resume): `(given(raise) : Raise) = ((msg, msg2) -> { escape(expr); });`
   - **fn-typed handler** (with resume): `(given(raise) : Raise) = (fn(msg : String, msg2 : String) -> i32)({ return(value); });`
 - Continuations are **one-shot** — `return` can be called at most once (syntactically enforced as last expression; runtime double-resume check is planned but not yet implemented).
 - Effect operations compose with `using` — the effect is an implicit parameter resolved via `given`.
@@ -155,10 +155,10 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(...);
 // 2. Propagate it (add `using(raise : Raise)` to its own signature)
 
 // Option 1: Handle
-handler :: (fn() -> i32) {
+handler :: (fn() -> i32)({
   given(raise) : Raise = ...;
   safe_divide(10, 0)
-};
+});
 
 // Option 2: Propagate
 wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
@@ -182,7 +182,7 @@ With evidence passing, effect handler functions are passed as **extra C paramete
 
 1. **Effect invocation** (calling `raise(...)`) = fn ptr call through the evidence parameter
 2. **`return(value)`** = handler function returns normally; caller uses the value
-3. **`escape expr`** = handler function sets `__yo_effect_escaped = 1`, stores value in thread-local `__yo_effect_escape_value`, returns dummy; caller checks flag and propagates
+3. **`escape(expr)`** = handler function sets `__yo_effect_escaped = 1`, stores value in thread-local `__yo_effect_escape_value`, returns dummy; caller checks flag and propagates
 
 Intermediate functions in the call chain simply forward the fn ptr parameters:
 
@@ -225,15 +225,16 @@ traverse :: (fn(
   arr : Array(i32, S),
   callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
   using(...(E))
-  ) -> unit) {
+  ) -> unit)({
     i := usize(0);
-    while i < S, i = (i + 1), {
+    while((i < S), {
       callback(arr(i));
-    };
-  };
+      i = (i + 1);
+    });
+  });
 
 // Set up handlers
-(given(yield) : Yield) = (v) -> { return v; };
+(given(yield) : Yield) = (v) -> { return(v); };
 (given(log)   : Log)   = (v) -> { println(v); };
 
 arr := Array(i32, 5)(0, 1, 2, 3, 4);
@@ -283,10 +284,10 @@ Multiple instances of the same effect type are supported via explicit `using(...
 ```rust
 Logger :: (fn(msg : String) -> unit);
 
-program :: (fn(using(info : Logger, error : Logger)) -> unit) {
+program :: (fn(using(info : Logger, error : Logger)) -> unit)({
   info("starting");
   error("something went wrong");
-};
+});
 
 program(using(info_logger, error_logger));
 ```
@@ -314,7 +315,7 @@ safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
 // Install a struct-based handler with `given`:
 given(exn) := MyException(i32)(
   throw : ((val, resume_val) -> {
-    return resume_val;  // resume with the provided recovery value
+    return(resume_val);  // resume with the provided recovery value
   })
 );
 
@@ -335,11 +336,11 @@ Effects interact correctly with all control flow constructs inside loops:
 GetValue :: (fn() -> i32);
 
 (given(get_value) : GetValue) = (() -> {
-  return i32(1);
+  return(i32(1));
 });
 
 // break, continue, and early return all work after effect resume
-while runtime(true), {
+while(runtime(true), {
   result := get_value();  // effect invocation (suspension point)
 
   cond(
@@ -347,13 +348,13 @@ while runtime(true), {
     (result == 0) => { continue; },     // continue after effect resume
     true => ()
   );
-};
+});
 ```
 
 Effects also work with tagged union `match` arms:
 
 ```rust
-while runtime(true), {
+while(runtime(true), {
   get_value();  // effect invocation
 
   opt := Option(i32).Some(counter.*);
@@ -362,7 +363,7 @@ while runtime(true), {
     .Some(v) => v,
     .None => break    // break inside match arm after effect resume
   );
-};
+});
 ```
 
 ### Transitive Effect Propagation
@@ -372,22 +373,22 @@ When a function is effect-polymorphic via `forall(...(E))` and contains loops wi
 ```rust
 Yield :: (fn(v : i32) -> i32);
 
-apply_effect :: (fn(forall(...(E)), n : i32, using(...(E))) -> i32) {
+apply_effect :: (fn(forall(...(E)), n : i32, using(...(E))) -> i32)({
   counter := Box(i32)(0);
   result := Box(i32)(0);
 
-  while runtime(counter.* < n), {
+  while(runtime((counter.* < n)), {
     counter.* = (counter.* + 1);
     cond(
       (counter.* > i32(3)) => { break; },
       true => ()
     );
-  };
+  });
 
-  return counter.*;
-};
+  return(counter.*);
+});
 
-(given(yield) : Yield) = ((v) -> { return v; });
+(given(yield) : Yield) = ((v) -> { return(v); });
 result := apply_effect(i32(10));
 ```
 
@@ -399,7 +400,7 @@ Effect handler functions are compiled as **standalone C functions** — they are
 // WRONG — handler references outer variable `threshold`, compile error:
 threshold := i32(10);
 (given(raise) : Raise) = ((msg) -> {
-  escape (threshold * i32(2));  // ERROR: threshold is not in scope
+  escape((threshold * i32(2)));  // ERROR: threshold is not in scope
 });
 
 // CORRECT — pass state as explicit arguments via the effect function itself:
@@ -409,7 +410,7 @@ check :: (fn(x : i32, threshold : i32, using(raise : Raise)) -> i32)(
     true => x
   )
 );
-(given(raise) : Raise) = ((msg) -> { escape i32(-1); });
+(given(raise) : Raise) = ((msg) -> { escape(i32(-1)); });
 result := check(i32(15), i32(10));
 ```
 
@@ -549,7 +550,7 @@ When a handler calls `escape`:
 
 ### Resume handling
 
-When a handler calls `return value`:
+When a handler calls `return(value)`:
 
 1. The handler function returns `value` normally (does NOT set `__yo_effect_escaped`)
 2. The caller receives the return value from the fn ptr call
@@ -565,8 +566,8 @@ A handler may `return` in one branch and `escape` in another:
 ```rust
 given(raise_mod) := Raise(
   raise : (msg) -> cond(
-    (msg == `recoverable`) => return i32(0),  // resume with 0
-    true => escape i32(-1)                    // escape with -1
+    (msg == `recoverable`) => return(i32(0)), // resume with 0
+    true => escape(i32(-1))                   // escape with -1
   )
 );
 ```
@@ -616,12 +617,12 @@ int32_t safe_divide(int32_t x, int32_t y, void* throw) {
 
 **Additional behaviors:**
 
-- **Handler doesn't use the forall type** (e.g., `escape ()`): the unspecialized function is generated and passed directly
+- **Handler doesn't use the forall type** (e.g., `escape()`): the unspecialized function is generated and passed directly
 - **Transitive forwarding**: the `void*` evidence is forwarded as-is between callers and callees
 
 ### Escape value propagation
 
-Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `escape expr` is called inside a handler, the escape value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
+Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `escape(expr)` is called inside a handler, the escape value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
 
 ---
 

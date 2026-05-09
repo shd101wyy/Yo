@@ -11,63 +11,80 @@
 //! * TypeScript `visited: Set<SomeType>` cycle detection → `ArrayList(String)`
 //!   storing visited SomeType IDs (linear scan, fine for small chains).
 //! * TypeScript reference-equality `===` on SomeType → ID equality (`id_a == id_b`).
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ TypeValue } :: import "./type.yo";
-{ is_some_type, is_trait_type } :: import "./guards.yo";
-{ EvalValue } :: import "../evaluator/value.yo";
-{ Environment, get_variables_from_env } :: import "../env/env.yo";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("./type.yo");
+{ is_some_type, is_trait_type } :: import("./guards.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
+{ Environment, get_variables_from_env } :: import("../env/env.yo");
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
 /// True if `val` is a `TypeVal` variant (i.e. a first-class type value).
 _is_type_eval_value :: (fn(val : EvalValue) -> bool)(
-  match(val, .TypeVal(_) => true, _ => false)
+  match(val,.TypeVal(_) => true, _ => false)
 );
-
 /// Extract the `TypeValue` from a `TypeVal`; returns Unit type on mismatch.
 _unwrap_type_eval_value :: (fn(val : EvalValue) -> TypeValue)(
-  match(val, .TypeVal(boxed_ty) => boxed_ty.*, _ => TypeValue.Unit)
+  match(val,.TypeVal(boxed_ty) => boxed_ty.*, _ => TypeValue.Unit)
 );
-
 /// True if `ty` is a `SomeT` whose `id` equals `id_to_compare`.
 _same_some_id :: (fn(ty : TypeValue, id_to_compare : String) -> bool)(
-  match(ty,
-    .SomeT(id: tid, name: _, frame_level: _, required_trait_types: _,
-           required_trait_levels: _, negative_trait_types: _, negative_trait_levels: _) =>
+  match(
+    ty,
+    .SomeT(
+      id : tid,
+      name : _,
+      frame_level : _,
+      required_trait_types : _,
+      required_trait_levels : _,
+      negative_trait_types : _,
+      negative_trait_levels : _
+    ) =>
       (tid.as_str() == id_to_compare.as_str()),
     _ => false
   )
 );
-
 /// Extract the `id` field from a `SomeT`; returns empty string on mismatch.
 _some_id :: (fn(ty : TypeValue) -> String)(
-  match(ty,
-    .SomeT(id: tid, name: _, frame_level: _, required_trait_types: _,
-           required_trait_levels: _, negative_trait_types: _, negative_trait_levels: _) => tid,
+  match(
+    ty,
+    .SomeT(
+      id : tid,
+      name : _,
+      frame_level : _,
+      required_trait_types : _,
+      required_trait_levels : _,
+      negative_trait_types : _,
+      negative_trait_levels : _
+    ) => tid,
     _ => String.from("")
   )
 );
-
 /// Extract the `name` field from a `SomeT`; returns empty string on mismatch.
 _some_name :: (fn(ty : TypeValue) -> String)(
-  match(ty,
-    .SomeT(id: _, name: n, frame_level: _, required_trait_types: _,
-           required_trait_levels: _, negative_trait_types: _, negative_trait_levels: _) => n,
+  match(
+    ty,
+    .SomeT(
+      id : _,
+      name : n,
+      frame_level : _,
+      required_trait_types : _,
+      required_trait_levels : _,
+      negative_trait_types : _,
+      negative_trait_levels : _
+    ) => n,
     _ => String.from("")
   )
 );
-
 /// True if `id` already appears in `visited_ids`.
 _id_visited :: (fn(visited_ids : ArrayList(String), id : String) -> bool)({
   (found : bool) = false;
   n := visited_ids.len();
   (i : usize) = usize(0);
-  while runtime((i < n)), {
-    match(visited_ids.get(i),
+  while(runtime(i < n), {
+    match(
+      visited_ids.get(i),
       .Some(existing) =>
         cond(
           (existing.as_str() == id.as_str()) => {
@@ -79,10 +96,9 @@ _id_visited :: (fn(visited_ids : ArrayList(String), id : String) -> bool)({
       .None => ()
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
-
 /// Look up a variable by (frame_level, name) and return its TypeValue if it
 /// holds a TypeVal.  Returns None otherwise.
 _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(TypeValue))({
@@ -90,22 +106,25 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
   cond(
     (fl >= n_frames) => Option(TypeValue).None,
     true =>
-      match(env.frames.get(fl),
+      match(
+        env.frames.get(fl),
         .Some(frame) => {
           vars := frame.variables;
           m := vars.len();
-          (result : Option(TypeValue)) = .None;
+          (result : Option(TypeValue)) =.None;
           (i : usize) = usize(0);
-          while runtime((i < m)), {
-            match(vars.get(i),
+          while(runtime(i < m), {
+            match(
+              vars.get(i),
               .Some(var) =>
                 cond(
                   (var.name == name) =>
-                    match(var.value,
+                    match(
+                      var.value,
                       .Some(val) =>
                         cond(
                           _is_type_eval_value(val) => {
-                            result = .Some(_unwrap_type_eval_value(val));
+                            result =.Some(_unwrap_type_eval_value(val));
                             i = m;
                           },
                           true => ()
@@ -117,14 +136,13 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
               .None => ()
             );
             i = (i + usize(1));
-          };
+          });
           result
         },
         .None => Option(TypeValue).None
       )
   )
 });
-
 /// Search the env for a variable of `name` that was ever bound to a TypeVal
 /// whose `id` matches `id_to_find`.  Used to distinguish unbound type variables
 /// from ones that were concretised by `synthesizeTypes`.
@@ -132,24 +150,29 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
   (found : bool) = false;
   n_frames := env.frames.len();
   (fi : usize) = usize(0);
-  while runtime(((fi < n_frames) && !found)), {
-    match(env.frames.get(fi),
+  while(runtime((fi < n_frames) && !(found)), {
+    match(
+      env.frames.get(fi),
       .Some(frame) => {
         vars := frame.variables;
         m := vars.len();
         (vi : usize) = usize(0);
-        while runtime(((vi < m) && !found)), {
-          match(vars.get(vi),
+        while(runtime((vi < m) && !(found)), {
+          match(
+            vars.get(vi),
             .Some(var) =>
               cond(
                 (var.name == name) =>
-                  match(var.value,
+                  match(
+                    var.value,
                     .Some(val) =>
                       cond(
                         _is_type_eval_value(val) => {
                           tv := _unwrap_type_eval_value(val);
                           cond(
-                            _same_some_id(tv, id_to_find) => { found = true; },
+                            _same_some_id(tv, id_to_find) => {
+                              found = true;
+                            },
                             true => ()
                           );
                         },
@@ -162,19 +185,17 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
             .None => ()
           );
           vi = (vi + usize(1));
-        };
+        });
       },
       .None => ()
     );
     fi = (fi + usize(1));
-  };
+  });
   found
 });
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
 /// Get a trait type from the environment by name (e.g., "Comptime", "Runtime").
 /// Returns `None` if not found or if the variable holds a non-trait value.
 ///
@@ -185,10 +206,15 @@ get_trait_type_from_env :: (fn(env : Environment, trait_name : String) -> Option
   cond(
     (n == usize(0)) => Option(TypeValue).None,
     true => {
-      last := match(variables.get((n - usize(1))), .Some(v) => v, .None => {
-        return Option(TypeValue).None;
-      });
-      match(last.value,
+      last := match(
+        variables.get(n - usize(1)),
+        .Some(v) => v,
+        .None => {
+          return(Option(TypeValue).None);
+        }
+      );
+      match(
+        last.value,
         .Some(val) =>
           cond(
             _is_type_eval_value(val) => {
@@ -205,22 +231,19 @@ get_trait_type_from_env :: (fn(env : Environment, trait_name : String) -> Option
     }
   )
 });
-
 /// The main iterative chain-resolution loop.
 _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayList(String)) -> TypeValue)({
   (current : TypeValue) = start;
   (done : bool) = false;
   (result : TypeValue) = start;
-
-  while runtime(!done), {
-    cur_id   := _some_id(current);
+  while(runtime(!(done)), {
+    cur_id := _some_id(current);
     cur_name := _some_name(current);
-
     cond(
       // Cycle check
       _id_visited(visited_ids, cur_id) => {
         result = current;
-        done   = true;
+        done = true;
       },
       true => {
         ___ := visited_ids.push(cur_id);
@@ -230,25 +253,27 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
           (n == usize(0)) => {
             // Name not found → unbound SomeType
             result = current;
-            done   = true;
+            done = true;
           },
           true =>
-            match(variables.get((n - usize(1))),
+            match(
+              variables.get(n - usize(1)),
               .None => {
                 result = current;
-                done   = true;
+                done = true;
               },
               .Some(last_var) =>
-                match(last_var.value,
+                match(
+                  last_var.value,
                   .None => {
                     result = current;
-                    done   = true;
+                    done = true;
                   },
                   .Some(val) =>
                     cond(
                       !(_is_type_eval_value(val)) => {
                         result = current;
-                        done   = true;
+                        done = true;
                       },
                       true => {
                         resolved_tv := _unwrap_type_eval_value(val);
@@ -256,15 +281,15 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           // Resolved to itself → unbound
                           _same_some_id(resolved_tv, cur_id) => {
                             result = current;
-                            done   = true;
+                            done = true;
                           },
                           // Name collision: different SomeT with same name but different id
                           ((is_some_type(resolved_tv) && (cur_name == _some_name(resolved_tv))) && (!(_same_some_id(resolved_tv, cur_id)))) => {
                             was_bound := _was_self_bound(env, cur_name, cur_id);
                             cond(
-                              (!was_bound) => {
+                              (!(was_bound)) => {
                                 result = current;
-                                done   = true;
+                                done = true;
                               },
                               true => {
                                 current = resolved_tv;
@@ -279,13 +304,13 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           true => {
                             was_bound := _was_self_bound(env, cur_name, cur_id);
                             cond(
-                              (!was_bound) => {
+                              (!(was_bound)) => {
                                 result = current;
-                                done   = true;
+                                done = true;
                               },
                               true => {
                                 result = resolved_tv;
-                                done   = true;
+                                done = true;
                               }
                             );
                           }
@@ -297,21 +322,28 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
         );
       }
     );
-  };
+  });
   result
 });
-
 /// Fast-path chain resolution: tries the definitionFrameLevel first, then
 /// falls back to the full iterative loop in `_do_chain_resolve`.
 _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayList(String)) -> TypeValue)({
   // --- Fast-path: try definitionFrameLevel lookup first ---
   // Mirrors the `if (definitionFrameLevel !== undefined && >= 0)` branch.
-  fast_result := match(start,
-    .SomeT(id: sid, name: sn, frame_level: sfl,
-           required_trait_types: _, required_trait_levels: _,
-           negative_trait_types: _, negative_trait_levels: _) => {
+  fast_result := match(
+    start,
+    .SomeT(
+      id : sid,
+      name : sn,
+      frame_level : sfl,
+      required_trait_types : _,
+      required_trait_levels : _,
+      negative_trait_types : _,
+      negative_trait_levels : _
+    ) => {
       r := _lookup_by_frame(env, sfl, sn);
-      match(r,
+      match(
+        r,
         .Some(tv) =>
           cond(
             // Self-bound (SomeType binding to itself) → unbound
@@ -326,13 +358,12 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
     },
     _ => Option(TypeValue).None
   );
-
-  match(fast_result,
+  match(
+    fast_result,
     .Some(resolved) => resolved,
     .None => _do_chain_resolve(env, start, visited_ids)
   )
 });
-
 /// Get the concrete type that a `SomeType` (generic type variable) resolves to
 /// in the given environment. Follows SomeType → SomeType chains until a
 /// concrete type or an unbound SomeType is reached. Handles cycles via an
@@ -348,5 +379,4 @@ get_value_of_some_type_from_env :: (fn(env : Environment, some_type : TypeValue)
     }
   )
 );
-
-export get_trait_type_from_env, get_value_of_some_type_from_env;
+export(get_trait_type_from_env, get_value_of_some_type_from_env);

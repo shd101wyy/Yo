@@ -8,205 +8,244 @@
 //!   - Auto-boxes non-object values by synthesising a `box(inner)` call.
 //!   - Concrete `.trait` field access is NOT available in yo-self; only
 //!     SomeT, DynT, and expected-DynType-from-context are supported.
-
-open import "std/string";
-{ ArrayList }                                    :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id }         :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info,
-  expr_info_table_set, expr_info_table_get }      :: import "../../expr/expr_info.yo";
-{ Environment, synthetic_token }                 :: import "../../env/env.yo";
-{ EvalContext }                                  :: import "../context.yo";
-{ EvalValue }                                    :: import "../value.yo";
-{ TypeValue, t_unit }                            :: import "../../types/type.yo";
-{ is_dyn_type, is_some_type, is_object_type }    :: import "../../types/guards.yo";
-{ format_error_message }                         :: import "../../error/error.yo";
-{ evaluate_expression }                          :: import "../exprs/expr.yo";
-{ Exception }                                    :: import "std/error";
-
-evaluate_dyn_value :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Environment, synthetic_token } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../value.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ is_dyn_type, is_some_type, is_object_type } :: import("../../types/guards.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
+evaluate_dyn_value :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   expr_tok := ast_expr_token(expr);
-
   // Extract the args ArrayList and the single value argument.
-  args := match(expr,
+  args := match(
+    expr,
     .FnCall(_, _, a, _, _) => a,
     _ => {
-      exn.throw(dyn format_error_message(
-        expr_tok,
-        String.from("evaluate_dyn_value: expected a FnCall expression"),
-        false,
-        .None
-      ));
-      return expr;
+      exn.throw(
+        dyn(
+          format_error_message(
+            expr_tok,
+            String.from("evaluate_dyn_value: expected a FnCall expression"),
+            false,
+            .None
+          )
+        )
+      );
+      return(expr);
     }
   );
-
-  value_arg := match(args.get(usize(0)),
+  value_arg := match(
+    args.get(usize(0)),
     .Some(a) => a,
-    .None    => {
-      exn.throw(dyn format_error_message(
-        expr_tok,
-        String.from("'dyn' requires exactly one argument"),
-        false,
-        .None
-      ));
-      return expr;
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            expr_tok,
+            String.from("'dyn' requires exactly one argument"),
+            false,
+            .None
+          )
+        )
+      );
+      return(expr);
     }
   );
-
   // Non-executing path: still type-check the inner expression, then return early.
-  if((ctx.is_validating_function_definition || !(ctx.is_executing)), {
+  if(ctx.is_validating_function_definition || !(ctx.is_executing), {
     _inner := evaluate_expression(value_arg, env, ctx);
-    (ret_type : TypeValue) = match(ctx.expected_type,
+    (ret_type : TypeValue) = match(
+      ctx.expected_type,
       .Some(et) => et.ty,
-      .None     => TypeValue.DynT(
-        required_trait_types:  ArrayList(TypeValue).new(),
-        required_trait_levels: ArrayList(usize).new(),
-        negative_trait_types:  ArrayList(TypeValue).new(),
-        negative_trait_levels: ArrayList(usize).new()
+      .None => TypeValue.DynT(
+        required_trait_types : ArrayList(TypeValue).new(),
+        required_trait_levels : ArrayList(usize).new(),
+        negative_trait_types : ArrayList(TypeValue).new(),
+        negative_trait_levels : ArrayList(usize).new()
       )
     );
     out_info := new_expr_info(env, ret_type);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-    return expr;
+    return(expr);
   });
-
   // --- Executing path ---
-
   // Evaluate the inner expression.
-  eval_inner    := evaluate_expression(value_arg, env, ctx);
+  eval_inner := evaluate_expression(value_arg, env, ctx);
   inner_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_inner));
-  inner_info    := match(inner_info_opt,
+  inner_info := match(
+    inner_info_opt,
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn format_error_message(
-        expr_tok,
-        String.from("evaluate_dyn_value: failed to evaluate inner expression"),
-        false,
-        .None
-      ));
-      return expr;
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            expr_tok,
+            String.from("evaluate_dyn_value: failed to evaluate inner expression"),
+            false,
+            .None
+          )
+        )
+      );
+      return(expr);
     }
   );
-
-  (value_type       : TypeValue)   = inner_info.ty;
-  (cur_env          : Environment) = inner_info.env;
-  (final_value_type : TypeValue)   = value_type;
-
+  (value_type : TypeValue) = inner_info.ty;
+  (cur_env : Environment) = inner_info.env;
+  (final_value_type : TypeValue) = value_type;
   // Auto-box non-object, non-dyn values (mirrors TypeScript lines 251-310).
   // Note: Future-implementing SomeType check (typeImplementsFuture) is omitted
   // in Phase 3 — all non-object, non-dyn values are wrapped in box().
-  if((!(is_object_type(value_type)) && !(is_dyn_type(value_type))), {
-    box_tok  := synthetic_token(String.from("box"), cur_env.module_path);
+  if(!(is_object_type(value_type)) && !(is_dyn_type(value_type)), {
+    box_tok := synthetic_token(String.from("box"), cur_env.module_path);
     box_atom := AstExpr.Atom(usize(0), box_tok);
     box_args := ArrayList(AstExpr).new();
     box_args.push(eval_inner);
     box_call := AstExpr.FnCall(usize(0), box(box_atom), box_args, false, expr_tok);
-
-    boxed_expr     := evaluate_expression(box_call, cur_env, ctx);
+    boxed_expr := evaluate_expression(box_call, cur_env, ctx);
     boxed_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(boxed_expr));
-    match(boxed_info_opt,
+    match(
+      boxed_info_opt,
       .Some(bi) => {
         // Update the dyn(...) call's first arg to point at the boxed expression,
         // so that C codegen sees box(inner) rather than the bare inner expression.
-        (&args).index(usize(0)).* = boxed_expr;
+        (&(args)).index(usize(0)).* = boxed_expr;
         final_value_type = bi.ty;
         cur_env = bi.env;
       },
       .None => {
-        exn.throw(dyn format_error_message(
-          expr_tok,
-          String.from("evaluate_dyn_value: failed to auto-box value for 'dyn'"),
-          false,
-          .None
-        ));
+        exn.throw(
+          dyn(
+            format_error_message(
+              expr_tok,
+              String.from("evaluate_dyn_value: failed to auto-box value for 'dyn'"),
+              false,
+              .None
+            )
+          )
+        );
       }
     );
   });
-
   // Determine the expected DynType:
   //   1. From context.expected_type when it is already a DynT.
   //   2. From final_value_type when it is a DynT.
   //   3. From final_value_type when it is a SomeT — build DynT from its traits.
   //   4. Otherwise: unsupported in Phase 3 (concrete `.trait` not available).
-  expected_dyn_from_ctx := match(ctx.expected_type,
-    .Some(et) => match(et.ty,
-      .DynT(required_trait_types: rtt, required_trait_levels: rtl,
-            negative_trait_types: ntt, negative_trait_levels: ntl) =>
-        Option(TypeValue).Some(TypeValue.DynT(
-          required_trait_types:  rtt,
-          required_trait_levels: rtl,
-          negative_trait_types:  ntt,
-          negative_trait_levels: ntl
-        )),
+  expected_dyn_from_ctx := match(
+    ctx.expected_type,
+    .Some(et) => match(
+      et.ty,
+      .DynT(
+        required_trait_types : rtt,
+        required_trait_levels : rtl,
+        negative_trait_types : ntt,
+        negative_trait_levels : ntl
+      ) =>
+        Option(TypeValue).Some(
+          TypeValue.DynT(
+            required_trait_types : rtt,
+            required_trait_levels : rtl,
+            negative_trait_types : ntt,
+            negative_trait_levels : ntl
+          )
+        ),
       _ => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
   );
-
-  dyn_type := match(expected_dyn_from_ctx,
+  dyn_type := match(
+    expected_dyn_from_ctx,
     .Some(dt) => dt,
-    .None => match(final_value_type,
-      .DynT(required_trait_types: rtt, required_trait_levels: rtl,
-            negative_trait_types: ntt, negative_trait_levels: ntl) =>
+    .None => match(
+      final_value_type,
+      .DynT(
+        required_trait_types : rtt,
+        required_trait_levels : rtl,
+        negative_trait_types : ntt,
+        negative_trait_levels : ntl
+      ) =>
         TypeValue.DynT(
-          required_trait_types:  rtt,
-          required_trait_levels: rtl,
-          negative_trait_types:  ntt,
-          negative_trait_levels: ntl
+          required_trait_types : rtt,
+          required_trait_levels : rtl,
+          negative_trait_types : ntt,
+          negative_trait_levels : ntl
         ),
-      .SomeT(required_trait_types: rtt, required_trait_levels: rtl,
-             negative_trait_types: ntt, negative_trait_levels: ntl) =>
+      .SomeT(
+        required_trait_types : rtt,
+        required_trait_levels : rtl,
+        negative_trait_types : ntt,
+        negative_trait_levels : ntl
+      ) =>
         TypeValue.DynT(
-          required_trait_types:  rtt,
-          required_trait_levels: rtl,
-          negative_trait_types:  ntt,
-          negative_trait_levels: ntl
+          required_trait_types : rtt,
+          required_trait_levels : rtl,
+          negative_trait_types : ntt,
+          negative_trait_levels : ntl
         ),
       _ => {
-        exn.throw(dyn format_error_message(
-          expr_tok,
-          String.from("'dyn' requires a SomeType (Impl), DynType, or an expected Dyn type context. Concrete types without trait fields are not supported in Phase 3."),
-          false,
-          .None
-        ));
+        exn.throw(
+          dyn(
+            format_error_message(
+              expr_tok,
+              String.from("'dyn' requires a SomeType (Impl), DynType, or an expected Dyn type context. Concrete types without trait fields are not supported in Phase 3."),
+              false,
+              .None
+            )
+          )
+        );
         TypeValue.DynT(
-          required_trait_types:  ArrayList(TypeValue).new(),
-          required_trait_levels: ArrayList(usize).new(),
-          negative_trait_types:  ArrayList(TypeValue).new(),
-          negative_trait_levels: ArrayList(usize).new()
+          required_trait_types : ArrayList(TypeValue).new(),
+          required_trait_levels : ArrayList(usize).new(),
+          negative_trait_types : ArrayList(TypeValue).new(),
+          negative_trait_levels : ArrayList(usize).new()
         )
       }
     )
   );
-
   // Collect a TraitVal for each required trait in the DynType.
   // For each TraitT in required_trait_types, create a TraitVal whose
   // field_values are all None (runtime-only; concrete values resolved later).
   trait_vals := ArrayList(EvalValue).new();
-  match(dyn_type,
-    .DynT(required_trait_types: rtt) => {
-      n     := rtt.len();
+  match(
+    dyn_type,
+    .DynT(required_trait_types : rtt) => {
+      n := rtt.len();
       (i : usize) = usize(0);
-      while runtime((i < n)), {
+      while(runtime(i < n), {
         tt_opt := rtt.get(i);
-        match(tt_opt,
-          .Some(tt) => match(tt,
-            .TraitT(name: tname, field_labels: fl) => {
-              n_fields    := fl.len();
+        match(
+          tt_opt,
+          .Some(tt) => match(
+            tt,
+            .TraitT(name : tname, field_labels : fl) => {
+              n_fields := fl.len();
               field_names := ArrayList(String).new();
-              field_vals  := ArrayList(Option(EvalValue)).new();
+              field_vals := ArrayList(Option(EvalValue)).new();
               (j : usize) = usize(0);
-              while runtime((j < n_fields)), {
-                fname := match(fl.get(j), .Some(s) => s, .None => String.from(""));
+              while(runtime(j < n_fields), {
+                fname := match(fl.get(j),.Some(s) => s,.None => String.from(""));
                 field_names.push(fname);
                 field_vals.push(Option(EvalValue).None);
                 j = (j + usize(1));
-              };
+              });
               trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
               ()
             },
@@ -215,18 +254,15 @@ evaluate_dyn_value :: (fn(
           .None => ()
         );
         i = (i + usize(1));
-      };
+      });
     },
     _ => ()
   );
-
   // Annotate the outer dyn(...) expression with the resolved DynType and
   // the ordered trait values for C codegen vtable emission.
   out_info := new_expr_info(cur_env, dyn_type);
-  out_info.dyn_call_trait_values = .Some(trait_vals);
+  out_info.dyn_call_trait_values =.Some(trait_vals);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-
   expr
 });
-
-export evaluate_dyn_value;
+export(evaluate_dyn_value);

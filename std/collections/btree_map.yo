@@ -10,20 +10,15 @@
 //! m.set(String.from("a"), 1);
 //! // Iteration order: a, b
 //! ```
-
-{ ArrayList } :: import "./array_list";
-open import "../string";
-
+{ ArrayList } :: import("./array_list");
+open(import("../string"));
 /// Key-value pair entry stored in a BTreeMap.
 BTreeEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  struct(key: K, value: V)
+  struct(key : K, value : V)
 );
-
-export BTreeEntry;
-
+export(BTreeEntry);
 // Internal result from binary search.
-_FindResult :: struct(idx: usize, found: bool);
-
+_FindResult :: struct(idx : usize, found : bool);
 /// Sorted map maintaining entries in key order.
 /// Provides ordered iteration and O(log n) lookup via binary search. Insert is O(n).
 BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
@@ -31,74 +26,75 @@ BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
     _entries : ArrayList(BTreeEntry(K, V))
   )
 );
-
-impl(forall(K : Type, V : Type), BTreeMap(K, V),
+impl(
+  forall(K : Type, V : Type),
+  BTreeMap(K, V),
   // Create an empty map.
   new : (fn() -> Self)(
-    Self(_entries: ArrayList(BTreeEntry(K, V)).new())
+    Self(_entries : ArrayList(BTreeEntry(K, V)).new())
   ),
-
   // Number of entries.
-  len : (fn(self: Self) -> usize)(
+  len : (fn(self : Self) -> usize)(
     self._entries.len()
   ),
-
   // True if empty.
-  is_empty : (fn(self: Self) -> bool)(
-    (self._entries.len() == usize(0))
+  is_empty : (fn(self : Self) -> bool)(
+    self._entries.len() == usize(0)
   ),
-
   // Binary search: returns the index of the entry with key `k`,
   // or the insertion point if not found.
-  _find : (fn(self: Self, k: K, where(K <: Ord(K))) -> _FindResult)({
+  _find : (fn(self : Self, k : K, where(K <: Ord(K))) -> _FindResult)({
     lo := usize(0);
     hi := self._entries.len();
-    while (lo < hi), {
+    while(lo < hi, {
       mid := (lo + ((hi - lo) / usize(2)));
       entry_key := self._entries.get(mid).unwrap().key;
       cond(
-        (entry_key < k) => { lo = (mid + usize(1)); },
-        (entry_key > k) => { hi = mid; },
-        true => { return _FindResult(mid, true); }
+        (entry_key < k) => {
+          lo = (mid + usize(1));
+        },
+        (entry_key > k) => {
+          hi = mid;
+        },
+        true => {
+          return(_FindResult(mid, true));
+        }
       );
-    };
+    });
     _FindResult(lo, false)
   }),
-
   // Retrieve the value associated with key `k`.
-  get : (fn(self: Self, k: K, where(K <: Ord(K))) -> ?V)({
+  get : (fn(self : Self, k : K, where(K <: Ord(K))) -> ?(V))({
     r := self._find(k);
     cond(
-      r.found => .Some(self._entries.get(r.idx).unwrap().value),
-      true => .None
+      r.found =>.Some(self._entries.get(r.idx).unwrap().value),
+      true =>.None
     )
   }),
-
   // Insert or update the value for key `k`.
   // For new keys: append at end then shift-left to correct sorted position.
-  set : (fn(self: Self, k: K, v: V, where(K <: Ord(K))) -> unit)({
+  set : (fn(self : Self, k : K, v : V, where(K <: Ord(K))) -> unit)({
     r := self._find(k);
     cond(
       r.found => {
         entry := self._entries.get(r.idx).unwrap();
-        &(self._entries(r.idx)).* = BTreeEntry(K, V)(key: entry.key, value: v);
+        &(self._entries(r.idx)).* = BTreeEntry(K, V)(key : entry.key, value : v);
       },
       true => {
         // Append new entry then bubble left to sorted position
-        self._entries.push(BTreeEntry(K, V)(key: k, value: v));
+        self._entries.push(BTreeEntry(K, V)(key : k, value : v));
         pos := (self._entries.len() - usize(1));
-        while (pos > r.idx), (pos = (pos - usize(1))), {
+        while(pos > r.idx, pos = (pos - usize(1)), {
           curr := self._entries.get(pos).unwrap();
-          prev := self._entries.get((pos - usize(1))).unwrap();
+          prev := self._entries.get(pos - usize(1)).unwrap();
           &(self._entries(pos)).* = prev;
-          &(self._entries((pos - usize(1)))).* = curr;
-        };
+          &(self._entries(pos - usize(1))).* = curr;
+        });
       }
     );
   }),
-
   // Remove the entry with key `k`. Returns the old value, or .None.
-  remove : (fn(self: Self, k: K, where(K <: Ord(K))) -> ?V)({
+  remove : (fn(self : Self, k : K, where(K <: Ord(K))) -> ?(V))({
     r := self._find(k);
     cond(
       r.found => {
@@ -106,155 +102,170 @@ impl(forall(K : Type, V : Type), BTreeMap(K, V),
         self._entries.remove(r.idx);
         .Some(v)
       },
-      true => .None
+      true =>.None
     )
   }),
-
   // Return the entry with the smallest key, or .None.
-  min : (fn(self: Self) -> ?BTreeEntry(K, V))(
+  min : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
     cond(
-      (self._entries.len() == usize(0)) => .None,
-      true => .Some(self._entries.get(usize(0)).unwrap())
+      (self._entries.len() == usize(0)) =>.None,
+      true =>.Some(self._entries.get(usize(0)).unwrap())
     )
   ),
-
   // Return the entry with the largest key, or .None.
-  max : (fn(self: Self) -> ?BTreeEntry(K, V))(
+  max : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
     cond(
-      (self._entries.len() == usize(0)) => .None,
-      true => .Some(self._entries.get((self._entries.len() - usize(1))).unwrap())
+      (self._entries.len() == usize(0)) =>.None,
+      true =>.Some(self._entries.get(self._entries.len() - usize(1)).unwrap())
     )
   )
 );
-
 /**
- * Value iterator for BTreeMap - yields BTreeEntry(K, V) in sorted key order
- */
+* Value iterator for BTreeMap - yields BTreeEntry(K, V) in sorted key order
+*/
 BTreeMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _entries : ArrayList(BTreeEntry(K, V)),
-    _index   : usize
+    _index : usize
   )
 );
-
-impl(forall(K : Type, V : Type), BTreeMapIter(K, V), Iterator(
-  Item : BTreeEntry(K, V),
-  next : (fn(self : *(Self)) -> Option(BTreeEntry(K, V)))(
-    cond(
-      (self._index >= self._entries.len()) => .None,
-      true => {
-        entry := self._entries.get(self._index).unwrap();
-        self._index = (self._index + usize(1));
-        .Some(entry)
-      }
+impl(
+  forall(K : Type, V : Type),
+  BTreeMapIter(K, V),
+  Iterator(
+    Item : BTreeEntry(K, V),
+    next : (fn(self : *(Self)) -> Option(BTreeEntry(K, V)))(
+      cond(
+        (self._index >= self._entries.len()) =>.None,
+        true => {
+          entry := self._entries.get(self._index).unwrap();
+          self._index = (self._index + usize(1));
+          .Some(entry)
+        }
+      )
     )
   )
-));
-
-impl(forall(K : Type, V : Type), BTreeMap(K, V),
+);
+impl(
+  forall(K : Type, V : Type),
+  BTreeMap(K, V),
   into_iter : (fn(self : Self) -> BTreeMapIter(K, V))(
-    BTreeMapIter(K, V)(_entries: self._entries, _index: usize(0))
+    BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
   )
 );
-
 /**
- * Pointer iterator for BTreeMap - yields pointers to BTreeEntry(K, V) in sorted key order
- */
+* Pointer iterator for BTreeMap - yields pointers to BTreeEntry(K, V) in sorted key order
+*/
 BTreeMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _entries : ArrayList(BTreeEntry(K, V)),
-    _index   : usize
+    _index : usize
   )
 );
-
-impl(forall(K : Type, V : Type), BTreeMapIterPtr(K, V), Iterator(
-  Item : *(BTreeEntry(K, V)),
-  next : (fn(self : *(Self)) -> Option(*(BTreeEntry(K, V))))(
-    cond(
-      (self._index >= self._entries.len()) => .None,
-      true =>
-        match(self._entries._ptr,
-          .Some(ptr) => {
-            element_ptr := (ptr &+ self._index);
-            self._index = (self._index + usize(1));
-            .Some(element_ptr)
-          },
-          .None => .None
-        )
+impl(
+  forall(K : Type, V : Type),
+  BTreeMapIterPtr(K, V),
+  Iterator(
+    Item : *(BTreeEntry(K, V)),
+    next : (fn(self : *(Self)) -> Option(*(BTreeEntry(K, V))))(
+      cond(
+        (self._index >= self._entries.len()) =>.None,
+        true =>
+          match(
+            self._entries._ptr,
+            .Some(ptr) => {
+              element_ptr := (ptr &+ self._index);
+              self._index = (self._index + usize(1));
+              .Some(element_ptr)
+            },
+            .None =>.None
+          )
+      )
     )
   )
-));
-
-impl(forall(K : Type, V : Type), BTreeMap(K, V),
+);
+impl(
+  forall(K : Type, V : Type),
+  BTreeMap(K, V),
   iter : (fn(self : *(Self)) -> BTreeMapIterPtr(K, V))(
-    BTreeMapIterPtr(K, V)(_entries: self.*._entries, _index: usize(0))
+    BTreeMapIterPtr(K, V)(_entries : self.*._entries, _index : usize(0))
   )
 );
-
 /**
- * Keys iterator - wraps BTreeMapIter and yields only keys in sorted order
- */
+* Keys iterator - wraps BTreeMapIter and yields only keys in sorted order
+*/
 BTreeMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _inner : BTreeMapIter(K, V)
   )
 );
-
-impl(forall(K : Type, V : Type), BTreeMapKeys(K, V), Iterator(
-  Item : K,
-  next : (fn(self : *(Self)) -> Option(K))(
-    match(self._inner.next(),
-      .None => .None,
-      .Some(entry) => .Some(entry.key)
+impl(
+  forall(K : Type, V : Type),
+  BTreeMapKeys(K, V),
+  Iterator(
+    Item : K,
+    next : (fn(self : *(Self)) -> Option(K))(
+      match(
+        self._inner.next(),
+        .None =>.None,
+        .Some(entry) =>.Some(entry.key)
+      )
     )
   )
-));
-
-impl(forall(K : Type, V : Type), BTreeMap(K, V),
+);
+impl(
+  forall(K : Type, V : Type),
+  BTreeMap(K, V),
   keys : (fn(self : Self) -> BTreeMapKeys(K, V))(
-    BTreeMapKeys(K, V)(_inner: BTreeMapIter(K, V)(_entries: self._entries, _index: usize(0)))
+    BTreeMapKeys(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
   )
 );
-
 /**
- * Values iterator - wraps BTreeMapIter and yields only values in sorted key order
- */
+* Values iterator - wraps BTreeMapIter and yields only values in sorted key order
+*/
 BTreeMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _inner : BTreeMapIter(K, V)
   )
 );
-
-impl(forall(K : Type, V : Type), BTreeMapValues(K, V), Iterator(
-  Item : V,
-  next : (fn(self : *(Self)) -> Option(V))(
-    match(self._inner.next(),
-      .None => .None,
-      .Some(entry) => .Some(entry.value)
+impl(
+  forall(K : Type, V : Type),
+  BTreeMapValues(K, V),
+  Iterator(
+    Item : V,
+    next : (fn(self : *(Self)) -> Option(V))(
+      match(
+        self._inner.next(),
+        .None =>.None,
+        .Some(entry) =>.Some(entry.value)
+      )
     )
   )
-));
-
-impl(forall(K : Type, V : Type), BTreeMap(K, V),
+);
+impl(
+  forall(K : Type, V : Type),
+  BTreeMap(K, V),
   values : (fn(self : Self) -> BTreeMapValues(K, V))(
-    BTreeMapValues(K, V)(_inner: BTreeMapIter(K, V)(_entries: self._entries, _index: usize(0)))
+    BTreeMapValues(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
   )
 );
-
-impl(forall(K : Type, V : Type), BTreeMap(K, V), Index(K)(
-  Output : V,
-  index : (fn(self: *(Self), idx: K, where(K <: Ord(K))) -> *(Self.Output))({
-    r := self.*._find(idx);
-    assert(r.found, "BTreeMap: key not found");
-    entry_ptr := &(self.*._entries(r.idx));
-    &(entry_ptr.*.value)
-  })
-));
-
-export
+impl(
+  forall(K : Type, V : Type),
+  BTreeMap(K, V),
+  Index(K)(
+    Output : V,
+    index : (fn(self : *(Self), idx : K, where(K <: Ord(K))) -> *(Self.Output))({
+      r := self.*._find(idx);
+      assert(r.found, "BTreeMap: key not found");
+      entry_ptr := &(self.*._entries(r.idx));
+      &(entry_ptr.*.value)
+    })
+  )
+);
+export(
   BTreeMap,
   BTreeMapIter,
   BTreeMapIterPtr,
   BTreeMapKeys,
   BTreeMapValues
-;
+);

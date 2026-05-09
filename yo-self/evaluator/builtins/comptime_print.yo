@@ -4,117 +4,141 @@
 //!
 //! `comptime_print(args...)` accepts any number of arguments (≥ 1), evaluates
 //! each at compile time, and prints them to stdout when executing.  Returns unit.
-
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
-
-{ AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_is_fn_call_of, BF_COMPTIME_PRINT,
-  ast_expr_to_string }                         :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                        :: import "../../expr/expr_info.yo";
-{ Environment }                                :: import "../../env/env.yo";
-{ EvalContext }                                :: import "../context.yo";
-{ EvalValue, value_to_string }                 :: import "../value.yo";
-{ t_unit }                                     :: import "../../types/type.yo";
-{ format_error_message }                       :: import "../../error/error.yo";
-{ evaluate_expression }                        :: import "../exprs/expr.yo";
-{ Exception }                                  :: import "std/error";
-
-evaluate_comptime_print :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_fn_call_of,
+  BF_COMPTIME_PRINT,
+  ast_expr_to_string
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, value_to_string } :: import("../value.yo");
+{ t_unit } :: import("../../types/type.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
+evaluate_comptime_print :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Validate: at least 1 argument
-  match(expr,
+  match(
+    expr,
     .FnCall(_, _, args, _, _) => {
-      if((args.len() == usize(0)), {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(expr),
-          `Expected at least 1 argument for "comptime_print", got 0`,
-          false,
-          .None
-        ));
+      if(args.len() == usize(0), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `Expected at least 1 argument for "comptime_print", got 0`,
+              false,
+              .None
+            )
+          )
+        );
       });
     },
     .Atom(_, _) => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(expr),
-        String.from("comptime_print: expected FnCall"),
-        false,
-        .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("comptime_print: expected FnCall"),
+            false,
+            .None
+          )
+        )
+      );
     }
   );
-
   // Collect evaluated string representations for each argument.
   parts := ArrayList(String).new();
-
-  args := match(expr,
+  args := match(
+    expr,
     .FnCall(_, _, a, _, _) => a,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
-
   (i : usize) = usize(0);
   (cur_env : Environment) = env;
-  while runtime((i < args.len())), {
-    arg_expr := match(args.get(i), .Some(a) => a, .None => { i = args.len(); return expr; });
-
+  while(runtime(i < args.len()), {
+    arg_expr := match(
+      args.get(i),
+      .Some(a) => a,
+      .None => {
+        i = args.len();
+        return(expr);
+      }
+    );
     evaluated := evaluate_expression(arg_expr, cur_env, ctx);
-    info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-
-    info := match(info_opt,
+    info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+    info := match(
+      info_opt,
       .Some(inf) => inf,
       .None => {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(arg_expr),
-          `Failed to evaluate argument for "comptime_print": ${ast_expr_to_string(arg_expr)}`,
-          false,
-          .None
-        ));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              `Failed to evaluate argument for "comptime_print": ${ast_expr_to_string(arg_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         new_expr_info(cur_env, t_unit())
       }
     );
     cur_env = info.env;
-
     // Convert to string: comptime strings yield their unquoted content;
     // everything else goes through value_to_string.
-    s := match(info.value,
-      .Some(v) => match(v,
+    s := match(
+      info.value,
+      .Some(v) => match(
+        v,
         .StrLit(raw) => {
           // StrLit.raw includes surrounding quotes — strip them
           rn := raw.len();
-          raw.substring(usize(1), (rn - usize(1)))
+          raw.substring(usize(1), rn - usize(1))
         },
         _ => value_to_string(v)
       ),
       .None => String.from("undefined")
     );
     parts.push(s);
-
     i = (i + usize(1));
-  };
-
+  });
   // Print only when executing (not during function-definition validation).
-  if((!(ctx.is_validating_function_definition) && ctx.is_executing), {
+  if(!(ctx.is_validating_function_definition) && ctx.is_executing, {
     (j : usize) = usize(0);
-    while runtime((j < parts.len())), {
-      part := match(parts.get(j), .Some(p) => p, .None => String.new());
-      if((j > usize(0)), { print(" "); });
+    while(runtime(j < parts.len()), {
+      part := match(parts.get(j),.Some(p) => p,.None => String.new());
+      if(j > usize(0), {
+        print(" ");
+      });
       print(part.as_str());
       j = (j + usize(1));
-    };
+    });
     print("\n");
   });
-
   // Annotate the call expression with unit type.
   info := new_expr_info(cur_env, t_unit());
-  info.value = .Some(EvalValue.UnitVal);
+  info.value =.Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
-
-export evaluate_comptime_print;
+export(evaluate_comptime_print);

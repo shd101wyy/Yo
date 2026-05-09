@@ -6,86 +6,96 @@
 //! The original AST node `expr` is annotated (via `ExprInfoTable`) with
 //! `value = TypeVal(type_of_e)` and `ty = type_of_type(type_of_e)`,
 //! then returned unchanged.
-
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_fn_call_of, BF_TYPEOF, make_err_expr } :: import "../../expr/expr.yo";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  BF_TYPEOF,
+  make_err_expr
+} :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
-  :: import "../../expr/expr_info.yo";
-{ Environment } :: import "../../env/env.yo";
-{ EvalContext } :: import "../context.yo";
-{ EvalValue, create_type_value } :: import "../value.yo";
-{ TypeValue, t_i32 }      :: import "../../types/type.yo";
-{ type_of_type }   :: import "../../types/hierarchy.yo";
-{ format_error_message, YoError } :: import "../../error/error.yo";
-{ Exception } :: import "std/error";
-{ evaluate_expression } :: import "./expr.yo";
-
+:: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, create_type_value } :: import("../value.yo");
+{ TypeValue, t_i32 } :: import("../../types/type.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ format_error_message, YoError } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("./expr.yo");
 /// Evaluate `typeof(expr)`. Returns the same FnCall node, with its
 /// `ExprInfo` filled in (env, ty = meta-type of arg, value = TypeVal(arg-type)).
 /// Throws via `exn` when the call is not a valid `typeof(_)` shape.
-evaluate_typeof :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_typeof :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Validate shape: `typeof` with exactly 1 argument.
-  if(!(ast_expr_is_fn_call_of(expr, BF_TYPEOF, .Some(usize(1)))), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr),
-      `Expected "typeof" with 1 argument, got:\n${ast_expr_to_string(expr)}`,
-      false,
-      .None
-    ));
+  if(!(ast_expr_is_fn_call_of(expr, BF_TYPEOF,.Some(usize(1)))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected "typeof" with 1 argument, got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Pull arg out of the FnCall.
-  type_expr := match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),
+  type_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
       .Some(a) => a,
-      .None    => make_err_expr()
+      .None => make_err_expr()
     ),
     .Atom(_, _) => make_err_expr()
   );
-
   // Recursively evaluate the argument.
   evaluated := evaluate_expression(type_expr, env, ctx);
-
   // Read its info from the side table.
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  match(info_opt,
+  match(
+    info_opt,
     .None => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(type_expr),
-        `Expected type for expression, got:\n${ast_expr_to_string(type_expr)}`,
-        false,
-        .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(type_expr),
+            `Expected type for expression, got:\n${ast_expr_to_string(type_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
     },
     .Some(_) => ()
   );
-  info := match(info_opt,
+  info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => new_expr_info(env, t_i32())
+    .None => new_expr_info(env, t_i32())
   );
-
   // Use the (possibly updated) env from the evaluated arg.
   next_env := info.env;
-  arg_ty   := info.ty;
-
+  arg_ty := info.ty;
   // Wrap the arg's type as a TypeVal compile-time value.
-  type_val   := create_type_value(arg_ty);
-  meta_type  := type_of_type(arg_ty);
-
+  type_val := create_type_value(arg_ty);
+  meta_type := type_of_type(arg_ty);
   out_info := new_expr_info(next_env, meta_type);
-  out_info.value = .Some(type_val);
-
+  out_info.value =.Some(type_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-
-export evaluate_typeof;
+export(evaluate_typeof);

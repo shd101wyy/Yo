@@ -1,16 +1,14 @@
 //! C11 `<stdio.h>` — standard I/O functions.
-
-c_include "<stdio.h>",
+c_include(
+  "<stdio.h>",
   // Types
   FILE : Type,
   fpos_t : Type,
   va_list : Type,
-
   // Standard streams
   stdin : *(FILE),
   stdout : *(FILE),
   stderr : *(FILE),
-
   // File operations
   fopen :
     fn(filename : *(char), mode : *(char)) -> ?*(FILE),
@@ -24,7 +22,6 @@ c_include "<stdio.h>",
     fn(stream : *(FILE), buffer : ?*(char)) -> unit,
   setvbuf :
     fn(stream : *(FILE), buffer : ?*(char), mode : int, size : usize) -> int,
-
   // File positioning
   fseek :
     fn(stream : *(FILE), offset : int, whence : int) -> int,
@@ -36,7 +33,6 @@ c_include "<stdio.h>",
     fn(stream : *(FILE), pos : *(fpos_t)) -> int,
   fsetpos :
     fn(stream : *(FILE), pos : *(fpos_t)) -> int,
-
   // Character input/output
   fgetc :
     fn(stream : *(FILE)) -> int,
@@ -52,7 +48,6 @@ c_include "<stdio.h>",
     fn(c : int) -> int,
   ungetc :
     fn(c : int, stream : *(FILE)) -> int,
-
   // String input/output
   fgets :
     fn(s : *(char), n : int, stream : *(FILE)) -> ?*(char),
@@ -62,7 +57,6 @@ c_include "<stdio.h>",
     fn(s : *(char), stream : *(FILE)) -> int,
   puts :
     fn(s : *(char)) -> int,
-
   // Formatted input/output with variadic arguments
   printf :
     fn(format : *(char), ...) -> int,
@@ -72,7 +66,6 @@ c_include "<stdio.h>",
     fn(s : *(char), format : *(char), ...) -> int,
   snprintf :
     fn(s : *(char), n : usize, format : *(char), ...) -> int,
-  
   vprintf :
     fn(format : *(char), ap : va_list) -> int,
   vfprintf :
@@ -81,27 +74,23 @@ c_include "<stdio.h>",
     fn(s : *(char), format : *(char), ap : va_list) -> int,
   vsnprintf :
     fn(s : *(char), n : usize, format : *(char), ap : va_list) -> int,
-  
   scanf :
     fn(format : *(char), ...) -> int,
   fscanf :
     fn(stream : *(FILE), format : *(char), ...) -> int,
   sscanf :
     fn(s : *(char), format : *(char), ...) -> int,
-  
   vscanf :
     fn(format : *(char), ap : va_list) -> int,
   vfscanf :
     fn(stream : *(FILE), format : *(char), ap : va_list) -> int,
   vsscanf :
     fn(s : *(char), format : *(char), ap : va_list) -> int,
-
   // Binary input/output
   fread :
     fn(ptr : *(void), size : usize, nmemb : usize, stream : *(FILE)) -> usize,
   fwrite :
     fn(ptr : *(void), size : usize, nmemb : usize, stream : *(FILE)) -> usize,
-
   // File management
   remove :
     fn(filename : *(char)) -> int,
@@ -111,7 +100,6 @@ c_include "<stdio.h>",
     fn() -> ?*(FILE),
   tmpnam :
     fn(s : ?*(char)) -> ?*(char),
-
   // Error handling
   feof :
     fn(stream : *(FILE)) -> int,
@@ -121,7 +109,6 @@ c_include "<stdio.h>",
     fn(stream : *(FILE)) -> unit,
   perror :
     fn(s : *(char)) -> unit,
-
   // Constants
   EOF : int,
   BUFSIZ : int,
@@ -135,20 +122,17 @@ c_include "<stdio.h>",
   _IOFBF : int,
   _IOLBF : int,
   _IONBF : int
-;
-
+);
 // Export all stdio functionality
-export 
+export(
   // Types
   FILE,
   fpos_t,
   va_list,
-
   // Standard streams
   stdin,
   stdout,
   stderr,
-
   // File operations
   fopen,
   freopen,
@@ -156,14 +140,12 @@ export
   fflush,
   setbuf,
   setvbuf,
-
   // File positioning
   fseek,
   ftell,
   rewind,
   fgetpos,
   fsetpos,
-
   // Character input/output
   fgetc,
   getc,
@@ -172,13 +154,11 @@ export
   putc,
   putchar,
   ungetc,
-
   // String input/output
   fgets,
   gets,
   fputs,
   puts,
-
   // Formatted input/output with variadic arguments
   printf,
   fprintf,
@@ -194,23 +174,19 @@ export
   vscanf,
   vfscanf,
   vsscanf,
-
   // Binary input/output
   fread,
   fwrite,
-
   // File management
   remove,
   rename,
   tmpfile,
   tmpnam,
-
   // Error handling
   feof,
   ferror,
   clearerr,
   perror,
-
   // Constants
   EOF,
   BUFSIZ,
@@ -224,4 +200,4 @@ export
   _IOFBF,
   _IOLBF,
   _IONBF
-;
+);

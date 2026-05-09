@@ -1,78 +1,66 @@
-open import "std/fmt";
-{ String } :: import "std/imm/string";
-
-test "imm.String new creates empty string", {
+open(import("std/fmt"));
+{ String } :: import("std/imm/string");
+test("imm.String new creates empty string", {
   s := String.new();
   assert(s.is_empty(), "new string should be empty");
-  assert((s.bytes_len() == usize(0)), "new string should have 0 bytes");
-  assert((s.len() == usize(0)), "new string should have 0 rune count");
-};
-
-test "imm.String from str", {
+  assert(s.bytes_len() == usize(0), "new string should have 0 bytes");
+  assert(s.len() == usize(0), "new string should have 0 rune count");
+});
+test("imm.String from str", {
   s := String.from("hello");
   assert(!(s.is_empty()), "should not be empty");
-  assert((s.bytes_len() == usize(5)), "should have 5 bytes");
-  assert((s == String.from("hello")), "should equal same content");
-};
-
-test "imm.String from empty str", {
+  assert(s.bytes_len() == usize(5), "should have 5 bytes");
+  assert(s == String.from("hello"), "should equal same content");
+});
+test("imm.String from empty str", {
   s := String.from("");
   assert(s.is_empty(), "empty str should create empty String");
-  assert((s == String.new()), "should equal new()");
-};
-
-test "imm.String as_str round-trip", {
+  assert(s == String.new(), "should equal new()");
+});
+test("imm.String as_str round-trip", {
   s := String.from("world");
   (view : str) = s.as_str();
-  assert((view == "world"), "as_str should return original content");
-};
-
-test "imm.String byte_at", {
+  assert(view == "world", "as_str should return original content");
+});
+test("imm.String byte_at", {
   s := String.from("abc");
-  assert((s.byte_at(usize(0)).unwrap() == u8(0x61)), "byte 0 should be 'a'");
-  assert((s.byte_at(usize(1)).unwrap() == u8(0x62)), "byte 1 should be 'b'");
-  assert((s.byte_at(usize(2)).unwrap() == u8(0x63)), "byte 2 should be 'c'");
+  assert(s.byte_at(usize(0)).unwrap() == u8(0x61), "byte 0 should be 'a'");
+  assert(s.byte_at(usize(1)).unwrap() == u8(0x62), "byte 1 should be 'b'");
+  assert(s.byte_at(usize(2)).unwrap() == u8(0x63), "byte 2 should be 'c'");
   assert(s.byte_at(usize(3)).is_none(), "out of bounds should be None");
-};
-
-test "imm.String concat", {
+});
+test("imm.String concat", {
   a := String.from("hello");
   b := String.from(" world");
   // own(self) transfers ownership of first arg
   c := a.concat(b);
-  assert((c == String.from("hello world")), "concat should join strings");
-};
-
-test "imm.String concat with empty", {
+  assert(c == String.from("hello world"), "concat should join strings");
+});
+test("imm.String concat with empty", {
   s := String.from("test");
   empty := String.new();
   r1 := s.concat(empty);
-  assert((r1 == String.from("test")), "concat with empty should preserve");
+  assert(r1 == String.from("test"), "concat with empty should preserve");
   s2 := String.from("test");
   empty2 := String.new();
   r2 := empty2.concat(s2);
-  assert((r2 == String.from("test")), "empty concat should return other");
-};
-
-test "imm.String slice", {
+  assert(r2 == String.from("test"), "empty concat should return other");
+});
+test("imm.String slice", {
   s := String.from("hello world");
   sub := s.slice(usize(0), usize(5));
-  assert((sub == String.from("hello")), "slice 0..5 should be 'hello'");
-
+  assert(sub == String.from("hello"), "slice 0..5 should be 'hello'");
   sub2 := s.slice(usize(6), usize(11));
-  assert((sub2 == String.from("world")), "slice 6..11 should be 'world'");
-
+  assert(sub2 == String.from("world"), "slice 6..11 should be 'world'");
   sub3 := s.slice(usize(0), usize(0));
   assert(sub3.is_empty(), "empty slice should be empty");
-};
-
-test "imm.String slice clamping", {
+});
+test("imm.String slice clamping", {
   s := String.from("abc");
   clamped := s.slice(usize(1), usize(100));
-  assert((clamped == String.from("bc")), "over-range should clamp to end");
-};
-
-test "imm.String starts_with and ends_with", {
+  assert(clamped == String.from("bc"), "over-range should clamp to end");
+});
+test("imm.String starts_with and ends_with", {
   s := String.from("hello world");
   assert(s.starts_with(String.from("hello")), "should start with 'hello'");
   assert(!(s.starts_with(String.from("world"))), "should not start with 'world'");
@@ -80,144 +68,128 @@ test "imm.String starts_with and ends_with", {
   assert(!(s.ends_with(String.from("hello"))), "should not end with 'hello'");
   assert(s.starts_with(String.new()), "empty prefix always matches");
   assert(s.ends_with(String.new()), "empty suffix always matches");
-};
-
-test "imm.String contains and index_of", {
+});
+test("imm.String contains and index_of", {
   s := String.from("abcdef");
   assert(s.contains(String.from("cde")), "should contain 'cde'");
   assert(!(s.contains(String.from("xyz"))), "should not contain 'xyz'");
-  assert((s.index_of(String.from("cd"), usize(0)).unwrap() == usize(2)), "index_of 'cd' should be 2");
+  assert(s.index_of(String.from("cd"), usize(0)).unwrap() == usize(2), "index_of 'cd' should be 2");
   assert(s.index_of(String.from("cd"), usize(3)).is_none(), "index_of past match should be None");
-};
-
-test "imm.String split", {
+});
+test("imm.String split", {
   s := String.from("a,b,c");
   parts := s.split(String.from(","));
-  assert((parts.len() == usize(3)), "split should produce 3 parts");
+  assert(parts.len() == usize(3), "split should produce 3 parts");
   head := parts.head();
   assert(head.is_some(), "split result should have a head");
-  assert((head.unwrap() == String.from("a")), "first part should be 'a'");
-};
-
-test "imm.String trim", {
+  assert(head.unwrap() == String.from("a"), "first part should be 'a'");
+});
+test("imm.String trim", {
   s := String.from("  hello  ");
-  assert((s.trim() == String.from("hello")), "trim should remove whitespace");
-  assert((s.trim_start() == String.from("hello  ")), "trim_start should remove leading");
-  assert((s.trim_end() == String.from("  hello")), "trim_end should remove trailing");
+  assert(s.trim() == String.from("hello"), "trim should remove whitespace");
+  assert(s.trim_start() == String.from("hello  "), "trim_start should remove leading");
+  assert(s.trim_end() == String.from("  hello"), "trim_end should remove trailing");
   no_ws := String.from("abc");
-  assert((no_ws.trim() == no_ws), "trim no-op should return same");
-};
-
-test "imm.String to_uppercase and to_lowercase", {
+  assert(no_ws.trim() == no_ws, "trim no-op should return same");
+});
+test("imm.String to_uppercase and to_lowercase", {
   s1 := String.from("Hello World");
-  assert((s1.to_uppercase() == String.from("HELLO WORLD")), "uppercase");
+  assert(s1.to_uppercase() == String.from("HELLO WORLD"), "uppercase");
   s2 := String.from("Hello World");
-  assert((s2.to_lowercase() == String.from("hello world")), "lowercase");
-};
-
-test "imm.String replace", {
+  assert(s2.to_lowercase() == String.from("hello world"), "lowercase");
+});
+test("imm.String replace", {
   s := String.from("foo bar foo");
   r := s.replace(String.from("foo"), String.from("baz"));
-  assert((r == String.from("baz bar foo")), "replace first occurrence");
+  assert(r == String.from("baz bar foo"), "replace first occurrence");
   ra := s.replace_all(String.from("foo"), String.from("baz"));
-  assert((ra == String.from("baz bar baz")), "replace all occurrences");
-};
-
-test "imm.String repeat", {
+  assert(ra == String.from("baz bar baz"), "replace all occurrences");
+});
+test("imm.String repeat", {
   s := String.from("ab");
-  assert((s.repeat(usize(3)) == String.from("ababab")), "repeat 3 times");
-  assert((s.repeat(usize(0)) == String.new()), "repeat 0 times");
-  assert((s.repeat(usize(1)) == s), "repeat 1 time");
-};
-
-test "imm.String equality and ordering", {
+  assert(s.repeat(usize(3)) == String.from("ababab"), "repeat 3 times");
+  assert(s.repeat(usize(0)) == String.new(), "repeat 0 times");
+  assert(s.repeat(usize(1)) == s, "repeat 1 time");
+});
+test("imm.String equality and ordering", {
   a := String.from("abc");
   b := String.from("abc");
   c := String.from("abd");
-  assert((a == b), "equal strings");
-  assert((a != c), "unequal strings");
-  assert((a < c), "abc < abd");
-  assert((c > a), "abd > abc");
-};
-
-test "imm.String equality with str", {
+  assert(a == b, "equal strings");
+  assert(a != c, "unequal strings");
+  assert(a < c, "abc < abd");
+  assert(c > a, "abd > abc");
+});
+test("imm.String equality with str", {
   s := String.from("hello");
   assert(s.eq_str("hello"), "should equal str literal");
   assert(!(s.eq_str("world")), "should not equal different str");
-};
-
-test "imm.String Unicode rune count", {
+});
+test("imm.String Unicode rune count", {
   ascii := String.from("hello");
-  assert((ascii.len() == usize(5)), "ASCII rune count should match byte count");
+  assert(ascii.len() == usize(5), "ASCII rune count should match byte count");
   // Each Chinese char is 3 UTF-8 bytes
   cjk := String.from("你好");
-  assert((cjk.bytes_len() == usize(6)), "CJK should be 6 bytes");
-  assert((cjk.len() == usize(2)), "CJK should be 2 runes");
-};
-
-test "imm.String at (rune access)", {
+  assert(cjk.bytes_len() == usize(6), "CJK should be 6 bytes");
+  assert(cjk.len() == usize(2), "CJK should be 2 runes");
+});
+test("imm.String at (rune access)", {
   s := String.from("abc");
-  match(s.at(usize(0)),
-    .Some(r) => assert((r.char == u32(0x61)), "at(0) should be 'a'"),
+  match(
+    s.at(usize(0)),
+    .Some(r) => assert(r.char == u32(0x61), "at(0) should be 'a'"),
     .None => assert(false, "at(0) should not be None")
   );
-  match(s.at(usize(2)),
-    .Some(r) => assert((r.char == u32(0x63)), "at(2) should be 'c'"),
+  match(
+    s.at(usize(2)),
+    .Some(r) => assert(r.char == u32(0x63), "at(2) should be 'c'"),
     .None => assert(false, "at(2) should not be None")
   );
   assert(s.at(usize(3)).is_none(), "at(3) out of bounds");
-};
-
-test "imm.String Send check", {
+});
+test("imm.String Send check", {
   comptime_assert(Type.impls(String, Send), "imm.String should implement Send");
-};
-
-test "imm.String toString", {
+});
+test("imm.String toString", {
   s := String.from("hello");
   println(s);
-};
-
-test "imm.String hash consistency", {
+});
+test("imm.String hash consistency", {
   a := String.from("test");
   b := String.from("test");
-  assert((a.hash() == b.hash()), "equal strings should have equal hashes");
+  assert(a.hash() == b.hash(), "equal strings should have equal hashes");
   c := String.from("other");
   // Hash collision is theoretically possible but extremely unlikely for these inputs
-  assert((a.hash() != c.hash()), "different strings should likely have different hashes");
-};
-
-test "imm.String COW concat unique", {
+  assert(a.hash() != c.hash(), "different strings should likely have different hashes");
+});
+test("imm.String COW concat unique", {
   // When rc==1, concat should reuse buffer in-place
   s := String.from("hello");
   s = s.concat(String.from(" world"));
-  assert((s == String.from("hello world")), "COW concat unique");
-};
-
-test "imm.String COW concat shared", {
+  assert(s == String.from("hello world"), "COW concat unique");
+});
+test("imm.String COW concat shared", {
   // When shared, concat must allocate a new buffer
   a := String.from("hello");
   b := a;
   c := a.concat(String.from(" world"));
-  assert((c == String.from("hello world")), "COW concat shared result");
-  assert((b == String.from("hello")), "shared copy unchanged");
-};
-
-test "imm.String COW to_lowercase unique", {
+  assert(c == String.from("hello world"), "COW concat shared result");
+  assert(b == String.from("hello"), "shared copy unchanged");
+});
+test("imm.String COW to_lowercase unique", {
   s := String.from("HELLO");
   s = s.to_lowercase();
-  assert((s == String.from("hello")), "COW lowercase unique");
-};
-
-test "imm.String COW to_uppercase unique", {
+  assert(s == String.from("hello"), "COW lowercase unique");
+});
+test("imm.String COW to_uppercase unique", {
   s := String.from("hello");
   s = s.to_uppercase();
-  assert((s == String.from("HELLO")), "COW uppercase unique");
-};
-
-test "imm.String COW concat chain", {
+  assert(s == String.from("HELLO"), "COW uppercase unique");
+});
+test("imm.String COW concat chain", {
   s := String.from("a");
   s = s.concat(String.from("b"));
   s = s.concat(String.from("c"));
   s = s.concat(String.from("d"));
-  assert((s == String.from("abcd")), "chained COW concat");
-};
+  assert(s == String.from("abcd"), "chained COW concat");
+});

@@ -15,24 +15,22 @@
 //! assert((xs.head().unwrap() == i32(1)), "head is 1");
 //! assert((xs.len() == usize(3)), "length is 3");
 //! ```
-
-{ GlobalAllocator } :: import "../allocator.yo";
+{ GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
-{ memcpy } :: import "../libc/string.yo";
-
+{ memcpy } :: import("../libc/string.yo");
 /// Internal cons cell — atomic object for thread-safe structural sharing.
 ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  atomic object(
-    _value : T,
-    _next : Option(Self)
+  atomic(
+    object(
+      _value : T,
+      _next : Option(Self)
+    )
   )
 );
-
 // Manual Acyclic impl — ListNode is self-referential, so auto-derivation skips it.
 // This is safe because ListNode is immutable: all operations create new nodes and never
 // mutate existing ones, making it impossible to form cycles at runtime.
 impl(forall(T : Type), where(T <: Send), ListNode(T), Acyclic());
-
 /// Persistent immutable singly-linked list.
 ///
 /// A value-type wrapper around an optional chain of `ListNode` atomic objects.
@@ -44,211 +42,208 @@ List :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
     _len : usize
   )
 );
-
-impl(forall(T : Type), where(T <: Send), List(T),
+impl(
+  forall(T : Type),
+  where(T <: Send),
+  List(T),
   /// Create an empty list.
   new : (fn() -> Self)(
-    Self(_head: .None, _len: usize(0))
+    Self(_head :.None, _len : usize(0))
   ),
-
   /// Return the number of elements.
   len : (fn(self : Self) -> usize)(
     self._len
   ),
-
   /// Return `true` if the list is empty.
   is_empty : (fn(self : Self) -> bool)(
-    (self._len == usize(0))
+    self._len == usize(0)
   ),
-
   /// Return a new list with `value` at the front. O(1).
   prepend : (fn(self : Self, value : T) -> Self)(
     Self(
-      _head: .Some(ListNode(T)(_value: value, _next: self._head)),
-      _len: (self._len + usize(1))
+      _head :.Some(ListNode(T)(_value : value, _next : self._head)),
+      _len : (self._len + usize(1))
     )
   ),
-
   /// Return the first element, or `.None` if empty. O(1).
   head : (fn(self : Self) -> Option(T))(
-    match(self._head,
-      .Some(node) => .Some(node._value),
-      .None => .None
+    match(
+      self._head,
+      .Some(node) =>.Some(node._value),
+      .None =>.None
     )
   ),
-
   /// Return a new list without the first element. O(1).
   /// Returns an empty list if already empty.
   tail : (fn(self : Self) -> Self)(
-    match(self._head,
-      .Some(node) => Self(_head: node._next, _len: (self._len - usize(1))),
+    match(
+      self._head,
+      .Some(node) => Self(_head : node._next, _len : (self._len - usize(1))),
       .None => self
     )
   ),
-
   /// Access element at `index`. O(n).
   /// Returns `.None` if index is out of bounds.
   get : (fn(self : Self, index : usize) -> Option(T))({
-    if((index >= self._len), {
-      return .None;
+    if(index >= self._len, {
+      return(.None);
     });
     (current : Option(ListNode(T))) = self._head;
     (i : usize) = usize(0);
-    while runtime(true), {
-      match(current,
+    while(runtime(true), {
+      match(
+        current,
         .Some(node) => {
-          if((i == index), {
-            return .Some(node._value);
+          if(i == index, {
+            return(.Some(node._value));
           });
           current = node._next;
           i = (i + usize(1));
         },
         .None => {
-          return .None;
+          return(.None);
         }
       );
-    };
+    });
     .None
   }),
-
   /// Return a new list with elements in reverse order. O(n).
   reverse : (fn(self : Self) -> Self)({
     (result : Self) = Self.new();
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       result = result.prepend(node._value);
       current = node._next;
-    };
+    });
     result
   }),
-
   /// Concatenate two lists. O(n) where n = self.len().
   /// The resulting list contains all elements of `self` followed by `other`.
   concat : (fn(self : Self, other : Self) -> Self)({
     reversed := self.reverse();
     (result : Self) = other;
     (current : Option(ListNode(T))) = reversed._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       result = result.prepend(node._value);
       current = node._next;
-    };
+    });
     result
   }),
-
   /// Apply a function to each element, producing a new list. O(n).
   map : (fn(forall(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: Send)) -> List(U))({
     (result : List(U)) = List(U).new();
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       result = result.prepend(f(node._value));
       current = node._next;
-    };
+    });
     result.reverse()
   }),
-
   /// Keep only elements satisfying the predicate. O(n).
   filter : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> Self)({
     (result : Self) = Self.new();
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       if(f(node._value), {
         result = result.prepend(node._value);
       });
       current = node._next;
-    };
+    });
     result.reverse()
   }),
-
   /// Left fold over the list. O(n).
   fold : (fn(forall(U : Type), self : Self, init : U, f : Impl(Fn(acc : U, item : T) -> U)) -> U)({
     (acc : U) = init;
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       acc = f(acc, node._value);
       current = node._next;
-    };
+    });
     acc
   }),
-
   /// Execute a function for each element. O(n).
   for_each : (fn(self : Self, f : Impl(Fn(a : T) -> unit)) -> unit)({
     (current : Option(ListNode(T))) = self._head;
-    while runtime(current.is_some()), {
+    while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
       f(node._value);
       current = node._next;
-    };
+    });
   }),
-
   /// Check if the list contains a value. O(n).
   /// Requires T to implement Eq.
   contains : (fn(self : Self, value : T, where(T <: Eq(T))) -> bool)({
     (current : Option(ListNode(T))) = self._head;
-    while runtime(true), {
-      match(current,
+    while(runtime(true), {
+      match(
+        current,
         .Some(node) => {
-          if((node._value == value), {
-            return true;
+          if(node._value == value, {
+            return(true);
           });
           current = node._next;
         },
         .None => {
-          return false;
+          return(false);
         }
       );
-    };
+    });
     false
   }),
-
   /// Build a list from a slice. O(n).
   from_slice : (fn(s : Slice(T)) -> Self)({
     (result : Self) = Self.new();
     (i : usize) = s.len();
-    while ((i > usize(0))), {
+    while(i > usize(0), {
       i = (i - usize(1));
       result = result.prepend(s(i));
-    };
+    });
     result
   })
 );
-
 /// Equality: two lists are equal if they have the same length and elements.
-impl(forall(T : Type), where(T <: (Send, Eq(T))), List(T), Eq(List(T))(
-  (==) : (fn(lhs : Self, rhs : Self) -> bool)({
-    if((lhs._len != rhs._len), {
-      return false;
-    });
-    (l : Option(ListNode(T))) = lhs._head;
-    (r : Option(ListNode(T))) = rhs._head;
-    while runtime(true), {
-      match(l,
-        .Some(ln) => match(r,
-          .Some(rn) => {
-            if((ln._value != rn._value), {
-              return false;
-            });
-            l = ln._next;
-            r = rn._next;
-          },
+impl(
+  forall(T : Type),
+  where(T <: (Send, Eq(T))),
+  List(T),
+  Eq(List(T))(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)({
+      if(lhs._len != rhs._len, {
+        return(false);
+      });
+      (l : Option(ListNode(T))) = lhs._head;
+      (r : Option(ListNode(T))) = rhs._head;
+      while(runtime(true), {
+        match(
+          l,
+          .Some(ln) => match(
+            r,
+            .Some(rn) => {
+              if(ln._value != rn._value, {
+                return(false);
+              });
+              l = ln._next;
+              r = rn._next;
+            },
+            .None => {
+              return(false);
+            }
+          ),
           .None => {
-            return false;
+            return(true);
           }
-        ),
-        .None => {
-          return true;
-        }
-      );
-    };
-    true
-  })
-));
-
-export
+        );
+      });
+      true
+    })
+  )
+);
+export(
   List,
   ListNode
-;
+);

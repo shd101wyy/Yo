@@ -1,93 +1,101 @@
-test "Test 'Box'", {
+test("Test 'Box'", {
   // test `Box` Eq trait.
   {
     x := box(1);
     y := box(1);
     assert(x == y);
-
     z := box(2);
     assert(x != z);
   };
-};
-
-test "Test TryFrom/TryInto traits", {
+});
+test("Test TryFrom/TryInto traits", {
   EvenNumber :: struct(value : i32);
-  impl(EvenNumber, TryFrom(i32)(
-    Error : str,
-    try_from : (value -> 
-      cond(
-        ((value % 2) == 0) => .Ok(EvenNumber(value)),
-        true => .Err("Only even numbers are allowed (i32)") 
+  impl(
+    EvenNumber,
+    TryFrom(i32)(
+      Error : str,
+      try_from : (
+        value ->
+          cond(
+            ((value % 2) == 0) =>.Ok(EvenNumber(value)),
+            true =>.Err("Only even numbers are allowed (i32)")
+          )
       )
     )
-  ));
-  impl(EvenNumber, TryFrom(i64)(
-    Error : str,
-    try_from : (value -> 
-      cond(
-        ((value % 2) == 0) => .Ok(EvenNumber(i32(value))),
-        true => .Err("Only even numbers are allowed (i64)") 
+  );
+  impl(
+    EvenNumber,
+    TryFrom(i64)(
+      Error : str,
+      try_from : (
+        value ->
+          cond(
+            ((value % 2) == 0) =>.Ok(EvenNumber(i32(value))),
+            true =>.Err("Only even numbers are allowed (i64)")
+          )
       )
     )
-  ));
-  impl(EvenNumber, TryInto(i32)(
-    Error : str,
-    try_into : ((self, _) -> .Ok(self.value))
-  ));
-  impl(EvenNumber, TryInto(i64)(
-    Error : str,
-    try_into : ((self, _) -> .Ok(i64(self.value)))
-  ));
-
+  );
+  impl(
+    EvenNumber,
+    TryInto(i32)(
+      Error : str,
+      try_into : ((self, _) ->.Ok(self.value))
+    )
+  );
+  impl(
+    EvenNumber,
+    TryInto(i64)(
+      Error : str,
+      try_into : ((self, _) ->.Ok(i64(self.value)))
+    )
+  );
   x := EvenNumber.try_from(i32(4));
   y := EvenNumber.try_from(i64(10));
   z := EvenNumber.try_from(i32(3));
   assert(x.is_ok());
   assert(y.is_ok());
   assert(z.is_err());
-
   a := x.unwrap().try_into(i32).unwrap();
   assert(a == i32(4));
-
   b := y.unwrap().try_into(i64).unwrap();
   assert(b == i64(10));
-};
-
-
-test "Test 'Rc' and 'Dispose' traits", {
+});
+test("Test 'Rc' and 'Dispose' traits", {
   MyBox :: object(
-    value: i32
+    value : i32
   );
   comptime_assert(Type.impls(MyBox, Rc));
-  impl(MyBox, Dispose(
-    dispose : (fn(self: Self) -> unit)({
-      ();
-    })
-  ));
-
+  impl(
+    MyBox,
+    Dispose(
+      dispose : (fn(self : Self) -> unit)({
+        ();
+      })
+    )
+  );
   AnotherBox :: struct(value : i32);
   comptime_assert(Type.impls(AnotherBox, Rc) == false);
   comptime_expect_error(
-    impl(AnotherBox, Dispose(
-      dispose : (fn(self: Self) -> unit)({
-        printf("Disposing AnotherBox with value: %d\n", self.value);
-      })
-    )));
-};
-
-test "Test 'MaybeUninit'", {
+    impl(
+      AnotherBox,
+      Dispose(
+        dispose : (fn(self : Self) -> unit)({
+          printf("Disposing AnotherBox with value: %d\n", self.value);
+        })
+      )
+    )
+  );
+});
+test("Test 'MaybeUninit'", {
   {
     uninit_arr := MaybeUninit(Array(i32, usize(2))).new();
-
     p := uninit_arr.as_ptr();
     (p.*)(0) = 1;
-    
     // initialize the array
     arr := uninit_arr.assume_init();
-
     // uninit_arr should be consumed after assume_init, so this should be an error:
     comptime_expect_error(arr2 := uninit_arr.assume_init());
-
     arr(0) = (arr(0) + 1);
     arr(1) = 99;
     assert(arr(0) == 2);
@@ -96,19 +104,15 @@ test "Test 'MaybeUninit'", {
   {
     Point :: struct(x : i32, y : i32);
     uninit_point := MaybeUninit(Point).new();
-
     p := uninit_point.as_ptr();
     p.x = 1;
-    
     // initialize the point
     point := uninit_point.assume_init();
-
     // uninit_point should be consumed after assume_init, so this should be an error:
     comptime_expect_error(point2 := uninit_point.assume_init());
-
     point.x = (point.x + 1);
     point.y = 99;
     assert(point.x == 2);
     assert(point.y == 99);
   };
-};
+});

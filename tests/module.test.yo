@@ -1,202 +1,164 @@
 // Tests for module features: impl modules, open, export, spread, module-level variables.
-{ printf } :: import "std/libc/stdio";
-
+{ printf } :: import("std/libc/stdio");
 // ── Module basics ──
-
-test "Test extending modules by ... spread operator", {
-  ModuleA :: impl {
+test("Test extending modules by ... spread operator", {
+  ModuleA :: impl({
     a :: 1;
     b :: 2;
-    export a, b;
-  };
-
-  ModuleB :: impl {
+    export(a, b);
+  });
+  ModuleB :: impl({
     c :: 3;
-    export ...(ModuleA), c;
-  };
-
-  ModuleC :: impl {
+    export(...(ModuleA), c);
+  });
+  ModuleC :: impl({
     d :: 4;
-    export ...(ModuleB), d;
-  };
-
+    export(...(ModuleB), d);
+  });
   {
-    open ModuleC;
-
+    open(ModuleC);
     assert(a == 1);
     assert(b == 2);
     assert(c == 3);
     assert(d == 4);
   };
-};
-
-test "Test 'open' on modules", {
-  my_module :: impl {
+});
+test("Test 'open' on modules", {
+  my_module :: impl({
     x :: 6;
     y :: 2;
-    export x, y;
-  };
-  open my_module;
-
+    export(x, y);
+  });
+  open(my_module);
   comptime_assert(x == 6);
   comptime_assert(y == 2);
-
   assert(x == 6);
   assert(y == 2);
-};
-
-test "Test destructuring by ... spread operator", {
-  SomeModule :: impl {
-    id :: (fn(x: i32)-> i32) x;
-    implicit_id :: (fn(x: i32)-> i32) x;
+});
+test("Test destructuring by ... spread operator", {
+  SomeModule :: impl({
+    id :: (fn(x : i32) -> i32)(x);
+    implicit_id :: (fn(x : i32) -> i32)(x);
     x :: 1;
     y :: 2;
-    export id, implicit_id, x, y;
-  };
-
+    export(id, implicit_id, x, y);
+  });
   {
     // Use ... to destructure all exports
     { ... } :: SomeModule;
     v := id(3);
-
-    Point :: struct(a: i32, b: i32);
+    Point :: struct(a : i32, b : i32);
     p :: Point(3, 4);
     { ... } :: p;
     x2 := id(a);
   };
-
   {
-    open SomeModule;
-
+    open(SomeModule);
     implicit_id(3);
     id(3);
   };
-};
-
+});
 // ── Module-level mutable variables ──
-
 // Module-level variable with := (the basic pattern)
 counter := i32(0);
-
 inc_counter :: (fn() -> unit)({
   counter = (counter + i32(1));
 });
-
 get_counter :: (fn() -> i32)(counter);
-
-test "Test module-level mutable variable with :=", {
-  assert((get_counter() == i32(0)), "initial value should be 0");
+test("Test module-level mutable variable with :=", {
+  assert(get_counter() == i32(0), "initial value should be 0");
   inc_counter();
-  assert((get_counter() == i32(1)), "after inc should be 1");
+  assert(get_counter() == i32(1), "after inc should be 1");
   inc_counter();
   inc_counter();
-  assert((get_counter() == i32(3)), "after 3 incs should be 3");
-};
-
+  assert(get_counter() == i32(3), "after 3 incs should be 3");
+});
 // Module-level variable with (x : T) = val pattern
 (flag : bool) = false;
-
 set_flag :: (fn(v : bool) -> unit)({
   flag = v;
 });
-
 get_flag :: (fn() -> bool)(flag);
-
-test "Test module-level mutable variable with binding pattern", {
-  assert((get_flag() == false), "initial flag should be false");
+test("Test module-level mutable variable with binding pattern", {
+  assert(get_flag() == false, "initial flag should be false");
   set_flag(true);
-  assert((get_flag() == true), "flag should be true after set");
+  assert(get_flag() == true, "flag should be true after set");
   set_flag(false);
-  assert((get_flag() == false), "flag should be false after reset");
-};
-
+  assert(get_flag() == false, "flag should be false after reset");
+});
 // Multiple module-level variables
 (x_val : i32) = i32(10);
 y_val := i32(20);
-
 swap_xy :: (fn() -> unit)({
   tmp := x_val;
   x_val = y_val;
   y_val = tmp;
 });
-
-test "Test multiple module-level mutable variables", {
-  assert((x_val == i32(10)), "x should start at 10");
-  assert((y_val == i32(20)), "y should start at 20");
+test("Test multiple module-level mutable variables", {
+  assert(x_val == i32(10), "x should start at 10");
+  assert(y_val == i32(20), "y should start at 20");
   swap_xy();
-  assert((x_val == i32(20)), "x should be 20 after swap");
-  assert((y_val == i32(10)), "y should be 10 after swap");
-};
-
+  assert(x_val == i32(20), "x should be 20 after swap");
+  assert(y_val == i32(10), "y should be 10 after swap");
+});
 // ── Module-level variable error cases ──
-
-test "Test bare type annotation at module scope errors", {
+test("Test bare type annotation at module scope errors", {
   // Standalone `a : i32;` at module scope should error
   comptime_expect_error({
     a : i32;
     a
   });
-};
-
-test "Test := inside impl block errors", {
+});
+test("Test := inside impl block errors", {
   // Mutable runtime variable inside impl should error
   comptime_expect_error(
-    impl {
+    impl({
       b := i32(13);
-      export b;
-    }
+      export(b);
+    })
   );
-};
-
-test "Test binding pattern inside impl block errors", {
+});
+test("Test binding pattern inside impl block errors", {
   // (b : i32) = val; inside impl should also error
   comptime_expect_error(
-    impl {
+    impl({
       (b : i32) = i32(13);
-      export b;
-    }
+      export(b);
+    })
   );
-};
-
-test "Test export of runtime variable errors", {
+});
+test("Test export of runtime variable errors", {
   // Cannot export a module-level mutable variable
   comptime_expect_error(
-    impl {
+    impl({
       x := i32(42);
-      export x;
-    }
+      export(x);
+    })
   );
-};
-
+});
 // ── impl with :: is fine ──
-
-test "Test :: inside impl works", {
-  m :: impl {
+test("Test :: inside impl works", {
+  m :: impl({
     b :: 13;
-    add :: (fn(x : i32) -> i32)((x + i32(b)));
-    export b, add;
-  };
-
+    add :: (fn(x : i32) -> i32)(x + i32(b));
+    export(b, add);
+  });
   comptime_assert(m.b == 13);
   result := m.add(i32(7));
-  assert((result == i32(20)), "13 + 7 should be 20");
-};
-
+  assert(result == i32(20), "13 + 7 should be 20");
+});
 // ── Accessing module-level vars from impl functions ──
-
 global_val := i32(100);
-
-m_access :: impl {
+m_access :: impl({
   read_global :: (fn() -> i32)(global_val);
   write_global :: (fn(v : i32) -> unit)({
     global_val = v;
   });
-  export read_global, write_global;
-};
-
-test "Test impl functions access module-level variables", {
-  assert((m_access.read_global() == i32(100)), "should read 100");
+  export(read_global, write_global);
+});
+test("Test impl functions access module-level variables", {
+  assert(m_access.read_global() == i32(100), "should read 100");
   m_access.write_global(i32(42));
-  assert((m_access.read_global() == i32(42)), "should read 42 after write");
-  assert((global_val == i32(42)), "direct access should also see 42");
-};
+  assert(m_access.read_global() == i32(42), "should read 42 after write");
+  assert(global_val == i32(42), "direct access should also see 42");
+});

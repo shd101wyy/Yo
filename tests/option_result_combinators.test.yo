@@ -1,365 +1,308 @@
-open import "std/string";
-
+open(import("std/string"));
 // === Option.map ===
-test "Option.map on Some", {
+test("Option.map on Some", {
   some_val := Option(i32).Some(i32(42));
   mapped := some_val.map((x) => (x + i32(1)));
   assert(mapped.is_some(), "should be Some");
-  assert((mapped.unwrap() == i32(43)), "should be 43");
-};
-
-test "Option.map on None", {
+  assert(mapped.unwrap() == i32(43), "should be 43");
+});
+test("Option.map on None", {
   none_val := Option(i32).None;
   mapped := none_val.map((x) => (x + i32(1)));
   assert(mapped.is_none(), "should be None");
-};
-
-test "Option.map with type change", {
+});
+test("Option.map with type change", {
   some_val := Option(i32).Some(i32(42));
   mapped := some_val.map((x) => `value: ${x}`);
   assert(mapped.is_some(), "should be Some");
-};
-
+});
 // === Option.and_then ===
-test "Option.and_then on Some returning Some", {
+test("Option.and_then on Some returning Some", {
   some_val := Option(i32).Some(i32(42));
-  result := some_val.and_then((x) => Option(i32).Some((x * i32(2))));
+  result := some_val.and_then((x) => Option(i32).Some(x * i32(2)));
   assert(result.is_some(), "should be Some");
   v := result.unwrap();
-  assert((v == i32(84)), "should be 84");
-};
-
-test "Option.and_then on Some returning None via cond", {
+  assert(v == i32(84), "should be 84");
+});
+test("Option.and_then on Some returning None via cond", {
   some_val := Option(i32).Some(i32(42));
-  result := some_val.and_then((x) =>
-    cond(
-      (x > i32(100)) => Option(i32).Some((x * i32(2))),
-      true => Option(i32).None
-    )
+  result := some_val.and_then(
+    (x) =>
+      cond(
+        (x > i32(100)) => Option(i32).Some(x * i32(2)),
+        true => Option(i32).None
+      )
   );
   assert(result.is_none(), "should be None");
-};
-
-test "Option.and_then on None", {
+});
+test("Option.and_then on None", {
   none_val := Option(i32).None;
-  result := none_val.and_then((x) => Option(i32).Some((x * i32(2))));
+  result := none_val.and_then((x) => Option(i32).Some(x * i32(2)));
   assert(result.is_none(), "should be None");
-};
-
-test "Option.and_then with type change", {
+});
+test("Option.and_then with type change", {
   some_val := Option(i32).Some(i32(42));
   result := some_val.and_then((x) => Option(String).Some(`number: ${x}`));
   assert(result.is_some(), "should be Some");
-};
-
+});
 // === Option.filter ===
-test "Option.filter passing predicate", {
+test("Option.filter passing predicate", {
   some_val := Option(i32).Some(i32(42));
   filtered := some_val.filter((x) => (x > i32(10)));
   assert(filtered.is_some(), "should be Some");
-};
-
-test "Option.filter failing predicate", {
+});
+test("Option.filter failing predicate", {
   some_val := Option(i32).Some(i32(42));
   filtered := some_val.filter((x) => (x > i32(100)));
   assert(filtered.is_none(), "should be None");
-};
-
-test "Option.filter on None", {
+});
+test("Option.filter on None", {
   none_val := Option(i32).None;
   filtered := none_val.filter((x) => true);
   assert(filtered.is_none(), "should be None");
-};
-
+});
 // === Option.or_else ===
-test "Option.or_else on Some", {
+test("Option.or_else on Some", {
   some_val := Option(i32).Some(i32(42));
   result := some_val.or_else(() => Option(i32).Some(i32(0)));
-  assert((result.unwrap() == i32(42)), "should be 42");
-};
-
-test "Option.or_else on None", {
+  assert(result.unwrap() == i32(42), "should be 42");
+});
+test("Option.or_else on None", {
   none_val := Option(i32).None;
   result := none_val.or_else(() => Option(i32).Some(i32(99)));
-  assert((result.unwrap() == i32(99)), "should be 99");
-};
-
+  assert(result.unwrap() == i32(99), "should be 99");
+});
 // === Option.flatten ===
-test "Option.flatten Some(Some)", {
+test("Option.flatten Some(Some)", {
   nested := Option(Option(i32)).Some(Option(i32).Some(i32(5)));
   result := nested.flatten();
-  assert((result.unwrap() == i32(5)), "should be 5");
-};
-
-test "Option.flatten Some(None)", {
+  assert(result.unwrap() == i32(5), "should be 5");
+});
+test("Option.flatten Some(None)", {
   nested := Option(Option(i32)).Some(Option(i32).None);
   result := nested.flatten();
   assert(result.is_none(), "should be None");
-};
-
-test "Option.flatten None", {
+});
+test("Option.flatten None", {
   outer := Option(Option(i32)).None;
   result := outer.flatten();
   assert(result.is_none(), "should be None");
-};
-
+});
 // === Option.map_or ===
-test "Option.map_or on Some", {
+test("Option.map_or on Some", {
   some_val := Option(i32).Some(i32(42));
   result := some_val.map_or(i32(0), (x) => (x + i32(1)));
-  assert((result == i32(43)), "should be 43");
-};
-
-test "Option.map_or on None", {
+  assert(result == i32(43), "should be 43");
+});
+test("Option.map_or on None", {
   none_val := Option(i32).None;
   result := none_val.map_or(i32(0), (x) => (x + i32(1)));
-  assert((result == i32(0)), "should be 0");
-};
-
+  assert(result == i32(0), "should be 0");
+});
 // === Option.map_or_else ===
-test "Option.map_or_else on Some", {
+test("Option.map_or_else on Some", {
   some_val := Option(i32).Some(i32(42));
   result := some_val.map_or_else(() => i32(0), (x) => (x + i32(1)));
-  assert((result == i32(43)), "should be 43");
-};
-
-test "Option.map_or_else on None", {
+  assert(result == i32(43), "should be 43");
+});
+test("Option.map_or_else on None", {
   none_val := Option(i32).None;
   result := none_val.map_or_else(() => i32(0), (x) => (x + i32(1)));
-  assert((result == i32(0)), "should be 0");
-};
-
+  assert(result == i32(0), "should be 0");
+});
 // === Option.ok_or ===
-test "Option.ok_or on Some", {
+test("Option.ok_or on Some", {
   some_val := Option(i32).Some(i32(42));
   result := some_val.ok_or(`error`);
   assert(result.is_ok(), "should be Ok");
-  assert((result.unwrap() == i32(42)), "should be 42");
-};
-
-test "Option.ok_or on None", {
+  assert(result.unwrap() == i32(42), "should be 42");
+});
+test("Option.ok_or on None", {
   none_val := Option(i32).None;
   result := none_val.ok_or(`not found`);
   assert(result.is_err(), "should be Err");
-};
-
+});
 // === Option.ok_or_else ===
-test "Option.ok_or_else on Some", {
+test("Option.ok_or_else on Some", {
   some_val := Option(i32).Some(i32(42));
   result := some_val.ok_or_else(() => `error`);
   assert(result.is_ok(), "should be Ok");
-};
-
-test "Option.ok_or_else on None", {
+});
+test("Option.ok_or_else on None", {
   none_val := Option(i32).None;
   result := none_val.ok_or_else(() => `not found`);
   assert(result.is_err(), "should be Err");
-};
-
+});
 // === Option.and ===
-test "Option.and Some and Some", {
+test("Option.and Some and Some", {
   a := Option(i32).Some(i32(1));
   result := a.and(Option(String).Some(`hello`));
   assert(result.is_some(), "should be Some");
-};
-
-test "Option.and None and Some", {
+});
+test("Option.and None and Some", {
   a := Option(i32).None;
   result := a.and(Option(String).Some(`hello`));
   assert(result.is_none(), "should be None");
-};
-
+});
 // === Option.or ===
-test "Option.or on Some", {
+test("Option.or on Some", {
   a := Option(i32).Some(i32(42));
   result := a.or(Option(i32).Some(i32(99)));
-  assert((result.unwrap() == i32(42)), "should be 42");
-};
-
-test "Option.or on None", {
+  assert(result.unwrap() == i32(42), "should be 42");
+});
+test("Option.or on None", {
   a := Option(i32).None;
   result := a.or(Option(i32).Some(i32(99)));
-  assert((result.unwrap() == i32(99)), "should be 99");
-};
-
+  assert(result.unwrap() == i32(99), "should be 99");
+});
 // === Option.unwrap_or_else ===
-test "Option.unwrap_or_else on Some", {
+test("Option.unwrap_or_else on Some", {
   some_val := Option(i32).Some(i32(42));
   result := some_val.unwrap_or_else(() => i32(0));
-  assert((result == i32(42)), "should be 42");
-};
-
-test "Option.unwrap_or_else on None", {
+  assert(result == i32(42), "should be 42");
+});
+test("Option.unwrap_or_else on None", {
   none_val := Option(i32).None;
   result := none_val.unwrap_or_else(() => i32(0));
-  assert((result == i32(0)), "should be 0");
-};
-
+  assert(result == i32(0), "should be 0");
+});
 // === Result.map ===
-test "Result.map on Ok", {
+test("Result.map on Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.map((x) => (x + i32(1)));
-  assert((result.unwrap() == i32(43)), "should be 43");
-};
-
-test "Result.map on Err", {
+  assert(result.unwrap() == i32(43), "should be 43");
+});
+test("Result.map on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.map((x) => (x + i32(1)));
   assert(result.is_err(), "should be Err");
-};
-
+});
 // === Result.map_err ===
-test "Result.map_err on Ok", {
+test("Result.map_err on Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.map_err((e) => `wrapped: ${e}`);
   assert(result.is_ok(), "should be Ok");
-};
-
-test "Result.map_err on Err", {
+});
+test("Result.map_err on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.map_err((e) => `wrapped: ${e}`);
   assert(result.is_err(), "should be Err");
-};
-
+});
 // === Result.and_then ===
-test "Result.and_then Ok to Ok", {
+test("Result.and_then Ok to Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
-  result := ok_val.and_then((x) => Result(i32, String).Ok((x * i32(2))));
-  assert((result.unwrap() == i32(84)), "should be 84");
-};
-
-test "Result.and_then Ok to Err", {
+  result := ok_val.and_then((x) => Result(i32, String).Ok(x * i32(2)));
+  assert(result.unwrap() == i32(84), "should be 84");
+});
+test("Result.and_then Ok to Err", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.and_then((x) => Result(i32, String).Err(`fail`));
   assert(result.is_err(), "should be Err");
-};
-
-test "Result.and_then on Err", {
+});
+test("Result.and_then on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.and_then((x) => Result(i32, String).Ok(x));
   assert(result.is_err(), "should be Err");
-};
-
+});
 // === Result.or_else ===
-test "Result.or_else on Ok", {
+test("Result.or_else on Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.or_else((e) => Result(i32, i32).Ok(i32(0)));
   assert(result.is_ok(), "should be Ok");
-};
-
-test "Result.or_else on Err", {
+});
+test("Result.or_else on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.or_else((e) => Result(i32, i32).Ok(i32(99)));
   assert(result.is_ok(), "should be Ok");
-};
-
+});
 // === Result.and ===
-test "Result.and Ok and Ok", {
+test("Result.and Ok and Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.and(Result(String, String).Ok(`yes`));
   assert(result.is_ok(), "should be Ok");
-};
-
-test "Result.and Err and Ok", {
+});
+test("Result.and Err and Ok", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.and(Result(String, String).Ok(`yes`));
   assert(result.is_err(), "should be Err");
-};
-
+});
 // === Result.or ===
-test "Result.or on Ok", {
+test("Result.or on Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.or(Result(i32, i32).Ok(i32(0)));
   assert(result.is_ok(), "should be Ok");
-};
-
-test "Result.or on Err", {
+});
+test("Result.or on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.or(Result(i32, i32).Ok(i32(99)));
   assert(result.is_ok(), "should be Ok");
-};
-
+});
 // === Result.ok / Result.err ===
-test "Result.ok on Ok", {
+test("Result.ok on Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.ok();
-  assert((result.unwrap() == i32(42)), "should be 42");
-};
-
-test "Result.ok on Err", {
+  assert(result.unwrap() == i32(42), "should be 42");
+});
+test("Result.ok on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.ok();
   assert(result.is_none(), "should be None");
-};
-
-test "Result.err on Ok", {
+});
+test("Result.err on Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.err();
   assert(result.is_none(), "should be None");
-};
-
-test "Result.err on Err", {
+});
+test("Result.err on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.err();
   assert(result.is_some(), "should be Some");
-};
-
+});
 // === Result.map_or ===
-test "Result.map_or on Ok", {
+test("Result.map_or on Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.map_or(i32(0), (x) => (x + i32(1)));
-  assert((result == i32(43)), "should be 43");
-};
-
-test "Result.map_or on Err", {
+  assert(result == i32(43), "should be 43");
+});
+test("Result.map_or on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.map_or(i32(0), (x) => (x + i32(1)));
-  assert((result == i32(0)), "should be 0");
-};
-
+  assert(result == i32(0), "should be 0");
+});
 // === Result.map_or_else ===
-test "Result.map_or_else on Ok", {
+test("Result.map_or_else on Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.map_or_else((e) => i32(0), (x) => (x + i32(1)));
-  assert((result == i32(43)), "should be 43");
-};
-
-test "Result.map_or_else on Err", {
+  assert(result == i32(43), "should be 43");
+});
+test("Result.map_or_else on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.map_or_else((e) => i32(0), (x) => (x + i32(1)));
-  assert((result == i32(0)), "should be 0");
-};
-
+  assert(result == i32(0), "should be 0");
+});
 // === Result.unwrap_or_else ===
-test "Result.unwrap_or_else on Ok", {
+test("Result.unwrap_or_else on Ok", {
   ok_val := Result(i32, String).Ok(i32(42));
   result := ok_val.unwrap_or_else((e) => i32(0));
-  assert((result == i32(42)), "should be 42");
-};
-
-test "Result.unwrap_or_else on Err", {
+  assert(result == i32(42), "should be 42");
+});
+test("Result.unwrap_or_else on Err", {
   err_val := Result(i32, String).Err(`error`);
   result := err_val.unwrap_or_else((e) => i32(0));
-  assert((result == i32(0)), "should be 0");
-};
-
+  assert(result == i32(0), "should be 0");
+});
 // === Chaining tests ===
-test "Option method chaining", {
-  result := Option(i32).Some(i32(10))
-    .map((x) => (x * i32(2)))
-    .filter((x) => (x > i32(15)))
-    .map_or(i32(0), (x) => (x + i32(1)));
-  assert((result == i32(21)), "chain should produce 21");
-};
-
-test "Result method chaining", {
-  result := Result(i32, String).Ok(i32(10))
-    .map((x) => (x * i32(2)))
-    .and_then((x) =>
+test("Option method chaining", {
+  result := Option(i32).Some(i32(10)).map((x) => (x * i32(2))).filter((x) => (x > i32(15))).map_or(i32(0), (x) => (x + i32(1)));
+  assert(result == i32(21), "chain should produce 21");
+});
+test("Result method chaining", {
+  result := Result(i32, String).Ok(i32(10)).map((x) => (x * i32(2))).and_then(
+    (x) =>
       cond(
-        (x > i32(15)) => Result(i32, String).Ok((x + i32(1))),
+        (x > i32(15)) => Result(i32, String).Ok(x + i32(1)),
         true => Result(i32, String).Err(`too small`)
       )
-    );
-  assert((result.unwrap() == i32(21)), "chain should produce 21");
-};
+  );
+  assert(result.unwrap() == i32(21), "chain should produce 21");
+});

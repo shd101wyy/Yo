@@ -1,27 +1,21 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
-
-open import "std/libc/stdio";
-open import "std/string";
-open import "std/collections/array_list";
-{ platform, Platform, arch, Arch } :: import "std/process";
-{ ENOENT } :: import "std/libc/errno";
-file :: import "std/sys/file";
-dir :: import "std/sys/dir";
-time :: import "std/sys/time";
-{ Statx } :: import "std/sys/statx";
-{
-  AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
-  STATX_BASIC_STATS
-} :: import "std/sys/constants";
-{ temp_dir, path_join } :: import "../helper";
-
-make_test_file :: (fn(name: String) -> ArrayList(u8)) {
+open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/collections/array_list"));
+{ platform, Platform, arch, Arch } :: import("std/process");
+{ ENOENT } :: import("std/libc/errno");
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+time :: import("std/sys/time");
+{ Statx } :: import("std/sys/statx");
+{ AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY, STATX_BASIC_STATS } :: import("std/sys/constants");
+{ temp_dir, path_join } :: import("../helper");
+make_test_file :: (fn(name : String) -> ArrayList(u8))({
   tmp := temp_dir();
   p := path_join(tmp, name);
   p.to_cstr()
-};
-
-create_file :: (fn(test_path: *(u8), content: *(u8), content_len: u32, using(io : IO)) -> unit)({
+});
+create_file :: (fn(test_path : *(u8), content : *(u8), content_len : u32, using(io : IO)) -> unit)({
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)));
   assert(fd >= i32(0));
@@ -30,15 +24,12 @@ create_file :: (fn(test_path: *(u8), content: *(u8), content_len: u32, using(io 
   cr := io.await(file.close(fd));
   assert(cr == i32(0));
 });
-
-test "utime sets specific timestamps", {
+test("utime sets specific timestamps", {
   path_cstr := make_test_file(`yo_time_utime.txt`);
   test_path := path_cstr.ptr().unwrap();
   create_file(test_path, *(u8)("utime test"), u32(10));
-
   ret := time.utime(test_path, i64(1000000), i64(0), i64(2000000), i64(0));
   assert(ret == i32(0));
-
   statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
   stat_buf := *(u8)(statx_uninit.as_ptr());
   sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf));
@@ -46,22 +37,17 @@ test "utime sets specific timestamps", {
   st := Statx(stat_buf, usize(256));
   assert(st.atime_sec() == i64(1000000));
   assert(st.mtime_sec() == i64(2000000));
-
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
-
-test "futime sets timestamps by fd with nanosecond precision", {
+});
+test("futime sets timestamps by fd with nanosecond precision", {
   path_cstr := make_test_file(`yo_time_futime.txt`);
   test_path := path_cstr.ptr().unwrap();
   create_file(test_path, *(u8)("futime test"), u32(11));
-
   fd := io.await(file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0)));
   assert(fd >= i32(0));
-
   ret := time.futime(fd, i64(3000000), i64(500000000), i64(4000000), i64(750000000));
   assert(ret == i32(0));
-
   statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
   stat_buf := *(u8)(statx_uninit.as_ptr());
   sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf));
@@ -71,32 +57,26 @@ test "futime sets timestamps by fd with nanosecond precision", {
   assert(st.atime_nsec() == u32(500000000));
   assert(st.mtime_sec() == i64(4000000));
   assert(st.mtime_nsec() == u32(750000000));
-
   cr := io.await(file.close(fd));
   assert(cr == i32(0));
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
-
-test "utime on nonexistent file returns -ENOENT", {
+});
+test("utime on nonexistent file returns -ENOENT", {
   ret := time.utime(*(u8)("/tmp/yo_time_nonexistent_12345.txt"), i64(100), i64(0), i64(200), i64(0));
   assert(ret == (i32(0) - i32(ENOENT)));
-};
-
-test "lutime changes symlink timestamps without affecting target", {
+});
+test("lutime changes symlink timestamps without affecting target", {
   // NODERAWFS does not support utimensat with AT_SYMLINK_NOFOLLOW on symlinks
-  if((arch == Arch.Wasm32), {
+  if(arch == Arch.Wasm32, {
     printf("  skipped on wasm32 (lutime on symlinks unsupported)\n");
-    return ();
+    return(());
   });
-
   path_cstr := make_test_file(`yo_time_lutime_target.txt`);
   test_path := path_cstr.ptr().unwrap();
   create_file(test_path, *(u8)("lutime test"), u32(11));
-
   ret_t := time.utime(test_path, i64(3000000), i64(0), i64(4000000), i64(0));
   assert(ret_t == i32(0));
-
   link_cstr := make_test_file(`yo_time_lutime_link.txt`);
   link_path := link_cstr.ptr().unwrap();
   lr := io.await(dir.symlink(test_path, AT_FDCWD, link_path));
@@ -109,10 +89,8 @@ test "lutime changes symlink timestamps without affecting target", {
     },
     true => ()
   );
-
   ret := time.lutime(link_path, i64(5000000), i64(0), i64(6000000), i64(0));
   assert(ret == i32(0));
-
   statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
   stat_buf := *(u8)(statx_uninit.as_ptr());
   sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf));
@@ -120,27 +98,22 @@ test "lutime changes symlink timestamps without affecting target", {
   st := Statx(stat_buf, usize(256));
   assert(st.atime_sec() == i64(3000000));
   assert(st.mtime_sec() == i64(4000000));
-
   cleanup_link := io.await(dir.unlink(AT_FDCWD, link_path, i32(0)));
   assert(cleanup_link == i32(0));
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
-
-test "utime with nanosecond precision", {
+});
+test("utime with nanosecond precision", {
   // WASM NODERAWFS doesn't preserve sub-microsecond precision
-  if((arch == Arch.Wasm32), {
+  if(arch == Arch.Wasm32, {
     printf("  skipped on wasm32 (no nsec precision)\n");
-    return ();
+    return(());
   });
-
   path_cstr := make_test_file(`yo_time_nsec.txt`);
   test_path := path_cstr.ptr().unwrap();
   create_file(test_path, *(u8)("nsec test"), u32(9));
-
   ret := time.utime(test_path, i64(1700000000), i64(123456789), i64(1700000001), i64(987654321));
   assert(ret == i32(0));
-
   statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
   stat_buf := *(u8)(statx_uninit.as_ptr());
   sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf));
@@ -152,29 +125,23 @@ test "utime with nanosecond precision", {
   assert(st.mtime_sec() == i64(1700000001));
   expected_mtime_nsec := cond((platform == Platform.Windows) => u32(987654300), true => u32(987654321));
   assert(st.mtime_nsec() == expected_mtime_nsec);
-
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
-
-test "futime preserves file content", {
+});
+test("futime preserves file content", {
   path_cstr := make_test_file(`yo_time_content.txt`);
   test_path := path_cstr.ptr().unwrap();
   create_file(test_path, *(u8)("preserve me!"), u32(12));
-
   fd := io.await(file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0)));
   assert(fd >= i32(0));
-
   ret := time.futime(fd, i64(9999), i64(0), i64(8888), i64(0));
   assert(ret == i32(0));
-
   read_uninit := MaybeUninit(Array(u8, usize(64))).new();
   read_buf := *(u8)(read_uninit.as_ptr());
   rd := io.await(file.read(fd, read_buf, u32(12), u64(0)));
   assert(rd == i32(12));
-
   cr := io.await(file.close(fd));
   assert(cr == i32(0));
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
+});

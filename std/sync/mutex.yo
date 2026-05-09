@@ -1,64 +1,62 @@
 //! Mutual exclusion lock primitives.
-
-extern "Yo",
+extern(
+  "Yo",
   __YO_THREAD_SYNC_TYPE : Type,
   __yo_mutex_create : (fn() -> __YO_THREAD_SYNC_TYPE),
   __yo_mutex_lock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
   __yo_mutex_unlock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
   __yo_mutex_destroy : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit)
-;
-
+);
 impl(__YO_THREAD_SYNC_TYPE, Send());
 impl(__YO_THREAD_SYNC_TYPE, Acyclic());
-
 /// Low-level mutex (manual lifetime via `destroy`).
 mutex_t :: newtype(
   mutex : __YO_THREAD_SYNC_TYPE
 );
-impl(mutex_t,
+impl(
+  mutex_t,
   new : (fn() -> Self)({
-    return Self(__yo_mutex_create());
+    return(Self(__yo_mutex_create()));
   }),
-
-  lock : (fn(self : *(Self))-> unit)({
-    return __yo_mutex_lock(&(self.mutex));
+  lock : (fn(self : *(Self)) -> unit)({
+    return(__yo_mutex_lock(&(self.mutex)));
   }),
-
   unlock : (fn(self : *(Self)) -> unit)({
-    return __yo_mutex_unlock(&(self.mutex));
+    return(__yo_mutex_unlock(&(self.mutex)));
   }),
-
   destroy : (fn(self : *(Self)) -> unit)({
-    return __yo_mutex_destroy(&(self.mutex));
+    return(__yo_mutex_destroy(&(self.mutex)));
   })
 );
-
 /// Reference-counted mutex with automatic cleanup via `Dispose`.
 /// Uses atomic reference counting for safe cross-thread sharing.
-Mutex :: atomic object(
-  mutex : __YO_THREAD_SYNC_TYPE
+Mutex :: atomic(
+  object(
+    mutex : __YO_THREAD_SYNC_TYPE
+  )
 );
-impl(Mutex,
+impl(
+  Mutex,
   new : (fn() -> Self)({
-    return Self(__yo_mutex_create());
+    return(Self(__yo_mutex_create()));
   }),
-
-  lock : (fn(self : Self)-> unit)({
-    return __yo_mutex_lock(&(self.mutex));
+  lock : (fn(self : Self) -> unit)({
+    return(__yo_mutex_lock(&(self.mutex)));
   }),
-
   unlock : (fn(self : Self) -> unit)({
-    return __yo_mutex_unlock(&(self.mutex));
+    return(__yo_mutex_unlock(&(self.mutex)));
   })
 );
-impl(Mutex, Dispose(
-  dispose : (fn(self : Self) -> unit)({
-    return __yo_mutex_destroy(&(self.mutex));
-  })
-));
-
-export
+impl(
+  Mutex,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      return(__yo_mutex_destroy(&(self.mutex)));
+    })
+  )
+);
+export(
   __YO_THREAD_SYNC_TYPE,
   mutex_t,
   Mutex
-;
+);

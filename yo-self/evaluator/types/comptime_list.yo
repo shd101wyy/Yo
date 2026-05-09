@@ -3,96 +3,117 @@
 //! 1:1 port of `src/evaluator/types/comptime-list.ts`.
 //!
 //! `ComptimeList(T)` creates a compile-time list type with element type T.
-
-open import "std/string";
-open import "std/fmt";
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_fn_call_of, BK_COMPTIME_LIST_TYPE, make_err_expr } :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }                     :: import "../../expr/expr_info.yo";
-{ Environment }                                                  :: import "../../env/env.yo";
-{ EvalContext }                                                  :: import "../context.yo";
-{ EvalValue, create_type_value, is_type_value }                  :: import "../value.yo";
-{ TypeValue, t_comptime_list, t_i32 }                            :: import "../../types/type.yo";
-{ type_of_type }                                                 :: import "../../types/hierarchy.yo";
-{ format_error_message }                                         :: import "../../error/error.yo";
-{ Exception }                                                    :: import "std/error";
-{ evaluate_expression }                                          :: import "../exprs/expr.yo";
-
-evaluate_comptime_list_type :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  if(!(ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE, .Some(usize(1)))), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr),
-      `Expected "ComptimeList" with 1 argument, got:\n${ast_expr_to_string(expr)}`,
-      false,
-      .None
-    ));
+open(import("std/string"));
+open(import("std/fmt"));
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  BK_COMPTIME_LIST_TYPE,
+  make_err_expr
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, create_type_value, is_type_value } :: import("../value.yo");
+{ TypeValue, t_comptime_list, t_i32 } :: import("../../types/type.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+evaluate_comptime_list_type :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  if(!(ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE,.Some(usize(1)))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected "ComptimeList" with 1 argument, got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Get the element type argument
-  elem_expr := match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),
+  elem_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
       .Some(a) => a,
-      .None    => make_err_expr()
+      .None => make_err_expr()
     ),
     .Atom(_, _) => make_err_expr()
   );
-
   // Evaluate the element type expression
   evaluated := evaluate_expression(elem_expr, env, ctx);
-
   // Read the expr info for the evaluated element type
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  match(info_opt,
+  match(
+    info_opt,
     .None => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(elem_expr),
-        `Failed to evaluate the element type expression:\n${ast_expr_to_string(elem_expr)}`,
-        false,
-        .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(elem_expr),
+            `Failed to evaluate the element type expression:\n${ast_expr_to_string(elem_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
     },
     .Some(_) => ()
   );
-  elem_info := match(info_opt,
+  elem_info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => new_expr_info(env, t_i32())  // unreachable: guarded by throw above
+    .None => new_expr_info(env, t_i32()) // unreachable: guarded by throw above
   );
-
   // Validate it's a type value
   if(!(is_type_value(elem_info.value)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(elem_expr),
-      `Expected type for element type, got:\n${ast_expr_to_string(elem_expr)}`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(elem_expr),
+          `Expected type for element type, got:\n${ast_expr_to_string(elem_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Extract the inner TypeValue
-  child_ty := match(elem_info.value,
-    .Some(v) => match(v,
+  child_ty := match(
+    elem_info.value,
+    .Some(v) => match(
+      v,
       .TypeVal(inner) => inner.*,
-      _               => t_i32()  // unreachable: is_type_value guard above
+      _ => t_i32() // unreachable: is_type_value guard above
     ),
-    .None => t_i32()  // unreachable
+    .None => t_i32() // unreachable
   );
-
   // Create the ComptimeList type and annotate
-  clist_ty  := t_comptime_list(child_ty);
+  clist_ty := t_comptime_list(child_ty);
   clist_val := create_type_value(clist_ty);
   meta_type := type_of_type(clist_ty);
-  next_env  := elem_info.env;
-  out_info  := new_expr_info(next_env, meta_type);
-  out_info.value = .Some(clist_val);
+  next_env := elem_info.env;
+  out_info := new_expr_info(next_env, meta_type);
+  out_info.value =.Some(clist_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-
-export evaluate_comptime_list_type;
+export(evaluate_comptime_list_type);

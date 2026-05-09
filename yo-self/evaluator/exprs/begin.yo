@@ -13,134 +13,130 @@
 //! Exported symbols:
 //!   DupCallsResult, is_unit_value_expression,
 //!   collect_dup_calls_conservatively, evaluate_begin_expression
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap }   :: import "std/collections/hash_map";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 {
   AstExpr,
-  ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_is_atom_of,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom_of,
   make_err_expr,
-  BK_TUPLE, BK_RETURN, BF_ESCAPE,
-  BK_ASSIGN, BK_INIT_ASSIGN
-} :: import "../../expr/expr.yo";
-
+  BK_TUPLE,
+  BK_RETURN,
+  BF_ESCAPE,
+  BK_ASSIGN,
+  BK_INIT_ASSIGN
+} :: import("../../expr/expr.yo");
 {
-  ExprInfo, new_expr_info,
-  expr_info_table_set, expr_info_table_get,
-  ControlFlowFlags, control_flow_of,
-  has_control_flow, has_any_control_flow
-} :: import "../../expr/expr_info.yo";
-
-{ Environment, Variable, Frame, add_variable_to_env } :: import "../../env/env.yo";
-
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get,
+  ControlFlowFlags,
+  control_flow_of,
+  has_control_flow,
+  has_any_control_flow
+} :: import("../../expr/expr_info.yo");
+{ Environment, Variable, Frame, add_variable_to_env } :: import("../../env/env.yo");
 {
-  EvalContext, ExpectedTypeCtx
-} :: import "../context.yo";
-
-{ EvalValue } :: import "../value.yo";
-
-{ TypeValue, t_unit } :: import "../../types/type.yo";
-
-{ is_some_type } :: import "../../types/guards.yo";
-
-{ are_types_compatible } :: import "../../types/compatibility.yo";
-
-{ type_to_string } :: import "../../types/string.yo";
-
-{ format_error_message } :: import "../../error/error.yo";
-
-{ evaluate_expression } :: import "./expr.yo";
-
+  EvalContext,
+  ExpectedTypeCtx
+} :: import("../context.yo");
+{ EvalValue } :: import("../value.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ is_some_type } :: import("../../types/guards.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("./expr.yo");
 {
   attach_temp_variable_to_expr,
   throw_expr_is_implicit_variable_error,
   consume_case_body_temp_var
-} :: import "../utils.yo";
-
-{ Exception } :: import "std/error";
-
+} :: import("../utils.yo");
+{ Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // DupCallsResult — stub result type for collectDupCallsConservatively.
 //
 // The full implementation traverses the AST for `___dup(...)` calls and is
 // deferred to Phase 3.  Both lists are always empty in Phase 2aa.
 // ---------------------------------------------------------------------------
-
 DupCallsResult :: object(
   /// Maps base-variable id → list of `___dup(...)` call expressions.
-  dup_calls                     : HashMap(String, ArrayList(AstExpr)),
+  dup_calls : HashMap(String, ArrayList(AstExpr)),
   /// Variable ids that have dups in some branches but not all (conservative).
   vars_with_partial_branch_dups : ArrayList(String)
 );
-
 // ---------------------------------------------------------------------------
 // is_unit_value_expression
 // ---------------------------------------------------------------------------
-
 /// Returns `true` if `expr` is the empty-tuple literal `()`, i.e. a
 /// zero-argument `tuple()` function call.
 ///
 /// Mirrors `isUnitValueExpression` in `src/evaluator/exprs/begin.ts`.
 is_unit_value_expression :: (fn(expr : AstExpr) -> bool)(
-  ast_expr_is_fn_call_of(expr, BK_TUPLE, .Some(usize(0)))
+  ast_expr_is_fn_call_of(expr, BK_TUPLE,.Some(usize(0)))
 );
-
 // ---------------------------------------------------------------------------
 // collect_dup_calls_conservatively — stub
 // ---------------------------------------------------------------------------
-
 /// Stub. The real implementation traverses `expr` recursively to collect all
 /// `___dup(...)` calls, keyed by the base-variable id they dup.
 /// Deferred to Phase 3.
 collect_dup_calls_conservatively :: (fn(_expr : AstExpr) -> DupCallsResult)(
   DupCallsResult(
-    dup_calls:                     HashMap(String, ArrayList(AstExpr)).new(),
-    vars_with_partial_branch_dups: ArrayList(String).new()
+    dup_calls : HashMap(String, ArrayList(AstExpr)).new(),
+    vars_with_partial_branch_dups : ArrayList(String).new()
   )
 );
-
 // ---------------------------------------------------------------------------
 // _check_keyword_position
 // ---------------------------------------------------------------------------
-
 /// Verify that a control-flow keyword (`return`, `break`, `continue`, `escape`)
 /// appears only as the last expression in a begin block (or as the second-to-
 /// last when the last is a unit-value `()`).
 ///
 /// Throws via `exn` when the position is invalid.
-_check_keyword_position :: (fn(
-  expr_to_eval : AstExpr,
-  loop_i       : usize,
-  n_args       : usize,
-  begin_args   : ArrayList(AstExpr),
-  keyword      : String,
-  using(exn : Exception)
-) -> unit)({
-  if((n_args == usize(0)), { return (); });
+_check_keyword_position :: (
+  fn(
+    expr_to_eval : AstExpr,
+    loop_i : usize,
+    n_args : usize,
+    begin_args : ArrayList(AstExpr),
+    keyword : String,
+    using(exn : Exception)
+  ) -> unit
+)({
+  if(n_args == usize(0), {
+    return(());
+  });
   last_idx := (n_args - usize(1));
-  last_arg := match(begin_args.get(last_idx), .Some(a) => a, .None => make_err_expr());
+  last_arg := match(begin_args.get(last_idx),.Some(a) => a,.None => make_err_expr());
   last_is_unit := is_unit_value_expression(last_arg);
   is_last := (loop_i == last_idx);
   is_second_last := ((n_args >= usize(2)) && (loop_i == (n_args - usize(2))));
   second_last_before_unit := (is_second_last && last_is_unit);
   ok := (is_last || second_last_before_unit);
   if(!(ok), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr_to_eval),
-      `The "${keyword}" keyword can only be used as the last expression.`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr_to_eval),
+          `The "${keyword}" keyword can only be used as the last expression.`,
+          false,
+          .None
+        )
+      )
+    );
   });
 });
-
 // ---------------------------------------------------------------------------
 // evaluate_begin_expression — main function
 // ---------------------------------------------------------------------------
-
 /// Evaluate a `begin(...)` block expression.
 ///
 /// Mirrors `evaluateBeginExpression` in `src/evaluator/exprs/begin.ts`.
@@ -155,41 +151,44 @@ _check_keyword_position :: (fn(
 ///                               True when this begin block IS the function
 ///                               body.  Affects the dup/drop optimization pass
 ///                               (Phase 3); unused in Phase 2aa.
-evaluate_begin_expression :: (fn(
-  expr                                     : AstExpr,
-  env_in                                   : Environment,
-  ctx                                      : *(EvalContext),
-  variables_to_add                         : ArrayList(Variable),
-  _is_evaluating_function_body_begin_block : bool,
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_begin_expression :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    variables_to_add : ArrayList(Variable),
+    _is_evaluating_function_body_begin_block : bool,
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   (env : Environment) = env_in;
-
   // Extract the list of child expressions from the begin block.
-  begin_args := match(expr,
+  begin_args := match(
+    expr,
     .FnCall(_, _, args, _, _) => args,
-    .Atom(_, _)               => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
   n_args := begin_args.len();
-
   // Empty begin → unit result immediately.
-  if((n_args == usize(0)), {
+  if(n_args == usize(0), {
     info := new_expr_info(env, TypeValue.Unit);
     info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return expr;
+    return(expr);
   });
-
   // Push a new begin-block frame so temp variables are scoped correctly.
   _fr := env.push_frame(true);
-
   // Inject pre-supplied variables (e.g. function parameters) into the frame.
   (vi : usize) = usize(0);
-  while runtime((vi < variables_to_add.len())), {
-    v := match(variables_to_add.get(vi), .Some(x) => x, .None => {
-      vi = variables_to_add.len();
-      return expr;
-    });
+  while(runtime(vi < variables_to_add.len()), {
+    v := match(
+      variables_to_add.get(vi),
+      .Some(x) => x,
+      .None => {
+        vi = variables_to_add.len();
+        return(expr);
+      }
+    );
     _added := add_variable_to_env(
       &(env),
       v.name,
@@ -202,234 +201,233 @@ evaluate_begin_expression :: (fn(
       v.token
     );
     vi = (vi + usize(1));
-  };
-
+  });
   // -------------------------------------------------------------------------
   // Main evaluation loop
   // -------------------------------------------------------------------------
-
   // `last_expr` tracks the expression that will determine the begin block's
   // type and value.  Initialised to the final child; updated on control flow.
-  (last_expr : AstExpr) = match(begin_args.get((n_args - usize(1))),
+  (last_expr : AstExpr) = match(
+    begin_args.get(n_args - usize(1)),
     .Some(a) => a,
-    .None    => make_err_expr()
+    .None => make_err_expr()
   );
   (return_expr : Option(AstExpr)) = Option(AstExpr).None;
   (has_runtime_side_effects : bool) = false;
   (done : bool) = false;
   (loop_i : usize) = usize(0);
-
-  while runtime(((loop_i < n_args) && !(done))), {
-    (expr_to_eval : AstExpr) = match(begin_args.get(loop_i),
+  while(runtime((loop_i < n_args) && !(done)), {
+    (expr_to_eval : AstExpr) = match(
+      begin_args.get(loop_i),
       .Some(a) => a,
-      .None    => make_err_expr()
+      .None => make_err_expr()
     );
-
     // Classify the current expression.
-    is_return_atom  := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, BK_RETURN));
-    is_return_call  := ast_expr_is_fn_call_of(expr_to_eval, BK_RETURN, .None);
-    is_return_expr  := (is_return_atom || is_return_call);
-
-    is_break_atom   := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "break"));
+    is_return_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, BK_RETURN));
+    is_return_call := ast_expr_is_fn_call_of(expr_to_eval, BK_RETURN,.None);
+    is_return_expr := (is_return_atom || is_return_call);
+    is_break_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "break"));
     is_continue_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "continue"));
-    is_escape_call  := ast_expr_is_fn_call_of(expr_to_eval, BF_ESCAPE, .None);
-
+    is_escape_call := ast_expr_is_fn_call_of(expr_to_eval, BF_ESCAPE,.None);
     cond(
       // -------------------------------------------------------------------
       // return / return(val)
       // -------------------------------------------------------------------
       is_return_expr => {
         _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("return"));
-
         if(!(ctx.is_evaluating_function_body_or_async_block.is_some()), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(expr_to_eval),
-            String.from("The \"return\" keyword can only be used inside a function body or async block."),
-            false,
-            .None
-          ));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr_to_eval),
+                String.from("The \"return\" keyword can only be used inside a function body or async block."),
+                false,
+                .None
+              )
+            )
+          );
         });
-
         return_expr = Option(AstExpr).Some(expr_to_eval);
-
         if(is_return_atom, {
           // `return` with no argument → unit return.
           out := new_expr_info(env, TypeValue.Unit);
-          out.value        = Option(EvalValue).Some(EvalValue.UnitVal);
+          out.value = Option(EvalValue).Some(EvalValue.UnitVal);
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
           last_expr = expr_to_eval;
         }, {
           // `return(val)` — evaluate the argument.
-          ret_arg := match(expr_to_eval,
-            .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-            .Atom(_, _)               => make_err_expr()
+          ret_arg := match(
+            expr_to_eval,
+            .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+            .Atom(_, _) => make_err_expr()
           );
-
           // Pass the function-body's expected return type when available.
           // (Full synthesize_types support is Phase 3; we pass None here.)
           old_expected := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).None;
           evaluated_ret_arg := evaluate_expression(ret_arg, env, ctx);
           ctx.expected_type = old_expected;
-
           ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg));
           if(ret_info_opt.is_none(), {
-            exn.throw(dyn format_error_message(
-              ast_expr_token(ret_arg),
-              String.from("Return expression is not evaluated correctly."),
-              false,
-              .None
-            ));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(ret_arg),
+                  String.from("Return expression is not evaluated correctly."),
+                  false,
+                  .None
+                )
+              )
+            );
           });
-
-          ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(env, TypeValue.Unit));
+          ret_info := match(ret_info_opt,.Some(ri) => ri,.None => new_expr_info(env, TypeValue.Unit));
           env = ret_info.env;
-
           // attachTempVariableToExpr is a no-op stub; call it for API parity.
           attach_temp_variable_to_expr(evaluated_ret_arg, true, ctx);
-
           // Re-read env in case the stub updated it (future-proof).
           env = match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg)),
             .Some(ri) => ri.env,
-            .None     => env
+            .None => env
           );
-
           out := new_expr_info(env, ret_info.ty);
-          out.value           = ret_info.value;
-          out.control_flow    = Option(ControlFlowFlags).Some(control_flow_of(.Return));
+          out.value = ret_info.value;
+          out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
           out.path_collection = ret_info.path_collection;
-          out.variable_name   = ret_info.variable_name;
+          out.variable_name = ret_info.variable_name;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
           last_expr = expr_to_eval;
         });
-
         done = true;
       },
-
       // -------------------------------------------------------------------
       // break
       // -------------------------------------------------------------------
       is_break_atom => {
         _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("break"));
-
         if(!(ctx.is_evaluating_loop_body.is_some()), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(expr_to_eval),
-            String.from("The \"break\" keyword can only be used inside a loop."),
-            false,
-            .None
-          ));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr_to_eval),
+                String.from("The \"break\" keyword can only be used inside a loop."),
+                false,
+                .None
+              )
+            )
+          );
         });
-
         out := new_expr_info(env, TypeValue.Unit);
-        out.value        = Option(EvalValue).Some(EvalValue.UnitVal);
+        out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Break));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
         last_expr = expr_to_eval;
         done = true;
       },
-
       // -------------------------------------------------------------------
       // continue
       // -------------------------------------------------------------------
       is_continue_atom => {
         _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("continue"));
-
         if(!(ctx.is_evaluating_loop_body.is_some()), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(expr_to_eval),
-            String.from("The \"continue\" keyword can only be used inside a loop."),
-            false,
-            .None
-          ));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr_to_eval),
+                String.from("The \"continue\" keyword can only be used inside a loop."),
+                false,
+                .None
+              )
+            )
+          );
         });
-
         out := new_expr_info(env, TypeValue.Unit);
-        out.value        = Option(EvalValue).Some(EvalValue.UnitVal);
+        out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Continue));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
         last_expr = expr_to_eval;
         done = true;
       },
-
       // -------------------------------------------------------------------
       // escape(val)
       // -------------------------------------------------------------------
       is_escape_call => {
         _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("escape"));
-
         if(!(ctx.enclosing_function_return_type.is_some()), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(expr_to_eval),
-            String.from("The \"escape\" keyword can only be used inside a function that has an enclosing function."),
-            false,
-            .None
-          ));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr_to_eval),
+                String.from("The \"escape\" keyword can only be used inside a function that has an enclosing function."),
+                false,
+                .None
+              )
+            )
+          );
         });
-
         return_expr = Option(AstExpr).Some(expr_to_eval);
-
-        esc_arg := match(expr_to_eval,
-          .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-          .Atom(_, _)               => make_err_expr()
+        esc_arg := match(
+          expr_to_eval,
+          .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+          .Atom(_, _) => make_err_expr()
         );
-
-        enclosing_ret := match(ctx.enclosing_function_return_type,
+        enclosing_ret := match(
+          ctx.enclosing_function_return_type,
           .Some(t) => t,
-          .None    => TypeValue.Unit
+          .None => TypeValue.Unit
         );
-
         // Propagate the enclosing function's return type as the expected type.
         old_expected := ctx.expected_type;
         ctx.expected_type = Option(ExpectedTypeCtx).Some(
-          ExpectedTypeCtx(ty: enclosing_ret, env: env)
+          ExpectedTypeCtx(ty : enclosing_ret, env : env)
         );
         evaluated_esc_arg := evaluate_expression(esc_arg, env, ctx);
         ctx.expected_type = old_expected;
-
         esc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg));
         if(esc_info_opt.is_none(), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(esc_arg),
-            String.from("Escape expression is not evaluated correctly."),
-            false,
-            .None
-          ));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(esc_arg),
+                String.from("Escape expression is not evaluated correctly."),
+                false,
+                .None
+              )
+            )
+          );
         });
-
-        esc_info := match(esc_info_opt, .Some(ei) => ei, .None => new_expr_info(env, TypeValue.Unit));
-
+        esc_info := match(esc_info_opt,.Some(ei) => ei,.None => new_expr_info(env, TypeValue.Unit));
         // Type-check escape value against the enclosing return type.
         // Skip when the enclosing return type is an unresolved SomeType.
         esc_compat := are_types_compatible(esc_info.ty, enclosing_ret);
-        if((!(is_some_type(enclosing_ret)) && !(esc_compat)), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(esc_arg),
-            `Incompatible type for \`escape\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`,
-            false,
-            .None
-          ));
+        if(!(is_some_type(enclosing_ret)) && !(esc_compat), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(esc_arg),
+                `Incompatible type for \`escape\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`,
+                false,
+                .None
+              )
+            )
+          );
         });
-
         attach_temp_variable_to_expr(evaluated_esc_arg, true, ctx);
         env = match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg)),
           .Some(ei) => ei.env,
-          .None     => env
+          .None => env
         );
-
         out := new_expr_info(env, esc_info.ty);
-        out.value           = esc_info.value;
-        out.control_flow    = Option(ControlFlowFlags).Some(control_flow_of(.Escape));
+        out.value = esc_info.value;
+        out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Escape));
         out.path_collection = esc_info.path_collection;
-        out.variable_name   = esc_info.variable_name;
+        out.variable_name = esc_info.variable_name;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
         last_expr = expr_to_eval;
         done = true;
       },
-
       // -------------------------------------------------------------------
       // Normal expression evaluation
       // -------------------------------------------------------------------
@@ -442,92 +440,103 @@ evaluate_begin_expression :: (fn(
         });
         evaluated := evaluate_expression(expr_to_eval, env, ctx);
         ctx.expected_type = old_expected;
-
         ev_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-        match(ev_info_opt,
-          .Some(ev_info) => { env = ev_info.env; },
-          .None          => ()
+        match(
+          ev_info_opt,
+          .Some(ev_info) => {
+            env = ev_info.env;
+          },
+          .None => ()
         );
-
         // Track runtime side effects for non-last expressions.
         // A begin block with any runtime non-last expression cannot be
         // folded to a compile-time value.
-        if((!(is_last_in_loop) && !(has_runtime_side_effects)), {
-          is_runtime_expr := match(ev_info_opt,
+        if(!(is_last_in_loop) && !(has_runtime_side_effects), {
+          is_runtime_expr := match(
+            ev_info_opt,
             .Some(ei) => ei.value.is_none(),
-            .None     => false
+            .None => false
           );
-          is_assign_expr      := ast_expr_is_fn_call_of(evaluated, BK_ASSIGN, .None);
-          is_init_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_INIT_ASSIGN, .None);
-          is_either_assign    := (is_assign_expr || is_init_assign_expr);
-          ct_only_assign := match(ev_info_opt,
-            .Some(ei) => match(ei.is_compile_time_only_assignment, .Some(b) => b, .None => false),
-            .None     => false
+          is_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_ASSIGN,.None);
+          is_init_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_INIT_ASSIGN,.None);
+          is_either_assign := (is_assign_expr || is_init_assign_expr);
+          ct_only_assign := match(
+            ev_info_opt,
+            .Some(ei) => match(ei.is_compile_time_only_assignment,.Some(b) => b,.None => false),
+            .None => false
           );
           is_assign_runtime := (is_either_assign && !(ct_only_assign));
-          if((is_runtime_expr || is_assign_runtime), {
+          if(is_runtime_expr || is_assign_runtime, {
             has_runtime_side_effects = true;
           });
         });
-
         // If this expression carries control flow, it becomes the last expression.
-        has_cf := match(ev_info_opt,
+        has_cf := match(
+          ev_info_opt,
           .Some(ei) => has_any_control_flow(ei.control_flow),
-          .None     => false
+          .None => false
         );
         last_expr = evaluated;
-        if(has_cf, { done = true; });
+        if(has_cf, {
+          done = true;
+        });
       }
     );
-
     if(!(done), {
       loop_i = (loop_i + usize(1));
     });
-  };
-
+  });
   // -------------------------------------------------------------------------
   // Post-loop: verify the last expression was evaluated
   // -------------------------------------------------------------------------
-
   last_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(last_expr));
   if(last_info_opt.is_none(), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(last_expr),
-      `Last expression in "begin" is not evaluated correctly:\n${ast_expr_to_string(last_expr)}`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(last_expr),
+          `Last expression in "begin" is not evaluated correctly:\n${ast_expr_to_string(last_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  last_info   := match(last_info_opt, .Some(li) => li, .None => new_expr_info(env, TypeValue.Unit));
+  last_info := match(last_info_opt,.Some(li) => li,.None => new_expr_info(env, TypeValue.Unit));
   return_type := last_info.ty;
-
   // -------------------------------------------------------------------------
   // Return-type compatibility check (partial port — synthesize_types deferred)
   // -------------------------------------------------------------------------
-
-  is_return_ctrl := has_control_flow(last_info.control_flow, .Return);
+  is_return_ctrl := has_control_flow(last_info.control_flow,.Return);
   if(is_return_ctrl, {
-    match(ctx.is_evaluating_function_body_or_async_block,
+    match(
+      ctx.is_evaluating_function_body_or_async_block,
       .None => (),
       .Some(fctx) => {
-        match(fctx.kind,
+        match(
+          fctx.kind,
           .FunctionBody => {
             // Check compatibility with the declared function return type.
-            match(fctx.func_type,
+            match(
+              fctx.func_type,
               .None => (),
               .Some(ft) => {
-                match(ft,
+                match(
+                  ft,
                   .Func(_, _, _, _, _, _, _, _, result_box) => {
                     expected_ret := result_box.*;
                     compat := are_types_compatible(return_type, expected_ret);
-                    if((!(is_some_type(expected_ret)) && !(compat)), {
-                      exn.throw(dyn format_error_message(
-                        ast_expr_token(last_expr),
-                        `Return type mismatch. Expected type "${type_to_string(expected_ret)}", but got "${type_to_string(return_type)}".`,
-                        false,
-                        .None
-                      ));
+                    if(!(is_some_type(expected_ret)) && !(compat), {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(last_expr),
+                            `Return type mismatch. Expected type "${type_to_string(expected_ret)}", but got "${type_to_string(return_type)}".`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
                     });
                   },
                   _ => ()
@@ -540,27 +549,26 @@ evaluate_begin_expression :: (fn(
       }
     );
   });
-
   // -------------------------------------------------------------------------
   // Disallow returning implicit (`given(...)`) variables
   // -------------------------------------------------------------------------
-
   // Build the expression to check: the value being returned (not the `return`
   // keyword wrapper itself).
-  re_base := match(return_expr, .Some(re) => re, .None => last_expr);
-  is_return_with_arg := match(return_expr,
-    .Some(re) => ast_expr_is_fn_call_of(re, BK_RETURN, .Some(usize(1))),
-    .None      => false
+  re_base := match(return_expr,.Some(re) => re,.None => last_expr);
+  is_return_with_arg := match(
+    return_expr,
+    .Some(re) => ast_expr_is_fn_call_of(re, BK_RETURN,.Some(usize(1))),
+    .None => false
   );
   check_expr := cond(
-    is_return_with_arg => match(re_base,
-      .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => re_base),
-      .Atom(_, _)               => re_base
+    is_return_with_arg => match(
+      re_base,
+      .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => re_base),
+      .Atom(_, _) => re_base
     ),
     true => re_base
   );
   throw_expr_is_implicit_variable_error(check_expr, env, ctx);
-
   // -------------------------------------------------------------------------
   // Ownership / RC optimizations — all stubbed (type_contains_rc_type = false)
   // -------------------------------------------------------------------------
@@ -572,37 +580,29 @@ evaluate_begin_expression :: (fn(
   //   - Own-parameter drop for nested returns inside function bodies
   //
   // These will be ported in Phase 3 once the RC type system is complete.
-
   // -------------------------------------------------------------------------
   // Save the current frame before popping it
   // -------------------------------------------------------------------------
-
   n_frames := env.frames.len();
   current_frame_opt := match(
-    env.frames.get((n_frames - usize(1))),
+    env.frames.get(n_frames - usize(1)),
     .Some(f) => Option(Frame).Some(f),
-    .None    => Option(Frame).None
+    .None => Option(Frame).None
   );
-
   env.pop_frame();
-
   // -------------------------------------------------------------------------
   // Build ExprInfo for the begin expression itself
   // -------------------------------------------------------------------------
-
   out_info := new_expr_info(env, return_type);
-  out_info.value          = cond(has_runtime_side_effects => Option(EvalValue).None, true => last_info.value);
-  out_info.control_flow   = last_info.control_flow;
-  out_info.comptime_ref   = last_info.comptime_ref;
+  out_info.value = cond(has_runtime_side_effects => Option(EvalValue).None, true => last_info.value);
+  out_info.control_flow = last_info.control_flow;
+  out_info.comptime_ref = last_info.comptime_ref;
   out_info.popped_env_frame = current_frame_opt;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).
   attach_temp_variable_to_expr(expr, true, ctx);
-
   expr
 });
-
-export DupCallsResult, is_unit_value_expression;
-export collect_dup_calls_conservatively;
-export evaluate_begin_expression;
+export(DupCallsResult, is_unit_value_expression);
+export(collect_dup_calls_conservatively);
+export(evaluate_begin_expression);

@@ -2,13 +2,11 @@
 //!
 //! Phase 4d: generate a complete C function definition from a name,
 //! parameter list, return type, and body expression.
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ AstExpr }        :: import "../expr/expr.yo";
-{ CodegenContext } :: import "./context.yo";
-{ generate_expr, build_typed_decl }  :: import "./exprs.yo";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../expr/expr.yo");
+{ CodegenContext } :: import("./context.yo");
+{ generate_expr, build_typed_decl } :: import("./exprs.yo");
 /// Emit a complete C function definition into `ctx.emitter.code`.
 ///
 /// Signature format:
@@ -25,54 +23,58 @@ open import "std/string";
 /// The `body` expression is passed to `generate_expr` with a two-space indent.
 /// Any statements emitted during body codegen accumulate in `ctx.emitter`
 /// directly (they appear between the `{` and `return` lines).
-generate_function :: (fn(
-  name      : str,
-  ret_type  : str,
-  params    : ArrayList(String),
-  param_tys : ArrayList(String),
-  body      : AstExpr,
-  ctx       : *(CodegenContext)
-) -> unit)({
+generate_function :: (
+  fn(
+    name : str,
+    ret_type : str,
+    params : ArrayList(String),
+    param_tys : ArrayList(String),
+    body : AstExpr,
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
   // Build parameter list: "ty0 p0, ty1 p1, ..."
   n_params := cond(
     (params.len() < param_tys.len()) => params.len(),
-    true                             => param_tys.len()
+    true => param_tys.len()
   );
   param_list := {
     sb := String.new();
     (i : usize) = usize(0);
-    while runtime((i < n_params)), {
-      if((i > usize(0)), { sb.push_str(", "); });
-      ty_s := match(param_tys.get(i), .Some(s) => s, .None => String.from("void*"));
-      p_s  := match(params.get(i),    .Some(s) => s, .None => String.from("_p"));
+    while(runtime(i < n_params), {
+      if(i > usize(0), {
+        sb.push_str(", ");
+      });
+      ty_s := match(param_tys.get(i),.Some(s) => s,.None => String.from("void*"));
+      p_s := match(params.get(i),.Some(s) => s,.None => String.from("_p"));
       sb.push_string(build_typed_decl(ty_s.as_str(), p_s.as_str()));
       i = (i + usize(1));
-    };
+    });
     sb
   };
-
   // Register parameter types for type-cast detection (e.g. `i32(shape)` → `(int32_t)(shape.tag)`)
   // Also register struct fields for struct-typed parameters to support `open p` in function bodies.
   {
     (ip : usize) = usize(0);
-    while runtime((ip < n_params)), {
-      ty_p := match(param_tys.get(ip), .Some(s) => s, .None => String.from("void*"));
-      p_p  := match(params.get(ip),    .Some(s) => s, .None => String.from("_p"));
+    while(runtime(ip < n_params), {
+      ty_p := match(param_tys.get(ip),.Some(s) => s,.None => String.from("void*"));
+      p_p := match(params.get(ip),.Some(s) => s,.None => String.from("_p"));
       ctx.*.register_var_type(p_p.as_str(), ty_p.as_str());
       // If the parameter type is a registered struct, track open var fields
-      match(ctx.*.get_struct_fields(ty_p.as_str()),
+      match(
+        ctx.*.get_struct_fields(ty_p.as_str()),
         .None => (),
-        .Some(fcsv) => { ctx.*.track_open_var(p_p.as_str(), fcsv.as_str()); }
+        .Some(fcsv) => {
+          ctx.*.track_open_var(p_p.as_str(), fcsv.as_str());
+        }
       );
       ip = (ip + usize(1));
-    };
+    });
   };
-
   // Track current function name so `recur(args)` can be emitted as `name(args)`.
   // Track return type so anonymous struct literals can use the named type.
   ctx.*.current_fn_name = String.from(name);
   ctx.*.current_fn_return_type = String.from(ret_type);
-
   // Emit: static ret_type name(params) {
   ctx.*.emitter.emit("static ");
   ctx.*.emitter.emit(ret_type);
@@ -81,15 +83,14 @@ generate_function :: (fn(
   ctx.*.emitter.emit("(");
   ctx.*.emitter.emit_string(param_list);
   ctx.*.emitter.emit_line(") {");
-
   // Generate body — side-effect statements go into ctx.emitter automatically
-  indent   := String.from("  ");
+  indent := String.from("  ");
   body_val := generate_expr(body, ctx, indent);
-
   // Emit return (or a void expression as statement)
   cond(
-    (ret_type == "void") => match(body_val,
-      .None      => (),
+    (ret_type == "void") => match(
+      body_val,
+      .None => (),
       .Some(last) => cond(
         // "0" is the sentinel for "nothing meaningful" — skip for void
         (last == String.from("0")) => (),
@@ -100,11 +101,12 @@ generate_function :: (fn(
         }
       )
     ),
-    true => match(body_val,
-      .None      => ctx.*.emitter.emit_line("  /* codegen error: body returned None */"),
+    true => match(
+      body_val,
+      .None => ctx.*.emitter.emit_line("  /* codegen error: body returned None */"),
       .Some(last) => cond(
         // "0" is the sentinel for "nothing meaningful" (e.g., function ended with an
-        // explicit `return` statement).  Skip the trailing `return 0;` — it would be
+        // explicit `return` statement).  Skip the trailing `return(0);` — it would be
         // a type error for non-void return types, and the explicit return already ran.
         (last.as_str() == "0") => (),
         true => {
@@ -115,8 +117,6 @@ generate_function :: (fn(
       )
     )
   );
-
   ctx.*.emitter.emit_line("}");
 });
-
-export generate_function;
+export(generate_function);

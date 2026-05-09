@@ -4,297 +4,331 @@
 //! and managing the global dependency cache (~/.cache/yo/deps/).
 //!
 //! This mirrors `src/fetch.ts`.
-
-open import "std/string";
-{ Command } :: import "std/process/command";
-{ AnyError, Exception }       :: import "std/error";
-{ ArrayList }                 :: import "std/collections/array_list";
-{ Path }                      :: import "std/path";
-{ read_file, write_file, write_bytes, exists } :: import "std/fs/file";
-{ DirEntry, FileType,
-  read_dir, remove_dir, remove_file, rename } :: import "std/fs/dir";
-{ walk, walk_with, WalkEntry, WalkOptions }   :: import "std/fs/walker";
-{ Sha256 }                    :: import "std/crypto/sha256";
-{ hex_encode }                :: import "std/encoding/hex";
-{ LockEntry, LockFile,
-  read_lock_file, save_lock_file,
-  find_lock_entry, upsert_lock_entry } :: import "../lock-file/lock_file.yo";
-{ get_global_deps_cache_dir,
-  ensure_global_deps_cache_dir } :: import "../cache/cache.yo";
-
+open(import("std/string"));
+{ Command } :: import("std/process/command");
+{ AnyError, Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ Path } :: import("std/path");
+{ read_file, write_file, write_bytes, exists } :: import("std/fs/file");
+{
+  DirEntry,
+  FileType,
+  read_dir,
+  remove_dir,
+  remove_file,
+  rename
+} :: import("std/fs/dir");
+{ walk, walk_with, WalkEntry, WalkOptions } :: import("std/fs/walker");
+{ Sha256 } :: import("std/crypto/sha256");
+{ hex_encode } :: import("std/encoding/hex");
+{
+  LockEntry,
+  LockFile,
+  read_lock_file,
+  save_lock_file,
+  find_lock_entry,
+  upsert_lock_entry
+} :: import("../lock-file/lock_file.yo");
+{
+  get_global_deps_cache_dir,
+  ensure_global_deps_cache_dir
+} :: import("../cache/cache.yo");
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
-
 /// A git dependency declared in `build.yo`.
 BuildGitDependency :: object(
   name : String,
-  url  : String,
-  ref  : String,
+  url : String,
+  ref : String,
   path : Option(String)
 );
-
 /// Status of a cached dependency.
 CachedDepStatus :: enum(Ok, MissingPath, MissingHash, HashMismatch);
-
 /// Result of inspecting a cached dependency.
 CachedDepState :: object(
-  status      : CachedDepStatus,
+  status : CachedDepStatus,
   cached_path : String,
   actual_hash : Option(String)
 );
-
 /// Result of fetching one dependency.
 FetchDepResult :: object(
   lock_file : LockFile,
-  dep_path  : String
+  dep_path : String
 );
-
 /// Result of fetching all dependencies.
 FetchResult :: object(
   resolved_paths : ArrayList(String),
   resolved_names : ArrayList(String),
-  lock_file      : LockFile
+  lock_file : LockFile
 );
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
 SIDECAR_FILENAME :: ".yo-content-hash";
-
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
-
 /// Recursive directory removal.
 /// Walks the tree (parents first), then deletes in reverse order.
-remove_dir_all :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+remove_dir_all :: (fn(path : Path, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
-    opts := WalkOptions(max_depth: .None, follow_symlinks: false, include_dirs: true);
+    opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
     entries := io.await(walk_with(path, opts));
     n := entries.len();
     // Delete deepest entries first (reverse order from walk output)
-    while runtime((n > usize(0))), {
+    while(runtime(n > usize(0)), {
       n = (n - usize(1));
-      match(entries.get(n),
+      match(
+        entries.get(n),
         .None => (),
         .Some(entry) =>
-          match(entry.file_type,
-            .Directory => { io.await(remove_dir(entry.path)); },
-            _ => { io.await(remove_file(entry.path)); }
+          match(
+            entry.file_type,
+            .Directory => {
+              io.await(remove_dir(entry.path));
+            },
+            _ => {
+              io.await(remove_file(entry.path));
+            }
           )
       );
-    };
+    });
     io.await(remove_dir(path));
   })
 );
-
 /// Selection-sort a list of DirEntry values by name (ascending ASCII order).
-sort_dir_entries :: (fn(entries: ArrayList(DirEntry)) -> ArrayList(DirEntry))({
+sort_dir_entries :: (fn(entries : ArrayList(DirEntry)) -> ArrayList(DirEntry))({
   n := entries.len();
   result := ArrayList(DirEntry).with_capacity(n);
   // Track which entries have been moved to result
   added := ArrayList(bool).with_capacity(n);
   i := usize(0);
-  while runtime((i < n)), {
+  while(runtime(i < n), {
     added.push(false);
     i = (i + usize(1));
-  };
+  });
   selected := usize(0);
-  while runtime((selected < n)), {
+  while(runtime(selected < n), {
     // Find the minimum-name entry not yet added
     min_idx := usize(0);
     found := false;
     j := usize(0);
-    while runtime((j < n)), {
-      flag := match(added.get(j), .None => true, .Some(f) => f);
-      if((!(flag)), {
-        if((!(found)), {
+    while(runtime(j < n), {
+      flag := match(added.get(j),.None => true,.Some(f) => f);
+      if(!(flag), {
+        if(!(found), {
           min_idx = j;
           found = true;
         }, {
-          j_name   := match(entries.get(j),       .None => String.new(), .Some(e) => e.name);
-          min_name := match(entries.get(min_idx), .None => String.new(), .Some(e) => e.name);
-          if((j_name.as_str() < min_name.as_str()), { min_idx = j; });
+          j_name := match(entries.get(j),.None => String.new(),.Some(e) => e.name);
+          min_name := match(entries.get(min_idx),.None => String.new(),.Some(e) => e.name);
+          if(j_name.as_str() < min_name.as_str(), {
+            min_idx = j;
+          });
         });
       });
       j = (j + usize(1));
-    };
-    match(entries.get(min_idx), .None => (), .Some(e) => { result.push(e); });
-    // Mark min_idx as added via raw pointer (bool is a primitive, safe to write)
-    match(added.ptr(),
+    });
+    match(
+      entries.get(min_idx),
       .None => (),
-      .Some(p) => { (p &+ min_idx).* = true; }
+      .Some(e) => {
+        result.push(e);
+      }
+    );
+    // Mark min_idx as added via raw pointer (bool is a primitive, safe to write)
+    match(
+      added.ptr(),
+      .None => (),
+      .Some(p) => {
+        (p &+ min_idx).* = true;
+      }
     );
     selected = (selected + usize(1));
-  };
+  });
   result
 });
-
 /// Strip `\r` from `\r\n` sequences — ensures cross-platform hash stability.
-normalize_line_endings :: (fn(bytes: ArrayList(u8)) -> ArrayList(u8))({
+normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   // Quick path: no CR in input
   has_cr := false;
   i := usize(0);
-  while runtime(((i < bytes.len()) && (!(has_cr)))), {
-    match(bytes.get(i),
+  while(runtime((i < bytes.len()) && (!(has_cr))), {
+    match(
+      bytes.get(i),
       .None => (),
-      .Some(b) => if((b == u8(13)), { has_cr = true; })
+      .Some(b) => if(b == u8(13), {
+        has_cr = true;
+      })
     );
     i = (i + usize(1));
-  };
-  if((!(has_cr)), bytes, {
+  });
+  if(!(has_cr), bytes, {
     out := ArrayList(u8).with_capacity(bytes.len());
     j := usize(0);
-    while runtime((j < bytes.len())), {
-      match(bytes.get(j),
+    while(runtime(j < bytes.len()), {
+      match(
+        bytes.get(j),
         .None => (),
         .Some(b) => {
           is_cr := (b == u8(13));
-          next_is_lf := match(bytes.get((j + usize(1))),
+          next_is_lf := match(
+            bytes.get(j + usize(1)),
             .None => false,
             .Some(next) => (next == u8(10))
           );
-          if(!(is_cr && next_is_lf), { out.push(b); });
+          if(!(is_cr && next_is_lf), {
+            out.push(b);
+          });
         }
       );
       j = (j + usize(1));
-    };
+    });
     out
   })
 });
-
 /// Push a str literal as bytes into an ArrayList(u8).
-_push_str_bytes :: (fn(buf: *(ArrayList(u8)), s: str) -> unit)({
+_push_str_bytes :: (fn(buf : *(ArrayList(u8)), s : str) -> unit)({
   p := s.ptr();
   n := s.len();
   k := usize(0);
-  while runtime((k < n)), {
-    { buf.*.push((p &+ k).*); };
+  while(runtime(k < n), {
+    {
+      buf.*.push((p &+ k).*);
+    };
     k = (k + usize(1));
-  };
+  });
 });
-
 /// Push a String's bytes into an ArrayList(u8).
-_push_string_bytes :: (fn(buf: *(ArrayList(u8)), s: String) -> unit)({
+_push_string_bytes :: (fn(buf : *(ArrayList(u8)), s : String) -> unit)({
   bytes := s.as_bytes();
   n := bytes.len();
   k := usize(0);
-  while runtime((k < n)), {
-    match(bytes.get(k),
+  while(runtime(k < n), {
+    match(
+      bytes.get(k),
       .None => (),
-      .Some(b) => { buf.*.push(b); }
+      .Some(b) => {
+        buf.*.push(b);
+      }
     );
     k = (k + usize(1));
-  };
+  });
 });
-
 /// Internal item type for the iterative DFS hash stack.
 _HashWorkItem :: object(
   abs_path : String,
   rel_path : String,
-  is_dir   : bool
+  is_dir : bool
 );
-
 /// Compute a content hash for a directory using iterative DFS.
 /// Returns `"sha256-<hex>"`.
-compute_content_hash :: (fn(
-  dir_path : String,
-  using(io : IO, exn : Exception)
-) -> Impl(Future(String, IO, Exception)))(
+compute_content_hash :: (
+  fn(
+    dir_path : String,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(String, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     hasher := Sha256.new();
-
     // Bootstrap: push root entries in reversed sorted order so LIFO pop gives forward order
     root_entries := io.await(read_dir(Path.new(dir_path)));
     root_sorted := sort_dir_entries(root_entries);
-
     stack := ArrayList(_HashWorkItem).new();
     // Push root entries in reversed sorted order
     ri := root_sorted.len();
-    while runtime((ri > usize(0))), {
+    while(runtime(ri > usize(0)), {
       ri = (ri - usize(1));
-      match(root_sorted.get(ri),
+      match(
+        root_sorted.get(ri),
         .None => (),
         .Some(e) => {
-          is_dir := match(e.file_type, .Directory => true, _ => false);
-          { stack.push(_HashWorkItem(
-            abs_path: dir_path,
-            rel_path: e.name,
-            is_dir:   is_dir
-          )); };
+          is_dir := match(e.file_type,.Directory => true, _ => false);
+          {
+            stack.push(
+              _HashWorkItem(
+                abs_path : dir_path,
+                rel_path : e.name,
+                is_dir : is_dir
+              )
+            );
+          };
         }
       );
-    };
-
-    while runtime((stack.len() > usize(0))), {
-      item := match(stack.pop(),
-        .None => { return String.new(); },
+    });
+    while(runtime(stack.len() > usize(0)), {
+      item := match(
+        stack.pop(),
+        .None => {
+          return(String.new());
+        },
         .Some(it) => it
       );
-
       // Compute entry name from rel_path (last segment)
       entry_name := {
         slash_idx := item.rel_path.last_index_of(String.from("/"));
-        match(slash_idx,
+        match(
+          slash_idx,
           .None => item.rel_path,
-          .Some(idx) => item.rel_path.substring((idx + usize(1)), item.rel_path.len())
+          .Some(idx) => item.rel_path.substring(idx + usize(1), item.rel_path.len())
         )
       };
-
       if(item.is_dir, {
         // Check for hidden directory (starts with '.')
         first_byte := entry_name.as_bytes().get(usize(0));
-        is_hidden := match(first_byte,
+        is_hidden := match(
+          first_byte,
           .None => false,
           .Some(c) => (c == u8(46)) // '.'
         );
-        if((!(is_hidden)), {
+        if(!(is_hidden), {
           // Hash "dir:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
-          _push_str_bytes((&prefix_bytes), "dir:");
-          _push_string_bytes((&prefix_bytes), item.rel_path);
+          _push_str_bytes(&(prefix_bytes), "dir:");
+          _push_string_bytes(&(prefix_bytes), item.rel_path);
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
-
           // Read and sort subdir entries, push in reversed order
           abs_sub := String.from(item.abs_path.as_str());
           abs_sub.push_str("/");
           abs_sub.push_string(entry_name);
           sub_entries := io.await(read_dir(Path.new(abs_sub)));
           sub_sorted := sort_dir_entries(sub_entries);
-
           si := sub_sorted.len();
-          while runtime((si > usize(0))), {
+          while(runtime(si > usize(0)), {
             si = (si - usize(1));
-            match(sub_sorted.get(si),
+            match(
+              sub_sorted.get(si),
               .None => (),
               .Some(e) => {
                 sub_rel := String.from(item.rel_path.as_str());
                 sub_rel.push_str("/");
                 sub_rel.push_string(e.name);
-                is_subdir := match(e.file_type, .Directory => true, _ => false);
-                { stack.push(_HashWorkItem(
-                  abs_path: abs_sub,
-                  rel_path: sub_rel,
-                  is_dir:   is_subdir
-                )); };
+                is_subdir := match(e.file_type,.Directory => true, _ => false);
+                {
+                  stack.push(
+                    _HashWorkItem(
+                      abs_path : abs_sub,
+                      rel_path : sub_rel,
+                      is_dir : is_subdir
+                    )
+                  );
+                };
               }
             );
-          };
+          });
         });
       }, {
         // File entry — skip the sidecar hash file
         is_sidecar := (entry_name.as_str() == SIDECAR_FILENAME);
-        if((!(is_sidecar)), {
+        if(!(is_sidecar), {
           // Hash "file:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
-          _push_str_bytes((&prefix_bytes), "file:");
-          _push_string_bytes((&prefix_bytes), item.rel_path);
+          _push_str_bytes(&(prefix_bytes), "file:");
+          _push_string_bytes(&(prefix_bytes), item.rel_path);
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
-
           // Read file content, normalize line endings, then hash
           abs_file := String.from(item.abs_path.as_str());
           abs_file.push_str("/");
@@ -304,29 +338,29 @@ compute_content_hash :: (fn(
           hasher = hasher.update(normalized);
         });
       });
-    };
-
+    });
     // Produce "sha256-<hex>"
     digest := hasher.finish();
     hex_bytes := ArrayList(u8).with_capacity(usize(32));
     k := usize(0);
-    while runtime((k < usize(32))), {
+    while(runtime(k < usize(32)), {
       hex_bytes.push(digest(k));
       k = (k + usize(1));
-    };
+    });
     hex := hex_encode(hex_bytes);
     result := String.from("sha256-");
     result.push_string(hex);
     result
   })
 );
-
 /// Write a sidecar `.yo-content-hash` file for fast future verification.
-write_sidecar_hash :: (fn(
-  cached_path  : String,
-  content_hash : String,
-  using(io : IO, exn : Exception)
-) -> Impl(Future(unit, IO, Exception)))(
+write_sidecar_hash :: (
+  fn(
+    cached_path : String,
+    content_hash : String,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(unit, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_content := String.from(content_hash.as_str());
@@ -334,25 +368,25 @@ write_sidecar_hash :: (fn(
     io.await(write_file(sidecar, sidecar_content));
   })
 );
-
 /// Read the sidecar hash file, returning None if it doesn't exist or can't be read.
-read_sidecar_hash :: (fn(
-  cached_path : String,
-  using(io : IO, exn : Exception)
-) -> Impl(Future(Option(String), IO, Exception)))(
+read_sidecar_hash :: (
+  fn(
+    cached_path : String,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(Option(String), IO, Exception))
+)(
   io.async((using(io, exn)) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_exists := io.await(exists(sidecar));
-    if((!(sidecar_exists)), Option(String).None, {
+    if(!(sidecar_exists), Option(String).None, {
       content := io.await(read_file(sidecar));
       text := String.from_bytes(content).trim();
       Option(String).Some(text)
     })
   })
 );
-
 /// Build the local path for a cached dependency.
-get_cached_dep_dir :: (fn(cache_dir: String, dep_name: String, commit: String) -> String)({
+get_cached_dep_dir :: (fn(cache_dir : String, dep_name : String, commit : String) -> String)({
   short_commit := commit.substring(usize(0), usize(12));
   result := String.from(cache_dir.as_str());
   result.push_str("/");
@@ -361,71 +395,71 @@ get_cached_dep_dir :: (fn(cache_dir: String, dep_name: String, commit: String) -
   result.push_string(short_commit);
   result
 });
-
 /// Check whether a cached dependency is present and valid.
-inspect_cached_dep :: (fn(
-  cache_dir : String,
-  dep_name  : String,
-  commit    : String,
-  hash      : String,
-  using(io : IO, exn : Exception)
-) -> Impl(Future(CachedDepState, IO, Exception)))(
+inspect_cached_dep :: (
+  fn(
+    cache_dir : String,
+    dep_name : String,
+    commit : String,
+    hash : String,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(CachedDepState, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     cached_path := get_cached_dep_dir(cache_dir, dep_name, commit);
     path_exists := io.await(exists(Path.new(cached_path)));
-
-    if((!(path_exists)),
+    if(
+      !(path_exists),
       CachedDepState(
-        status:      CachedDepStatus.MissingPath,
-        cached_path: cached_path,
-        actual_hash: .None
+        status : CachedDepStatus.MissingPath,
+        cached_path : cached_path,
+        actual_hash :.None
       ),
-      if((hash.len() == usize(0)),
-        CachedDepState(
-          status:      CachedDepStatus.MissingHash,
-          cached_path: cached_path,
-          actual_hash: .None
-        ),
-        {
-          // Try sidecar first for O(1) verification
-          sidecar_hash := io.await(read_sidecar_hash(cached_path));
-          actual_hash := match(sidecar_hash,
-            .Some(h) => h,
-            .None => {
-              // Recompute and write sidecar
-              h := io.await(compute_content_hash(cached_path));
-              io.await(write_sidecar_hash(cached_path, h));
-              h
-            }
-          );
-          if((actual_hash.as_str() == hash.as_str()),
-            CachedDepState(
-              status:      CachedDepStatus.Ok,
-              cached_path: cached_path,
-              actual_hash: .Some(actual_hash)
-            ),
-            CachedDepState(
-              status:      CachedDepStatus.HashMismatch,
-              cached_path: cached_path,
-              actual_hash: .Some(actual_hash)
-            )
+      if(hash.len() == usize(0), CachedDepState(
+        status : CachedDepStatus.MissingHash,
+        cached_path : cached_path,
+        actual_hash :.None
+      ), {
+        // Try sidecar first for O(1) verification
+        sidecar_hash := io.await(read_sidecar_hash(cached_path));
+        actual_hash := match(
+          sidecar_hash,
+          .Some(h) => h,
+          .None => {
+            // Recompute and write sidecar
+            h := io.await(compute_content_hash(cached_path));
+            io.await(write_sidecar_hash(cached_path, h));
+            h
+          }
+        );
+        if(
+          actual_hash.as_str() == hash.as_str(),
+          CachedDepState(
+            status : CachedDepStatus.Ok,
+            cached_path : cached_path,
+            actual_hash :.Some(actual_hash)
+          ),
+          CachedDepState(
+            status : CachedDepStatus.HashMismatch,
+            cached_path : cached_path,
+            actual_hash :.Some(actual_hash)
           )
-        }
-      )
+        )
+      })
     )
   })
 );
-
 // ---------------------------------------------------------------------------
 // Git operations
 // ---------------------------------------------------------------------------
-
 /// Resolve a git ref to a commit SHA using `git ls-remote`.
-resolve_git_ref :: (fn(
-  url : String,
-  ref : String,
-  using(io : IO, exn : Exception)
-) -> Impl(Future(String, IO, Exception)))(
+resolve_git_ref :: (
+  fn(
+    url : String,
+    ref : String,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(String, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("ls-remote"));
@@ -433,27 +467,26 @@ resolve_git_ref :: (fn(
     cmd.arg(url);
     cmd.arg(ref);
     out := io.await(cmd.output());
-
     text := String.from_bytes(out.stdout).trim();
-
-    if((text.len() == usize(0)), {
+    if(text.len() == usize(0), {
       // Assume ref is already a commit SHA
-      return ref;
+      return(ref);
     });
-
     // Take first non-empty line and split on \t
     lines := text.split(String.from("\n"));
-    first_line := match(lines.get(usize(0)),
+    first_line := match(
+      lines.get(usize(0)),
       .None => {
-        exn.throw(dyn `git ls-remote returned empty output`);
+        exn.throw(dyn(`git ls-remote returned empty output`));
         String.new()
       },
       .Some(l) => l
     );
     parts := first_line.split(String.from("\t"));
-    sha := match(parts.get(usize(0)),
+    sha := match(
+      parts.get(usize(0)),
       .None => {
-        exn.throw(dyn `Could not parse git ls-remote output`);
+        exn.throw(dyn(`Could not parse git ls-remote output`));
         String.new()
       },
       .Some(s) => s
@@ -461,23 +494,24 @@ resolve_git_ref :: (fn(
     sha
   })
 );
-
 /// Clone a git repo at a specific commit into the cache directory.
 /// Returns the path to the cloned directory.
-clone_repo :: (fn(
-  cache_dir : String,
-  url       : String,
-  commit    : String,
-  dep_name  : String,
-  using(io : IO, exn : Exception)
-) -> Impl(Future(String, IO, Exception)))(
+clone_repo :: (
+  fn(
+    cache_dir : String,
+    url : String,
+    commit : String,
+    dep_name : String,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(String, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     target_dir := get_cached_dep_dir(cache_dir, dep_name, commit);
-
     // Return early if already cloned
     already_exists := io.await(exists(Path.new(target_dir)));
-    if(already_exists, { return target_dir; });
-
+    if(already_exists, {
+      return(target_dir);
+    });
     // Use a temp dir for atomic clone
     temp_dir := {
       t := String.from(cache_dir.as_str());
@@ -485,7 +519,6 @@ clone_repo :: (fn(
       t.push_string(dep_name);
       t
     };
-
     // Clone shallow
     clone_cmd := Command.new(String.from("git"));
     clone_cmd.arg(String.from("clone"));
@@ -494,24 +527,21 @@ clone_repo :: (fn(
     clone_cmd.arg(url);
     clone_cmd.arg(temp_dir);
     clone_status := io.await(clone_cmd.status());
-    if((!(clone_status.success())), {
+    if(!(clone_status.success()), {
       clone_fail_msg := String.from("git clone failed for ");
       clone_fail_msg.push_string(url);
-      exn.throw(dyn clone_fail_msg);
+      exn.throw(dyn(clone_fail_msg));
     });
-
     // Try to checkout the specific commit
     checkout_cmd := Command.new(String.from("git"));
     checkout_cmd.arg(String.from("-C"));
     checkout_cmd.arg(temp_dir);
     checkout_cmd.arg(String.from("checkout"));
     checkout_cmd.arg(commit);
-
     checkout_ok := false;
     checkout_st := io.await(checkout_cmd.status());
     checkout_ok = checkout_st.success();
-
-    if((!(checkout_ok)), {
+    if(!(checkout_ok), {
       // Shallow clone may not have the commit — fetch it explicitly
       fetch_cmd := Command.new(String.from("git"));
       fetch_cmd.arg(String.from("-C"));
@@ -522,20 +552,18 @@ clone_repo :: (fn(
       fetch_cmd.arg(String.from("origin"));
       fetch_cmd.arg(commit);
       io.await(fetch_cmd.status());
-
       checkout_cmd2 := Command.new(String.from("git"));
       checkout_cmd2.arg(String.from("-C"));
       checkout_cmd2.arg(temp_dir);
       checkout_cmd2.arg(String.from("checkout"));
       checkout_cmd2.arg(commit);
       checkout_st2 := io.await(checkout_cmd2.status());
-      if((!(checkout_st2.success())), {
+      if(!(checkout_st2.success()), {
         checkout_fail_msg := String.from("git checkout failed for commit ");
         checkout_fail_msg.push_string(commit);
-        exn.throw(dyn checkout_fail_msg);
+        exn.throw(dyn(checkout_fail_msg));
       });
     });
-
     // Remove .git directory to save space
     git_dir_path := {
       p := String.from(temp_dir.as_str());
@@ -546,175 +574,177 @@ clone_repo :: (fn(
     if(git_dir_exists, {
       io.await(remove_dir_all(Path.new(git_dir_path)));
     });
-
     // Atomic rename to final location
     io.await(rename(Path.new(temp_dir), Path.new(target_dir)));
-
     target_dir
   })
 );
-
 // ---------------------------------------------------------------------------
 // Dependency fetching
 // ---------------------------------------------------------------------------
-
 /// Fetch a single dependency.
-fetch_dep :: (fn(
-  cache_dir : String,
-  dep       : BuildGitDependency,
-  lock_file : LockFile,
-  verbose   : bool,
-  update    : bool,
-  using(io : IO, exn : Exception)
-) -> Impl(Future(FetchDepResult, IO, Exception)))(
+fetch_dep :: (
+  fn(
+    cache_dir : String,
+    dep : BuildGitDependency,
+    lock_file : LockFile,
+    verbose : bool,
+    update : bool,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(FetchDepResult, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     existing_entry := find_lock_entry(lock_file, dep.name);
-
-    ref_changed := match(existing_entry,
+    ref_changed := match(
+      existing_entry,
       .None => false,
       .Some(e) => (!(e.ref.as_str() == dep.ref.as_str()))
     );
-
     // Check if already up-to-date
-    cached_state_opt := match(existing_entry,
+    cached_state_opt := match(
+      existing_entry,
       .None => Option(CachedDepState).None,
       .Some(e) =>
-        if(((!(update)) && (e.commit.len() > usize(0))),
+        if(
+          (!(update)) && (e.commit.len() > usize(0)),
           Option(CachedDepState).Some(io.await(inspect_cached_dep(cache_dir, dep.name, e.commit, e.hash))),
           Option(CachedDepState).None
         )
     );
-
-    entry_has_commit := match(existing_entry,
+    entry_has_commit := match(
+      existing_entry,
       .None => false,
       .Some(e) => (e.commit.len() > usize(0))
     );
-    cache_ok_opt := match(cached_state_opt,
+    cache_ok_opt := match(
+      cached_state_opt,
       .None => false,
-      .Some(s) => match(s.status, .Ok => true, _ => false)
+      .Some(s) => match(s.status,.Ok => true, _ => false)
     );
     up_to_date := (((!(update)) && (!(ref_changed))) && (entry_has_commit && cache_ok_opt));
-
     if(up_to_date, {
-      cached_path := match(cached_state_opt,
+      cached_path := match(
+        cached_state_opt,
         .None => String.new(),
         .Some(s) => s.cached_path
       );
-      sub_path := match(dep.path,
+      sub_path := match(
+        dep.path,
         .None => cached_path,
         .Some(p) => Path.new(cached_path).join(Path.new(p)).to_string()
       );
-      return FetchDepResult(lock_file: lock_file, dep_path: sub_path);
+      return(FetchDepResult(lock_file : lock_file, dep_path : sub_path));
     });
-
     // Resolve git ref
     commit := io.await(resolve_git_ref(dep.url, dep.ref));
-
     // Check if lock already has this commit and cache is valid
-    commit_matches := match(existing_entry,
+    commit_matches := match(
+      existing_entry,
       .None => false,
       .Some(e) => (e.commit.as_str() == commit.as_str())
     );
-
-    if(((!(update)) && commit_matches), {
-      state := match(cached_state_opt,
+    if((!(update)) && commit_matches, {
+      state := match(
+        cached_state_opt,
         .Some(s) => s,
-        .None => match(existing_entry,
-          .None => CachedDepState(status: CachedDepStatus.MissingPath, cached_path: String.new(), actual_hash: .None),
+        .None => match(
+          existing_entry,
+          .None => CachedDepState(status : CachedDepStatus.MissingPath, cached_path : String.new(), actual_hash :.None),
           .Some(e) => io.await(inspect_cached_dep(cache_dir, dep.name, e.commit, e.hash))
         )
       );
-      cache_ok := match(state.status, .Ok => true, _ => false);
+      cache_ok := match(state.status,.Ok => true, _ => false);
       if(cache_ok, {
         // Update ref in lock if it changed
-        updated_lock := if(ref_changed,
-          match(existing_entry,
+        updated_lock := if(
+          ref_changed,
+          match(
+            existing_entry,
             .None => lock_file,
-            .Some(e) => upsert_lock_entry(lock_file, LockEntry(
-              name:   e.name,
-              url:    e.url,
-              ref:    dep.ref,
-              commit: e.commit,
-              hash:   e.hash
-            ))
+            .Some(e) => upsert_lock_entry(
+              lock_file,
+              LockEntry(
+                name : e.name,
+                url : e.url,
+                ref : dep.ref,
+                commit : e.commit,
+                hash : e.hash
+              )
+            )
           ),
           lock_file
         );
-        sub_path := match(dep.path,
+        sub_path := match(
+          dep.path,
           .None => state.cached_path,
           .Some(p) => Path.new(state.cached_path).join(Path.new(p)).to_string()
         );
-        return FetchDepResult(lock_file: updated_lock, dep_path: sub_path);
+        return(FetchDepResult(lock_file : updated_lock, dep_path : sub_path));
       });
-
       // Evict corrupt / hash-mismatch cache entry
       path_exists := io.await(exists(Path.new(state.cached_path)));
       if(path_exists, {
         io.await(remove_dir_all(Path.new(state.cached_path)));
       });
     });
-
     // Clone the repo
     cloned_path := io.await(clone_repo(cache_dir, dep.url, commit, dep.name));
-
     // Compute content hash and write sidecar
     content_hash := io.await(compute_content_hash(cloned_path));
     io.await(write_sidecar_hash(cloned_path, content_hash));
-
     // Update lock entry
     new_entry := LockEntry(
-      name:   dep.name,
-      url:    dep.url,
-      ref:    dep.ref,
-      commit: commit,
-      hash:   content_hash
+      name : dep.name,
+      url : dep.url,
+      ref : dep.ref,
+      commit : commit,
+      hash : content_hash
     );
     updated_lock := upsert_lock_entry(lock_file, new_entry);
-
-    sub_path := match(dep.path,
+    sub_path := match(
+      dep.path,
       .None => cloned_path,
       .Some(p) => Path.new(cloned_path).join(Path.new(p)).to_string()
     );
-
-    FetchDepResult(lock_file: updated_lock, dep_path: sub_path)
+    FetchDepResult(lock_file : updated_lock, dep_path : sub_path)
   })
 );
-
 /// Fetch all git dependencies, update `yo.lock`, and return resolved paths.
-fetch_all_deps :: (fn(
-  project_dir : String,
-  deps        : ArrayList(BuildGitDependency),
-  verbose     : bool,
-  update      : bool,
-  using(io : IO, exn : Exception)
-) -> Impl(Future(FetchResult, IO, Exception)))(
+fetch_all_deps :: (
+  fn(
+    project_dir : String,
+    deps : ArrayList(BuildGitDependency),
+    verbose : bool,
+    update : bool,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(FetchResult, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     cache_dir := io.await(ensure_global_deps_cache_dir());
-
     resolved_paths := ArrayList(String).new();
     resolved_names := ArrayList(String).new();
-
-    if((deps.len() == usize(0)), {
+    if(deps.len() == usize(0), {
       // Prune stale lock entries even with no deps
       existing_lock := io.await(read_lock_file(Path.new(project_dir)));
-      if((existing_lock.dependencies.len() > usize(0)), {
-        empty_lock := LockFile(dependencies: ArrayList(LockEntry).new());
+      if(existing_lock.dependencies.len() > usize(0), {
+        empty_lock := LockFile(dependencies : ArrayList(LockEntry).new());
         io.await(save_lock_file(Path.new(project_dir), empty_lock));
       });
-      return FetchResult(
-        resolved_paths: resolved_paths,
-        resolved_names: resolved_names,
-        lock_file: LockFile(dependencies: ArrayList(LockEntry).new())
+      return(
+        FetchResult(
+          resolved_paths : resolved_paths,
+          resolved_names : resolved_names,
+          lock_file : LockFile(dependencies : ArrayList(LockEntry).new())
+        )
       );
     });
-
     lock_file := io.await(read_lock_file(Path.new(project_dir)));
     n := deps.len();
     i := usize(0);
     current_lock := lock_file;
-
-    while runtime((i < n)), {
-      match(deps.get(i),
+    while(runtime(i < n), {
+      match(
+        deps.get(i),
         .None => (),
         .Some(dep) => {
           result := io.await(fetch_dep(cache_dir, dep, current_lock, verbose, update));
@@ -724,128 +754,138 @@ fetch_all_deps :: (fn(
         }
       );
       i = (i + usize(1));
-    };
-
+    });
     // Prune stale lock entries (deps no longer in build.yo)
     pruned_deps := ArrayList(LockEntry).new();
     k := usize(0);
-    while runtime((k < current_lock.dependencies.len())), {
-      match(current_lock.dependencies.get(k),
+    while(runtime(k < current_lock.dependencies.len()), {
+      match(
+        current_lock.dependencies.get(k),
         .None => (),
         .Some(entry) => {
           still_declared := false;
           m := usize(0);
-          while runtime((m < deps.len())), {
-            match(deps.get(m),
+          while(runtime(m < deps.len()), {
+            match(
+              deps.get(m),
               .None => (),
-              .Some(dep) => if((dep.name.as_str() == entry.name.as_str()), {
+              .Some(dep) => if(dep.name.as_str() == entry.name.as_str(), {
                 still_declared = true;
               })
             );
             m = (m + usize(1));
-          };
-          if(still_declared, { pruned_deps.push(entry); });
+          });
+          if(still_declared, {
+            pruned_deps.push(entry);
+          });
         }
       );
       k = (k + usize(1));
-    };
-
-    final_lock := LockFile(dependencies: pruned_deps);
+    });
+    final_lock := LockFile(dependencies : pruned_deps);
     io.await(save_lock_file(Path.new(project_dir), final_lock));
-
     FetchResult(
-      resolved_paths: resolved_paths,
-      resolved_names: resolved_names,
-      lock_file: final_lock
+      resolved_paths : resolved_paths,
+      resolved_names : resolved_names,
+      lock_file : final_lock
     )
   })
 );
-
 /// Check whether all dependencies are already cached and valid.
-are_deps_cached :: (fn(
-  project_dir : String,
-  deps        : ArrayList(BuildGitDependency),
-  using(io : IO, exn : Exception)
-) -> Impl(Future(bool, IO, Exception)))(
+are_deps_cached :: (
+  fn(
+    project_dir : String,
+    deps : ArrayList(BuildGitDependency),
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(bool, IO, Exception))
+)(
   io.async((using(io, exn)) => {
-    if((deps.len() == usize(0)), { return true; });
-
+    if(deps.len() == usize(0), {
+      return(true);
+    });
     lock_file := io.await(read_lock_file(Path.new(project_dir)));
     cache_dir := get_global_deps_cache_dir();
-
     all_cached := true;
     i := usize(0);
-    while runtime(((i < deps.len()) && all_cached)), {
-      match(deps.get(i),
+    while(runtime((i < deps.len()) && all_cached), {
+      match(
+        deps.get(i),
         .None => (),
         .Some(dep) => {
           entry_opt := find_lock_entry(lock_file, dep.name);
-          ok := match(entry_opt,
+          ok := match(
+            entry_opt,
             .None => false,
             .Some(entry) =>
-              if((entry.commit.len() == usize(0)), false, {
+              if(entry.commit.len() == usize(0), false, {
                 state := io.await(inspect_cached_dep(cache_dir, dep.name, entry.commit, entry.hash));
-                match(state.status, .Ok => true, _ => false)
+                match(state.status,.Ok => true, _ => false)
               })
           );
-          if((!(ok)), { all_cached = false; });
+          if(!(ok), {
+            all_cached = false;
+          });
         }
       );
       i = (i + usize(1));
-    };
+    });
     all_cached
   })
 );
-
 /// Resolve a dependency name to its cached path using the lock file.
 /// Returns None if not cached.
-resolve_dep_path :: (fn(
-  project_dir : String,
-  dep_name    : String,
-  dep_sub     : Option(String),
-  using(io : IO, exn : Exception)
-) -> Impl(Future(Option(String), IO, Exception)))(
+resolve_dep_path :: (
+  fn(
+    project_dir : String,
+    dep_name : String,
+    dep_sub : Option(String),
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(Option(String), IO, Exception))
+)(
   io.async((using(io, exn)) => {
     lock_file := io.await(read_lock_file(Path.new(project_dir)));
     entry_opt := find_lock_entry(lock_file, dep_name);
-    match(entry_opt,
-      .None => .None,
+    match(
+      entry_opt,
+      .None =>.None,
       .Some(entry) =>
-        if((entry.commit.len() == usize(0)), Option(String).None, {
+        if(entry.commit.len() == usize(0), Option(String).None, {
           cache_dir := get_global_deps_cache_dir();
           state := io.await(inspect_cached_dep(cache_dir, dep_name, entry.commit, entry.hash));
-          match(state.status,
+          match(
+            state.status,
             .MissingPath => Option(String).None,
             .MissingHash => {
               missing_hash_msg := String.from("Dependency ");
               missing_hash_msg.push_string(dep_name);
               missing_hash_msg.push_str(" is cached but missing a content hash. Run 'yo fetch' to refresh.");
-              exn.throw(dyn missing_hash_msg);
+              exn.throw(dyn(missing_hash_msg));
               Option(String).None
             },
             .HashMismatch => {
               mismatch_msg := String.from("Dependency ");
               mismatch_msg.push_string(dep_name);
               mismatch_msg.push_str(" failed integrity check. Run 'yo fetch' to refetch.");
-              exn.throw(dyn mismatch_msg);
+              exn.throw(dyn(mismatch_msg));
               Option(String).None
             },
             .Ok =>
-              .Some(match(dep_sub,
-                .None => state.cached_path,
-                .Some(sub) => Path.new(state.cached_path).join(Path.new(sub)).to_string()
-              ))
+              .Some(
+                match(
+                  dep_sub,
+                  .None => state.cached_path,
+                  .Some(sub) => Path.new(state.cached_path).join(Path.new(sub)).to_string()
+                )
+              )
           )
         })
     )
   })
 );
-
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
-
-export
+export(
   BuildGitDependency,
   CachedDepStatus,
   CachedDepState,
@@ -864,4 +904,4 @@ export
   fetch_all_deps,
   are_deps_cached,
   resolve_dep_path
-;
+);

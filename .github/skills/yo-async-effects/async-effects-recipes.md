@@ -14,7 +14,7 @@ These patterns cover normal Yo async code and algebraic effects.
 ## Minimal async function
 
 ```rust
-{ yield } :: import "std/async";
+{ yield } :: import("std/async");
 
 pause_then_answer :: (fn(using(io : IO)) -> Impl(Future(i32, IO)))(
   io.async((using(io : IO)) => {
@@ -41,7 +41,7 @@ work :: (fn(using(io : IO, raise : Raise)) -> Impl(Future(i32, IO, Raise)))(
 ## Sequential await
 
 ```rust
-{ yield } :: import "std/async";
+{ yield } :: import("std/async");
 
 main :: (fn(using(io : IO)) -> unit)({
   task := io.async((using(io : IO)) => {
@@ -53,13 +53,13 @@ main :: (fn(using(io : IO)) -> unit)({
   assert((result == i32(1)), "unexpected result");
 });
 
-export main;
+export(main);
 ```
 
 ## Concurrent tasks on the same thread
 
 ```rust
-{ yield } :: import "std/async";
+{ yield } :: import("std/async");
 
 main :: (fn(using(io : IO)) -> unit)({
   task1 := io.async((using(io : IO)) => {
@@ -78,7 +78,7 @@ main :: (fn(using(io : IO)) -> unit)({
   result2 := handle2.await(using(io));
 });
 
-export main;
+export(main);
 ```
 
 - `io.spawn(...)` begins execution without waiting
@@ -87,8 +87,8 @@ export main;
 ## Propagating and handling effects
 
 ```rust
-open import "std/fmt";
-open import "std/string";
+open(import("std/fmt"));
+open(import("std/string"));
 
 Raise :: (fn(msg : String) -> i32);
 
@@ -102,7 +102,7 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 resume_example :: (fn() -> i32)({
   (given(raise) : Raise) = (fn(msg : String) -> i32)({
     println(msg);
-    return i32(0);
+    return(i32(0));
   });
 
   safe_divide(i32(8), i32(0))
@@ -111,22 +111,22 @@ resume_example :: (fn() -> i32)({
 escape_example :: (fn() -> i32)({
   (given(raise) : Raise) = (fn(msg : String) -> i32)({
     println(msg);
-    escape i32(-1);
+    escape(i32(-1));
   });
 
   safe_divide(i32(8), i32(0))
 });
 ```
 
-| Handler action | Meaning                                      |
-| -------------- | -------------------------------------------- |
-| `return value` | Resume the continuation with `value`         |
-| `escape expr`  | Exit the function that installed the handler |
+| Handler action  | Meaning                                      |
+| --------------- | -------------------------------------------- |
+| `return(value)` | Resume the continuation with `value`         |
+| `escape(expr)`  | Exit the function that installed the handler |
 
 ## Futures with multiple effects
 
 ```rust
-{ yield } :: import "std/async";
+{ yield } :: import("std/async");
 
 work :: (fn(using(io : IO, raise : Raise)) -> Impl(Future(i32, IO, Raise)))(
   io.async((using(io : IO, raise : Raise)) => {
@@ -146,20 +146,20 @@ work :: (fn(using(io : IO, raise : Raise)) -> Impl(Future(i32, IO, Raise)))(
 **Solution**: replace async recursion with an iterative worklist using `ArrayList` as a stack:
 
 ```rust
-{ read_dir, DirEntry } :: import "std/fs/dir";
+{ read_dir, DirEntry } :: import("std/fs/dir");
 
 process_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     stack := ArrayList(Path).new();
     { stack.push(root); };
 
-    while runtime((stack.len() > usize(0))), {
-      cur := match(stack.pop(), .Some(p) => p, .None => return ());
+    while(runtime((stack.len() > usize(0))), {
+      cur := match(stack.pop(), .Some(p) => p, .None => return());
       entries := io.await(read_dir(cur));
       // process `entries`, push subdirectories to `stack`
       n := entries.len();
       i := usize(0);
-      while runtime((i < n)), {
+      while(runtime((i < n)), {
         match(entries.get(i),
           .None => (),
           .Some(e) => {
@@ -170,8 +170,8 @@ process_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(uni
           }
         );
         i = (i + usize(1));
-      };
-    };
+      });
+    });
   })
 );
 ```
@@ -189,8 +189,8 @@ process_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(uni
 `Exception` is a built-in struct-record effect for non-resumable error handling. When the handler calls `escape`, the continuation is discarded:
 
 ```rust
-open import "std/error";
-open import "std/fmt";
+open(import("std/error"));
+open(import("std/fmt"));
 
 DivError :: enum(DivByZero);
 impl(DivError, ToString(to_string : ((self) -> `division by zero`)));
@@ -207,7 +207,7 @@ main :: (fn() -> unit)({
   given(exn) := Exception(
     throw : ((err) -> {
       println(`Error: ${err}`);
-      escape ();
+      escape();
     })
   );
 
@@ -217,7 +217,7 @@ main :: (fn() -> unit)({
   safe_divide(i32(10), i32(0));
 });
 
-export main;
+export(main);
 ```
 
 - `Exception` has a single field `throw : (fn(error : AnyError) -> T)`
@@ -230,32 +230,32 @@ export main;
 When an exception is thrown inside an async operation (e.g., `cmd.status()` or `cmd.output()`), you can **swallow the error and resume with a fallback value** by using `return` in the handler (not `escape`). The `ResumeType` is the return type of the operation that would have thrown.
 
 ```rust
-{ Command, ExitStatus, Output } :: import "std/process/command";
+{ Command, ExitStatus, Output } :: import("std/process/command");
 
 // Check if a tool is available — returns false if it throws (e.g., not found)
 given(try_exn) := Exception(throw: ((err) -> {
-  return ExitStatus(raw: i32(1));  // resume with "failed" exit status
+  return(ExitStatus(raw: i32(1)));  // resume with "failed" exit status
 }));
 status := io.await(cmd.status(using(io, try_exn)));
 available := status.success();  // false if exception was swallowed
 
 // For cmd.output(), resume with a failed Output:
 given(out_exn) := Exception(throw: ((err) -> {
-  return Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new());
+  return(Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new()));
 }));
 out := io.await(cmd.output(using(io, out_exn)));
-if((!(out.status.success())), { return (); });  // handle failure
+if((!(out.status.success())), { return(); });  // handle failure
 ```
 
 Key: the `return` inside the handler resumes the _effect invocation site_ with the provided value. The calling code then sees the fallback as if the operation returned normally. Use `escape` only when the enclosing function returns `unit` (e.g., test bodies).
 
-**`escape T_value` constraint**: `escape T_value` inside an `Exception` handler requires that the enclosing `io.async` closure's return type matches `T_value`. Due to forward type inference, the evaluator may not know the closure's return type at the point where `given` is declared. This causes a "Expected: unit" error when `escape non_unit` is used in a handler declared before the final return expression. Prefer `return fallback_value` (resume) when possible.
+**`escape(T_value)` constraint**: `escape(T_value)` inside an `Exception` handler requires that the enclosing `io.async` closure's return type matches `T_value`. Due to forward type inference, the evaluator may not know the closure's return type at the point where `given` is declared. This causes a "Expected: unit" error when `escape(non_unit)` is used in a handler declared before the final return expression. Prefer `return(fallback_value)` (resume) when possible.
 
 `ResumableException(ResumeType)` is a struct-record effect for resumable error handling. The handler uses `return` to resume with a recovery value:
 
 ```rust
-open import "std/error";
-open import "std/fmt";
+open(import("std/error"));
+open(import("std/fmt"));
 
 safe_divide :: (fn(x : i32, y : i32, using(exn : ResumableException(i32))) -> i32)(
   cond(
@@ -268,7 +268,7 @@ main :: (fn() -> unit)({
   given(exn) := ResumableException(i32)(
     throw : ((err) -> {
       println(`Recovering from: ${err}`);
-      return i32(0);
+      return(i32(0));
     })
   );
 
@@ -276,10 +276,10 @@ main :: (fn() -> unit)({
   assert((result == i32(0)), "recovered with 0");
 });
 
-export main;
+export(main);
 ```
 
-- Handler uses `return value` to resume the continuation with the recovery value
+- Handler uses `return(value)` to resume the continuation with the recovery value
 - The call site receives the returned value and continues normally
 
 ## Struct-record effects vs function-type effects

@@ -14,149 +14,201 @@
 //! - `typeImplementsTraitBool` (where clause checking) skipped (Phase 3 stub).
 //! - `funcId` suffix and `specializedType` skipped (no FuncVal.funcId in yo-self).
 //! - Return types changed from `Option(AstExpr)` stub to correct result types.
-
-open import "std/string";
-{ ArrayList }                                    :: import "std/collections/array_list";
-
-{ AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_to_string, ast_expr_is_atom,
-  ast_expr_is_fn_call_of }                       :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_get,
-  expr_info_table_set }                          :: import "../../expr/expr_info.yo";
-{ Environment }                                  :: import "../../env/env.yo";
-{ TypeValue }                                    :: import "../../types/type.yo";
-{ type_to_string }                               :: import "../../types/string.yo";
-{ are_types_compatible }                         :: import "../../types/compatibility.yo";
-{ EvalContext, TraitSpecializationResult,
-  TraitTypeCallResult, ExpectedTypeCtx }         :: import "../context.yo";
-{ EvalValue, is_type_value, value_to_string }    :: import "../value.yo";
-{ set_expr_as_needs_to_call_dup }                :: import "../utils.yo";
-{ evaluate_expression }                          :: import "../exprs/expr.yo";
-{ format_error_message }                         :: import "../../error/error.yo";
-{ Exception }                                    :: import "std/error";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call_of
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{
+  EvalContext,
+  TraitSpecializationResult,
+  TraitTypeCallResult,
+  ExpectedTypeCtx
+} :: import("../context.yo");
+{ EvalValue, is_type_value, value_to_string } :: import("../value.yo");
+{ set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
 /// Specialize a trait type by binding associated types via `:=` arguments.
 /// e.g. `Iterator(Item := i32)` — constraint validated but NOT stored in TraitT
 /// (associatedTypeConstraints deferred to Phase 3).
 ///
 /// Mirrors `tryToSpecializeTraitType` in `src/evaluator/calls/trait-type.ts`.
-try_to_specialize_trait_type :: (fn(
-  trait_expr   : AstExpr,
-  trait_type   : TypeValue,
-  arg_exprs    : ArrayList(AstExpr),
-  caller_env_in: Environment,
-  ctx          : *(EvalContext),
-  using(exn    : Exception)
-) -> TraitSpecializationResult)({
+try_to_specialize_trait_type :: (
+  fn(
+    trait_expr : AstExpr,
+    trait_type : TypeValue,
+    arg_exprs : ArrayList(AstExpr),
+    caller_env_in : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> TraitSpecializationResult
+)({
   _ := trait_expr;
-
   // Extract field labels and assoc_type_names from TraitT.
-  field_labels := match(trait_type,
+  field_labels := match(
+    trait_type,
     .TraitT(_, _, labels, _, _, _, _, _) => labels,
     _ => ArrayList(String).new()
   );
-  assoc_type_names := match(trait_type,
+  assoc_type_names := match(
+    trait_type,
     .TraitT(_, an, _, _, _, _, _, _) => an,
     _ => ArrayList(String).new()
   );
-  trait_name := match(trait_type,
+  trait_name := match(
+    trait_type,
     .TraitT(n, _, _, _, _, _, _, _) => n,
     _ => String.from("unknown")
   );
-
   (caller_env : Environment) = caller_env_in;
   n_args := arg_exprs.len();
-
   (j : usize) = usize(0);
-  while runtime((j < n_args)), {
+  while(runtime(j < n_args), {
     arg_opt := arg_exprs.get(j);
-    arg := match(arg_opt, .Some(a) => a, .None => { j = (j + usize(1)); trait_expr });
-
-    if(!(ast_expr_is_fn_call_of(arg, ":=", .Some(usize(2)))), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(arg),
-        `Expected ":=" for trait specialization (binding associated types), got:\n${ast_expr_to_string(arg)}`,
-        false, .None
-      ));
+    arg := match(
+      arg_opt,
+      .Some(a) => a,
+      .None => {
+        j = (j + usize(1));
+        trait_expr
+      }
+    );
+    if(!(ast_expr_is_fn_call_of(arg, ":=",.Some(usize(2)))), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            `Expected ":=" for trait specialization (binding associated types), got:\n${ast_expr_to_string(arg)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
-    label_sub_opt := match(arg, .FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-    value_sub_opt := match(arg, .FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
-    label_sub := match(label_sub_opt, .Some(s) => s, .None => {
-      exn.throw(dyn format_error_message(ast_expr_token(arg), String.from("Missing label in :="), false, .None));
-      arg
-    });
-    value_sub := match(value_sub_opt, .Some(s) => s, .None => {
-      exn.throw(dyn format_error_message(ast_expr_token(arg), String.from("Missing value in :="), false, .None));
-      arg
-    });
-
+    label_sub_opt := match(arg,.FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
+    value_sub_opt := match(arg,.FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+    label_sub := match(
+      label_sub_opt,
+      .Some(s) => s,
+      .None => {
+        exn.throw(dyn(format_error_message(ast_expr_token(arg), String.from("Missing label in :="), false,.None)));
+        arg
+      }
+    );
+    value_sub := match(
+      value_sub_opt,
+      .Some(s) => s,
+      .None => {
+        exn.throw(dyn(format_error_message(ast_expr_token(arg), String.from("Missing value in :="), false,.None)));
+        arg
+      }
+    );
     if(!(ast_expr_is_atom(label_sub)), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(label_sub),
-        `Expected identifier for associated type label, got:\n${ast_expr_to_string(label_sub)}`,
-        false, .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(label_sub),
+            `Expected identifier for associated type label, got:\n${ast_expr_to_string(label_sub)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
-    label_tok := match(label_sub, .Atom(_, tok) => (&tok.value).clone(), _ => String.from(""));
-
+    label_tok := match(label_sub,.Atom(_, tok) => (&(tok.value)).clone(), _ => String.from(""));
     // Check field exists in the trait.
     (field_exists : bool) = false;
     (li : usize) = usize(0);
-    while runtime((li < field_labels.len())), {
-      match(field_labels.get(li),
-        .Some(fl) => { if((fl == label_tok), { field_exists = true; }); },
+    while(runtime(li < field_labels.len()), {
+      match(
+        field_labels.get(li),
+        .Some(fl) => {
+          if(fl == label_tok, {
+            field_exists = true;
+          });
+        },
         .None => ()
       );
       li = (li + usize(1));
-    };
-    if(!(field_exists), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(label_sub),
-        `Field "${label_tok}" not found in trait "${trait_name}".`,
-        false, .None
-      ));
     });
-
+    if(!(field_exists), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(label_sub),
+            `Field "${label_tok}" not found in trait "${trait_name}".`,
+            false,
+            .None
+          )
+        )
+      );
+    });
     // Check it's an associated type (in assoc_type_names).
     (is_assoc : bool) = false;
     (ai : usize) = usize(0);
-    while runtime((ai < assoc_type_names.len())), {
-      match(assoc_type_names.get(ai),
-        .Some(an) => { if((an == label_tok), { is_assoc = true; }); },
+    while(runtime(ai < assoc_type_names.len()), {
+      match(
+        assoc_type_names.get(ai),
+        .Some(an) => {
+          if(an == label_tok, {
+            is_assoc = true;
+          });
+        },
         .None => ()
       );
       ai = (ai + usize(1));
-    };
-    if(!(is_assoc), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(label_sub),
-        `Field "${label_tok}" is not an associated type. Only associated type fields can be constrained with ":=".`,
-        false, .None
-      ));
     });
-
+    if(!(is_assoc), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(label_sub),
+            `Field "${label_tok}" is not an associated type. Only associated type fields can be constrained with ":=".`,
+            false,
+            .None
+          )
+        )
+      );
+    });
     // Evaluate the constraint type expression.
     evaluated := evaluate_expression(value_sub, caller_env, ctx);
     evaluated_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-    if(!(match(evaluated_info_opt, .Some(info) => is_type_value(info.value), .None => false)), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(value_sub),
-        `Expected type for associated type constraint "${label_tok}", got:\n${ast_expr_to_string(value_sub)}`,
-        false, .None
-      ));
+    if(!(match(evaluated_info_opt,.Some(info) => is_type_value(info.value),.None => false)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(value_sub),
+            `Expected type for associated type constraint "${label_tok}", got:\n${ast_expr_to_string(value_sub)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-    caller_env = match(evaluated_info_opt, .Some(info) => info.env, .None => caller_env);
-
+    caller_env = match(evaluated_info_opt,.Some(info) => info.env,.None => caller_env);
     j = (j + usize(1));
-  };
-
+  });
   // NOTE: associatedTypeConstraints cannot be stored in yo-self's TraitT yet.
   // Return the original trait type unchanged. Phase 3 will add constraint storage.
-  TraitSpecializationResult(specialized_trait_type: trait_type, caller_env: caller_env)
+  TraitSpecializationResult(specialized_trait_type : trait_type, caller_env : caller_env)
 });
-
 /// Bind `arg_exprs` to the fields of `trait_type` to produce a trait-value instance.
 ///
 /// Mirrors `tryToImplementTraitWithArgumentsByTraitType` in
@@ -165,190 +217,225 @@ try_to_specialize_trait_type :: (fn(
 /// Adaptations:
 /// - Uses stored `field_types[i]` instead of re-evaluating `exprs.typeExpr`.
 /// - Skips receiverType.trait mutation and where-clause checking (Phase 3).
-try_to_implement_trait_with_arguments_by_trait_type :: (fn(
-  trait_expr   : AstExpr,
-  trait_type   : TypeValue,
-  arg_exprs    : ArrayList(AstExpr),
-  caller_env_in: Environment,
-  ctx          : *(EvalContext),
-  using(exn    : Exception)
-) -> TraitTypeCallResult)({
+try_to_implement_trait_with_arguments_by_trait_type :: (
+  fn(
+    trait_expr : AstExpr,
+    trait_type : TypeValue,
+    arg_exprs : ArrayList(AstExpr),
+    caller_env_in : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> TraitTypeCallResult
+)({
   // Extract field labels and types from TraitT.
-  field_labels := match(trait_type,
+  field_labels := match(
+    trait_type,
     .TraitT(_, _, labels, _, _, _, _, _) => labels,
     _ => ArrayList(String).new()
   );
-  field_types := match(trait_type,
+  field_types := match(
+    trait_type,
     .TraitT(_, _, _, types, _, _, _, _) => types,
     _ => ArrayList(TypeValue).new()
   );
-  trait_name := match(trait_type,
+  trait_name := match(
+    trait_type,
     .TraitT(n, _, _, _, _, _, _, _) => n,
     _ => String.from("unknown")
   );
   n_fields := field_labels.len();
-  n_args   := arg_exprs.len();
-
-  if((n_args > n_fields), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(trait_expr),
-      String.from("Failed to implement the trait. Too many fields provided."),
-      false, .None
-    ));
+  n_args := arg_exprs.len();
+  if(n_args > n_fields, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(trait_expr),
+          String.from("Failed to implement the trait. Too many fields provided."),
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Validate that ReceiverType is set.
   if(ctx.receiver_type.is_none(), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(trait_expr),
-      String.from("Receiver type is undefined when implementing trait.\nPlease use \"impl\" to specify the receiver type explicitly."),
-      false, .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(trait_expr),
+          String.from("Receiver type is undefined when implementing trait.\nPlease use \"impl\" to specify the receiver type explicitly."),
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Pre-allocate value slots.
   (field_values : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
   (i_init : usize) = usize(0);
-  while runtime((i_init < n_fields)), {
+  while(runtime(i_init < n_fields), {
     field_values.push(Option(EvalValue).None);
     i_init = (i_init + usize(1));
-  };
-
+  });
   (caller_env : Environment) = caller_env_in;
-
   // For each trait field, find the matching arg by label.
   (i : usize) = usize(0);
-  while runtime((i < n_fields)), {
+  while(runtime(i < n_fields), {
     field_label_opt := field_labels.get(i);
-    field_type_opt  := field_types.get(i);
-    field_label := match(field_label_opt, .Some(s) => s, .None => String.from(""));
-    field_type  := match(field_type_opt,  .Some(t) => t, .None => TypeValue.Unit);
-
+    field_type_opt := field_types.get(i);
+    field_label := match(field_label_opt,.Some(s) => s,.None => String.from(""));
+    field_type := match(field_type_opt,.Some(t) => t,.None => TypeValue.Unit);
     (found_arg : bool) = false;
     (j : usize) = usize(0);
-    while runtime((j < n_args)), {
+    while(runtime(j < n_args), {
       arg_expr_opt := arg_exprs.get(j);
-      arg_expr := match(arg_expr_opt, .Some(a) => a, .None => trait_expr);
-
+      arg_expr := match(arg_expr_opt,.Some(a) => a,.None => trait_expr);
       // Each arg must be a `label: value` colon call.
-      if(!(ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2)))), {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(arg_expr),
-          `Expected member label, but got:\n${ast_expr_to_string(arg_expr)}`,
-          false, .None
-        ));
+      if(!(ast_expr_is_fn_call_of(arg_expr, ":",.Some(usize(2)))), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              `Expected member label, but got:\n${ast_expr_to_string(arg_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
       });
-
-      label_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-      value_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
-      label_sub := match(label_sub_opt, .Some(s) => s, .None => {
-        exn.throw(dyn format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing label sub-expr."), false, .None));
-        arg_expr
-      });
-      value_sub := match(value_sub_opt, .Some(s) => s, .None => {
-        exn.throw(dyn format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing value sub-expr."), false, .None));
-        arg_expr
-      });
-
+      label_sub_opt := match(arg_expr,.FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
+      value_sub_opt := match(arg_expr,.FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+      label_sub := match(
+        label_sub_opt,
+        .Some(s) => s,
+        .None => {
+          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing label sub-expr."), false,.None)));
+          arg_expr
+        }
+      );
+      value_sub := match(
+        value_sub_opt,
+        .Some(s) => s,
+        .None => {
+          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing value sub-expr."), false,.None)));
+          arg_expr
+        }
+      );
       if(!(ast_expr_is_atom(label_sub)), {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(label_sub),
-          `Expected identifier for label, got:\n${ast_expr_to_string(label_sub)}`,
-          false, .None
-        ));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(label_sub),
+              `Expected identifier for label, got:\n${ast_expr_to_string(label_sub)}`,
+              false,
+              .None
+            )
+          )
+        );
       });
-
-      label_tok := match(label_sub, .Atom(_, tok) => (&tok.value).clone(), _ => String.from(""));
-
+      label_tok := match(label_sub,.Atom(_, tok) => (&(tok.value)).clone(), _ => String.from(""));
       // Validate label exists in the trait.
       (label_exists : bool) = false;
       (li : usize) = usize(0);
-      while runtime((li < n_fields)), {
-        match(field_labels.get(li),
-          .Some(fl) => { if((fl == label_tok), { label_exists = true; }); },
+      while(runtime(li < n_fields), {
+        match(
+          field_labels.get(li),
+          .Some(fl) => {
+            if(fl == label_tok, {
+              label_exists = true;
+            });
+          },
           .None => ()
         );
         li = (li + usize(1));
-      };
-      if(!(label_exists), {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(label_sub),
-          `Trait member with label "${label_tok}" does not exist in the trait type.`,
-          false, .None
-        ));
       });
-
-      if((field_label == label_tok), {
+      if(!(label_exists), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(label_sub),
+              `Trait member with label "${label_tok}" does not exist in the trait type.`,
+              false,
+              .None
+            )
+          )
+        );
+      });
+      if(field_label == label_tok, {
         found_arg = true;
-
         // Evaluate value sub-expression with expected type = field_type.
         saved_expected := ctx.expected_type;
-        ctx.expected_type = .Some(ExpectedTypeCtx(ty: field_type, env: caller_env));
+        ctx.expected_type =.Some(ExpectedTypeCtx(ty : field_type, env : caller_env));
         evaluated_arg := evaluate_expression(value_sub, caller_env, ctx);
         ctx.expected_type = saved_expected;
-
         arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
         if(arg_info_opt.is_none(), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(value_sub),
-            `Failed to evaluate trait member "${field_label}".`,
-            false, .None
-          ));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(value_sub),
+                `Failed to evaluate trait member "${field_label}".`,
+                false,
+                .None
+              )
+            )
+          );
         });
-        arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(caller_env, field_type));
-
+        arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(caller_env, field_type));
         set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
         caller_env = arg_info.env;
-        arg_type  := arg_info.ty;
-
+        arg_type := arg_info.ty;
         if(!(are_types_compatible(arg_type, field_type)), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(value_sub),
-            `Type mismatch for the trait member "${field_label}":\nExpected: ${type_to_string(field_type)}\nGot:   ${type_to_string(arg_type)}`,
-            false, .None
-          ));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(value_sub),
+                `Type mismatch for the trait member "${field_label}":\nExpected: ${type_to_string(field_type)}\nGot:   ${type_to_string(arg_type)}`,
+                false,
+                .None
+              )
+            )
+          );
         });
-
         // Store the value at position i.
-        (&field_values).index(i).* = arg_info.value;
-
+        (&(field_values)).index(i).* = arg_info.value;
         // Annotate the label sub-expr.
         label_info := new_expr_info(caller_env, arg_type);
         label_info.value = arg_info.value;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(label_sub), label_info);
       });
-
       j = (j + usize(1));
-    }; // end inner arg loop
-
+    }); // end inner arg loop
     if(!(found_arg), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(trait_expr),
-        `Trait member "${field_label}" is not provided and has no required/default value.`,
-        false, .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(trait_expr),
+            `Trait member "${field_label}" is not provided and has no required/default value.`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
     i = (i + usize(1));
-  }; // end outer field loop
-
+  }); // end outer field loop
   // Build result names for the TraitVal.
   (result_names : ArrayList(String)) = ArrayList(String).new();
   (k : usize) = usize(0);
-  while runtime((k < n_fields)), {
-    match(field_labels.get(k),
-      .Some(lbl) => { result_names.push((&lbl).clone()); },
+  while(runtime(k < n_fields), {
+    match(
+      field_labels.get(k),
+      .Some(lbl) => {
+        result_names.push((&(lbl)).clone());
+      },
       .None => ()
     );
     k = (k + usize(1));
-  };
-
+  });
   // NOTE: where-clause checking (typeImplementsTraitBool) deferred to Phase 3.
-
-  trait_val := EvalValue.TraitVal((&trait_name).clone(), result_names, field_values);
-  TraitTypeCallResult(trait_value: trait_val, caller_env: caller_env)
+  trait_val := EvalValue.TraitVal((&(trait_name)).clone(), result_names, field_values);
+  TraitTypeCallResult(trait_value : trait_val, caller_env : caller_env)
 });
-
-export try_to_specialize_trait_type;
-export try_to_implement_trait_with_arguments_by_trait_type;
-
+export(try_to_specialize_trait_type);
+export(try_to_implement_trait_with_arguments_by_trait_type);

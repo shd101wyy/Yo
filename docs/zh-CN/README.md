@@ -201,14 +201,14 @@ my-project/
 
 `src/main.yo`：
 
-```typescript
-{ println } :: import "std/fmt";
+```rust
+{ println } :: import("std/fmt");
 
 main :: (fn() -> unit)({
   println("Hello, world!");
 });
 
-export main;
+export(main);
 ```
 
 常用构建命令：
@@ -219,6 +219,8 @@ $ yo build run              # 构建并运行可执行文件
 $ yo build test             # 运行测试
 $ yo build --list-steps     # 列出可用构建步骤
 $ yo build doc              # 生成 HTML 文档
+$ yo fmt                    # 格式化 Yo 源文件
+$ yo fmt --check            # 只检查格式，不写入变更
 ```
 
 ## 预导入模块（Prelude）
@@ -253,15 +255,15 @@ $ yo doc ./src -o docs --title "我的项目"
 
 ### Hello World
 
-```typescript
+```rust
 // main.yo
-{ println } :: import "std/fmt";
+{ println } :: import("std/fmt");
 
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   println("Hello, world!");
-};
+});
 
-export main;
+export(main);
 
 // $ yo compile main.yo --release -o main
 // $ ./main

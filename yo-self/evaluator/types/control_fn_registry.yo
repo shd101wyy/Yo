@@ -5,34 +5,29 @@
 //! `func_id` (a String).
 //!
 //! Mirrors the `isControlFunction` field on `FunctionValue` in `src/function-value.ts`.
-
-open import "std/string";
-{ HashMap }  :: import "std/collections/hash_map";
-{ ArrayList } :: import "std/collections/array_list";
-
+open(import("std/string"));
+{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array_list");
 // ---------------------------------------------------------------------------
 // Global registry
 // ---------------------------------------------------------------------------
-
 /// Global map from `func_id` → `true` (only entries for control functions exist).
 (g_control_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
-
 /// Mark a function as a control function (uses `escape`).
 /// Idempotent: calling multiple times with the same id is safe.
 ///
 /// Mirrors setting `functionValue.isControlFunction = true` in TypeScript.
 mark_as_control_fn :: (fn(func_id : String) -> unit)({
-  ___ := g_control_fn_registry.set((&func_id).clone(), true);
+  ___ := g_control_fn_registry.set((&(func_id)).clone(), true);
 });
-
 /// Returns true if the function identified by `func_id` is a control function.
 ///
 /// Mirrors reading `functionValue.isControlFunction` in TypeScript.
 is_control_fn :: (fn(func_id : str) -> bool)(
-  match(g_control_fn_registry.get(String.from(func_id)),
+  match(
+    g_control_fn_registry.get(String.from(func_id)),
     .Some(_) => true,
-    .None    => false
+    .None => false
   )
 );
-
-export mark_as_control_fn, is_control_fn;
+export(mark_as_control_fn, is_control_fn);

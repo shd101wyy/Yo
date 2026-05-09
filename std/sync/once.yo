@@ -14,31 +14,30 @@
 //!   println("this will NOT run");
 //! });
 //! ```
-
-{ Mutex } :: import "./mutex";
-
+{ Mutex } :: import("./mutex");
 /// Execute a function exactly once, thread-safely.
 /// Uses atomic reference counting for safe cross-thread sharing.
-Once :: atomic object(
-  _done  : bool,
-  _mutex : Mutex
+Once :: atomic(
+  object(
+    _done : bool,
+    _mutex : Mutex
+  )
 );
-
-impl(Once,
+impl(
+  Once,
   // Create a new Once.
   new : (fn() -> Self)(
     Self(
-      _done: false,
-      _mutex: Mutex.new()
+      _done : false,
+      _mutex : Mutex.new()
     )
   ),
-
   // Execute the function exactly once.
   // Subsequent calls are no-ops.
   // Note: The fast-path read of _done is not strictly atomic, but since _done
   // is only ever set from false to true and the double-check inside the lock
   // prevents the function from running twice, this is safe in practice.
-  call : (fn(self: Self, f: Impl(Fn() -> unit)) -> unit)({
+  call : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)({
     // Fast path: already done
     cond(
       self._done => (),
@@ -58,11 +57,9 @@ impl(Once,
       }
     );
   }),
-
   // Check if the function has been called.
-  is_done : (fn(self: Self) -> bool)(
+  is_done : (fn(self : Self) -> bool)(
     self._done
   )
 );
-
-export Once;
+export(Once);

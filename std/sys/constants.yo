@@ -3,22 +3,15 @@
 //! File mode bits, permission bits, `AT_*` flags, open flags,
 //! access mode constants, copyfile flags, directory entry types,
 //! and default permission modes.
-
-{ platform, Platform } :: import "../process";
-
+{ platform, Platform } :: import("../process");
 // Import platform-correct open flags from libc
-{
-  O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND,
-  O_NONBLOCK, O_CLOEXEC, O_DIRECTORY
-} :: import "../libc/fcntl";
-
+{ O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND, O_NONBLOCK, O_CLOEXEC, O_DIRECTORY } :: import("../libc/fcntl");
 // ============================================================================
 // AT_* Flags
 // ============================================================================
-
 AT_FDCWD :: cond(
-  (platform == Platform.Macos) => i32(-2),
-  true => i32(-100)
+  (platform == Platform.Macos) => i32(-(2)),
+  true => i32(-(100))
 );
 AT_REMOVEDIR :: cond(
   (platform == Platform.Macos) => i32(0x80),
@@ -30,27 +23,22 @@ AT_SYMLINK_NOFOLLOW :: cond(
   true => i32(0x100)
 );
 AT_STATX_SYNC_AS_STAT :: i32(0x0000);
-
 // STATX_BASIC_STATS - request basic stats (Linux-specific)
 STATX_BASIC_STATS :: u32(0x000007ff);
-
 // ============================================================================
 // File Mode Bits (S_IF* and S_I* from sys/stat.h)
 // ============================================================================
-
-S_IFMT   :: u32(0o170000);
+S_IFMT :: u32(0o170000);
 S_IFSOCK :: u32(0o140000);
-S_IFLNK  :: u32(0o120000);
-S_IFREG  :: u32(0o100000);
-S_IFBLK  :: u32(0o060000);
-S_IFDIR  :: u32(0o040000);
-S_IFCHR  :: u32(0o020000);
-S_IFIFO  :: u32(0o010000);
-
+S_IFLNK :: u32(0o120000);
+S_IFREG :: u32(0o100000);
+S_IFBLK :: u32(0o060000);
+S_IFDIR :: u32(0o040000);
+S_IFCHR :: u32(0o020000);
+S_IFIFO :: u32(0o010000);
 // ============================================================================
 // Permission Bits
 // ============================================================================
-
 S_IRWXU :: u32(0o0700);
 S_IRUSR :: u32(0o0400);
 S_IWUSR :: u32(0o0200);
@@ -63,66 +51,94 @@ S_IRWXO :: u32(0o0007);
 S_IROTH :: u32(0o0004);
 S_IWOTH :: u32(0o0002);
 S_IXOTH :: u32(0o0001);
-
 // Default permissions
 DEFAULT_FILE_MODE :: u32(0o644);
-DEFAULT_DIR_MODE  :: u32(0o755);
-
+DEFAULT_DIR_MODE :: u32(0o755);
 // ============================================================================
 // Directory Entry Types (DT_*)
 // ============================================================================
-
 DT_UNKNOWN :: u8(0);
-DT_FIFO    :: u8(1);
-DT_CHR     :: u8(2);
-DT_DIR     :: u8(4);
-DT_BLK     :: u8(6);
-DT_REG     :: u8(8);
-DT_LNK     :: u8(10);
-DT_SOCK    :: u8(12);
-DT_WHT     :: u8(14);
-
+DT_FIFO :: u8(1);
+DT_CHR :: u8(2);
+DT_DIR :: u8(4);
+DT_BLK :: u8(6);
+DT_REG :: u8(8);
+DT_LNK :: u8(10);
+DT_SOCK :: u8(12);
+DT_WHT :: u8(14);
 // ============================================================================
 // Access Mode Constants (for access/faccessat)
 // ============================================================================
-
 F_OK :: i32(0);
 R_OK :: i32(4);
 W_OK :: i32(2);
 X_OK :: i32(1);
-
 // ============================================================================
 // Copyfile Flags
 // ============================================================================
-
-COPYFILE_EXCL          :: i32(1);
-COPYFILE_FICLONE       :: i32(2);
+COPYFILE_EXCL :: i32(1);
+COPYFILE_FICLONE :: i32(2);
 COPYFILE_FICLONE_FORCE :: i32(4);
-
-export
+export(
   // Open flags (re-exported from libc)
-  O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND,
-  O_NONBLOCK, O_CLOEXEC, O_DIRECTORY,
-
+  O_RDONLY,
+  O_WRONLY,
+  O_RDWR,
+  O_CREAT,
+  O_EXCL,
+  O_TRUNC,
+  O_APPEND,
+  O_NONBLOCK,
+  O_CLOEXEC,
+  O_DIRECTORY,
   // AT_* flags
-  AT_FDCWD, AT_REMOVEDIR, AT_EMPTY_PATH, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT,
+  AT_FDCWD,
+  AT_REMOVEDIR,
+  AT_EMPTY_PATH,
+  AT_SYMLINK_NOFOLLOW,
+  AT_STATX_SYNC_AS_STAT,
   STATX_BASIC_STATS,
-
   // File type flags (S_IF*)
-  S_IFMT, S_IFSOCK, S_IFLNK, S_IFREG, S_IFBLK, S_IFDIR, S_IFCHR, S_IFIFO,
-
+  S_IFMT,
+  S_IFSOCK,
+  S_IFLNK,
+  S_IFREG,
+  S_IFBLK,
+  S_IFDIR,
+  S_IFCHR,
+  S_IFIFO,
   // Permission flags (S_I*)
-  S_IRWXU, S_IRUSR, S_IWUSR, S_IXUSR,
-  S_IRWXG, S_IRGRP, S_IWGRP, S_IXGRP,
-  S_IRWXO, S_IROTH, S_IWOTH, S_IXOTH,
-  DEFAULT_FILE_MODE, DEFAULT_DIR_MODE,
-
+  S_IRWXU,
+  S_IRUSR,
+  S_IWUSR,
+  S_IXUSR,
+  S_IRWXG,
+  S_IRGRP,
+  S_IWGRP,
+  S_IXGRP,
+  S_IRWXO,
+  S_IROTH,
+  S_IWOTH,
+  S_IXOTH,
+  DEFAULT_FILE_MODE,
+  DEFAULT_DIR_MODE,
   // Directory entry types (DT_*)
-  DT_UNKNOWN, DT_FIFO, DT_CHR, DT_DIR, DT_BLK, DT_REG, DT_LNK, DT_SOCK, DT_WHT,
-
+  DT_UNKNOWN,
+  DT_FIFO,
+  DT_CHR,
+  DT_DIR,
+  DT_BLK,
+  DT_REG,
+  DT_LNK,
+  DT_SOCK,
+  DT_WHT,
   // Access mode constants
-  F_OK, R_OK, W_OK, X_OK,
-
+  F_OK,
+  R_OK,
+  W_OK,
+  X_OK,
   // Copyfile flags
-  COPYFILE_EXCL, COPYFILE_FICLONE, COPYFILE_FICLONE_FORCE
-;
+  COPYFILE_EXCL,
+  COPYFILE_FICLONE,
+  COPYFILE_FICLONE_FORCE
+);

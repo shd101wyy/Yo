@@ -1,184 +1,194 @@
 // Comprehensive verification of iterator combinators (blanket Iterator impls
 // in std/prelude.yo). Bootstrap §2.1 / §1.2.
-open import "std/string";
-open import "std/fmt";
-open import "std/collections/array_list";
-
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/collections/array_list"));
 // --- Helper: my_range iterator [start, end) -----------------------------------
-
 MyRange :: struct(_cur : i32, _end : i32);
-
-impl(MyRange, Iterator(
-  Item : i32,
-  next : (fn(self : *(Self)) -> Option(i32))(
-    cond(
-      (self._cur >= self._end) => .None,
-      true => {
-        v := self._cur;
-        self._cur = (self._cur + i32(1));
-        .Some(v)
-      }
+impl(
+  MyRange,
+  Iterator(
+    Item : i32,
+    next : (fn(self : *(Self)) -> Option(i32))(
+      cond(
+        (self._cur >= self._end) =>.None,
+        true => {
+          v := self._cur;
+          self._cur = (self._cur + i32(1));
+          .Some(v)
+        }
+      )
     )
   )
-));
-
+);
 my_range :: (fn(start : i32, end_ : i32) -> MyRange)(MyRange(start, end_));
-
 // --- map -------------------------------------------------------------------
-
-test "iter.map doubles every element", {
+test("iter.map doubles every element", {
   it := my_range(i32(1), i32(4)).map(x => (x * i32(2)));
   out := ArrayList(i32).new();
-  while runtime(true), {
-    match(it.next(),
-      .Some(v) => { out.push(v); },
-      .None => { break; }
+  while(runtime(true), {
+    match(
+      it.next(),
+      .Some(v) => {
+        out.push(v);
+      },
+      .None => {
+        break;
+      }
     );
-  };
-  assert((out.len() == usize(3)), "3 elements");
-  assert((out.get(usize(0)).unwrap() == i32(2)), "1*2");
-  assert((out.get(usize(1)).unwrap() == i32(4)), "2*2");
-  assert((out.get(usize(2)).unwrap() == i32(6)), "3*2");
-};
-
+  });
+  assert(out.len() == usize(3), "3 elements");
+  assert(out.get(usize(0)).unwrap() == i32(2), "1*2");
+  assert(out.get(usize(1)).unwrap() == i32(4), "2*2");
+  assert(out.get(usize(2)).unwrap() == i32(6), "3*2");
+});
 // --- filter ----------------------------------------------------------------
-
-test "iter.filter keeps only even values", {
+test("iter.filter keeps only even values", {
   it := my_range(i32(0), i32(6)).filter(x => ((x.* % i32(2)) == i32(0)));
   out := ArrayList(i32).new();
-  while runtime(true), {
-    match(it.next(),
-      .Some(v) => { out.push(v); },
-      .None => { break; }
+  while(runtime(true), {
+    match(
+      it.next(),
+      .Some(v) => {
+        out.push(v);
+      },
+      .None => {
+        break;
+      }
     );
-  };
-  assert((out.len() == usize(3)), "3 evens");
-  assert((out.get(usize(0)).unwrap() == i32(0)), "0");
-  assert((out.get(usize(1)).unwrap() == i32(2)), "2");
-  assert((out.get(usize(2)).unwrap() == i32(4)), "4");
-};
-
+  });
+  assert(out.len() == usize(3), "3 evens");
+  assert(out.get(usize(0)).unwrap() == i32(0), "0");
+  assert(out.get(usize(1)).unwrap() == i32(2), "2");
+  assert(out.get(usize(2)).unwrap() == i32(4), "4");
+});
 // --- take / skip -----------------------------------------------------------
-
-test "iter.take limits the iterator", {
+test("iter.take limits the iterator", {
   it := my_range(i32(0), i32(100)).take(usize(3));
   out := ArrayList(i32).new();
-  while runtime(true), {
-    match(it.next(),
-      .Some(v) => { out.push(v); },
-      .None => { break; }
+  while(runtime(true), {
+    match(
+      it.next(),
+      .Some(v) => {
+        out.push(v);
+      },
+      .None => {
+        break;
+      }
     );
-  };
-  assert((out.len() == usize(3)), "took 3");
-  assert((out.get(usize(2)).unwrap() == i32(2)), "third = 2");
-};
-
-test "iter.skip drops leading elements", {
+  });
+  assert(out.len() == usize(3), "took 3");
+  assert(out.get(usize(2)).unwrap() == i32(2), "third = 2");
+});
+test("iter.skip drops leading elements", {
   it := my_range(i32(0), i32(5)).skip(usize(3));
   out := ArrayList(i32).new();
-  while runtime(true), {
-    match(it.next(),
-      .Some(v) => { out.push(v); },
-      .None => { break; }
+  while(runtime(true), {
+    match(
+      it.next(),
+      .Some(v) => {
+        out.push(v);
+      },
+      .None => {
+        break;
+      }
     );
-  };
-  assert((out.len() == usize(2)), "2 left");
-  assert((out.get(usize(0)).unwrap() == i32(3)), "first = 3");
-  assert((out.get(usize(1)).unwrap() == i32(4)), "second = 4");
-};
-
+  });
+  assert(out.len() == usize(2), "2 left");
+  assert(out.get(usize(0)).unwrap() == i32(3), "first = 3");
+  assert(out.get(usize(1)).unwrap() == i32(4), "second = 4");
+});
 // --- enumerate -------------------------------------------------------------
-
-test "iter.enumerate pairs index with value", {
+test("iter.enumerate pairs index with value", {
   it := my_range(i32(10), i32(13)).enumerate();
   // (0, 10), (1, 11), (2, 12)
-  match(it.next(),
+  match(
+    it.next(),
     .Some(p) => {
-      assert((p._0 == usize(0)), "index 0");
-      assert((p._1 == i32(10)), "value 10");
+      assert(p._0 == usize(0), "index 0");
+      assert(p._1 == i32(10), "value 10");
     },
     .None => assert(false, "expected first")
   );
-  match(it.next(),
+  match(
+    it.next(),
     .Some(p) => {
-      assert((p._0 == usize(1)), "index 1");
-      assert((p._1 == i32(11)), "value 11");
+      assert(p._0 == usize(1), "index 1");
+      assert(p._1 == i32(11), "value 11");
     },
     .None => assert(false, "expected second")
   );
-};
-
+});
 // --- zip -------------------------------------------------------------------
-
-test "iter.zip pairs two iterators", {
+test("iter.zip pairs two iterators", {
   it := my_range(i32(0), i32(3)).zip(my_range(i32(100), i32(103)));
-  match((&it).next(),
+  match(
+    (&(it)).next(),
     .Some(p) => {
-      assert((p._0 == i32(0)), "first left is 0");
-      assert((p._1 == i32(100)), "first right is 100");
+      assert(p._0 == i32(0), "first left is 0");
+      assert(p._1 == i32(100), "first right is 100");
     },
     .None => assert(false, "expected first pair")
   );
-  match((&it).next(),
+  match(
+    (&(it)).next(),
     .Some(p) => {
-      assert((p._0 == i32(1)), "second left is 1");
-      assert((p._1 == i32(101)), "second right is 101");
+      assert(p._0 == i32(1), "second left is 1");
+      assert(p._1 == i32(101), "second right is 101");
     },
     .None => assert(false, "expected second pair")
   );
-};
-
-test "iter.zip stops at shorter iterator", {
+});
+test("iter.zip stops at shorter iterator", {
   it := my_range(i32(0), i32(5)).zip(my_range(i32(10), i32(12)));
   count := i32(0);
-  while runtime(true), {
-    match((&it).next(),
-      .Some(_) => { count = (count + i32(1)); },
-      .None => { break; }
+  while(runtime(true), {
+    match(
+      (&(it)).next(),
+      .Some(_) => {
+        count = (count + i32(1));
+      },
+      .None => {
+        break;
+      }
     );
-  };
-  assert((count == i32(2)), "should have 2 pairs (limited by shorter)");
-};
-
+  });
+  assert(count == i32(2), "should have 2 pairs (limited by shorter)");
+});
 // --- fold ------------------------------------------------------------------
-
-test "iter.fold sums values", {
-  add :: (fn(acc : i32, x : i32) -> i32)((acc + x));
+test("iter.fold sums values", {
+  add :: (fn(acc : i32, x : i32) -> i32)(acc + x);
   total := my_range(i32(1), i32(6)).fold(i32(0), add);
-  assert((total == i32(15)), "1+2+3+4+5=15");
-};
-
-test "iter.fold with single accumulation", {
-  mul :: (fn(acc : i32, x : i32) -> i32)((acc * x));
+  assert(total == i32(15), "1+2+3+4+5=15");
+});
+test("iter.fold with single accumulation", {
+  mul :: (fn(acc : i32, x : i32) -> i32)(acc * x);
   prod := my_range(i32(1), i32(5)).fold(i32(1), mul);
-  assert((prod == i32(24)), "1*2*3*4=24");
-};
-
-test "iter.fold with multi-arg => lambda", {
+  assert(prod == i32(24), "1*2*3*4=24");
+});
+test("iter.fold with multi-arg => lambda", {
   total := my_range(i32(1), i32(6)).fold(i32(0), (acc, x) => (acc + x));
-  assert((total == i32(15)), "1+2+3+4+5=15 via => lambda");
-};
-
-test "iter.fold over ArrayList iter with multi-arg => lambda", {
+  assert(total == i32(15), "1+2+3+4+5=15 via => lambda");
+});
+test("iter.fold over ArrayList iter with multi-arg => lambda", {
   list := array_list(i32(10), i32(20), i32(30), i32(40));
   iter := list.iter();
   total := iter.fold(i32(0), (acc, x) => (acc + x.*));
-  assert((total == i32(100)), "10+20+30+40=100 via => lambda over *(i32) iter");
-};
-
+  assert(total == i32(100), "10+20+30+40=100 via => lambda over *(i32) iter");
+});
 // --- for_each --------------------------------------------------------------
-
-test "iter.for_each with closure that captures ArrayList", {
+test("iter.for_each with closure that captures ArrayList", {
   out := array_list(i32(0));
   out.clear();
   src := array_list(i32(1), i32(2), i32(3), i32(4));
-  src.iter().for_each((x) => { out.push(x.*); });
-  assert((out.len() == usize(4)), "out has 4 elements");
-  assert((out(usize(0)) == i32(1)), "first element is 1");
-  assert((out(usize(3)) == i32(4)), "last element is 4");
-};
-
-test "iter.for_each accumulates side effects", {
+  src.iter().for_each((x) => {
+    out.push(x.*);
+  });
+  assert(out.len() == usize(4), "out has 4 elements");
+  assert(out(usize(0)) == i32(1), "first element is 1");
+  assert(out(usize(3)) == i32(4), "last element is 4");
+});
+test("iter.for_each accumulates side effects", {
   total := array_list(i32(0));
   total.clear();
   total.push(i32(0));
@@ -186,72 +196,51 @@ test "iter.for_each accumulates side effects", {
     cur := total(usize(0));
     total(usize(0)) = (cur + x);
   });
-  assert((total(usize(0)) == i32(10)), "1+2+3+4=10");
-};
-
+  assert(total(usize(0)) == i32(10), "1+2+3+4=10");
+});
 // --- count -----------------------------------------------------------------
-
-test "iter.count returns total elements", {
+test("iter.count returns total elements", {
   n := my_range(i32(0), i32(42)).count();
-  assert((n == usize(42)), "count 42");
-};
-
+  assert(n == usize(42), "count 42");
+});
 // --- any / all -------------------------------------------------------------
-
-test "iter.any returns true on first match", {
+test("iter.any returns true on first match", {
   found := my_range(i32(0), i32(10)).any(x => (x == i32(7)));
   assert(found, "found 7");
-
   none := my_range(i32(0), i32(5)).any(x => (x > i32(100)));
   assert(!(none), "no value > 100");
-};
-
-test "iter.all returns true only if every element matches", {
+});
+test("iter.all returns true only if every element matches", {
   ok := my_range(i32(0), i32(5)).all(x => (x < i32(10)));
   assert(ok, "all < 10");
-
   bad := my_range(i32(0), i32(5)).all(x => (x < i32(3)));
   assert(!(bad), "not all < 3");
-};
-
+});
 // --- chained combinators (excluding fold) ---------------------------------
-
-test "iter.skip then take then count", {
+test("iter.skip then take then count", {
   n := my_range(i32(0), i32(100)).skip(usize(20)).take(usize(15)).count();
-  assert((n == usize(15)), "15");
-};
-
-test "iter.filter then map then count", {
-  square :: (fn(x : i32) -> i32)((x * x));
-  is_even :: (fn(x : *(i32)) -> bool)(((x.* % i32(2)) == i32(0)));
+  assert(n == usize(15), "15");
+});
+test("iter.filter then map then count", {
+  square :: (fn(x : i32) -> i32)(x * x);
+  is_even :: (fn(x : *(i32)) -> bool)((x.* % i32(2)) == i32(0));
   n := my_range(i32(0), i32(10)).filter(is_even).map(square).count();
-  assert((n == usize(5)), "5 evens");
-};
-
+  assert(n == usize(5), "5 evens");
+});
 // --- combinators on ArrayList iter ----------------------------------------
-
-test "ArrayList.iter combinators", {
+test("ArrayList.iter combinators", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
   list.push(i32(4));
   list.push(i32(5));
-
-  add :: (fn(acc : i32, x : i32) -> i32)((acc + x));
-  even_sum := list.iter()
-    .filter(p => ((p.*.* % i32(2)) == i32(0)))
-    .fold(i32(0), (fn(acc : i32, p : *(i32)) -> i32)((acc + p.*)));
-  assert((even_sum == i32(6)), "2+4=6");
-
-  even_count := list.iter()
-    .filter(p => ((p.*.* % i32(2)) == i32(0)))
-    .count();
-  assert((even_count == usize(2)), "2 evens");
-
-  double :: (fn(p : *(i32)) -> i32)((p.* * i32(2)));
-  doubled_count := list.iter()
-    .map(double)
-    .count();
-  assert((doubled_count == usize(5)), "5 mapped");
-};
+  add :: (fn(acc : i32, x : i32) -> i32)(acc + x);
+  even_sum := list.iter().filter(p => ((p.*.* % i32(2)) == i32(0))).fold(i32(0), (fn(acc : i32, p : *(i32)) -> i32)(acc + p.*));
+  assert(even_sum == i32(6), "2+4=6");
+  even_count := list.iter().filter(p => ((p.*.* % i32(2)) == i32(0))).count();
+  assert(even_count == usize(2), "2 evens");
+  double :: (fn(p : *(i32)) -> i32)(p.* * i32(2));
+  doubled_count := list.iter().map(double).count();
+  assert(doubled_count == usize(5), "5 mapped");
+});

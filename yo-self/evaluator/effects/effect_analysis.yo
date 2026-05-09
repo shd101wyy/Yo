@@ -31,49 +31,61 @@
 //!
 //! * `dyn(closure)` captures outer variables by reference (C pointer), so `get_info`
 //!   can be both captured in the detect closure and passed separately to helpers.
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap }   :: import "std/collections/hash_map";
-{ AstExpr, ast_expr_token, ast_expr_is_fn_call, ast_expr_is_fn_call_of
-} :: import "../../expr/expr.yo";
-{ ExprInfo } :: import "../../expr/expr_info.yo";
-{ TypeValue } :: import "../../types/type.yo";
-{ is_function_type, is_module_type, is_struct_type, is_some_type, is_effects_row_type
-} :: import "../../types/guards.yo";
-{ Environment, Variable, get_variables_from_env } :: import "../../env/env.yo";
-{ extract_fn_trait_from_type } :: import "../trait_checking.yo";
-
-{ EvalValue } :: import "../value.yo";
-{ is_io_async_call } :: import "../async/await_analysis.yo";
-{ SuspensionPoint, SuspensionCapturedVariable
-} :: import "../shared/suspension_analysis_types.yo";
-{ SuspensionPointDetector, extract_target_variable_id, analyze_suspension_points
-} :: import "../shared/suspension_analysis.yo";
-{ EffectCallPoint, EffectCapturedVariable, EffectHandlerInfo, EffectAnalysisResult,
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of
+} :: import("../../expr/expr.yo");
+{ ExprInfo } :: import("../../expr/expr_info.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{
+  is_function_type,
+  is_module_type,
+  is_struct_type,
+  is_some_type,
+  is_effects_row_type
+} :: import("../../types/guards.yo");
+{ Environment, Variable, get_variables_from_env } :: import("../../env/env.yo");
+{ extract_fn_trait_from_type } :: import("../trait_checking.yo");
+{ EvalValue } :: import("../value.yo");
+{ is_io_async_call } :: import("../async/await_analysis.yo");
+{
+  SuspensionPoint,
+  SuspensionCapturedVariable
+} :: import("../shared/suspension_analysis_types.yo");
+{
+  SuspensionPointDetector,
+  extract_target_variable_id,
+  analyze_suspension_points
+} :: import("../shared/suspension_analysis.yo");
+{
+  EffectCallPoint,
+  EffectCapturedVariable,
+  EffectHandlerInfo,
+  EffectAnalysisResult,
   effect_analysis_result_empty
-} :: import "./effect_analysis_types.yo";
-
+} :: import("./effect_analysis_types.yo");
 // ---------------------------------------------------------------------------
 // EffectCallPointExtra_ — internal side-channel for effect-specific fields
 // ---------------------------------------------------------------------------
-
 /// Effect-specific fields for a single effect call point.
 /// Stored in a side-channel HashMap keyed by `expr.token.character`
 /// because `SuspensionPointDetector` only accepts base `SuspensionPoint` objects.
 ///
 /// Internal — not exported.
 EffectCallPointExtra_ :: object(
-  operation_arg_types        : ArrayList(TypeValue),
-  operation_result_type      : TypeValue,
-  is_transitive_effect_call  : bool,
+  operation_arg_types : ArrayList(TypeValue),
+  operation_result_type : TypeValue,
+  is_transitive_effect_call : bool,
   is_transitive_closure_call : bool
 );
-
 // ---------------------------------------------------------------------------
 // is_effect_call_ — checks if expr is a call to the effect parameter
 // ---------------------------------------------------------------------------
-
 /// Checks if `expr` is a direct or module-member call to the effect parameter.
 ///
 /// Case 1: Direct call — `raise(msg)` where `raise` is the effect parameter name.
@@ -82,184 +94,231 @@ EffectCallPointExtra_ :: object(
 /// When `allow_missing_type = true`, accepts a name match even without type info.
 ///
 /// Mirrors `isEffectCall` in `src/evaluator/effects/effect-analysis.ts`.
-is_effect_call_ :: (fn(
-  expr              : AstExpr,
-  effect_param_name : String,
-  effect_field_path : Option(ArrayList(String)),
-  allow_missing_type: bool,
-  get_info          : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
-) -> bool)({
-  if(!(ast_expr_is_fn_call((&expr).clone())), { return false; });
-
-  func_expr := match(expr,
-    .Atom(_, _)             => { return false; },
+is_effect_call_ :: (
+  fn(
+    expr : AstExpr,
+    effect_param_name : String,
+    effect_field_path : Option(ArrayList(String)),
+    allow_missing_type : bool,
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+  ) -> bool
+)({
+  if(!(ast_expr_is_fn_call((&(expr)).clone())), {
+    return(false);
+  });
+  func_expr := match(
+    expr,
+    .Atom(_, _) => {
+      return(false);
+    },
     .FnCall(_, fb, _, _, _) => fb.*
   );
-
   // Dispatch: None or empty field path → Case 1 (direct call)
   //           non-empty field path     → Case 2 (module member)
-  match(effect_field_path,
+  match(
+    effect_field_path,
     // Case 1a: No field path (None) → direct call check
     .None => {
-      func_name := match((&func_expr).clone(),
-        .Atom(_, tok)          => tok.value,
-        .FnCall(_, _, _, _, _) => { return false; }
+      func_name := match(
+        (&(func_expr)).clone(),
+        .Atom(_, tok) => tok.value,
+        .FnCall(_, _, _, _, _) => {
+          return(false);
+        }
       );
-      if((func_name != effect_param_name), { return false; });
-
-      func_type_opt := match(get_info(func_expr),
+      if(func_name != effect_param_name, {
+        return(false);
+      });
+      func_type_opt := match(
+        get_info(func_expr),
         .Some(info) => Option(TypeValue).Some(info.ty),
-        .None       => Option(TypeValue).None
+        .None => Option(TypeValue).None
       );
-
       // When allowMissingType=false: require a function type
       if(!(allow_missing_type), {
-        ok := match(func_type_opt,
+        ok := match(
+          func_type_opt,
           .Some(ty) => is_function_type(ty),
-          .None     => false
+          .None => false
         );
-        if(!(ok), { return false; });
+        if(!(ok), {
+          return(false);
+        });
       });
-
       // When allowMissingType=true: if type IS present but is not a function type, reject
       if(allow_missing_type, {
-        bad := match(func_type_opt,
+        bad := match(
+          func_type_opt,
           .Some(ty) => !(is_function_type(ty)),
-          .None     => false
+          .None => false
         );
-        if(bad, { return false; });
+        if(bad, {
+          return(false);
+        });
       });
-
       true
     },
-
     .Some(fp) => {
-      if((fp.len() == usize(0)), {
+      if(fp.len() == usize(0), {
         // Case 1b: Empty field path → same logic as Case 1
-        func_name := match((&func_expr).clone(),
-          .Atom(_, tok)          => tok.value,
-          .FnCall(_, _, _, _, _) => { return false; }
+        func_name := match(
+          (&(func_expr)).clone(),
+          .Atom(_, tok) => tok.value,
+          .FnCall(_, _, _, _, _) => {
+            return(false);
+          }
         );
-        if((func_name != effect_param_name), { return false; });
-
-        func_type_opt := match(get_info(func_expr),
+        if(func_name != effect_param_name, {
+          return(false);
+        });
+        func_type_opt := match(
+          get_info(func_expr),
           .Some(info) => Option(TypeValue).Some(info.ty),
-          .None       => Option(TypeValue).None
+          .None => Option(TypeValue).None
         );
-
         if(!(allow_missing_type), {
-          ok := match(func_type_opt,
+          ok := match(
+            func_type_opt,
             .Some(ty) => is_function_type(ty),
-            .None     => false
+            .None => false
           );
-          if(!(ok), { return false; });
+          if(!(ok), {
+            return(false);
+          });
         });
-
         if(allow_missing_type, {
-          bad := match(func_type_opt,
+          bad := match(
+            func_type_opt,
             .Some(ty) => !(is_function_type(ty)),
-            .None     => false
+            .None => false
           );
-          if(bad, { return false; });
+          if(bad, {
+            return(false);
+          });
         });
-
-        return true;
+        return(true);
       });
-
       // Case 2: Module member call — mod.raise(msg) or mod.errors.raise(msg)
       // Walk the dot-access chain, collecting field names in leaf→root order.
-      func_expr_for_info := (&func_expr).clone();
+      func_expr_for_info := (&(func_expr)).clone();
       access_path_rev := ArrayList(String).new();
       current := func_expr;
       go := true;
-
-      while runtime(go), {
-        cur_clone := (&current).clone();
+      while(runtime(go), {
+        cur_clone := (&(current)).clone();
         is_dot_call := ast_expr_is_fn_call_of(cur_clone, ".", Option(usize).None);
-        if(!(is_dot_call), { go = false; break; });
-
-        match(current,
-          .Atom(_, _) => { go = false; },
+        if(!(is_dot_call), {
+          go = false;
+          break;
+        });
+        match(
+          current,
+          .Atom(_, _) => {
+            go = false;
+          },
           .FnCall(_, curr_func, curr_args, _, _) => {
-            if((curr_args.len() < usize(2)), { return false; });
-            field_arg := match(curr_args.get(usize(1)),
-              .None    => { return false; },
+            if(curr_args.len() < usize(2), {
+              return(false);
+            });
+            field_arg := match(
+              curr_args.get(usize(1)),
+              .None => {
+                return(false);
+              },
               .Some(a) => a
             );
-            match(field_arg,
-              .Atom(_, tok)          => {
+            match(
+              field_arg,
+              .Atom(_, tok) => {
                 access_path_rev.push(tok.value);
-                receiver_arg := match(curr_args.get(usize(0)),
-                  .None    => { return false; },
+                receiver_arg := match(
+                  curr_args.get(usize(0)),
+                  .None => {
+                    return(false);
+                  },
                   .Some(a) => a
                 );
                 current = receiver_arg;
               },
-              .FnCall(_, _, _, _, _) => { return false; }
+              .FnCall(_, _, _, _, _) => {
+                return(false);
+              }
             );
           }
         );
-      };
-
+      });
       // The root should be an atom matching the effect parameter name
-      root_name := match(current,
-        .Atom(_, tok)          => tok.value,
-        .FnCall(_, _, _, _, _) => { return false; }
+      root_name := match(
+        current,
+        .Atom(_, tok) => tok.value,
+        .FnCall(_, _, _, _, _) => {
+          return(false);
+        }
       );
-      if((root_name != effect_param_name), { return false; });
-
+      if(root_name != effect_param_name, {
+        return(false);
+      });
       // Path length check
       n := fp.len();
-      if((access_path_rev.len() != n), { return false; });
-
+      if(access_path_rev.len() != n, {
+        return(false);
+      });
       // Compare: access_path_rev (leaf→root) vs fp (root→leaf)
       i := usize(0);
       matched := true;
-      while runtime((i < n)), {
-        rev_s := match(access_path_rev.get(i),
+      while(runtime(i < n), {
+        rev_s := match(
+          access_path_rev.get(i),
           .Some(s) => s,
-          .None    => String.from("")
+          .None => String.from("")
         );
-        fp_s := match(fp.get(((n - usize(1)) - i)),
+        fp_s := match(
+          fp.get((n - usize(1)) - i),
           .Some(s) => s,
-          .None    => String.from("")
+          .None => String.from("")
         );
-        if((rev_s != fp_s), { matched = false; break; });
+        if(rev_s != fp_s, {
+          matched = false;
+          break;
+        });
         i = (i + usize(1));
-      };
-      if(!(matched), { return false; });
-
+      });
+      if(!(matched), {
+        return(false);
+      });
       // Verify the outermost "." expression type is a function
-      outer_func_type_opt := match(get_info(func_expr_for_info),
+      outer_func_type_opt := match(
+        get_info(func_expr_for_info),
         .Some(info) => Option(TypeValue).Some(info.ty),
-        .None       => Option(TypeValue).None
+        .None => Option(TypeValue).None
       );
-
       if(!(allow_missing_type), {
-        ok := match(outer_func_type_opt,
+        ok := match(
+          outer_func_type_opt,
           .Some(ty) => is_function_type(ty),
-          .None     => false
+          .None => false
         );
-        if(!(ok), { return false; });
+        if(!(ok), {
+          return(false);
+        });
       });
-
       if(allow_missing_type, {
-        bad := match(outer_func_type_opt,
+        bad := match(
+          outer_func_type_opt,
           .Some(ty) => !(is_function_type(ty)),
-          .None     => false
+          .None => false
         );
-        if(bad, { return false; });
+        if(bad, {
+          return(false);
+        });
       });
-
       true
     }
   )
 });
-
 // ---------------------------------------------------------------------------
 // has_effect_in_spread_ — resolves effect row spreads
 // ---------------------------------------------------------------------------
-
 /// Checks if an effect row spread parameter resolves to an EffectsRowType
 /// containing `effect_param_name` as an implicit parameter.
 ///
@@ -267,31 +326,37 @@ is_effect_call_ :: (fn(
 /// so we attempt env lookup for all `SomeT` types unconditionally.
 ///
 /// Mirrors `hasEffectInSpread` in `src/evaluator/effects/effect-analysis.ts`.
-has_effect_in_spread_ :: (fn(
-  param_label       : String,
-  param_type        : TypeValue,
-  effect_param_name : String,
-  env               : Environment
-) -> bool)({
+has_effect_in_spread_ :: (
+  fn(
+    param_label : String,
+    param_type : TypeValue,
+    effect_param_name : String,
+    env : Environment
+  ) -> bool
+)({
   effects_row_opt := Option(TypeValue).None;
-
   cond(
     // Case 1: SomeT — try env lookup by label.
     // Note: The TypeScript fallback via get_value_of_some_type_from_env is omitted
     // because Environment is not Clone and can only be consumed once.
-    is_some_type((&param_type).clone()) => {
-      env_vars := get_variables_from_env(env, (&param_label).clone());
+    is_some_type((&(param_type)).clone()) => {
+      env_vars := get_variables_from_env(env, (&(param_label)).clone());
       n_vars := env_vars.len();
-      if((n_vars > usize(0)), {
-        last_var := match(env_vars.get((n_vars - usize(1))),
+      if(n_vars > usize(0), {
+        last_var := match(
+          env_vars.get(n_vars - usize(1)),
           .Some(v) => v,
-          .None    => { return false; }
+          .None => {
+            return(false);
+          }
         );
-        match(last_var.value,
+        match(
+          last_var.value,
           .Some(eval_val) => {
-            match(eval_val,
+            match(
+              eval_val,
               .TypeVal(ty_box) => {
-                if(is_effects_row_type((&ty_box.*).clone()), {
+                if(is_effects_row_type((&(ty_box.*)).clone()), {
                   effects_row_opt = Option(TypeValue).Some(ty_box.*);
                 });
               },
@@ -302,42 +367,39 @@ has_effect_in_spread_ :: (fn(
         )
       });
     },
-
     // Case 2: Direct EffectsRowT
-    is_effects_row_type((&param_type).clone()) => {
+    is_effects_row_type((&(param_type)).clone()) => {
       effects_row_opt = Option(TypeValue).Some(param_type);
     },
-
     true => ()
   );
-
-  match(effects_row_opt,
+  match(
+    effects_row_opt,
     .None => false,
-    .Some(ert) => match(ert,
+    .Some(ert) => match(
+      ert,
       .EffectsRowT(implicit_labels, implicit_types) => {
         n := implicit_labels.len();
         i := usize(0);
         found := false;
-        while runtime((i < n)), {
-          label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
-          ty    := match(implicit_types.get(i),  .Some(t) => t, .None => TypeValue.Unit);
-          if(((label == effect_param_name) && ((is_function_type((&ty).clone()) || is_module_type((&ty).clone())) || is_struct_type(ty))), {
+        while(runtime(i < n), {
+          label := match(implicit_labels.get(i),.Some(l) => l,.None => String.from(""));
+          ty := match(implicit_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          if((label == effect_param_name) && ((is_function_type((&(ty)).clone()) || is_module_type((&(ty)).clone())) || is_struct_type(ty)), {
             found = true;
             break;
           });
           i = (i + usize(1));
-        };
+        });
         found
       },
       _ => false
     )
   )
 });
-
 // ---------------------------------------------------------------------------
 // is_transitive_effect_call_ — detects transitive effect calls
 // ---------------------------------------------------------------------------
-
 /// Checks if `expr` is a call to a function that itself has a matching `using`
 /// ctl parameter for the effect.
 ///
@@ -347,298 +409,348 @@ has_effect_in_spread_ :: (fn(
 /// - `None`        — no match
 ///
 /// Mirrors `isTransitiveEffectCall` in `src/evaluator/effects/effect-analysis.ts`.
-is_transitive_effect_call_ :: (fn(
-  expr              : AstExpr,
-  effect_param_name : String,
-  get_info          : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
-) -> Option(bool))({
-  if(!(ast_expr_is_fn_call((&expr).clone())), { return Option(bool).None; });
-
-  func_expr := match(expr,
-    .Atom(_, _) => { return Option(bool).None; },
+is_transitive_effect_call_ :: (
+  fn(
+    expr : AstExpr,
+    effect_param_name : String,
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+  ) -> Option(bool)
+)({
+  if(!(ast_expr_is_fn_call((&(expr)).clone())), {
+    return(Option(bool).None);
+  });
+  func_expr := match(
+    expr,
+    .Atom(_, _) => {
+      return(Option(bool).None);
+    },
     .FnCall(_, fb, _, _, _) => fb.*
   );
-
-  func_info := match(get_info((&func_expr).clone()),
-    .None    => { return Option(bool).None; },
+  func_info := match(
+    get_info((&(func_expr)).clone()),
+    .None => {
+      return(Option(bool).None);
+    },
     .Some(i) => i
   );
   func_type := func_info.ty;
-
   // --- Path 1: Direct FunctionType ---
-  if(is_function_type((&func_type).clone()), {
-    result := match(func_type,
+  if(is_function_type((&(func_type)).clone()), {
+    result := match(
+      func_type,
       .Func(_, _, _, _, implicit_labels, implicit_types, implicit_spreads, _, _) => {
         n := implicit_labels.len();
         i := usize(0);
         found := Option(bool).None;
-        while runtime((i < n)), {
-          label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
-          ty    := match(implicit_types.get(i),  .Some(t) => t, .None => TypeValue.Unit);
-          is_spread := match(implicit_spreads.get(i), .Some(s) => s, .None => false);
-
+        while(runtime(i < n), {
+          label := match(implicit_labels.get(i),.Some(l) => l,.None => String.from(""));
+          ty := match(implicit_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          is_spread := match(implicit_spreads.get(i),.Some(s) => s,.None => false);
           // Direct match: label matches and type is Func or effect record
-          if(((label == effect_param_name) && ((is_function_type((&ty).clone()) || is_module_type((&ty).clone())) || is_struct_type((&ty).clone()))), {
+          if((label == effect_param_name) && ((is_function_type((&(ty)).clone()) || is_module_type((&(ty)).clone())) || is_struct_type((&(ty)).clone())), {
             found = Option(bool).Some(false);
             break;
           });
-
           // Spread match: resolve the EffectsRowT from env
           if(is_spread, {
-            env_opt := match(get_info((&func_expr).clone()),
+            env_opt := match(
+              get_info((&(func_expr)).clone()),
               .Some(info) => Option(Environment).Some(info.env),
-              .None       => Option(Environment).None
+              .None => Option(Environment).None
             );
-            match(env_opt,
-              .None    => (),
+            match(
+              env_opt,
+              .None => (),
               .Some(env) => {
-                if(has_effect_in_spread_((&label).clone(), (&ty).clone(), (&effect_param_name).clone(), env), {
+                if(has_effect_in_spread_((&(label)).clone(), (&(ty)).clone(), (&(effect_param_name)).clone(), env), {
                   found = Option(bool).Some(false);
                   break;
                 });
               }
             )
           });
-
           i = (i + usize(1));
-        };
+        });
         found
       },
       _ => Option(bool).None
     );
-    if(match((&result).clone(), .Some(_) => true, .None => false), { return result; });
+    if(match((&(result)).clone(),.Some(_) => true,.None => false), {
+      return(result);
+    });
   });
-
   // --- Path 2: Impl(Fn) / Dyn(Fn) types via FnTraitT ---
   // Extract the FnTraitT (if any) and check its implicit params.
   fn_trait_opt := extract_fn_trait_from_type(func_type);
-  match(fn_trait_opt,
+  match(
+    fn_trait_opt,
     .None => (),
     .Some(ftt) => {
-      match(ftt,
+      match(
+        ftt,
         .FnTraitT(_, _, _, _, implicit_labels, implicit_types, implicit_spreads) => {
           n2 := implicit_labels.len();
           (i2 : usize) = usize(0);
-          while runtime((i2 < n2)), {
-            label    := match(implicit_labels.get(i2),  .Some(l) => l, .None => String.from(""));
-            ty       := match(implicit_types.get(i2),   .Some(t) => t, .None => TypeValue.Unit);
-            is_spread := match(implicit_spreads.get(i2), .Some(s) => s, .None => false);
-
-            if(((label == effect_param_name) && ((is_function_type((&ty).clone()) || is_module_type((&ty).clone())) || is_struct_type((&ty).clone()))), {
-              return Option(bool).Some(true);
+          while(runtime(i2 < n2), {
+            label := match(implicit_labels.get(i2),.Some(l) => l,.None => String.from(""));
+            ty := match(implicit_types.get(i2),.Some(t) => t,.None => TypeValue.Unit);
+            is_spread := match(implicit_spreads.get(i2),.Some(s) => s,.None => false);
+            if((label == effect_param_name) && ((is_function_type((&(ty)).clone()) || is_module_type((&(ty)).clone())) || is_struct_type((&(ty)).clone())), {
+              return(Option(bool).Some(true));
             });
-
             if(is_spread, {
-              env_opt := match(get_info((&func_expr).clone()),
+              env_opt := match(
+                get_info((&(func_expr)).clone()),
                 .Some(info) => Option(Environment).Some(info.env),
-                .None       => Option(Environment).None
+                .None => Option(Environment).None
               );
-              match(env_opt,
-                .None    => (),
+              match(
+                env_opt,
+                .None => (),
                 .Some(env) => {
-                  if(has_effect_in_spread_((&label).clone(), (&ty).clone(), (&effect_param_name).clone(), env), {
-                    return Option(bool).Some(true);
+                  if(has_effect_in_spread_((&(label)).clone(), (&(ty)).clone(), (&(effect_param_name)).clone(), env), {
+                    return(Option(bool).Some(true));
                   });
                 }
               )
             });
-
             i2 = (i2 + usize(1));
-          };
+          });
         },
         _ => ()
       );
     }
   );
-
   Option(bool).None
 });
-
 // ---------------------------------------------------------------------------
 // detect_effect_expr_ — internal per-expression detector
 // ---------------------------------------------------------------------------
-
 /// Detects effect call points in a single expression and pushes them to `points`.
 /// Effect-specific extra fields are stored in the `effect_extras` side-channel.
 ///
 /// Internal — not exported.
-detect_effect_expr_ :: (fn(
-  expr                 : AstExpr,
-  parent_expr          : Option(AstExpr),
-  points               : ArrayList(SuspensionPoint),
-  effect_extras        : HashMap(String, EffectCallPointExtra_),
-  effect_param_name    : String,
-  effect_field_path    : Option(ArrayList(String)),
-  include_transitive   : bool,
-  effect_param_fn_type : Option(TypeValue),
-  get_info             : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
-) -> unit)({
-  if(!(ast_expr_is_fn_call((&expr).clone())), { return (); });
-
+detect_effect_expr_ :: (
+  fn(
+    expr : AstExpr,
+    parent_expr : Option(AstExpr),
+    points : ArrayList(SuspensionPoint),
+    effect_extras : HashMap(String, EffectCallPointExtra_),
+    effect_param_name : String,
+    effect_field_path : Option(ArrayList(String)),
+    include_transitive : bool,
+    effect_param_fn_type : Option(TypeValue),
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+  ) -> unit
+)({
+  if(!(ast_expr_is_fn_call((&(expr)).clone())), {
+    return(());
+  });
   // --- Check direct effect call ---
   is_match := is_effect_call_(
-    (&expr).clone(),
-    (&effect_param_name).clone(),
-    (&effect_field_path).clone(),
-    true,  // allowMissingType = true
+    (&(expr)).clone(),
+    (&(effect_param_name)).clone(),
+    (&(effect_field_path)).clone(),
+    true,
+    // allowMissingType = true
     get_info
   );
-
   if(is_match, {
     // Collect argument types
     operation_arg_types := ArrayList(TypeValue).new();
-    match((&expr).clone(),
+    match(
+      (&(expr)).clone(),
       .Atom(_, _) => (),
       .FnCall(_, _, args, _, _) => {
         n := args.len();
         ai := usize(0);
-        while runtime((ai < n)), {
-          arg := match(args.get(ai), .Some(a) => a, .None => { ai = (ai + usize(1)); break; });
-          match(get_info(arg),
-            .Some(info) => { operation_arg_types.push(info.ty); },
-            .None       => ()
+        while(runtime(ai < n), {
+          arg := match(
+            args.get(ai),
+            .Some(a) => a,
+            .None => {
+              ai = (ai + usize(1));
+              break;
+            }
+          );
+          match(
+            get_info(arg),
+            .Some(info) => {
+              operation_arg_types.push(info.ty);
+            },
+            .None => ()
           );
           ai = (ai + usize(1));
-        };
+        });
       }
     );
-
     // Fallback: use effect_param_fn_type.param_types when no arg types found
-    if((operation_arg_types.len() == usize(0)), {
-      match((&effect_param_fn_type).clone(),
-        .None    => (),
-        .Some(fn_type) => match(fn_type,
+    if(operation_arg_types.len() == usize(0), {
+      match(
+        (&(effect_param_fn_type)).clone(),
+        .None => (),
+        .Some(fn_type) => match(
+          fn_type,
           .Func(_, _, _, param_types, _, _, _, _, _) => {
             pn := param_types.len();
             pi := usize(0);
-            while runtime((pi < pn)), {
-              pt := match(param_types.get(pi), .Some(t) => t, .None => { pi = (pi + usize(1)); break; });
+            while(runtime(pi < pn), {
+              pt := match(
+                param_types.get(pi),
+                .Some(t) => t,
+                .None => {
+                  pi = (pi + usize(1));
+                  break;
+                }
+              );
               operation_arg_types.push(pt);
               pi = (pi + usize(1));
-            };
+            });
           },
           _ => ()
         )
       );
     });
-
     // Get result type — fallback to effect_param_fn_type.result
-    result_type_opt := match(get_info((&expr).clone()),
+    result_type_opt := match(
+      get_info((&(expr)).clone()),
       .Some(info) => Option(TypeValue).Some(info.ty),
-      .None       => Option(TypeValue).None
+      .None => Option(TypeValue).None
     );
-    if(match((&result_type_opt).clone(), .None => true, .Some(_) => false), {
-      result_type_opt = match((&effect_param_fn_type).clone(),
-        .None    => Option(TypeValue).None,
-        .Some(fn_type) => match(fn_type,
+    if(match((&(result_type_opt)).clone(),.None => true,.Some(_) => false), {
+      result_type_opt = match(
+        (&(effect_param_fn_type)).clone(),
+        .None => Option(TypeValue).None,
+        .Some(fn_type) => match(
+          fn_type,
           .Func(_, _, _, _, _, _, _, _, result) => Option(TypeValue).Some(result.*),
           _ => Option(TypeValue).None
         )
       );
     });
-
-    if((operation_arg_types.len() > usize(0)), {
-      match(result_type_opt,
-        .None             => (),
+    if(operation_arg_types.len() > usize(0), {
+      match(
+        result_type_opt,
+        .None => (),
         .Some(result_type) => {
-          target_variable_id := extract_target_variable_id((&parent_expr).clone(), get_info);
+          target_variable_id := extract_target_variable_id((&(parent_expr)).clone(), get_info);
           sp := SuspensionPoint(
-            index:                      points.len(),
-            expr:                       (&expr).clone(),
-            target_variable_id:         target_variable_id,
-            is_inside_cond:             Option(bool).None,
-            is_inside_while:            Option(bool).None,
-            while_nesting_depth:        Option(usize).None,
-            cond_branch_source_index:   Option(usize).None,
-            needs_own_cond_branch_field: Option(bool).None,
-            enclosing_while_expr:        Option(AstExpr).None
+            index : points.len(),
+            expr : (&(expr)).clone(),
+            target_variable_id : target_variable_id,
+            is_inside_cond : Option(bool).None,
+            is_inside_while : Option(bool).None,
+            while_nesting_depth : Option(usize).None,
+            cond_branch_source_index : Option(usize).None,
+            needs_own_cond_branch_field : Option(bool).None,
+            enclosing_while_expr : Option(AstExpr).None
           );
-          key := ast_expr_token((&expr).clone()).character.to_string();
-          effect_extras.set((&key).clone(), EffectCallPointExtra_(
-            operation_arg_types:        operation_arg_types,
-            operation_result_type:      result_type,
-            is_transitive_effect_call:  false,
-            is_transitive_closure_call: false
-          ));
+          key := ast_expr_token((&(expr)).clone()).character.to_string();
+          effect_extras.set(
+            (&(key)).clone(),
+            EffectCallPointExtra_(
+              operation_arg_types : operation_arg_types,
+              operation_result_type : result_type,
+              is_transitive_effect_call : false,
+              is_transitive_closure_call : false
+            )
+          );
           points.push(sp);
         }
       );
     });
   });
-
   // --- Check transitive effect call ---
   // Only when includeTransitiveCalls AND NOT a direct effect call (allowMissingType=false)
   if(include_transitive, {
     direct_strict := is_effect_call_(
-      (&expr).clone(),
-      (&effect_param_name).clone(),
-      (&effect_field_path).clone(),
-      false,  // allowMissingType = false (strict check)
+      (&(expr)).clone(),
+      (&(effect_param_name)).clone(),
+      (&(effect_field_path)).clone(),
+      false,
+      // allowMissingType = false (strict check)
       get_info
     );
     if(!(direct_strict), {
       transitive_result := is_transitive_effect_call_(
-        (&expr).clone(),
-        (&effect_param_name).clone(),
+        (&(expr)).clone(),
+        (&(effect_param_name)).clone(),
         get_info
       );
-      match(transitive_result,
+      match(
+        transitive_result,
         .None => (),
         .Some(via_closure) => {
           // For transitive calls: arg types from ctl parameter type
-          ctl_type := match((&effect_param_fn_type).clone(),
-            .None    => { return (); },  // no fallback available
+          ctl_type := match(
+            (&(effect_param_fn_type)).clone(),
+            .None => {
+              return(());
+            },
+            // no fallback available
             .Some(t) => t
           );
           transitive_arg_types := ArrayList(TypeValue).new();
-          match((&ctl_type).clone(),
+          match(
+            (&(ctl_type)).clone(),
             .Func(_, _, _, param_types, _, _, _, _, _) => {
               pn := param_types.len();
               pi := usize(0);
-              while runtime((pi < pn)), {
-                pt := match(param_types.get(pi), .Some(t) => t, .None => { pi = (pi + usize(1)); break; });
+              while(runtime(pi < pn), {
+                pt := match(
+                  param_types.get(pi),
+                  .Some(t) => t,
+                  .None => {
+                    pi = (pi + usize(1));
+                    break;
+                  }
+                );
                 transitive_arg_types.push(pt);
                 pi = (pi + usize(1));
-              };
+              });
             },
             _ => ()
           );
-
           // Result type: viaClosure => ctl return type; !viaClosure => expr type
           transitive_result_type_opt := cond(
-            via_closure => match(ctl_type,
+            via_closure => match(
+              ctl_type,
               .Func(_, _, _, _, _, _, _, _, result) => Option(TypeValue).Some(result.*),
               _ => Option(TypeValue).None
             ),
-            true => match(get_info((&expr).clone()),
+            true => match(
+              get_info((&(expr)).clone()),
               .Some(info) => Option(TypeValue).Some(info.ty),
-              .None       => Option(TypeValue).None
+              .None => Option(TypeValue).None
             )
           );
-
-          if((transitive_arg_types.len() > usize(0)), {
-            match(transitive_result_type_opt,
-              .None             => (),
+          if(transitive_arg_types.len() > usize(0), {
+            match(
+              transitive_result_type_opt,
+              .None => (),
               .Some(result_type) => {
-                target_variable_id := extract_target_variable_id((&parent_expr).clone(), get_info);
+                target_variable_id := extract_target_variable_id((&(parent_expr)).clone(), get_info);
                 sp := SuspensionPoint(
-                  index:                      points.len(),
-                  expr:                       (&expr).clone(),
-                  target_variable_id:         target_variable_id,
-                  is_inside_cond:             Option(bool).None,
-                  is_inside_while:            Option(bool).None,
-                  while_nesting_depth:        Option(usize).None,
-                  cond_branch_source_index:   Option(usize).None,
-                  needs_own_cond_branch_field: Option(bool).None,
-                  enclosing_while_expr:        Option(AstExpr).None
+                  index : points.len(),
+                  expr : (&(expr)).clone(),
+                  target_variable_id : target_variable_id,
+                  is_inside_cond : Option(bool).None,
+                  is_inside_while : Option(bool).None,
+                  while_nesting_depth : Option(usize).None,
+                  cond_branch_source_index : Option(usize).None,
+                  needs_own_cond_branch_field : Option(bool).None,
+                  enclosing_while_expr : Option(AstExpr).None
                 );
-                key := ast_expr_token((&expr).clone()).character.to_string();
-                effect_extras.set((&key).clone(), EffectCallPointExtra_(
-                  operation_arg_types:        transitive_arg_types,
-                  operation_result_type:      result_type,
-                  is_transitive_effect_call:  true,
-                  is_transitive_closure_call: via_closure
-                ));
+                key := ast_expr_token((&(expr)).clone()).character.to_string();
+                effect_extras.set(
+                  (&(key)).clone(),
+                  EffectCallPointExtra_(
+                    operation_arg_types : transitive_arg_types,
+                    operation_result_type : result_type,
+                    is_transitive_effect_call : true,
+                    is_transitive_closure_call : via_closure
+                  )
+                );
                 points.push(sp);
               }
             );
@@ -648,11 +760,9 @@ detect_effect_expr_ :: (fn(
     });
   });
 });
-
 // ---------------------------------------------------------------------------
 // analyze_effect_call_points — main entry point
 // ---------------------------------------------------------------------------
-
 /// Analyzes a function body to find all effect call points.
 ///
 /// An effect call point is a call to a variable whose handler function value
@@ -663,106 +773,112 @@ detect_effect_expr_ :: (fn(
 ///
 /// The extra `get_info` parameter provides per-expression type/env information
 /// (Yo's equivalent of TypeScript's `expr.$`).
-analyze_effect_call_points :: (fn(
-  body                     : AstExpr,
-  effect_parameter_name    : String,
-  effect_parameter_type    : TypeValue,
-  include_transitive_calls : bool,
-  effect_field_path        : Option(ArrayList(String)),
-  get_info                 : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
-) -> EffectAnalysisResult)({
+analyze_effect_call_points :: (
+  fn(
+    body : AstExpr,
+    effect_parameter_name : String,
+    effect_parameter_type : TypeValue,
+    include_transitive_calls : bool,
+    effect_field_path : Option(ArrayList(String)),
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+  ) -> EffectAnalysisResult
+)({
   // Check if effect_parameter_type is a function type; used as fallback for type info
   effect_param_fn_type := cond(
-    is_function_type((&effect_parameter_type).clone()) => Option(TypeValue).Some((&effect_parameter_type).clone()),
+    is_function_type((&(effect_parameter_type)).clone()) => Option(TypeValue).Some((&(effect_parameter_type)).clone()),
     true => Option(TypeValue).None
   );
-
   // Side-channel: stores effect-specific fields for each detected suspension point
   effect_extras := HashMap(String, EffectCallPointExtra_).new();
-
-  result := analyze_suspension_points((&body).clone(), get_info, SuspensionPointDetector(
-    detect: dyn((expr, parent_expr, points) => {
-      detect_effect_expr_(
-        expr,
-        parent_expr,
-        points,
-        effect_extras,
-        (&effect_parameter_name).clone(),
-        (&effect_field_path).clone(),
-        include_transitive_calls,
-        (&effect_param_fn_type).clone(),
-        get_info
-      );
-    }),
-    should_skip_body: dyn((expr) => is_io_async_call(expr))
-  ));
-
+  result := analyze_suspension_points(
+    (&(body)).clone(),
+    get_info,
+    SuspensionPointDetector(
+      detect : dyn((expr, parent_expr, points) => {
+        detect_effect_expr_(
+          expr,
+          parent_expr,
+          points,
+          effect_extras,
+          (&(effect_parameter_name)).clone(),
+          (&(effect_field_path)).clone(),
+          include_transitive_calls,
+          (&(effect_param_fn_type)).clone(),
+          get_info
+        );
+      }),
+      should_skip_body : dyn((expr) => is_io_async_call(expr))
+    )
+  );
   // Reconstruct typed EffectCallPoint list from base suspension points + side-channel
   effect_call_points := ArrayList(EffectCallPoint).new();
   n_pts := result.suspension_points.len();
   (pi : usize) = usize(0);
-  while runtime((pi < n_pts)), {
-    sp := match(result.suspension_points.get(pi),
-      .None    => { break; },
+  while(runtime(pi < n_pts), {
+    sp := match(
+      result.suspension_points.get(pi),
+      .None => {
+        break;
+      },
       .Some(p) => p
     );
-    expr_key := ast_expr_token((&sp.expr).clone()).character.to_string();
-    match(effect_extras.get((&expr_key).clone()),
-      .None        => (),
+    expr_key := ast_expr_token((&(sp.expr)).clone()).character.to_string();
+    match(
+      effect_extras.get((&(expr_key)).clone()),
+      .None => (),
       .Some(extra) => {
         ecp := EffectCallPoint(
-          base:                      sp,
-          operation_arg_types:       extra.operation_arg_types,
-          operation_result_type:     extra.operation_result_type,
-          is_transitive_effect_call: cond(
+          base : sp,
+          operation_arg_types : extra.operation_arg_types,
+          operation_result_type : extra.operation_result_type,
+          is_transitive_effect_call : cond(
             extra.is_transitive_effect_call => Option(bool).Some(true),
             true => Option(bool).None
           ),
-          is_transitive_closure_call: cond(
+          is_transitive_closure_call : cond(
             extra.is_transitive_closure_call => Option(bool).Some(true),
             true => Option(bool).None
           ),
-          effect_index: Option(usize).None
+          effect_index : Option(usize).None
         );
         effect_call_points.push(ecp);
       }
     );
     pi = (pi + usize(1));
-  };
-
+  });
   // Map shared captured variables to EffectCapturedVariable
   captured_variables := ArrayList(EffectCapturedVariable).new();
   n_cv := result.captured_variables.len();
   (ci : usize) = usize(0);
-  while runtime((ci < n_cv)), {
-    sv := match(result.captured_variables.get(ci),
-      .None    => { break; },
+  while(runtime(ci < n_cv), {
+    sv := match(
+      result.captured_variables.get(ci),
+      .None => {
+        break;
+      },
       .Some(v) => v
     );
     ecv := EffectCapturedVariable(
-      base: sv,
-      is_owning_the_same_rc_value_as: Option(Box(EffectCapturedVariable)).None
+      base : sv,
+      is_owning_the_same_rc_value_as : Option(Box(EffectCapturedVariable)).None
     );
     captured_variables.push(ecv);
     ci = (ci + usize(1));
-  };
-
+  });
   EffectAnalysisResult(
-    effect_call_points:    effect_call_points,
-    captured_variables:    captured_variables,
-    has_effects:           result.has_suspensions,
-    variable_id_remapping: result.variable_id_remapping,
-    effect_parameter_name: effect_parameter_name,
-    effect_parameter_type: effect_parameter_type,
-    effect_field_path:     effect_field_path,
-    handler_value:         Option(EvalValue).None,
-    effect_handler_infos:  Option(ArrayList(EffectHandlerInfo)).None
+    effect_call_points : effect_call_points,
+    captured_variables : captured_variables,
+    has_effects : result.has_suspensions,
+    variable_id_remapping : result.variable_id_remapping,
+    effect_parameter_name : effect_parameter_name,
+    effect_parameter_type : effect_parameter_type,
+    effect_field_path : effect_field_path,
+    handler_value : Option(EvalValue).None,
+    effect_handler_infos : Option(ArrayList(EffectHandlerInfo)).None
   )
 });
-
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
-
-export analyze_effect_call_points;
-export is_effect_call_, has_effect_in_spread_, is_transitive_effect_call_;
+export(analyze_effect_call_points);
+export(is_effect_call_, has_effect_in_spread_, is_transitive_effect_call_);

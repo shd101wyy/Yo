@@ -1,32 +1,26 @@
 //! Signal handling functions.
 //!
 //! Provides low-level wrappers for signal registration and delivery.
-
-{ __yo_signal_start, __yo_signal_stop, __yo_kill } :: import "./externs.yo";
-
-SignalHandler :: (fn(data: *(u8)) -> unit);
-
+{ __yo_signal_start, __yo_signal_stop, __yo_kill } :: import("./externs.yo");
+SignalHandler :: (fn(data : *(u8)) -> unit);
 // Register a signal handler.
 // Returns 0 on success, -errno on failure.
-on_signal :: (fn(signum: i32, handler: SignalHandler) -> i32)(
+on_signal :: (fn(signum : i32, handler : SignalHandler) -> i32)(
   __yo_signal_start(signum, unsafe.cast(handler, *(u8)))
 );
-
 // Remove a signal handler (reset to default).
 // Returns 0 on success, -errno on failure.
-off_signal :: (fn(signum: i32) -> i32)(
+off_signal :: (fn(signum : i32) -> i32)(
   __yo_signal_stop(signum)
 );
-
 // Send a signal to a process.
 // Returns 0 on success, -errno on failure.
-kill :: (fn(pid: i32, signum: i32) -> i32)(
+kill :: (fn(pid : i32, signum : i32) -> i32)(
   __yo_kill(pid, signum)
 );
-
-export
+export(
   SignalHandler,
   on_signal,
   off_signal,
   kill
-;
+);

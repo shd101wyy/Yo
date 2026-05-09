@@ -81,9 +81,9 @@ Point :: struct(x : i32, y : i32);
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   p.x;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should suggest struct fields after dot", () => {
@@ -102,9 +102,9 @@ Color :: enum(Red, Green, Blue);
 main :: (fn() -> i32)({
   (c : Color) = Color.Red;
   c.Red;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should suggest enum variants after dot on value", () => {
@@ -128,10 +128,10 @@ export main;
       const enumSource = `
 main :: (fn() -> i32)({
   (x : Option(i32)) = .Some(i32(42));
-  x.CURSOR
-  return i32(0);
+  x.CURSOR;
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       const ln = lineOf(enumSource, "x.CURSOR");
       const items = getCompletionItems(enumSource, ln, 4);
@@ -159,9 +159,9 @@ MathOps :: struct(
 );
 main :: (fn() -> i32)({
   MathOps.add;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should suggest module members after dot", () => {
@@ -187,9 +187,9 @@ export main;
 main :: (fn() -> i32)({
   arr := [i32(1), i32(2), i32(3)];
   arr.len;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should suggest len for arrays", () => {
@@ -213,9 +213,9 @@ impl(Point,
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   p.get_x;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should suggest impl methods after dot", () => {
@@ -240,10 +240,10 @@ impl(Point,
 
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
-  p.METHOD
-  return i32(0);
+  p.METHOD;
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       const ln = lineOf(methodSource, "p.METHOD");
       const items = getCompletionItems(methodSource, ln, 4);
@@ -274,9 +274,9 @@ impl(Point,
 
 main :: (fn() -> i32)({
   (p : Point) = Point.origin;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should suggest static methods on type", () => {
@@ -297,7 +297,7 @@ Point :: struct(x : i32, y : i32);
 
 impl(Point,
   sum : (fn(self : Self) -> i32)({
-    return (self.x + self.y);
+    return(self.x + self.y);
   })
 );
 
@@ -305,7 +305,7 @@ main :: (fn() -> unit)({
   (p : Point) = Point(i32(1), i32(2));
   p.sum();
 });
-export main;
+export(main);
 `;
 
     it("should suggest struct fields after self.", () => {
@@ -326,7 +326,7 @@ main :: (fn() -> unit)({
   (x : Option(i32)) = .Some(i32(42));
   x.unwrap;
 });
-export main;
+export(main);
 `;
 
     it("should suggest Option methods after dot", () => {
@@ -351,9 +351,9 @@ export main;
       const goodSource = `
 main :: (fn() -> i32)({
   (x : Option(i32)) = .Some(i32(42));
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       docManager.getModuleManager().loadModule(modulePath, goodSource);
 
@@ -362,9 +362,9 @@ export main;
 main :: (fn() -> i32)({
   (x : Option(i32)) = .Some(i32(42));
   Option(i32).
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       const fakeDocument = {
         uri: modulePath,
@@ -406,9 +406,9 @@ impl(Point,
 );
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       docManager.getModuleManager().loadModule(modulePath, goodSource);
 
@@ -422,9 +422,9 @@ impl(Point,
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   p.
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       const fakeDocument = {
         uri: modulePath,
@@ -462,9 +462,9 @@ Outer :: struct(inner : Inner, name : i32);
 main :: (fn() -> i32)({
   (o : Outer) = Outer(Inner(i32(42)), i32(1));
   o.inner;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should suggest fields for nested struct access", () => {
@@ -482,9 +482,9 @@ export main;
 main :: (fn() -> i32)({
   (r : Result(i32, i32)) = .Ok(i32(42));
   r.unwrap;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should suggest Result methods after dot", () => {
@@ -511,9 +511,9 @@ export main;
     const source = `
 main :: (fn() -> i32)({
   ret
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should suggest keywords matching prefix", () => {
@@ -533,9 +533,9 @@ Point :: struct(x : i32, y : i32);
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   p;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should show type on variable hover", () => {
@@ -560,9 +560,9 @@ export main;
 Point :: struct(x : i32, y : i32);
 main :: (fn() -> i32)({
   Point;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should show doc comment on type hover", () => {
@@ -586,9 +586,9 @@ export main;
 add :: (fn(a : i32, b : i32) -> i32)((a + b));
 main :: (fn() -> i32)({
   add;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should show function signature and doc comment", () => {
@@ -616,7 +616,7 @@ impl(Point,
 );
 
 main :: (fn() -> i32)(i32(0));
-export main;
+export(main);
 `;
 
     it("should show type and doc comment for impl field label", () => {
@@ -647,9 +647,9 @@ Point :: struct(x : i32, y : i32);
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   p;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       // Load the good version first
       docManager.getModuleManager().loadModule(modulePath, goodSource);
@@ -661,9 +661,9 @@ Point :: struct(x : i32, y : i32);
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   Option
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       const fakeDocument = {
         uri: modulePath,
@@ -695,9 +695,9 @@ export main;
       const modulePath = `file://${path.resolve(__dirname, "hover_option.yo")}`;
       const goodSource = `
 main :: (fn() -> i32)({
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       // Load the good version first
       docManager.getModuleManager().loadModule(modulePath, goodSource);
@@ -706,9 +706,9 @@ export main;
       const brokenSource = `
 main :: (fn() -> i32)({
   Option
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
       const fakeDocument = {
         uri: modulePath,
@@ -747,7 +747,7 @@ main :: (fn() -> unit)({
   x := (i32 <: Add(i32)).(+)(i32(3), i32(4));
   x;
 });
-export main;
+export(main);
 `;
       const { uri, docManager } = loadSource(source, "hover_local_x.yo");
       const ln = lineOf(
@@ -772,10 +772,10 @@ export main;
 describe("LSP Completion - Import paths", () => {
   it("should suggest std modules for import path", () => {
     const source = `
-open import "std/";
+open(import("std/"));
 `;
     const { uri, docManager } = loadSource(source);
-    const ln = lineOf(source, 'import "std/');
+    const ln = lineOf(source, 'import("std/');
     const lineText = source.split("\n")[ln]!;
     const col = lineText.indexOf('"std/') + 5; // After "std/
     const items = handleCompletion(uri, ln, col, lineText, docManager);
@@ -789,13 +789,13 @@ open import "std/";
 
   it("should suggest subdirectories in std/collections/", () => {
     const source = `
-open import "std/collections/";
+open(import("std/collections/"));
 `;
     const { uri, docManager } = loadSource(source);
-    const ln = lineOf(source, 'import "std/collections/');
+    const ln = lineOf(source, 'import("std/collections/');
     const lineText = source.split("\n")[ln]!;
     // Position cursor right after "std/collections/" — inside the quotes
-    const target = 'open import "std/collections/';
+    const target = 'open(import("std/collections/';
     const col = target.length;
     const items = handleCompletion(uri, ln, col, lineText, docManager);
     const labels = items.map((i) => i.label);
@@ -807,11 +807,11 @@ open import "std/collections/";
 describe("LSP Definition", () => {
   describe("import path go-to-definition", () => {
     const source = `
-open import "std/string";
+open(import("std/string"));
 main :: (fn() -> i32)({
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should navigate to imported module file", () => {
@@ -835,9 +835,9 @@ Point :: struct(x : i32, y : i32);
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   p;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should navigate to variable definition", () => {
@@ -864,9 +864,9 @@ Point :: struct(
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   p.x;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should navigate to struct field definition from property access", () => {
@@ -892,9 +892,9 @@ impl(Point,
 );
 main :: (fn() -> i32)({
   p := Point.origin();
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
 
     it("should navigate to impl method definition from call", () => {
@@ -920,9 +920,9 @@ FloatOrInt :: union(f : f32, i : i32);
 main :: (fn() -> i32)({
   (v : FloatOrInt) = FloatOrInt(f32(1.0));
   v.f;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "v.f");
     const labels = getCompletionLabels(source, ln, 4);
@@ -938,9 +938,9 @@ MyInt :: newtype(value : i32);
 main :: (fn() -> i32)({
   (mi : MyInt) = MyInt(i32(42));
   mi.value;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "mi.value");
     const labels = getCompletionLabels(source, ln, 5);
@@ -960,9 +960,9 @@ Point :: struct(
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   p.x;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const { uri, docManager } = loadSource(source);
     const ln = lineOf(source, "p.x;");
@@ -992,9 +992,9 @@ Point :: struct(
 main :: (fn() -> i32)({
   (p : Point) = Point(i32(1), i32(2));
   p.y;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const { uri, docManager } = loadSource(source);
     const ln = lineOf(source, "p.y;");
@@ -1021,9 +1021,9 @@ describe("LSP Completion - Enum variant", () => {
 Color :: enum(Red, Green, Blue);
 main :: (fn() -> i32)({
   (c : Color) = .Red;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "(c : Color) = .Red");
     const line = source.split("\n")[ln]!;
@@ -1042,9 +1042,9 @@ MyResult :: (fn(comptime(T) : Type, comptime(E) : Type) -> comptime(Type))(
 );
 main :: (fn() -> i32)({
   (r : MyResult(i32, str)) = .Ok(i32(42));
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "(r : MyResult");
     const line = source.split("\n")[ln]!;
@@ -1074,9 +1074,9 @@ impl(Counter,
 main :: (fn() -> i32)({
   c := Counter(i32(0));
   c.get;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "c.get");
     const labels = getCompletionLabels(source, ln, 4);
@@ -1094,9 +1094,9 @@ impl(Point,
 );
 main :: (fn() -> i32)({
   p := Point.origin;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "Point.origin");
     const line = source.split("\n")[ln]!;
@@ -1112,9 +1112,9 @@ describe("LSP Definition - Enum variant", () => {
 Color :: enum(Red, Green, Blue);
 main :: (fn() -> i32)({
   (c : Color) = .Red;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const { uri, docManager } = loadSource(source);
     const ln = lineOf(source, ".Red");
@@ -1134,9 +1134,9 @@ export main;
 Shape :: enum(Circle(radius : i32), Square(side : i32));
 main :: (fn() -> i32)({
   (s : Shape) = .Square(i32(5));
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const { uri, docManager } = loadSource(source);
     const ln = lineOf(source, ".Square");
@@ -1165,9 +1165,9 @@ impl(Counter,
 main :: (fn() -> i32)({
   (c : Counter) = Counter(i32(0));
   c.get;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const { uri, docManager } = loadSource(source);
     const ln = lineOf(source, "c.get;");
@@ -1194,10 +1194,10 @@ describe("LSP Completion - Environment-based identifiers", () => {
   it("should suggest Option when typing Optio", () => {
     const source = `
 main :: (fn() -> i32)({
-  Optio
-  return i32(0);
+  Optio;
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "Optio");
     const lineText = source.split("\n")[ln] ?? "";
@@ -1209,10 +1209,10 @@ export main;
   it("should suggest Result when typing Res", () => {
     const source = `
 main :: (fn() -> i32)({
-  Res
-  return i32(0);
+  Res;
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "  Res");
     const lineText = source.split("\n")[ln] ?? "";
@@ -1223,12 +1223,12 @@ export main;
 
   it("should suggest imported types when typing prefix", () => {
     const source = `
-open import "std/string";
+open(import("std/string"));
 main :: (fn() -> i32)({
-  Stri
-  return i32(0);
+  Stri;
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "Stri");
     const lineText = source.split("\n")[ln] ?? "";
@@ -1241,9 +1241,9 @@ export main;
     const source = `
 main :: (fn() -> i32)({
   Optio
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "Optio");
     const lineText = source.split("\n")[ln] ?? "";
@@ -1264,9 +1264,9 @@ describe("LSP Completion - Generic type methods", () => {
 main :: (fn() -> i32)({
   (o : Option(i32)) = .Some(i32(42));
   o.is_some;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "o.is_some");
     const labels = getCompletionLabels(source, ln, 4);
@@ -1286,9 +1286,9 @@ export main;
 main :: (fn() -> i32)({
   (r : Result(i32, bool)) = .Ok(i32(42));
   r.is_ok;
-  return i32(0);
+  return(i32(0));
 });
-export main;
+export(main);
 `;
     const ln = lineOf(source, "r.is_ok");
     const labels = getCompletionLabels(source, ln, 4);
@@ -1312,7 +1312,7 @@ describe("LSP Completion - Trait type", () => {
 main :: (fn() -> unit)({
   x :: (i32 <: Add(i32));
 });
-export main;
+export(main);
 `;
     const stdPath = path.resolve(__dirname, "../../std");
     const docManager = new LspDocumentManager(stdPath);
@@ -1326,7 +1326,7 @@ main :: (fn() -> unit)({
   x :: (i32 <: Add(i32));
   x.
 });
-export main;
+export(main);
 `;
     const fakeDoc = {
       uri: modulePath,
@@ -1369,7 +1369,7 @@ export main;
 main :: (fn() -> unit)({
   _ :: (i32 <: Add(i32));
 });
-export main;
+export(main);
 `;
     docManager.getModuleManager().loadModule(modulePath, goodSource);
 
@@ -1379,7 +1379,7 @@ main :: (fn() -> unit)({
   _ :: (i32 <: Add(i32));
   (i32 <: Add(i32)).
 });
-export main;
+export(main);
 `;
     const fakeDoc = {
       uri: modulePath,
@@ -1417,9 +1417,9 @@ add :: (fn(a: i32, b: i32) -> i32)(
 );
 main :: (fn() -> i32)({
   x := add(i32(1), i32(2));
-  return x;
+  return(x);
 });
-export main;
+export(main);
 `;
     const { uri, docManager } = loadSource(source);
     const ln = lineOf(source, "add(i32(1)");
@@ -1441,9 +1441,9 @@ add :: (fn(a: i32, b: i32) -> i32)(
 );
 main :: (fn() -> i32)({
   x := add(i32(1), i32(2));
-  return x;
+  return(x);
 });
-export main;
+export(main);
 `;
     const { uri, docManager } = loadSource(source);
     const ln = lineOf(source, "add(i32(1)");
@@ -1459,9 +1459,9 @@ export main;
     const source = `
 main :: (fn() -> i32)({
   x := (i32(1) + i32(2));
-  return x;
+  return(x);
 });
-export main;
+export(main);
 `;
     const { uri, docManager } = loadSource(source);
     const ln = lineOf(source, "i32(1) + i32");
@@ -1483,9 +1483,9 @@ add :: (fn(a: i32, b: i32) -> i32)(
 );
 main :: (fn() -> i32)({
   x := add(i32(1), i32(2));
-  return x;
+  return(x);
 });
-export main;
+export(main);
 `;
     const { uri, docManager } = loadSource(source);
     const ln = lineOf(source, "add(i32(1)");

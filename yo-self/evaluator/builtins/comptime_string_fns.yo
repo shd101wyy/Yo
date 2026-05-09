@@ -10,141 +10,182 @@
 //! Note: StrLit.raw includes surrounding quote characters.
 //! Unquoted value = raw.substring(1, raw.len()-1).
 //! To create a StrLit from unquoted string s: wrap with quotes.
-
-open import "std/string";
-
-{ AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_to_string, ast_expr_is_fn_call_of,
-  BF_COMPTIME_STRING_CONCAT, BF_COMPTIME_STRING_EQ, BF_COMPTIME_STRING_NEQ,
-  BF_COMPTIME_STRING_LT, BF_COMPTIME_STRING_LTE,
-  BF_COMPTIME_STRING_GT, BF_COMPTIME_STRING_GTE,
-  BF_COMPTIME_STRING_LENGTH, BF_COMPTIME_STRING_TO_UPPER,
-  BF_COMPTIME_STRING_TO_LOWER, BF_COMPTIME_STRING_SLICE }  :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                                    :: import "../../expr/expr_info.yo";
-{ Environment }                                            :: import "../../env/env.yo";
-{ EvalContext }                                            :: import "../context.yo";
-{ EvalValue, is_str_lit, is_int_lit, create_unknown_val }  :: import "../value.yo";
-{ TypeValue }                                              :: import "../../types/type.yo";
-{ t_bool, t_comptime_string, t_comptime_int }              :: import "../../types/type.yo";
-{ is_comptime_string_type, is_comptime_int_type }          :: import "../../types/guards.yo";
-{ format_error_message }                                   :: import "../../error/error.yo";
-{ evaluate_expression }                                    :: import "../exprs/expr.yo";
-{ Exception }                                              :: import "std/error";
-
+open(import("std/string"));
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  BF_COMPTIME_STRING_CONCAT,
+  BF_COMPTIME_STRING_EQ,
+  BF_COMPTIME_STRING_NEQ,
+  BF_COMPTIME_STRING_LT,
+  BF_COMPTIME_STRING_LTE,
+  BF_COMPTIME_STRING_GT,
+  BF_COMPTIME_STRING_GTE,
+  BF_COMPTIME_STRING_LENGTH,
+  BF_COMPTIME_STRING_TO_UPPER,
+  BF_COMPTIME_STRING_TO_LOWER,
+  BF_COMPTIME_STRING_SLICE
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, is_str_lit, is_int_lit, create_unknown_val } :: import("../value.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ t_bool, t_comptime_string, t_comptime_int } :: import("../../types/type.yo");
+{ is_comptime_string_type, is_comptime_int_type } :: import("../../types/guards.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Helpers for StrLit quote-stripping / quote-wrapping.
 // ---------------------------------------------------------------------------
-
 // Extract unquoted content from StrLit.raw (raw includes surrounding `"`).
 str_lit_unquote :: (fn(raw : String) -> String)({
   rn := raw.len();
-  if((rn >= usize(2)),
-    raw.substring(usize(1), (rn - usize(1))),
+  if(
+    rn >= usize(2),
+    raw.substring(usize(1), rn - usize(1)),
     String.new()
   )
 });
-
 // Wrap an unquoted string with quote chars to produce a StrLit.raw.
 str_lit_quote :: (fn(s : String) -> String)(
   (String.from("\"") + s) + String.from("\"")
 );
-
 // ---------------------------------------------------------------------------
 // Helper — evaluate one argument and validate it is comptime_string type.
 // ---------------------------------------------------------------------------
-
-eval_comptime_str_arg :: (fn(
-  arg  : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> ExprInfo)({
+eval_comptime_str_arg :: (
+  fn(
+    arg : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> ExprInfo
+)({
   evaluated := evaluate_expression(arg, env, ctx);
-  info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  info      := match(info_opt,
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(arg),
-        `Expected comptime_string type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
-        false,
-        .None
-      ));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            `Expected comptime_string type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(env, t_comptime_string())
     }
   );
   if(!(is_comptime_string_type(info.ty)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(arg),
-      `Expected comptime_string type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg),
+          `Expected comptime_string type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
   info
 });
-
 // ---------------------------------------------------------------------------
 // Helper — evaluate one argument and validate it is comptime_int type.
 // ---------------------------------------------------------------------------
-
-eval_comptime_int_arg :: (fn(
-  arg  : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> ExprInfo)({
+eval_comptime_int_arg :: (
+  fn(
+    arg : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> ExprInfo
+)({
   evaluated := evaluate_expression(arg, env, ctx);
-  info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  info      := match(info_opt,
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(arg),
-        `Expected comptime_int type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
-        false,
-        .None
-      ));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            `Expected comptime_int type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(env, t_comptime_int())
     }
   );
   if(!(is_comptime_int_type(info.ty)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(arg),
-      `Expected comptime_int type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg),
+          `Expected comptime_int type for comptime_string argument, got:\n${ast_expr_to_string(arg)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
   info
 });
-
-evaluate_yo_comptime_string_functions :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-
-  is_unary := (
-    ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1))) ||
-    ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER, .Some(usize(1))) ||
-    ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1)))
+evaluate_yo_comptime_string_functions :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(expr);
+    }
   );
-  is_slice := ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_SLICE, .None);
-
+  is_unary := (
+    ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH,.Some(usize(1))) ||
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER,.Some(usize(1))) ||
+        ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER,.Some(usize(1)))
+  );
+  is_slice := ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_SLICE,.None);
   if(is_unary, {
-    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-    ai   := eval_comptime_str_arg(arg0, env, ctx);
+    arg0 := match(
+      args.get(usize(0)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    );
+    ai := eval_comptime_str_arg(arg0, env, ctx);
     (cur_env : Environment) = ai.env;
     arg_val := ai.value;
-
     (result_val : EvalValue) = cond(
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1))) =>
-        match(arg_val,
-          .Some(av) => match(av,
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH,.Some(usize(1))) =>
+        match(
+          arg_val,
+          .Some(av) => match(
+            av,
             .StrLit(raw) => {
               unquoted := str_lit_unquote(raw);
               EvalValue.IntLit(unquoted.len().to_string())
@@ -153,86 +194,116 @@ evaluate_yo_comptime_string_functions :: (fn(
           ),
           .None => create_unknown_val(t_comptime_int())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER, .Some(usize(1))) =>
-        match(arg_val,
-          .Some(av) => match(av,
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER,.Some(usize(1))) =>
+        match(
+          arg_val,
+          .Some(av) => match(
+            av,
             .StrLit(raw) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(raw).to_uppercase())),
-            _            => create_unknown_val(t_comptime_string())
+            _ => create_unknown_val(t_comptime_string())
           ),
           .None => create_unknown_val(t_comptime_string())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1))) =>
-        match(arg_val,
-          .Some(av) => match(av,
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER,.Some(usize(1))) =>
+        match(
+          arg_val,
+          .Some(av) => match(
+            av,
             .StrLit(raw) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(raw).to_lowercase())),
-            _            => create_unknown_val(t_comptime_string())
+            _ => create_unknown_val(t_comptime_string())
           ),
           .None => create_unknown_val(t_comptime_string())
         ),
       true => {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(expr),
-          String.from("Unexpected comptime_string unary function"),
-          false,
-          .None
-        ));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Unexpected comptime_string unary function"),
+              false,
+              .None
+            )
+          )
+        );
         EvalValue.UnitVal
       }
     );
-
-    result_ty := match(result_val, .IntLit(_) => t_comptime_int(), _ => t_comptime_string());
-    out_info  := new_expr_info(cur_env, result_ty);
-    out_info.value = .Some(result_val);
+    result_ty := match(result_val,.IntLit(_) => t_comptime_int(), _ => t_comptime_string());
+    out_info := new_expr_info(cur_env, result_ty);
+    out_info.value =.Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, if(is_slice, {
     // slice(string, start, end?)
     n_args := args.len();
-    if(((n_args < usize(2)) || (n_args > usize(3))), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(expr),
-        `"${BF_COMPTIME_STRING_SLICE}" expects 2 or 3 arguments, got ${n_args.to_string()}`,
-        false,
-        .None
-      ));
+    if((n_args < usize(2)) || (n_args > usize(3)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `"${BF_COMPTIME_STRING_SLICE}" expects 2 or 3 arguments, got ${n_args.to_string()}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
-    str_arg   := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-    start_arg := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
-
-    str_info   := eval_comptime_str_arg(str_arg, env, ctx);
+    str_arg := match(
+      args.get(usize(0)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    );
+    start_arg := match(
+      args.get(usize(1)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    );
+    str_info := eval_comptime_str_arg(str_arg, env, ctx);
     start_info := eval_comptime_int_arg(start_arg, str_info.env, ctx);
     (cur_env : Environment) = start_info.env;
-
     // Optional end argument.
-    (end_info_opt : Option(ExprInfo)) = if((n_args == usize(3)),
-      match(args.get(usize(2)),
+    (end_info_opt : Option(ExprInfo)) = if(
+      n_args == usize(3),
+      match(
+        args.get(usize(2)),
         .Some(end_arg) => {
           ei := eval_comptime_int_arg(end_arg, cur_env, ctx);
           cur_env = ei.env;
           .Some(ei)
         },
-        .None => .None
+        .None =>.None
       ),
       .None
     );
-
-    (result_val : EvalValue) = match(str_info.value,
-      .Some(sv) => match(sv,
+    (result_val : EvalValue) = match(
+      str_info.value,
+      .Some(sv) => match(
+        sv,
         .StrLit(raw) => {
           unquoted := str_lit_unquote(raw);
-          match(start_info.value,
-            .Some(sv2) => match(sv2,
+          match(
+            start_info.value,
+            .Some(sv2) => match(
+              sv2,
               .IntLit(start_raw) => {
-                start_idx := match(start_raw.parse_i64(),
+                start_idx := match(
+                  start_raw.parse_i64(),
                   .Some(n) => usize(n),
-                  .None    => usize(0)
+                  .None => usize(0)
                 );
-                end_idx := match(end_info_opt,
-                  .Some(ei) => match(ei.value,
-                    .Some(ev) => match(ev,
-                      .IntLit(end_raw) => match(end_raw.parse_i64(),
+                end_idx := match(
+                  end_info_opt,
+                  .Some(ei) => match(
+                    ei.value,
+                    .Some(ev) => match(
+                      ev,
+                      .IntLit(end_raw) => match(
+                        end_raw.parse_i64(),
                         .Some(n) => usize(n),
-                        .None    => unquoted.len()
+                        .None => unquoted.len()
                       ),
                       _ => unquoted.len()
                     ),
@@ -252,107 +323,131 @@ evaluate_yo_comptime_string_functions :: (fn(
       ),
       .None => create_unknown_val(t_comptime_string())
     );
-
     out_info := new_expr_info(cur_env, t_comptime_string());
-    out_info.value = .Some(result_val);
+    out_info.value =.Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // Binary operations.
-    arg0 := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-    arg1 := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
-
+    arg0 := match(
+      args.get(usize(0)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    );
+    arg1 := match(
+      args.get(usize(1)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    );
     lhs_info := eval_comptime_str_arg(arg0, env, ctx);
     rhs_info := eval_comptime_str_arg(arg1, lhs_info.env, ctx);
     (cur_env : Environment) = rhs_info.env;
-
     lhs_val := lhs_info.value;
     rhs_val := rhs_info.value;
-
     // Extract unquoted strings for comparison / concat.
-    (lhs_str_opt : Option(String)) = match(lhs_val,
-      .Some(lv) => match(lv, .StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
-      .None     => Option(String).None
+    (lhs_str_opt : Option(String)) = match(
+      lhs_val,
+      .Some(lv) => match(lv,.StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
+      .None => Option(String).None
     );
-    (rhs_str_opt : Option(String)) = match(rhs_val,
-      .Some(rv) => match(rv, .StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
-      .None     => Option(String).None
+    (rhs_str_opt : Option(String)) = match(
+      rhs_val,
+      .Some(rv) => match(rv,.StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
+      .None => Option(String).None
     );
-
     (result_val : EvalValue) = cond(
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_CONCAT, .Some(usize(2))) =>
-        match(lhs_str_opt,
-          .Some(ls) => match(rhs_str_opt,
-            .Some(rs) => EvalValue.StrLit(str_lit_quote((ls + rs))),
-            .None     => create_unknown_val(t_comptime_string())
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_CONCAT,.Some(usize(2))) =>
+        match(
+          lhs_str_opt,
+          .Some(ls) => match(
+            rhs_str_opt,
+            .Some(rs) => EvalValue.StrLit(str_lit_quote(ls + rs)),
+            .None => create_unknown_val(t_comptime_string())
           ),
           .None => create_unknown_val(t_comptime_string())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_EQ, .Some(usize(2))) =>
-        match(lhs_str_opt,
-          .Some(ls) => match(rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal((ls.as_str() == rs.as_str())),
-            .None     => create_unknown_val(t_bool())
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_EQ,.Some(usize(2))) =>
+        match(
+          lhs_str_opt,
+          .Some(ls) => match(
+            rhs_str_opt,
+            .Some(rs) => EvalValue.BoolVal(ls.as_str() == rs.as_str()),
+            .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_NEQ, .Some(usize(2))) =>
-        match(lhs_str_opt,
-          .Some(ls) => match(rhs_str_opt,
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_NEQ,.Some(usize(2))) =>
+        match(
+          lhs_str_opt,
+          .Some(ls) => match(
+            rhs_str_opt,
             .Some(rs) => EvalValue.BoolVal(!(ls.as_str() == rs.as_str())),
-            .None     => create_unknown_val(t_bool())
+            .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LT, .Some(usize(2))) =>
-        match(lhs_str_opt,
-          .Some(ls) => match(rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal((ls.as_str() < rs.as_str())),
-            .None     => create_unknown_val(t_bool())
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LT,.Some(usize(2))) =>
+        match(
+          lhs_str_opt,
+          .Some(ls) => match(
+            rhs_str_opt,
+            .Some(rs) => EvalValue.BoolVal(ls.as_str() < rs.as_str()),
+            .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LTE, .Some(usize(2))) =>
-        match(lhs_str_opt,
-          .Some(ls) => match(rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal((!(rs.as_str() < ls.as_str()))),
-            .None     => create_unknown_val(t_bool())
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LTE,.Some(usize(2))) =>
+        match(
+          lhs_str_opt,
+          .Some(ls) => match(
+            rhs_str_opt,
+            .Some(rs) => EvalValue.BoolVal(!(rs.as_str() < ls.as_str())),
+            .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GT, .Some(usize(2))) =>
-        match(lhs_str_opt,
-          .Some(ls) => match(rhs_str_opt,
-            .Some(rs) => EvalValue.BoolVal((rs.as_str() < ls.as_str())),
-            .None     => create_unknown_val(t_bool())
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GT,.Some(usize(2))) =>
+        match(
+          lhs_str_opt,
+          .Some(ls) => match(
+            rhs_str_opt,
+            .Some(rs) => EvalValue.BoolVal(rs.as_str() < ls.as_str()),
+            .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GTE, .Some(usize(2))) =>
-        match(lhs_str_opt,
-          .Some(ls) => match(rhs_str_opt,
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GTE,.Some(usize(2))) =>
+        match(
+          lhs_str_opt,
+          .Some(ls) => match(
+            rhs_str_opt,
             .Some(rs) => EvalValue.BoolVal(!(ls.as_str() < rs.as_str())),
-            .None     => create_unknown_val(t_bool())
+            .None => create_unknown_val(t_bool())
           ),
           .None => create_unknown_val(t_bool())
         ),
       true => {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(expr),
-          `Unexpected function call for comptime_string operations:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
-        ));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `Unexpected function call for comptime_string operations:\n${ast_expr_to_string(expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         EvalValue.UnitVal
       }
     );
-
-    result_ty := match(result_val, .BoolVal(_) => t_bool(), _ => t_comptime_string());
-    out_info  := new_expr_info(cur_env, result_ty);
-    out_info.value = .Some(result_val);
+    result_ty := match(result_val,.BoolVal(_) => t_bool(), _ => t_comptime_string());
+    out_info := new_expr_info(cur_env, result_ty);
+    out_info.value =.Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }));
-
   expr
 });
-
-export evaluate_yo_comptime_string_functions;
+export(evaluate_yo_comptime_string_functions);

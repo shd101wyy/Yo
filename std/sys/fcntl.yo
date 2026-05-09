@@ -6,39 +6,31 @@
 //!
 //! - `getfl`/`getfd`: flags on success, -errno on failure
 //! - `setfl`/`setfd`: 0 on success, -errno on failure
-
-{
-  __yo_sync_fcntl_getfl,
-  __yo_sync_fcntl_setfl,
-  __yo_sync_fcntl_getfd,
-  __yo_sync_fcntl_setfd
-} :: import "./externs.yo";
-{ O_NONBLOCK } :: import "./constants.yo";
-
+{ __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl, __yo_sync_fcntl_getfd, __yo_sync_fcntl_setfd } :: import("./externs.yo");
+{ O_NONBLOCK } :: import("./constants.yo");
 // POSIX FD_CLOEXEC value. On Windows this is interpreted by the runtime wrapper.
 FD_CLOEXEC :: i32(1);
-
 // Get file status flags (F_GETFL)
-getfl :: (fn(fd: i32) -> i32)(
+getfl :: (fn(fd : i32) -> i32)(
   __yo_sync_fcntl_getfl(fd)
 );
-
 // Set file status flags (F_SETFL)
-setfl :: (fn(fd: i32, flags: i32) -> i32)(
+setfl :: (fn(fd : i32, flags : i32) -> i32)(
   __yo_sync_fcntl_setfl(fd, flags)
 );
-
 // Get file descriptor flags (F_GETFD)
-getfd :: (fn(fd: i32) -> i32)(
+getfd :: (fn(fd : i32) -> i32)(
   __yo_sync_fcntl_getfd(fd)
 );
-
 // Set file descriptor flags (F_SETFD)
-setfd :: (fn(fd: i32, flags: i32) -> i32)(
+setfd :: (fn(fd : i32, flags : i32) -> i32)(
   __yo_sync_fcntl_setfd(fd, flags)
 );
-
-export
-  getfl, setfl, getfd, setfd,
-  O_NONBLOCK, FD_CLOEXEC
-;
+export(
+  getfl,
+  setfl,
+  getfd,
+  setfd,
+  O_NONBLOCK,
+  FD_CLOEXEC
+);

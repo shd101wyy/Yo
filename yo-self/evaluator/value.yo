@@ -4,14 +4,12 @@
 //! raw token text (actual parsing / CTFE is Phase 3h scope).  Variable
 //! references carry the bound type from the environment but have no computed
 //! value at compile time — they mirror `UnknownValue` from the TS evaluator.
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ TypeValue } :: import "../types/type.yo";
-{ t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type } :: import "../types/type.yo";
-{ AstExpr } :: import "../expr/expr.yo";
-{ are_types_compatible } :: import "../types/compatibility.yo";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../types/type.yo");
+{ t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type } :: import("../types/type.yo");
+{ AstExpr } :: import("../expr/expr.yo");
+{ are_types_compatible } :: import("../types/compatibility.yo");
 /// The compile-time representation of an evaluated expression.
 ///
 /// - Literal variants (`BoolVal`, `IntLit`, `FloatLit`, `StrLit`) hold the
@@ -22,36 +20,29 @@ open import "std/string";
 EvalValue :: enum(
   /// The unit `()` value.
   UnitVal,
-
   /// Boolean constant from a `true`/`false` literal.
   BoolVal(b : bool),
-
   /// Integer literal — raw token text, e.g. `"42"`, `"0xFF"`, `"0b1010"`.
   /// Char literals are decoded to their Unicode code point and stored as a
   /// decimal string, e.g. `'a'` → `"97"` (matching TypeScript's ComptimeInt).
   /// Full parsing (CTFE numeric evaluation) is deferred to Phase 3h.
   IntLit(raw : String),
-
   /// Float literal — raw token text, e.g. `"3.14"`.
   FloatLit(raw : String),
-
   /// String or template-string literal — raw token text.
   /// For StringLit tokens the value includes surrounding `"` delimiters.
   /// For TemplateString tokens the delimiters are stripped by the lexer.
   StrLit(raw : String),
-
   /// Runtime variable reference: type is known from the environment, but the
   /// value is only available at runtime.  Mirrors `UnknownValue` in the TS
   /// evaluator for non-comptime bindings.
   VarRef(name : String),
-
   /// A compile-time known enum variant value.
   ///
   /// `variant` stores the full dot-prefixed name (e.g. `".Some"`, `".None"`).
   /// `fields` holds the evaluated values of the constructor arguments in
   /// declaration order (positional).
   EnumVal(variant : String, fields : ArrayList(Self)),
-
   /// A compiled function value: parameter names, unevaluated body expression,
   /// and a snapshot of the definition-time environment for lexical scoping.
   ///
@@ -74,35 +65,31 @@ EvalValue :: enum(
   /// parameters. At call time these are bound from explicit `using(name)` args
   /// (which evaluate to the named value from the caller's env).
   FuncVal(
-    forall_names     : ArrayList(String),
-    params           : ArrayList(String),
+    forall_names : ArrayList(String),
+    params : ArrayList(String),
     param_type_names : ArrayList(String),
-    evidence_params  : ArrayList(String),
-    body             : Box(AstExpr),
-    cap_names        : ArrayList(String),
-    cap_tys          : ArrayList(TypeValue),
-    cap_vals         : ArrayList(Self),
-    func_id          : String
+    evidence_params : ArrayList(String),
+    body : Box(AstExpr),
+    cap_names : ArrayList(String),
+    cap_tys : ArrayList(TypeValue),
+    cap_vals : ArrayList(Self),
+    func_id : String
   ),
-
-  /// Control-flow signal emitted by a `return expr` statement.
+  /// Control-flow signal emitted by a `return(expr)` statement.
   ///
   /// Propagated upward through begin blocks and while loops until it reaches
   /// the function call boundary, where it is unwrapped into the return value.
   ReturnVal(val : Box(Self), ty : TypeValue),
-
   /// Control-flow signal emitted by a `break` statement inside a while or for loop.
   ///
   /// Propagated upward through begin blocks until it reaches the enclosing loop,
   /// where it terminates iteration and the loop returns `UnitVal`.
   BreakVal,
-
   /// Control-flow signal emitted by a `continue` statement inside a loop.
   ///
   /// Propagated upward through begin blocks until it reaches the enclosing loop,
   /// where it skips the rest of the body and continues to the next iteration.
   ContinueVal,
-
   /// A compile-time type value (Phase 3k).
   ///
   /// Represents a Yo type as a first-class compile-time value.  For example,
@@ -115,13 +102,11 @@ EvalValue :: enum(
   /// `TypeValue` is large (the `Func` variant has 9 ArrayList fields) and
   /// storing it inline would bloat every local `EvalValue` and stack frame.
   TypeVal(ty : Box(TypeValue)),
-
   /// A compile-time known struct/object value with named fields.
   ///
   /// `ty_name` is the struct type name (e.g. `"Token"`, `"EvalResult"`).
   /// `field_names` and `field_values` are parallel arrays in field-declaration order.
   StructVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Self)),
-
   /// A module value produced by evaluating a module body (Phase 3m).
   ///
   /// `names` and `values` are parallel arrays of exported identifiers and
@@ -129,22 +114,18 @@ EvalValue :: enum(
   /// exports a runtime variable the corresponding `values` entry is
   /// `VarRef(name)` (comptime value unknown).
   ModuleVal(names : ArrayList(String), values : ArrayList(Self)),
-
   // Phase 2h — remaining value types from src/value.ts ----------------------
-
   /// An anonymous tuple value.
   ///
   /// `fields` holds the compile-time values of all tuple elements in order.
   /// This corresponds to TypeScript's `TupleValue`.
   TupleVal(fields : ArrayList(Self)),
-
   /// A compile-time array value.
   ///
   /// `elements` holds the element values in index order.
   /// The element type is tracked in the surrounding `EvalResult.ty` (Array variant).
   /// Mirrors TypeScript's `ArrayValue`.
   ArrayVal(elements : ArrayList(Self)),
-
   /// A compile-time slice into an array.
   ///
   /// `source` is a `Box(EvalValue)` wrapping an `ArrayVal`.
@@ -158,7 +139,6 @@ EvalValue :: enum(
   ///
   /// Mirrors TypeScript's `SliceValue`.
   SliceVal(source : Box(Self), start_idx : usize, end_idx : usize),
-
   /// A compile-time pointer to a value.
   ///
   /// `target` is a `Box(EvalValue)` holding the pointed-to value (or `ArrayVal`
@@ -170,7 +150,6 @@ EvalValue :: enum(
   ///
   /// Mirrors TypeScript's `PtrValue`.
   PtrVal(target : Box(Self), index : usize),
-
   /// A compile-time trait object value.
   ///
   /// `ty_name` is the trait type name (e.g. `"Display"`).
@@ -181,21 +160,18 @@ EvalValue :: enum(
   ///
   /// Mirrors TypeScript's `TraitValue`.
   TraitVal(ty_name : String, field_names : ArrayList(String), field_values : ArrayList(Option(Self))),
-
   /// A compile-time list (used for variadics and metaprogramming).
   ///
   /// `elements` holds the element values. The element type is tracked in the
   /// surrounding `EvalResult.ty` (ComptimeListT variant).
   /// Mirrors TypeScript's `ComptimeListValue`.
   ComptimeListVal(elements : ArrayList(Self)),
-
   /// An expression value (metaprogramming / quote).
   ///
   /// `expr` holds the quoted `AstExpr` node.
   /// Equality is always `false` (no structural AST equality yet).
   /// Mirrors TypeScript's `ExprValue`.
   ExprVal(expr : Box(AstExpr)),
-
   /// A compile-time placeholder for a variable whose value is not yet known.
   ///
   /// Used by `evaluateBinding` for `(x : T)` declarations before the
@@ -210,7 +186,6 @@ EvalValue :: enum(
   /// reference, while `UnknownVal` is a compile-time placeholder.
   UnknownVal(ty : Box(TypeValue))
 );
-
 /// Element-wise equality for `EvalValue`.
 ///
 /// Implemented manually (not via `derive`) because `derive(EvalValue, Eq)` would
@@ -220,21 +195,23 @@ EvalValue :: enum(
 /// By writing the function with `recur` for recursive cases we break the cycle:
 /// the `Eq(ArrayList(EvalValue))` impl is only exercised at call time.
 eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
-  match(a,
+  match(
+    a,
     .UnitVal =>
-      match(b, .UnitVal => true, _ => false),
+      match(b,.UnitVal => true, _ => false),
     .BoolVal(ab) =>
-      match(b, .BoolVal(bb) => (ab == bb), _ => false),
+      match(b,.BoolVal(bb) => (ab == bb), _ => false),
     .IntLit(ar) =>
-      match(b, .IntLit(br) => (ar.as_str() == br.as_str()), _ => false),
+      match(b,.IntLit(br) => (ar.as_str() == br.as_str()), _ => false),
     .FloatLit(ar) =>
-      match(b, .FloatLit(br) => (ar.as_str() == br.as_str()), _ => false),
+      match(b,.FloatLit(br) => (ar.as_str() == br.as_str()), _ => false),
     .StrLit(ar) =>
-      match(b, .StrLit(br) => (ar.as_str() == br.as_str()), _ => false),
+      match(b,.StrLit(br) => (ar.as_str() == br.as_str()), _ => false),
     .VarRef(an) =>
-      match(b, .VarRef(bn) => (an.as_str() == bn.as_str()), _ => false),
+      match(b,.VarRef(bn) => (an.as_str() == bn.as_str()), _ => false),
     .EnumVal(av, afs) =>
-      match(b,
+      match(
+        b,
         .EnumVal(bv, bfs) =>
           cond(
             (!(av.as_str() == bv.as_str())) => false,
@@ -243,17 +220,25 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n := afs.len();
               (i : usize) = usize(0);
               (ok : bool) = true;
-              while runtime(((i < n) && ok)), {
-                match(afs.get(i),
+              while(runtime((i < n) && ok), {
+                match(
+                  afs.get(i),
                   .Some(af) =>
-                    match(bfs.get(i),
-                      .Some(bf) => { ok = recur(af, bf); },
-                      .None     => { ok = false; }
+                    match(
+                      bfs.get(i),
+                      .Some(bf) => {
+                        ok = recur(af, bf);
+                      },
+                      .None => {
+                        ok = false;
+                      }
                     ),
-                  .None => { ok = false; }
+                  .None => {
+                    ok = false;
+                  }
                 );
                 i = (i + usize(1));
-              };
+              });
               ok
             }
           ),
@@ -261,12 +246,13 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       ),
     .FuncVal(_, _, _, _, _, _, _, _, _) => false,
     .ReturnVal(_, _) => false,
-    .BreakVal => match(b, .BreakVal => true, _ => false),
-    .ContinueVal => match(b, .ContinueVal => true, _ => false),
+    .BreakVal => match(b,.BreakVal => true, _ => false),
+    .ContinueVal => match(b,.ContinueVal => true, _ => false),
     .TypeVal(at) =>
-      match(b, .TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
+      match(b,.TypeVal(bt) => are_types_compatible(at.*, bt.*), _ => false),
     .StructVal(atn, anames, avals) =>
-      match(b,
+      match(
+        b,
         .StructVal(btn, bnames, bvals) =>
           cond(
             (!(atn.as_str() == btn.as_str())) => false,
@@ -276,42 +262,59 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_sf := anames.len();
               (sf_i : usize) = usize(0);
               (sf_ok : bool) = true;
-              while runtime(((sf_i < n_sf) && sf_ok)), {
-                match(anames.get(sf_i),
+              while(runtime((sf_i < n_sf) && sf_ok), {
+                match(
+                  anames.get(sf_i),
                   .Some(an_s) =>
-                    match(bnames.get(sf_i),
+                    match(
+                      bnames.get(sf_i),
                       .Some(bn_s) => {
                         cond(
-                          (!(an_s.as_str() == bn_s.as_str())) => { sf_ok = false; },
+                          (!(an_s.as_str() == bn_s.as_str())) => {
+                            sf_ok = false;
+                          },
                           true => ()
                         );
                       },
-                      .None => { sf_ok = false; }
+                      .None => {
+                        sf_ok = false;
+                      }
                     ),
-                  .None => { sf_ok = false; }
+                  .None => {
+                    sf_ok = false;
+                  }
                 );
-                match(avals.get(sf_i),
+                match(
+                  avals.get(sf_i),
                   .Some(av) =>
-                    match(bvals.get(sf_i),
+                    match(
+                      bvals.get(sf_i),
                       .Some(bv) => {
                         cond(
-                          (!(recur(av, bv))) => { sf_ok = false; },
+                          (!(recur(av, bv))) => {
+                            sf_ok = false;
+                          },
                           true => ()
                         );
                       },
-                      .None => { sf_ok = false; }
+                      .None => {
+                        sf_ok = false;
+                      }
                     ),
-                  .None => { sf_ok = false; }
+                  .None => {
+                    sf_ok = false;
+                  }
                 );
                 sf_i = (sf_i + usize(1));
-              };
+              });
               sf_ok
             }
           ),
         _ => false
       ),
     .ModuleVal(an, av) =>
-      match(b,
+      match(
+        b,
         .ModuleVal(bn, bv) =>
           cond(
             (an.len() != bn.len()) => false,
@@ -320,35 +323,51 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_m := an.len();
               (m_i : usize) = usize(0);
               (m_ok : bool) = true;
-              while runtime(((m_i < n_m) && m_ok)), {
-                match(an.get(m_i),
+              while(runtime((m_i < n_m) && m_ok), {
+                match(
+                  an.get(m_i),
                   .Some(an_s) =>
-                    match(bn.get(m_i),
+                    match(
+                      bn.get(m_i),
                       .Some(bn_s) => {
                         cond(
-                          (!(an_s.as_str() == bn_s.as_str())) => { m_ok = false; },
+                          (!(an_s.as_str() == bn_s.as_str())) => {
+                            m_ok = false;
+                          },
                           true => ()
                         );
                       },
-                      .None => { m_ok = false; }
+                      .None => {
+                        m_ok = false;
+                      }
                     ),
-                  .None => { m_ok = false; }
+                  .None => {
+                    m_ok = false;
+                  }
                 );
-                match(av.get(m_i),
+                match(
+                  av.get(m_i),
                   .Some(av_v) =>
-                    match(bv.get(m_i),
+                    match(
+                      bv.get(m_i),
                       .Some(bv_v) => {
                         cond(
-                          (!(recur(av_v, bv_v))) => { m_ok = false; },
+                          (!(recur(av_v, bv_v))) => {
+                            m_ok = false;
+                          },
                           true => ()
                         );
                       },
-                      .None => { m_ok = false; }
+                      .None => {
+                        m_ok = false;
+                      }
                     ),
-                  .None => { m_ok = false; }
+                  .None => {
+                    m_ok = false;
+                  }
                 );
                 m_i = (m_i + usize(1));
-              };
+              });
               m_ok
             }
           ),
@@ -356,7 +375,8 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       ),
     // Phase 2h variants ---------------------------------------------------------
     .TupleVal(afs) =>
-      match(b,
+      match(
+        b,
         .TupleVal(bfs) =>
           cond(
             (afs.len() != bfs.len()) => false,
@@ -364,24 +384,33 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_tv := afs.len();
               (tv_i : usize) = usize(0);
               (tv_ok : bool) = true;
-              while runtime(((tv_i < n_tv) && tv_ok)), {
-                match(afs.get(tv_i),
+              while(runtime((tv_i < n_tv) && tv_ok), {
+                match(
+                  afs.get(tv_i),
                   .Some(af) =>
-                    match(bfs.get(tv_i),
-                      .Some(bf) => { tv_ok = recur(af, bf); },
-                      .None     => { tv_ok = false; }
+                    match(
+                      bfs.get(tv_i),
+                      .Some(bf) => {
+                        tv_ok = recur(af, bf);
+                      },
+                      .None => {
+                        tv_ok = false;
+                      }
                     ),
-                  .None => { tv_ok = false; }
+                  .None => {
+                    tv_ok = false;
+                  }
                 );
                 tv_i = (tv_i + usize(1));
-              };
+              });
               tv_ok
             }
           ),
         _ => false
       ),
     .ArrayVal(aes) =>
-      match(b,
+      match(
+        b,
         .ArrayVal(bes) =>
           cond(
             (aes.len() != bes.len()) => false,
@@ -389,48 +418,67 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_av := aes.len();
               (av_i : usize) = usize(0);
               (av_ok : bool) = true;
-              while runtime(((av_i < n_av) && av_ok)), {
-                match(aes.get(av_i),
+              while(runtime((av_i < n_av) && av_ok), {
+                match(
+                  aes.get(av_i),
                   .Some(ae) =>
-                    match(bes.get(av_i),
-                      .Some(be) => { av_ok = recur(ae, be); },
-                      .None     => { av_ok = false; }
+                    match(
+                      bes.get(av_i),
+                      .Some(be) => {
+                        av_ok = recur(ae, be);
+                      },
+                      .None => {
+                        av_ok = false;
+                      }
                     ),
-                  .None => { av_ok = false; }
+                  .None => {
+                    av_ok = false;
+                  }
                 );
                 av_i = (av_i + usize(1));
-              };
+              });
               av_ok
             }
           ),
         _ => false
       ),
     .SliceVal(asrc, asi, aei) =>
-      match(b,
+      match(
+        b,
         .SliceVal(bsrc, bsi, bei) =>
           cond(
             ((aei - asi) != (bei - bsi)) => false,
             true =>
-              match(asrc.*,
+              match(
+                asrc.*,
                 .ArrayVal(aelems) =>
-                  match(bsrc.*,
+                  match(
+                    bsrc.*,
                     .ArrayVal(belems) => {
                       n_sl := (aei - asi);
                       (sl_i : usize) = usize(0);
                       (sl_ok : bool) = true;
-                      while runtime(((sl_i < n_sl) && sl_ok)), {
+                      while(runtime((sl_i < n_sl) && sl_ok), {
                         a_idx := (asi + sl_i);
                         b_idx := (bsi + sl_i);
-                        match(aelems.get(a_idx),
+                        match(
+                          aelems.get(a_idx),
                           .Some(ae) =>
-                            match(belems.get(b_idx),
-                              .Some(be) => { sl_ok = recur(ae, be); },
-                              .None     => { sl_ok = false; }
+                            match(
+                              belems.get(b_idx),
+                              .Some(be) => {
+                                sl_ok = recur(ae, be);
+                              },
+                              .None => {
+                                sl_ok = false;
+                              }
                             ),
-                          .None => { sl_ok = false; }
+                          .None => {
+                            sl_ok = false;
+                          }
                         );
                         sl_i = (sl_i + usize(1));
-                      };
+                      });
                       sl_ok
                     },
                     _ => false
@@ -443,7 +491,8 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
     // PtrVal: pointer alias identity is not portable; always unequal.
     .PtrVal(_, _) => false,
     .TraitVal(atn, afnames, afvals) =>
-      match(b,
+      match(
+        b,
         .TraitVal(btn, bfnames, bfvals) =>
           cond(
             (!(atn.as_str() == btn.as_str())) => false,
@@ -453,48 +502,67 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_tr := afnames.len();
               (tr_i : usize) = usize(0);
               (tr_ok : bool) = true;
-              while runtime(((tr_i < n_tr) && tr_ok)), {
-                match(afnames.get(tr_i),
+              while(runtime((tr_i < n_tr) && tr_ok), {
+                match(
+                  afnames.get(tr_i),
                   .Some(an_s) =>
-                    match(bfnames.get(tr_i),
+                    match(
+                      bfnames.get(tr_i),
                       .Some(bn_s) => {
                         cond(
-                          (!(an_s.as_str() == bn_s.as_str())) => { tr_ok = false; },
+                          (!(an_s.as_str() == bn_s.as_str())) => {
+                            tr_ok = false;
+                          },
                           true => ()
                         );
                       },
-                      .None => { tr_ok = false; }
+                      .None => {
+                        tr_ok = false;
+                      }
                     ),
-                  .None => { tr_ok = false; }
+                  .None => {
+                    tr_ok = false;
+                  }
                 );
-                match(afvals.get(tr_i),
+                match(
+                  afvals.get(tr_i),
                   .Some(ao) =>
-                    match(bfvals.get(tr_i),
+                    match(
+                      bfvals.get(tr_i),
                       .Some(bo) => {
                         cond(
                           (ao.is_none() && bo.is_none()) => (),
                           (ao.is_some() && bo.is_some()) => {
                             cond(
-                              (!(recur(ao.unwrap(), bo.unwrap()))) => { tr_ok = false; },
+                              (!(recur(ao.unwrap(), bo.unwrap()))) => {
+                                tr_ok = false;
+                              },
                               true => ()
                             );
                           },
-                          true => { tr_ok = false; }
+                          true => {
+                            tr_ok = false;
+                          }
                         );
                       },
-                      .None => { tr_ok = false; }
+                      .None => {
+                        tr_ok = false;
+                      }
                     ),
-                  .None => { tr_ok = false; }
+                  .None => {
+                    tr_ok = false;
+                  }
                 );
                 tr_i = (tr_i + usize(1));
-              };
+              });
               tr_ok
             }
           ),
         _ => false
       ),
     .ComptimeListVal(aes) =>
-      match(b,
+      match(
+        b,
         .ComptimeListVal(bes) =>
           cond(
             (aes.len() != bes.len()) => false,
@@ -502,26 +570,37 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
               n_cl := aes.len();
               (cl_i : usize) = usize(0);
               (cl_ok : bool) = true;
-              while runtime(((cl_i < n_cl) && cl_ok)), {
-                match(aes.get(cl_i),
+              while(runtime((cl_i < n_cl) && cl_ok), {
+                match(
+                  aes.get(cl_i),
                   .Some(ae) =>
-                    match(bes.get(cl_i),
-                      .Some(be) => { cl_ok = recur(ae, be); },
-                      .None     => { cl_ok = false; }
+                    match(
+                      bes.get(cl_i),
+                      .Some(be) => {
+                        cl_ok = recur(ae, be);
+                      },
+                      .None => {
+                        cl_ok = false;
+                      }
                     ),
-                  .None => { cl_ok = false; }
+                  .None => {
+                    cl_ok = false;
+                  }
                 );
                 cl_i = (cl_i + usize(1));
-              };
+              });
               cl_ok
             }
           ),
         _ => false
       ),
     // ExprVal: structural equality on Atom token values; FnCall not yet supported.
-    .ExprVal(a_ex) => match(b,
-      .ExprVal(b_ex) => match(a_ex.*,
-        .Atom(_, atok) => match(b_ex.*,
+    .ExprVal(a_ex) => match(
+      b,
+      .ExprVal(b_ex) => match(
+        a_ex.*,
+        .Atom(_, atok) => match(
+          b_ex.*,
           .Atom(_, btok) => (atok.value.as_str() == btok.value.as_str()),
           _ => false
         ),
@@ -530,24 +609,24 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       _ => false
     ),
     // UnknownVal: two unknowns are equal if they represent the same type.
-    .UnknownVal(aty) => match(b, .UnknownVal(bty) => are_types_compatible(aty.*, bty.*), _ => false)
+    .UnknownVal(aty) => match(b,.UnknownVal(bty) => are_types_compatible(aty.*, bty.*), _ => false)
   )
 );
-
-impl(EvalValue, Eq(EvalValue)(
-  (==) : (fn(a : Self, b : Self) -> bool)(eval_value_eq(a, b))
-));
-
+impl(
+  EvalValue,
+  Eq(EvalValue)(
+    (==) : (fn(a : Self, b : Self) -> bool)(eval_value_eq(a, b))
+  )
+);
 // ---------------------------------------------------------------------------
 // value_to_string — mirrors `valueToString` from src/value.ts
 // ---------------------------------------------------------------------------
-
-{ type_to_string } :: import "../types/string.yo";
-
+{ type_to_string } :: import("../types/string.yo");
 /// Convert an `EvalValue` to a human-readable string for debugging.
 /// Mirrors `valueToString` in `src/value.ts`.
 value_to_string :: (fn(v : EvalValue) -> String)(
-  match(v,
+  match(
+    v,
     .UnitVal => String.from("()"),
     .BoolVal(b) => if(b, String.from("true"), String.from("false")),
     .IntLit(raw) => String.from(raw.as_str()),
@@ -561,12 +640,15 @@ value_to_string :: (fn(v : EvalValue) -> String)(
           parts := String.from("");
           (fi : usize) = usize(0);
           n_f := fields.len();
-          while runtime((fi < n_f)), {
+          while(runtime(fi < n_f), {
             cond(
-              (fi > usize(0)) => { parts = `${parts}, `; },
+              (fi > usize(0)) => {
+                parts = `${parts}, `;
+              },
               true => ()
             );
-            match(fields.get(fi),
+            match(
+              fields.get(fi),
               .Some(f) => {
                 fs := recur(f);
                 parts = `${parts}${fs}`;
@@ -574,7 +656,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
               .None => ()
             );
             fi = (fi + usize(1));
-          };
+          });
           `${variant}(${parts})`
         }
       ),
@@ -582,17 +664,22 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       param_str := String.from("");
       (pi : usize) = usize(0);
       n_p := params.len();
-      while runtime((pi < n_p)), {
+      while(runtime(pi < n_p), {
         cond(
-          (pi > usize(0)) => { param_str = `${param_str}, `; },
+          (pi > usize(0)) => {
+            param_str = `${param_str}, `;
+          },
           true => ()
         );
-        match(params.get(pi),
-          .Some(p) => { param_str = `${param_str}${p}`; },
-          .None    => ()
+        match(
+          params.get(pi),
+          .Some(p) => {
+            param_str = `${param_str}${p}`;
+          },
+          .None => ()
         );
         pi = (pi + usize(1));
-      };
+      });
       `<fn(${param_str})>`
     },
     .ReturnVal(val, _) => {
@@ -606,50 +693,62 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       parts_sv := String.from("");
       (svi : usize) = usize(0);
       n_sv := field_names.len();
-      while runtime((svi < n_sv)), {
+      while(runtime(svi < n_sv), {
         cond(
-          (svi > usize(0)) => { parts_sv = `${parts_sv}, `; },
+          (svi > usize(0)) => {
+            parts_sv = `${parts_sv}, `;
+          },
           true => ()
         );
-        match(field_names.get(svi),
+        match(
+          field_names.get(svi),
           .Some(fn_s) => {
-            match(field_values.get(svi),
+            match(
+              field_values.get(svi),
               .Some(fv_s) => {
                 fvs := recur(fv_s);
                 parts_sv = `${parts_sv}${fn_s}: ${fvs}`;
               },
-              .None => { parts_sv = `${parts_sv}${fn_s}`; }
+              .None => {
+                parts_sv = `${parts_sv}${fn_s}`;
+              }
             );
           },
           .None => ()
         );
         svi = (svi + usize(1));
-      };
+      });
       `${ty_name}(${parts_sv})`
     },
     .ModuleVal(names, values) => {
       parts_mv := String.from("");
       (mvi : usize) = usize(0);
       n_mv := names.len();
-      while runtime((mvi < n_mv)), {
+      while(runtime(mvi < n_mv), {
         cond(
-          (mvi > usize(0)) => { parts_mv = `${parts_mv}, `; },
+          (mvi > usize(0)) => {
+            parts_mv = `${parts_mv}, `;
+          },
           true => ()
         );
-        match(names.get(mvi),
+        match(
+          names.get(mvi),
           .Some(mn) => {
-            match(values.get(mvi),
+            match(
+              values.get(mvi),
               .Some(mv_v) => {
                 mvvs := recur(mv_v);
                 parts_mv = `${parts_mv}${mn}: ${mvvs}`;
               },
-              .None => { parts_mv = `${parts_mv}${mn}`; }
+              .None => {
+                parts_mv = `${parts_mv}${mn}`;
+              }
             );
           },
           .None => ()
         );
         mvi = (mvi + usize(1));
-      };
+      });
       `module(${parts_mv})`
     },
     .TupleVal(fields) => {
@@ -659,12 +758,15 @@ value_to_string :: (fn(v : EvalValue) -> String)(
         true => {
           parts_tup := String.from("");
           (ti : usize) = usize(0);
-          while runtime((ti < n_tup)), {
+          while(runtime(ti < n_tup), {
             cond(
-              (ti > usize(0)) => { parts_tup = `${parts_tup}, `; },
+              (ti > usize(0)) => {
+                parts_tup = `${parts_tup}, `;
+              },
               true => ()
             );
-            match(fields.get(ti),
+            match(
+              fields.get(ti),
               .Some(f) => {
                 fs_tup := recur(f);
                 parts_tup = `${parts_tup}${fs_tup}`;
@@ -672,10 +774,10 @@ value_to_string :: (fn(v : EvalValue) -> String)(
               .None => ()
             );
             ti = (ti + usize(1));
-          };
+          });
           cond(
             (n_tup == usize(1)) => `(${parts_tup},)`,
-            true                => `(${parts_tup})`
+            true => `(${parts_tup})`
           )
         }
       )
@@ -684,12 +786,15 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       n_arr := elements.len();
       parts_arr := String.from("");
       (arri : usize) = usize(0);
-      while runtime((arri < n_arr)), {
+      while(runtime(arri < n_arr), {
         cond(
-          (arri > usize(0)) => { parts_arr = `${parts_arr}, `; },
+          (arri > usize(0)) => {
+            parts_arr = `${parts_arr}, `;
+          },
           true => ()
         );
-        match(elements.get(arri),
+        match(
+          elements.get(arri),
           .Some(e) => {
             es_arr := recur(e);
             parts_arr = `${parts_arr}${es_arr}`;
@@ -697,25 +802,29 @@ value_to_string :: (fn(v : EvalValue) -> String)(
           .None => ()
         );
         arri = (arri + usize(1));
-      };
+      });
       cond(
         (n_arr == usize(1)) => `[${parts_arr},]`,
-        true                => `[${parts_arr}]`
+        true => `[${parts_arr}]`
       )
     },
     .SliceVal(source, start_idx, end_idx) =>
-      match(source.*,
+      match(
+        source.*,
         .ArrayVal(elems) => {
           n_sl_vs := (end_idx - start_idx);
           parts_sl := String.from("");
           (sli : usize) = usize(0);
-          while runtime((sli < n_sl_vs)), {
+          while(runtime(sli < n_sl_vs), {
             cond(
-              (sli > usize(0)) => { parts_sl = `${parts_sl}, `; },
+              (sli > usize(0)) => {
+                parts_sl = `${parts_sl}, `;
+              },
               true => ()
             );
             idx_sl := (start_idx + sli);
-            match(elems.get(idx_sl),
+            match(
+              elems.get(idx_sl),
               .Some(e) => {
                 es_sl := recur(e);
                 parts_sl = `${parts_sl}${es_sl}`;
@@ -723,15 +832,17 @@ value_to_string :: (fn(v : EvalValue) -> String)(
               .None => ()
             );
             sli = (sli + usize(1));
-          };
+          });
           `slice[${parts_sl}]`
         },
         _ => String.from("slice[?]")
       ),
     .PtrVal(target, index) =>
-      match(target.*,
+      match(
+        target.*,
         .ArrayVal(elems) =>
-          match(elems.get(index),
+          match(
+            elems.get(index),
             .Some(e) => {
               es_ptr := recur(e);
               `<ptr to ${es_ptr}>`
@@ -747,41 +858,53 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       parts_tr := String.from("");
       (tri : usize) = usize(0);
       n_tr_f := field_names.len();
-      while runtime((tri < n_tr_f)), {
+      while(runtime(tri < n_tr_f), {
         cond(
-          (tri > usize(0)) => { parts_tr = `${parts_tr}, `; },
+          (tri > usize(0)) => {
+            parts_tr = `${parts_tr}, `;
+          },
           true => ()
         );
-        match(field_names.get(tri),
+        match(
+          field_names.get(tri),
           .Some(fn_tr) => {
-            match(field_values.get(tri),
+            match(
+              field_values.get(tri),
               .Some(fv_opt) =>
-                match(fv_opt,
+                match(
+                  fv_opt,
                   .Some(fv_tr) => {
                     fvtrs := recur(fv_tr);
                     parts_tr = `${parts_tr}${fn_tr}: ${fvtrs}`;
                   },
-                  .None => { parts_tr = `${parts_tr}${fn_tr}: <runtime>`; }
+                  .None => {
+                    parts_tr = `${parts_tr}${fn_tr}: <runtime>`;
+                  }
                 ),
-              .None => { parts_tr = `${parts_tr}${fn_tr}`; }
+              .None => {
+                parts_tr = `${parts_tr}${fn_tr}`;
+              }
             );
           },
           .None => ()
         );
         tri = (tri + usize(1));
-      };
+      });
       `${ty_name}(${parts_tr})`
     },
     .ComptimeListVal(elements) => {
       parts_cl := String.from("");
       (cli : usize) = usize(0);
       n_cl_vs := elements.len();
-      while runtime((cli < n_cl_vs)), {
+      while(runtime(cli < n_cl_vs), {
         cond(
-          (cli > usize(0)) => { parts_cl = `${parts_cl}, `; },
+          (cli > usize(0)) => {
+            parts_cl = `${parts_cl}, `;
+          },
           true => ()
         );
-        match(elements.get(cli),
+        match(
+          elements.get(cli),
           .Some(e) => {
             es_cl := recur(e);
             parts_cl = `${parts_cl}${es_cl}`;
@@ -789,7 +912,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
           .None => ()
         );
         cli = (cli + usize(1));
-      };
+      });
       `comptime_list(${parts_cl})`
     },
     .ExprVal(_) => String.from("<expr>"),
@@ -799,43 +922,40 @@ value_to_string :: (fn(v : EvalValue) -> String)(
     }
   )
 );
-
 // ---------------------------------------------------------------------------
 // Type predicate functions — mirrors is* functions from src/value.ts
 // ---------------------------------------------------------------------------
-
-is_unit_val          :: (fn(v : EvalValue) -> bool)(match(v, .UnitVal         => true, _ => false));
-is_bool_val          :: (fn(v : EvalValue) -> bool)(match(v, .BoolVal(_)       => true, _ => false));
-is_int_lit           :: (fn(v : EvalValue) -> bool)(match(v, .IntLit(_)        => true, _ => false));
-is_float_lit         :: (fn(v : EvalValue) -> bool)(match(v, .FloatLit(_)      => true, _ => false));
-is_str_lit           :: (fn(v : EvalValue) -> bool)(match(v, .StrLit(_)        => true, _ => false));
-is_var_ref           :: (fn(v : EvalValue) -> bool)(match(v, .VarRef(_)        => true, _ => false));
-is_enum_val          :: (fn(v : EvalValue) -> bool)(match(v, .EnumVal(_, _)    => true, _ => false));
-is_func_val          :: (fn(v : EvalValue) -> bool)(match(v, .FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false));
-is_return_val        :: (fn(v : EvalValue) -> bool)(match(v, .ReturnVal(_, _)  => true, _ => false));
-is_break_val         :: (fn(v : EvalValue) -> bool)(match(v, .BreakVal          => true, _ => false));
-is_continue_val      :: (fn(v : EvalValue) -> bool)(match(v, .ContinueVal      => true, _ => false));
-is_type_val          :: (fn(v : EvalValue) -> bool)(match(v, .TypeVal(_)       => true, _ => false));
-is_struct_val        :: (fn(v : EvalValue) -> bool)(match(v, .StructVal(_, _, _) => true, _ => false));
-is_module_val        :: (fn(v : EvalValue) -> bool)(match(v, .ModuleVal(_, _)  => true, _ => false));
-is_tuple_val         :: (fn(v : EvalValue) -> bool)(match(v, .TupleVal(_)      => true, _ => false));
-is_array_val         :: (fn(v : EvalValue) -> bool)(match(v, .ArrayVal(_)      => true, _ => false));
-is_slice_val         :: (fn(v : EvalValue) -> bool)(match(v, .SliceVal(_, _, _) => true, _ => false));
-is_ptr_val           :: (fn(v : EvalValue) -> bool)(match(v, .PtrVal(_, _)     => true, _ => false));
-is_trait_val         :: (fn(v : EvalValue) -> bool)(match(v, .TraitVal(_, _, _) => true, _ => false));
-is_comptime_list_val :: (fn(v : EvalValue) -> bool)(match(v, .ComptimeListVal(_) => true, _ => false));
-is_expr_val          :: (fn(v : EvalValue) -> bool)(match(v, .ExprVal(_)       => true, _ => false));
-is_unknown_val       :: (fn(v : EvalValue) -> bool)(match(v, .UnknownVal(_)    => true, _ => false));
-
+is_unit_val :: (fn(v : EvalValue) -> bool)(match(v,.UnitVal => true, _ => false));
+is_bool_val :: (fn(v : EvalValue) -> bool)(match(v,.BoolVal(_) => true, _ => false));
+is_int_lit :: (fn(v : EvalValue) -> bool)(match(v,.IntLit(_) => true, _ => false));
+is_float_lit :: (fn(v : EvalValue) -> bool)(match(v,.FloatLit(_) => true, _ => false));
+is_str_lit :: (fn(v : EvalValue) -> bool)(match(v,.StrLit(_) => true, _ => false));
+is_var_ref :: (fn(v : EvalValue) -> bool)(match(v,.VarRef(_) => true, _ => false));
+is_enum_val :: (fn(v : EvalValue) -> bool)(match(v,.EnumVal(_, _) => true, _ => false));
+is_func_val :: (fn(v : EvalValue) -> bool)(match(v,.FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false));
+is_return_val :: (fn(v : EvalValue) -> bool)(match(v,.ReturnVal(_, _) => true, _ => false));
+is_break_val :: (fn(v : EvalValue) -> bool)(match(v,.BreakVal => true, _ => false));
+is_continue_val :: (fn(v : EvalValue) -> bool)(match(v,.ContinueVal => true, _ => false));
+is_type_val :: (fn(v : EvalValue) -> bool)(match(v,.TypeVal(_) => true, _ => false));
+is_struct_val :: (fn(v : EvalValue) -> bool)(match(v,.StructVal(_, _, _) => true, _ => false));
+is_module_val :: (fn(v : EvalValue) -> bool)(match(v,.ModuleVal(_, _) => true, _ => false));
+is_tuple_val :: (fn(v : EvalValue) -> bool)(match(v,.TupleVal(_) => true, _ => false));
+is_array_val :: (fn(v : EvalValue) -> bool)(match(v,.ArrayVal(_) => true, _ => false));
+is_slice_val :: (fn(v : EvalValue) -> bool)(match(v,.SliceVal(_, _, _) => true, _ => false));
+is_ptr_val :: (fn(v : EvalValue) -> bool)(match(v,.PtrVal(_, _) => true, _ => false));
+is_trait_val :: (fn(v : EvalValue) -> bool)(match(v,.TraitVal(_, _, _) => true, _ => false));
+is_comptime_list_val :: (fn(v : EvalValue) -> bool)(match(v,.ComptimeListVal(_) => true, _ => false));
+is_expr_val :: (fn(v : EvalValue) -> bool)(match(v,.ExprVal(_) => true, _ => false));
+is_unknown_val :: (fn(v : EvalValue) -> bool)(match(v,.UnknownVal(_) => true, _ => false));
 /// Check if an `Option(EvalValue)` contains a `TypeVal`.
 /// Mirrors `isTypeValue(value)` from `src/value.ts`.
 is_type_value :: (fn(opt : Option(EvalValue)) -> bool)(
-  match(opt,
-    .Some(v) => match(v, .TypeVal(_) => true, _ => false),
-    .None    => false
+  match(
+    opt,
+    .Some(v) => match(v,.TypeVal(_) => true, _ => false),
+    .None => false
   )
 );
-
 /// Create a compile-time unknown placeholder for type `ty`.
 /// Mirrors `createUnknownValue` in `src/value.ts` for the common (non-SomeType) case.
 /// For type-level unknowns (`TypeUni(0)`), the production evaluator returns a
@@ -843,27 +963,23 @@ is_type_value :: (fn(opt : Option(EvalValue)) -> bool)(
 create_unknown_val :: (fn(ty : TypeValue) -> EvalValue)(
   EvalValue.UnknownVal(Box(TypeValue)(ty))
 );
-
 /// The result of evaluating a single `AstExpr` node.
 EvalResult :: object(
   /// The evaluated value (or a runtime reference marker).
   value : EvalValue,
   /// The compile-time type of the expression.
-  ty    : TypeValue
+  ty : TypeValue
 );
-
 /// Construct an `EvalResult` with the given value and type.
 eval_result :: (fn(value : EvalValue, ty : TypeValue) -> EvalResult)(
-  EvalResult(value: value, ty: ty)
+  EvalResult(value : value, ty : ty)
 );
-
 /// Wrap a TypeValue as a TypeVal EvalValue. Mirrors `createTypeValue` in
 /// `src/value.ts`. The "meta type" (TypeUni) is computed separately via
 /// `type_of_type` at call sites that need it.
 create_type_value :: (fn(ty : TypeValue) -> EvalValue)(
   EvalValue.TypeVal(box(ty))
 );
-
 /// Best-effort recovery of a `TypeValue` from a comptime `EvalValue`.
 ///
 /// Mirrors the contract of "ModuleValue.type" / "StructValue.type" in
@@ -874,48 +990,50 @@ create_type_value :: (fn(ty : TypeValue) -> EvalValue)(
 /// `t_unit()`, which matches the production behavior of treating such fields
 /// as opaque comptime bindings.
 type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
-  match(v,
-    .UnitVal              => t_unit(),
-    .BoolVal(_)           => t_bool(),
-    .IntLit(_)            => t_comptime_int(),
-    .FloatLit(_)          => t_comptime_float(),
-    .StrLit(_)            => t_comptime_string(),
-    .TypeVal(_)           => t_type(),
+  match(
+    v,
+    .UnitVal => t_unit(),
+    .BoolVal(_) => t_bool(),
+    .IntLit(_) => t_comptime_int(),
+    .FloatLit(_) => t_comptime_float(),
+    .StrLit(_) => t_comptime_string(),
+    .TypeVal(_) => t_type(),
     .StructVal(name, labels, vals) => {
       // Reconstruct a Struct type from parallel field info.
       tys := ArrayList(TypeValue).new();
       i := usize(0);
-      while runtime((i < vals.len())), {
-        match(vals.get(i),
+      while(runtime(i < vals.len()), {
+        match(
+          vals.get(i),
           .Some(fv) => tys.push(recur(fv)),
-          .None     => tys.push(t_unit())
+          .None => tys.push(t_unit())
         );
         i = (i + usize(1));
-      };
+      });
       .Struct(String.from(""), name, labels, tys, false, false, false)
     },
     .ModuleVal(names, vals) => {
       tys := ArrayList(TypeValue).new();
       i := usize(0);
-      while runtime((i < vals.len())), {
-        match(vals.get(i),
+      while(runtime(i < vals.len()), {
+        match(
+          vals.get(i),
           .Some(fv) => tys.push(recur(fv)),
-          .None     => tys.push(t_unit())
+          .None => tys.push(t_unit())
         );
         i = (i + usize(1));
-      };
+      });
       .ModuleT(String.from(""), String.from(""), names, tys)
     },
     .UnknownVal(ty) => ty.*,
     _ => t_unit()
   )
 );
-
-export EvalValue, EvalResult, eval_result, create_type_value, type_of_eval_value;
-export value_to_string;
-export is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref;
-export is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val;
-export is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val;
-export is_comptime_list_val, is_expr_val, is_unknown_val;
-export is_type_value, create_unknown_val;
-export eval_value_eq;
+export(EvalValue, EvalResult, eval_result, create_type_value, type_of_eval_value);
+export(value_to_string);
+export(is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref);
+export(is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val);
+export(is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val);
+export(is_comptime_list_val, is_expr_val, is_unknown_val);
+export(is_type_value, create_unknown_val);
+export(eval_value_eq);

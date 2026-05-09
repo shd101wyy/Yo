@@ -1094,8 +1094,14 @@ export function evaluateBeginExpression({
           errorMessage: `The "return" keyword can only be used as the last expression.`,
         });
       }
-      if (exprIsFunctionCall(exprToEvaluate)) {
-        expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
+      if (
+        exprIsFunctionCall(exprToEvaluate) &&
+        exprToEvaluate.args.length > 1
+      ) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "return" keyword accepts at most one argument.`,
+        });
       }
 
       if (!context.isEvaluatingFunctionBodyOrAsyncBlock) {
@@ -1106,8 +1112,11 @@ export function evaluateBeginExpression({
       }
       returnExpr = exprToEvaluate;
 
-      if (exprIsAtom(exprToEvaluate)) {
-        // return;
+      if (
+        exprIsAtom(exprToEvaluate) ||
+        (exprIsFunctionCall(exprToEvaluate) && exprToEvaluate.args.length === 0)
+      ) {
+        // return; / return();
         // return unit
         exprToEvaluate.$ = {
           env,
@@ -1123,6 +1132,9 @@ export function evaluateBeginExpression({
 
         // Return the first argument
         // Evaluate the return expression
+        if (!exprIsFunctionCall(exprToEvaluate)) {
+          throw new Error(`Internal error: return expression is not a call`);
+        }
         expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.return, 1);
         const returnArg = exprToEvaluate.args[0]!;
 
@@ -1322,8 +1334,40 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
       returnExpr = exprToEvaluate;
 
-      expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.escape, 1);
-      const escapeArg = exprToEvaluate.args[0]!;
+      if (exprToEvaluate.args.length > 1) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "escape" keyword accepts at most one argument.`,
+        });
+      }
+
+      const escapeArg = exprToEvaluate.args[0];
+      if (!escapeArg) {
+        if (
+          !isSomeType(context.enclosingFunctionReturnType) &&
+          !areTypesCompatible(
+            { type: context.enclosingFunctionReturnType, env },
+            { type: VUnit.type, env }
+          )
+        ) {
+          throw formatErrorMessage({
+            token: exprToEvaluate.token,
+            errorMessage: `Incompatible type for \`escape\` argument:
+- Expected (enclosing function return type): ${typeToString(context.enclosingFunctionReturnType)}
+- Got: ${typeToString(VUnit.type)}`,
+          });
+        }
+
+        exprToEvaluate.$ = {
+          env,
+          type: VUnit.type,
+          value: undefined,
+          pathCollection: [],
+          controlFlow: controlFlowOf("escape"),
+        };
+        lastExpr = exprToEvaluate;
+        break;
+      }
 
       const evaluatedEscapeArgExpr = evaluateExpression({
         expr: escapeArg,

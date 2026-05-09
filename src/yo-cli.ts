@@ -12,6 +12,7 @@ import {
   clearBuildRegistry,
   getBuildRegistry,
 } from "./evaluator/builtins/build";
+import { formatYoFiles } from "./formatter";
 import { initProject } from "./init";
 import { ModuleManager } from "./module-manager";
 import {
@@ -160,6 +161,12 @@ Example:
   $ yo test                      Run all *.test.yo files in the workspace
   $ yo test ./tests              Run all *.test.yo files in ./tests directory
   $ yo test ./some-file.yo       Run tests in some-file.yo
+
+yo fmt [paths...] [options]      Format Yo source files
+Examples:
+  $ yo fmt                       Format all .yo files in the current directory
+  $ yo fmt src tests             Format .yo files under src and tests
+  $ yo fmt --check               Check formatting without writing files
 
 yo doc [path] [options]          Generate API documentation
 Examples:
@@ -770,6 +777,49 @@ yo --version                     Show version number
           defines: Object.keys(defines).length > 0 ? defines : undefined,
           summary: argv.summary as boolean,
         });
+      }
+    )
+    .command(
+      "fmt [paths..]",
+      "Format Yo source files",
+      (_yargs) => {
+        _yargs
+          .positional("paths", {
+            describe:
+              "Files or directories to format (default: current directory)",
+            type: "string",
+            array: true,
+          })
+          .option("check", {
+            describe: "Check formatting without writing changes",
+            type: "boolean",
+            default: false,
+          });
+      },
+      (argv) => {
+        try {
+          const paths = (argv.paths as string[] | undefined) ?? [];
+          const cwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
+          const result = formatYoFiles(paths, {
+            check: argv.check as boolean,
+            cwd,
+          });
+
+          if ((argv.check as boolean) && result.changed.length > 0) {
+            console.error("The following Yo files need formatting:");
+            for (const file of result.changed) {
+              console.error(path.relative(cwd, file));
+            }
+            process.exit(1);
+          }
+
+          if (!(argv.check as boolean) && result.changed.length > 0) {
+            console.log(`Formatted ${result.changed.length} Yo file(s).`);
+          }
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : String(error));
+          process.exit(1);
+        }
       }
     )
     .command(

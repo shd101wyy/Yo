@@ -1,173 +1,163 @@
 //! Mutable UTF-8 string builder for efficient incremental construction.
-
-{ ArrayList } :: import "../collections/array_list.yo";
-{ rune } :: import "./rune.yo";
-{ String } :: import "./string.yo";
-
+{ ArrayList } :: import("../collections/array_list.yo");
+{ rune } :: import("./rune.yo");
+{ String } :: import("./string.yo");
 /**
- * Mutable buffer for building a `String` incrementally.
- *
- * Use `StringBuilder` when you need to construct a string from many parts,
- * appending bytes or strings in a loop, before converting to an immutable
- * `String` with `to_string()`.
- *
- * ## Example
- * ```rust
- * sb := StringBuilder.new();
- * sb.write_str("Hello");
- * sb.write_str(", ");
- * sb.write_string(`world`);
- * sb.write_byte(u8(33));  // '!'
- * result := sb.to_string();
- * assert(result == `Hello, world!`, "built string");
- * ```
- */
+* Mutable buffer for building a `String` incrementally.
+*
+* Use `StringBuilder` when you need to construct a string from many parts,
+* appending bytes or strings in a loop, before converting to an immutable
+* `String` with `to_string()`.
+*
+* ## Example
+* ```rust
+* sb := StringBuilder.new();
+* sb.write_str("Hello");
+* sb.write_str(", ");
+* sb.write_string(`world`);
+* sb.write_byte(u8(33));  // '!'
+* result := sb.to_string();
+* assert(result == `Hello, world!`, "built string");
+* ```
+*/
 StringBuilder :: object(
   _buf : ArrayList(u8)
 );
-
-impl(StringBuilder,
+impl(
+  StringBuilder,
   /**
-   * Create a new, empty `StringBuilder`.
-   */
+  * Create a new, empty `StringBuilder`.
+  */
   new : (fn() -> Self)(
-    Self(_buf: ArrayList(u8).new())
+    Self(_buf : ArrayList(u8).new())
   ),
-
   /**
-   * Create a `StringBuilder` pre-allocated for `capacity` bytes.
-   */
-  with_capacity : (fn(capacity: usize) -> Self)(
-    Self(_buf: ArrayList(u8).with_capacity(capacity))
+  * Create a `StringBuilder` pre-allocated for `capacity` bytes.
+  */
+  with_capacity : (fn(capacity : usize) -> Self)(
+    Self(_buf : ArrayList(u8).with_capacity(capacity))
   ),
-
   /**
-   * Returns the current number of bytes in the buffer.
-   */
-  len : (fn(self: *(Self)) -> usize)(
+  * Returns the current number of bytes in the buffer.
+  */
+  len : (fn(self : *(Self)) -> usize)(
     self._buf.len()
   ),
-
   /**
-   * Returns true if the buffer is empty.
-   */
-  is_empty : (fn(self: *(Self)) -> bool)(
-    (self._buf.len() == usize(0))
+  * Returns true if the buffer is empty.
+  */
+  is_empty : (fn(self : *(Self)) -> bool)(
+    self._buf.len() == usize(0)
   ),
-
   /**
-   * Append a `str` (raw byte slice) to the buffer.
-   */
-  write_str : (fn(self: *(Self), s: str) -> unit)({
+  * Append a `str` (raw byte slice) to the buffer.
+  */
+  write_str : (fn(self : *(Self), s : str) -> unit)({
     byte_len := s.len();
-    if((byte_len > usize(0)), {
+    if(byte_len > usize(0), {
       self._buf.extend_from_ptr(s.ptr(), byte_len);
     });
   }),
-
   /**
-   * Append a `String` to the buffer.
-   */
-  write_string : (fn(self: *(Self), s: String) -> unit)(
-    match(s._bytes,
+  * Append a `String` to the buffer.
+  */
+  write_string : (fn(self : *(Self), s : String) -> unit)(
+    match(
+      s._bytes,
       .None => (),
       .Some(al) => {
         i := usize(0);
         n := al.len();
-        while ((i < n)),
-              (i = (i + usize(1))),
-        {
+        while(i < n, i = (i + usize(1)), {
           byte_opt := al.get(i);
-          match(byte_opt,
-            .Some(b) => { self._buf.push(b); },
+          match(
+            byte_opt,
+            .Some(b) => {
+              self._buf.push(b);
+            },
             .None => ()
           );
-        };
+        });
       }
     )
   ),
-
   /**
-   * Append a single byte to the buffer.
-   */
-  write_byte : (fn(self: *(Self), b: u8) -> unit)({
+  * Append a single byte to the buffer.
+  */
+  write_byte : (fn(self : *(Self), b : u8) -> unit)({
     self._buf.push(b);
   }),
-
   /**
-   * Append a single Unicode code point, encoded as UTF-8.
-   *
-   * ## Example
-   * ```rust
-   * sb := StringBuilder.new();
-   * sb.write_rune(rune(0x1F600));  // 😀
-   * sb.write_rune(rune(0x41));     // 'A'
-   * ```
-   */
-  write_rune : (fn(self: *(Self), r: rune) -> unit)({
+  * Append a single Unicode code point, encoded as UTF-8.
+  *
+  * ## Example
+  * ```rust
+  * sb := StringBuilder.new();
+  * sb.write_rune(rune(0x1F600));  // 😀
+  * sb.write_rune(rune(0x41));     // 'A'
+  * ```
+  */
+  write_rune : (fn(self : *(Self), r : rune) -> unit)({
     cp := r.char;
     cond(
       (cp < u32(0x80)) => {
         self._buf.push(u8(cp));
       },
       (cp < u32(0x800)) => {
-        self._buf.push(u8((u32(0xC0) | (cp >> u32(6)))));
-        self._buf.push(u8((u32(0x80) | (cp & u32(0x3F)))));
+        self._buf.push(u8(u32(0xC0) | (cp >> u32(6))));
+        self._buf.push(u8(u32(0x80) | (cp & u32(0x3F))));
       },
       (cp < u32(0x10000)) => {
-        self._buf.push(u8((u32(0xE0) | (cp >> u32(12)))));
-        self._buf.push(u8((u32(0x80) | ((cp >> u32(6)) & u32(0x3F)))));
-        self._buf.push(u8((u32(0x80) | (cp & u32(0x3F)))));
+        self._buf.push(u8(u32(0xE0) | (cp >> u32(12))));
+        self._buf.push(u8(u32(0x80) | ((cp >> u32(6)) & u32(0x3F))));
+        self._buf.push(u8(u32(0x80) | (cp & u32(0x3F))));
       },
       true => {
-        self._buf.push(u8((u32(0xF0) | (cp >> u32(18)))));
-        self._buf.push(u8((u32(0x80) | ((cp >> u32(12)) & u32(0x3F)))));
-        self._buf.push(u8((u32(0x80) | ((cp >> u32(6)) & u32(0x3F)))));
-        self._buf.push(u8((u32(0x80) | (cp & u32(0x3F)))));
+        self._buf.push(u8(u32(0xF0) | (cp >> u32(18))));
+        self._buf.push(u8(u32(0x80) | ((cp >> u32(12)) & u32(0x3F))));
+        self._buf.push(u8(u32(0x80) | ((cp >> u32(6)) & u32(0x3F))));
+        self._buf.push(u8(u32(0x80) | (cp & u32(0x3F))));
       }
     );
   }),
-
   /**
-   * Append a `String` followed by a newline byte (`\n`).
-   */
-  write_line : (fn(self: *(Self), s: String) -> unit)({
+  * Append a `String` followed by a newline byte (`\n`).
+  */
+  write_line : (fn(self : *(Self), s : String) -> unit)({
     self.write_string(s);
     self._buf.push(u8(10));
   }),
-
   /**
-   * Consume the builder and return the accumulated `String`.
-   * The builder is left empty after this call.
-   */
-  to_string : (fn(self: *(Self)) -> String)({
+  * Consume the builder and return the accumulated `String`.
+  * The builder is left empty after this call.
+  */
+  to_string : (fn(self : *(Self)) -> String)({
     n := self._buf.len();
     cond(
-      (n == usize(0)) => String(_bytes: .None),
+      (n == usize(0)) => String(_bytes :.None),
       true => {
         buf := ArrayList(u8).with_capacity(n);
         i := usize(0);
-        while ((i < n)),
-              (i = (i + usize(1))),
-        {
+        while(i < n, i = (i + usize(1)), {
           byte_opt := self._buf.get(i);
-          match(byte_opt,
-            .Some(b) => { buf.push(b); },
+          match(
+            byte_opt,
+            .Some(b) => {
+              buf.push(b);
+            },
             .None => ()
           );
-        };
+        });
         self._buf = ArrayList(u8).new();
-        String(_bytes: .Some(buf))
+        String(_bytes :.Some(buf))
       }
     )
   }),
-
   /**
-   * Clear the buffer without freeing memory.
-   */
-  clear : (fn(self: *(Self)) -> unit)({
+  * Clear the buffer without freeing memory.
+  */
+  clear : (fn(self : *(Self)) -> unit)({
     self._buf = ArrayList(u8).new();
   })
 );
-
-export StringBuilder;
+export(StringBuilder);

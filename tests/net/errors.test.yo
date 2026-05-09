@@ -1,79 +1,87 @@
-open import "std/libc/stdio";
-open import "std/string";
-open import "std/fmt";
-{ NetError } :: import "std/net/errors";
-{ IOError } :: import "std/sys/errors";
-{ Error, AnyError, Exception } :: import "std/error";
-
+open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/fmt"));
+{ NetError } :: import("std/net/errors");
+{ IOError } :: import("std/sys/errors");
+{ Error, AnyError, Exception } :: import("std/error");
 // ============================================================================
 // NetError tests
 // ============================================================================
-
-test "NetError.from_io maps ConnectionRefused", {
+test("NetError.from_io maps ConnectionRefused", {
   io_err := IOError.ConnectionRefused;
   net_err := NetError.from_io(io_err);
   s := net_err.to_string();
   printf("  err = %s\n", s.to_cstr().ptr().unwrap());
-  assert((s == `connection refused`), "should be connection refused");
-};
-
-test "NetError.from_io maps ConnectionReset", {
+  assert(s == `connection refused`, "should be connection refused");
+});
+test("NetError.from_io maps ConnectionReset", {
   io_err := IOError.ConnectionReset;
   net_err := NetError.from_io(io_err);
   s := net_err.to_string();
   printf("  err = %s\n", s.to_cstr().ptr().unwrap());
-  assert((s == `connection reset by peer`), "should be connection reset");
-};
-
-test "NetError.from_io maps TimedOut", {
+  assert(s == `connection reset by peer`, "should be connection reset");
+});
+test("NetError.from_io maps TimedOut", {
   io_err := IOError.TimedOut;
   net_err := NetError.from_io(io_err);
   s := net_err.to_string();
   printf("  err = %s\n", s.to_cstr().ptr().unwrap());
-  assert((s == `operation timed out`), "should be timed out");
-};
-
-test "NetError.from_io wraps unknown error in IO variant", {
+  assert(s == `operation timed out`, "should be timed out");
+});
+test("NetError.from_io wraps unknown error in IO variant", {
   io_err := IOError.WouldBlock;
   net_err := NetError.from_io(io_err);
   s := net_err.to_string();
   printf("  err = %s\n", s.to_cstr().ptr().unwrap());
-};
-
-test "NetError.check positive value returns value", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+});
+test("NetError.check positive value returns value", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   n := NetError.check(i32(42));
   printf("  ok = %d\n", n);
-  assert((n == i32(42)), "should be 42");
-};
-
-test "NetError.check zero returns zero", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+  assert(n == i32(42), "should be 42");
+});
+test("NetError.check zero returns zero", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   n := NetError.check(i32(0));
   printf("  ok = %d\n", n);
-  assert((n == i32(0)), "should be 0");
-};
-
-test "NetError.check negative value throws", {
-  given(exn) := Exception(throw : ((err) -> {
-    escape ();
-  }));
+  assert(n == i32(0), "should be 0");
+});
+test("NetError.check negative value throws", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        escape(());
+      }
+    )
+  );
   // -111 is ECONNREFUSED on Linux
-  NetError.check(i32(-111));
+  NetError.check(i32(-(111)));
   assert(false, "should have thrown");
-};
-
-test "NetError DNSFailed to_string", {
+});
+test("NetError DNSFailed to_string", {
   err := NetError.DNSFailed(`example.com`);
   s := err.to_string();
   printf("  err = %s\n", s.to_cstr().ptr().unwrap());
   assert(s.contains(`DNS lookup failed`), "should contain DNS lookup failed");
   assert(s.contains(`example.com`), "should contain hostname");
-};
-
-test "NetError Other to_string", {
+});
+test("NetError Other to_string", {
   err := NetError.Other(`custom error message`);
   s := err.to_string();
   printf("  err = %s\n", s.to_cstr().ptr().unwrap());
-  assert((s == `custom error message`), "should match");
-};
+  assert(s == `custom error message`, "should match");
+});

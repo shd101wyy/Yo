@@ -1,73 +1,64 @@
-test "Test comments", {
+test("Test comments", {
   /*
     This is a block comment
   */
   x :: 0;
-
   /*
   This is a nested block comment
   Outer comment
-    
     /*
       Inner comment
     */
-
     Yes the block comments can be nested
   */
   y :: 1;
-
   /**
-  * Define the operator precedence for the Yo language.  
-  * 1 is the lowest precedence.  
+  * Define the operator precedence for the Yo language.
+  * 1 is the lowest precedence.
   * Reference: https://rosettacode.org/wiki/Operator_precedence#Haskell
   */
-
   // This is a line comment
   // Another line comment
   // One more line comment
-};
-
-test "Test assignments", {
+});
+test("Test zero-arg return", {
+  returns_unit :: (fn() -> unit)({
+    return();
+  });
+  returns_unit();
+});
+test("Test assignments", {
   {
     x := 1;
     y := (x = 2);
-
     assert(x == 2);
     assert(y == 1);
   };
-
   {
     x := box(1);
     y := (x = box(2));
-
     assert(x.* == 2);
     assert(y.* == 1);
   };
-
   {
-    (x : [i32; 3]) = [1, 2, 3];
+    (x : [i32 ; 3]) = [1, 2, 3];
     y := (x = [2, 3, 4]);
-
     assert(x(0) == 2);
     assert(y(0) == 1);
   };
-
   {
     x : i32;
-    
     // Initialize a variable defined outside the function body is not allowed
-    test1 :: (fn() -> unit) {
+    test1 :: (fn() -> unit)({
       comptime_expect_error(
         x = 12,
         "Cannot initialize a variable that is defined outside the function body."
       );
-    
-    };
-    
+    });
     // Initialize a variable defined outside the while loop is not allowed
-    test2 :: (fn(flag: bool) -> unit) {
+    test2 :: (fn(flag : bool) -> unit)({
       y : i32;
-      while flag, {
+      while(flag, {
         comptime_expect_error(
           x = 12,
           "Cannot initialize a variable that is defined outside the while loop."
@@ -78,15 +69,13 @@ test "Test assignments", {
         );
         z : i32;
         z = 12;
-      };
+      });
       y = 12;
-    };
-    
+    });
     x = 13;
   };
-};
-
-test "Test bindings", {
+});
+test("Test bindings", {
   {
     x : i32;
     y : i32;
@@ -102,7 +91,6 @@ test "Test bindings", {
   {
     (x : bool) = true;
   };
-
   // Runtime mutable variable
   {
     x : i32;
@@ -112,7 +100,6 @@ test "Test bindings", {
     (x : bool) = true;
     x = false;
   };
-
   // Compile-time immutable variable
   {
     comptime(x) : i32;
@@ -122,7 +109,6 @@ test "Test bindings", {
     (comptime(x) : bool) = true;
     // x = false;
   };
-
   // Compile-time mutable variable
   {
     comptime(x) : i32;
@@ -132,45 +118,38 @@ test "Test bindings", {
     (comptime(x) : bool) = true;
     x = false;
   };
-
   // Runtime immutable variable
   {
     (x : i32) = 12;
     // x = 13; // error
   };
-
   // Runtime mutable variable
   {
     (x : i32) = 12;
     x = 13;
   };
-
   // Compile-time immutable variable
   {
     x :: 12;
     // x = 13; // error
   };
-
   {
     // Compile-time mutable variable
     x :: 12;
     x = 13;
   };
-
   {
     comptime(x) : Type;
-    x = struct(x: i32, y: i32);
+    x = struct(x : i32, y : i32);
   };
-};
-
-test "Test variable shadowing", {
+});
+test("Test variable shadowing", {
   {
     (x : i32) = 12;
     comptime_expect_error(
       x := 13 // Not allowed, because `x` already exists at the current frame.
     );
     assert(x == 12);
-
     {
       comptime_expect_error(
         x := 15 // Not allowed, because `x` already exists at upper frame.
@@ -178,60 +157,48 @@ test "Test variable shadowing", {
     };
     assert(x == 12);
   };
-};
-
-test "Test comptime", {
+});
+test("Test comptime", {
   comptime_12 :: (fn() -> comptime(i32))(
     12
   );
-
   Point :: struct(
     x : i32,
     y : i32
   );
-
   {
     x :: 13;
     y := x;
     z :: comptime_12();
     assert((y + z) == 25);
   };
-
   {
-    use_point :: (fn(p : Point) -> i32)
-      (p.x + p.y)
-    ;
-
+    use_point :: (fn(p : Point) -> i32)(p.x + p.y);
     p :: Point(comptime_12(), 16);
     assert(use_point(p) == 28);
   };
-};
-
-test "Test destructuring", {
+});
+test("Test destructuring", {
   // tuple destructuring
   {
     t := (1, 3.4, true);
-    (t2 : Tuple(a: i32, b: f64, c: bool)) = t;
-
+    (t2 : Tuple(a : i32, b : f64, c : bool)) = t;
     {
       // by index
       assert(t.0 == 1);
       assert(t.1 == 3.4);
       assert(t.2 == true);
     };
-
     {
       // by index
       assert(t2.0 == 1);
       assert(t2.1 == 3.4);
       assert(t2.2 == true);
-
       // by label
       assert(t2.a == 1);
       assert(t2.b == 3.4);
       assert(t2.c == true);
     };
-    
     {
       // by order
       (x, y, z) := t;
@@ -253,7 +220,6 @@ test "Test destructuring", {
       assert(b == 3.4);
       assert(c == true);
     };
-
     {
       // by label with different names
       (c : c1, b : b1, a : a1) := t2;
@@ -262,7 +228,6 @@ test "Test destructuring", {
       assert(c1 == true);
     };
   };
-
   // struct destructuring
   {
     Point :: struct(x : i32, y : f64);
@@ -292,25 +257,18 @@ test "Test destructuring", {
       assert(y == 4.5);
     };
   };
-};
-
-test "Test type auto derive Send", {
+});
+test("Test type auto derive Send", {
   comptime_assert(Type.impls(i32, Send));
-  
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Send) == true);
-  
   MyBox :: object(v : i32);
   comptime_assert(Type.impls(MyBox, Send) == false);
-  
-  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
-    struct(x : T, y : T)
-  ;
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(Type.impls(GenericPoint(i32), Send) == true);
   comptime_assert(Type.impls(GenericPoint(MyBox), Send) == false);
-};
-
-test "Test type auto derive Acyclic", {
+});
+test("Test type auto derive Acyclic", {
   // Primitive types are Acyclic
   // Compile-time only types
   comptime_assert(Type.impls(comptime_int, Acyclic));
@@ -318,7 +276,6 @@ test "Test type auto derive Acyclic", {
   comptime_assert(Type.impls(comptime_string, Acyclic));
   comptime_assert(Type.impls(Expr, Acyclic));
   comptime_assert(Type.impls(ComptimeList(i32), Acyclic));
-
   // Primitive types that can exist at comptime
   comptime_assert(Type.impls(bool, Acyclic));
   comptime_assert(Type.impls(usize, Acyclic));
@@ -334,7 +291,6 @@ test "Test type auto derive Acyclic", {
   comptime_assert(Type.impls(f32, Acyclic));
   comptime_assert(Type.impls(f64, Acyclic));
   comptime_assert(Type.impls(unit, Acyclic));
-
   // C compatible types are runtime only
   comptime_assert(Type.impls(void, Acyclic));
   comptime_assert(Type.impls(char, Acyclic));
@@ -347,43 +303,34 @@ test "Test type auto derive Acyclic", {
   comptime_assert(Type.impls(longlong, Acyclic));
   comptime_assert(Type.impls(ulonglong, Acyclic));
   comptime_assert(Type.impls(longdouble, Acyclic));
-
   // Value structs without object fields are Acyclic
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Acyclic) == true);
-  
   // Object types that don't form cycles are Acyclic
   SimpleBox :: object(v : i32);
   comptime_assert(Type.impls(SimpleBox, Acyclic) == true);
-  
   // Self-referencing object (can form cycle) is NOT Acyclic
-  Node :: object(value: i32, next: Option(Self));
+  Node :: object(value : i32, next : Option(Self));
   comptime_assert(Type.impls(Node, Acyclic) == false);
-  // 
+  //
   // Generic struct: Acyclic depends on type parameter
-  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
-    struct(x : T, y : T)
-  ;
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(Type.impls(GenericPoint(i32), Acyclic) == true);
   comptime_assert(Type.impls(GenericPoint(Node), Acyclic) == false);
-
   // Enum types
   Direction :: enum(North, South, East, West);
   comptime_assert(Type.impls(Direction, Acyclic) == true);
-  
   // Enum with i32 fields
   ResultInt :: enum(Ok(value : i32), Err(error : i32));
   comptime_assert(Type.impls(ResultInt, Acyclic) == true);
-};
-
-test "Test type auto derive Comptime", {
+});
+test("Test type auto derive Comptime", {
   // Compile-time only types
   comptime_assert(Type.impls(comptime_int, Comptime));
   comptime_assert(Type.impls(comptime_float, Comptime));
   comptime_assert(Type.impls(comptime_string, Comptime));
   comptime_assert(Type.impls(Expr, Comptime));
   comptime_assert(Type.impls(ComptimeList(i32), Comptime));
-
   // Primitive types that can exist at comptime
   comptime_assert(Type.impls(bool, Comptime));
   comptime_assert(Type.impls(usize, Comptime));
@@ -399,7 +346,6 @@ test "Test type auto derive Comptime", {
   comptime_assert(Type.impls(f32, Comptime));
   comptime_assert(Type.impls(f64, Comptime));
   comptime_assert(Type.impls(unit, Comptime));
-
   // C compatible types are runtime only
   comptime_assert(Type.impls(void, Comptime) == false);
   comptime_assert(Type.impls(char, Comptime) == false);
@@ -412,120 +358,97 @@ test "Test type auto derive Comptime", {
   comptime_assert(Type.impls(longlong, Comptime) == false);
   comptime_assert(Type.impls(ulonglong, Comptime) == false);
   comptime_assert(Type.impls(longdouble, Comptime) == false);
-  
   // Array
   comptime_assert(Type.impls(Array(i32, 3), Comptime));
   comptime_assert(Type.impls(Array(comptime_int, 3), Comptime));
   comptime_assert(Type.impls(Array(Box(i32), 3), Comptime) == false);
-  
   // Slice
   comptime_assert(Type.impls(Slice(i32), Comptime));
   comptime_assert(Type.impls(Slice(comptime_int), Comptime));
   comptime_assert(Type.impls(Slice(Box(i32)), Comptime) == false);
-
   // Tuple
   comptime_assert(Type.impls(Tuple(i32), Comptime));
   comptime_assert(Type.impls(Tuple(comptime_int), Comptime));
   comptime_assert(Type.impls(Tuple(Box(i32)), Comptime) == false);
-
   // Ptr
   // Yo support compile-time pointer
   comptime_assert(Type.impls(*(comptime_int), Comptime));
   comptime_assert(Type.impls(*(i32), Comptime));
   comptime_assert(Type.impls(*(Box(i32)), Comptime) == false);
-
-  
   // Function
   comptime_assert(Type.impls(fn() -> unit, Comptime));
-
   // Iso type is runtime only
   comptime_assert(Type.impls(Iso(i32), Comptime) == false);
-
   // Value structs with comptime-compatible fields are Comptime
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Comptime) == true);
-
   // Object types are NOT Comptime (reference-counted, runtime-only)
   MyBox :: object(v : i32);
   comptime_assert(Type.impls(MyBox, Comptime) == false);
-
   // Generic struct: Comptime depends on type parameter
-  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
-    struct(x : T, y : T)
-  ;
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(Type.impls(GenericPoint(i32), Comptime) == true);
   comptime_assert(Type.impls(GenericPoint(MyBox), Comptime) == false);
-
   // Enum types with comptime-compatible fields are Comptime
   Direction :: enum(North, South, East, West);
   comptime_assert(Type.impls(Direction, Comptime) == true);
-
   ResultInt :: enum(Ok(value : i32), Err(error : i32));
   comptime_assert(Type.impls(ResultInt, Comptime) == true);
-
   // Union type is runtime only
   UnionData :: union(a : i32, b : bool);
   comptime_assert(Type.impls(UnionData, Comptime) == false);
-
   // SomeType
-  fn1 :: (fn(comptime(T) : Type) -> unit) {
+  fn1 :: (fn(comptime(T) : Type) -> unit)({
     comptime_assert(Type.impls(T, Comptime) == false);
-  };
-  fn2 :: (fn(comptime(T) : Type, where(T <: Comptime)) -> unit) {
+  });
+  fn2 :: (fn(comptime(T) : Type, where(T <: Comptime)) -> unit)({
     comptime_assert(Type.impls(T, Comptime));
-  };
-  fn3 :: (fn(forall(T : Type), v : T) -> unit) {
+  });
+  fn3 :: (fn(forall(T : Type), v : T) -> unit)({
     comptime_assert(Type.impls(T, Comptime) == false);
-  };
-  fn4 :: (fn(forall(T : Type), v : T, where(T <: Comptime)) -> unit) {
+  });
+  fn4 :: (fn(forall(T : Type), v : T, where(T <: Comptime)) -> unit)({
     comptime_assert(Type.impls(T, Comptime));
-  };
-
+  });
   // Recursive type
   {
     SelfRecursive :: struct(
       v : i32,
-      next: *(Self)
+      next : *(Self)
     );
     // i32 is both comptime and runtime
     // *(Self) is both comptime and runtime
     // therefore SelfRecursive should be both comptime and runtime
     comptime_assert(Type.impls(SelfRecursive, Comptime));
-
-
     // next: *(Self) is both comptime and runtime
     // therefore SelfRecursive2 should be both comptime and runtime
     SelfRecursive2 :: struct(
-      next: *(Self)
+      next : *(Self)
     );
     comptime_assert(Type.impls(SelfRecursive2, Comptime));
-
     // v : int is only runtime
     // therefore SelfRecursive3 should be only runtime
     SelfRecursive3 :: struct(
       v : int,
-      next: *(Self)
+      next : *(Self)
     );
     comptime_assert(Type.impls(SelfRecursive3, Comptime) == false);
-
     // v : comptime_int is only comptime
     // therefore SelfRecursive4 should be only comptime
     SelfRecursive4 :: struct(
       v : comptime_int,
-      next: *(Self)
+      next : *(Self)
     );
     comptime_assert(Type.impls(SelfRecursive4, Comptime));
   };
-};
-
-test "Test type auto derive Runtime", {
+});
+test("Test type auto derive Runtime", {
   // Compile-time only types are not runtime available
   comptime_assert(Type.impls(comptime_int, Runtime) == false);
   comptime_assert(Type.impls(comptime_float, Runtime) == false);
   comptime_assert(Type.impls(comptime_string, Runtime) == false);
   comptime_assert(Type.impls(Expr, Runtime) == false);
   comptime_assert(Type.impls(ComptimeList(i32), Runtime) == false);
-
   // Primitive types that can exist at runtime
   comptime_assert(Type.impls(bool, Runtime));
   comptime_assert(Type.impls(i32, Runtime));
@@ -543,7 +466,6 @@ test "Test type auto derive Runtime", {
   comptime_assert(Type.impls(f32, Runtime));
   comptime_assert(Type.impls(f64, Runtime));
   comptime_assert(Type.impls(unit, Runtime));
-
   // C compatible types are runtime only
   comptime_assert(Type.impls(void, Runtime));
   comptime_assert(Type.impls(char, Runtime));
@@ -556,127 +478,100 @@ test "Test type auto derive Runtime", {
   comptime_assert(Type.impls(longlong, Runtime));
   comptime_assert(Type.impls(ulonglong, Runtime));
   comptime_assert(Type.impls(longdouble, Runtime));
-  
   // Array
   comptime_assert(Type.impls(Array(i32, 3), Runtime));
   comptime_assert(Type.impls(Array(comptime_int, 3), Runtime) == false);
   comptime_assert(Type.impls(Array(Box(i32), 3), Runtime));
-  
   // Slice
   comptime_assert(Type.impls(Slice(i32), Runtime));
   comptime_assert(Type.impls(Slice(comptime_int), Runtime) == false);
   comptime_assert(Type.impls(Slice(Box(i32)), Runtime));
-
   // Tuple
   comptime_assert(Type.impls(Tuple(i32), Runtime));
   comptime_assert(Type.impls(Tuple(comptime_int), Runtime) == false);
   comptime_assert(Type.impls(Tuple(Box(i32)), Runtime));
-
   // Ptr
   // Yo support compile-time pointer
   comptime_assert(Type.impls(*(comptime_int), Runtime) == false);
   comptime_assert(Type.impls(*(i32), Runtime));
   comptime_assert(Type.impls(*(Box(i32)), Runtime));
-
-  
   // Function
   comptime_assert(Type.impls(fn() -> unit, Runtime));
-
   // Iso type is runtime only
   comptime_assert(Type.impls(Iso(i32), Runtime));
-
   // Value structs with runtime-compatible fields are Runtime
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Runtime) == true);
-
   // Object types are Runtime
   MyBox :: object(v : i32);
   comptime_assert(Type.impls(MyBox, Runtime) == true);
-
   // Generic struct: Runtime depends on type parameter
-  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
-    struct(x : T, y : T)
-  ;
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(Type.impls(GenericPoint(i32), Runtime) == true);
-
   // Enum types with runtime-compatible fields are Runtime
   Direction :: enum(North, South, East, West);
   comptime_assert(Type.impls(Direction, Runtime) == true);
-
   ResultInt :: enum(Ok(value : i32), Err(error : i32));
   comptime_assert(Type.impls(ResultInt, Runtime) == true);
-
   // Union type is runtime only
   UnionData :: union(a : i32, b : bool);
   comptime_assert(Type.impls(UnionData, Runtime));
-
   // SomeType
-  fn1 :: (fn(comptime(T) : Type) -> unit) {
+  fn1 :: (fn(comptime(T) : Type) -> unit)({
     comptime_assert(Type.impls(T, Runtime));
-  };
-  fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit) {
+  });
+  fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
-  };
-  fn3 :: (fn(forall(T : Type), v : T) -> unit) {
+  });
+  fn3 :: (fn(forall(T : Type), v : T) -> unit)({
     comptime_assert(Type.impls(T, Runtime));
-  };
-  fn4 :: (fn(forall(T : Type), v : T, where(T <: !(Runtime))) -> unit) {
+  });
+  fn4 :: (fn(forall(T : Type), v : T, where(T <: !(Runtime))) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
-  };
-
+  });
   // Self recursive types
   {
     SelfRecursive :: struct(
       v : i32,
-      next: *(Self)
+      next : *(Self)
     );
     // i32 is both comptime and runtime
     // *(Self) is both comptime and runtime
     // therefore SelfRecursive should be both comptime and runtime
     comptime_assert(Type.impls(SelfRecursive, Runtime));
-
-
     // next: *(Self) is both comptime and runtime
     // therefore SelfRecursive2 should be both comptime and runtime
     SelfRecursive2 :: struct(
-      next: *(Self)
+      next : *(Self)
     );
     comptime_assert(Type.impls(SelfRecursive2, Runtime));
-
     // v : int is only runtime
     // therefore SelfRecursive3 should be only runtime
     SelfRecursive3 :: struct(
       v : int,
-      next: *(Self)
+      next : *(Self)
     );
     comptime_assert(Type.impls(SelfRecursive3, Runtime));
-
     // v : comptime_int is only comptime
     // therefore SelfRecursive4 should be only comptime
     SelfRecursive4 :: struct(
       v : comptime_int,
-      next: *(Self)
+      next : *(Self)
     );
     comptime_assert(Type.impls(SelfRecursive4, Runtime) == false);
-
   };
-};
-
-test "Test 'struct'", {
+});
+test("Test 'struct'", {
   // Struct
   {
-    Point :: struct(x: i32, y: i32);
-
+    Point :: struct(x : i32, y : i32);
     p := Point(3, 4); // Assign comptime to runtime
     p2 :: Point(3, 4); // Assign comptime to comptime
-
     runt_value := 1;
     p3 := Point(runt_value, 4);
-
     comptime_expect_error(
       p4 :: Point(runt_value, 4) // Assign runt to comptime is not allowed
     );
-
     assert(p.x == 3);
     assert(p.y == 4);
     comptime_assert(p2.x == 3);
@@ -685,112 +580,89 @@ test "Test 'struct'", {
     assert(p3.y == 4);
   };
   {
-    Point :: struct(x: i32, (y: i32) ?= 12);
+    Point :: struct(x : i32, (y : i32) ?= 12);
     p4 :: Point(14);
     assert(p4.x == 14);
     assert(p4.y == 12);
   };
   // curly brackets
   {
-    Point :: struct(x: i32, y: bool);
-
+    Point :: struct(x : i32, y : bool);
     p := Point(3, true);
-    (p2: Point) = _(3, true);
-    (p3: Point) = {x: 3, y: true};
-    (p4: Point) = {y: true, x: 3};
-
+    (p2 : Point) = _(3, true);
+    (p3 : Point) = { x : 3, y : true };
+    (p4 : Point) = { y : true, x : 3 };
     x := 1;
     y := true;
-    (p5: Point) = {x, y}; 
-    (p6: Point) = {y, x};
-    
+    (p5 : Point) = { x, y };
+    (p6 : Point) = { y, x };
     {
-      { x : another_x, y: a } := p;
+      { x : another_x, y : a } := p;
       a;
     };
-
     {
-      { x: a, y: b } := p;
+      { x : a, y : b } := p;
       a;
       b;
     };
   };
-
   // nomimal type
   {
     Point1 :: struct(x : i32, y : i32);
     Point2 :: struct(x : i32, y : i32);
-
     x := Point1(3, 4);
     (y : Point2) = _(5, 6);
-
     comptime_expect_error(
       (z : Point1) := (3, 4),
       "error: type Mismatch"
     );
-
     Point3 :: Point1;
-
     (z : Point2) = y;
     (z2 : Point3) = x;
     comptime_expect_error(
       (z3 : Point2) = x,
       "error: type Mismatch"
     );
-
     assert(x.x == 3);
     assert(x.y == 4);
-
     assert(y.x == 5);
     assert(y.y == 6);
-
     assert(z.x == 5);
     assert(z.y == 6);
-
     assert(z2.x == 3);
     assert(z2.y == 4);
   };
-
   // anonymous struct
   {
-    p := (struct(x: i32, y: i32))(3, 4);
-    (p2: struct(x: i32, y: i32)) = _(3, 4);
-
+    p := (struct(x : i32, y : i32))(3, 4);
+    (p2 : struct(x : i32, y : i32)) = _(3, 4);
     assert(p.x == 3);
     assert(p.y == 4);
     assert(p2.x == 3);
     assert(p2.y == 4);
   };
-
   // struct default field values
   {
-    Point :: struct
-      (x: i32) ?= 0,
-      (y: i32) ?= 0
-    ;
-
-    p := Point(y: 1, x: 2);
+    Point :: struct(
+      (x : i32) ?= 0,
+      (y : i32) ?= 0
+    );
+    p := Point(y : 1, x : 2);
     p2 := Point();
     p3 := Point(13);
-    p4 := Point(x: 2);
-    p5 := Point(y: 3);
-
+    p4 := Point(x : 2);
+    p5 := Point(y : 3);
     assert(p.x == 2);
     assert(p.y == 1);
-
     assert(p2.x == 0);
     assert(p2.y == 0);
-
     assert(p3.x == 13);
     assert(p3.y == 0);
-
     assert(p4.x == 2);
     assert(p4.y == 0);
-
     assert(p5.x == 0);
     assert(p5.y == 3);
   };
-
   // struct default field values — mixed required and optional
   {
     Config :: struct(
@@ -799,43 +671,37 @@ test "Test 'struct'", {
       (height : i32) ?= 600,
       (visible : bool) ?= true
     );
-
     // all defaults
-    c1 := Config(name: 1);
+    c1 := Config(name : 1);
     assert(c1.name == 1);
     assert(c1.width == 800);
     assert(c1.height == 600);
     assert(c1.visible == true);
-
     // override some defaults
-    c2 := Config(name: 2, width: 1024);
+    c2 := Config(name : 2, width : 1024);
     assert(c2.name == 2);
     assert(c2.width == 1024);
     assert(c2.height == 600);
     assert(c2.visible == true);
-
     // override all fields
-    c3 := Config(name: 3, width: 1920, height: 1080, visible: false);
+    c3 := Config(name : 3, width : 1920, height : 1080, visible : false);
     assert(c3.name == 3);
     assert(c3.width == 1920);
     assert(c3.height == 1080);
     assert(c3.visible == false);
-
     // override non-adjacent defaults (skip width, set height)
-    c4 := Config(name: 4, height: 480);
+    c4 := Config(name : 4, height : 480);
     assert(c4.name == 4);
     assert(c4.width == 800);
     assert(c4.height == 480);
     assert(c4.visible == true);
-
     // override only last default
-    c5 := Config(name: 5, visible: false);
+    c5 := Config(name : 5, visible : false);
     assert(c5.name == 5);
     assert(c5.width == 800);
     assert(c5.height == 600);
     assert(c5.visible == false);
   };
-
   // struct default field values — all fields have defaults
   {
     Opts :: struct(
@@ -843,43 +709,35 @@ test "Test 'struct'", {
       (b : i32) ?= 20,
       (c : i32) ?= 30
     );
-
     o1 := Opts();
     assert(o1.a == 10);
     assert(o1.b == 20);
     assert(o1.c == 30);
-
-    o2 := Opts(a: 100);
+    o2 := Opts(a : 100);
     assert(o2.a == 100);
     assert(o2.b == 20);
     assert(o2.c == 30);
-
-    o3 := Opts(b: 200);
+    o3 := Opts(b : 200);
     assert(o3.a == 10);
     assert(o3.b == 200);
     assert(o3.c == 30);
-
-    o4 := Opts(c: 300);
+    o4 := Opts(c : 300);
     assert(o4.a == 10);
     assert(o4.b == 20);
     assert(o4.c == 300);
-
-    o5 := Opts(a: 1, c: 3);
+    o5 := Opts(a : 1, c : 3);
     assert(o5.a == 1);
     assert(o5.b == 20);
     assert(o5.c == 3);
   };
-
   // struct default field values — expression defaults
   {
     Base :: struct((x : i32) ?= (3 + 4));
     b := Base();
     assert(b.x == 7);
-
-    b2 := Base(x: 99);
+    b2 := Base(x : 99);
     assert(b2.x == 99);
   };
-
   // struct default field values — positional args fill in order, defaults for rest
   {
     Triple :: struct(
@@ -887,34 +745,27 @@ test "Test 'struct'", {
       (b : i32) ?= 100,
       (c : i32) ?= 200
     );
-
     t1 := Triple(1);
     assert(t1.a == 1);
     assert(t1.b == 100);
     assert(t1.c == 200);
-
     t2 := Triple(1, 2);
     assert(t2.a == 1);
     assert(t2.b == 2);
     assert(t2.c == 200);
-
     t3 := Triple(1, 2, 3);
     assert(t3.a == 1);
     assert(t3.b == 2);
     assert(t3.c == 3);
   };
-
   // struct in tuple
   {
-    { 
-      SomeStruct :: struct(x: i32, y: bool);
-      Complex :: Tuple(s: SomeStruct);
-
+    {
+      SomeStruct :: struct(x : i32, y : bool);
+      Complex :: Tuple(s : SomeStruct);
       x := SomeStruct(1, true);
-      (y: SomeStruct) = _(1, false);
-
-      (c: Complex) = (_(3, true),);
-
+      (y : SomeStruct) = _(1, false);
+      (c : Complex) = (_(3, true),);
       assert(x.x == 1);
       assert(x.y == true);
       assert(y.x == 1);
@@ -922,68 +773,58 @@ test "Test 'struct'", {
       assert(c.0.x == 3);
       assert(c.0.y == true);
     };
-
     {
-      Complex :: struct(x: Tuple(i32, bool), y: i32);
-      (c: Complex) = _((3, true), 4);
+      Complex :: struct(x : Tuple(i32, bool), y : i32);
+      (c : Complex) = _((3, true), 4);
       assert(c.x.0 == 3);
       assert(c.x.1 == true);
-      assert(c.y == 4);        
+      assert(c.y == 4);
     };
-
     {
-      SomeStruct :: struct(x: i32, y: bool);
+      SomeStruct :: struct(x : i32, y : bool);
       Complex0 :: Tuple(SomeStruct);
       Complex :: Tuple(Complex0);
-
-      (c: SomeStruct) = _(3, false);
-      (c2: Complex0) = (_(3, true),);
-      (c3: Complex) = ((_(3, true),),);
-      (c4: Complex) = ((_(y: true, x: 1),),);
-
+      (c : SomeStruct) = _(3, false);
+      (c2 : Complex0) = (_(3, true),);
+      (c3 : Complex) = ((_(3, true),),);
+      (c4 : Complex) = ((_(y : true, x : 1),),);
       assert(c.x == 3);
       assert(c.y == false);
-
       assert(c2.0.x == 3);
       assert(c2.0.y == true);
-
       assert(c3.0.0.x == 3);
       assert(c3.0.0.y == true);
-
       assert(c4.0.0.x == 1);
       assert(c4.0.0.y == true);
     };
   };
-
   // type methods
   {
     Withdraw :: struct(
-      balance: i32
+      balance : i32
     );
-    impl(Withdraw,
-      withdraw : (fn(self: *(Self), amount: i32) -> i32)(
+    impl(
+      Withdraw,
+      withdraw : (fn(self : *(Self), amount : i32) -> i32)(
         cond(
           (self.balance >= amount) => {
             self.balance = (self.balance - amount);
-            return self.balance;
-          }, 
+            return(self.balance);
+          },
           true => {
-            return 0; // insufficient balance
+            return(0); // insufficient balance
           }
         )
       )
     );
-
-    make_widthdraw_balance_100 :: (fn() -> Withdraw) {
+    make_widthdraw_balance_100 :: (fn() -> Withdraw)({
       (balance : i32) = 100;
-      return { balance };
-    };
-
+      return({ balance });
+    });
     bank := make_widthdraw_balance_100();
     left := bank.withdraw(50);
     left2 := bank.withdraw(30);
     left3 := bank.withdraw(40);
-
     assert(left == 50);
     assert(left2 == 20);
     assert(left3 == 0);
@@ -993,183 +834,161 @@ test "Test 'struct'", {
     MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(
       struct(value : T)
     );
-
-    impl(forall(T : Type), MyStruct(T),
+    impl(
+      forall(T : Type),
+      MyStruct(T),
       new : (fn(v : T) -> Self)(Self(v)),
-
       another_new : (fn(v : T) -> Self)(
         Self.new(v)
       ),
-
       add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
         self.value = (self.value + value);
       }),
-
       another_add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
         self.add(value);
       })
     );
-
     value := 10;
     x := MyStruct(i32).new(value);
     y := MyStruct(i32).another_new(value);
     assert(x.value == value);
     assert(y.value == value);
-
     x.add(3);
     y.another_add(4);
     assert(x.value == (value + 3));
     assert(y.value == (value + 4));
   };
-};
-
-test "Test 'enum'", {
+});
+test("Test 'enum'", {
   {
     Color :: enum(Red, Green, Blue);
     (r : Color) = Color.Red;
     r2 := Color.Blue;
-
     Shape :: enum(
-      Circle(r: i32),
-      Rectangle(w: i32, h: i32)
+      Circle(r : i32),
+      Rectangle(w : i32, h : i32)
     );
     (c : Shape) = Shape.Circle(5);
-    c2 := Shape.Rectangle(h: 1, w: 2);
+    c2 := Shape.Rectangle(h : 1, w : 2);
   };
-
   // Anonymous enum
   {
     color := (enum(Red, Green, Blue)).Red;
-    (color2 : enum(Red, Green, Blue)) = .Blue;
-
-    shape := (enum(
-      Circle(r: i32),
-      Rectangle(w: i32, h: i32)
-    )).Circle(5);
-    (shape2 : enum(
-      Circle(r: i32),
-      Rectangle(w: i32, h: i32)
-    )) = .Rectangle(h: 1, w: 2);
+    (color2 : enum(Red, Green, Blue)) =.Blue;
+    shape := (
+      enum(
+        Circle(r : i32),
+        Rectangle(w : i32, h : i32)
+      )
+    ).Circle(5);
+    (
+      shape2 : enum(
+        Circle(r : i32),
+        Rectangle(w : i32, h : i32)
+      )
+    ) =.Rectangle(h : 1, w : 2);
   };
-
   // Type methods
   {
     Shape :: enum(
-      Circle(radius: i32),
-      Rectangle(width: i32, height: i32),
-      Triangle(base: i32, height: i32)
+      Circle(radius : i32),
+      Rectangle(width : i32, height : i32),
+      Triangle(base : i32, height : i32)
     );
-    impl(Shape,
-      new_circle : (fn(radius: i32) -> Self)(
+    impl(
+      Shape,
+      new_circle : (fn(radius : i32) -> Self)(
         .Circle(radius)
       ),
-
-      id : (fn(self: Self)-> Self)(
+      id : (fn(self : Self) -> Self)(
         self
       )
     );
-
     // c := Shape.new_circle(5);
     // c2 := c.id();
     // c2.radius = 10;
-
     // assert(c.radius == 5);
     // assert(c2.radius == 10);
   };
-
   // Nested enum
   {
-    NestedEnum :: enum
+    NestedEnum :: enum(
       Level1(
-        x: enum Level2(value: i32)
-      );
-
+        x : enum(Level2(value : i32))
+      )
+    );
     n := NestedEnum.Level1(.Level2(3));
-    (n2 : NestedEnum) = .Level1(.Level2(3));
+    (n2 : NestedEnum) =.Level1(.Level2(3));
   };
-
   // Discriminant values
   {
     Color :: enum(
-      Red, // implicitly 0
+      Red,
+      // implicitly 0
       Green = 6,
       Blue = 9
     );
-
     Shape :: enum(
       Circle(radius : i32) = 2,
       Square(side : i32) = 4,
       Triangle(base : i32, height : i32) // implicitly 5
     );
-
     red := i32(Color.Red);
     assert(red == i32(0));
     green := i32(Color.Green);
     assert(green == i32(6));
     blue := i32(Color.Blue);
     assert(blue == i32(9));
-
     circle := i32(Shape.Circle(10));
     assert(circle == i32(2));
     square := i32(Shape.Square(5));
     assert(square == i32(4));
     triangle := i32(Shape.Triangle(3, 4));
     assert(triangle == i32(5));
-
-    expect_triangle :: (fn(shape : Shape) -> unit) {
+    expect_triangle :: (fn(shape : Shape) -> unit)({
       assert(i32(shape) == i32(5));
-    };
+    });
     expect_triangle(Shape.Triangle(5, 6));
   };
-};
-
-test "Test 'union'", {
+});
+test("Test 'union'", {
   SomeUnion :: union(
     x : i32,
     y : bool
   );
-  impl(SomeUnion,
-    new : (fn()-> Self)(Self(x : 0))
+  impl(
+    SomeUnion,
+    new : (fn() -> Self)(Self(x : 0))
   );
-
-  v1 := SomeUnion( x : 12 );
-  v2 := SomeUnion( y : true );
+  v1 := SomeUnion(x : 12);
+  v2 := SomeUnion(y : true);
   v3 := SomeUnion.new();
-
   {
     a := v1.x;
     assert(a == 12);
-
     b := v2.y;
     assert(b == true);
-
     c := v3.x;
     assert(c == 0);
   };
-
   {
     { x } := v1;
     assert(x == 12);
     { y : z } := v1; // unsafe access
   };
-};
-
-test "Test tuple", {
+});
+test("Test tuple", {
   {
     x :: 12;
     t :: (x,);
-
     runt_x := 16;
     comptime_expect_error(t2 :: (x, runt_x)); // Expected error
-
     t3 := (x, runt_x);
-
     comptime_assert(t.0 == 12);
     assert(t3.0 == 12);
     assert(t3.1 == 16);
   };
-};
-
+});
 // TODO: Add more tests to unit type
 // We should optimize away unit value when generating C code.
 // For example, we might have unit type/value in:
@@ -1179,42 +998,35 @@ test "Test tuple", {
 // - Array?   QUESTION: Should we just prohibit
 // - Pointer? QUESTION: Should we just prohibit
 // etc
-test "Test unit", {
+test("Test unit", {
   // unit
   {
     // Unit type
     UnitType :: unit;
     UnitType2 :: Tuple();
-
     // Unit value
     unit_value :: ();
     unit_value2 := ();
     unit_value3 := tuple();
   };
-};
-
-test "Test raw pointer", {
+});
+test("Test raw pointer", {
   // allocate and free
   {
-    { GlobalAllocator } :: import "std/allocator";
-    open GlobalAllocator;
-
+    { GlobalAllocator } :: import("std/allocator");
+    open(GlobalAllocator);
     {
       ptr := (*(i32))(malloc(sizeof(i32) * 2).unwrap());
       ptr.* = 42;
       (ptr &+ 1).* = 84;
-
       assert(ptr.* == 42);
       assert((ptr &+ 1).* == 84);
-
-      free(.Some(*(void) ptr));
+      free(.Some(*(void)(ptr)));
     };
   };
-
   // mutate pointer
   {
     x := 12;
-
     // pointer
     {
       I32Ptr :: *(i32);
@@ -1223,12 +1035,10 @@ test "Test raw pointer", {
       (p2 : *(i32)) = &(x); // Create pointer
       p3 := &(x); // Create pointer
       q := p.*; // Dereference pointer
-
       assert(p.* == 12);
       assert(p2.* == 12);
       assert(p3.* == 12);
       assert(q == 12);
-    
       p.* = 16;
       assert(x == 16);
       assert(p.* == 16);
@@ -1237,48 +1047,39 @@ test "Test raw pointer", {
       assert(q == 12); // q is a copy
     };
   };
-
   // void pointer
   {
     comptime_expect_error(
-      FuncType :: 
+      FuncType ::
         fn() -> void // Cannot use DST directly in function return type
     );
-
-    use_void_ptr :: (fn(ptr : *(void)) -> unit) {
+    use_void_ptr :: (fn(ptr : *(void)) -> unit)({
       comptime_expect_error(
         x := ptr.*,
         "Cannot use DST directly"
       );
-
       // Dereference a void pointer is prohibited.
       // We need to cast it to a specific type first.
       i32_ptr := *(i32)(ptr);
-    };
-
-    mutate_void_ptr :: (fn(ptr : *(void)) -> unit) {
+    });
+    mutate_void_ptr :: (fn(ptr : *(void)) -> unit)({
       comptime_expect_error(
         x := ptr.*,
         "Cannot use DST directly"
       );
-      
       i32_ptr := *(i32)(ptr);
       i32_ptr.* = 16;
-    };
-
+    });
     x := 12;
-    
     use_void_ptr(*(void)(&(x)));
     assert(x == 12);
-
     mutate_void_ptr(*(void)(&(x)));
     assert(x == 16);
   };
-};
-
-test "Test 'cond'", {
+});
+test("Test 'cond'", {
   {
-    max :: (fn(x : i32, y : i32) -> i32)
+    max :: (fn(x : i32, y : i32) -> i32)(
       cond(
         (x > y) => {
           a := 12;
@@ -1289,13 +1090,11 @@ test "Test 'cond'", {
           y
         }
       )
-    ;
-
+    );
     x := 5;
     y := 10;
     assert(max(x, y) == 10);
   };
-
   comptime_expect_error(
     x := cond(
       (3 > 4) => 5,
@@ -1303,7 +1102,6 @@ test "Test 'cond'", {
     ),
     "Expect the last condition to be compile-time known \"true\"."
   );
-
   {
     x := cond(
       (3 > 4) => 5,
@@ -1312,104 +1110,106 @@ test "Test 'cond'", {
     );
     assert(x == 7);
   };
-
   // Test 'if' macro function
   {
     num := 3;
-    if num < 5, then: {
-      assert(true);
-    }, else: {
-      assert(false);
-    };
+    if(
+      num < 5,
+      then : {
+        assert(true);
+      },
+      else : {
+        assert(false);
+      }
+    );
   };
-};
-
-test "Test 'match'", {
+});
+test("Test 'match'", {
   Color :: enum(Red, Green, Blue);
-
-  color_to_i32 :: (fn(color : Color) -> i32)
-    match(color,
-      .Red   => 0,
+  color_to_i32 :: (fn(color : Color) -> i32)(
+    match(
+      color,
+      .Red => 0,
       .Green => 1,
-      .Blue  => 2
+      .Blue => 2
     )
-  ;
-
-  Shape :: enum(
-    Circle(r: i32),
-    Rectangle(w: i32, h: i32)
   );
-
-  area :: (fn(shape: Shape) -> i32)(
-    match(shape,
+  Shape :: enum(
+    Circle(r : i32),
+    Rectangle(w : i32, h : i32)
+  );
+  area :: (fn(shape : Shape) -> i32)(
+    match(
+      shape,
       .Circle(r) => (i32(3) * (r * r)),
       .Rectangle(w, h) => (w * h)
     )
   );
-
-  area_2 :: (fn(shape: Shape) -> i32)(
-    match(shape,
+  area_2 :: (fn(shape : Shape) -> i32)(
+    match(
+      shape,
       .Circle(radius) => (i32(3) * (radius * radius)),
       .Rectangle(width, height) => (width * height)
     )
   );
-
   // Test labeled destructuring
-  area_with_labels :: (fn(shape: Shape) -> i32)
-    match(shape,
+  area_with_labels :: (fn(shape : Shape) -> i32)(
+    match(
+      shape,
       .Circle(r : radius) =>
         (i32(3) * (radius * radius)),
       .Rectangle(h : height, w : width) =>
         (height * width)
     )
-  ;
-
+  );
   // Test partial labeled destructuring with ignore
-  area_partial :: (fn(shape: Shape) -> i32)
-    match(shape,
+  area_partial :: (fn(shape : Shape) -> i32)(
+    match(
+      shape,
       .Circle(_) =>
         100,
       .Rectangle(w : _, h : height) =>
         height
     )
-  ;
-
+  );
   // Test partial destructuring
-  area_partial_2 :: (fn(shape: Shape) -> i32)
-    match(shape,
+  area_partial_2 :: (fn(shape : Shape) -> i32)(
+    match(
+      shape,
       .Circle(_) =>
         100,
       .Rectangle(h : height) =>
         height
     )
-  ;
-
+  );
   // Test pointer as match input
-  area_ptr :: (fn(shape_ptr: *(Shape)) -> i32)
-    match(shape_ptr, // automatic dereference
+  area_ptr :: (fn(shape_ptr : *(Shape)) -> i32)(
+    match(
+      shape_ptr,
+      // automatic dereference
       .Circle(r) =>
         (i32(3) * (r * r)),
       .Rectangle(w, h) =>
         (w * h)
     )
-  ;
-
+  );
   // This should now fail - trying to use .Circle without destructuring
   comptime_expect_error(
-    invalid_area :: (fn(shape: Shape) -> i32)
-      match shape,
-        .Circle => 0,  // ERROR: Circle has fields and must be destructured
-        .Rectangle => 0  // ERROR: Rectangle has fields and must be destructured
+    invalid_area :: (fn(shape : Shape) -> i32)(
+      match(
+        shape,
+        .Circle => 0,
+        // ERROR: Circle has fields and must be destructured
+        .Rectangle => 0 // ERROR: Rectangle has fields and must be destructured
+      )
+    )
   );
-
-
   c1 := Color.Red;
   c2 := Color.Green;
   c3 := Color.Blue;
   assert(color_to_i32(c1) == 0);
   assert(color_to_i32(c2) == 1);
   assert(color_to_i32(c3) == 2);
-
   s1 := Shape.Circle(3);
   s2 := Shape.Rectangle(4, 5);
   assert(area(s1) == 27);
@@ -1424,20 +1224,21 @@ test "Test 'match'", {
   assert(area_partial_2(s2) == 5);
   assert(area_ptr(&(s1)) == 27);
   assert(area_ptr(&(s2)) == 20);
-
   // Test primitive type matching (integers)
-  classify_number :: (fn(n: i32) -> i32)
-    match(n,
+  classify_number :: (fn(n : i32) -> i32)(
+    match(
+      n,
       0 => 0,
       1 => 1,
       (2 | 3) => 23,
-      ( 4
-      | 5
-      | 6) => 456,
+      (
+        4
+        | 5
+        | 6
+      ) => 456,
       _ => 999
     )
-  ;
-
+  );
   assert(classify_number(0) == 0);
   assert(classify_number(1) == 1);
   assert(classify_number(2) == 23);
@@ -1446,604 +1247,574 @@ test "Test 'match'", {
   assert(classify_number(5) == 456);
   assert(classify_number(6) == 456);
   assert(classify_number(7) == 999);
-  assert(classify_number((-1)) == 999);
+  assert(classify_number(-(1)) == 999);
   assert(classify_number(100) == 999);
-
   // Test primitive matching with compile-time constants
   TEN :: 10;
   TWENTY :: 20;
   THIRTY :: 30;
-
-  classify_tens :: (fn(n: i32) -> i32)
-    match(n,
-      (TEN
-      | TWENTY
-      | THIRTY
+  classify_tens :: (fn(n : i32) -> i32)(
+    match(
+      n,
+      (
+        TEN
+        | TWENTY
+        | THIRTY
       ) => 1,
       _ => 0
     )
-  ;
-
+  );
   assert(classify_tens(10) == 1);
   assert(classify_tens(20) == 1);
   assert(classify_tens(30) == 1);
   assert(classify_tens(15) == 0);
   assert(classify_tens(0) == 0);
-
   // Test boolean matching
-  bool_to_str :: (fn(b: bool) -> i32)
-    match(b,
+  bool_to_str :: (fn(b : bool) -> i32)(
+    match(
+      b,
       true => 1,
       false => 0
     )
-  ;
-
+  );
   assert(bool_to_str(true) == 1);
   assert(bool_to_str(false) == 0);
-
   // Test u8 matching
-  classify_byte :: (fn(b: u8) -> i32)
-    match(b,
+  classify_byte :: (fn(b : u8) -> i32)(
+    match(
+      b,
       (0 | 255) => 1,
       _ => 0
     )
-  ;
-
+  );
   assert(classify_byte(u8(0)) == 1);
   assert(classify_byte(u8(255)) == 1);
   assert(classify_byte(u8(128)) == 0);
-
   // Test negative numbers in match
-  classify_sign :: (fn(n: i32) -> i32)
-    match(n,
+  classify_sign :: (fn(n : i32) -> i32)(
+    match(
+      n,
       0 => 0,
       1 => 1,
-      ((-1)) => (-1),
+      (-(1)) => (-(1)),
       _ => 2
     )
-  ;
-
+  );
   assert(classify_sign(0) == 0);
   assert(classify_sign(1) == 1);
-  assert(classify_sign((-1)) == (-1));
+  assert(classify_sign(-(1)) == (-(1)));
   assert(classify_sign(5) == 2);
-  assert(classify_sign((-5)) == 2);
-};
-
-test "Test 'while'", {
+  assert(classify_sign(-(5)) == 2);
+});
+test("Test 'while'", {
   // without step expression
   {
     // runtime evaluation of sum
-    sum :: (fn(max : i32) -> i32) {
+    sum :: (fn(max : i32) -> i32)({
       result := 0;
       i := i32(0);
-      while i <= max, {
+      while(i <= max, {
         result = (result + i);
         i = (i + 1);
-      };
-
-      return result;
-    };
-
+      });
+      return(result);
+    });
     // compile-time evaluation of sum
-    sum_comptime :: (fn(comptime(max) : i32) -> comptime(i32)) {
+    sum_comptime :: (fn(comptime(max) : i32) -> comptime(i32))({
       result :: i32(0);
       i :: i32(0);
-      while comptime(i <= max), {
+      while(comptime(i <= max), {
         result = (result + i);
         i = (i + 1);
-      };
-      return result;
-    };
-
+      });
+      return(result);
+    });
     x :: sum_comptime(10);
     comptime_assert(x == 55);
-
     y := sum(10);
     assert(y == 55);
   };
-
   // with step expression
   {
-    sum :: (fn(max : i32) -> i32) {
+    sum :: (fn(max : i32) -> i32)({
       result := 0;
       i := i32(0);
-      while i <= max, i = (i + 1), {
+      while(i <= max, i = (i + 1), {
         result = (result + i);
         continue;
-      };
-
-      return result;
-    };
-
+      });
+      return(result);
+    });
     // compile-time evaluation of sum
-    sum_comptime :: (fn(comptime(max) : i32) -> comptime(i32)) {
+    sum_comptime :: (fn(comptime(max) : i32) -> comptime(i32))({
       result :: i32(0);
       i :: i32(0);
-      while comptime(i <= max), i = (i + 1), {
+      while(comptime(i <= max), i = (i + 1), {
         result = (result + i);
         continue;
-      };
-      return result;
-    };
-
+      });
+      return(result);
+    });
     x :: sum_comptime(10);
     comptime_assert(x == 55);
-
     y := sum(10);
     assert(y == 55);
   };
-
   // multiple steps in while
   {
-    test_multi_steps :: (fn(max : i32) -> i32) {
+    test_multi_steps :: (fn(max : i32) -> i32)({
       result := 0;
       i := i32(0);
       j := i32(0);
-      
-      while i < max, begin(i = (i + 1), j = (j + 2)), {
+      while(i < max, begin(i = (i + 1), j = (j + 2)), {
         result = ((result + i) + j);
-      };
-
-      return result;
-    };
-
+      });
+      return(result);
+    });
     result := test_multi_steps(5);
     assert(result == 30);
   };
-
   // multiple tests
   {
     // Test 1: continue statement - skip even numbers
-    sum_odd :: (fn(max : i32) -> i32) {
+    sum_odd :: (fn(max : i32) -> i32)({
       result := 0;
       i := i32(0);
-      while i < max, {
+      while(i < max, {
         i = (i + 1);
         cond(
-          ((i % 2) == 0) => continue, 
+          ((i % 2) == 0) => continue,
           true => {
             result = (result + i);
           }
         );
-      };
-      return result;
-    };
-
+      });
+      return(result);
+    });
     // Test 2: break statement - stop at first number > 5
-    find_first_greater_than_five :: (fn(max : i32) -> i32) {
+    find_first_greater_than_five :: (fn(max : i32) -> i32)({
       result := -(1);
       i := i32(0);
-      while i < max, {
+      while(i < max, {
         i = (i + 1);
         cond(
           (i > 5) => {
             result = i;
             break;
-          }, 
+          },
           true => () // continue loop
         );
-      };
-      return result;
-    };
-
+      });
+      return(result);
+    });
     // Test 3: return statement - early return when condition met
-    search_value :: (fn(target : i32, max : i32) -> i32) {
+    search_value :: (fn(target : i32, max : i32) -> i32)({
       i := i32(0);
-      while i < max, {
+      while(i < max, {
         i = (i + 1);
         cond(
-          (i == target) => { 
-            return(i); 
-          }, 
+          (i == target) => {
+            return(i);
+          },
           true => () // continue loop
         );
-      };
-      return -(1); // not found
-    };
-
+      });
+      return(-(1)); // not found
+    });
     // Test 4: while loop with step and continue
-    sum_with_step :: (fn(max : i32) -> i32) {
+    sum_with_step :: (fn(max : i32) -> i32)({
       result := 0;
       i := i32(0);
-      while i < max, i = (i + 1), {
+      while(i < max, i = (i + 1), {
         cond(
           ((i % 3) == 0) => continue,
           true => {
             result = (result + i);
           }
         );
-      };
-      return result;
-    };
-
+      });
+      return(result);
+    });
     assert(sum_odd(10) == 25); // 1 + 3 + 5 + 7 + 9 = 25
-    
     assert(find_first_greater_than_five(20) == 6);
-
     assert(search_value(7, 10) == 7);
-    assert(search_value(15, 10) == -1);
+    assert(search_value(15, 10) == -(1));
     assert(sum_with_step(10) == 27); // 1 + 2 + 4 + 5 + 7 + 8 = 27
   };
-
   // Test: infinite comptime while loop (literal true, no terminator) should error
   {
     comptime_expect_error(
-      while comptime(true), {
+      while(comptime(true), {
         x := 1;
-      },
-      "Infinite compile-time while loop detected"
+      }, "Infinite compile-time while loop detected")
     );
   };
-
   // Test: while with comptime-only variable condition without comptime modifier should error
   {
-    comptime_expect_error(
-      {
-        i :: 0;
-        while (i < 5), {
-          ();
-        };
-      },
-      "while loop condition is compile-time known but the `comptime` modifier is missing"
-    );
+    comptime_expect_error({
+      i :: 0;
+      while(i < 5, {
+        ();
+      });
+    }, "while loop condition is compile-time known but the `comptime` modifier is missing");
   };
-
   // Test: while true with break in conditional branch should compile (emits runtime loop)
   {
-    while_with_break :: (fn() -> i32) {
+    while_with_break :: (fn() -> i32)({
       i := 0;
-      while true, {
+      while(true, {
         i = (i + 1);
         cond(
           (i >= 5) => break,
           true => ()
         );
-      };
+      });
       i
-    };
-    assert((while_with_break() == 5), "while true with conditional break should terminate at 5");
+    });
+    assert(while_with_break() == 5, "while true with conditional break should terminate at 5");
   };
-
   // Test: while true with return in conditional branch should compile
   {
-    while_with_return :: (fn() -> i32) {
+    while_with_return :: (fn() -> i32)({
       i := 0;
-      while true, {
+      while(true, {
         i = (i + 1);
         cond(
-          (i >= 3) => { return i; },
+          (i >= 3) => {
+            return(i);
+          },
           true => ()
         );
-      };
+      });
       i32(0)
-    };
-    assert((while_with_return() == 3), "while true with conditional return should return 3");
+    });
+    assert(while_with_return() == 3, "while true with conditional return should return 3");
   };
-};
-
-test "Test control flows", {
+});
+test("Test control flows", {
   (comptime(LinearI32) : Type) = i32;
-
-  some_condition :: (fn() -> bool) 
-    runtime(true)
-  ;
-
-  test_while_drop :: (fn() -> i32) {
+  some_condition :: (fn() -> bool)(runtime(true));
+  test_while_drop :: (fn() -> i32)({
     (x : LinearI32) = 42;
-
     comptime_expect_error(
-      while some_condition(), {
+      while(some_condition(), {
         drop(x);
-      },
-      "Shouldn't allow to drop x multiple times"
+      }, "Shouldn't allow to drop x multiple times")
     );
-
     0
-  };
-
-  test_while_drop_with_break_nested :: (fn() -> i32) {
+  });
+  test_while_drop_with_break_nested :: (fn() -> i32)({
     (x : LinearI32) = 42;
-
-    while some_condition(), {
+    while(some_condition(), {
       ___drop(x); // allowed, because the `cond` expr below always break.
-      cond
+      cond(
         some_condition() => break,
         true => break
-      ;
-    };
-
+      );
+    });
     0
-  };
-
-  test_while_drop_with_return_nested :: (fn() -> i32) {
+  });
+  test_while_drop_with_return_nested :: (fn() -> i32)({
     (x : LinearI32) = 42;
-
-    while some_condition(), {
+    while(some_condition(), {
       ___drop(x); // allowed, because the `cond` expr below always returns.
       cond(
         some_condition() => {
-          return 0;
+          return(0);
         },
         true => {
-          return 12;
+          return(12);
         }
       );
-    };
-
+    });
     0
-  };
-
-  test_while_drop_with_continue_nested :: (fn() -> i32) {
+  });
+  test_while_drop_with_continue_nested :: (fn() -> i32)({
     (x : LinearI32) = 42;
-
     comptime_expect_error(
-      while some_condition(), {
+      while(some_condition(), {
         drop(x);
-        cond
+        cond(
           some_condition() => continue,
-          true => continue;
-      },
-      "Shouldn't allow to drop x multiple times"
+          true => continue
+        );
+      }, "Shouldn't allow to drop x multiple times")
     );
-
     0
-  };
-
-  test_while_drop_with_mixed :: (fn() -> i32) {
+  });
+  test_while_drop_with_mixed :: (fn() -> i32)({
     (x : LinearI32) = 42;
     comptime_expect_error(
-      while some_condition(), {
+      while(some_condition(), {
         drop(x); // should give error
-        cond
+        cond(
           some_condition() => break,
           some_condition() => {
-            return 0;
+            return(0);
           },
-          true => continue;
-      },
-      "Shouldn't allow to drop x multiple times"
+          true => continue
+        );
+      }, "Shouldn't allow to drop x multiple times")
     );
-
     0
-  };
-
-  test_while_with_mixed_2 :: (fn() -> i32) {
-    while some_condition(), {
+  });
+  test_while_with_mixed_2 :: (fn() -> i32)({
+    while(some_condition(), {
       a := cond(
         some_condition() => break,
         some_condition() => {
-          return 0;
+          return(0);
         },
         some_condition() => true,
         true => continue
       );
-    };
-
+    });
     0
-  };
-
-  test_while_drop_with_mixed_2 :: (fn() -> i32) {
+  });
+  test_while_drop_with_mixed_2 :: (fn() -> i32)({
     (x : LinearI32) = 42;
     comptime_expect_error(
-      while some_condition(), {
-        a := cond
+      while(some_condition(), {
+        a := cond(
           some_condition() => break,
           some_condition() => {
-            return 0;
+            return(0);
           },
           some_condition() => true,
           true => continue
-        ;
-
+        );
         drop(x);
-      }, 
-      "Shouldn't allow to drop x multiple times"
+      }, "Shouldn't allow to drop x multiple times")
     );
-
     0
-  };
-
-
+  });
   // Test 1: Break in while loop
-  test_while_with_break :: (fn(flag: bool) -> i32) {
+  test_while_with_break :: (fn(flag : bool) -> i32)({
     (x : LinearI32) = 42;
-    while flag, 
-      cond
+    while(
+      flag,
+      cond(
         some_condition() => {
           ___drop(x);
           break;
         },
         true => ()
-    ;
-    return 12;
-  };
-
-  // Test 2: Continue in while loop  
-  test_while_with_continue :: (fn(flag: bool) -> i32) {
-    while flag, 
-      cond
+      )
+    );
+    return(12);
+  });
+  // Test 2: Continue in while loop
+  test_while_with_continue :: (fn(flag : bool) -> i32)({
+    while(
+      flag,
+      cond(
         some_condition() => {
           continue;
         },
         true => {
           break;
         }
-    ;
-    return 15;
-  };
-
+      )
+    );
+    return(15);
+  });
   // Test 3: Return in while loop
-  test_while_with_return :: (fn(flag: bool) -> i32) {
+  test_while_with_return :: (fn(flag : bool) -> i32)({
     (x : LinearI32) = 42;
-    while flag,
-      cond
+    while(
+      flag,
+      cond(
         some_condition() => {
           ___drop(x);
-          return 16;
+          return(16);
         },
         true => ()
-    ;
-    return 12;
-  };
-
+      )
+    );
+    return(12);
+  });
   // Test 4: All cases break
-  test_cond_all_break :: (fn(flag: bool) -> i32) {
-    while flag,
-      cond
-        false => { break; },
-        true => { break; }
-    ;
-    return 20;
-  };
-
+  test_cond_all_break :: (fn(flag : bool) -> i32)({
+    while(
+      flag,
+      cond(
+        false => {
+          break;
+        },
+        true => {
+          break;
+        }
+      )
+    );
+    return(20);
+  });
   // Test 5: All cases continue
-  test_cond_all_continue :: (fn(flag: bool) -> i32) {
-    while flag,
-      cond
-        false => { continue; },
-        true => { continue; }
-    ;
-    return 25;
-  };
-
+  test_cond_all_continue :: (fn(flag : bool) -> i32)({
+    while(
+      flag,
+      cond(
+        false => {
+          continue;
+        },
+        true => {
+          continue;
+        }
+      )
+    );
+    return(25);
+  });
   // Test 6: Mixed cases with one normal return
-  test_cond_mixed :: (fn(flag: bool) -> i32)
-    cond
-      some_condition() => { return 30; },
+  test_cond_mixed :: (fn(flag : bool) -> i32)(
+    cond(
+      some_condition() => {
+        return(30);
+      },
       true => 35
-  ;
-
+    )
+  );
   // Test enum for match expressions
-  (comptime(Shape): Type) = enum(Circle, Square);
-
+  (comptime(Shape) : Type) = enum(Circle, Square);
   // Test 7: Match with all break cases
-  test_match_all_break :: (fn(shape: Shape) -> i32) {
-    while some_condition(),
-      match shape,
-        .Circle => { break; },
-        .Square => { break; }
-    ;
-    return 40;
-  };
-
-  // Test 8: Match with all continue cases  
-  test_match_all_continue :: (fn(shape: Shape) -> i32) {
-    while some_condition(),
-      match shape,
-        .Circle => { continue; },
-        .Square => { continue; }
-    ;
-    return 45;
-  };
-
+  test_match_all_break :: (fn(shape : Shape) -> i32)({
+    while(
+      some_condition(),
+      match(
+        shape,
+        .Circle => {
+          break;
+        },
+        .Square => {
+          break;
+        }
+      )
+    );
+    return(40);
+  });
+  // Test 8: Match with all continue cases
+  test_match_all_continue :: (fn(shape : Shape) -> i32)({
+    while(
+      some_condition(),
+      match(
+        shape,
+        .Circle => {
+          continue;
+        },
+        .Square => {
+          continue;
+        }
+      )
+    );
+    return(45);
+  });
   // Test 9: Match with all return cases
-  test_match_all_return :: (fn(shape: Shape) -> i32)
-    match shape,
-      .Circle => { return 50; },
-      .Square => { return 55; }
-  ;
-
+  test_match_all_return :: (fn(shape : Shape) -> i32)(
+    match(
+      shape,
+      .Circle => {
+        return(50);
+      },
+      .Square => {
+        return(55);
+      }
+    )
+  );
   // ===========================================
   // NESTED CONTROL STRUCTURES TESTS
   // ===========================================
-
   // Test 10: Nested cond inside while
-  test_nested_cond_in_while :: (fn(flag: bool) -> i32) {
+  test_nested_cond_in_while :: (fn(flag : bool) -> i32)({
     (x : LinearI32) = 42;
-    while flag,
-      cond
+    while(
+      flag,
+      cond(
         some_condition() => {
-          cond
+          cond(
             some_condition() => {
               ___drop(x);
               break;
             },
             true => continue
-          ;
+          );
         },
         true => break
-    ;
-    return 60;
-  };
-
+      )
+    );
+    return(60);
+  });
   // Test 11: Nested while inside cond - fixed version
-  test_nested_while_in_cond :: (fn(flag: bool) -> i32) {
-    (result: i32) = cond
+  test_nested_while_in_cond :: (fn(flag : bool) -> i32)({
+    (result : i32) = cond(
       some_condition() => {
-        while some_condition(), {
+        while(some_condition(), {
           break;
-        };
-        10  // This ensures the branch returns i32
+        });
+        10 // This ensures the branch returns i32
       },
       true => 20
-    ;
-    return result;
-  };
-
+    );
+    return(result);
+  });
   // Test 12: Nested match inside while
-  test_nested_match_in_while :: (fn(flag: bool, shape: Shape) -> i32) {
-    while flag,
-      match shape,
+  test_nested_match_in_while :: (fn(flag : bool, shape : Shape) -> i32)({
+    while(
+      flag,
+      match(
+        shape,
         .Circle => {
-          cond
+          cond(
             some_condition() => break,
             true => continue
-          ;
+          );
         },
         .Square => break
-    ;
-    return 70;
-  };
-
+      )
+    );
+    return(70);
+  });
   // ===========================================
   // VALUE-RETURNING CONTROL STRUCTURES TESTS
   // ===========================================
-
   // Test 13: Cond returning values assigned to variable
-  test_cond_value_assignment :: (fn(flag: bool) -> i32) {
-    (result: i32) = cond
+  test_cond_value_assignment :: (fn(flag : bool) -> i32)({
+    (result : i32) = cond(
       some_condition() => 100,
       true => 200
-    ;
-    return result;
-  };
-
+    );
+    return(result);
+  });
   // Test 14: Match returning values assigned to variable
-  test_match_value_assignment :: (fn(shape: Shape) -> i32) {
-    (result: i32) = match shape,
+  test_match_value_assignment :: (fn(shape : Shape) -> i32)({
+    (result : i32) = match(
+      shape,
       .Circle => 300,
       .Square => 400
-    ;
-    return result;
-  };
-
+    );
+    return(result);
+  });
   // Test 15: Nested cond with values only (no early returns)
-  test_nested_cond_mixed :: (fn(flag: bool) -> i32) {
-    (result: i32) = cond(
+  test_nested_cond_mixed :: (fn(flag : bool) -> i32)({
+    (result : i32) = cond(
       some_condition() => cond(
         some_condition() => 500,
         true => 600
       ),
       true => 700
     );
-    return result;
-  };
-
+    return(result);
+  });
   // Test 16: Complex nested structure with linear values
-  test_complex_nested :: (fn(flag: bool, shape: Shape) -> i32) {
+  test_complex_nested :: (fn(flag : bool, shape : Shape) -> i32)({
     (x : LinearI32) = 42;
     (y : LinearI32) = 24;
-    
-    while flag, {
-      (choice: i32) = cond(
+    while(flag, {
+      (choice : i32) = cond(
         some_condition() => 1,
         true => 2
       );
-      
       cond(
         (choice == 1) => {
-          match(shape,
+          match(
+            shape,
             .Circle => {
               ___drop(x);
               break;
@@ -2058,251 +1829,211 @@ test "Test control flows", {
           break;
         }
       );
-    };
-    
-    return 800;
-  };
-
+    });
+    return(800);
+  });
   // Test 17: Multiple assignment with control flow
-  test_multiple_assignment :: (fn(flag: bool) -> i32) {
-    (a: i32) = cond
+  test_multiple_assignment :: (fn(flag : bool) -> i32)({
+    (a : i32) = cond(
       some_condition() => 10,
       true => 20
-    ;
-    
-    (b: i32) = cond
+    );
+    (b : i32) = cond(
       flag => {
-        return a + 100;  // Early return
+        return(a + 100); // Early return
       },
       true => 30
-    ;
-    
-    return a + b;
-  };
-
+    );
+    return(a + b);
+  });
   // === ERROR TEST CASES ===
-
   // Test: Break outside of loop should fail
-  test_break_outside_loop :: (fn() -> unit) 
+  test_break_outside_loop :: (fn() -> unit)(
     comptime_expect_error({
       break;
     })
-  ;
-
-  // Test: Continue outside of loop should fail  
-  test_continue_outside_loop :: (fn() -> unit)
+  );
+  // Test: Continue outside of loop should fail
+  test_continue_outside_loop :: (fn() -> unit)(
     comptime_expect_error({
       continue;
     })
-  ;
-
+  );
   // NOTE: Mixed control flows are now allowed in cond/match expressions
   // Test: Mixed control flows in cond should work
-  test_mixed_control_flows :: (fn(flag: bool) -> i32) {
-    while flag,
+  test_mixed_control_flows :: (fn(flag : bool) -> i32)({
+    while(
+      flag,
       cond(
         some_condition() => {
           break;
         },
         some_condition() => {
-          continue;  // Mixed break and continue is allowed
+          continue; // Mixed break and continue is allowed
         },
         true => ()
       )
-    ;
-    return 1;
-  };
-
+    );
+    return(1);
+  });
   // Test: Break in function (not in loop) should fail
-  test_break_in_function :: (fn() -> unit)
+  test_break_in_function :: (fn() -> unit)(
     comptime_expect_error({
       cond(
         some_condition() => {
-          break;  // Break outside loop context should fail
+          break; // Break outside loop context should fail
         },
         true => ()
       );
     })
-  ;
-
+  );
   // Test: Continue in function (not in loop) should fail
-  test_continue_in_function :: (fn() -> unit)
+  test_continue_in_function :: (fn() -> unit)(
     comptime_expect_error({
       cond(
         some_condition() => {
-          continue;  // Continue outside loop context should fail
+          continue; // Continue outside loop context should fail
         },
         true => ()
       );
     })
-  ;
-};
-
-test "Test 'open' statements", {
+  );
+});
+test("Test 'open' statements", {
   // Open a comptime struct
   {
     anony :: { x : 12, y : 13 };
-    open anony;
+    open(anony);
     comptime_assert(x == 12);
     comptime_assert(y == 13);
   };
-
   // Open a runtime struct
   {
     anony := { x : i32(12), y : i32(13) };
-    open anony;
+    open(anony);
     assert(x == 12);
     assert(y == 13);
   };
-
   // Open a runtime anonymous struct with more fields
   {
     point := { x : i32(5), y : i32(10), z : i32(15) };
-    open point;
+    open(point);
     sum := ((x + y) + z);
     assert(sum == i32(30));
   };
-
   // Open inside a function
   {
-    Point :: struct(x: i32, y: i32);
-    calculate :: (fn(p : Point) -> i32) {
-      open p;
-      (x + y)
-    };
-
+    Point :: struct(x : i32, y : i32);
+    calculate :: (fn(p : Point) -> i32)({
+      open(p);
+      x + y
+    });
     result := calculate(Point(7, 3));
     assert(result == i32(10));
   };
-};
-
-test "Test 'Impl'", {
+});
+test("Test 'Impl'", {
   {
     Id :: trait(
       id : (fn(self : Self) -> Self)
     );
-
     ImplId :: Impl(Id);
-
-    test1 :: (fn(x : ImplId) -> ImplId) {
+    test1 :: (fn(x : ImplId) -> ImplId)({
       y := (typeof(x) <: Id).id(x);
-      return y.id();
-    };
+      return(y.id());
+    });
     // TODO: add assertions
   };
-
   {
     Id :: trait(
       id : (fn(self : Self) -> Self)
     );
-
-    test1 :: (fn(forall((T : Type) = Impl(Id)), x : T) -> T) {
+    test1 :: (fn(forall((T : Type) = Impl(Id)), x : T) -> T)({
       y := (typeof(x) <: Id).id(x);
-      return y.id();
-    };
-
-    test2 :: (fn((comptime(T) : Type) = Impl(Id), x : T) -> T) {
+      return(y.id());
+    });
+    test2 :: (fn((comptime(T) : Type) = Impl(Id), x : T) -> T)({
       y := (typeof(x) <: Id).id(x);
-      return y.id();
-    };
+      return(y.id());
+    });
   };
-};
-
-test "Test type availability", {
+});
+test("Test type availability", {
   // ===== STRUCT TESTS =====
   {
     Point :: struct(x : i32, y : i32); // Point can create both compile-time and run-time values
-                                       // as i32 can be used in both contexts
+    // as i32 can be used in both contexts
     a :: Point(3 + 5, 4); // compile-time value
-
-    b := Point(6, 8);     // run-time value
-
+    b := Point(6, 8); // run-time value
     r := 12;
     comptime_expect_error(c :: Point(r, 15)); // Should give error, as r is a run-time value
     d := Point(r, 20); // valid run-time value
   };
-
   {
     Point2 :: struct(x : comptime_int, y : comptime_int); // Point2 can only create compile-time values
-                                                    // as comptime_int can only be used in compile-time context
+    // as comptime_int can only be used in compile-time context
     x :: Point2(3 + 5, 4); // compile-time value
-    
     comptime_expect_error(
-      y := Point2(6, 8)   // error: cannot create run-time value of type Point2
+      y := Point2(6, 8) // error: cannot create run-time value of type Point2
     );
   };
-
   {
     comptime_expect_error(
       Point3 :: struct(x : comptime_int, y : Box(i32)) // Error: incompatible field contexts
-                                                  // comptime_int can only be used in compile-time context,
-                                                  // Box `object` can only be used in run-time context.
-                                                  // There is no intersection between the two contexts.
+      // comptime_int can only be used in compile-time context,
+      // Box `object` can only be used in run-time context.
+      // There is no intersection between the two contexts.
     );
   };
-
   {
     Point4 :: struct(x : comptime_int, y : i32); // Point4 can only be used to create compile-time values
-                                              // comptime_int can only be used in compile-time context,
-                                              // i32 can be used in both contexts,
-                                              // so the intersection is compile-time context
+    // comptime_int can only be used in compile-time context,
+    // i32 can be used in both contexts,
+    // so the intersection is compile-time context
     x :: Point4(10, 20); // compile-time value
     comptime_expect_error(
       y := Point4(30, 40) // error: cannot create run-time value of type Point4
     );
   };
-
   // ===== TUPLE TESTS =====
   {
     // Tuple can be used in both contexts
     a :: (5, 10); // compile-time value
     b := (15, 20); // run-time value
-
     r := 25;
     c := (r, 30); // valid run-time value
-
     comptime_expect_error(
       d :: (r, 40) // error: cannot create compile-time value with run-time element
     );
   };
-
   {
     Pair :: Tuple(x : comptime_int, y : comptime_int); // Tuple can only be used in compile-time context
-
     (comptime(x) : Pair) = (11, 12); // compile-time value
-
     comptime_expect_error(
       (y : Pair) = (13, 14) // error: cannot create run-time value
     );
   };
-
   // ===== ENUM TESTS =====
   {
     MyResult :: enum(
       Ok(value : i32),
       Err(msg : i32)
     ); // Enum can be used in both contexts
-    
     a :: MyResult.Ok(42); // compile-time value
     b := MyResult.Err(1); // run-time value
-
     r := 10;
     c := MyResult.Ok(r); // valid run-time value
   };
-
   {
     ComptResult :: enum(
       Ok(value : comptime_int),
       Err(code : comptime_int)
     ); // Enum can only be used in compile-time context
-    
     x :: ComptResult.Ok(123); // compile-time value
-    
     comptime_expect_error(
       y := ComptResult.Err(456) // error: cannot create run-time value
     );
   };
-
   {
     comptime_expect_error(
       MixedResult :: enum(
@@ -2311,35 +2042,29 @@ test "Test type availability", {
       ) // Error: incompatible variant field contexts
     );
   };
-
   {
     HalfComptResult :: enum(
       Ok(value : comptime_int),
       Err(code : i32)
     ); // Only compile-time context available (intersection of variant availabilities)
-    
     x :: HalfComptResult.Ok(999); // compile-time value
     comptime_expect_error(
       y := HalfComptResult.Err(888) // error: cannot create run-time value
     );
   };
-
   // ===== ARRAY TESTS =====
   {
-    IntArray :: [i32; 3]; // Array can be used in both contexts
+    IntArray :: [i32 ; 3]; // Array can be used in both contexts
     a :: IntArray(1, 2, 3); // compile-time value
     b := IntArray(4, 5, 6); // run-time value
   };
-
   {
-    ComptArray :: [comptime_int; 2]; // Array can only be used in compile-time context
+    ComptArray :: [comptime_int ; 2]; // Array can only be used in compile-time context
     x :: ComptArray(10, 20); // compile-time value
-    
     comptime_expect_error(
       y := ComptArray(30, 40) // error: cannot create run-time value
     );
   };
-
   // ===== UNION TESTS =====
   // Union can only accept runtime fields
   {
@@ -2348,204 +2073,194 @@ test "Test type availability", {
       MyComptUnion :: union(a : comptime_int, b : i32) // error: field 'a' is compile-time only
     );
   };
-};
-
-test "Test 'comptime_fn' function call and function overloading", {
-  add :: impl {
-    _add :: (fn(x : i32, y : i32) -> i32) {
-      return (x + y);
-    };
+});
+test("Test 'comptime_fn' function call and function overloading", {
+  add :: impl({
+    _add :: (fn(x : i32, y : i32) -> i32)({
+      return(x + y);
+    });
     comptime_add :: comptime_fn(_add); // Convert `add` to a comptime function.
-                              // Panic if fails to convert.
-
+    // Panic if fails to convert.
     Call :: (_add, comptime_add);
-    export Call;
-  };
-
+    export(Call);
+  });
   MyOption :: (fn(comptime(T) : Type) -> comptime(Type))(
     enum(
       None,
-      Some(value: T)
+      Some(value : T)
     )
   );
-
-  impl(forall(T : Type), MyOption(T),
+  impl(
+    forall(T : Type),
+    MyOption(T),
     unwrap : (fn(self : Self) -> T)(
-      match(self,
+      match(
+        self,
         .Some(value) => value,
         .None => panic("Called unwrap on a None value")
       )
     )
   );
-  impl(forall(T : Type), where(T <: Comptime), MyOption(T),
+  impl(
+    forall(T : Type),
+    where(T <: Comptime),
+    MyOption(T),
     comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(
-      match(self,
+      match(
+        self,
         .Some(value) => value,
         .None => comptime_assert(false, "Called unwrap on a None value at comptime")
       )
     )
   );
-
   op := MyOption(i32).Some(12);
-
-  match(op,
+  match(
+    op,
     .Some(_) => {
       assert(true);
     },
     .None => {
       x :: add(3, 4); // compile-time function call
-      comptime_assert(x == 7); 
-
+      comptime_assert(x == 7);
       y := add(4, 5); // run-time function call
       assert(y == 9);
-
       assert(false, "Expected Some, got None");
     }
   );
-
   val := op.unwrap();
   assert(val == 12);
-
   op2 :: MyOption(i32).Some(55);
   val2 :: op2.comptime_unwrap();
   comptime_assert(val2 == 55);
-};
-
-test "Test comptime while loop unrolling with runtime body", {
+});
+test("Test comptime while loop unrolling with runtime body", {
   // 2-arg form: comptime counter with runtime accumulator
   {
     sum := 0;
     i :: 0;
-    while comptime((i < 5)), {
+    while(comptime(i < 5), {
       sum = (sum + i32(i));
       i = (i + 1);
-    };
-    assert((sum == 10), "2-arg unrolled sum should be 10");
+    });
+    assert(sum == 10, "2-arg unrolled sum should be 10");
   };
-
   // 3-arg form: comptime counter with step expression and runtime accumulator
   {
     sum := 0;
     i :: 0;
-    while comptime((i < 5)), i = (i + 1), {
+    while(comptime(i < 5), i = (i + 1), {
       sum = (sum + i32(i));
-    };
-    assert((sum == 10), "3-arg unrolled sum should be 10");
+    });
+    assert(sum == 10, "3-arg unrolled sum should be 10");
   };
-
   // comptime condition initially false: body should not execute
   {
     sum := 0;
     i :: 10;
-    while comptime((i < 5)), {
+    while(comptime(i < 5), {
       sum = (sum + i32(i));
       i = (i + 1);
-    };
-    assert((sum == 0), "initially false condition should produce 0");
+    });
+    assert(sum == 0, "initially false condition should produce 0");
   };
-
   // single iteration unroll
   {
     sum := 0;
     i :: 0;
-    while comptime((i < 1)), {
+    while(comptime(i < 1), {
       sum = (sum + i32(i));
       i = (i + 1);
-    };
-    assert((sum == 0), "single iteration should produce 0");
+    });
+    assert(sum == 0, "single iteration should produce 0");
   };
-
   // comptime unrolled while with multiple runtime side effects per iteration
   {
     a := 0;
     b := 0;
     i :: 0;
-    while comptime((i < 3)), {
+    while(comptime(i < 3), {
       a = (a + i32(i));
-      b = (b + i32((i * i)));
+      b = (b + i32(i * i));
       i = (i + 1);
-    };
-    assert((a == 3), "a should be 0+1+2 = 3");
-    assert((b == 5), "b should be 0+1+4 = 5");
+    });
+    assert(a == 3, "a should be 0+1+2 = 3");
+    assert(b == 5, "b should be 0+1+4 = 5");
   };
-};
-
-test "Test comptime match branch elimination", {
+});
+test("Test comptime match branch elimination", {
   // primitive match with comptime scrutinee — only matching branch should be emitted
   {
     x :: 2;
-    result := match(x,
+    result := match(
+      x,
       1 => i32(10),
       2 => i32(20),
       3 => i32(30),
       _ => i32(0)
     );
-    assert((result == 20), "match on comptime 2 should yield 20");
+    assert(result == 20, "match on comptime 2 should yield 20");
   };
-
   // comptime scrutinee matching first branch
   {
     x :: 1;
-    result := match(x,
+    result := match(
+      x,
       1 => i32(100),
       2 => i32(200),
       _ => i32(0)
     );
-    assert((result == 100), "match on comptime 1 should yield 100");
+    assert(result == 100, "match on comptime 1 should yield 100");
   };
-
   // comptime scrutinee matching wildcard
   {
     x :: 99;
-    result := match(x,
+    result := match(
+      x,
       1 => i32(10),
       2 => i32(20),
       _ => i32(999)
     );
-    assert((result == 999), "match on comptime 99 should yield wildcard 999");
+    assert(result == 999, "match on comptime 99 should yield wildcard 999");
   };
-};
-
+});
 // Test: return in match branch should be treated as never type
-test "return in match branch type compatibility", {
-  open import "std/collections/array_list";
-
+test("return in match branch type compatibility", {
+  open(import("std/collections/array_list"));
   test_fn :: (fn() -> unit)({
     (list : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(42));
     // .None branch returns from the function — its type should be never/bottom,
     // compatible with *(u8) expected type from .Some branch
-    (ptr : *(u8)) = match(list._ptr,
+    (ptr : *(u8)) = match(
+      list._ptr,
       .Some(p) => p,
-      .None => { return (); }
+      .None => {
+        return(());
+      }
     );
-    assert((ptr.* == u8(42)), "ptr value should be 42");
+    assert(ptr.* == u8(42), "ptr value should be 42");
   });
   test_fn();
-};
-
+});
 // Test: { } without semicolons is a struct literal, not a block.
 // Single-expression function bodies must be written directly (no wrapping braces),
 // or as multi-statement blocks with semicolons.
-test "single-expression function body without braces", {
+test("single-expression function body without braces", {
   // Single-expression body: written directly, no outer { }
   double :: (fn(x : i32) -> i32)(
-    (x * i32(2))
+    x * i32(2)
   );
-  assert((double(i32(3)) == i32(6)), "double should work");
-
+  assert(double(i32(3)) == i32(6), "double should work");
   // Multi-statement block: { } WITH semicolons is still a valid block
   add_one_verbose :: (fn(x : i32) -> i32)({
     y := (x + i32(1));
     y
   });
-  assert((add_one_verbose(i32(4)) == i32(5)), "add_one_verbose should work");
-};
-
+  assert(add_one_verbose(i32(4)) == i32(5), "add_one_verbose should work");
+});
 // Test: indexing a function call result directly (temporary)
-test "index function call result", {
-  open import "std/collections/array_list";
-
+test("index function call result", {
+  open(import("std/collections/array_list"));
   get_list :: (fn() -> ArrayList(u8))({
     (list : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(10));
@@ -2555,28 +2270,28 @@ test "index function call result", {
   });
   // Index directly into function return value
   (val : u8) = get_list()(usize(1));
-  assert((val == u8(20)), "index fn call result should be 20");
-};
-
+  assert(val == u8(20), "index fn call result should be 20");
+});
 // Regression: struct literal in match arm whose field name contains "return"
 // must be assigned to the function's return temporary, not emitted as a bare
 // expression statement. The codegen previously misclassified the arm body as
 // control-flow because `code.includes("return")` matched `return_flag`.
 // See: issues/fixed/struct-literal-in-match-arm-not-assigned.md
-test "match arm struct literal with `return` in field name", {
+test("match arm struct literal with `return` in field name", {
   ControlFlowFlags :: struct(
-    return_flag   : bool,
-    escape_flag   : bool,
-    break_flag    : bool,
+    return_flag : bool,
+    escape_flag : bool,
+    break_flag : bool,
     continue_flag : bool
   );
   ControlFlowKind :: enum(Return, Escape, Break, Continue);
   control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)(
-    match(kind,
-      .Return   => ControlFlowFlags(return_flag: true,  escape_flag: false, break_flag: false, continue_flag: false),
-      .Escape   => ControlFlowFlags(return_flag: false, escape_flag: true,  break_flag: false, continue_flag: false),
-      .Break    => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: true,  continue_flag: false),
-      .Continue => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: false, continue_flag: true)
+    match(
+      kind,
+      .Return => ControlFlowFlags(return_flag : true, escape_flag : false, break_flag : false, continue_flag : false),
+      .Escape => ControlFlowFlags(return_flag : false, escape_flag : true, break_flag : false, continue_flag : false),
+      .Break => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : true, continue_flag : false),
+      .Continue => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : true)
     )
   );
   cf := control_flow_of(ControlFlowKind.Return);
@@ -2585,20 +2300,19 @@ test "match arm struct literal with `return` in field name", {
   cf2 := control_flow_of(ControlFlowKind.Escape);
   assert(cf2.escape_flag, "Escape arm must set escape_flag = true");
   assert(!(cf2.return_flag), "Escape arm must leave return_flag = false");
-};
-
+});
 // Regression: cond arm struct literal with `return` in field name (mirrors
 // the match-arm fix in src/codegen/exprs/cond.ts).
-test "cond arm struct literal with `return` in field name", {
+test("cond arm struct literal with `return` in field name", {
   Flags :: struct(return_flag : bool, other_flag : bool);
   pick :: (fn(x : i32) -> Flags)(
     cond(
-      (x == i32(1)) => Flags(return_flag: true,  other_flag: false),
-      (x == i32(2)) => Flags(return_flag: false, other_flag: true),
-      true          => Flags(return_flag: false, other_flag: false)
+      (x == i32(1)) => Flags(return_flag : true, other_flag : false),
+      (x == i32(2)) => Flags(return_flag : false, other_flag : true),
+      true => Flags(return_flag : false, other_flag : false)
     )
   );
   f := pick(i32(1));
   assert(f.return_flag, "cond arm 1 must set return_flag = true");
   assert(!(f.other_flag), "cond arm 1 must leave other_flag = false");
-};
+});

@@ -1,121 +1,138 @@
 // @skip_wasm32-emscripten — no network stack in WASM (UDP sockets unavailable)
 // @skip_wasm32-wasi — no network stack in WASM (UDP sockets unavailable)
-open import "std/libc/stdio";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-{ ArrayList } :: import "std/collections/array_list";
-open import "std/string";
-open import "std/fmt";
-{ UdpSocket } :: import "std/net/udp";
-{ SocketAddr, IpAddr } :: import "std/net/addr";
-{ NetError } :: import "std/net/errors";
-{ Error, AnyError, Exception } :: import "std/error";
-IO_tcp :: import "std/sys/tcp";
-
+{ ArrayList } :: import("std/collections/array_list");
+open(import("std/string"));
+open(import("std/fmt"));
+{ UdpSocket } :: import("std/net/udp");
+{ SocketAddr, IpAddr } :: import("std/net/addr");
+{ NetError } :: import("std/net/errors");
+{ Error, AnyError, Exception } :: import("std/error");
+IO_tcp :: import("std/sys/tcp");
 // ============================================================================
 // UdpSocket tests
 // ============================================================================
-
-test "UdpSocket bind and close", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+test("UdpSocket bind and close", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0))));
   printf("  socket fd = %d\n", sock.fd());
-  assert((sock.fd() >= i32(0)), "fd should be valid");
+  assert(sock.fd() >= i32(0), "fd should be valid");
   io.await(sock.close());
   printf("  close ok\n");
-};
-
-test "UdpSocket local_addr", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+});
+test("UdpSocket local_addr", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0))));
   la := sock.local_addr();
   printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap());
   assert(la.ip.is_loopback(), "should be loopback");
   io.await(sock.close());
-};
-
-test "UdpSocket send_to and recv", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+});
+test("UdpSocket send_to and recv", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   server_addr := SocketAddr.loopback(u16(19910));
   server := io.await(UdpSocket.bind(server_addr));
-
   client_addr := SocketAddr.loopback(u16(19911));
   client := io.await(UdpSocket.bind(client_addr));
-
   // Client sends to server
   data := ArrayList(u8).new();
-  data.push(u8(72));   // H
-  data.push(u8(101));  // e
-  data.push(u8(108));  // l
-  data.push(u8(108));  // l
-  data.push(u8(111));  // o
+  data.push(u8(72)); // H
+  data.push(u8(101)); // e
+  data.push(u8(108)); // l
+  data.push(u8(108)); // l
+  data.push(u8(111)); // o
   n := io.await(client.send_to(data, server_addr));
   printf("  sent = %d\n", n);
-  assert((n == i32(5)), "should send 5 bytes");
-
+  assert(n == i32(5), "should send 5 bytes");
   // Server receives
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   nr := io.await(server.recv(recv_buf, usize(256)));
   printf("  received = %d\n", nr);
-  assert((nr == i32(5)), "should receive 5 bytes");
-  assert(((recv_buf &+ usize(0)).* == u8(72)), "H");
-  assert(((recv_buf &+ usize(1)).* == u8(101)), "e");
-  assert(((recv_buf &+ usize(2)).* == u8(108)), "l");
-  assert(((recv_buf &+ usize(3)).* == u8(108)), "l");
-  assert(((recv_buf &+ usize(4)).* == u8(111)), "o");
+  assert(nr == i32(5), "should receive 5 bytes");
+  assert((recv_buf &+ usize(0)).* == u8(72), "H");
+  assert((recv_buf &+ usize(1)).* == u8(101), "e");
+  assert((recv_buf &+ usize(2)).* == u8(108), "l");
+  assert((recv_buf &+ usize(3)).* == u8(108), "l");
+  assert((recv_buf &+ usize(4)).* == u8(111), "o");
   free(.Some(*(void)(recv_buf)));
-
   io.await(client.close());
   io.await(server.close());
-};
-
-test "UdpSocket recv_from gets source address", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+});
+test("UdpSocket recv_from gets source address", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   server_addr := SocketAddr.loopback(u16(19912));
   server := io.await(UdpSocket.bind(server_addr));
-
   client_addr := SocketAddr.loopback(u16(19913));
   client := io.await(UdpSocket.bind(client_addr));
-
   // Client sends
   data := ArrayList(u8).new();
-  data.push(u8(65));  // A
-  data.push(u8(66));  // B
+  data.push(u8(65)); // A
+  data.push(u8(66)); // B
   io.await(client.send_to(data, server_addr));
-
   // Server receives with source address
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   src_addr_buf := *(u8)(malloc(usize(128)).unwrap());
   src_addr_len := *(u32)(malloc(usize(4)).unwrap());
   src_addr_len.* = u32(128);
-
   nr := io.await(server.recv_from(recv_buf, usize(256), src_addr_buf, src_addr_len));
   printf("  received = %d\n", nr);
-  assert((nr == i32(2)), "should receive 2 bytes");
-  assert(((recv_buf &+ usize(0)).* == u8(65)), "A");
-  assert(((recv_buf &+ usize(1)).* == u8(66)), "B");
-
+  assert(nr == i32(2), "should receive 2 bytes");
+  assert((recv_buf &+ usize(0)).* == u8(65), "A");
+  assert((recv_buf &+ usize(1)).* == u8(66), "B");
   // Verify source address family
   src_family := IO_tcp.get_family(src_addr_buf);
   printf("  src family = %u\n", src_family);
-
   // Verify source port
   src_port := IO_tcp.get_port_in(src_addr_buf);
   printf("  src port = %u\n", src_port);
-  assert((src_port == u16(19913)), "src port should be 19913");
-
+  assert(src_port == u16(19913), "src port should be 19913");
   free(.Some(*(void)(recv_buf)));
   free(.Some(*(void)(src_addr_buf)));
   free(.Some(*(void)(src_addr_len)));
-
   io.await(client.close());
   io.await(server.close());
-};
-
-test "UdpSocket set_broadcast", {
-  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+});
+test("UdpSocket set_broadcast", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        escape(());
+      }
+    )
+  );
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0))));
   io.await(sock.set_broadcast(true));
   printf("  broadcast ok\n");
   io.await(sock.close());
-};
+});

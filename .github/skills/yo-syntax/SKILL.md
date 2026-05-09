@@ -31,26 +31,27 @@ Use this skill when you need to:
 - `cond(...)` and `match(...)` always require parentheses.
 - `{ expr }` is a struct literal; `{ expr; }` is a begin block.
 - Yo has no operator precedence. Parenthesize every binary operation.
-- Use `func(arg)` with no space before `(` for normal calls.
+- Use `func(arg)` with no space before `(` for every call; `func arg` and `func (arg)` are invalid.
+- Use `return(value)` / `return()` and `escape(value)` / `escape()`; bare control-flow arguments are invalid.
 - Use `recur(...)` for self-recursion instead of the function name.
 - Use `forall(T : Type)` for generic type parameters, `comptime(x) : T` for compile-time parameters.
 - Use `where(T <: Trait)` to constrain type parameters.
 - Use `using(name : Type)` for implicit/effect parameters and `given(name) := Type(...)` to install handlers.
 - Use `(params) => expr` for closures; `Impl(Fn(...) -> T)` for the closure type.
-- Every executable needs `export main;`.
+- Every executable needs `export(main);`.
 - Import sibling modules with relative paths like `./file.yo`.
 - Do not import `std/prelude`; it is loaded automatically.
 - Use `snake_case` for names, `PascalCase` for types/traits, 2-space indentation.
 
 ## Common traps
 
-- `return expr1, expr2` is parsed as one call; use a begin block or return an expression directly.
+- `return expr` is invalid; use `return(expr)` or `return()` for unit.
 - Nested patterns like `.Ok(.Some(x))` are not supported; match in stages.
-- Unary operators need parenthesized operands: `!(ready)`.
-- `while true` is compile-time. Use `while runtime(true), { ... }` for infinite runtime loops.
+- Unary operators need parenthesized operands: `!(ready)`, `&(value)`.
+- Use `while(true, { ... })` for infinite runtime loops; use `while(comptime(cond), { ... })` only for compile-time unrolling.
 - A single-expression lambda body should not be wrapped in `{ ... }` unless semicolons make it a begin block.
 - `"hello"` is `comptime_string` inside `comptime` functions, not `str`. In runtime code, `"hello"` is always `str`.
-- Functions called without `()` in match/cond branches consume trailing commas. Always add `()` or use begin blocks.
+- Calls in match/cond branches must use immediate `(...)`; this avoids trailing-comma ambiguity.
 
 ## Resource
 

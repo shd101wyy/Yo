@@ -1,94 +1,100 @@
 //! POSIX `<sys/stat.h>` — file status and mode operations.
-
-c_include "<sys/stat.h>",
+c_include(
+  "<sys/stat.h>",
   // Types
   mode_t : Type,
-  
   // The stat structure - platform specific layout
   // Use helper functions to extract fields portably
   // struct_stat : Type,  // Can't use 'stat' as type name since it conflicts with function
-
   // File status functions
   stat :
-    (fn(pathname: *(char), statbuf: *(void)) -> int),
+    (fn(pathname : *(char), statbuf : *(void)) -> int),
   fstat :
-    (fn(fd: int, statbuf: *(void)) -> int),
+    (fn(fd : int, statbuf : *(void)) -> int),
   lstat :
-    (fn(pathname: *(char), statbuf: *(void)) -> int),
-
+    (fn(pathname : *(char), statbuf : *(void)) -> int),
   // Directory creation
   mkdir :
-    (fn(pathname: *(char), mode: mode_t) -> int),
-
+    (fn(pathname : *(char), mode : mode_t) -> int),
   // File mode operations
   chmod :
-    (fn(pathname: *(char), mode: mode_t) -> int),
+    (fn(pathname : *(char), mode : mode_t) -> int),
   fchmod :
-    (fn(fd: int, mode: mode_t) -> int),
-
+    (fn(fd : int, mode : mode_t) -> int),
   // File creation mask
   umask :
-    (fn(mask: mode_t) -> mode_t),
-
+    (fn(mask : mode_t) -> mode_t),
   // Create special files (POSIX)
   mkfifo :
-    (fn(pathname: *(char), mode: mode_t) -> int),
-
+    (fn(pathname : *(char), mode : mode_t) -> int),
   // File type macros (applied to st_mode)
   // These are typically implemented as macros, but we expose the constants
-  S_IFMT : mode_t,    // Bit mask for the file type bit field
-  S_IFSOCK : mode_t,  // Socket
-  S_IFLNK : mode_t,   // Symbolic link
-  S_IFREG : mode_t,   // Regular file
-  S_IFBLK : mode_t,   // Block device
-  S_IFDIR : mode_t,   // Directory
-  S_IFCHR : mode_t,   // Character device
-  S_IFIFO : mode_t,   // FIFO
-
+  S_IFMT : mode_t,
+  // Bit mask for the file type bit field
+  S_IFSOCK : mode_t,
+  // Socket
+  S_IFLNK : mode_t,
+  // Symbolic link
+  S_IFREG : mode_t,
+  // Regular file
+  S_IFBLK : mode_t,
+  // Block device
+  S_IFDIR : mode_t,
+  // Directory
+  S_IFCHR : mode_t,
+  // Character device
+  S_IFIFO : mode_t,
+  // FIFO
   // File mode bits (permissions)
   // Owner permissions
-  S_IRWXU : mode_t,   // Owner has read, write, and execute permission
-  S_IRUSR : mode_t,   // Owner has read permission
-  S_IWUSR : mode_t,   // Owner has write permission
-  S_IXUSR : mode_t,   // Owner has execute permission
-
+  S_IRWXU : mode_t,
+  // Owner has read, write, and execute permission
+  S_IRUSR : mode_t,
+  // Owner has read permission
+  S_IWUSR : mode_t,
+  // Owner has write permission
+  S_IXUSR : mode_t,
+  // Owner has execute permission
   // Group permissions
-  S_IRWXG : mode_t,   // Group has read, write, and execute permission
-  S_IRGRP : mode_t,   // Group has read permission
-  S_IWGRP : mode_t,   // Group has write permission
-  S_IXGRP : mode_t,   // Group has execute permission
-
+  S_IRWXG : mode_t,
+  // Group has read, write, and execute permission
+  S_IRGRP : mode_t,
+  // Group has read permission
+  S_IWGRP : mode_t,
+  // Group has write permission
+  S_IXGRP : mode_t,
+  // Group has execute permission
   // Others permissions
-  S_IRWXO : mode_t,   // Others have read, write, and execute permission
-  S_IROTH : mode_t,   // Others have read permission
-  S_IWOTH : mode_t,   // Others have write permission
-  S_IXOTH : mode_t,   // Others have execute permission
-
+  S_IRWXO : mode_t,
+  // Others have read, write, and execute permission
+  S_IROTH : mode_t,
+  // Others have read permission
+  S_IWOTH : mode_t,
+  // Others have write permission
+  S_IXOTH : mode_t,
+  // Others have execute permission
   // Special mode bits
-  S_ISUID : mode_t,   // Set-user-ID bit
-  S_ISGID : mode_t,   // Set-group-ID bit
-  S_ISVTX : mode_t    // Sticky bit
-;
-
+  S_ISUID : mode_t,
+  // Set-user-ID bit
+  S_ISGID : mode_t,
+  // Set-group-ID bit
+  S_ISVTX : mode_t // Sticky bit
+);
 // Export all sys/stat functionality
-export
+export(
   // Types
   mode_t,
-
   // File status functions
   stat,
   fstat,
   lstat,
-
   // Directory creation
   mkdir,
-
   // File mode operations
   chmod,
   fchmod,
   umask,
   mkfifo,
-
   // File type constants
   S_IFMT,
   S_IFSOCK,
@@ -98,27 +104,23 @@ export
   S_IFDIR,
   S_IFCHR,
   S_IFIFO,
-
   // Owner permissions
   S_IRWXU,
   S_IRUSR,
   S_IWUSR,
   S_IXUSR,
-
   // Group permissions
   S_IRWXG,
   S_IRGRP,
   S_IWGRP,
   S_IXGRP,
-
   // Others permissions
   S_IRWXO,
   S_IROTH,
   S_IWOTH,
   S_IXOTH,
-
   // Special mode bits
   S_ISUID,
   S_ISGID,
   S_ISVTX
-;
+);

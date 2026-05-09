@@ -1,190 +1,158 @@
 // @skip_wasm32-wasi — no pthread support in standalone WASI
-{ arch, Arch } :: import "std/process";
-open import "std/libc/stdio";
-{ Channel } :: import "std/sync/channel";
-{ Thread } :: import "std/thread";
-{ sleep } :: import "std/time/sleep";
-{ WaitGroup } :: import "std/sync/waitgroup";
-Worker :: import "std/worker";
-
+{ arch, Arch } :: import("std/process");
+open(import("std/libc/stdio"));
+{ Channel } :: import("std/sync/channel");
+{ Thread } :: import("std/thread");
+{ sleep } :: import("std/time/sleep");
+{ WaitGroup } :: import("std/sync/waitgroup");
+Worker :: import("std/worker");
 // ============================================================================
 // Basic Operations
 // ============================================================================
-
-test "Channel new creates empty channel", {
+test("Channel new creates empty channel", {
   ch := Channel(i32).new(usize(10));
   assert(ch.is_empty(), "new channel should be empty");
-  assert((ch.len() == usize(0)), "new channel should have len 0");
-  assert((!(ch.is_closed())), "new channel should not be closed");
-};
-
-test "Channel send and recv single value", {
+  assert(ch.len() == usize(0), "new channel should have len 0");
+  assert(!(ch.is_closed()), "new channel should not be closed");
+});
+test("Channel send and recv single value", {
   ch := Channel(i32).new(usize(10));
   result := ch.send(i32(42));
   assert(result.is_ok(), "send should succeed");
-  assert((ch.len() == usize(1)), "channel should have 1 item");
-
+  assert(ch.len() == usize(1), "channel should have 1 item");
   val := ch.recv();
   assert(val.is_some(), "recv should return value");
-  assert((val.unwrap() == i32(42)), "recv should return 42");
+  assert(val.unwrap() == i32(42), "recv should return 42");
   assert(ch.is_empty(), "channel should be empty after recv");
-};
-
-test "Channel send and recv multiple values preserves FIFO order", {
+});
+test("Channel send and recv multiple values preserves FIFO order", {
   ch := Channel(i32).new(usize(10));
   ch.send(i32(1));
   ch.send(i32(2));
   ch.send(i32(3));
-  assert((ch.len() == usize(3)), "channel should have 3 items");
-
+  assert(ch.len() == usize(3), "channel should have 3 items");
   v1 := ch.recv();
   v2 := ch.recv();
   v3 := ch.recv();
-  assert((v1.unwrap() == i32(1)), "first value should be 1");
-  assert((v2.unwrap() == i32(2)), "second value should be 2");
-  assert((v3.unwrap() == i32(3)), "third value should be 3");
-};
-
-test "Channel send fills to capacity", {
+  assert(v1.unwrap() == i32(1), "first value should be 1");
+  assert(v2.unwrap() == i32(2), "second value should be 2");
+  assert(v3.unwrap() == i32(3), "third value should be 3");
+});
+test("Channel send fills to capacity", {
   ch := Channel(i32).new(usize(3));
   ch.send(i32(10));
   ch.send(i32(20));
   ch.send(i32(30));
-  assert((ch.len() == usize(3)), "channel should be full at capacity 3");
-};
-
+  assert(ch.len() == usize(3), "channel should be full at capacity 3");
+});
 // ============================================================================
 // try_send / try_recv (non-blocking)
 // ============================================================================
-
-test "Channel try_send succeeds when not full", {
+test("Channel try_send succeeds when not full", {
   ch := Channel(i32).new(usize(5));
   r := ch.try_send(i32(99));
   assert(r.is_ok(), "try_send should succeed on empty channel");
-  assert((ch.len() == usize(1)), "channel should have 1 item");
-};
-
-test "Channel try_send fails when full", {
+  assert(ch.len() == usize(1), "channel should have 1 item");
+});
+test("Channel try_send fails when full", {
   ch := Channel(i32).new(usize(2));
   ch.send(i32(1));
   ch.send(i32(2));
   r := ch.try_send(i32(3));
   assert(r.is_err(), "try_send should fail on full channel");
-  assert((ch.len() == usize(2)), "channel len should still be 2");
-};
-
-test "Channel try_recv returns value when available", {
+  assert(ch.len() == usize(2), "channel len should still be 2");
+});
+test("Channel try_recv returns value when available", {
   ch := Channel(i32).new(usize(5));
   ch.send(i32(77));
   val := ch.try_recv();
   assert(val.is_some(), "try_recv should return value");
-  assert((val.unwrap() == i32(77)), "try_recv should return 77");
-};
-
-test "Channel try_recv returns None when empty", {
+  assert(val.unwrap() == i32(77), "try_recv should return 77");
+});
+test("Channel try_recv returns None when empty", {
   ch := Channel(i32).new(usize(5));
   val := ch.try_recv();
   assert(val.is_none(), "try_recv should return None on empty channel");
-};
-
+});
 // ============================================================================
 // Close semantics
 // ============================================================================
-
-test "Channel close sets closed flag", {
+test("Channel close sets closed flag", {
   ch := Channel(i32).new(usize(5));
-  assert((!(ch.is_closed())), "channel should not be closed initially");
+  assert(!(ch.is_closed()), "channel should not be closed initially");
   ch.close();
   assert(ch.is_closed(), "channel should be closed after close()");
-};
-
-test "Channel send returns Err after close", {
+});
+test("Channel send returns Err after close", {
   ch := Channel(i32).new(usize(5));
   ch.close();
   r := ch.send(i32(1));
   assert(r.is_err(), "send to closed channel should return Err");
-};
-
-test "Channel try_send returns Err after close", {
+});
+test("Channel try_send returns Err after close", {
   ch := Channel(i32).new(usize(5));
   ch.close();
   r := ch.try_send(i32(1));
   assert(r.is_err(), "try_send to closed channel should return Err");
-};
-
-test "Channel recv drains remaining values after close", {
+});
+test("Channel recv drains remaining values after close", {
   ch := Channel(i32).new(usize(5));
   ch.send(i32(10));
   ch.send(i32(20));
   ch.close();
-
   v1 := ch.recv();
   assert(v1.is_some(), "recv should return buffered value after close");
-  assert((v1.unwrap() == i32(10)), "first value should be 10");
-
+  assert(v1.unwrap() == i32(10), "first value should be 10");
   v2 := ch.recv();
   assert(v2.is_some(), "recv should return second buffered value");
-  assert((v2.unwrap() == i32(20)), "second value should be 20");
-
+  assert(v2.unwrap() == i32(20), "second value should be 20");
   v3 := ch.recv();
   assert(v3.is_none(), "recv should return None when closed and empty");
-};
-
-test "Channel try_recv drains remaining values after close", {
+});
+test("Channel try_recv drains remaining values after close", {
   ch := Channel(i32).new(usize(5));
   ch.send(i32(100));
   ch.close();
-
   val := ch.try_recv();
   assert(val.is_some(), "try_recv should return buffered value after close");
-  assert((val.unwrap() == i32(100)), "value should be 100");
-
+  assert(val.unwrap() == i32(100), "value should be 100");
   val2 := ch.try_recv();
   assert(val2.is_none(), "try_recv should return None when closed and empty");
-};
-
+});
 // ============================================================================
 // Edge cases
 // ============================================================================
-
-test "Channel with bool type", {
+test("Channel with bool type", {
   ch := Channel(bool).new(usize(5));
   ch.send(true);
   ch.send(false);
-
   v1 := ch.recv();
   v2 := ch.recv();
   assert(v1.unwrap(), "first value should be true");
-  assert((!(v2.unwrap())), "second value should be false");
-};
-
-test "Channel with usize type", {
+  assert(!(v2.unwrap()), "second value should be false");
+});
+test("Channel with usize type", {
   ch := Channel(usize).new(usize(5));
   ch.send(usize(42));
-
   val := ch.recv();
-  assert((val.unwrap() == usize(42)), "value should be 42");
-};
-
+  assert(val.unwrap() == usize(42), "value should be 42");
+});
 // ============================================================================
 // Thread integration (Channel is atomic object — no Arc wrapping needed)
 // ============================================================================
-
-test "Channel single producer single consumer with Thread", {
-  if((arch == Arch.Wasm32), return ());
+test("Channel single producer single consumer with Thread", {
+  if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(10));
-
   producer := Thread.spawn(() => {
     i := i32(0);
-    while runtime((i < i32(5))), {
+    while(runtime(i < i32(5)), {
       ch.send(i);
       i = (i + i32(1));
-    };
+    });
   });
-
   sum := i32(0);
   count := i32(0);
-  while runtime((count < i32(5))), {
+  while(runtime(count < i32(5)), {
     val := ch.recv();
     cond(
       val.is_some() => {
@@ -193,29 +161,25 @@ test "Channel single producer single consumer with Thread", {
       },
       true => ()
     );
-  };
-
+  });
   producer.join();
   // 0+1+2+3+4 = 10
-  assert((sum == i32(10)), "sum should be 10");
-  assert((count == i32(5)), "should have received 5 values");
-};
-
-test "Channel thread producer sends many values", {
-  if((arch == Arch.Wasm32), return ());
+  assert(sum == i32(10), "sum should be 10");
+  assert(count == i32(5), "should have received 5 values");
+});
+test("Channel thread producer sends many values", {
+  if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(20));
-
   t := Thread.spawn(() => {
     i := i32(0);
-    while runtime((i < i32(10))), {
+    while(runtime(i < i32(10)), {
       ch.send(i);
       i = (i + i32(1));
-    };
+    });
   });
-
   sum := i32(0);
   count := i32(0);
-  while runtime((count < i32(10))), {
+  while(runtime(count < i32(10)), {
     val := ch.recv();
     cond(
       val.is_some() => {
@@ -224,133 +188,103 @@ test "Channel thread producer sends many values", {
       },
       true => ()
     );
-  };
-
+  });
   t.join();
   // 0+1+2+...+9 = 45
-  assert((sum == i32(45)), "sum should be 45");
-  assert((count == i32(10)), "should have received 10 values");
-};
-
-test "Channel consumer thread blocks until producer sends", {
-  if((arch == Arch.Wasm32), return ());
+  assert(sum == i32(45), "sum should be 45");
+  assert(count == i32(10), "should have received 10 values");
+});
+test("Channel consumer thread blocks until producer sends", {
+  if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(1));
-
   consumer := Thread.spawn(() => {
     val := ch.recv();
     assert(val.is_some(), "consumer should receive a value");
-    assert((val.unwrap() == i32(999)), "value should be 999");
+    assert(val.unwrap() == i32(999), "value should be 999");
   });
-
   // Sleep briefly so consumer has time to block on recv
   sleep(usize(50));
   ch.send(i32(999));
-
   consumer.join();
-};
-
-test "Channel close wakes blocked consumer Thread", {
-  if((arch == Arch.Wasm32), return ());
+});
+test("Channel close wakes blocked consumer Thread", {
+  if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(5));
-
   consumer := Thread.spawn(() => {
     val := ch.recv();
     assert(val.is_none(), "recv should return None after close");
   });
-
   // Sleep briefly so consumer blocks on recv
   sleep(usize(50));
   ch.close();
-
   consumer.join();
-};
-
+});
 // ============================================================================
 // Bounded back-pressure
 // ============================================================================
-
-test "Channel bounded capacity blocks producer", {
-  if((arch == Arch.Wasm32), return ());
+test("Channel bounded capacity blocks producer", {
+  if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(2));
-
   // Fill the channel
   ch.send(i32(1));
   ch.send(i32(2));
   // Channel is now full
-
   // Producer thread will block because channel is full
   producer := Thread.spawn(() => {
-    ch.send(i32(3));  // Blocks until consumer drains
+    ch.send(i32(3)); // Blocks until consumer drains
   });
-
   // Sleep briefly to let producer block
   sleep(usize(50));
-
   // Channel should still have 2 items (producer is blocked)
-  assert((ch.len() == usize(2)), "channel should still have 2 items");
-
+  assert(ch.len() == usize(2), "channel should still have 2 items");
   // Drain one item to unblock the producer
   val := ch.recv();
-  assert((val.unwrap() == i32(1)), "should get first item");
-
+  assert(val.unwrap() == i32(1), "should get first item");
   producer.join();
-
   // Now should have items 2 and 3
   v2 := ch.recv();
   v3 := ch.recv();
-  assert((v2.unwrap() == i32(2)), "second value should be 2");
-  assert((v3.unwrap() == i32(3)), "third value should be 3");
-};
-
-test "Channel capacity 1 works as rendezvous", {
-  if((arch == Arch.Wasm32), return ());
+  assert(v2.unwrap() == i32(2), "second value should be 2");
+  assert(v3.unwrap() == i32(3), "third value should be 3");
+});
+test("Channel capacity 1 works as rendezvous", {
+  if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(1));
-
   t := Thread.spawn(() => {
     ch.send(i32(100));
     ch.send(i32(200));
   });
-
   // Small delay to let first send complete
   sleep(usize(50));
-
   v1 := ch.recv();
-  assert((v1.unwrap() == i32(100)), "first value should be 100");
-
+  assert(v1.unwrap() == i32(100), "first value should be 100");
   v2 := ch.recv();
-  assert((v2.unwrap() == i32(200)), "second value should be 200");
-
+  assert(v2.unwrap() == i32(200), "second value should be 200");
   t.join();
-};
-
+});
 // ============================================================================
 // Worker integration (Channel is atomic object — no Arc wrapping needed)
 // ============================================================================
-
-test "Channel send from Worker recv from main", {
-  if((arch == Arch.Wasm32), return ());
+test("Channel send from Worker recv from main", {
+  if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(10));
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
-
   wg.add(i32(1));
   Worker.spawn(() => {
     ch.send(i32(42));
     wg.done();
   });
-
   wg.wait();
   val := ch.recv();
   assert(val.is_some(), "should receive value from worker");
-  assert((val.unwrap() == i32(42)), "value should be 42");
-};
-
-test "Channel Worker sends multiple values", {
-  if((arch == Arch.Wasm32), return ());
+  assert(val.unwrap() == i32(42), "value should be 42");
+});
+test("Channel Worker sends multiple values", {
+  if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(20));
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
-
   wg.add(i32(1));
   Worker.spawn(() => {
     ch.send(i32(10));
@@ -358,29 +292,24 @@ test "Channel Worker sends multiple values", {
     ch.send(i32(30));
     wg.done();
   });
-
   wg.wait();
-
   sum := i32(0);
   count := i32(0);
   val := ch.try_recv();
-  while runtime(val.is_some()), {
+  while(runtime(val.is_some()), {
     sum = (sum + val.unwrap());
     count = (count + i32(1));
     val = ch.try_recv();
-  };
-
-  assert((count == i32(3)), "should have received 3 values");
-  assert((sum == i32(60)), "sum should be 60");
-};
-
+  });
+  assert(count == i32(3), "should have received 3 values");
+  assert(sum == i32(60), "sum should be 60");
+});
 // ============================================================================
 // Send trait
 // ============================================================================
-
-test "Channel implements Send", {
+test("Channel implements Send", {
   assert_send :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(unit))(());
   assert_send(Channel(i32));
   assert_send(Channel(bool));
   assert_send(Channel(usize));
-};
+});

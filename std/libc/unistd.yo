@@ -1,6 +1,6 @@
 //! POSIX `<unistd.h>` — standard symbolic constants and types.
-
-c_include "<unistd.h>",
+c_include(
+  "<unistd.h>",
   // Types
   // usize : Type,
   ssize_t : Type,
@@ -8,7 +8,6 @@ c_include "<unistd.h>",
   pid_t : Type,
   uid_t : Type,
   gid_t : Type,
-
   // File descriptor operations
   read :
     (fn(fd : int, buf : *(void), count : usize) -> ssize_t),
@@ -24,12 +23,10 @@ c_include "<unistd.h>",
     (fn(oldfd : int) -> int),
   dup2 :
     (fn(oldfd : int, newfd : int) -> int),
-
   // Standard file descriptors
   STDIN_FILENO : int,
   STDOUT_FILENO : int,
   STDERR_FILENO : int,
-
   // File access
   access :
     (fn(pathname : *(char), mode : int) -> int),
@@ -41,7 +38,6 @@ c_include "<unistd.h>",
     (fn(path : *(char)) -> int),
   getcwd :
     (fn(buf : *(char), size : usize) -> ?*(char)),
-
   // Process control
   fork :
     (fn() -> pid_t),
@@ -53,7 +49,6 @@ c_include "<unistd.h>",
     (fn() -> pid_t),
   getppid :
     (fn() -> pid_t),
-
   // User/Group IDs
   getuid :
     (fn() -> uid_t),
@@ -63,29 +58,25 @@ c_include "<unistd.h>",
     (fn() -> gid_t),
   getegid :
     (fn() -> gid_t),
-
   // Sleep
   sleep :
     (fn(seconds : u32) -> u32),
   usleep :
     (fn(usec : u32) -> int),
-
   // File access modes for access()
   R_OK : int,
   W_OK : int,
   X_OK : int,
   F_OK : int
-;
-
+);
 // Export all unistd functionality
-export
+export(
   // Types
   ssize_t,
   off_t,
   pid_t,
   uid_t,
   gid_t,
-
   // File descriptor operations
   read,
   write,
@@ -94,39 +85,33 @@ export
   pipe,
   dup,
   dup2,
-
   // Standard file descriptors
   STDIN_FILENO,
   STDOUT_FILENO,
   STDERR_FILENO,
-
   // File access
   access,
   unlink,
   rmdir,
   chdir,
   getcwd,
-
   // Process control
   fork,
   execve,
   _exit,
   getpid,
   getppid,
-
   // User/Group IDs
   getuid,
   geteuid,
   getgid,
   getegid,
-
   // Sleep
   sleep,
   usleep,
-
   // File access modes
   R_OK,
   W_OK,
   X_OK,
   F_OK
-;
+);

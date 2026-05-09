@@ -6,150 +6,196 @@
 //!   __yo_array_fill(arrayType, fillValue)
 //! Creates an ArrayVal of `length` copies of `fillValue`.
 //! Both arguments must be compile-time known.
-
-open import "std/string";
-{ ArrayList }                               :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id,
-  BF_ARRAY_FILL }                           :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                     :: import "../../expr/expr_info.yo";
-{ Environment }                             :: import "../../env/env.yo";
-{ EvalContext, ExpectedTypeCtx }            :: import "../context.yo";
-{ EvalValue, is_unknown_val, create_unknown_val } :: import "../value.yo";
-{ TypeValue }                               :: import "../../types/type.yo";
-{ is_array_type }                           :: import "../../types/type.yo";
-{ are_types_compatible }                    :: import "../../types/compatibility.yo";
-{ type_to_string }                          :: import "../../types/string.yo";
-{ format_error_message }                    :: import "../../error/error.yo";
-{ evaluate_expression }                     :: import "../exprs/expr.yo";
-{ Exception }                               :: import "std/error";
-
-evaluate_yo_array_fill :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  args           := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return expr; });
-  array_type_arg := match(args.get(usize(0)), .Some(a) => a, .None => { return expr; });
-  fill_value_arg := match(args.get(usize(1)), .Some(a) => a, .None => { return expr; });
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  BF_ARRAY_FILL
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalValue, is_unknown_val, create_unknown_val } :: import("../value.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ is_array_type } :: import("../../types/type.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
+evaluate_yo_array_fill :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(expr);
+    }
+  );
+  array_type_arg := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
+  fill_value_arg := match(
+    args.get(usize(1)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
   // Evaluate the array type argument (no expected type).
-  eval_at_arg         := evaluate_expression(array_type_arg, env, ctx);
-  at_info             := match(
+  eval_at_arg := evaluate_expression(array_type_arg, env, ctx);
+  at_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_at_arg)),
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(array_type_arg),
-        String.from("__yo_array_fill: failed to evaluate array type argument"),
-        false,
-        .None
-      ));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(array_type_arg),
+            String.from("__yo_array_fill: failed to evaluate array type argument"),
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(env, TypeValue.TypeUni(usize(0)))
     }
   );
   (cur_env : Environment) = at_info.env;
-
   // Validate: must be TypeVal containing an Array type.
-  at_tv_opt := match(at_info.value,
-    .Some(v) => match(v, .TypeVal(ty) => Option(TypeValue).Some(ty.*), _ => Option(TypeValue).None),
-    .None    => Option(TypeValue).None
+  at_tv_opt := match(
+    at_info.value,
+    .Some(v) => match(v,.TypeVal(ty) => Option(TypeValue).Some(ty.*), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
   );
-  array_type_tv := match(at_tv_opt,
+  array_type_tv := match(
+    at_tv_opt,
     .Some(ty) => ty,
-    .None     => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(array_type_arg),
-        String.from("__yo_array_fill expects first argument to be an ArrayType"),
-        false,
-        .None
-      ));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(array_type_arg),
+            String.from("__yo_array_fill expects first argument to be an ArrayType"),
+            false,
+            .None
+          )
+        )
+      );
       TypeValue.TypeUni(usize(0))
     }
   );
   if(!(is_array_type(array_type_tv)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(array_type_arg),
-      (`__yo_array_fill expects first argument to be an ArrayType, got ${type_to_string(array_type_tv)}`),
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(array_type_arg),
+          `__yo_array_fill expects first argument to be an ArrayType, got ${type_to_string(array_type_tv)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Destructure Array(element_box, length).
-  (element_box, length) := match(array_type_tv,
+  (element_box, length) := match(
+    array_type_tv,
     .Array(eb, l) => (eb, l),
-    _             => { return expr; }
+    _ => {
+      return(expr);
+    }
   );
   element_type := element_box.*;
-
   // Evaluate the fill value argument with expected element type.
-  old_expected       := ctx.expected_type;
-  ctx.expected_type  = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty: element_type, env: cur_env));
-  eval_fv_arg        := evaluate_expression(fill_value_arg, cur_env, ctx);
-  ctx.expected_type  = old_expected;
-
+  old_expected := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : element_type, env : cur_env));
+  eval_fv_arg := evaluate_expression(fill_value_arg, cur_env, ctx);
+  ctx.expected_type = old_expected;
   fv_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_fv_arg)),
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(fill_value_arg),
-        String.from("Failed to evaluate fill value"),
-        false,
-        .None
-      ));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(fill_value_arg),
+            String.from("Failed to evaluate fill value"),
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(cur_env, element_type)
     }
   );
   cur_env = fv_info.env;
-
   // Check type compatibility of fill value with element type.
   if(!(are_types_compatible(fv_info.ty, element_type)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(fill_value_arg),
-      (`Fill value type ${type_to_string(fv_info.ty)} is not compatible with array element type ${type_to_string(element_type)}`),
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(fill_value_arg),
+          `Fill value type ${type_to_string(fv_info.ty)} is not compatible with array element type ${type_to_string(element_type)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Fill value must be compile-time known.
-  fill_value := match(fv_info.value,
+  fill_value := match(
+    fv_info.value,
     .Some(v) => v,
-    .None    => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(fill_value_arg),
-        String.from("__yo_array_fill expects second argument to be a compile-time known value, got runtime value"),
-        false,
-        .None
-      ));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(fill_value_arg),
+            String.from("__yo_array_fill expects second argument to be a compile-time known value, got runtime value"),
+            false,
+            .None
+          )
+        )
+      );
       EvalValue.UnitVal
     }
   );
-
   // If fill value is unknown, return an UnknownVal for the whole array.
   if(is_unknown_val(fill_value), {
     array_val := create_unknown_val(array_type_tv);
-    out_info  := new_expr_info(cur_env, array_type_tv);
+    out_info := new_expr_info(cur_env, array_type_tv);
     out_info.value = Option(EvalValue).Some(array_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // Build the array by repeating fill_value `length` times.
-    elements       := ArrayList(EvalValue).new();
-    (i : usize)    = usize(0);
-    while runtime((i < length)), {
+    elements := ArrayList(EvalValue).new();
+    (i : usize) = usize(0);
+    while(runtime(i < length), {
       elements.push(fill_value);
       i = (i + usize(1));
-    };
+    });
     array_val := EvalValue.ArrayVal(elements);
-    out_info  := new_expr_info(cur_env, array_type_tv);
+    out_info := new_expr_info(cur_env, array_type_tv);
     out_info.value = Option(EvalValue).Some(array_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   });
-
   expr
 });
-
-export evaluate_yo_array_fill;
+export(evaluate_yo_array_fill);

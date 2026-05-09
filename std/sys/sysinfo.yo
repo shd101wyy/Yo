@@ -2,13 +2,8 @@
 //!
 //! Synchronous wrappers for `uname`/`gethostname`.
 //! Returns 0 on success, -errno / negative platform error on failure.
-
-{ platform, Platform } :: import "../process";
-{
-  __yo_sync_uname,
-  __yo_sync_gethostname
-} :: import "./externs.yo";
-
+{ platform, Platform } :: import("../process");
+{ __yo_sync_uname, __yo_sync_gethostname } :: import("./externs.yo");
 // uname() layout constants.
 // Linux uses 65-byte fields (6 fields total including domainname).
 // macOS uses 256-byte fields (5 fields).
@@ -18,30 +13,30 @@ UTSNAME_FIELD_SIZE :: cond(
   (platform == Platform.Windows) => usize(256),
   true => usize(65)
 );
-
 UTSNAME_SIZE :: cond(
   (platform == Platform.Macos) => usize(1280),
   (platform == Platform.Windows) => usize(1280),
   true => usize(390)
 );
-
 UTSNAME_SYSNAME :: usize(0);
 UTSNAME_NODENAME :: UTSNAME_FIELD_SIZE;
 UTSNAME_RELEASE :: (UTSNAME_FIELD_SIZE * usize(2));
 UTSNAME_VERSION :: (UTSNAME_FIELD_SIZE * usize(3));
 UTSNAME_MACHINE :: (UTSNAME_FIELD_SIZE * usize(4));
-
-uname :: (fn(buf: *(u8)) -> i32)(
+uname :: (fn(buf : *(u8)) -> i32)(
   __yo_sync_uname(buf)
 );
-
-gethostname :: (fn(name: *(u8), len: usize) -> i32)(
+gethostname :: (fn(name : *(u8), len : usize) -> i32)(
   __yo_sync_gethostname(name, len)
 );
-
-export
-  uname, gethostname,
-  UTSNAME_SIZE, UTSNAME_FIELD_SIZE,
-  UTSNAME_SYSNAME, UTSNAME_NODENAME,
-  UTSNAME_RELEASE, UTSNAME_VERSION, UTSNAME_MACHINE
-;
+export(
+  uname,
+  gethostname,
+  UTSNAME_SIZE,
+  UTSNAME_FIELD_SIZE,
+  UTSNAME_SYSNAME,
+  UTSNAME_NODENAME,
+  UTSNAME_RELEASE,
+  UTSNAME_VERSION,
+  UTSNAME_MACHINE
+);

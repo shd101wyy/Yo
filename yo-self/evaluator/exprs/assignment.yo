@@ -12,75 +12,113 @@
 //!   - Impl(SomeType) reassignment check
 //!   - attachTempVariableToExpr (no-op stub in utils.yo)
 //!   - synthesizeExprAndType (type-inference for unknown-length arrays)
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_is_atom,
-  ast_expr_is_fn_call, ast_expr_to_string, make_err_expr,
-  BK_COLON, BK_ASSIGN, BK_COND, BK_MATCH, BK_BEGIN } :: import "../../expr/expr.yo";
-{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get,
-  ControlFlowFlags, has_any_control_flow, control_flow_to_string } :: import "../../expr/expr_info.yo";
-{ Environment, Variable, make_err_variable,
-  get_variables_from_env, get_all_variables_from_env,
-  update_existing_variable }                           :: import "../../env/env.yo";
-{ Token }                                              :: import "../../lexer/token.yo";
-{ EvalContext, ExpectedTypeCtx }                       :: import "../context.yo";
-{ EvalValue, is_struct_val, is_array_val, is_enum_val, is_tuple_val,
-  is_unknown_val, eval_value_eq }                      :: import "../value.yo";
-{ t_unit }                                             :: import "../../types/type.yo";
-{ TypeValue }                                          :: import "../../types/type.yo";
-{ are_types_compatible }                               :: import "../../types/compatibility.yo";
-{ is_comptime_int_type, is_comptime_float_type,
-  is_comptime_string_type }                            :: import "../../types/guards.yo";
-{ convert_comptime_type_to_runtime_type }              :: import "../../types/utils.yo";
-{ type_to_string }                                     :: import "../../types/string.yo";
-{ format_error_message }                               :: import "../../error/error.yo";
-{ evaluate_expression }                                :: import "./expr.yo";
-{ evaluate_binding }                                   :: import "./binding.yo";
-{ require_expr_not_consumed, throw_expr_is_implicit_variable_error,
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_to_string,
+  make_err_expr,
+  BK_COLON,
+  BK_ASSIGN,
+  BK_COND,
+  BK_MATCH,
+  BK_BEGIN
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  ComptimeRef,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get,
+  ControlFlowFlags,
+  has_any_control_flow,
+  control_flow_to_string
+} :: import("../../expr/expr_info.yo");
+{
+  Environment,
+  Variable,
+  make_err_variable,
+  get_variables_from_env,
+  get_all_variables_from_env,
+  update_existing_variable
+} :: import("../../env/env.yo");
+{ Token } :: import("../../lexer/token.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{
+  EvalValue,
+  is_struct_val,
+  is_array_val,
+  is_enum_val,
+  is_tuple_val,
+  is_unknown_val,
+  eval_value_eq
+} :: import("../value.yo");
+{ t_unit } :: import("../../types/type.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{
+  is_comptime_int_type,
+  is_comptime_float_type,
+  is_comptime_string_type
+} :: import("../../types/guards.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/utils.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("./expr.yo");
+{ evaluate_binding } :: import("./binding.yo");
+{
+  require_expr_not_consumed,
+  throw_expr_is_implicit_variable_error,
   set_expr_as_needs_to_call_dup,
   attach_temp_variable_to_expr,
-  parse_raw_int }                                      :: import "../utils.yo";
-{ Exception }                                          :: import "std/error";
-
+  parse_raw_int
+} :: import("../utils.yo");
+{ Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // throw_rhs_contains_control_flow_expression_error
 // ---------------------------------------------------------------------------
-
 /// Throw a descriptive error when the RHS of an assignment unconditionally
 /// transfers control flow (return / escape / break / continue).
 ///
 /// Mirrors `throwRhsContainsControlFlowExpressionError` in
 /// `src/evaluator/exprs/assignment.ts`.
-throw_rhs_contains_control_flow_expression_error :: (fn(
-  rhs       : AstExpr,
-  cf        : ControlFlowFlags,
-  using(exn : Exception)
-) -> unit)({
+throw_rhs_contains_control_flow_expression_error :: (
+  fn(
+    rhs : AstExpr,
+    cf : ControlFlowFlags,
+    using(exn : Exception)
+  ) -> unit
+)({
   cf_str := control_flow_to_string(cf);
   error_msg := cond(
-    (ast_expr_is_fn_call(rhs) && ast_expr_is_fn_call_of(rhs, BK_COND, .None)) =>
+    (ast_expr_is_fn_call(rhs) && ast_expr_is_fn_call_of(rhs, BK_COND,.None)) =>
       `Cannot assign "cond" expression to variable when all cases contain "${cf_str}" statements. Consider using the "cond" result directly without assignment, or ensure at least one case doesn't return.`,
-    (ast_expr_is_fn_call(rhs) && ast_expr_is_fn_call_of(rhs, BK_MATCH, .None)) =>
+    (ast_expr_is_fn_call(rhs) && ast_expr_is_fn_call_of(rhs, BK_MATCH,.None)) =>
       `Cannot assign "match" expression to variable when all cases contain "${cf_str}" statements. Consider using the "match" result directly without assignment, or ensure at least one case doesn't return.`,
-    (ast_expr_is_fn_call(rhs) && ast_expr_is_fn_call_of(rhs, BK_BEGIN, .None)) =>
+    (ast_expr_is_fn_call(rhs) && ast_expr_is_fn_call_of(rhs, BK_BEGIN,.None)) =>
       `Cannot assign "begin" expression to variable when it contains "${cf_str}" statement.`,
     true =>
       `Right-hand side contains "${cf_str}" from function.`
   );
-  exn.throw(dyn format_error_message(
-    ast_expr_token(rhs),
-    error_msg,
-    false,
-    .None
-  ));
+  exn.throw(
+    dyn(
+      format_error_message(
+        ast_expr_token(rhs),
+        error_msg,
+        false,
+        .None
+      )
+    )
+  );
 });
-
 // ---------------------------------------------------------------------------
 // resolve_unknown_values_and_some_type_in_type  (Phase 2v stub)
 // ---------------------------------------------------------------------------
-
 /// Resolve unknown values and SomeType instances in a type.
 ///
 /// In yo-self all array lengths are concrete, so the full TS logic is not
@@ -88,79 +126,79 @@ throw_rhs_contains_control_flow_expression_error :: (fn(
 ///
 /// Mirrors `resolveUnknownValuesAndSomeTypeInType` in
 /// `src/evaluator/exprs/assignment.ts`.
-resolve_unknown_values_and_some_type_in_type :: (fn(
-  ty  : TypeValue,
-  env : Environment
-) -> TypeValue)(
+resolve_unknown_values_and_some_type_in_type :: (
+  fn(
+    ty : TypeValue,
+    env : Environment
+  ) -> TypeValue
+)(
   ty
 );
-
 // ---------------------------------------------------------------------------
 // rebuild_list_with_index
 // ---------------------------------------------------------------------------
-
 /// Return a new ArrayList(EvalValue) that is a copy of `vals` with the element
 /// at `idx` replaced by `new_val`.
 ///
 /// Used when updating compile-time struct/tuple/array/enum field values.
-rebuild_list_with_index :: (fn(
-  vals    : ArrayList(EvalValue),
-  idx     : usize,
-  new_val : EvalValue
-) -> ArrayList(EvalValue))({
+rebuild_list_with_index :: (
+  fn(
+    vals : ArrayList(EvalValue),
+    idx : usize,
+    new_val : EvalValue
+  ) -> ArrayList(EvalValue)
+)({
   result := ArrayList(EvalValue).new();
   n := vals.len();
   (k : usize) = usize(0);
-  while runtime((k < n)), {
-    old_v := match(vals.get(k), .Some(v) => v, .None => EvalValue.UnitVal);
-    if((k == idx), {
+  while(runtime(k < n), {
+    old_v := match(vals.get(k),.Some(v) => v,.None => EvalValue.UnitVal);
+    if(k == idx, {
       ___ := result.push(new_val);
     }, {
       ___ := result.push(old_v);
     });
     k = (k + usize(1));
-  };
+  });
   result
 });
-
 // ---------------------------------------------------------------------------
 // make_variable_with_value
 // ---------------------------------------------------------------------------
-
 /// Return a copy of `v` with the `value` field replaced by `new_value`.
 ///
 /// Used when updating a compile-time variable after field/index assignment.
-make_variable_with_value :: (fn(
-  v         : Variable,
-  new_value : Option(EvalValue)
-) -> Variable)(
+make_variable_with_value :: (
+  fn(
+    v : Variable,
+    new_value : Option(EvalValue)
+  ) -> Variable
+)(
   Variable(
-    id:                                 v.id,
-    name:                               v.name,
-    ty:                                 v.ty,
-    is_compile_time_only:               v.is_compile_time_only,
-    frame_level:                        v.frame_level,
-    value:                              new_value,
-    is_owning_the_rc_value:             v.is_owning_the_rc_value,
-    is_owning_the_same_rc_value_as:     v.is_owning_the_same_rc_value_as,
-    is_reassignable:                    v.is_reassignable,
-    token:                              v.token,
-    initialized_at_token:               v.initialized_at_token,
-    consumed_at_token:                  v.consumed_at_token,
-    is_implicit:                        v.is_implicit,
-    is_created_from_destructuring_atom_variable: v.is_created_from_destructuring_atom_variable,
-    parameter_alias:                    v.parameter_alias,
-    is_from_effect_spread:              v.is_from_effect_spread,
-    is_effect_param:                    v.is_effect_param,
-    is_module_level:                    v.is_module_level,
-    doc_comment:                        v.doc_comment
+    id : v.id,
+    name : v.name,
+    ty : v.ty,
+    is_compile_time_only : v.is_compile_time_only,
+    frame_level : v.frame_level,
+    value : new_value,
+    is_owning_the_rc_value : v.is_owning_the_rc_value,
+    is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as,
+    is_reassignable : v.is_reassignable,
+    token : v.token,
+    initialized_at_token : v.initialized_at_token,
+    consumed_at_token : v.consumed_at_token,
+    is_implicit : v.is_implicit,
+    is_created_from_destructuring_atom_variable : v.is_created_from_destructuring_atom_variable,
+    parameter_alias : v.parameter_alias,
+    is_from_effect_spread : v.is_from_effect_spread,
+    is_effect_param : v.is_effect_param,
+    is_module_level : v.is_module_level,
+    doc_comment : v.doc_comment
   )
 );
-
 // ---------------------------------------------------------------------------
 // evaluate_assignment
 // ---------------------------------------------------------------------------
-
 /// Evaluate an `=` assignment expression.
 ///
 /// Handles:
@@ -169,99 +207,106 @@ make_variable_with_value :: (fn(
 ///   - property/index LHS: `x.a = rhs`, `arr(0) = rhs`
 ///
 /// Mirrors `evaluateAssignment` in `src/evaluator/exprs/assignment.ts`.
-evaluate_assignment :: (fn(
-  expr      : AstExpr,
-  env_in    : Environment,
-  ctx       : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_assignment :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   (env : Environment) = env_in;
-
   // Validate shape: "=" with exactly 2 args.
-  if(!(ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2)))), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr),
-      `Expected "=" for assignment.`,
-      false,
-      .None
-    ));
+  if(!(ast_expr_is_fn_call_of(expr, BK_ASSIGN,.Some(usize(2)))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected "=" for assignment.`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  (lhs : AstExpr) = match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _)               => make_err_expr()
+  (lhs : AstExpr) = match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
   );
-  (rhs : AstExpr) = match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _)               => make_err_expr()
+  (rhs : AstExpr) = match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
   );
-
   // -----------------------------------------------------------------------
   // Determine branch: atom LHS, typed-binding LHS, or property/index LHS
   // -----------------------------------------------------------------------
-  is_atom_lhs          := ast_expr_is_atom(lhs);
-  is_typed_binding_lhs := (ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))));
-
+  is_atom_lhs := ast_expr_is_atom(lhs);
+  is_typed_binding_lhs := (ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON,.Some(usize(2))));
   // -----------------------------------------------------------------------
   // Property / index LHS: x.a = rhs, arr(0) = rhs
   // Mirrors the `else` branch in `evaluateAssignment` (lines ~680-1048 of
   // `src/evaluator/exprs/assignment.ts`).
   // -----------------------------------------------------------------------
   if(!(is_atom_lhs || is_typed_binding_lhs), {
-
     // Step 1 — Evaluate LHS with is_lhs_of_assignment = true
-    saved_expected  := ctx.expected_type;
-    saved_is_lhs    := ctx.is_lhs_of_assignment;
-    ctx.expected_type        = Option(ExpectedTypeCtx).None;
+    saved_expected := ctx.expected_type;
+    saved_is_lhs := ctx.is_lhs_of_assignment;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
     ctx.is_lhs_of_assignment = true;
     evaluated_lhs := evaluate_expression(lhs, env, ctx);
-    ctx.expected_type        = saved_expected;
+    ctx.expected_type = saved_expected;
     ctx.is_lhs_of_assignment = saved_is_lhs;
-
     lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
     if(lhs_info_opt.is_none(), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(lhs),
-        `Failed to evaluate left-hand side of assignment: ${ast_expr_to_string(lhs)}`,
-        false,
-        .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs),
+            `Failed to evaluate left-hand side of assignment: ${ast_expr_to_string(lhs)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-    lhs_info       := match(lhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
-    expected_ty    := lhs_info.ty;
-
+    lhs_info := match(lhs_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
+    expected_ty := lhs_info.ty;
     // Step 2 — Evaluate RHS with expected type from LHS
-    ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty: expected_ty, env: env));
+    ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : expected_ty, env : env));
     prop_rhs := evaluate_expression(rhs, env, ctx);
     ctx.expected_type = saved_expected;
-
     prop_rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(prop_rhs));
     if(prop_rhs_info_opt.is_none(), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(rhs),
-        `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(rhs)}`,
-        false,
-        .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(rhs),
+            `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(rhs)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-    (prop_rhs_info : ExprInfo) = match(prop_rhs_info_opt,
-      .Some(i) => i, .None => new_expr_info(env, t_unit())
+    (prop_rhs_info : ExprInfo) = match(
+      prop_rhs_info_opt,
+      .Some(i) => i,
+      .None => new_expr_info(env, t_unit())
     );
     env = prop_rhs_info.env;
-
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
     require_expr_not_consumed(prop_rhs, env, ctx);
     throw_expr_is_implicit_variable_error(prop_rhs, env, ctx);
     set_expr_as_needs_to_call_dup(prop_rhs, ctx);
-
     // Re-read rhs info after potential mutations by the above helpers.
     prop_rhs_info = match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(prop_rhs)),
       .Some(i) => i,
-      .None    => new_expr_info(env, t_unit())
+      .None => new_expr_info(env, t_unit())
     );
     env = prop_rhs_info.env;
-
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = prop_rhs_info.ty;
     if(!((is_comptime_int_type(expected_ty) || is_comptime_float_type(expected_ty)) || is_comptime_string_type(expected_ty)), {
@@ -270,71 +315,77 @@ evaluate_assignment :: (fn(
     if(!(are_types_compatible(expected_ty, prop_rhs_type)), {
       exp_str := type_to_string(expected_ty);
       rhs_str := type_to_string(prop_rhs_type);
-      exn.throw(dyn format_error_message(
-        ast_expr_token(lhs),
-        `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}`,
-        false,
-        .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs),
+            `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
     // Step 5 — Update compile-time value via path_collection
     // Mirrors the pathCollection[0].length >= 2 branch in assignment.ts.
     (is_comptime_only_prop : bool) = false;
     prop_path_col := lhs_info.path_collection;
-    if((prop_path_col.len() > usize(0)), {
-      prop_path := match(prop_path_col.get(usize(0)), .Some(p) => p, .None => ArrayList(String).new());
-      if((prop_path.len() >= usize(2)), {
-        pc_var_name     := match(prop_path.get(usize(0)), .Some(s) => s, .None => String.from(""));
-        pc_field_or_idx := match(prop_path.get(usize(1)), .Some(s) => s, .None => String.from(""));
+    if(prop_path_col.len() > usize(0), {
+      prop_path := match(prop_path_col.get(usize(0)),.Some(p) => p,.None => ArrayList(String).new());
+      if(prop_path.len() >= usize(2), {
+        pc_var_name := match(prop_path.get(usize(0)),.Some(s) => s,.None => String.from(""));
+        pc_field_or_idx := match(prop_path.get(usize(1)),.Some(s) => s,.None => String.from(""));
         pc_vars := get_variables_from_env(env, pc_var_name);
-        if((pc_vars.len() > usize(0)), {
-          pc_var := match(pc_vars.get((pc_vars.len() - usize(1))),
+        if(pc_vars.len() > usize(0), {
+          pc_var := match(
+            pc_vars.get(pc_vars.len() - usize(1)),
             .Some(v) => v,
-            .None    => make_err_variable(env)
+            .None => make_err_variable(env)
           );
-          if((pc_var.is_compile_time_only && pc_var.value.is_some()), {
-            pc_cur_val := match(pc_var.value, .Some(v) => v, .None => EvalValue.UnitVal);
-            if(prop_rhs_info.value.is_some(), { is_comptime_only_prop = true; });
-
+          if(pc_var.is_compile_time_only && pc_var.value.is_some(), {
+            pc_cur_val := match(pc_var.value,.Some(v) => v,.None => EvalValue.UnitVal);
+            if(prop_rhs_info.value.is_some(), {
+              is_comptime_only_prop = true;
+            });
             cond(
               (is_struct_val(pc_cur_val) || is_tuple_val(pc_cur_val)) => {
                 // Find field index in the type.
-                (struct_fi : i64) = i64(-1);
-                match(pc_var.ty,
+                (struct_fi : i64) = i64(-(1));
+                match(
+                  pc_var.ty,
                   .Struct(_, _, s_flabels, _, _, _, _) => {
                     n_sf := s_flabels.len();
                     (k_sf : usize) = usize(0);
-                    while runtime((k_sf < n_sf)), {
-                      s_lbl := match(s_flabels.get(k_sf), .Some(s) => s, .None => String.from(""));
-                      if((s_lbl == pc_field_or_idx), {
+                    while(runtime(k_sf < n_sf), {
+                      s_lbl := match(s_flabels.get(k_sf),.Some(s) => s,.None => String.from(""));
+                      if(s_lbl == pc_field_or_idx, {
                         struct_fi = i64(k_sf);
                         k_sf = n_sf;
                       }, {
                         k_sf = (k_sf + usize(1));
                       });
-                    };
+                    });
                   },
                   .Tuple(t_flabels, _) => {
                     n_tf := t_flabels.len();
                     (k_tf : usize) = usize(0);
-                    while runtime((k_tf < n_tf)), {
-                      t_lbl := match(t_flabels.get(k_tf), .Some(s) => s, .None => String.from(""));
-                      if((t_lbl == pc_field_or_idx), {
+                    while(runtime(k_tf < n_tf), {
+                      t_lbl := match(t_flabels.get(k_tf),.Some(s) => s,.None => String.from(""));
+                      if(t_lbl == pc_field_or_idx, {
                         struct_fi = i64(k_tf);
                         k_tf = n_tf;
                       }, {
                         k_tf = (k_tf + usize(1));
                       });
-                    };
+                    });
                   },
                   _ => ()
                 );
-                if(((struct_fi >= i64(0)) && prop_rhs_info.value.is_some()), {
-                  pc_rhs_val := match(prop_rhs_info.value, .Some(v) => v, .None => EvalValue.UnitVal);
+                if((struct_fi >= i64(0)) && prop_rhs_info.value.is_some(), {
+                  pc_rhs_val := match(prop_rhs_info.value,.Some(v) => v,.None => EvalValue.UnitVal);
                   fi_us := usize(struct_fi);
-
-                  is_ref_sem := match(pc_var.ty,
+                  is_ref_sem := match(
+                    pc_var.ty,
                     .Struct(_, _, _, _, is_ref, _, _) => is_ref,
                     _ => false
                   );
@@ -346,20 +397,23 @@ evaluate_assignment :: (fn(
                     all_env_vars := get_all_variables_from_env(env);
                     n_av := all_env_vars.len();
                     (k_av : usize) = usize(0);
-                    while runtime((k_av < n_av)), {
-                      av := match(all_env_vars.get(k_av), .Some(v) => v, .None => make_err_variable(env));
+                    while(runtime(k_av < n_av), {
+                      av := match(all_env_vars.get(k_av),.Some(v) => v,.None => make_err_variable(env));
                       // Avoid && short-circuit with match on RHS to prevent codegen
                       // scope bug (temp declared in if-block, dropped outside).
                       (is_same_val : bool) = false;
                       if(av.is_compile_time_only, {
-                        is_same_val = match(av.value,
+                        is_same_val = match(
+                          av.value,
                           .Some(avv) => eval_value_eq(avv, pc_cur_val),
-                          .None      => false
+                          .None => false
                         );
                       });
                       if(is_same_val, {
-                        new_ref_opt := match(av.value,
-                          .Some(av_inner) => match(av_inner,
+                        new_ref_opt := match(
+                          av.value,
+                          .Some(av_inner) => match(
+                            av_inner,
                             .StructVal(tn, fnames, fvals) =>
                               Option(EvalValue).Some(EvalValue.StructVal(tn, fnames, rebuild_list_with_index(fvals, fi_us, pc_rhs_val))),
                             _ => av.value
@@ -369,18 +423,20 @@ evaluate_assignment :: (fn(
                         update_existing_variable(env, av, make_variable_with_value(av, new_ref_opt));
                       });
                       k_av = (k_av + usize(1));
-                    };
+                    });
                   }, {
                     // Value semantics: update only this variable.
                     new_vs_opt := cond(
                       is_struct_val(pc_cur_val) =>
-                        match(pc_cur_val,
+                        match(
+                          pc_cur_val,
                           .StructVal(tn, fnames, fvals) =>
                             Option(EvalValue).Some(EvalValue.StructVal(tn, fnames, rebuild_list_with_index(fvals, fi_us, pc_rhs_val))),
                           _ => pc_var.value
                         ),
                       true =>
-                        match(pc_cur_val,
+                        match(
+                          pc_cur_val,
                           .TupleVal(fvals) =>
                             Option(EvalValue).Some(EvalValue.TupleVal(rebuild_list_with_index(fvals, fi_us, pc_rhs_val))),
                           _ => pc_var.value
@@ -390,13 +446,13 @@ evaluate_assignment :: (fn(
                   });
                 });
               },
-
               is_array_val(pc_cur_val) => {
-                arr_idx_i64 := match(parse_raw_int(pc_field_or_idx), .Some(v) => v, .None => i64(-1));
-                if(((arr_idx_i64 >= i64(0)) && prop_rhs_info.value.is_some()), {
-                  pc_rhs_arr  := match(prop_rhs_info.value, .Some(v) => v, .None => EvalValue.UnitVal);
-                  arr_idx_us  := usize(arr_idx_i64);
-                  new_arr_opt := match(pc_cur_val,
+                arr_idx_i64 := match(parse_raw_int(pc_field_or_idx),.Some(v) => v,.None => i64(-(1)));
+                if((arr_idx_i64 >= i64(0)) && prop_rhs_info.value.is_some(), {
+                  pc_rhs_arr := match(prop_rhs_info.value,.Some(v) => v,.None => EvalValue.UnitVal);
+                  arr_idx_us := usize(arr_idx_i64);
+                  new_arr_opt := match(
+                    pc_cur_val,
                     .ArrayVal(elems) =>
                       cond(
                         (arr_idx_us < elems.len()) =>
@@ -408,47 +464,48 @@ evaluate_assignment :: (fn(
                   update_existing_variable(env, pc_var, make_variable_with_value(pc_var, new_arr_opt));
                 });
               },
-
               is_enum_val(pc_cur_val) => {
-                match(pc_cur_val,
+                match(
+                  pc_cur_val,
                   .EnumVal(ev_variant, ev_fields) => {
                     // Find variant index, then field index within that variant.
-                    (ev_fi : i64) = i64(-1);
-                    match(pc_var.ty,
+                    (ev_fi : i64) = i64(-(1));
+                    match(
+                      pc_var.ty,
                       .EnumT(_, _, ev_vnames, _, _, ev_vf_labels, _) => {
                         n_vn := ev_vnames.len();
                         (k_vn : usize) = usize(0);
                         (vi : usize) = n_vn; // sentinel: not found
-                        while runtime((k_vn < n_vn)), {
-                          vn := match(ev_vnames.get(k_vn), .Some(s) => s, .None => String.from(""));
-                          if((vn == ev_variant), {
+                        while(runtime(k_vn < n_vn), {
+                          vn := match(ev_vnames.get(k_vn),.Some(s) => s,.None => String.from(""));
+                          if(vn == ev_variant, {
                             vi = k_vn;
                             k_vn = n_vn;
                           }, {
                             k_vn = (k_vn + usize(1));
                           });
-                        };
-                        if((vi < n_vn), {
-                          vf_labels := match(ev_vf_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+                        });
+                        if(vi < n_vn, {
+                          vf_labels := match(ev_vf_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
                           n_vfl := vf_labels.len();
                           (k_vfl : usize) = usize(0);
-                          while runtime((k_vfl < n_vfl)), {
-                            fl := match(vf_labels.get(k_vfl), .Some(s) => s, .None => String.from(""));
-                            if((fl == pc_field_or_idx), {
+                          while(runtime(k_vfl < n_vfl), {
+                            fl := match(vf_labels.get(k_vfl),.Some(s) => s,.None => String.from(""));
+                            if(fl == pc_field_or_idx, {
                               ev_fi = i64(k_vfl);
                               k_vfl = n_vfl;
                             }, {
                               k_vfl = (k_vfl + usize(1));
                             });
-                          };
+                          });
                         });
                       },
                       _ => ()
                     );
-                    if(((ev_fi >= i64(0)) && prop_rhs_info.value.is_some()), {
-                      pc_rhs_enum := match(prop_rhs_info.value, .Some(v) => v, .None => EvalValue.UnitVal);
-                      ev_fi_us    := usize(ev_fi);
-                      new_ev_opt  := Option(EvalValue).Some(
+                    if((ev_fi >= i64(0)) && prop_rhs_info.value.is_some(), {
+                      pc_rhs_enum := match(prop_rhs_info.value,.Some(v) => v,.None => EvalValue.UnitVal);
+                      ev_fi_us := usize(ev_fi);
+                      new_ev_opt := Option(EvalValue).Some(
                         EvalValue.EnumVal(ev_variant, rebuild_list_with_index(ev_fields, ev_fi_us, pc_rhs_enum))
                       );
                       update_existing_variable(env, pc_var, make_variable_with_value(pc_var, new_ev_opt));
@@ -457,34 +514,35 @@ evaluate_assignment :: (fn(
                   _ => ()
                 );
               },
-
               true => ()
             );
           });
         });
       });
     });
-
     // Step 6 — Handle comptimeRef: direct in-place mutation of shared ArrayList.
     // Mirrors the `comptimeRef` block in assignment.ts (lines ~982-1001).
-    match(lhs_info.comptime_ref,
+    match(
+      lhs_info.comptime_ref,
       .None => (),
       .Some(cr) => {
-        match(prop_rhs_info.value,
+        match(
+          prop_rhs_info.value,
           .None => (),
           .Some(cr_rhs_val) => {
-            match(cr,
+            match(
+              cr,
               .ArrayRef(cr_elements, cr_index) => {
-                (&cr_elements).index(cr_index).* = cr_rhs_val;
+                (&(cr_elements)).index(cr_index).* = cr_rhs_val;
               },
               .ComptimeListRef(cr_elements, cr_index) => {
-                (&cr_elements).index(cr_index).* = cr_rhs_val;
+                (&(cr_elements)).index(cr_index).* = cr_rhs_val;
               },
               .StructRef(cr_field_values, cr_field_index) => {
-                (&cr_field_values).index(cr_field_index).* = cr_rhs_val;
+                (&(cr_field_values)).index(cr_field_index).* = cr_rhs_val;
               },
               .TupleRef(cr_fields, cr_field_index) => {
-                (&cr_fields).index(cr_field_index).* = cr_rhs_val;
+                (&(cr_fields)).index(cr_field_index).* = cr_rhs_val;
               }
             );
             is_comptime_only_prop = true;
@@ -492,40 +550,33 @@ evaluate_assignment :: (fn(
         );
       }
     );
-
     // Step 7 — Fallback: both LHS and RHS have compile-time values and LHS is
     // not an Index-trait lvalue (runtime-only dispatch).
     // Mirrors lines ~1009-1019 in assignment.ts.
-    if(((!is_comptime_only_prop && lhs_info.value.is_some()) && prop_rhs_info.value.is_some()), {
+    if((!(is_comptime_only_prop) && lhs_info.value.is_some()) && prop_rhs_info.value.is_some(), {
       if(lhs_info.index_trait_ptr_type.is_none(), {
         is_comptime_only_prop = true;
       });
     });
-
     // Step 8 — Write ExprInfo for the whole `=` expression.
     prop_ei := new_expr_info(env, lhs_info.ty);
-    prop_ei.value                           = lhs_info.value;
+    prop_ei.value = lhs_info.value;
     prop_ei.is_compile_time_only_assignment = Option(bool).Some(is_comptime_only_prop);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), prop_ei);
-
     // Step 9 — Attach temp variable (no-op stub in Phase 2x; full impl in Phase 3).
     if(!(is_comptime_only_prop), {
       attach_temp_variable_to_expr(expr, true, ctx);
     });
-
-    return expr;
+    return(expr);
   });
-
   // ------------------------------------------------------------------
   // Atom / typed-binding LHS path (unchanged from Phase 2v)
   // ------------------------------------------------------------------
-
   // ------------------------------------------------------------------
   // Derive variable_name and update env/lhs for both LHS kinds.
   // ------------------------------------------------------------------
   (variable_name : String) = String.from("");
-  (lhs_resolved  : AstExpr) = lhs;
-
+  (lhs_resolved : AstExpr) = lhs;
   cond(
     is_atom_lhs => {
       // Simple identifier: x = rhs
@@ -537,160 +588,172 @@ evaluate_assignment :: (fn(
       // Typed binding: (x : T) = rhs
       binding := evaluate_binding(lhs, env, ctx);
       binding_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(binding.expr));
-      match(binding_info_opt,
-        .Some(info) => { env = info.env; },
-        .None       => ()
+      match(
+        binding_info_opt,
+        .Some(info) => {
+          env = info.env;
+        },
+        .None => ()
       );
-      variable_name  = String.from(binding.variable_name.as_str());
-      lhs_resolved   = binding.variable_expr;
+      variable_name = String.from(binding.variable_name.as_str());
+      lhs_resolved = binding.variable_expr;
     }
   );
-
   // Disallow reassignment to "_"
-  if((variable_name == String.from("_")), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(lhs_resolved),
-      `Cannot reassign "_". Use ":=" to discard a value, or use a named variable for reassignment.`,
-      false,
-      .None
-    ));
+  if(variable_name == String.from("_"), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(lhs_resolved),
+          `Cannot reassign "_". Use ":=" to discard a value, or use a named variable for reassignment.`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Look up the variable.
   vars := get_variables_from_env(env, variable_name);
-  if((vars.len() == usize(0)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(lhs_resolved),
-      `Variable ${variable_name} not found in the environment`,
-      false,
-      .None
-    ));
+  if(vars.len() == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(lhs_resolved),
+          `Variable ${variable_name} not found in the environment`,
+          false,
+          .None
+        )
+      )
+    );
   });
   // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
-  variable := match(vars.get((vars.len() - usize(1))), .Some(v) => v, .None => make_err_variable(env));
-
+  variable := match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(env));
   // Check reassignability.
   if(!(variable.is_reassignable), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(lhs_resolved),
-      `Cannot reassign "${variable_name}".\nYou can mutate fields (e.g., ${variable_name}.field = value) but cannot reassign itself.`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(lhs_resolved),
+          `Cannot reassign "${variable_name}".\nYou can mutate fields (e.g., ${variable_name}.field = value) but cannot reassign itself.`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Evaluate the RHS.
   // Pass the variable type as expected type for coercion hints.
   old_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(
-    ty:  variable.ty,
-    env: env
-  ));
+  ctx.expected_type = Option(ExpectedTypeCtx).Some(
+    ExpectedTypeCtx(
+      ty : variable.ty,
+      env : env
+    )
+  );
   (rhs_evaled : AstExpr) = evaluate_expression(rhs, env, ctx);
   ctx.expected_type = old_expected;
-
   rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled));
   if(rhs_info_opt.is_none(), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(rhs),
-      `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(rhs)}`,
-      false,
-      .None
-    ));
-  });
-  rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
-  env = rhs_info.env;
-
-  // Check control flow.
-  if(has_any_control_flow(rhs_info.control_flow), {
-    match(rhs_info.control_flow,
-      .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs_evaled, cf),
-      .None     => ()   // unreachable: has_any_control_flow guarantees .Some
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(rhs),
+          `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(rhs)}`,
+          false,
+          .None
+        )
+      )
     );
   });
-
+  rhs_info := match(rhs_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
+  env = rhs_info.env;
+  // Check control flow.
+  if(has_any_control_flow(rhs_info.control_flow), {
+    match(
+      rhs_info.control_flow,
+      .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs_evaled, cf),
+      .None => () // unreachable: has_any_control_flow guarantees .Some
+    );
+  });
   // Resolve the RHS type.
   (rhs_type : TypeValue) = rhs_info.ty;
-
   // Convert comptime types to runtime types when the variable is not comptime-only.
   if(!(variable.is_compile_time_only), {
     rhs_type = convert_comptime_type_to_runtime_type(rhs_type, env);
   });
-
   // Type-compatibility check.
   if(!(are_types_compatible(variable.ty, rhs_type)), {
     var_ty_str := type_to_string(variable.ty);
     rhs_ty_str := type_to_string(rhs_type);
-    exn.throw(dyn format_error_message(
-      ast_expr_token(lhs_resolved),
-      `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(lhs_resolved),
+          `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Re-fetch variable after RHS evaluation (env may have been updated).
   updated_vars := get_variables_from_env(env, variable_name);
-  updated_variable := match(updated_vars.get((updated_vars.len() - usize(1))),
+  updated_variable := match(
+    updated_vars.get(updated_vars.len() - usize(1)),
     .Some(v) => v,
-    .None    => make_err_variable(env)
+    .None => make_err_variable(env)
   );
-
   // Determine whether this is initialisation (first assignment) or reassignment.
   is_mutating_defined_variable := updated_variable.initialized_at_token.is_some();
-
   // Store the RHS value for comptime-only variables; runtime vars don't carry a value.
   value_to_store := cond(
     (updated_variable.is_compile_time_only) => rhs_info.value,
-    true                                    => Option(EvalValue).None
+    true => Option(EvalValue).None
   );
-
   // Update the variable in the environment.
   new_variable := Variable(
-    id:                                 updated_variable.id,
-    name:                               updated_variable.name,
-    ty:                                 rhs_type,
-    is_compile_time_only:               updated_variable.is_compile_time_only,
-    frame_level:                        updated_variable.frame_level,
-    value:                              value_to_store,
-    is_owning_the_rc_value:             updated_variable.is_owning_the_rc_value,
-    is_owning_the_same_rc_value_as:     Option(Box(Variable)).None,
-    is_reassignable:                    updated_variable.is_reassignable,
-    token:                              updated_variable.token,
-    initialized_at_token:               Option(Token).Some(ast_expr_token(lhs_resolved)),
-    consumed_at_token:                  Option(Token).None,
-    is_implicit:                        updated_variable.is_implicit,
-    is_created_from_destructuring_atom_variable: updated_variable.is_created_from_destructuring_atom_variable,
-    parameter_alias:                    updated_variable.parameter_alias,
-    is_from_effect_spread:              updated_variable.is_from_effect_spread,
-    is_effect_param:                    updated_variable.is_effect_param,
-    is_module_level:                    updated_variable.is_module_level,
-    doc_comment:                        updated_variable.doc_comment
+    id : updated_variable.id,
+    name : updated_variable.name,
+    ty : rhs_type,
+    is_compile_time_only : updated_variable.is_compile_time_only,
+    frame_level : updated_variable.frame_level,
+    value : value_to_store,
+    is_owning_the_rc_value : updated_variable.is_owning_the_rc_value,
+    is_owning_the_same_rc_value_as : Option(Box(Variable)).None,
+    is_reassignable : updated_variable.is_reassignable,
+    token : updated_variable.token,
+    initialized_at_token : Option(Token).Some(ast_expr_token(lhs_resolved)),
+    consumed_at_token : Option(Token).None,
+    is_implicit : updated_variable.is_implicit,
+    is_created_from_destructuring_atom_variable : updated_variable.is_created_from_destructuring_atom_variable,
+    parameter_alias : updated_variable.parameter_alias,
+    is_from_effect_spread : updated_variable.is_from_effect_spread,
+    is_effect_param : updated_variable.is_effect_param,
+    is_module_level : updated_variable.is_module_level,
+    doc_comment : updated_variable.doc_comment
   );
   update_existing_variable(env, updated_variable, new_variable);
-
   // Write ExprInfo for the lhs.
   lhs_path := ArrayList(String).new();
   lhs_path.push(variable_name);
   lhs_info2 := new_expr_info(env, rhs_type);
   lhs_info2.path_collection.push(lhs_path);
-  lhs_info2.variable_name = .Some(variable_name);
+  lhs_info2.variable_name =.Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_resolved), lhs_info2);
-
   // Write ExprInfo for the whole `=` expression.
   expr_info := new_expr_info(env, t_unit());
-  expr_info.value = .Some(EvalValue.UnitVal);
-  expr_info.is_compile_time_only_assignment = .Some(updated_variable.is_compile_time_only);
+  expr_info.value =.Some(EvalValue.UnitVal);
+  expr_info.is_compile_time_only_assignment =.Some(updated_variable.is_compile_time_only);
   // Note: isMutatingDefinedVariable distinction used for temp-variable attachment (Phase 3).
   // For Phase 2v both init and reassignment emit the same unit info.
   _unused := is_mutating_defined_variable;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
-
   expr
 });
-
-export throw_rhs_contains_control_flow_expression_error,
-       resolve_unknown_values_and_some_type_in_type,
-       rebuild_list_with_index,
-       make_variable_with_value,
-       evaluate_assignment;
+export(
+  throw_rhs_contains_control_flow_expression_error,
+  resolve_unknown_values_and_some_type_in_type,
+  rebuild_list_with_index,
+  make_variable_with_value,
+  evaluate_assignment
+);

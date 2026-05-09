@@ -160,6 +160,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 **Key Design Principles:**
 
 - **Simple syntax inspired by Lisp** (no keywords, minimal)
+- **LLM-friendly syntax** (function, keyword, and prefix-operator calls always use immediate parentheses)
 - **First-class types** (types are values)
 - **Compile-time evaluation** (powerful `comptime` system)
 - **Reference counting with ownership analysis** (eliminate unnecessary RC)
@@ -200,13 +201,13 @@ The **Yo** language is inspired by the following programming languages and absor
 ## Hello World
 
 ```rust
-{ println } :: import "std/fmt";
+{ println } :: import("std/fmt");
 
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   println("Hello, world!");
-};
+});
 
-export main;
+export(main);
 ```
 
 ## CLI Usage
@@ -232,9 +233,16 @@ yo build --target wasm-emscripten  # Cross-compile for WASM (Emscripten)
 yo compile hello.yo -o hello
 yo compile hello.yo --cc clang -o hello
 yo compile hello.yo --target wasm-emscripten -o hello.html
+
+# Formatting (fixed style, 2-space indentation)
+yo fmt                     # Format all .yo files in the current directory
+yo fmt src tests           # Format .yo files under src and tests
+yo fmt --check             # Check formatting without writing changes
 ```
 
 For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md).
+
+`yo fmt` is intentionally not configurable, following the same philosophy as `go fmt`: all Yo projects share one compact, consistent style with 2-space indentation.
 
 ## Syntax
 
@@ -252,12 +260,11 @@ For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md
 x // an atom (identifier)
 func(x, y) // a function call with two arguments x and y.
            // Please note there is no space between function name and parentheses
+           // Paren-less calls such as func x, y are invalid.
 
-// or without parentheses:
-func x, y  // same as above
-
-// or use S expression style:
-(func x, y) // same as above, but with parentheses surrounding the whole expression
+// Calls must use immediate parentheses. These are invalid:
+// func x, y
+// func (x, y)
 
 // Yo is case sensitive, so `X` and `x` are different identifiers
 
@@ -272,7 +279,7 @@ y :: 14;
 
 // There is no arithmetic precedence in Yo
 // Except for the "." which is not treated as an operator, but it has the highest precedence.
-// "." has its own parsing rules, for example a.b + c.d is parsed as (. a b) + (. c d)
+// "." has its own parsing rules, for example a.b + c.d is parsed as .(a, b) + .(c, d)
 
 // Every infix operator takes two arguments on its left and right
 // so the expression below is invalid
@@ -567,9 +574,9 @@ add = _(x + y); // `_` here infers the function type from `add`
 add = ((a, b) -> (a + b));  // Type inferred from usage. Can have different parameter names
 
 // With explicit return type
-multiply :: (fn(x : i32, y : i32) -> i32) {
-  return (x * y);  // Explicit return
-};
+multiply :: (fn(x : i32, y : i32) -> i32)({
+  return((x * y));  // Explicit return
+});
 
 // Last expression is the return value
 divide :: (fn(x : i32, y : i32) -> i32)
@@ -577,12 +584,12 @@ divide :: (fn(x : i32, y : i32) -> i32)
 ;
 
 // Function can take `comptime` parameter and can return `comptime` value, like Type:
-Point :: (fn(comptime(T) : Type) -> comptime(Type)) {
-  return struct(
+Point :: (fn(comptime(T) : Type) -> comptime(Type))({
+  return(struct(
     x : T,
     y : T
-  );
-};
+  ));
+});
 I32Point :: Point(i32);
 BoolPoint :: Point(bool);
 
@@ -676,14 +683,14 @@ impl(Point, T1(get_number : (self -> self.x)));
 impl(Point, T2(get_number : (self -> self.y)));
 
 // Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
-  return self.get_number();  // Returns self.x (10)
-};
+use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+  return(self.get_number());  // Returns self.x (10)
+});
 
 // Explicit dispatch — (T <: T2).method(self) syntax
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32) {
-  return (T <: T2).get_number(self);  // Returns self.y (20)
-};
+use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+  return((T <: T2).get_number(self));  // Returns self.y (20)
+});
 
 point := Point(10, 20);
 use_t1(point);  // 10
@@ -858,11 +865,11 @@ Yo uses pointers (`*(T)`) for direct memory access, similar to C:
 x := 1;
 y := 2;
 
-swap :: (fn(a : *(i32), b : *(i32)) -> unit) {
+swap :: (fn(a : *(i32), b : *(i32)) -> unit)({
   tmp := a.*;  // Dereference pointer
   a.* = b.*;
   b.* = tmp;
-};
+});
 
 swap(&(x), &(y));  // Pass pointers to x and y
 // Now x == 2, y == 1
@@ -896,7 +903,7 @@ float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
 Yo provides a complete set of pointer arithmetic operators:
 
 ```rust
-test "Pointer arithmetic", {
+test("Pointer arithmetic", {
   x := 12;
   p := &(x);
 
@@ -915,7 +922,7 @@ test "Pointer arithmetic", {
   // Pointer difference (distance between pointers)
   diff := (q &/ p);  // Distance: 2 elements
   assert(diff == 2);
-};
+});
 ```
 
 ### Pointer Operators Reference
@@ -968,7 +975,7 @@ match(some_ptr,
 Yo automatically manages memory for object types through reference counting. When an object's reference count reaches zero, it is automatically freed.
 
 ```rust
-test :: (fn() -> unit) {
+test :: (fn() -> unit)({
   x := String.from("World!");  // RC = 1
   // ... use x ...
   // At end of scope, RC is decremented
@@ -1169,7 +1176,7 @@ if :: (fn(
 ;
 
 // Usage
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   // If no return type, it is unit
   number := 3;
 
@@ -1181,7 +1188,7 @@ main :: (fn() -> unit) {
   };
 
   if(number < 5, println("condition was true"), println("condition was false"));
-};
+});
 ```
 
 ### while
@@ -1190,7 +1197,7 @@ main :: (fn() -> unit) {
 `while(condition, steps, do: body)`
 
 ```rust
-factorial :: (fn(n: i32) -> i32) {
+factorial :: (fn(n: i32) -> i32)({
   result := 1;
   i := 1;
   while(i <= n, {
@@ -1198,16 +1205,16 @@ factorial :: (fn(n: i32) -> i32) {
     i = (i + 1);
   });
   result
-};
+});
 
-factorial2 :: (fn(n: i32) -> i32) {
+factorial2 :: (fn(n: i32) -> i32)({
   result := 1;
   i := 1;
   while((i <= n), (i = (i + 1)), {
     result = (result * i);
   });
   result
-};
+});
 ```
 
 ### Iterator and for loop
@@ -1254,9 +1261,9 @@ The `for` macro provides syntactic sugar for iterating. It calls `.next()` in a 
 
 ```rust
 // for loop syntax
-for iter_expr, (variable) => {
+for(iter_expr, (variable) => {
   // body
-};
+});
 ```
 
 Each collection provides two iteration modes:
@@ -1272,39 +1279,39 @@ list.push(i32(10));
 list.push(i32(20));
 
 // iter() — yields pointers to elements
-for list.iter(), (ptr) => {
+for(list.iter(), (ptr) => {
   println(ptr.*);
-};
+});
 
 // into_iter() — yields values (takes ownership of the RC handle)
-for list.into_iter(), (value) => {
+for(list.into_iter(), (value) => {
   println(value);
-};
+});
 
 // Arrays use iter() — yields pointers to elements
 arr := Array(i32, 3)(1, 2, 3);
-for arr.iter(), (ptr) => {
+for(arr.iter(), (ptr) => {
   println(ptr.*);
-};
+});
 
 // Strings use chars() and bytes()
 s := String.from("Hello");
-for s.chars(), (ch) => {
+for(s.chars(), (ch) => {
   println(ch);
-};
+});
 ```
 
 The `for` macro expands to:
 
 ```rust
 iter := iter_expr;
-while runtime(true), {
+while(runtime(true), {
   temp := &(iter).next();
   match(temp,
     .Some(variable) => body,
     .None => { break; }
   )
-};
+});
 ```
 
 ## Algebraic Data Types (ADT)
@@ -1675,15 +1682,15 @@ impl(NewsArticle, Display(
 ));
 
 // Pass in function
-notify :: (fn(item: *(NewsArticle)) -> unit) {
+notify :: (fn(item: *(NewsArticle)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
-};
+});
 
 // Generic function with trait constraint
-notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit) {
+notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
-};
+});
 ```
 
 ## Pattern Matching
@@ -1769,7 +1776,7 @@ Yo provides efficient, reference-counted collection types in the standard librar
 Dynamic array with automatic resizing.
 
 ```rust
-{ ArrayList } :: import "std/collections/array_list";
+{ ArrayList } :: import("std/collections/array_list");
 
 // Create a new ArrayList
 list := ArrayList(i32).new();
@@ -1812,7 +1819,7 @@ list.shrink_to_fit();
 Hash map with key-value pairs.
 
 ```rust
-{ HashMap } :: import "std/collections/hash_map";
+{ HashMap } :: import("std/collections/hash_map");
 
 // Create a new HashMap
 map := HashMap(i32, i32).new();
@@ -1863,7 +1870,7 @@ map.clear();
 Hash set for unique values.
 
 ```rust
-{ HashSet } :: import "std/collections/hash_set";
+{ HashSet } :: import("std/collections/hash_set");
 
 // Create a new HashSet
 set := HashSet(i32).new();
@@ -1930,7 +1937,7 @@ cond(
 Doubly-linked list.
 
 ```rust
-{ LinkedList } :: import "std/collections/linked_list";
+{ LinkedList } :: import("std/collections/linked_list");
 
 // Create a new LinkedList
 list := LinkedList(i32).new();
@@ -2012,13 +2019,13 @@ There are two ways to create closures:
 1. **Using `Impl(Fn(...))`** - Explicit closure type:
 
 ```rust
-test_closure :: (fn() -> unit) {
+test_closure :: (fn() -> unit)({
   x := 1;
 
   // Explicit closure type using Impl
   (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
     x = (x + y);
-    return x;
+    return(x);
   });
 
   closure(1); // x is now 2
@@ -2026,24 +2033,24 @@ test_closure :: (fn() -> unit) {
   result := closure(2); // x is now 5
 
   assert(result == 5);
-};
+});
 ```
 
 2. **Using `ClosureType({...})`** - Closure value from type:
 
 ```rust
-test_closure :: (fn() -> unit) {
+test_closure :: (fn() -> unit)({
   x := 1;
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
   closure := (ClosureType {
     x = (x + y);
-    return x;
+    return(x);
   });
 
   result := closure(2);
   assert(result == 3);
-};
+});
 ```
 
 ### Closure Capture Semantics
@@ -2055,7 +2062,7 @@ Closures capture variables from their environment:
 - Captured variables maintain their mutability
 
 ```rust
-test_capture :: (fn() -> unit) {
+test_capture :: (fn() -> unit)({
   // Value type - captured by value
   counter := 0;
 
@@ -2065,13 +2072,13 @@ test_capture :: (fn() -> unit) {
   closure := ((increment : i32) => {
     counter = (counter + increment);  // Modifies local copy
     data.* = (data.* + increment);     // Modifies shared object
-    return counter;
+    return(counter);
   });
 
   closure(5);
   // counter is still 0 (closure has its own copy)
   // data.* is now 47 (shared reference)
-};
+});
 ```
 
 ### Closure Type Restrictions
@@ -2080,7 +2087,7 @@ Each closure has a unique type, even if they look identical:
 
 ```rust
 // This will fail - each closure has a distinct type
-test_error :: (fn() -> unit) {
+test_error :: (fn() -> unit)({
   closure : Impl(Fn(y : i32) -> i32);
 
   cond(
@@ -2094,7 +2101,7 @@ test_error :: (fn() -> unit) {
     }
   );
   // Error: no two closures, even if identical, have the same type
-};
+});
 ```
 
 ### Closures with Object Types
@@ -2106,21 +2113,21 @@ MyBox :: object(
   (*) : i32
 );
 
-make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32)) {
-  return ((unit) => {
+make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32))({
+  return((unit) => {
     start.* = (start.* + 1);
-    return start.*;
+    return(start.*);
   });
-};
+});
 
-test :: (fn() -> unit) {
+test :: (fn() -> unit)({
   counter := MyBox(0);
   inc := make_incrementer(counter);
 
   assert(inc(()) == 1);
   assert(inc(()) == 2);
   assert(counter.* == 2);
-};
+});
 ```
 
 For more examples, see [closure.test.yo](../tests/closure.test.yo).
@@ -2171,13 +2178,13 @@ assert(m.* == 20);
 ### Box with Assignments
 
 ```rust
-test "Box assignment behavior", {
+test("Box assignment behavior", {
   x := box(1);
   y := (x = box(2));  // y gets the old value
 
   assert(x.* == 2);   // x now points to new Box
   assert(y.* == 1);   // y has the old Box
-};
+});
 ```
 
 ### Box and Reference Counting
@@ -2185,7 +2192,7 @@ test "Box assignment behavior", {
 `Box(T)` is an object type, so it uses automatic reference counting:
 
 ```rust
-test "Box reference counting", {
+test("Box reference counting", {
   original := box(42);
   copy := original;        // RC increment
   another := copy;         // RC increment
@@ -2197,7 +2204,7 @@ test "Box reference counting", {
   assert(another.* == 100);
 
   // RC decrements when variables go out of scope
-};
+});
 ```
 
 ### When to Use Box
@@ -2212,7 +2219,7 @@ test "Box reference counting", {
 impl(i32, SomeTrait(...));
 
 // Value types must be boxed for Dyn
-use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit) { ... };
+use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({ ... };
 
 // Box the i32 for use with Dyn
 use_dyn(dyn box(42));
@@ -2235,15 +2242,15 @@ use_id :: (fn(
   forall(T : Type),
   value : T,
   where(T <: Id)
-) -> T) {
-  return value.id();
-};
+) -> T)({
+  return(value.id());
+});
 
 // Implement Id for i32
 impl(i32, Id(
   id : ((self) -> {
     printf("i32: %d\n", self);
-    return self;
+    return(self);
   })
 ));
 
@@ -2260,12 +2267,12 @@ RetI32 :: trait(
   return_i32 : (fn(self : *(Self)) -> i32)
 );
 
-get_value :: (fn(use_bool : bool) -> Impl(RetI32)) {
+get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
   cond(
-    use_bool => return true,   // bool implements RetI32
-    true => return i32(42)      // i32 implements RetI32
+    use_bool => return(true),   // bool implements RetI32
+    true => return(i32(42))      // i32 implements RetI32
   )
-};
+});
 ```
 
 **Important**: Each return path must return a concrete type, not different types that happen to implement the same trait.
@@ -2286,10 +2293,10 @@ perform :: (fn(
   forall(T : Type),
   actor : T,
   where(T <: (Speak, Run))
-) -> unit) {
+) -> unit)({
   actor.speak();
   actor.run();
-};
+});
 ```
 
 ## Dynamic Dispatch
@@ -2326,14 +2333,14 @@ Dog :: object();
 DogSpeak :: impl(Dog, Speak(
   speak: ((self: Self) -> {
     printf("Woof!\n");
-    return 1;
+    return(1);
   })
 ));
 
 DogRun :: impl(Dog, Run(
   run: ((self: Self) -> {
     printf("The dog is running!\n");
-    return 2;
+    return(2);
   })
 ));
 
@@ -2342,12 +2349,12 @@ act :: (fn(s: Dyn(Speak, Run)) -> i32)
   (s.speak() + s.run())
 ;
 
-main :: (fn() -> i32) {
+main :: (fn() -> i32)({
   dog := Dog();
   // dyn() creates a reference-counted trait object
   result := act(dyn(dog));
-  return result;
-};
+  return(result);
+});
 ```
 
 **Note:** `Dyn` types are internally reference-counted objects, providing automatic memory management without manual pointer handling.
@@ -2359,14 +2366,14 @@ main :: (fn() -> i32) {
 
 ```rust
 // Impl - static dispatch (monomorphization)
-use_impl :: (fn(forall(T), value: T, where(T <: SomeTrait)) -> unit) {
+use_impl :: (fn(forall(T), value: T, where(T <: SomeTrait)) -> unit)({
   value.method();  // Statically dispatched
-};
+});
 
 // Dyn - dynamic dispatch (vtable)
-use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit) {
+use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({
   value.method();  // Dynamically dispatched
-};
+});
 ```
 
 For more examples, see [impl.test.yo](../tests/impl.test.yo).
@@ -2376,7 +2383,7 @@ For more examples, see [impl.test.yo](../tests/impl.test.yo).
 Yo supports **algebraic effects** — a mechanism for implicit parameter passing and delimited continuations. Effects are built on two features:
 
 1. **Implicit Parameters (`using` / `given`)**: Functions can declare implicit parameters with `using(name : Type)`. At call sites, the compiler resolves them automatically from `given` bindings in scope.
-2. **Effect Handlers (`return` / `escape`)**: When an effect handler uses `return(value)`, it resumes the captured continuation. When it uses `escape expr`, it discards the continuation and returns from the enclosing function.
+2. **Effect Handlers (`return` / `escape`)**: When an effect handler uses `return(value)` or `return()`, it resumes the captured continuation. When it uses `escape(value)` or `escape()`, it discards the continuation and returns from the enclosing function.
 
 Effects compose with `async`/`await`: effect handlers inside `io.async` tasks work correctly. If `escape` is called inside an async task, the Future is marked as escaped and awaiting it causes a panic.
 
@@ -2424,7 +2431,7 @@ match(result,
 The standard library defines an `Error` trait and `AnyError` type for dynamic error handling:
 
 ```rust
-open import "std/error";
+open(import("std/error"));
 
 // Error trait requires ToString. Custom error types implement both:
 MathError :: enum(
@@ -2454,7 +2461,7 @@ match(downcast(err, MathError),
 `Exception` is an algebraic effect for non-resumable exception handling. When the handler calls `escape`, the continuation is discarded and control returns to the enclosing function:
 
 ```rust
-open import "std/error";
+open(import("std/error"));
 
 safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
   cond(
@@ -2467,7 +2474,7 @@ safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
 given(exn) := Exception(
   throw : ((err) -> {
     println(`Error: ${err}`);  // prints "Error: Division by zero"
-    escape ();  // discard continuation, return from enclosing function
+    escape();  // discard continuation, return from enclosing function
   })
 );
 
@@ -2481,7 +2488,7 @@ safe_divide(10, 0, using(exn));     // triggers handler, escape discards continu
 `ResumableException(ResumeType)` is an algebraic effect for resumable exception handling. When the handler calls `return`, it resumes the continuation with a recovery value:
 
 ```rust
-open import "std/error";
+open(import("std/error"));
 
 safe_divide :: (fn(x: i32, y: i32, using(exn : ResumableException(i32))) -> i32)(
   cond(
@@ -2494,7 +2501,7 @@ safe_divide :: (fn(x: i32, y: i32, using(exn : ResumableException(i32))) -> i32)
 given(exn) := ResumableException(i32)(
   throw : ((err) -> {
     println(`Error: ${err}`);
-    return 0;  // resume with recovery value 0
+    return(0);  // resume with recovery value 0
   })
 );
 
@@ -2509,23 +2516,23 @@ For more examples, see [error.test.yo](../tests/error.test.yo).
 Yo uses **async/await with state machine transformation** for efficient **single-threaded concurrency**. Async tasks are **lazy** — they don't start until explicitly awaited or joined.
 
 ```rust
-{ yield } :: import "std/async";
+{ yield } :: import("std/async");
 
 main :: (fn(using(io : IO)) -> unit)({
   task1 := io.async((using(io : IO))=> {
     io.await(yield());
-    return i32(1);
+    return(i32(1));
   });
   task2 := io.async((using(io : IO))=> {
     io.await(yield());
-    return i32(2);
+    return(i32(2));
   });
   handle1 := io.spawn(task1);  // start task1, returns JoinHandle(i32)
   handle2 := io.spawn(task2);  // start task2, returns JoinHandle(i32)
   r1 := handle1.await(using(io));  // wait → Option(i32)
   r2 := handle2.await(using(io));
 });
-export main;
+export(main);
 ```
 
 Key properties:
@@ -2565,7 +2572,7 @@ val := shared.(*);          // val == 42
 copy := shared;             // refcount: 1 → 2
 
 // Cross-thread sharing
-{ Thread } :: import "std/thread";
+{ Thread } :: import("std/thread");
 shared := arc(i32(42));
 t := Thread.spawn(() => {
   assert((shared.(*) == i32(42)), "thread sees shared value");
@@ -2580,10 +2587,10 @@ See [ARC.md](./ARC.md) for full details.
 
 ```rust
 // module1.yo
-test :: (fn() -> unit) {
+test :: (fn() -> unit)({
   println("Hello, world!");
-};
-export test;
+});
+export(test);
 
 // module2.yo
 // Export the type
@@ -2593,11 +2600,11 @@ Option :: (fn(comptime(T): Type) -> comptime(Type))
     None
   )
 ;
-export Option;
+export(Option);
 ```
 
 ```rust
-open import("./test.yo"); // Import everything from test.yo
+open(import("./test.yo")); // Import everything from test.yo
 test_module :: import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
 { test } :: import("./test.yo"); // Import test function from test.yo
 { test : test2 } :: import("./test.yo"); // Import test function from test.yo and rename it to test2
@@ -2608,13 +2615,13 @@ test_module :: import("./test.yo"); // Import everything from test.yo and put it
 
 The anonymous module is defined using `impl` keyword followed by a `begin` block:
 
-```typescript
-my_module :: impl {
-  my_function :: (fn() -> unit) {
+```rust
+my_module :: impl({
+  my_function :: (fn() -> unit)({
     println("Hello from my_module!");
-  };
-  export my_function;
-};
+  });
+  export(my_function);
+});
 ```
 
 ### Module-level mutable variables
@@ -2650,7 +2657,7 @@ inc :: (fn() -> unit)({
   m :: impl {
     b := i32(13);  // ❌ Error: not allowed inside impl
     b :: 13;       // ✅ OK: compile-time constant
-    export b;
+    export(b);
   };
   ```
 - Module-level mutable variables **cannot be exported**. Only compile-time known values can be exported from modules.
@@ -2678,16 +2685,16 @@ Yo has a built-in testing framework accessible via the `test` keyword.
 ### Basic Test Syntax
 
 ```rust
-test "Test description", {
+test("Test description", {
   // Test code here
   x := 1 + 1;
   assert(x == 2);
-};
+});
 
 // IO is implicitly available via `io` in all test bodies
-test "With effects", {
+test("With effects", {
   io.await(sleep(u64(1000)));
-};
+});
 ```
 
 ### Running Tests
@@ -2713,7 +2720,7 @@ $ ./yo-cli test path/to/file.test.yo -v
 #### Runtime Assertions
 
 ```rust
-test "Runtime assertions", {
+test("Runtime assertions", {
   x := 42;
 
   // Basic assertion
@@ -2725,7 +2732,7 @@ test "Runtime assertions", {
   // Complex assertions
   arr := [1, 2, 3];
   assert(arr.len() == 3, "Array should have 3 elements");
-};
+});
 ```
 
 #### Compile-Time Assertions
@@ -2733,7 +2740,7 @@ test "Runtime assertions", {
 Use `comptime_assert` for compile-time verification:
 
 ```rust
-test "Compile-time assertions", {
+test("Compile-time assertions", {
   // These are checked during compilation
   comptime_assert((2 + 2) == 4);
   comptime_assert(Array(i32, 5).fill(0).len() == 5);
@@ -2742,7 +2749,7 @@ test "Compile-time assertions", {
   // Type-level assertions
   T :: i32;
   comptime_assert(Type.to_string(T) == "i32");
-};
+});
 ```
 
 ### Testing Expected Errors
@@ -2750,7 +2757,7 @@ test "Compile-time assertions", {
 Verify that certain code produces compile-time errors:
 
 ```rust
-test "Expected compile errors", {
+test("Expected compile errors", {
   // Expect an error without specific message
   comptime_expect_error({
     x :: (1 / 0);  // Division by zero
@@ -2772,7 +2779,7 @@ test "Expected compile errors", {
     // Each closure has unique type
     (c : typeof(closure1)) = closure2;  // Error!
   }, "no two closures have the same type");
-};
+});
 ```
 
 ### Test Organization
@@ -2782,25 +2789,25 @@ Organize related tests in the same file:
 ```rust
 // arithmetic.test.yo
 
-test "Addition", {
+test("Addition", {
   assert((1 + 1) == 2);
   assert((5 + 3) == 8);
-};
+});
 
-test "Subtraction", {
+test("Subtraction", {
   assert((5 - 3) == 2);
   assert((10 - 10) == 0);
-};
+});
 
-test "Multiplication", {
+test("Multiplication", {
   assert((2 * 3) == 6);
   assert((7 * 0) == 0);
-};
+});
 
-test "Division", {
+test("Division", {
   assert((10 / 2) == 5);
   assert((9 / 3) == 3);
-};
+});
 ```
 
 ### Testing with Object Types
@@ -2817,14 +2824,14 @@ impl(MyBox, Dispose(
   })
 ));
 
-test "Object disposal", {
+test("Object disposal", {
   // Box is automatically disposed at end of scope
   b := MyBox(42);
   assert(b.* == 42);
   b.* = 100;
   assert(b.* == 100);
   // dispose() called automatically here
-};
+});
 ```
 
 ### Test Files
@@ -2885,18 +2892,18 @@ if(true, {
 });
 
 // The `try` macro for Result types
-try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr)) {
+try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr))({
   temp :: gensym("try");
   quote {
     unquote(temp) := unquote(expr_to_try);
     match(unquote(temp),
       .Ok => unquote(temp).value,
       .Error => {
-        return unquote(temp).error;
+        return(unquote(temp).error);
       }
     )
   }
-};
+});
 
 // Custom macro example
 unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))
@@ -2918,13 +2925,13 @@ Point :: struct(x : i32, y : i32);
 derive(Point, Eq, Hash, Clone, Ord, ToString);
 
 // Now Point supports ==, !=, hashing, cloning, comparison, and string conversion
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   p1 := Point(1, 2);
   p2 := Point(1, 2);
   assert((p1 == p2), "equal");
   assert((p1.to_string() == `Point(1, 2)`), "to_string");
-};
-export main;
+});
+export(main);
 ```
 
 ### User-defined derive rules with `derive_rule`
@@ -2936,7 +2943,7 @@ MyEq :: (fn(comptime(T) : Type) -> comptime(Type))(
   trait(eq : (fn(self : T, other : T) -> bool))
 );
 
-derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)) {
+derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr))({
   eq_body :: __yo_type_join_fields(
     T,
     (fn(comptime(field) : FieldInfo) -> unquote(Expr))(
@@ -3084,7 +3091,7 @@ int_array :: create_array(i32, 5, 42);  // [42,42,42,42,42]
 Use `comptime_assert` to verify compile-time conditions:
 
 ```rust
-test "Compile-time assertions", {
+test("Compile-time assertions", {
   // These are checked at compile time
   comptime_assert((2 + 2) == 4);
   comptime_assert(f32(100.5) > f32(50.0));
@@ -3093,7 +3100,7 @@ test "Compile-time assertions", {
   // Compile-time type checks
   T :: i32;
   comptime_assert(Type.to_string(T) == "i32");
-};
+});
 ```
 
 ### Compile-Time Expected Errors
@@ -3101,7 +3108,7 @@ test "Compile-time assertions", {
 Test that code produces compile-time errors:
 
 ```rust
-test "Expected compile errors", {
+test("Expected compile errors", {
   // Verify that this code produces an error
   comptime_expect_error(
     x :: (1 / 0),  // Division by zero
@@ -3112,7 +3119,7 @@ test "Expected compile errors", {
     arr : Array(i32, _);  // Cannot infer length in binding
     arr = [1, 2, 3];
   });
-};
+});
 ```
 
 ### Compile-Time vs Runtime

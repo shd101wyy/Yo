@@ -17,65 +17,57 @@
 //! s = s.insert(i32(2));
 //! // elements are always sorted: 1, 2, 3
 //! ```
-
-{ SortedMap } :: import "./sorted_map.yo";
-{ List } :: import "./list.yo";
-
+{ SortedMap } :: import("./sorted_map.yo");
+{ List } :: import("./list.yo");
 /// Persistent immutable sorted set backed by a left-leaning red-black tree.
 SortedSet :: (fn(comptime(T) : Type, where(T <: (Eq(T), Ord(T), Send))) -> comptime(Type))(
   struct(_inner : SortedMap(T, bool))
 );
-
-impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Ord(T), Send)),
+  SortedSet(T),
   /// Create an empty sorted set.
   new : (fn() -> Self)(
-    Self(_inner: SortedMap(T, bool).new())
+    Self(_inner : SortedMap(T, bool).new())
   ),
-
   /// Number of elements.
-  len : (fn(self: Self) -> usize)(self._inner.len()),
-
+  len : (fn(self : Self) -> usize)(self._inner.len()),
   /// Check if the set is empty.
-  is_empty : (fn(self: Self) -> bool)(self._inner.is_empty()),
-
+  is_empty : (fn(self : Self) -> bool)(self._inner.is_empty()),
   /// Check if the set contains `elem`.
-  contains : (fn(self: Self, elem: T) -> bool)(
+  contains : (fn(self : Self, elem : T) -> bool)(
     self._inner.contains_key(elem)
   ),
-
   /// Return a new set with `elem` added.
-  insert : (fn(self: Self, elem: T) -> Self)(
-    Self(_inner: self._inner.insert(elem, true))
+  insert : (fn(self : Self, elem : T) -> Self)(
+    Self(_inner : self._inner.insert(elem, true))
   ),
-
   /// Return a new set with `elem` removed.
-  remove : (fn(self: Self, elem: T) -> Self)(
-    Self(_inner: self._inner.remove(elem))
+  remove : (fn(self : Self, elem : T) -> Self)(
+    Self(_inner : self._inner.remove(elem))
   ),
-
   /// Get the minimum element.
-  min : (fn(self: Self) -> Option(T))(
+  min : (fn(self : Self) -> Option(T))(
     self._inner.min_key()
   ),
-
   /// Get the maximum element.
-  max : (fn(self: Self) -> Option(T))(
+  max : (fn(self : Self) -> Option(T))(
     self._inner.max_key()
   ),
-
   /// Return elements as a sorted List.
-  to_list : (fn(self: Self) -> List(T))(
+  to_list : (fn(self : Self) -> List(T))(
     self._inner.keys()
   ),
-
   /// Return the union of two sorted sets.
-  union : (fn(self: Self, other: Self) -> Self)({
+  union : (fn(self : Self, other : Self) -> Self)({
     elems := other.to_list();
     (result : Self) = self;
     (cur : List(T)) = elems;
     (done : bool) = false;
-    while runtime(!(done)), {
-      match(cur.head(),
+    while(runtime(!(done)), {
+      match(
+        cur.head(),
         .Some(elem) => {
           result = result.insert(elem);
           cur = cur.tail();
@@ -84,18 +76,18 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
           done = true;
         }
       );
-    };
+    });
     result
   }),
-
   /// Return the intersection of two sorted sets.
-  intersection : (fn(self: Self, other: Self) -> Self)({
+  intersection : (fn(self : Self, other : Self) -> Self)({
     elems := self.to_list();
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
     (done : bool) = false;
-    while runtime(!(done)), {
-      match(cur.head(),
+    while(runtime(!(done)), {
+      match(
+        cur.head(),
         .Some(elem) => {
           if(other.contains(elem), {
             result = result.insert(elem);
@@ -106,18 +98,18 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
           done = true;
         }
       );
-    };
+    });
     result
   }),
-
   /// Return the difference (`self \ other`).
-  difference : (fn(self: Self, other: Self) -> Self)({
+  difference : (fn(self : Self, other : Self) -> Self)({
     elems := self.to_list();
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
     (done : bool) = false;
-    while runtime(!(done)), {
-      match(cur.head(),
+    while(runtime(!(done)), {
+      match(
+        cur.head(),
         .Some(elem) => {
           if(!(other.contains(elem)), {
             result = result.insert(elem);
@@ -128,20 +120,20 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
           done = true;
         }
       );
-    };
+    });
     result
   }),
-
   /// Check if `self` is a subset of `other`.
-  is_subset : (fn(self: Self, other: Self) -> bool)({
-    if((self.len() > other.len()), {
-      return false;
+  is_subset : (fn(self : Self, other : Self) -> bool)({
+    if(self.len() > other.len(), {
+      return(false);
     });
     elems := self.to_list();
     (cur : List(T)) = elems;
     (result : bool) = true;
-    while runtime((result && !(cur.is_empty()))), {
-      match(cur.head(),
+    while(runtime(result && !(cur.is_empty())), {
+      match(
+        cur.head(),
         .Some(elem) => {
           if(!(other.contains(elem)), {
             result = false;
@@ -150,12 +142,11 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
         },
         .None => ()
       );
-    };
+    });
     result
   }),
-
   /// Check if two sorted sets are disjoint.
-  is_disjoint : (fn(self: Self, other: Self) -> bool)({
+  is_disjoint : (fn(self : Self, other : Self) -> bool)({
     (smaller : Self) = cond(
       (self.len() <= other.len()) => self,
       true => other
@@ -167,8 +158,9 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
     elems := smaller.to_list();
     (cur : List(T)) = elems;
     (result : bool) = true;
-    while runtime((result && !(cur.is_empty()))), {
-      match(cur.head(),
+    while(runtime(result && !(cur.is_empty())), {
+      match(
+        cur.head(),
         .Some(elem) => {
           if(larger.contains(elem), {
             result = false;
@@ -177,26 +169,28 @@ impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T),
         },
         .None => ()
       );
-    };
+    });
     result
   }),
-
   /// Create a sorted set from a slice of elements.
-  from_slice : (fn(s: Slice(T)) -> Self)({
+  from_slice : (fn(s : Slice(T)) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
     slen := s.len();
-    while (i < slen), (i = (i + usize(1))), {
+    while(i < slen, i = (i + usize(1)), {
       result = result.insert((s.ptr() &+ i).*);
-    };
+    });
     result
   })
 );
-
-impl(forall(T : Type), where(T <: (Eq(T), Ord(T), Send)), SortedSet(T), Eq(SortedSet(T))(
-  (==) : (fn(lhs: Self, rhs: Self) -> bool)(
-    (lhs._inner == rhs._inner)
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Ord(T), Send)),
+  SortedSet(T),
+  Eq(SortedSet(T))(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs._inner == rhs._inner
+    )
   )
-));
-
-export SortedSet;
+);
+export(SortedSet);

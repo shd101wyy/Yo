@@ -1,21 +1,16 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
-
-open import "std/libc/stdio";
-{ GlobalAllocator } :: import "std/allocator";
+open(import("std/libc/stdio"));
+{ GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-open import "std/string";
-{ platform, Platform } :: import "std/process";
-{ ENOENT, EACCES } :: import "std/libc/errno";
-perm :: import "std/sys/perm";
-file :: import "std/sys/file";
-dir :: import "std/sys/dir";
-{
-  AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
-  F_OK, R_OK, W_OK, X_OK
-} :: import "std/sys/constants";
-{ temp_dir, path_join } :: import "../helper";
-
-test "access F_OK R_OK W_OK on existing file", {
+open(import("std/string"));
+{ platform, Platform } :: import("std/process");
+{ ENOENT, EACCES } :: import("std/libc/errno");
+perm :: import("std/sys/perm");
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+{ AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY, F_OK, R_OK, W_OK, X_OK } :: import("std/sys/constants");
+{ temp_dir, path_join } :: import("../helper");
+test("access F_OK R_OK W_OK on existing file", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -28,24 +23,20 @@ test "access F_OK R_OK W_OK on existing file", {
   assert(wr == i32(14));
   cr := io.await(file.close(fd));
   assert(cr == i32(0));
-
   ret_f := perm.access(AT_FDCWD, test_path, F_OK);
   assert(ret_f == i32(0));
   ret_r := perm.access(AT_FDCWD, test_path, R_OK);
   assert(ret_r == i32(0));
   ret_w := perm.access(AT_FDCWD, test_path, W_OK);
   assert(ret_w == i32(0));
-
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
-
-test "access on nonexistent file returns -ENOENT", {
+});
+test("access on nonexistent file returns -ENOENT", {
   ret := perm.access(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_file_12345.txt"), F_OK);
   assert(ret == (i32(0) - i32(ENOENT)));
-};
-
-test "chmodat changes and restores permissions", {
+});
+test("chmodat changes and restores permissions", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -58,28 +49,22 @@ test "chmodat changes and restores permissions", {
   assert(wr == i32(10));
   cr := io.await(file.close(fd));
   assert(cr == i32(0));
-
   // chmod to read-only (0o444)
   ret := perm.chmodat(AT_FDCWD, test_path, u32(0o444), i32(0));
   assert(ret == i32(0));
-
   // Should be readable
   ret_r := perm.access(AT_FDCWD, test_path, R_OK);
   assert(ret_r == i32(0));
-
   // Should NOT be writable (non-root: -EACCES = -13)
   ret_w := perm.access(AT_FDCWD, test_path, W_OK);
   assert(ret_w == (i32(0) - i32(EACCES)));
-
   // Restore to 0644
   ret_b := perm.chmodat(AT_FDCWD, test_path, u32(0o644), i32(0));
   assert(ret_b == i32(0));
-
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
-
-test "fchmod by fd sets executable bit", {
+});
+test("fchmod by fd sets executable bit", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -92,35 +77,27 @@ test "fchmod by fd sets executable bit", {
   assert(wr == i32(11));
   cr_w := io.await(file.close(fd_w));
   assert(cr_w == i32(0));
-
   fd := io.await(file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0)));
   assert(fd >= i32(0));
-
   // fchmod to 0o755 (rwxr-xr-x)
   ret := perm.fchmod(fd, u32(0o755));
   assert(ret == i32(0));
-
   // Verify executable bit
   ret_x := perm.access(AT_FDCWD, test_path, X_OK);
   assert(ret_x == i32(0));
-
   // Restore to 0644
   ret_b := perm.fchmod(fd, u32(0o644));
   assert(ret_b == i32(0));
-
   cr := io.await(file.close(fd));
   assert(cr == i32(0));
-
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
-
-test "chmodat on nonexistent file returns -ENOENT", {
+});
+test("chmodat on nonexistent file returns -ENOENT", {
   ret := perm.chmodat(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_12345.txt"), u32(0o644), i32(0));
   assert(ret == (i32(0) - i32(ENOENT)));
-};
-
-test "fchown with -1 -1 succeeds (no change)", {
+});
+test("fchown with -1 -1 succeeds (no change)", {
   tmp := temp_dir();
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
@@ -133,17 +110,13 @@ test "fchown with -1 -1 succeeds (no change)", {
   assert(wr == i32(10));
   cr_w := io.await(file.close(fd_w));
   assert(cr_w == i32(0));
-
   fd := io.await(file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0)));
   assert(fd >= i32(0));
-
   // chown to -1, -1 (no change) should succeed
   ret := perm.fchown(fd, u32(4294967295), u32(4294967295));
   assert(ret == i32(0));
-
   cr := io.await(file.close(fd));
   assert(cr == i32(0));
-
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
   assert(cleanup == i32(0));
-};
+});

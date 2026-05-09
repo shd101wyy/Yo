@@ -1,16 +1,13 @@
 //! C11 `<time.h>` — date and time functions.
-
-c_include "<time.h>",
+c_include(
+  "<time.h>",
   // Types
   time_t : Type,
   clock_t : Type,
-  
   // Structure for broken-down time
   tm : Type,
-  
   // C11 timespec structure
   timespec : Type,
-
   // Time manipulation functions
   clock :
     fn() -> clock_t,
@@ -20,7 +17,6 @@ c_include "<time.h>",
     fn(time1 : time_t, time0 : time_t) -> f64,
   mktime :
     fn(timeptr : *(tm)) -> time_t,
-
   // Time conversion functions
   asctime :
     fn(timeptr : *(tm)) -> *(char),
@@ -32,7 +28,6 @@ c_include "<time.h>",
     fn(timer : *(time_t)) -> ?*(tm),
   strftime :
     fn(s : *(char), maxsize : usize, format : *(char), timeptr : *(tm)) -> usize,
-
   // C11 Annex K - Safe time functions
   asctime_s :
     fn(s : *(char), maxsize : usize, timeptr : *(tm)) -> int,
@@ -42,51 +37,42 @@ c_include "<time.h>",
     fn(timer : *(time_t), result : *(tm)) -> ?*(tm),
   localtime_s :
     fn(timer : *(time_t), result : *(tm)) -> ?*(tm),
-
   // C11 - Additional time functions
   timespec_get :
     fn(ts : *(timespec), base : int) -> int,
-
   // Constants
   CLOCKS_PER_SEC : clock_t,
-  
   // C11 timespec_get base values
   TIME_UTC : int,
-
   // Additional useful constants (implementation-defined)
   CLK_TCK : clock_t
-;
-
+);
 // Export all time functionality
-export 
+export(
   // Types
   time_t,
   clock_t,
   tm,
   timespec,
-
   // Time manipulation
   clock,
   time,
   difftime,
   mktime,
-
   // Time conversion
   asctime,
   ctime,
   gmtime,
   localtime,
   strftime,
-
   // C11 safe functions
   asctime_s,
   ctime_s,
   gmtime_s,
   localtime_s,
   timespec_get,
-
   // Constants
   CLOCKS_PER_SEC,
   TIME_UTC,
   CLK_TCK
-;
+);

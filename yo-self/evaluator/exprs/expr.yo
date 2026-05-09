@@ -4,82 +4,81 @@
 //!
 //! The function pointer avoids forward references between the dispatcher
 //! (_expr.yo) and individual handlers that call back into it.
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ Exception } :: import "std/error";
-
-{ AstExpr, ExprId } :: import "../../expr/expr.yo";
-{ ExprInfoTable }   :: import "../../expr/expr_info.yo";
-{ Environment }     :: import "../../env/env.yo";
-{ EvalContext }     :: import "../context.yo";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Exception } :: import("std/error");
+{ AstExpr, ExprId } :: import("../../expr/expr.yo");
+{ ExprInfoTable } :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
 /// Function type for the main expression evaluator.
-EvaluateExprFn :: (fn(
-  expr  : AstExpr,
-  env   : Environment,
-  ctx   : *(EvalContext)
-) -> AstExpr);
-
+EvaluateExprFn :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext)
+  ) -> AstExpr
+);
 /// Function type for the raw expression evaluator (with custom exception handler).
 /// Used by builtins like `comptime_expect_error` that need to catch evaluation errors.
-EvaluateExprRawFn :: (fn(
-  expr  : AstExpr,
-  env   : Environment,
-  ctx   : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr);
-
+EvaluateExprRawFn :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+);
 /// Module-level function pointer — set once during evaluator initialization.
 (g_evaluate_expression : Option(EvaluateExprFn)) = Option(EvaluateExprFn).None;
-
 /// Module-level raw function pointer — stores `_evaluate_expression` directly.
 /// Unlike `g_evaluate_expression`, this bypasses the panic wrapper so callers
 /// can supply their own exception handler via `using(exn : Exception)`.
 (g_evaluate_expression_raw : Option(EvaluateExprRawFn)) = Option(EvaluateExprRawFn).None;
-
 /// Set the global evaluate_expression function pointer.
 /// Called once during evaluator initialization before any evaluation begins.
 set_evaluate_expression_fn :: (fn(f : EvaluateExprFn) -> unit)({
   g_evaluate_expression = Option(EvaluateExprFn).Some(f);
   ()
 });
-
 /// Set the global raw evaluate_expression function pointer.
 /// Called once during evaluator initialization (alongside `set_evaluate_expression_fn`).
 set_evaluate_expression_raw_fn :: (fn(f : EvaluateExprRawFn) -> unit)({
   g_evaluate_expression_raw = Option(EvaluateExprRawFn).Some(f);
   ()
 });
-
 /// Dispatch an expression through the registered evaluator.
 /// Panics if the evaluator has not been initialized.
-evaluate_expression :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext)
-) -> AstExpr)(
-  match(g_evaluate_expression,
-    .None    => panic("evaluate_expression called before set_evaluate_expression_fn"),
+evaluate_expression :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext)
+  ) -> AstExpr
+)(
+  match(
+    g_evaluate_expression,
+    .None => panic("evaluate_expression called before set_evaluate_expression_fn"),
     .Some(f) => f(expr, env, ctx)
   )
 );
-
 /// Dispatch an expression through the raw evaluator with a custom exception handler.
 /// Use this when you need to catch compilation errors from evaluation (e.g., `comptime_expect_error`).
 /// Panics if the evaluator has not been initialized.
-evaluate_expression_raw :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)(
-  match(g_evaluate_expression_raw,
-    .None    => panic("evaluate_expression_raw called before set_evaluate_expression_raw_fn"),
+evaluate_expression_raw :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)(
+  match(
+    g_evaluate_expression_raw,
+    .None => panic("evaluate_expression_raw called before set_evaluate_expression_raw_fn"),
     .Some(f) => f(expr, env, ctx, using(exn))
   )
 );
-
-export EvaluateExprFn, EvaluateExprRawFn;
-export set_evaluate_expression_fn, evaluate_expression;
-export set_evaluate_expression_raw_fn, evaluate_expression_raw;
+export(EvaluateExprFn, EvaluateExprRawFn);
+export(set_evaluate_expression_fn, evaluate_expression);
+export(set_evaluate_expression_raw_fn, evaluate_expression_raw);

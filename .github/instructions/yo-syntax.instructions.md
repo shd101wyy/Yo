@@ -9,6 +9,7 @@ description: "Use when writing or editing Yo language code. Covers critical synt
 
 - `{ expr }` without semicolons creates an **anonymous struct value**, NOT a block!
 - `{ expr; }` with semicolons creates a **begin block** (sequence of statements)
+- Struct literal fields use spaces around `:` and infix field values must stay grouped: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
 - If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.
 - **The parser now detects this mistake and emits a clear error**: if `{ }` contains a single non-struct expression (a function call, `match`, `cond`, `while`, etc.), it fails with: `{ ... } without semicolons is parsed as a struct literal, not a block.`
 
@@ -76,7 +77,7 @@ Use `if` for simple two-branch conditionals — especially for comptime early-re
 ```rust
 if((arch == Arch.Wasm32), {
   printf("  skipped on wasm32\n");
-  return ();
+  return();
 });
 ```
 
@@ -84,9 +85,10 @@ Use `cond` when there are more than two branches or when the branches are large.
 
 ## Function definitions
 
-- `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return expr; })`
+- `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return(expr); })`
 - No space between `(fn() -> ReturnType)` and `({ body; })`
-- Method definitions in struct use double parentheses: `method :: ((fn(self: Self) -> ReturnType) body)`
+- Function type body creation is a normal call: `(fn(...) -> T)({ body })`, not `(fn(...) -> T) { body }`
+- Method definitions in `impl` use `name : (fn(self : Self) -> ReturnType)({ body })`
 - Use `Self` instead of the type name in method signatures, enum definitions, and struct definitions — the type name is not available inside its own definition
 - Use `struct(...)` for record/effect-record types. The old `module(...)`,
   `Module`, and `SelfModule` syntax has been removed; imported source files are
@@ -166,30 +168,35 @@ match(c,
 );
 ```
 
-## Always add `()` after function name to avoid parsing ambiguity
+## All function, keyword, and prefix-operator calls require immediate `(...)`
 
-Because we didn't write `await(...`, code like:
+- Write `func(arg1, arg2)`, not `func arg1, arg2`.
+- Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
+- Control-flow keywords follow the same rule: `return(value)`, `return()`, `escape(value)`, `escape()`.
+- Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`, `~(bits)`.
+- Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
+- Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 
-```rust
-cond(
-  (fd >= i32(0)) => await file.close(fd),
-  true => ()
-);
-```
-
-gets parsed as:
+This avoids ambiguous parses such as `&x, y`:
 
 ```rust
-cond(
-  (fd >= i32(0)) =>
-  await(
-    file.close(fd),
-    true => ()
-  )
-);
+// WRONG:
+call(&x, y)
+
+// CORRECT — pass a pointer and another argument:
+call(&(x), y)
+
+// CORRECT — take the address of a tuple:
+call(&(x, y))
 ```
 
-Always add `()` after function name to prevent this.
+Parens are also required for zero-argument control flow:
+
+```rust
+if((arch == Arch.Wasm32), {
+  return();
+});
+```
 
 ## No operator precedence
 
@@ -207,6 +214,37 @@ Every binary operation must be explicitly parenthesized. When chaining the same 
 (((A | B) | C) | D)
 ```
 
+Newlines around operators can also be semantically significant because they disambiguate right-associative parses. Do not collapse line-leading operators or a newline after `:` into a single line unless you add equivalent parentheses:
+
+```rust
+// Valid because each `|` stays line-leading:
+(4
+| 5
+| 6)
+
+// Valid because newline after `:` confirms the RHS:
+raise :
+  (msg) -> {
+    escape(());
+  }
+
+// Formatter style: indent the RHS one level under the line-ending operator:
+(given(yield) : Yield) =
+  (v) -> {
+    return(v * i32(3));
+  };
+
+// Also valid: explicit grouping on the RHS.
+raise : ((msg) -> {
+  escape(());
+})
+```
+
+Formatter-specific syntax preservation:
+
+- Canonical pointer dereference is `ptr.*`; format legacy `ptr.(*)` as `ptr.*`.
+- Keep compact collection and tuple literals compact when they are single-line, even inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
+
 This also applies to `fn` type annotations on the same line — always wrap in parentheses to avoid ambiguity with `->`:
 
 ```rust
@@ -220,6 +258,8 @@ next : (fn(self : *(Self)) -> Option(Self.Item))
 next :
   fn(self : *(Self)) -> Option(Self.Item)
 ```
+
+Special tight syntaxes must stay immediate: macro splices `#(expr)`, optional pointer types `?*(T)`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `?* (T)`, or `T <: !(Runtime)`.
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
@@ -333,11 +373,11 @@ walk_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(unit, 
   io.async((using(io, exn)) => {
     stack := ArrayList(Path).new();
     { stack.push(root); };
-    while runtime((stack.len() > usize(0))), {
-      cur := match(stack.pop(), .Some(p) => p, .None => return ());
+    while(runtime((stack.len() > usize(0))), {
+      cur := match(stack.pop(), .Some(p) => p, .None => return());
       entries := io.await(read_dir(cur));
       // process entries, push subdirs to stack…
-    };
+    });
   })
 );
 ```
@@ -372,14 +412,14 @@ Use destructured imports for files in the same directory:
 
 ```rust
 // CORRECT — destructured import with relative path:
-{ RegexNode, NodeKind, CharRange } :: import "./node.yo";
+{ RegexNode, NodeKind, CharRange } :: import("./node.yo");
 
-// CORRECT - Named moudle
-node_module :: import "./node.yo";
+// CORRECT - Named module
+node_module :: import("./node.yo");
 
 // CORRECT — open import for std library modules:
-open import "std/collections/array_list";
-open import "std/string";
+open(import("std/collections/array_list"));
+open(import("std/string"));
 
 // WRONG — `import "path" as name` does NOT work for .yo files:
 // import "./node.yo" as node;  // causes "Invalid function call on type: comptime_string"
@@ -420,11 +460,10 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
-- There is no `loop` function. Use `while true, body` for a runtime infinite loop.
-- **`while cond, body` is always a runtime loop**, regardless of whether `cond` is compile-time known.
-- **`while comptime(cond), body`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while comptime(true)` with no `break`/`return`/`escape`).
+- There is no `loop` function. Use `while(true, body)` for a runtime infinite loop.
+- **`while(cond, body)` is always a runtime loop**, regardless of whether `cond` is compile-time known.
+- **`while(comptime(cond), body)`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while(comptime(true), ...)` with no `break`/`return`/`escape`).
 - If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
-- The old `while runtime(true)` pattern still compiles (backwards compatible) but is no longer necessary — `while true` is now always a runtime loop.
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 
@@ -443,16 +482,17 @@ for(list.iter(), (ptr) => { ptr.* = transform(ptr.*); });  // borrowing iterator
 - **Do NOT pass a raw array/ArrayList as first arg without `.iter()`** — they don't have `.next()`
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/eval-for-loop-3arg-vs-2arg.md`.)
 
-## Function call syntax — no space before `(`
+## Function call syntax — required immediate `(`
 
-In Yo, function calls are parsed differently depending on spacing:
+In Yo, function calls must always use immediate parentheses:
 
 - `func(a, b)` — normal call with two arguments
-- `func (a, b)` — **space before `(`** makes `(a, b)` a tuple, so this is `func((a, b))` — one argument!
-- `func a, b, c` — no parentheses: parsed as `func(a, b, c)` — three arguments
-- `func a, b; c` — semicolon terminates argument list: `func(a, b); c`
+- `func (a, b)` — invalid whitespace before `(`
+- `func a, b, c` — invalid paren-less call
+- Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`
+- Control flow follows the same rule: `return(value)`, `return()`, `escape(value)`, `escape()`
 
-Always use `func(a, b)` with no space. Never `func (a, b)`.
+Always use `func(a, b)` with no space. Never `func (a, b)` or `func a, b`.
 
 ## Partial application with `_` placeholder
 
@@ -473,24 +513,24 @@ result :: add1(i32(2));   // 3
 - The number of arguments must match the original function's parameter count
 - `_` cannot be used with runtime functions
 
-## `return` without parentheses consumes all following comma-separated arguments
+## `return` requires parentheses
 
-`return` without parentheses follows the same rule as any other call: `return expr1, expr2` is parsed as `return(expr1, expr2)`. Inside match/cond branches, commas separate branches, so:
+`return expr` is invalid. Use `return(expr)` or `return()` for unit. Inside match/cond branches, use begin blocks when you need early return:
 
 ```rust
-// WRONG — parsed as return(str.from_raw_parts(p, len), .None => return("")):
+// WRONG — paren-less return:
 match(opt,
   .Some(p) => return str.from_raw_parts(p, len),
   .None => return ""
 )
 
-// CORRECT — begin blocks terminate the argument list at the semicolon:
+// CORRECT — explicit return calls:
 match(opt,
   .Some(p) => {
-    return str.from_raw_parts(p, len);
+    return(str.from_raw_parts(p, len));
   },
   .None => {
-    return str.from_raw_parts(*(u8)(""), usize(0));
+    return(str.from_raw_parts(*(u8)(""), usize(0)));
   }
 )
 ```
@@ -579,9 +619,9 @@ The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)`
 When a generic function has `where(T <: Trait)`, calling `self.method()` on a parameter of type `T` dispatches to `Trait`'s method:
 
 ```rust
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
-  return self.get_number();  // Dispatches to T1.get_number
-};
+use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+  return(self.get_number());  // Dispatches to T1.get_number
+});
 ```
 
 ### Explicit trait dispatch
@@ -589,9 +629,9 @@ use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32) {
 Use `(T <: Trait).method(self)` to explicitly select which trait's method to call:
 
 ```rust
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32) {
-  return (T <: T2).get_number(self);  // Explicitly calls T2.get_number
-};
+use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+  return((T <: T2).get_number(self));  // Explicitly calls T2.get_number
+});
 ```
 
 This is necessary when:
@@ -654,7 +694,7 @@ bar();
 `ArrayList(T)` implements the `Index` trait, so elements can be accessed with call syntax:
 
 ```rust
-{ ArrayList } :: import "std/collections/array_list";
+{ ArrayList } :: import("std/collections/array_list");
 
 list := ArrayList(i32).new();
 list.push(i32(10));

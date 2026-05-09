@@ -257,9 +257,9 @@ function parseDependencyNames(content: string): string[] {
 }
 
 /**
- * Regenerate the `imports :: ComptimeList(...)` and `export imports;` block
+ * Regenerate the `imports :: ComptimeList(...)` and `export(imports);` block
  * in deps.yo content based on all dependency declarations found.
- * Preserves any content the user added after `export imports;`.
+ * Preserves any content the user added after `export(imports);`.
  */
 function regenerateImportsList(content: string): string {
   const depNames = parseDependencyNames(content);
@@ -267,20 +267,20 @@ function regenerateImportsList(content: string): string {
   // Build the new imports block
   let importsBlock: string;
   if (depNames.length === 0) {
-    importsBlock = `imports :: ComptimeList(build.ImportEntry)();\nexport imports;\n`;
+    importsBlock = `imports :: ComptimeList(build.ImportEntry)();\nexport(imports);\n`;
   } else {
     const entries = depNames
       .map((name) => `  { name: "${name}", module: ${name}.module() }`)
       .join(",\n");
-    importsBlock = `imports :: ComptimeList(build.ImportEntry)(\n${entries}\n);\nexport imports;\n`;
+    importsBlock = `imports :: ComptimeList(build.ImportEntry)(\n${entries}\n);\nexport(imports);\n`;
   }
 
-  // Replace existing imports block (between "// --- Import list ---" and "export imports;")
-  // Preserve any user content after "export imports;"
+  // Replace existing imports block (between "// --- Import list ---" and "export(imports);" or old "export imports;")
+  // Preserve any user content after the export line
   const importListMarker = "// --- Import list ---";
   const markerIdx = content.indexOf(importListMarker);
   if (markerIdx !== -1) {
-    const exportImportsPattern = /export imports;\n?/;
+    const exportImportsPattern = /export\(imports\);\n?|export imports;\n?/;
     const afterMarker = content.slice(markerIdx);
     const exportMatch = exportImportsPattern.exec(afterMarker);
     if (exportMatch) {
@@ -294,7 +294,7 @@ function regenerateImportsList(content: string): string {
         tail
       );
     }
-    // No "export imports;" found — replace to end
+    // No export line found — replace to end
     return content.slice(0, markerIdx) + importListMarker + "\n" + importsBlock;
   }
 
@@ -482,7 +482,10 @@ export async function runInstall(options: InstallOptions): Promise<void> {
 function buildFileImportsDeps(buildFilePath: string): boolean {
   if (!fs.existsSync(buildFilePath)) return false;
   const content = fs.readFileSync(buildFilePath, "utf-8");
-  return content.includes('import "./deps.yo"');
+  return (
+    content.includes('import("./deps.yo")') ||
+    content.includes('import "./deps.yo"')
+  );
 }
 
 function printAddImportGuidance(
@@ -493,7 +496,7 @@ function printAddImportGuidance(
 
   if (!buildFileImportsDeps(buildFilePath)) {
     console.log("Add the following to your build.yo:");
-    console.log('  { imports } :: import "./deps.yo";');
+    console.log('  { imports } :: import("./deps.yo");');
     console.log("  exe.add_import_list(imports);");
   } else {
     console.log(

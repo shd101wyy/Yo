@@ -1,7 +1,5 @@
 //! Memory allocation abstractions and global allocator interface.
-
-{ SIZE_MAX } :: import "./libc/stdint.yo";
-
+{ SIZE_MAX } :: import("./libc/stdint.yo");
 /// Memory allocation error variants.
 AllocError :: enum(
   /// Allocator ran out of memory.
@@ -13,93 +11,80 @@ AllocError :: enum(
   /// Pointer passed to dealloc/realloc is invalid.
   InvalidPointer
 );
-
 /// Describes the size and alignment requirements for a memory allocation.
 Layout :: struct(
   /// Size in bytes.
-  size: usize,
+  size : usize,
   /// Alignment in bytes (must be a power of two).
-  alignment: usize
+  alignment : usize
 );
-
 /// Get the memory layout (size and alignment) of a type at compile time.
 layout_of ::
-  (fn(comptime(T): Type) -> comptime(Layout))
+  (fn(comptime(T) : Type) -> comptime(Layout))(
     Layout(
-      size: sizeof(T),
-      alignment: alignof(T)
+      size : sizeof(T),
+      alignment : alignof(T)
     )
-;
-
+  );
 /// Check if allocating `count` elements of type T would overflow `usize`.
-size_would_overflow :: 
-  (fn(comptime(T): Type, count: usize) -> bool) {
+size_would_overflow ::
+  (fn(comptime(T) : Type, count : usize) -> bool)({
     type_size :: sizeof(T);
     cond(
       (type_size == usize(0)) => false,
       true => (count > (SIZE_MAX / type_size))
     )
-  };
-
+  });
 /// User-implementable memory allocator interface.
 /// Implement this trait to provide custom allocation strategies.
 CustomAllocator :: trait(
   /// Allocate memory for `count` items of type T.
-  alloc : (fn(self : *(Self), comptime(T): Type, count: usize) -> Result(?*(T), AllocError)),
-
+  alloc : (fn(self : *(Self), comptime(T) : Type, count : usize) -> Result(?*(T), AllocError)),
   /// Allocate zeroed memory for `count` items of type T.
-  alloc_zeroed : (fn(self : *(Self), comptime(T): Type, count: usize) -> Result(?*(T), AllocError)),
-
+  alloc_zeroed : (fn(self : *(Self), comptime(T) : Type, count : usize) -> Result(?*(T), AllocError)),
   /// Allocate aligned memory for `count` items of type T with the given alignment.
-  alloc_aligned : (fn(self : *(Self), comptime(T): Type, count: usize, alignment: usize) -> Result(?*(T), AllocError)),
-
+  alloc_aligned : (fn(self : *(Self), comptime(T) : Type, count : usize, alignment : usize) -> Result(?*(T), AllocError)),
   /// Reallocate memory to `new_count` items, preserving existing data.
   realloc : (fn(forall(T : Type), self : *(Self), old_ptr : ?*(T), new_count : usize) -> Result(?*(T), AllocError)),
-
   /// Deallocate memory pointed to by `ptr`.
   dealloc : (fn(forall(T : Type), self : *(Self), ptr : *(T)) -> Result(unit, AllocError))
 );
-
 /// Type-erased dynamic allocator wrapping any `CustomAllocator` implementation.
 Allocator :: Dyn(CustomAllocator);
-
-extern "Yo",
-  __yo_malloc : 
-    fn(size: usize) -> ?*(void),
+extern(
+  "Yo",
+  __yo_malloc :
+    fn(size : usize) -> ?*(void),
   __yo_calloc :
-    fn(nmemb: usize, size: usize) -> ?*(void),
+    fn(nmemb : usize, size : usize) -> ?*(void),
   __yo_realloc :
     fn(ptr : ?*(void), size : usize) -> ?*(void),
   __yo_free :
     fn(ptr : ?*(void)) -> unit,
   __yo_aligned_alloc :
     fn(alignment : usize, size : usize) -> ?*(void)
-;
-
+);
 /// The process-wide global allocator (mimalloc by default, falls back to libc).
-GlobalAllocator :: impl {
+GlobalAllocator :: impl({
   malloc :: __yo_malloc;
   calloc :: __yo_calloc;
   realloc :: __yo_realloc;
   free :: __yo_free;
   aligned_alloc :: __yo_aligned_alloc;
-
-  export
+  export(
     malloc,
     calloc,
     realloc,
     free,
     aligned_alloc
-  ;
-};
-
-export
+  );
+});
+export(
   size_would_overflow,
   CustomAllocator,
   Allocator,
   Layout,
   layout_of,
   AllocError,
-
   GlobalAllocator
-;
+);

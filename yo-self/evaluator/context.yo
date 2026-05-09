@@ -16,138 +16,116 @@
 //! * TypeScript `Expr | FnCallExpr` → `AstExpr`.
 //! * TypeScript `PathCollection` (Path[]) → `PathCollection :: ArrayList(ArrayList(String))`
 //!   imported from `yo-self/expr/expr_info.yo` (Phase 2k).
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ HashMap }   :: import "std/collections/hash_map";
-{ HashSet }   :: import "std/collections/hash_set";
-{ TypeValue }  :: import "../types/type.yo";
-{ EvalValue }  :: import "./value.yo";
-{ Environment, Variable } :: import "../env/env.yo";
-{ AstExpr }    :: import "../expr/expr.yo";
-{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new } :: import "../expr/expr_info.yo";
-{ Token }      :: import "../lexer/token.yo";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ TypeValue } :: import("../types/type.yo");
+{ EvalValue } :: import("./value.yo");
+{ Environment, Variable } :: import("../env/env.yo");
+{ AstExpr } :: import("../expr/expr.yo");
+{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new } :: import("../expr/expr_info.yo");
+{ Token } :: import("../lexer/token.yo");
 // ---------------------------------------------------------------------------
 // PathCollection now imported from ../expr/expr_info.yo (Phase 2k)
 // ---------------------------------------------------------------------------
-
 // ---------------------------------------------------------------------------
 // LoadModuleFn result
 // ---------------------------------------------------------------------------
-
 /// Return value of a `load_module` callback.  Mirrors the anonymous object
 /// `{ moduleValue: ModuleValue; moduleError: Error | undefined }` in the TS source.
 LoadModuleResult :: object(
   module_value : EvalValue,
   module_error : Option(String)
 );
-
 // ---------------------------------------------------------------------------
 // Sub-context for function / async-block / test-block evaluation
 // ---------------------------------------------------------------------------
-
 /// Indicates the kind of the innermost "function-like" evaluation scope.
 FuncOrAsyncBlockKind :: enum(
   /// Evaluating a function body (includes the function's type and optional value).
   FunctionBody,
   /// Evaluating an `io.async(...)` closure body.
   AsyncBlock,
-  /// Evaluating a `test "...", { ... }` block body.
+  /// Evaluating a `test("...", { ... })` block body.
   TestBlock
 );
-
 /// Evaluation sub-context for a function body or async / test block.
 ///
 /// Mirrors the TypeScript union
 /// `FunctionEvaluationContext | AsyncBlockEvaluationContext | TestBlockEvaluationContext`.
 FuncOrAsyncBlockCtx :: object(
-  kind         : FuncOrAsyncBlockKind,
+  kind : FuncOrAsyncBlockKind,
   /// The type of the function being evaluated (meaningless for async/test blocks).
-  func_type    : Option(TypeValue),
+  func_type : Option(TypeValue),
   /// The value of the function being evaluated (meaningless for async/test blocks).
-  func_value   : Option(EvalValue),
+  func_value : Option(EvalValue),
   /// The environment at the time the function / async-block body is being evaluated.
   /// Used to determine the frame level for closure variable capture.
-  eval_env     : Environment
+  eval_env : Environment
 );
-
 // ---------------------------------------------------------------------------
 // Loop body context
 // ---------------------------------------------------------------------------
-
 LoopKind :: enum(While, For);
-
 LoopBodyCtx :: object(
   kind : LoopKind,
-  env  : Environment
+  env : Environment
 );
-
 // ---------------------------------------------------------------------------
 // Expected type hint
 // ---------------------------------------------------------------------------
-
 ExpectedTypeCtx :: object(
-  ty  : TypeValue,
+  ty : TypeValue,
   env : Environment
 );
-
 // ---------------------------------------------------------------------------
 // Captured variable info
 // ---------------------------------------------------------------------------
-
 /// Usage kind for a variable captured by a closure.
 CaptureUsage :: enum(Read, Write, Own);
-
 /// Information about a variable captured from an outer scope inside a closure
 /// or async block.
 CapturedVarInfo :: object(
-  frame_level  : usize,
-  usage        : CaptureUsage,
-  token        : Token
+  frame_level : usize,
+  usage : CaptureUsage,
+  token : Token
 );
-
 // ---------------------------------------------------------------------------
 // Specializing function state
 // ---------------------------------------------------------------------------
-
 /// Tracks a single in-progress generic function specialization.
 SpecializingFunctionInfo :: object(
-  original_func_id   : String,
-  specialized_func_id: String,
+  original_func_id : String,
+  specialized_func_id : String,
   /// The return type of the specialization in progress.
   specialized_return_type : TypeValue,
   /// The original (pre-specialization) function value.
   original_func_value : EvalValue
 );
-
 // ---------------------------------------------------------------------------
 // Impl concrete-type return tracking
 // ---------------------------------------------------------------------------
-
 /// One return-site's concrete type for `Impl(...)` return-type unification.
 ImplConcreteTypeInfo :: object(
   concrete_type : TypeValue,
-  env           : Environment,
-  token         : Token
+  env : Environment,
+  token : Token
 );
-
 // ---------------------------------------------------------------------------
 // CTFE cache types
 // ---------------------------------------------------------------------------
-
 /// One cached call entry for a compile-time function.
 ///
 /// Mirrors `CalledComptimeFunctionCache` in `src/function-value.ts`.
 /// Simplified: `env` field dropped (we use callerEnv at lookup time);
 /// `body` field dropped (ExprInfoTable makes AST re-evaluation safe).
 CalledComptimeFnCache :: object(
-  func_id    : String,
+  func_id : String,
   arg_values : ArrayList(EvalValue),
   /// `UnknownVal(ty)` for an in-progress recursive call; actual return value when done.
-  value      : EvalValue
+  value : EvalValue
 );
-
 /// Per-function CTFE cache bucket, keyed by `func_id`.
 ///
 /// Mirrors the per-`FunctionValue` `calledComptimeFunctionCaches` array in TS,
@@ -155,13 +133,11 @@ CalledComptimeFnCache :: object(
 /// circular imports between `value.yo` and `env.yo`.
 ComptimeFnCacheEntry :: object(
   func_id : String,
-  caches  : ArrayList(CalledComptimeFnCache)
+  caches : ArrayList(CalledComptimeFnCache)
 );
-
 // ---------------------------------------------------------------------------
 // Specialization cache types
 // ---------------------------------------------------------------------------
-
 /// One cached specialization of a generic function.
 ///
 /// Mirrors `SpecializedFunctionCache` on TypeScript's `FunctionValue`.
@@ -175,21 +151,18 @@ SpecializedFunctionCache :: object(
   /// from others with the same compile-time args.
   runtime_parameter_types : ArrayList(TypeValue),
   /// The specialized function value (EvalValue.FuncVal with updated func_id).
-  specialized_func_value  : EvalValue,
+  specialized_func_value : EvalValue,
   /// The environment at cache-creation time (for value equality checks).
-  env                     : Environment
+  env : Environment
 );
-
 /// Per-function bucket of specialization caches, keyed by `func_id`.
 SpecializedFunctionCacheEntry :: object(
   func_id : String,
-  caches  : ArrayList(SpecializedFunctionCache)
+  caches : ArrayList(SpecializedFunctionCache)
 );
-
 // ---------------------------------------------------------------------------
 // Main EvaluatorContext
 // ---------------------------------------------------------------------------
-
 /// The evaluator context threaded through every expression evaluation.
 ///
 /// Mirrors `EvaluatorContext` in `src/evaluator/context.ts`.
@@ -197,290 +170,236 @@ EvalContext :: object(
   /// Whether we are currently executing code (`true`) or just type-checking it.
   /// Prevents side effects like `comptime_print` from running during function
   /// definition.
-  is_executing                           : bool,
-
+  is_executing : bool,
   /// Whether we are validating a function definition (type-checking its body).
-  is_validating_function_definition      : bool,
-
+  is_validating_function_definition : bool,
   /// Expected return type from the surrounding context.
-  expected_type                          : Option(ExpectedTypeCtx),
-
+  expected_type : Option(ExpectedTypeCtx),
   /// The innermost function body / async block / test block being evaluated.
   is_evaluating_function_body_or_async_block : Option(FuncOrAsyncBlockCtx),
-
   /// Whether we are inside an `impl(...)` block body.
-  is_inside_impl_block                   : bool,
-
+  is_inside_impl_block : bool,
   /// Variables captured from outer scopes in the current closure / async block.
-  captured_variables                     : Option(HashMap(String, CapturedVarInfo)),
-
+  captured_variables : Option(HashMap(String, CapturedVarInfo)),
   /// Subset of capturedVariables consumed via `own(self)` parameter passing.
-  own_consumed_captures                  : Option(HashSet(String)),
-
+  own_consumed_captures : Option(HashSet(String)),
   /// The innermost loop body being evaluated.
-  is_evaluating_loop_body                : Option(LoopBodyCtx),
-
+  is_evaluating_loop_body : Option(LoopBodyCtx),
   /// `Self` type for the innermost struct / enum / union definition.
-  self_type                              : Option(TypeValue),
-
+  self_type : Option(TypeValue),
   /// `SelfTrait` type for the innermost trait definition.
-  self_trait_type                        : Option(TypeValue),
-
+  self_trait_type : Option(TypeValue),
   /// `SelfModule` type for the innermost module definition.
-  self_module_type                       : Option(TypeValue),
-
+  self_module_type : Option(TypeValue),
   /// Receiver type for the innermost `impl(ReceiverType, ...)` block.
-  receiver_type                          : Option(TypeValue),
-
+  receiver_type : Option(TypeValue),
   /// Whether we are evaluating a function type definition.
-  is_evaluating_function_type            : bool,
-
+  is_evaluating_function_type : bool,
   /// Module loader callback.  Set by the module manager before evaluation
-  /// starts and used by `import "..."` expressions.
-  load_module                            : Option((fn(path : String) -> LoadModuleResult)),
-
+  /// starts and used by `import("...")` expressions.
+  load_module : Option((fn(path : String) -> LoadModuleResult)),
   /// Absolute path to the standard library `std/` directory.
-  std_path                               : String,
-
+  std_path : String,
   /// Module path of the file currently being evaluated.
-  current_module_path                    : Option(String),
-
+  current_module_path : Option(String),
   /// Whether the function type being evaluated is marked unsafe.
-  is_unsafe_function_type                : bool,
-
-  /// Return type of the enclosing (parent) function; enables `escape expr`.
-  enclosing_function_return_type         : Option(TypeValue),
-
+  is_unsafe_function_type : bool,
+  /// Return type of the enclosing (parent) function; enables `escape(expr)`.
+  enclosing_function_return_type : Option(TypeValue),
   /// Whether the enclosing specialized function has control-flow implicit params.
-  has_control_function_implicit_params   : bool,
-
+  has_control_function_implicit_params : bool,
   /// Whether we are inside a where-clause constraint expression.
-  is_inside_where_clause                 : bool,
-
+  is_inside_where_clause : bool,
   /// Whether we are evaluating the LHS of an assignment.
-  is_lhs_of_assignment                   : bool,
-
+  is_lhs_of_assignment : bool,
   /// Shared mutable container tracking concrete return types of Impl(…) returns.
-  function_return_impl_concrete_type     : Option(ArrayList(ImplConcreteTypeInfo)),
-
+  function_return_impl_concrete_type : Option(ArrayList(ImplConcreteTypeInfo)),
   /// Force all variable bindings (including `:=`) to be compile-time.
-  force_compile_time_bindings            : bool,
-
+  force_compile_time_bindings : bool,
   /// Whether we are analysing CTFE capability with `UnknownValue` parameters.
-  is_analyzing_ctfe_capability           : bool,
-
+  is_analyzing_ctfe_capability : bool,
   /// Whether we are in the argument-checking phase of a function call.
-  is_in_function_call_checking_phase     : bool,
-
+  is_in_function_call_checking_phase : bool,
   /// Whether we are evaluating the closure argument of an `io.async(...)` call.
-  is_inside_io_async_call                : bool,
-
+  is_inside_io_async_call : bool,
   /// Whether we are evaluating the RHS of a `given(...)` assignment.
-  is_inside_given_handler                : bool,
-
+  is_inside_given_handler : bool,
   /// Whether we are re-evaluating type expressions during generic impl specialisation.
   is_evaluating_generic_impl_specialization : bool,
-
   /// Innermost in-progress specialization (top of stack).
-  currently_specializing_function        : Option(SpecializingFunctionInfo),
-
+  currently_specializing_function : Option(SpecializingFunctionInfo),
   /// Full stack of in-progress specializations (for mutual recursion).
-  currently_specializing_function_stack  : Option(ArrayList(SpecializingFunctionInfo)),
-
+  currently_specializing_function_stack : Option(ArrayList(SpecializingFunctionInfo)),
   /// Doc-comment lookup table (position key → comment text).
-  doc_comment_lookup                     : Option(HashMap(String, String)),
-
+  doc_comment_lookup : Option(HashMap(String, String)),
   /// Side-table for expression evaluation results (replaces TypeScript's `expr.$` mutation).
-  expr_info_table                        : ExprInfoTable,
-
+  expr_info_table : ExprInfoTable,
   /// CTFE call cache — per-function buckets keyed by `func_id`.
   ///
   /// Stored here (rather than on `FuncVal`) to avoid a circular import between
   /// `value.yo` and `env.yo`.  Each entry holds the cached call results for
   /// one compile-time function.
-  comptime_fn_caches                     : ArrayList(ComptimeFnCacheEntry),
-
+  comptime_fn_caches : ArrayList(ComptimeFnCacheEntry),
   /// Specialization cache — per-function buckets keyed by `func_id`.
   ///
   /// Stored here (rather than on `FuncVal`) to avoid FuncVal pattern-match
   /// explosion.  Each entry holds all cached specializations for one generic
   /// function.  Mirrors `specializedFunctionCaches` on TypeScript's
   /// `FunctionValue`.
-  specialized_fn_caches                  : ArrayList(SpecializedFunctionCacheEntry)
+  specialized_fn_caches : ArrayList(SpecializedFunctionCacheEntry)
 );
-
 /// Create a minimal execution context with sensible defaults.
 eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)(
   EvalContext(
-    is_executing:                                false,
-    is_validating_function_definition:           false,
-    expected_type:                               Option(ExpectedTypeCtx).None,
-    is_evaluating_function_body_or_async_block:  Option(FuncOrAsyncBlockCtx).None,
-    is_inside_impl_block:                        false,
-    captured_variables:                          Option(HashMap(String, CapturedVarInfo)).None,
-    own_consumed_captures:                       Option(HashSet(String)).None,
-    is_evaluating_loop_body:                     Option(LoopBodyCtx).None,
-    self_type:                                   Option(TypeValue).None,
-    self_trait_type:                             Option(TypeValue).None,
-    self_module_type:                            Option(TypeValue).None,
-    receiver_type:                               Option(TypeValue).None,
-    is_evaluating_function_type:                 false,
-    load_module:                                 Option((fn(path : String) -> LoadModuleResult)).None,
-    std_path:                                    std_path,
-    current_module_path:                         Option(String).Some(module_path),
-    is_unsafe_function_type:                     false,
-    enclosing_function_return_type:              Option(TypeValue).None,
-    has_control_function_implicit_params:        false,
-    is_inside_where_clause:                      false,
-    is_lhs_of_assignment:                        false,
-    function_return_impl_concrete_type:          Option(ArrayList(ImplConcreteTypeInfo)).None,
-    force_compile_time_bindings:                 false,
-    is_analyzing_ctfe_capability:                false,
-    is_in_function_call_checking_phase:          false,
-    is_inside_io_async_call:                     false,
-    is_inside_given_handler:                     false,
-    is_evaluating_generic_impl_specialization:   false,
-    currently_specializing_function:             Option(SpecializingFunctionInfo).None,
-    currently_specializing_function_stack:       Option(ArrayList(SpecializingFunctionInfo)).None,
-    doc_comment_lookup:                          Option(HashMap(String, String)).None,
-    expr_info_table:                             expr_info_table_new(),
-    comptime_fn_caches:                          ArrayList(ComptimeFnCacheEntry).new(),
-    specialized_fn_caches:                       ArrayList(SpecializedFunctionCacheEntry).new()
+    is_executing : false,
+    is_validating_function_definition : false,
+    expected_type : Option(ExpectedTypeCtx).None,
+    is_evaluating_function_body_or_async_block : Option(FuncOrAsyncBlockCtx).None,
+    is_inside_impl_block : false,
+    captured_variables : Option(HashMap(String, CapturedVarInfo)).None,
+    own_consumed_captures : Option(HashSet(String)).None,
+    is_evaluating_loop_body : Option(LoopBodyCtx).None,
+    self_type : Option(TypeValue).None,
+    self_trait_type : Option(TypeValue).None,
+    self_module_type : Option(TypeValue).None,
+    receiver_type : Option(TypeValue).None,
+    is_evaluating_function_type : false,
+    load_module : Option((fn(path : String) -> LoadModuleResult)).None,
+    std_path : std_path,
+    current_module_path : Option(String).Some(module_path),
+    is_unsafe_function_type : false,
+    enclosing_function_return_type : Option(TypeValue).None,
+    has_control_function_implicit_params : false,
+    is_inside_where_clause : false,
+    is_lhs_of_assignment : false,
+    function_return_impl_concrete_type : Option(ArrayList(ImplConcreteTypeInfo)).None,
+    force_compile_time_bindings : false,
+    is_analyzing_ctfe_capability : false,
+    is_in_function_call_checking_phase : false,
+    is_inside_io_async_call : false,
+    is_inside_given_handler : false,
+    is_evaluating_generic_impl_specialization : false,
+    currently_specializing_function : Option(SpecializingFunctionInfo).None,
+    currently_specializing_function_stack : Option(ArrayList(SpecializingFunctionInfo)).None,
+    doc_comment_lookup : Option(HashMap(String, String)).None,
+    expr_info_table : expr_info_table_new(),
+    comptime_fn_caches : ArrayList(ComptimeFnCacheEntry).new(),
+    specialized_fn_caches : ArrayList(SpecializedFunctionCacheEntry).new()
   )
 );
-
 // ---------------------------------------------------------------------------
 // ArgValues
 // ---------------------------------------------------------------------------
-
 /// One entry in the args / forallArgs / implicitArgs / variadicArgs arrays.
 ArgEntry :: object(
-  value          : Option(EvalValue),
+  value : Option(EvalValue),
   parameter_type : TypeValue,
-  arg_type       : TypeValue
-);
-
-/// Variadic argument entry (no parameterType).
-VarArgEntry :: object(
-  value    : Option(EvalValue),
   arg_type : TypeValue
 );
-
+/// Variadic argument entry (no parameterType).
+VarArgEntry :: object(
+  value : Option(EvalValue),
+  arg_type : TypeValue
+);
 /// Mirrors `ArgValues` in `src/evaluator/context.ts`.
 ArgValues :: object(
-  forall_args   : ArrayList(ArgEntry),
-  args          : ArrayList(ArgEntry),
+  forall_args : ArrayList(ArgEntry),
+  args : ArrayList(ArgEntry),
   implicit_args : Option(ArrayList(ArgEntry)),
   variadic_args : ArrayList(VarArgEntry)
 );
-
 // ---------------------------------------------------------------------------
 // FunctionCallResult
 // ---------------------------------------------------------------------------
-
 /// Mirrors `FunctionCallResult` in `src/evaluator/context.ts`.
 FuncCallResult :: object(
-  callee_env                    : Environment,
-  caller_env                    : Environment,
-  path_collection               : PathCollection,
-  return_type                   : TypeValue,
-  return_value                  : Option(EvalValue),
-  arg_values                    : ArgValues,
-  runtime_arg_exprs_in_order    : ArrayList(AstExpr),
+  callee_env : Environment,
+  caller_env : Environment,
+  path_collection : PathCollection,
+  return_type : TypeValue,
+  return_value : Option(EvalValue),
+  arg_values : ArgValues,
+  runtime_arg_exprs_in_order : ArrayList(AstExpr),
   /// The specialized FuncVal, if the function had compile-time parameters.
-  specialized_function_value    : Option(EvalValue),
+  specialized_function_value : Option(EvalValue),
   /// Drop expressions for RC cleanup of temporary function arguments.
-  deferred_drop_expressions     : Option(ArrayList(AstExpr))
+  deferred_drop_expressions : Option(ArrayList(AstExpr))
 );
-
 // ---------------------------------------------------------------------------
 // ComptimeFnCallResult
 // ---------------------------------------------------------------------------
-
 /// Result from `evaluate_comptime_fn_call`.
 ///
 /// Mirrors the anonymous return type of `evaluateComptimeFunctionCall` in
 /// `src/evaluator/calls/comptime-fn.ts`.
 ComptimeFnCallResult :: object(
-  value      : EvalValue,
+  value : EvalValue,
   caller_env : Environment,
   callee_env : Environment
 );
-
 // ---------------------------------------------------------------------------
 // TypeCallResult
 // ---------------------------------------------------------------------------
-
 /// Mirrors `TypeCallResult`.
 TypeCallResult :: object(
-  values                      : ArrayList(Option(EvalValue)),
-  path_collection             : PathCollection,
-  runtime_arg_exprs_in_order  : ArrayList(AstExpr),
-  caller_env                  : Environment
+  values : ArrayList(Option(EvalValue)),
+  path_collection : PathCollection,
+  runtime_arg_exprs_in_order : ArrayList(AstExpr),
+  caller_env : Environment
 );
-
 // ---------------------------------------------------------------------------
 // Module / trait / macro / numeric / pointer / index call results
 // ---------------------------------------------------------------------------
-
 /// Mirrors `ModuleTypeCallResult`.
 ModuleTypeCallResult :: object(
   module_value : EvalValue,
-  caller_env   : Environment
+  caller_env : Environment
 );
-
 /// Mirrors `TraitTypeCallResult`.
 TraitTypeCallResult :: object(
   trait_value : EvalValue,
-  caller_env  : Environment
+  caller_env : Environment
 );
-
 /// Mirrors `TraitSpecializationResult`.
 TraitSpecializationResult :: object(
   specialized_trait_type : TypeValue,
-  caller_env             : Environment
+  caller_env : Environment
 );
-
 /// Mirrors `MacroFunctionCallResult`.
 MacroFuncCallResult :: object(
-  callee_env  : Environment,
-  caller_env  : Environment,
+  callee_env : Environment,
+  caller_env : Environment,
   return_expr : AstExpr
 );
-
 /// Mirrors `NumericTypeCallResult`.
 NumericTypeCallResult :: object(
   expr : AstExpr,
-  env  : Environment
+  env : Environment
 );
-
 /// Mirrors `PointerTypeCallResult`.
 PointerTypeCallResult :: object(
   expr : AstExpr,
-  env  : Environment
+  env : Environment
 );
-
 /// Mirrors `IndexCallResult`.
 IndexCallResult :: object(
   /// Auto-dereferenced value (Output type, not *(Output)).
-  value             : Option(EvalValue),
+  value : Option(EvalValue),
   /// Auto-dereferenced type (Output).
-  ty                : TypeValue,
+  ty : TypeValue,
   /// Pointer type before auto-deref: *(Output).
-  ptr_type          : TypeValue,
+  ptr_type : TypeValue,
   /// Specialised function type of the index method.
   index_method_type : Option(TypeValue),
   /// Specialised function value of the index method.
   index_method_value : Option(EvalValue),
-  caller_env        : Environment,
+  caller_env : Environment,
   /// Compile-time index, if known (for array element assignment).
-  index             : Option(usize)
+  index : Option(usize)
 );
-
 // ---------------------------------------------------------------------------
 // FunctionToCall — result discriminated union
 // ---------------------------------------------------------------------------
-
 /// Discriminated union of all possible results from a call dispatch.
 ///
 /// Mirrors the anonymous union type on `FunctionToCall.result` in
@@ -513,65 +432,61 @@ CallResultKind :: enum(
   /// An error occurred during call dispatch.
   ErrorResult(message : String)
 );
-
 /// Mirrors `FunctionToCall` in `src/evaluator/context.ts`.
 FunctionToCall :: object(
-  ty      : TypeValue,
-  args    : Option(ArrayList(AstExpr)),
-  value   : Option(EvalValue),
-  result  : CallResultKind
+  ty : TypeValue,
+  args : Option(ArrayList(AstExpr)),
+  value : Option(EvalValue),
+  result : CallResultKind
 );
-
 // ---------------------------------------------------------------------------
 // Convenience extractors (mirrors getFunctionCallResult, etc.)
 // ---------------------------------------------------------------------------
-
 get_function_call_result :: (fn(ftc : FunctionToCall) -> Option(FuncCallResult))(
-  match(ftc.result,
+  match(
+    ftc.result,
     .FunctionResult(r) => Option(FuncCallResult).Some(r),
     _ => Option(FuncCallResult).None
   )
 );
-
 get_type_call_result :: (fn(ftc : FunctionToCall) -> Option(TypeCallResult))(
-  match(ftc.result,
+  match(
+    ftc.result,
     .TypeResult(r) => Option(TypeCallResult).Some(r),
     _ => Option(TypeCallResult).None
   )
 );
-
 get_module_type_call_result :: (fn(ftc : FunctionToCall) -> Option(ModuleTypeCallResult))(
-  match(ftc.result,
+  match(
+    ftc.result,
     .ModuleTypeResult(r) => Option(ModuleTypeCallResult).Some(r),
     _ => Option(ModuleTypeCallResult).None
   )
 );
-
 get_trait_type_call_result :: (fn(ftc : FunctionToCall) -> Option(TraitTypeCallResult))(
-  match(ftc.result,
+  match(
+    ftc.result,
     .TraitTypeResult(r) => Option(TraitTypeCallResult).Some(r),
     _ => Option(TraitTypeCallResult).None
   )
 );
-
 get_index_call_result :: (fn(ftc : FunctionToCall) -> Option(IndexCallResult))(
-  match(ftc.result,
+  match(
+    ftc.result,
     .IndexResult(r) => Option(IndexCallResult).Some(r),
     _ => Option(IndexCallResult).None
   )
 );
-
 get_pointer_type_call_result :: (fn(ftc : FunctionToCall) -> Option(PointerTypeCallResult))(
-  match(ftc.result,
+  match(
+    ftc.result,
     .PointerTypeResult(r) => Option(PointerTypeCallResult).Some(r),
     _ => Option(PointerTypeCallResult).None
   )
 );
-
 // ---------------------------------------------------------------------------
 // trackVariableUsage
 // ---------------------------------------------------------------------------
-
 /// Track usage of a variable inside a closure or async block.
 ///
 /// Mirrors `trackVariableUsage` in `src/evaluator/context.ts`.
@@ -581,37 +496,42 @@ get_pointer_type_call_result :: (fn(ftc : FunctionToCall) -> Option(PointerTypeC
 /// - Promotes usage type: `own` > `write` > `read`.
 ///
 /// `context` is modified in-place.
-track_variable_usage :: (fn(
-  variable_name : String,
-  frame_level   : usize,
-  usage         : CaptureUsage,
-  token         : Token,
-  context       : *(EvalContext)
-) -> unit)(
+track_variable_usage :: (
+  fn(
+    variable_name : String,
+    frame_level : usize,
+    usage : CaptureUsage,
+    token : Token,
+    context : *(EvalContext)
+  ) -> unit
+)(
   // Only track when we are inside a function body or async block.
-  match(context.is_evaluating_function_body_or_async_block,
+  match(
+    context.is_evaluating_function_body_or_async_block,
     .None => (),
     .Some(sub_ctx) => {
       eval_env := sub_ctx.eval_env;
-
       // Only track variables from outer scopes.
-      if((frame_level >= eval_env.frame_count()), { return (); });
-
+      if(frame_level >= eval_env.frame_count(), {
+        return(());
+      });
       // Find the variable in the evaluation environment.
       var_found := Option(Variable).None;
       actual_frame_level := usize(0);
       fi := usize(0);
       n_frames := eval_env.frame_count();
-      while runtime((fi < n_frames)), {
+      while(runtime(fi < n_frames), {
         frame_opt := eval_env.frames.get(fi);
-        match(frame_opt,
+        match(
+          frame_opt,
           .Some(frame) => {
             vi := usize(0);
             n_vars := frame.variables.len();
-            while runtime((vi < n_vars)), {
-              match(frame.variables.get(vi),
+            while(runtime(vi < n_vars), {
+              match(
+                frame.variables.get(vi),
                 .Some(v) => {
-                  if((v.name.as_str() == variable_name.as_str()), {
+                  if(v.name.as_str() == variable_name.as_str(), {
                     var_found = Option(Variable).Some(v);
                     actual_frame_level = fi;
                     vi = n_vars; // break inner loop
@@ -621,21 +541,23 @@ track_variable_usage :: (fn(
                 .None => ()
               );
               vi = (vi + usize(1));
-            };
+            });
           },
           .None => ()
         );
         fi = (fi + usize(1));
-      };
-
-      match(var_found,
+      });
+      match(
+        var_found,
         .None => (),
         .Some(v) => {
           // Don't track compile-time-only variables.
-          if(v.is_compile_time_only, { return (); });
-
+          if(v.is_compile_time_only, {
+            return(());
+          });
           // Ensure the capturedVariables map exists.
-          match(context.captured_variables,
+          match(
+            context.captured_variables,
             .None => {
               context.captured_variables = Option(HashMap(String, CapturedVarInfo)).Some(
                 HashMap(String, CapturedVarInfo).new()
@@ -643,28 +565,31 @@ track_variable_usage :: (fn(
             },
             .Some(_) => ()
           );
-
           // Compute the promoted usage type.
-          effective_usage := match(context.captured_variables,
+          effective_usage := match(
+            context.captured_variables,
             .None => usage,
-            .Some(map) => match(map.get(variable_name),
+            .Some(map) => match(
+              map.get(variable_name),
               .None => usage,
-              .Some(existing) => match(existing.usage,
-                .Own   => CaptureUsage.Own,
-                .Write => match(usage, .Read => CaptureUsage.Write, _ => usage),
-                .Read  => usage
+              .Some(existing) => match(
+                existing.usage,
+                .Own => CaptureUsage.Own,
+                .Write => match(usage,.Read => CaptureUsage.Write, _ => usage),
+                .Read => usage
               )
             )
           );
-
           new_entry := CapturedVarInfo(
-            frame_level: actual_frame_level,
-            usage: effective_usage,
-            token: token
+            frame_level : actual_frame_level,
+            usage : effective_usage,
+            token : token
           );
-
-          match(context.captured_variables,
-            .Some(map) => { ___ := map.set(variable_name, new_entry); },
+          match(
+            context.captured_variables,
+            .Some(map) => {
+              ___ := map.set(variable_name, new_entry);
+            },
             .None => ()
           );
         }
@@ -672,12 +597,10 @@ track_variable_usage :: (fn(
     }
   )
 );
-
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
-
-export
+export(
   PathCollection,
   path_collection_new,
   LoadModuleResult,
@@ -717,4 +640,5 @@ export
   get_trait_type_call_result,
   get_index_call_result,
   get_pointer_type_call_result,
-  track_variable_usage;
+  track_variable_usage
+);

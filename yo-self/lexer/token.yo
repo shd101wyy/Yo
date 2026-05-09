@@ -1,9 +1,7 @@
 //! Token types for the Yo lexer.
-
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
-
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 TokenKind :: enum(
   Operator,
   Dot,
@@ -31,77 +29,85 @@ TokenKind :: enum(
   Whitespace
 );
 derive(TokenKind, Eq(TokenKind), Hash, Clone, ToString);
-
 Token :: struct(
-  kind        : TokenKind,
-  value       : String,
-  row         : usize,
-  column      : usize,
-  character   : usize,
+  kind : TokenKind,
+  value : String,
+  row : usize,
+  column : usize,
+  character : usize,
   module_path : String,
-  input       : String
+  input : String
 );
 derive(Token, Clone, Eq(Token));
-
 is_operator_char :: (fn(c : rune) -> bool)(
   cond(
-    (c.char == u32(61))  => true,
-    (c.char == u32(43))  => true,
-    (c.char == u32(45))  => true,
-    (c.char == u32(42))  => true,
-    (c.char == u32(47))  => true,
-    (c.char == u32(60))  => true,
-    (c.char == u32(62))  => true,
-    (c.char == u32(64))  => true,
-    (c.char == u32(36))  => true,
+    (c.char == u32(61)) => true,
+    (c.char == u32(43)) => true,
+    (c.char == u32(45)) => true,
+    (c.char == u32(42)) => true,
+    (c.char == u32(47)) => true,
+    (c.char == u32(60)) => true,
+    (c.char == u32(62)) => true,
+    (c.char == u32(64)) => true,
+    (c.char == u32(36)) => true,
     (c.char == u32(126)) => true,
-    (c.char == u32(38))  => true,
-    (c.char == u32(37))  => true,
+    (c.char == u32(38)) => true,
+    (c.char == u32(37)) => true,
     (c.char == u32(124)) => true,
-    (c.char == u32(33))  => true,
-    (c.char == u32(63))  => true,
-    (c.char == u32(94))  => true,
-    (c.char == u32(46))  => true,
-    (c.char == u32(58))  => true,
-    (c.char == u32(92))  => true,
-    (c.char == u32(35))  => true,
-    true                 => false
+    (c.char == u32(33)) => true,
+    (c.char == u32(63)) => true,
+    (c.char == u32(94)) => true,
+    (c.char == u32(46)) => true,
+    (c.char == u32(58)) => true,
+    (c.char == u32(92)) => true,
+    (c.char == u32(35)) => true,
+    true => false
   )
 );
-
 is_identifier_start :: (fn(c : rune) -> bool)(
-  (((c.char == u32(95)) || c.is_alphabetic()) || (c.char >= u32(0xA0)))
+  ((c.char == u32(95)) || c.is_alphabetic()) || (c.char >= u32(0xA0))
 );
-
 is_identifier_continue :: (fn(c : rune) -> bool)(
-  ((is_identifier_start(c)) || c.is_digit())
+  (is_identifier_start(c)) || c.is_digit()
 );
-
 find_matching_bracket :: (fn(tokens : ArrayList(Token), start : usize) -> Option(usize))({
   n := tokens.len();
-  if((start >= n), { return .None; });
-  start_tok := match(tokens.get(start), .Some(t) => t, .None => { return .None; });
+  if(start >= n, {
+    return(.None);
+  });
+  start_tok := match(
+    tokens.get(start),
+    .Some(t) => t,
+    .None => {
+      return(.None);
+    }
+  );
   start_kind := start_tok.kind;
   is_open_bracket := (((start_kind == TokenKind.LCurlyBracket) || (start_kind == TokenKind.LParen)) || (start_kind == TokenKind.LBracket));
-  if(!(is_open_bracket), { return .None; });
+  if(!(is_open_bracket), {
+    return(.None);
+  });
   (end_kind : TokenKind) = cond(
     (start_kind == TokenKind.LCurlyBracket) => TokenKind.RCurlyBracket,
-    (start_kind == TokenKind.LParen)        => TokenKind.RParen,
-    true                                    => TokenKind.RBracket
+    (start_kind == TokenKind.LParen) => TokenKind.RParen,
+    true => TokenKind.RBracket
   );
   i := (start + usize(1));
   depth := usize(1);
-  while runtime((i < n)), {
+  while(runtime(i < n), {
     tk_opt := tokens.get(i);
-    match(tk_opt,
-      .None => { break; },
+    match(
+      tk_opt,
+      .None => {
+        break;
+      },
       .Some(tok) => {
         tk := tok.kind;
         cond(
           (tk == end_kind) => {
             depth = (depth - usize(1));
-            if((depth == usize(0)), {
-              return .Some(i);
+            if(depth == usize(0), {
+              return(.Some(i));
             });
           },
           (tk == start_kind) => {
@@ -112,8 +118,7 @@ find_matching_bracket :: (fn(tokens : ArrayList(Token), start : usize) -> Option
       }
     );
     i = (i + usize(1));
-  };
+  });
   .None
 });
-
-export TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue, find_matching_bracket;
+export(TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue, find_matching_bracket);

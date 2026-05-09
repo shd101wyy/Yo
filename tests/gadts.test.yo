@@ -1,7 +1,6 @@
 // =============================================================================
 // GADT Definition Tests
 // =============================================================================
-
 // Basic GADT with type-refining constructors
 Value :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
@@ -10,70 +9,60 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
     PairVal(a : i32, b : bool) -> recur(i32)
   )
 );
-
-test "GADT basic construction", {
+test("GADT basic construction", {
   v1 := Value(i32).IntVal(i32(42));
   v2 := Value(bool).BoolVal(true);
   v3 := Value(i32).PairVal(i32(1), false);
-
   // Verify they compile and can be used
   assert(true, "GADT construction works");
-};
-
+});
 // =============================================================================
 // GADT Match Type Refinement Tests
 // =============================================================================
-
 // eval function — T is refined per branch via GADT
 eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
-  match(v,
+  match(
+    v,
     .IntVal(i) => i,
     .BoolVal(b) => b,
     .PairVal(a, b) => a
   )
 );
-
-test "GADT match type refinement - IntVal", {
+test("GADT match type refinement - IntVal", {
   v := Value(i32).IntVal(i32(42));
   result := eval_value(v);
-  assert((result == i32(42)), "eval IntVal should return 42");
-};
-
-test "GADT match type refinement - BoolVal", {
+  assert(result == i32(42), "eval IntVal should return 42");
+});
+test("GADT match type refinement - BoolVal", {
   v := Value(bool).BoolVal(true);
   result := eval_value(v);
   assert(result, "eval BoolVal should return true");
-};
-
-test "GADT match type refinement - PairVal", {
+});
+test("GADT match type refinement - PairVal", {
   v := Value(i32).PairVal(i32(99), false);
   result := eval_value(v);
-  assert((result == i32(99)), "eval PairVal should return 99");
-};
-
+  assert(result == i32(99), "eval PairVal should return 99");
+});
 // =============================================================================
 // GADT Exhaustiveness Tests
 // =============================================================================
-
 // When matching Value(i32), only IntVal and PairVal are reachable
 // BoolVal is unreachable because BoolVal -> recur(bool) and bool != i32
 eval_int_only :: (fn(v : Value(i32)) -> i32)(
-  match(v,
+  match(
+    v,
     .IntVal(i) => i,
     .PairVal(a, b) => a
   )
 );
-
-test "GADT exhaustiveness - concrete type excludes unreachable variants", {
+test("GADT exhaustiveness - concrete type excludes unreachable variants", {
   v := Value(i32).IntVal(i32(77));
   result := eval_int_only(v);
-  assert((result == i32(77)), "eval_int_only should return 77");
-};
-
+  assert(result == i32(77), "eval_int_only should return 77");
+});
 // =============================================================================
 // GADT with Multiple Type Parameters
 // =============================================================================
-
 // GADT with two type parameters
 MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   enum(
@@ -81,65 +70,56 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
     MkBoolInt(x : bool, y : i32) -> recur(bool, i32)
   )
 );
-
 // Extract functions using GADT type refinement
 my_fst :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> A)(
-  match(p,
+  match(
+    p,
     .MkIntBool(x, y) => x,
     .MkBoolInt(x, y) => x
   )
 );
-
 my_snd :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> B)(
-  match(p,
+  match(
+    p,
     .MkIntBool(x, y) => y,
     .MkBoolInt(x, y) => y
   )
 );
-
-test "GADT multiple type params - fst", {
+test("GADT multiple type params - fst", {
   p := MyPair(i32, bool).MkIntBool(i32(10), true);
   result := my_fst(p);
-  assert((result == i32(10)), "fst should return 10");
-};
-
-test "GADT multiple type params - snd", {
+  assert(result == i32(10), "fst should return 10");
+});
+test("GADT multiple type params - snd", {
   p := MyPair(i32, bool).MkIntBool(i32(10), true);
   result := my_snd(p);
   assert(result, "snd should return true");
-};
-
+});
 // =============================================================================
 // GADT with Discriminant Values
 // =============================================================================
-
 // GADT variants with explicit discriminant values (multiline syntax)
 Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
-    (TagInt(i : i32)
-      -> recur(i32)) = 10,
-    (TagBool(b : bool)
-      -> recur(bool)) = 20
+    (TagInt(i : i32) -> recur(i32)) = 10,
+    (TagBool(b : bool) -> recur(bool)) = 20
   )
 );
-
 eval_tagged :: (fn(forall(T : Type), t : Tagged(T)) -> T)(
-  match(t,
+  match(
+    t,
     .TagInt(i) => i,
     .TagBool(b) => b
   )
 );
-
-test "GADT with discriminant values", {
+test("GADT with discriminant values", {
   t := Tagged(i32).TagInt(i32(55));
   result := eval_tagged(t);
-  assert((result == i32(55)), "eval_tagged should return 55");
-};
-
+  assert(result == i32(55), "eval_tagged should return 55");
+});
 // =============================================================================
 // GADT mixed with non-GADT variants
 // =============================================================================
-
 // Some variants have GADT annotations, some don't
 MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
@@ -148,23 +128,21 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
     MGeneric(v : T)
   )
 );
-
 eval_mixed :: (fn(forall(T : Type), mv : MixedVal(T)) -> T)(
-  match(mv,
+  match(
+    mv,
     .MInt(i) => i,
     .MBool(b) => b,
     .MGeneric(g) => g
   )
 );
-
-test "GADT mixed variants - IntVal", {
+test("GADT mixed variants - IntVal", {
   mv := MixedVal(i32).MInt(i32(33));
   result := eval_mixed(mv);
-  assert((result == i32(33)), "eval_mixed MInt should return 33");
-};
-
-test "GADT mixed variants - Generic", {
+  assert(result == i32(33), "eval_mixed MInt should return 33");
+});
+test("GADT mixed variants - Generic", {
   mv := MixedVal(i32).MGeneric(i32(44));
   result := eval_mixed(mv);
-  assert((result == i32(44)), "eval_mixed MGeneric should return 44");
-};
+  assert(result == i32(44), "eval_mixed MGeneric should return 44");
+});

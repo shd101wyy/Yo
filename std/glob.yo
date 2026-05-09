@@ -1,33 +1,28 @@
 //! Glob pattern matching for file paths.
-
-open import "./string";
-{ ArrayList } :: import "./collections/array_list";
-
+open(import("./string"));
+{ ArrayList } :: import("./collections/array_list");
 // Recursive byte-level glob pattern matching
-_glob_match_impl :: (fn(pb: ArrayList(u8), pi: usize, tb: ArrayList(u8), ti: usize) -> bool)({
+_glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti : usize) -> bool)({
   // Base: both pattern and text consumed
   cond(
     ((pi == pb.len()) && (ti == tb.len())) => {
-      return true;
+      return(true);
     },
     true => ()
   );
-
   // Pattern consumed but text remains
   cond(
     (pi == pb.len()) => {
-      return false;
+      return(false);
     },
     true => ()
   );
-
   p := pb.get(pi).unwrap();
-
   // Handle * and **
   cond(
     (p == u8(42)) => {
       is_dbl := cond(
-        ((pi + usize(1)) < pb.len()) => (pb.get((pi + usize(1))).unwrap() == u8(42)),
+        ((pi + usize(1)) < pb.len()) => (pb.get(pi + usize(1)).unwrap() == u8(42)),
         true => false
       );
       cond(
@@ -49,17 +44,17 @@ _glob_match_impl :: (fn(pb: ArrayList(u8), pi: usize, tb: ArrayList(u8), ti: usi
           // Try ** matching nothing
           cond(
             recur(pb, npi, tb, ti) => {
-              return true;
+              return(true);
             },
             true => ()
           );
           // Try ** consuming one char
           cond(
             (ti < tb.len()) => {
-              return recur(pb, pi, tb, (ti + usize(1)));
+              return(recur(pb, pi, tb, ti + usize(1)));
             },
             true => {
-              return false;
+              return(false);
             }
           );
         },
@@ -67,8 +62,8 @@ _glob_match_impl :: (fn(pb: ArrayList(u8), pi: usize, tb: ArrayList(u8), ti: usi
           // Single * matches any except /
           // Try * matching nothing
           cond(
-            recur(pb, (pi + usize(1)), tb, ti) => {
-              return true;
+            recur(pb, pi + usize(1), tb, ti) => {
+              return(true);
             },
             true => ()
           );
@@ -78,15 +73,15 @@ _glob_match_impl :: (fn(pb: ArrayList(u8), pi: usize, tb: ArrayList(u8), ti: usi
               tc := tb.get(ti).unwrap();
               cond(
                 (tc != u8(47)) => {
-                  return recur(pb, pi, tb, (ti + usize(1)));
+                  return(recur(pb, pi, tb, ti + usize(1)));
                 },
                 true => {
-                  return false;
+                  return(false);
                 }
               );
             },
             true => {
-              return false;
+              return(false);
             }
           );
         }
@@ -94,32 +89,28 @@ _glob_match_impl :: (fn(pb: ArrayList(u8), pi: usize, tb: ArrayList(u8), ti: usi
     },
     true => ()
   );
-
   // Text consumed but non-star pattern remains
   cond(
     (ti == tb.len()) => {
-      return false;
+      return(false);
     },
     true => ()
   );
-
   t := tb.get(ti).unwrap();
-
   // Handle ?
   cond(
     (p == u8(63)) => {
       cond(
         (t != u8(47)) => {
-          return recur(pb, (pi + usize(1)), tb, (ti + usize(1)));
+          return(recur(pb, pi + usize(1), tb, ti + usize(1)));
         },
         true => {
-          return false;
+          return(false);
         }
       );
     },
     true => ()
   );
-
   // Handle [...]
   cond(
     (p == u8(91)) => {
@@ -142,7 +133,7 @@ _glob_match_impl :: (fn(pb: ArrayList(u8), pi: usize, tb: ArrayList(u8), ti: usi
       // Scan characters in class until ]
       found := false;
       cdone := false;
-      while (((ci < pb.len()) && (!(cdone)))), (ci = (ci + usize(1))), {
+      while((ci < pb.len()) && (!(cdone)), ci = (ci + usize(1)), {
         ch := pb.get(ci).unwrap();
         cond(
           (ch == u8(93)) => {
@@ -157,11 +148,11 @@ _glob_match_impl :: (fn(pb: ArrayList(u8), pi: usize, tb: ArrayList(u8), ti: usi
             );
           }
         );
-      };
+      });
       // Malformed pattern (no closing ])
       cond(
         (!(cdone)) => {
-          return false;
+          return(false);
         },
         true => ()
       );
@@ -171,39 +162,35 @@ _glob_match_impl :: (fn(pb: ArrayList(u8), pi: usize, tb: ArrayList(u8), ti: usi
       );
       cond(
         matched => {
-          return recur(pb, ci, tb, (ti + usize(1)));
+          return(recur(pb, ci, tb, ti + usize(1)));
         },
         true => {
-          return false;
+          return(false);
         }
       );
     },
     true => ()
   );
-
   // Literal byte match
   cond(
-    (p == t) => recur(pb, (pi + usize(1)), tb, (ti + usize(1))),
+    (p == t) => recur(pb, pi + usize(1), tb, ti + usize(1)),
     true => false
   )
 });
-
-glob_match :: (fn(pattern: String, text: String) -> bool)(
+glob_match :: (fn(pattern : String, text : String) -> bool)(
   _glob_match_impl(pattern.as_bytes(), usize(0), text.as_bytes(), usize(0))
 );
-
 /// Compiled glob pattern that can be matched against strings.
 GlobPattern :: object(
   _pattern : String
 );
-
-impl(GlobPattern,
-  new : (fn(pattern: String) -> Self)(
-    Self(_pattern: pattern)
+impl(
+  GlobPattern,
+  new : (fn(pattern : String) -> Self)(
+    Self(_pattern : pattern)
   ),
-  matches : (fn(self: Self, text: String) -> bool)(
+  matches : (fn(self : Self, text : String) -> bool)(
     _glob_match_impl(self._pattern.as_bytes(), usize(0), text.as_bytes(), usize(0))
   )
 );
-
-export glob_match, GlobPattern;
+export(glob_match, GlobPattern);

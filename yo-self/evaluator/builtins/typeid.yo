@@ -5,82 +5,97 @@
 //! `typeid(T)` — returns the unique runtime usize identifier for type T.
 //! In the evaluator: validates that the argument is a type value and returns
 //! an unknown usize (the actual ID is resolved in C codegen).
-
-open import "std/string";
-
-{ AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_to_string, BF_TYPEID }                   :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                              :: import "../../expr/expr_info.yo";
-{ Environment }                                      :: import "../../env/env.yo";
-{ EvalContext }                                      :: import "../context.yo";
-{ EvalValue, is_type_value, create_unknown_val }     :: import "../value.yo";
-{ TypeValue, t_usize }                               :: import "../../types/type.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ evaluate_expression }                              :: import "../exprs/expr.yo";
-{ Exception }                                        :: import "std/error";
-
-evaluate_type_id :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+open(import("std/string"));
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  BF_TYPEID
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, is_type_value, create_unknown_val } :: import("../value.yo");
+{ TypeValue, t_usize } :: import("../../types/type.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
+evaluate_type_id :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Extract the single type argument.
-  (type_expr_opt : Option(AstExpr)) = match(expr,
+  (type_expr_opt : Option(AstExpr)) = match(
+    expr,
     .FnCall(_, _, args, _, _) => args.get(usize(0)),
-    _                         => Option(AstExpr).None
+    _ => Option(AstExpr).None
   );
-
-  type_expr := match(type_expr_opt,
+  type_expr := match(
+    type_expr_opt,
     .Some(te) => te,
-    .None     => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(expr),
-        `"typeid" expects exactly 1 argument.`,
-        false,
-        .None
-      ));
-      return expr;
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `"typeid" expects exactly 1 argument.`,
+            false,
+            .None
+          )
+        )
+      );
+      return(expr);
     }
   );
-
   // Evaluate the type expression.
   evaluated_type_expr := evaluate_expression(type_expr, env, ctx);
-  type_info_opt       := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_type_expr));
-
-  type_info := match(type_info_opt,
+  type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_type_expr));
+  type_info := match(
+    type_info_opt,
     .Some(ti) => ti,
-    .None     => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(type_expr),
-        `Failed to evaluate expression for typeid.`,
-        false,
-        .None
-      ));
-      return expr;
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(type_expr),
+            `Failed to evaluate expression for typeid.`,
+            false,
+            .None
+          )
+        )
+      );
+      return(expr);
     }
   );
-
   cur_env := type_info.env;
-
   // typeid only accepts compile-time Type values.
   if(!(is_type_value(type_info.value)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(type_expr),
-      `typeid expects a type argument. Use is() or downcast() for runtime type checks on Dyn values.`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(type_expr),
+          `typeid expects a type argument. Use is() or downcast() for runtime type checks on Dyn values.`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // The result is a runtime usize value (resolved in C codegen).
   result_val := create_unknown_val(t_usize());
-  info       := new_expr_info(cur_env, t_usize());
-  info.value = .Some(result_val);
+  info := new_expr_info(cur_env, t_usize());
+  info.value =.Some(result_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-
   expr
 });
-
-export evaluate_type_id;
+export(evaluate_type_id);

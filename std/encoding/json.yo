@@ -12,21 +12,18 @@
 //! v := json_parse(`{"x": 1}`);
 //! println(json_stringify(v));
 //! ```
-
-open import "../string";
-{ ArrayList } :: import "../collections/array_list";
-{ snprintf } :: import "../libc/stdio";
-{ Error, AnyError, Exception } :: import "../error";
-{ ToString } :: import "../fmt";
-
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ snprintf } :: import("../libc/stdio");
+{ Error, AnyError, Exception } :: import("../error");
+{ ToString } :: import("../fmt");
 // ============================================================================
 // JsonError
 // ============================================================================
-
 /// JSON parsing error type.
 JsonError :: enum(
   /// Encountered an unexpected character at the given position.
-  UnexpectedChar(ch: u8, pos: usize),
+  UnexpectedChar(ch : u8, pos : usize),
   /// Input ended unexpectedly.
   UnexpectedEnd,
   /// Failed to parse a numeric literal.
@@ -36,162 +33,156 @@ JsonError :: enum(
   /// Invalid Unicode escape in a string.
   InvalidUnicode,
   /// Other error with a descriptive message.
-  Other(msg: String)
+  Other(msg : String)
 );
-
-impl(JsonError, ToString(
-  to_string : (self ->
-    match(self,
-      .UnexpectedChar(ch, pos) => `unexpected character at position ${pos}`,
-      .UnexpectedEnd => `unexpected end of input`,
-      .InvalidNumber => `invalid number`,
-      .InvalidEscape => `invalid escape sequence`,
-      .InvalidUnicode => `invalid unicode`,
-      .Other(msg) => `JSON error: ${msg}`
+impl(
+  JsonError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .UnexpectedChar(ch, pos) => `unexpected character at position ${pos}`,
+          .UnexpectedEnd => `unexpected end of input`,
+          .InvalidNumber => `invalid number`,
+          .InvalidEscape => `invalid escape sequence`,
+          .InvalidUnicode => `invalid unicode`,
+          .Other(msg) => `JSON error: ${msg}`
+        )
     )
   )
-));
-
+);
 impl(JsonError, Error());
-
-export JsonError;
-
+export(JsonError);
 // ============================================================================
 // JsonValue
 // ============================================================================
-
 /// Dynamically-typed JSON value tree.
 JsonValue :: enum(
   /// JSON null.
   Null,
   /// JSON boolean.
-  Bool(value: bool),
+  Bool(value : bool),
   /// JSON number (IEEE 754 double).
-  Number(value: f64),
+  Number(value : f64),
   /// JSON string.
-  Str(value: String),
+  Str(value : String),
   /// JSON array of values.
-  Array(items: ArrayList(Self)),
+  Array(items : ArrayList(Self)),
   /// JSON object with ordered key-value pairs.
-  Object(keys: ArrayList(String), values: ArrayList(Self))
+  Object(keys : ArrayList(String), values : ArrayList(Self))
 );
-
 // ============================================================================
 // JsonKV - key/value pair convenience struct for Object
 // ============================================================================
-
 /// Key-value pair for JSON object entries.
 JsonKV :: struct(
-  key   : String,
+  key : String,
   value : JsonValue
 );
-
-impl(JsonValue,
+impl(
+  JsonValue,
   /// Get a field from an Object value by key. Returns `.None` if not an Object or key is missing.
-  get : (fn(self: Self, key: String) -> Option(JsonValue))(
-    match(self,
+  get : (fn(self : Self, key : String) -> Option(JsonValue))(
+    match(
+      self,
       .Object(keys, values) => {
         i := usize(0);
-        while (i < keys.len()), (i = (i + usize(1))), {
+        while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys.get(i).unwrap() == key) => {
-              return .Some(values.get(i).unwrap());
+              return(.Some(values.get(i).unwrap()));
             },
             true => ()
           );
-        };
+        });
         .None
       },
-      _ => .None
+      _ =>.None
     )
   ),
-
   /// Get an element from an Array value by index.
-  at : (fn(self: Self, index: usize) -> Option(JsonValue))(
-    match(self,
+  at : (fn(self : Self, index : usize) -> Option(JsonValue))(
+    match(
+      self,
       .Array(items) => items.get(index),
-      _ => .None
+      _ =>.None
     )
   ),
-
   /// Extract the boolean value, or `.None` if not a `Bool`.
-  as_bool : (fn(self: Self) -> Option(bool))(
-    match(self,
-      .Bool(b) => .Some(b),
-      _ => .None
+  as_bool : (fn(self : Self) -> Option(bool))(
+    match(
+      self,
+      .Bool(b) =>.Some(b),
+      _ =>.None
     )
   ),
-
   /// Extract the numeric value, or `.None` if not a `Number`.
-  as_number : (fn(self: Self) -> Option(f64))(
-    match(self,
-      .Number(n) => .Some(n),
-      _ => .None
+  as_number : (fn(self : Self) -> Option(f64))(
+    match(
+      self,
+      .Number(n) =>.Some(n),
+      _ =>.None
     )
   ),
-
   /// Extract the string value, or `.None` if not a `Str`.
-  as_string : (fn(self: Self) -> Option(String))(
-    match(self,
-      .Str(s) => .Some(s),
-      _ => .None
+  as_string : (fn(self : Self) -> Option(String))(
+    match(
+      self,
+      .Str(s) =>.Some(s),
+      _ =>.None
     )
   ),
-
   /// Extract the array items, or `.None` if not an `Array`.
-  as_array : (fn(self: Self) -> Option(ArrayList(JsonValue)))(
-    match(self,
-      .Array(items) => .Some(items),
-      _ => .None
+  as_array : (fn(self : Self) -> Option(ArrayList(JsonValue)))(
+    match(
+      self,
+      .Array(items) =>.Some(items),
+      _ =>.None
     )
   ),
-
   /// Extract object entries as `ArrayList(JsonKV)`, or `.None` if not an `Object`.
-  as_object : (fn(self: Self) -> Option(ArrayList(JsonKV)))(
-    match(self,
+  as_object : (fn(self : Self) -> Option(ArrayList(JsonKV)))(
+    match(
+      self,
       .Object(keys, values) => {
         result := ArrayList(JsonKV).new();
         i := usize(0);
-        while (i < keys.len()), (i = (i + usize(1))), {
-          result.push(JsonKV(key: keys.get(i).unwrap(), value: values.get(i).unwrap()));
-        };
+        while(i < keys.len(), i = (i + usize(1)), {
+          result.push(JsonKV(key : keys.get(i).unwrap(), value : values.get(i).unwrap()));
+        });
         .Some(result)
       },
-      _ => .None
+      _ =>.None
     )
   )
 );
-
-export JsonValue, JsonKV;
-
+export(JsonValue, JsonKV);
 // ============================================================================
 // Parser state
 // ============================================================================
-
 _Parser :: object(
   src : str,
   pos : usize
 );
-
-impl(_Parser,
-  new : (fn(src: str) -> Self)(
-    Self(src: src, pos: usize(0))
+impl(
+  _Parser,
+  new : (fn(src : str) -> Self)(
+    Self(src : src, pos : usize(0))
   ),
-
-  peek : (fn(self: Self) -> Option(u8))(
+  peek : (fn(self : Self) -> Option(u8))(
     cond(
-      (self.pos < self.src.len()) => .Some(self.src.bytes(self.pos)),
-      true => .None
+      (self.pos < self.src.len()) =>.Some(self.src.bytes(self.pos)),
+      true =>.None
     )
   ),
-
-  advance : (fn(self: Self) -> unit)({
+  advance : (fn(self : Self) -> unit)({
     self.pos = (self.pos + usize(1));
   }),
-
-  skip_ws : (fn(self: Self) -> unit)({
-    while runtime(true), {
-      match(self.peek(),
+  skip_ws : (fn(self : Self) -> unit)({
+    while(runtime(true), {
+      match(
+        self.peek(),
         .None => break,
         .Some(c) => {
           cond(
@@ -202,52 +193,69 @@ impl(_Parser,
           );
         }
       );
-    };
+    });
   }),
-
-  expect : (fn(self: Self, ch: u8) -> Result(unit, JsonError))({
+  expect : (fn(self : Self, ch : u8) -> Result(unit, JsonError))({
     self.skip_ws();
-    match(self.peek(),
-      .None => .Err(.UnexpectedEnd),
+    match(
+      self.peek(),
+      .None =>.Err(.UnexpectedEnd),
       .Some(c) =>
         cond(
           (c == ch) => {
             self.advance();
             .Ok(())
           },
-          true => .Err(.UnexpectedChar(c, self.pos))
+          true =>.Err(.UnexpectedChar(c, self.pos))
         )
     )
   }),
-
-  parse_string : (fn(self: Self) -> Result(String, JsonError))({
+  parse_string : (fn(self : Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();
-    while runtime(true), {
-      match(self.peek(),
-        .None => { return .Err(.UnexpectedEnd); },
+    while(runtime(true), {
+      match(
+        self.peek(),
+        .None => {
+          return(.Err(.UnexpectedEnd));
+        },
         .Some(c) => {
           cond(
-            (c == u8(34)) => { // '"'
+            (c == u8(34)) => {
+              // '"'
               self.advance();
               break;
             },
-            (c == u8(92)) => { // '\'
+            (c == u8(92)) => {
+              // '\'
               self.advance();
-              match(self.peek(),
-                .None => { return .Err(.UnexpectedEnd); },
+              match(
+                self.peek(),
+                .None => {
+                  return(.Err(.UnexpectedEnd));
+                },
                 .Some(e) => {
                   self.advance();
                   cond(
-                    (e == u8(110)) => bytes.push(u8(10)),  // \n
-                    (e == u8(116)) => bytes.push(u8(9)),   // \t
-                    (e == u8(114)) => bytes.push(u8(13)),  // \r
-                    (e == u8(34))  => bytes.push(u8(34)),  // \"
-                    (e == u8(92))  => bytes.push(u8(92)),  // \\
-                    (e == u8(47))  => bytes.push(u8(47)),  // \/
-                    (e == u8(98))  => bytes.push(u8(8)),   // \b
-                    (e == u8(102)) => bytes.push(u8(12)),  // \f
-                    true           => { return .Err(.InvalidEscape); }
+                    (e == u8(110)) => bytes.push(u8(10)),
+                    // \n
+                    (e == u8(116)) => bytes.push(u8(9)),
+                    // \t
+                    (e == u8(114)) => bytes.push(u8(13)),
+                    // \r
+                    (e == u8(34)) => bytes.push(u8(34)),
+                    // \"
+                    (e == u8(92)) => bytes.push(u8(92)),
+                    // \\
+                    (e == u8(47)) => bytes.push(u8(47)),
+                    // \/
+                    (e == u8(98)) => bytes.push(u8(8)),
+                    // \b
+                    (e == u8(102)) => bytes.push(u8(12)),
+                    // \f
+                    true => {
+                      return(.Err(.InvalidEscape));
+                    }
                   );
                 }
               );
@@ -259,23 +267,25 @@ impl(_Parser,
           );
         }
       );
-    };
+    });
     .Ok(String.from_bytes(bytes))
   }),
-
-  parse_number : (fn(self: Self) -> Result(f64, JsonError))({
+  parse_number : (fn(self : Self) -> Result(f64, JsonError))({
     start := self.pos;
-    match(self.peek(),
+    match(
+      self.peek(),
       .Some(c) => {
         cond(
-          (c == u8(45)) => self.advance(), // '-'
+          (c == u8(45)) => self.advance(),
+          // '-'
           true => ()
         );
       },
       .None => ()
     );
-    while runtime(true), {
-      match(self.peek(),
+    while(runtime(true), {
+      match(
+        self.peek(),
         .Some(c) => {
           cond(
             ((c >= u8(48)) && (c <= u8(57))) => self.advance(),
@@ -284,14 +294,17 @@ impl(_Parser,
         },
         .None => break
       );
-    };
-    match(self.peek(),
+    });
+    match(
+      self.peek(),
       .Some(c) => {
         cond(
-          (c == u8(46)) => { // '.'
+          (c == u8(46)) => {
+            // '.'
             self.advance();
-            while runtime(true), {
-              match(self.peek(),
+            while(runtime(true), {
+              match(
+                self.peek(),
                 .Some(d) => {
                   cond(
                     ((d >= u8(48)) && (d <= u8(57))) => self.advance(),
@@ -300,19 +313,22 @@ impl(_Parser,
                 },
                 .None => break
               );
-            };
+            });
           },
           true => ()
         );
       },
       .None => ()
     );
-    match(self.peek(),
+    match(
+      self.peek(),
       .Some(c) => {
         cond(
-          ((c == u8(101)) || (c == u8(69))) => { // 'e' or 'E'
+          ((c == u8(101)) || (c == u8(69))) => {
+            // 'e' or 'E'
             self.advance();
-            match(self.peek(),
+            match(
+              self.peek(),
               .Some(s) => {
                 cond(
                   ((s == u8(43)) || (s == u8(45))) => self.advance(),
@@ -321,8 +337,9 @@ impl(_Parser,
               },
               .None => ()
             );
-            while runtime(true), {
-              match(self.peek(),
+            while(runtime(true), {
+              match(
+                self.peek(),
                 .Some(d) => {
                   cond(
                     ((d >= u8(48)) && (d <= u8(57))) => self.advance(),
@@ -331,7 +348,7 @@ impl(_Parser,
                 },
                 .None => break
               );
-            };
+            });
           },
           true => ()
         );
@@ -339,84 +356,108 @@ impl(_Parser,
       .None => ()
     );
     num_len := (self.pos - start);
-    num_buf := ArrayList(u8).with_capacity((num_len + usize(1)));
+    num_buf := ArrayList(u8).with_capacity(num_len + usize(1));
     j := usize(0);
-    while (j < num_len), (j = (j + usize(1))), {
-      num_buf.push(self.src.bytes((start + j)));
-    };
+    while(j < num_len, j = (j + usize(1)), {
+      num_buf.push(self.src.bytes(start + j));
+    });
     num_buf.push(u8(0));
     num_ptr := *(char)(num_buf.ptr().unwrap());
-    { atof } :: import "../libc/stdlib";
+    { atof } :: import("../libc/stdlib");
     val := atof(num_ptr);
     .Ok(val)
   })
 );
-
 // ============================================================================
 // Recursive value parser (standalone for self-recursion support)
 // ============================================================================
-
 // Tiny helpers to avoid begin blocks in cond branches (works around codegen temp var issue)
-_parse_true_lit :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
-  p.advance(); p.advance(); p.advance(); p.advance();
+_parse_true_lit :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
+  p.advance();
+  p.advance();
+  p.advance();
+  p.advance();
   .Ok(.Bool(true))
 });
-_parse_false_lit :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
-  p.advance(); p.advance(); p.advance(); p.advance(); p.advance();
+_parse_false_lit :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
+  p.advance();
+  p.advance();
+  p.advance();
+  p.advance();
+  p.advance();
   .Ok(.Bool(false))
 });
-_parse_null_lit :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
-  p.advance(); p.advance(); p.advance(); p.advance();
+_parse_null_lit :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
+  p.advance();
+  p.advance();
+  p.advance();
+  p.advance();
   .Ok(.Null)
 });
-
-_parse_value :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
+_parse_value :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
   p.skip_ws();
-  match(p.peek(),
-    .None => .Err(.UnexpectedEnd),
+  match(
+    p.peek(),
+    .None =>.Err(.UnexpectedEnd),
     .Some(c) =>
       cond(
         (c == u8(34)) =>
-          match(p.parse_string(), .Err(e) => .Err(e), .Ok(s) => .Ok(.Str(s))),
-        (c == u8(123)) => {  // '{' — parse object
+          match(p.parse_string(),.Err(e) =>.Err(e),.Ok(s) =>.Ok(.Str(s))),
+        (c == u8(123)) => {
+          // '{' — parse object
           p.advance();
           keys := ArrayList(String).new();
           vals := ArrayList(JsonValue).new();
           p.skip_ws();
-          match(p.peek(),
+          match(
+            p.peek(),
             .Some(c2) => {
               cond(
                 (c2 == u8(125)) => {
                   p.advance();
-                  return .Ok(.Object(keys, vals));
+                  return(.Ok(.Object(keys, vals)));
                 },
                 true => ()
               );
             },
             .None => ()
           );
-          while runtime(true), {
+          while(runtime(true), {
             p.skip_ws();
-            match(p.peek(),
-              .None => { return .Err(.UnexpectedEnd); },
+            match(
+              p.peek(),
+              .None => {
+                return(.Err(.UnexpectedEnd));
+              },
               .Some(c2) => {
                 cond(
-                  (c2 != u8(34)) => { return .Err(.UnexpectedChar(c2, p.pos)); },
+                  (c2 != u8(34)) => {
+                    return(.Err(.UnexpectedChar(c2, p.pos)));
+                  },
                   true => ()
                 );
               }
             );
             key_r := p.parse_string();
-            match(key_r,
-              .Err(e) => { return .Err(e); },
+            match(
+              key_r,
+              .Err(e) => {
+                return(.Err(e));
+              },
               .Ok(key) => {
                 p.skip_ws();
-                match(p.expect(u8(58)),
-                  .Err(e) => { return .Err(e); },
-                  .Ok(_)  => ()
+                match(
+                  p.expect(u8(58)),
+                  .Err(e) => {
+                    return(.Err(e));
+                  },
+                  .Ok(_) => ()
                 );
-                match(recur(p),
-                  .Err(e) => { return .Err(e); },
+                match(
+                  recur(p),
+                  .Err(e) => {
+                    return(.Err(e));
+                  },
                   .Ok(val) => {
                     keys.push(key);
                     vals.push(val);
@@ -425,112 +466,162 @@ _parse_value :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
               }
             );
             p.skip_ws();
-            match(p.peek(),
+            match(
+              p.peek(),
               .Some(c2) => {
                 cond(
-                  (c2 == u8(44)) => { p.advance(); },
-                  (c2 == u8(125)) => { p.advance(); break; },
-                  true => { return .Err(.UnexpectedChar(c2, p.pos)); }
+                  (c2 == u8(44)) => {
+                    p.advance();
+                  },
+                  (c2 == u8(125)) => {
+                    p.advance();
+                    break;
+                  },
+                  true => {
+                    return(.Err(.UnexpectedChar(c2, p.pos)));
+                  }
                 );
               },
-              .None => { return .Err(.UnexpectedEnd); }
+              .None => {
+                return(.Err(.UnexpectedEnd));
+              }
             );
-          };
+          });
           .Ok(.Object(keys, vals))
         },
-        (c == u8(91)) => {  // '[' — parse array
+        (c == u8(91)) => {
+          // '[' — parse array
           p.advance();
           items := ArrayList(JsonValue).new();
           p.skip_ws();
-          match(p.peek(),
+          match(
+            p.peek(),
             .Some(c2) => {
               cond(
                 (c2 == u8(93)) => {
                   p.advance();
-                  return .Ok(.Array(items));
+                  return(.Ok(.Array(items)));
                 },
                 true => ()
               );
             },
             .None => ()
           );
-          while runtime(true), {
-            match(recur(p),
-              .Err(e) => { return .Err(e); },
-              .Ok(v)  => { items.push(v); }
+          while(runtime(true), {
+            match(
+              recur(p),
+              .Err(e) => {
+                return(.Err(e));
+              },
+              .Ok(v) => {
+                items.push(v);
+              }
             );
             p.skip_ws();
-            match(p.peek(),
+            match(
+              p.peek(),
               .Some(c2) => {
                 cond(
-                  (c2 == u8(44)) => { p.advance(); },
-                  (c2 == u8(93)) => { p.advance(); break; },
-                  true => { return .Err(.UnexpectedChar(c2, p.pos)); }
+                  (c2 == u8(44)) => {
+                    p.advance();
+                  },
+                  (c2 == u8(93)) => {
+                    p.advance();
+                    break;
+                  },
+                  true => {
+                    return(.Err(.UnexpectedChar(c2, p.pos)));
+                  }
                 );
               },
-              .None => { return .Err(.UnexpectedEnd); }
+              .None => {
+                return(.Err(.UnexpectedEnd));
+              }
             );
-          };
+          });
           .Ok(.Array(items))
         },
         (c == u8(116)) => _parse_true_lit(p),
         (c == u8(102)) => _parse_false_lit(p),
         (c == u8(110)) => _parse_null_lit(p),
         true =>
-          match(p.parse_number(), .Err(e) => .Err(e), .Ok(n) => .Ok(.Number(n)))
+          match(p.parse_number(),.Err(e) =>.Err(e),.Ok(n) =>.Ok(.Number(n)))
       )
   )
 });
-
 // ============================================================================
 // Public API
 // ============================================================================
-
 /// Parse a JSON string into a `JsonValue` tree. Throws via `Exception` on invalid input.
-json_parse :: (fn(s: str, using(exn : Exception)) -> JsonValue)({
+json_parse :: (fn(s : str, using(exn : Exception)) -> JsonValue)({
   p := _Parser.new(s);
-  match(_parse_value(p),
+  match(
+    _parse_value(p),
     .Ok(v) => v,
-    .Err(e) => exn.throw(dyn e)
+    .Err(e) => exn.throw(dyn(e))
   )
 });
-
-export json_parse;
-
+export(json_parse);
 // ============================================================================
 // Serialisation
 // ============================================================================
-
-_write_str_escaped :: (fn(s: String, out: ArrayList(u8)) -> unit)({
+_write_str_escaped :: (fn(s : String, out : ArrayList(u8)) -> unit)({
   out.push(u8(34)); // '"'
   bytes := s.as_bytes();
   i := usize(0);
-  while (i < bytes.len()), (i = (i + usize(1))), {
+  while(i < bytes.len(), i = (i + usize(1)), {
     b := bytes.get(i).unwrap();
     cond(
-      (b == u8(34)) => { out.push(u8(92)); out.push(u8(34)); },
-      (b == u8(92)) => { out.push(u8(92)); out.push(u8(92)); },
-      (b == u8(10)) => { out.push(u8(92)); out.push(u8(110)); },
-      (b == u8(9))  => { out.push(u8(92)); out.push(u8(116)); },
-      (b == u8(13)) => { out.push(u8(92)); out.push(u8(114)); },
-      true           => { out.push(b); }
+      (b == u8(34)) => {
+        out.push(u8(92));
+        out.push(u8(34));
+      },
+      (b == u8(92)) => {
+        out.push(u8(92));
+        out.push(u8(92));
+      },
+      (b == u8(10)) => {
+        out.push(u8(92));
+        out.push(u8(110));
+      },
+      (b == u8(9)) => {
+        out.push(u8(92));
+        out.push(u8(116));
+      },
+      (b == u8(13)) => {
+        out.push(u8(92));
+        out.push(u8(114));
+      },
+      true => {
+        out.push(b);
+      }
     );
-  };
+  });
   out.push(u8(34)); // '"'
 });
-
-_stringify_into :: (fn(value: JsonValue, out: ArrayList(u8)) -> unit)({
-  match(value,
+_stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
+  match(
+    value,
     .Null => {
-      out.push(u8(110)); out.push(u8(117)); out.push(u8(108)); out.push(u8(108));
+      out.push(u8(110));
+      out.push(u8(117));
+      out.push(u8(108));
+      out.push(u8(108));
     },
     .Bool(b) => {
       cond(
         b => {
-          out.push(u8(116)); out.push(u8(114)); out.push(u8(117)); out.push(u8(101));
+          out.push(u8(116));
+          out.push(u8(114));
+          out.push(u8(117));
+          out.push(u8(101));
         },
         true => {
-          out.push(u8(102)); out.push(u8(97)); out.push(u8(108)); out.push(u8(115)); out.push(u8(101));
+          out.push(u8(102));
+          out.push(u8(97));
+          out.push(u8(108));
+          out.push(u8(115));
+          out.push(u8(101));
         }
       );
     },
@@ -541,9 +632,9 @@ _stringify_into :: (fn(value: JsonValue, out: ArrayList(u8)) -> unit)({
       s2 := String.from_cstr(buf_ptr).unwrap();
       bytes := s2.as_bytes();
       i := usize(0);
-      while (i < bytes.len()), (i = (i + usize(1))), {
+      while(i < bytes.len(), i = (i + usize(1)), {
         out.push(bytes.get(i).unwrap());
-      };
+      });
     },
     .Str(s) => {
       _write_str_escaped(s, out);
@@ -551,42 +642,43 @@ _stringify_into :: (fn(value: JsonValue, out: ArrayList(u8)) -> unit)({
     .Array(items) => {
       out.push(u8(91)); // '['
       i := usize(0);
-      while (i < items.len()), (i = (i + usize(1))), {
+      while(i < items.len(), i = (i + usize(1)), {
         cond(
-          (i > usize(0)) => { out.push(u8(44)); },
+          (i > usize(0)) => {
+            out.push(u8(44));
+          },
           true => ()
         );
         recur(items.get(i).unwrap(), out);
-      };
+      });
       out.push(u8(93)); // ']'
     },
     .Object(keys, values) => {
       out.push(u8(123)); // '{'
       i := usize(0);
-      while (i < keys.len()), (i = (i + usize(1))), {
+      while(i < keys.len(), i = (i + usize(1)), {
         cond(
-          (i > usize(0)) => { out.push(u8(44)); },
+          (i > usize(0)) => {
+            out.push(u8(44));
+          },
           true => ()
         );
         _write_str_escaped(keys.get(i).unwrap(), out);
         out.push(u8(58)); // ':'
         recur(values.get(i).unwrap(), out);
-      };
+      });
       out.push(u8(125)); // '}'
     }
   );
 });
-
 /// Serialize a `JsonValue` to a compact JSON string.
-json_stringify :: (fn(value: JsonValue) -> String)({
+json_stringify :: (fn(value : JsonValue) -> String)({
   out := ArrayList(u8).new();
   _stringify_into(value, out);
   String.from_bytes(out)
 });
-
 /// Serialize a `JsonValue` to a pretty-printed JSON string.
-json_stringify_pretty :: (fn(value: JsonValue, _indent: usize) -> String)(
+json_stringify_pretty :: (fn(value : JsonValue, _indent : usize) -> String)(
   json_stringify(value)
 );
-
-export json_stringify, json_stringify_pretty;
+export(json_stringify, json_stringify_pretty);

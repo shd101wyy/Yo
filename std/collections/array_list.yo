@@ -1,63 +1,59 @@
 //! Dynamic array (vector) with amortized O(1) push and O(1) indexed access.
-
-{ GlobalAllocator, AllocError } :: import "../allocator.yo";
-{ memmove, memcpy, memset } :: import "../libc/string.yo";
+{ GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ memmove, memcpy, memset } :: import("../libc/string.yo");
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
-
 /// Error variants for ArrayList operations.
 ArrayListError :: enum(
   /// Memory allocation failed.
   AllocError(error : AllocError),
   /// Index is out of bounds for the current length.
-  IndexOutOfBounds(index: usize, length: usize),
+  IndexOutOfBounds(index : usize, length : usize),
   /// Attempted to access an element from an empty list.
   EmptyList
 );
-
 /// Generic growable array similar to Rust's `Vec<T>`.
 /// Heap-allocated with automatic resizing and reference-counted cleanup.
-ArrayList :: (fn(comptime(T): Type) -> comptime(Type))(
+ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
   object(
     _ptr : ?*(T),
     _length : usize,
     _capacity : usize
   )
 );
-impl(forall(T : Type), ArrayList(T),
-  len : (fn(self: Self) -> usize)({
-    return self._length;
+impl(
+  forall(T : Type),
+  ArrayList(T),
+  len : (fn(self : Self) -> usize)({
+    return(self._length);
   }),
-
-  capacity : (fn(self: Self) -> usize)({
-    return self._capacity;
+  capacity : (fn(self : Self) -> usize)({
+    return(self._capacity);
   }),
-
   /**
-    * Get a pointer to the underlying data buffer
-    * Returns .None if the list is empty or has no allocated buffer
-    */
-  ptr : (fn(self: Self) -> ?*(T))(
+  * Get a pointer to the underlying data buffer
+  * Returns .None if the list is empty or has no allocated buffer
+  */
+  ptr : (fn(self : Self) -> ?*(T))(
     self._ptr
   ),
-
   /**
-    * Get a slice view of the ArrayList
-    * Returns a fat pointer Slice(T) with data pointer and length
-    * This allows passing ArrayList to functions expecting slices
-    * Returns .None for an empty ArrayList with no allocated buffer
-    */
-  as_slice : (fn(self: Self) -> Option(Slice(T)))(
-    match(self._ptr,
-      .Some(p) => .Some(Slice(T).from_raw_parts(p, self._length)),
-      .None => .None
+  * Get a slice view of the ArrayList
+  * Returns a fat pointer Slice(T) with data pointer and length
+  * This allows passing ArrayList to functions expecting slices
+  * Returns .None for an empty ArrayList with no allocated buffer
+  */
+  as_slice : (fn(self : Self) -> Option(Slice(T)))(
+    match(
+      self._ptr,
+      .Some(p) =>.Some(Slice(T).from_raw_parts(p, self._length)),
+      .None =>.None
     )
   ),
-
   /**     * Directly set the length of the ArrayList
-    * UNSAFE: This does not initialize new elements or free removed elements
-    * Only use when you've manually populated the buffer (e.g., via direct memory writes)
-    */
-  set_len : (fn(self: Self, new_len: usize) -> unit)({
+  * UNSAFE: This does not initialize new elements or free removed elements
+  * Only use when you've manually populated the buffer (e.g., via direct memory writes)
+  */
+  set_len : (fn(self : Self, new_len : usize) -> unit)({
     cond(
       (new_len <= self._capacity) => {
         self._length = new_len;
@@ -65,63 +61,64 @@ impl(forall(T : Type), ArrayList(T),
       true => panic("set_len: new length exceeds capacity")
     );
   }),
-
   /**
-    * Create a new empty ArrayList
-    */
+  * Create a new empty ArrayList
+  */
   new : (fn() -> Self)(
     Self(
-      _ptr: .None,
-      _length: usize(0),
-      _capacity: usize(0)
-    )),
-
+      _ptr :.None,
+      _length : usize(0),
+      _capacity : usize(0)
+    )
+  ),
   /**
-    * Create an ArrayList with a specific initial cap
-    */
-  with_capacity : (fn(cap: usize) -> Self)(
+  * Create an ArrayList with a specific initial cap
+  */
+  with_capacity : (fn(cap : usize) -> Self)(
     cond(
-      (cap == usize(0)) => 
+      (cap == usize(0)) =>
         Self.new(),
       true => {
         ptr_result := malloc(sizeof(T) * cap);
-        match(ptr_result,
+        match(
+          ptr_result,
           .Some(_ptr) =>
             Self(
-              _ptr: .Some((*(T))(_ptr)),
-              _length: usize(0),
-              _capacity: cap
+              _ptr :.Some((*(T))(_ptr)),
+              _length : usize(0),
+              _capacity : cap
             ),
           .None => panic("malloc returned None")
         )
       }
     )
   ),
-
   /**
-    * Add an element to the end of the ArrayList
-    */
-  push : (fn(self: Self, value: T) -> Result(unit, ArrayListError))(
+  * Add an element to the end of the ArrayList
+  */
+  push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
     // Check if we need to grow
     cond(
       (self._length >= self._capacity) => {
         // Need to grow - calculate new capacity
-        new_capacity := cond
+        new_capacity := cond(
           (self._capacity == usize(0)) => usize(4),
-          true => (self._capacity * usize(2));
-        
+          true => (self._capacity * usize(2))
+        );
         // Allocate or reallocate
-        new_some_ptr := match self._ptr,
+        new_some_ptr := match(
+          self._ptr,
           .None => GlobalAllocator.malloc(sizeof(T) * new_capacity),
           .Some(old_ptr) => GlobalAllocator.realloc(
-            .Some((*(void))(old_ptr)), 
+            .Some((*(void))(old_ptr)),
             sizeof(T) * new_capacity
-          );
-        
-        match(new_some_ptr,
+          )
+        );
+        match(
+          new_some_ptr,
           .Some(new_ptr) => {
             typed_ptr := *(T)(new_ptr);
-            self._ptr = .Some(typed_ptr);
+            self._ptr =.Some(typed_ptr);
             self._capacity = new_capacity;
             // Now add the element at position length
             target_ptr := (typed_ptr &+ self._length);
@@ -129,12 +126,13 @@ impl(forall(T : Type), ArrayList(T),
             self._length = (self._length + usize(1));
             .Ok(())
           },
-          .None => .Err(.AllocError(.OutOfMemory))
+          .None =>.Err(.AllocError(.OutOfMemory))
         )
       },
       true =>
         // Have capacity - just add the element
-        match(self._ptr,
+        match(
+          self._ptr,
           .Some(_ptr) => {
             target_ptr := (_ptr &+ self._length);
             consume(target_ptr.* = value);
@@ -145,17 +143,17 @@ impl(forall(T : Type), ArrayList(T),
         )
     )
   ),
-
   /**
-    * Remove and return the last element
-    */
-  pop : (fn(self: Self) -> Option(T))(
+  * Remove and return the last element
+  */
+  pop : (fn(self : Self) -> Option(T))(
     cond(
-      (self._length == usize(0)) => .None,
+      (self._length == usize(0)) =>.None,
       true => {
         self._length = (self._length - usize(1));
-        match(self._ptr,
-          .None => .None,
+        match(
+          self._ptr,
+          .None =>.None,
           .Some(_ptr) => {
             last_element_ptr := (_ptr &+ self._length);
             last_element := last_element_ptr.*;
@@ -168,69 +166,71 @@ impl(forall(T : Type), ArrayList(T),
       }
     )
   ),
-
   /**
-    * Get an element by index (bounds checked)
-    */
-  get : (fn(self: Self, index: usize) -> Option(T))(
+  * Get an element by index (bounds checked)
+  */
+  get : (fn(self : Self, index : usize) -> Option(T))(
     cond(
-      (index >= self._length) => .None,
+      (index >= self._length) =>.None,
       true =>
-        match(self._ptr,
-          .None => .None,
-          .Some(_ptr) => .Some((_ptr &+ index).*)
+        match(
+          self._ptr,
+          .None =>.None,
+          .Some(_ptr) =>.Some((_ptr &+ index).*)
         )
     )
   ),
-
   /**
-    * Shrink the capacity to match the current length
-    * This reduces memory usage but may cause reallocation on next push
-    */
-  shrink_to_fit : (fn(self: Self) -> Result(unit, ArrayListError))(
+  * Shrink the capacity to match the current length
+  * This reduces memory usage but may cause reallocation on next push
+  */
+  shrink_to_fit : (fn(self : Self) -> Result(unit, ArrayListError))(
     // If length equals capacity or both are zero, nothing to do
     cond(
-      ((self._length == self._capacity) || (self._capacity == usize(0))) => .Ok(()),
+      ((self._length == self._capacity) || (self._capacity == usize(0))) =>.Ok(()),
       true =>
         // If length is zero, free the buffer
         cond(
           (self._length == usize(0)) => {
-            match(self._ptr,
+            match(
+              self._ptr,
               .Some(_ptr) => {
                 GlobalAllocator.free(.Some(*(void)(_ptr)));
-                self._ptr = .None;
+                self._ptr =.None;
                 self._capacity = usize(0);
               },
-              .None => ());
+              .None => ()
+            );
             .Ok(())
           },
           true =>
             // Otherwise, reallocate to exact size
-            match(self._ptr,
+            match(
+              self._ptr,
               .None => panic("ArrayList has capacity but no ptr"),
               .Some(old_ptr) => {
                 new_some_ptr := GlobalAllocator.realloc(
                   .Some(*(void)(old_ptr)),
                   sizeof(T) * self._length
                 );
-                match(new_some_ptr,
+                match(
+                  new_some_ptr,
                   .Some(new_ptr) => {
-                    self._ptr = .Some(*(T)(new_ptr));
+                    self._ptr =.Some(*(T)(new_ptr));
                     self._capacity = self._length;
                     .Ok(())
                   },
-                  .None => .Err(.AllocError(.OutOfMemory))
+                  .None =>.Err(.AllocError(.OutOfMemory))
                 )
               }
             )
         )
     )
   ),
-
   _free_elements : (fn(self : Self) -> unit)(
     cond(
       Type.contains_rc_type(T) => {
-        if((self._length > usize(0)), {
+        if(self._length > usize(0), {
           i := usize(0);
           base_ptr := self._ptr.unwrap();
           while(i < self._length, i = (i + usize(1)), {
@@ -242,16 +242,15 @@ impl(forall(T : Type), ArrayList(T),
       true => ()
     )
   ),
-
   /**
-    * Remove elements from the ArrayList starting at index, removing count elements
-    * Returns the number of elements actually removed
-    */
-  remove : (fn(self: Self, start: usize, (count : usize) ?= 1) -> Result(usize, ArrayListError))(
+  * Remove elements from the ArrayList starting at index, removing count elements
+  * Returns the number of elements actually removed
+  */
+  remove : (fn(self : Self, start : usize, (count : usize) ?= 1) -> Result(usize, ArrayListError))(
     // Check if start index is valid
     cond(
-      (start >= self._length) => 
-        .Err(.IndexOutOfBounds(index: start, length: self._length)),
+      (start >= self._length) =>
+        .Err(.IndexOutOfBounds(index : start, length : self._length)),
       true => {
         // Calculate actual number of elements to remove
         // (can't remove more than what's available)
@@ -260,12 +259,12 @@ impl(forall(T : Type), ArrayList(T),
           (count > available) => available,
           true => count
         );
-        
         // If removing 0 elements, just return success
         cond(
-          (actual_count == usize(0)) => .Ok(usize(0)),
+          (actual_count == usize(0)) =>.Ok(usize(0)),
           true =>
-            match(self._ptr,
+            match(
+              self._ptr,
               .None => panic("ArrayList has length but no ptr"),
               .Some(_ptr) => {
                 // Shift remaining elements left to fill the gap
@@ -276,7 +275,6 @@ impl(forall(T : Type), ArrayList(T),
                   (elements_after > usize(0)) => {
                     src_ptr := (_ptr &+ (start + actual_count));
                     dst_ptr := (_ptr &+ start);
-                    
                     cond(
                       Type.contains_rc_type(T) => {
                         // For RC types, iterate and properly manage RC
@@ -323,7 +321,6 @@ impl(forall(T : Type), ArrayList(T),
                     );
                   }
                 );
-                
                 // Update length
                 self._length = new_length;
                 .Ok(actual_count)
@@ -333,37 +330,36 @@ impl(forall(T : Type), ArrayList(T),
       }
     )
   ),
-
   /**
-    * Create a new ArrayList containing a slice of elements from start to end (exclusive)
-    * Similar to array slicing in many languages: array[start:end]
-    * Returns a new ArrayList with copied elements
-    */
-  slice : (fn(self: Self, start: usize, end: usize) -> Result(Self, ArrayListError))(
+  * Create a new ArrayList containing a slice of elements from start to end (exclusive)
+  * Similar to array slicing in many languages: array[start:end]
+  * Returns a new ArrayList with copied elements
+  */
+  slice : (fn(self : Self, start : usize, end : usize) -> Result(Self, ArrayListError))(
     // Validate indices
     cond(
       (start > self._length) =>
-        .Err(.IndexOutOfBounds(index: start, length: self._length)),
+        .Err(.IndexOutOfBounds(index : start, length : self._length)),
       (end > self._length) =>
-        .Err(.IndexOutOfBounds(index: end, length: self._length)),
+        .Err(.IndexOutOfBounds(index : end, length : self._length)),
       (start > end) =>
-        .Err(.IndexOutOfBounds(index: start, length: end)),
+        .Err(.IndexOutOfBounds(index : start, length : end)),
       true => {
         slice_length := (end - start);
-        
         // If slice is empty, return empty ArrayList
         cond(
           (slice_length == usize(0)) =>
             .Ok(Self.new()),
           true =>
-            match(self._ptr,
+            match(
+              self._ptr,
               .None => panic("ArrayList has length but no ptr"),
               .Some(src_ptr) => {
                 // Create new ArrayList with exact capacity
                 new_list := Self.with_capacity(slice_length);
-                
-                match(new_list._ptr,
-                  .None => .Err(.AllocError(.OutOfMemory)),
+                match(
+                  new_list._ptr,
+                  .None =>.Err(.AllocError(.OutOfMemory)),
                   .Some(dst_ptr) => {
                     // Copy elements
                     i := usize(0);
@@ -372,7 +368,6 @@ impl(forall(T : Type), ArrayList(T),
                       dst := (dst_ptr &+ i);
                       consume(dst.* = src.*);
                     });
-                    
                     // Set the length of the new list
                     new_list._length = slice_length;
                     .Ok(new_list)
@@ -384,12 +379,11 @@ impl(forall(T : Type), ArrayList(T),
       }
     )
   ),
-
   /**
-    * Ensure the ArrayList can hold at least `min_cap` total elements
-    * without further reallocation.
-    */
-  ensure_total_capacity : (fn(self: Self, min_cap: usize) -> unit)({
+  * Ensure the ArrayList can hold at least `min_cap` total elements
+  * without further reallocation.
+  */
+  ensure_total_capacity : (fn(self : Self, min_cap : usize) -> unit)({
     cond(
       (min_cap <= self._capacity) => (),
       true => {
@@ -397,22 +391,24 @@ impl(forall(T : Type), ArrayList(T),
           (self._capacity == usize(0)) => min_cap,
           true => {
             cap := self._capacity;
-            while (cap < min_cap), {
+            while(cap < min_cap, {
               cap = (cap * usize(2));
-            };
+            });
             cap
           }
         );
-        new_some_ptr := match(self._ptr,
-          .None => GlobalAllocator.malloc((sizeof(T) * new_capacity)),
+        new_some_ptr := match(
+          self._ptr,
+          .None => GlobalAllocator.malloc(sizeof(T) * new_capacity),
           .Some(old_ptr) => GlobalAllocator.realloc(
             .Some((*(void))(old_ptr)),
-            (sizeof(T) * new_capacity)
+            sizeof(T) * new_capacity
           )
         );
-        match(new_some_ptr,
+        match(
+          new_some_ptr,
           .Some(new_ptr) => {
-            self._ptr = .Some((*(T))(new_ptr));
+            self._ptr =.Some((*(T))(new_ptr));
             self._capacity = new_capacity;
           },
           .None => panic("ArrayList.ensure_total_capacity: allocation failed")
@@ -420,20 +416,20 @@ impl(forall(T : Type), ArrayList(T),
       }
     );
   }),
-
   /**
-    * Append `count` elements from a raw pointer using memcpy.
-    * The caller must ensure `src` points to at least `count` valid elements.
-    */
-  extend_from_ptr : (fn(self: Self, src: *(T), count: usize) -> unit)({
+  * Append `count` elements from a raw pointer using memcpy.
+  * The caller must ensure `src` points to at least `count` valid elements.
+  */
+  extend_from_ptr : (fn(self : Self, src : *(T), count : usize) -> unit)({
     cond(
       (count == usize(0)) => (),
       true => {
-        self.ensure_total_capacity((self._length + count));
-        match(self._ptr,
+        self.ensure_total_capacity(self._length + count);
+        match(
+          self._ptr,
           .Some(dst_base) => {
-            dst := (*(void))((dst_base &+ self._length));
-            _ := memcpy(dst, (*(void))(src), (count * sizeof(T)));
+            dst := (*(void))(dst_base &+ self._length);
+            _ := memcpy(dst, (*(void))(src), count * sizeof(T));
             self._length = (self._length + count);
           },
           .None => panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
@@ -441,44 +437,43 @@ impl(forall(T : Type), ArrayList(T),
       }
     );
   }),
-
   /**
-    * Clear all elements but keep capacity
-    */
-  clear : (fn(self: Self) -> unit)({
+  * Clear all elements but keep capacity
+  */
+  clear : (fn(self : Self) -> unit)({
     Self._free_elements(self);
     self._length = usize(0);
   }),
-
   /**
-    * Fill all elements with a byte pattern using memset.
-    * Useful for zeroing bool/integer arrays in O(1).
-    * Only safe for types without RC (e.g., bool, u8, usize).
-    */
-  fill_with_byte : (fn(self: Self, byte_val: int) -> unit)(
-    match(self._ptr,
+  * Fill all elements with a byte pattern using memset.
+  * Useful for zeroing bool/integer arrays in O(1).
+  * Only safe for types without RC (e.g., bool, u8, usize).
+  */
+  fill_with_byte : (fn(self : Self, byte_val : int) -> unit)(
+    match(
+      self._ptr,
       .None => (),
       .Some(_ptr) => {
-        _ := memset((*(void))(_ptr), byte_val, (self._length * sizeof(T)));
+        _ := memset((*(void))(_ptr), byte_val, self._length * sizeof(T));
       }
     )
   ),
-
   /**
-    * Resize ArrayList to exactly `new_len` elements, filling new slots with
-    * a byte pattern via memset. Does not call destructors on removed elements.
-    * Only safe for trivial types (bool, u8, usize, etc.).
-    */
-  resize_with_byte : (fn(self: Self, new_len: usize, byte_val: int) -> unit)({
+  * Resize ArrayList to exactly `new_len` elements, filling new slots with
+  * a byte pattern via memset. Does not call destructors on removed elements.
+  * Only safe for trivial types (bool, u8, usize, etc.).
+  */
+  resize_with_byte : (fn(self : Self, new_len : usize, byte_val : int) -> unit)({
     cond(
       (new_len <= self._length) => {
         self._length = new_len;
       },
       true => {
         self.ensure_total_capacity(new_len);
-        match(self._ptr,
+        match(
+          self._ptr,
           .Some(_ptr) => {
-            start := (*(void))((_ptr &+ self._length));
+            start := (*(void))(_ptr &+ self._length);
             fill_count := ((new_len - self._length) * sizeof(T));
             _ := memset(start, byte_val, fill_count);
             self._length = new_len;
@@ -489,115 +484,133 @@ impl(forall(T : Type), ArrayList(T),
     );
   })
 );
-impl(forall(T : Type), ArrayList(T), Index(usize)(
-  /// The output type is the element type `T`.
-  Output : T,
-
-  /// Returns a pointer to the element at the given index. Panics if the index is out of bounds.
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))({
-    assert((idx < self.*._length), "ArrayList: index out of bounds");
-    match(self.*._ptr,
-      .Some(_ptr) => (_ptr &+ idx),
-      .None => panic("ArrayList: index on empty list")
-    )
-  })
-));
-impl(forall(T : Type), ArrayList(T), Dispose(
-  /**
+impl(
+  forall(T : Type),
+  ArrayList(T),
+  Index(usize)(
+    /// The output type is the element type `T`.
+    Output : T,
+    /// Returns a pointer to the element at the given index. Panics if the index is out of bounds.
+    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))({
+      assert(idx < self.*._length, "ArrayList: index out of bounds");
+      match(
+        self.*._ptr,
+        .Some(_ptr) => (_ptr &+ idx),
+        .None => panic("ArrayList: index on empty list")
+      )
+    })
+  )
+);
+impl(
+  forall(T : Type),
+  ArrayList(T),
+  Dispose(
+    /**
     * RAII destructor - automatically called when ArrayList goes out of scope
     * For `object`, this is called when the reference count drops to zero
     */
-  dispose : (fn(self: Self) -> unit)({
-    match(self._ptr,
-      .Some(_ptr) => {
-        Self._free_elements(self);
-        self._length = usize(0);
-        GlobalAllocator.free(.Some(*(void)(_ptr)));
-        self._ptr = .None;
-      },
-      .None => ()
-    );
-  })
-));
-
+    dispose : (fn(self : Self) -> unit)({
+      match(
+        self._ptr,
+        .Some(_ptr) => {
+          Self._free_elements(self);
+          self._length = usize(0);
+          GlobalAllocator.free(.Some(*(void)(_ptr)));
+          self._ptr =.None;
+        },
+        .None => ()
+      );
+    })
+  )
+);
 // === Iterator support ===
-
 /**
- * Value iterator for ArrayList - yields elements by value (T)
- * Used by into_iter() / IntoIterator trait
- */
+* Value iterator for ArrayList - yields elements by value (T)
+* Used by into_iter() / IntoIterator trait
+*/
 ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _list  : ArrayList(T),
+    _list : ArrayList(T),
     _index : usize
   )
 );
-
-impl(forall(T : Type), ArrayListIter(T), Iterator(
-  Item : T,
-  next : (fn(self : *(Self)) -> Option(T))(
-    cond(
-      (self._index >= self._list._length) => .None,
-      true => {
-        value := self._list.get(self._index);
-        self._index = (self._index + usize(1));
-        value
-      }
+impl(
+  forall(T : Type),
+  ArrayListIter(T),
+  Iterator(
+    Item : T,
+    next : (fn(self : *(Self)) -> Option(T))(
+      cond(
+        (self._index >= self._list._length) =>.None,
+        true => {
+          value := self._list.get(self._index);
+          self._index = (self._index + usize(1));
+          value
+        }
+      )
     )
   )
-));
-
-impl(forall(T : Type), ArrayList(T),
+);
+impl(
+  forall(T : Type),
+  ArrayList(T),
   into_iter : (fn(self : Self) -> ArrayListIter(T))(
-    ArrayListIter(T)(_list: self, _index: usize(0))
+    ArrayListIter(T)(_list : self, _index : usize(0))
   )
 );
-
 /**
- * Pointer iterator for ArrayList - yields pointers to elements (*(T))
- * Used by iter() method
- */
+* Pointer iterator for ArrayList - yields pointers to elements (*(T))
+* Used by iter() method
+*/
 ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _list  : ArrayList(T),
+    _list : ArrayList(T),
     _index : usize
   )
 );
-
-impl(forall(T : Type), ArrayListIterPtr(T), Iterator(
-  Item : *(T),
-  next : (fn(self : *(Self)) -> Option(*(T)))(
-    cond(
-      (self._index >= self._list._length) => .None,
-      true =>
-        match(self._list._ptr,
-          .Some(ptr) => {
-            element_ptr := (ptr &+ self._index);
-            self._index = (self._index + usize(1));
-            .Some(element_ptr)
-          },
-          .None => .None
-        )
+impl(
+  forall(T : Type),
+  ArrayListIterPtr(T),
+  Iterator(
+    Item : *(T),
+    next : (fn(self : *(Self)) -> Option(*(T)))(
+      cond(
+        (self._index >= self._list._length) =>.None,
+        true =>
+          match(
+            self._list._ptr,
+            .Some(ptr) => {
+              element_ptr := (ptr &+ self._index);
+              self._index = (self._index + usize(1));
+              .Some(element_ptr)
+            },
+            .None =>.None
+          )
+      )
     )
   )
-));
-
-impl(forall(T : Type), ArrayList(T),
+);
+impl(
+  forall(T : Type),
+  ArrayList(T),
   iter : (fn(self : *(Self)) -> ArrayListIterPtr(T))(
-    ArrayListIterPtr(T)(_list: self.*, _index: usize(0))
+    ArrayListIterPtr(T)(_list : self.*, _index : usize(0))
   )
 );
-
-impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T),
+impl(
+  forall(T : Type),
+  where(T <: Eq(T)),
+  ArrayList(T),
   /**
-    * Check if the list contains a value
-    */
-  contains : (fn(self: Self, value: T) -> bool)({
+  * Check if the list contains a value
+  */
+  contains : (fn(self : Self, value : T) -> bool)({
     found := false;
-    match(self._ptr,
+    match(
+      self._ptr,
       .Some(_ptr) => {
         i := usize(0);
-        while(((i < self._length) && !(found)), i = (i + usize(1)), {
+        while((i < self._length) && !(found), i = (i + usize(1)), {
           cond(
             ((_ptr &+ i).* == value) => {
               found = true;
@@ -608,23 +621,23 @@ impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T),
       },
       .None => ()
     );
-    return found;
+    return(found);
   }),
-
   /**
-    * Find the first index of a matching value
-    * Returns .Some(index) if found, .None otherwise
-    */
-  index_of : (fn(self: Self, value: T) -> Option(usize))({
-    (result : Option(usize)) = .None;
+  * Find the first index of a matching value
+  * Returns .Some(index) if found, .None otherwise
+  */
+  index_of : (fn(self : Self, value : T) -> Option(usize))({
+    (result : Option(usize)) =.None;
     found := false;
-    match(self._ptr,
+    match(
+      self._ptr,
       .Some(_ptr) => {
         i := usize(0);
-        while(((i < self._length) && !(found)), i = (i + usize(1)), {
+        while((i < self._length) && !(found), i = (i + usize(1)), {
           cond(
             ((_ptr &+ i).* == value) => {
-              result = .Some(i);
+              result =.Some(i);
               found = true;
             },
             true => ()
@@ -633,23 +646,28 @@ impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T),
       },
       .None => ()
     );
-    return result;
+    return(result);
   })
 );
-
-impl(forall(T : Type), ArrayList(T),
+impl(
+  forall(T : Type),
+  ArrayList(T),
   /**
-    * Reverse elements in place
-    */
-  reverse : (fn(self: Self) -> unit)({
+  * Reverse elements in place
+  */
+  reverse : (fn(self : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true =>
-        match(self._ptr,
+        match(
+          self._ptr,
           .Some(_ptr) => {
             i := usize(0);
             j := (self._length - usize(1));
-            while((i < j), {i = (i + usize(1)); j = (j - usize(1));}, {
+            while(i < j, {
+              i = (i + usize(1));
+              j = (j - usize(1));
+            }, {
               tmp := (_ptr &+ i).*;
               (_ptr &+ i).* = (_ptr &+ j).*;
               (_ptr &+ j).* = tmp;
@@ -660,19 +678,22 @@ impl(forall(T : Type), ArrayList(T),
     );
   })
 );
-
-impl(forall(T : Type), where(T <: Ord(T)), ArrayList(T),
+impl(
+  forall(T : Type),
+  where(T <: Ord(T)),
+  ArrayList(T),
   /**
-    * Sort elements in ascending order using insertion sort
-    */
-  sort : (fn(self: Self) -> unit)({
+  * Sort elements in ascending order using insertion sort
+  */
+  sort : (fn(self : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true =>
-        match(self._ptr,
+        match(
+          self._ptr,
           .Some(_ptr) => {
             i := usize(1);
-            while((i < self._length), i = (i + usize(1)), {
+            while(i < self._length, i = (i + usize(1)), {
               key := (_ptr &+ i).*;
               j := i;
               shifting := cond(
@@ -695,64 +716,78 @@ impl(forall(T : Type), where(T <: Ord(T)), ArrayList(T),
     );
   })
 );
-
 /// Equality for ArrayList — two lists are equal if they have the same length
 /// and every pair of elements at corresponding indices is equal.
-impl(forall(T : Type), where(T <: Eq(T)), ArrayList(T), Eq(ArrayList(T))(
-  (==) : (fn(lhs: Self, rhs: Self) -> bool)({
-    n := lhs.len();
-    cond(
-      ((!(n == rhs.len()))) => false,
-      true => {
-        (i : usize) = usize(0);
-        (equal : bool) = true;
-        while runtime(((i < n) && equal)), {
-          match(lhs.get(i),
-            .Some(a) => match(rhs.get(i),
-              .Some(b) => { equal = (a == b); },
-              .None    => { equal = false; }
-            ),
-            .None => { equal = false; }
-          );
-          i = (i + usize(1));
-        };
-        equal
-      }
-    )
-  })
-));
-
+impl(
+  forall(T : Type),
+  where(T <: Eq(T)),
+  ArrayList(T),
+  Eq(ArrayList(T))(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)({
+      n := lhs.len();
+      cond(
+        (!(n == rhs.len())) => false,
+        true => {
+          (i : usize) = usize(0);
+          (equal : bool) = true;
+          while(runtime((i < n) && equal), {
+            match(
+              lhs.get(i),
+              .Some(a) => match(
+                rhs.get(i),
+                .Some(b) => {
+                  equal = (a == b);
+                },
+                .None => {
+                  equal = false;
+                }
+              ),
+              .None => {
+                equal = false;
+              }
+            );
+            i = (i + usize(1));
+          });
+          equal
+        }
+      )
+    })
+  )
+);
 /// Clone implementation for ArrayList — deep-clones each element.
-impl(forall(T : Type), where(T <: Clone), ArrayList(T), Clone(
-  clone : (fn(self: *(Self)) -> Self)(
-    {
+impl(
+  forall(T : Type),
+  where(T <: Clone),
+  ArrayList(T),
+  Clone(
+    clone : (fn(self : *(Self)) -> Self)({
       n := self.*.len();
       result := Self.with_capacity(n);
       i := usize(0);
-      while (i < n), {
+      while(i < n, {
         item_opt := self.*.get(i);
-        match(item_opt,
-          .Some(item) => { result.push((&item).clone()); },
+        match(
+          item_opt,
+          .Some(item) => {
+            result.push((&(item)).clone());
+          },
           .None => ()
         );
         i = (i + usize(1));
-      };
+      });
       result
-    }
+    })
   )
-));
-
-export
+);
+export(
   ArrayList,
   ArrayListError,
   ArrayListIter,
   ArrayListIterPtr
-;
-
+);
 // =============================================================================
 // array_list! literal macro
 // =============================================================================
-
 /// Internal helper: build a list of `tmp.push(elem)` statements from `elems`.
 __array_list_build_pushes :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -> comptime(ExprList))(
   cond(
@@ -760,12 +795,11 @@ __array_list_build_pushes :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprLis
     true => {
       first :: elems.car();
       rest :: elems.cdr();
-      stmt :: quote((unquote(tmp).push(unquote(first))));
+      stmt :: quote(unquote(tmp).push(unquote(first)));
       stmt.cons(recur(tmp, rest))
     }
   )
 );
-
 /// `array_list` macro — construct an `ArrayList(T)` literal.
 ///
 /// The element type `T` is inferred from the first element via `typeof`, so
@@ -788,20 +822,22 @@ __array_list_build_pushes :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprLis
 ///   __tmp
 /// }
 /// ```
-array_list :: (fn(...(quote(elems))) -> unquote(Expr)) {
-  __ :: comptime_assert((elems.len() > usize(0)),
-    "array_list requires at least one element to infer the element type");
+array_list :: (fn(...(quote(elems))) -> unquote(Expr))({
+  __ :: comptime_assert(
+    elems.len() > usize(0),
+    "array_list requires at least one element to infer the element type"
+  );
   first :: elems.car();
   rest :: elems.cdr();
   tmp :: gensym("array_list");
   first_tmp :: gensym("array_list_first");
   rest_pushes :: __array_list_build_pushes(tmp, rest);
-  quote {
+  quote({
     unquote(first_tmp) := unquote(first);
     unquote(tmp) := ArrayList(typeof(unquote(first_tmp))).new();
     unquote(tmp).push(unquote(first_tmp));
     unquote_splicing(rest_pushes);
     unquote(tmp)
-  }
-};
-export array_list;
+  })
+});
+export(array_list);

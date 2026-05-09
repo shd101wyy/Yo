@@ -283,14 +283,14 @@ Foo :: struct();
 Comptime :: trait(
   id := "Comptime"
 );
-export Comptime;
+export(Comptime);
 
 /// Runtime trait - indicates a type that can be used at runtime.
 /// Examples: i32, bool, *(i32), void
 Runtime :: trait(
   id := "Runtime"
 );
-export Runtime;
+export(Runtime);
 `;
     const tokens = tokenize(source, "prelude.yo");
     const result = extractDocComments(tokens);

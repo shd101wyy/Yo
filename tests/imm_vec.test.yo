@@ -1,415 +1,361 @@
 // Tests for std/imm/vec — Persistent immutable vector
-
-{ Vec, PopResult } :: import "../std/imm/vec";
-{ String } :: import "../std/imm/string";
-
+{ Vec, PopResult } :: import("../std/imm/vec");
+{ String } :: import("../std/imm/string");
 VecRcEntry :: struct(text : String);
-
-test "Vec new creates empty vector", {
+test("Vec new creates empty vector", {
   v := Vec(i32).new();
-  assert((v.len() == usize(0)), "length should be 0");
+  assert(v.len() == usize(0), "length should be 0");
   assert(v.is_empty(), "should be empty");
-};
-
-test "Vec with_capacity", {
+});
+test("Vec with_capacity", {
   v := Vec(i32).with_capacity(usize(100));
   assert(v.is_empty(), "should be empty");
-  assert((v.len() == usize(0)), "length should be 0");
-};
-
-test "Vec with_capacity zero then push", {
+  assert(v.len() == usize(0), "length should be 0");
+});
+test("Vec with_capacity zero then push", {
   v1 := Vec(i32).with_capacity(usize(0));
   v1_copy := v1;
   v2 := v1_copy.push(i32(7));
   assert(v1.is_empty(), "original stays empty");
-  assert((v2.len() == usize(1)), "push grows zero-cap vec");
-  assert((v2.get(usize(0)).unwrap() == i32(7)), "pushed value preserved");
-};
-
-test "Vec push single element", {
+  assert(v2.len() == usize(1), "push grows zero-cap vec");
+  assert(v2.get(usize(0)).unwrap() == i32(7), "pushed value preserved");
+});
+test("Vec push single element", {
   v := Vec(i32).new().push(i32(42));
-  assert((v.len() == usize(1)), "length should be 1");
+  assert(v.len() == usize(1), "length should be 1");
   assert(!(v.is_empty()), "should not be empty");
-};
-
-test "Vec push multiple elements", {
+});
+test("Vec push multiple elements", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3)).push(i32(4)).push(i32(5));
-  assert((v.len() == usize(5)), "length should be 5");
-  assert((v.get(usize(0)).unwrap() == i32(1)), "first");
-  assert((v.get(usize(4)).unwrap() == i32(5)), "last");
-};
-
-test "Vec push preserves original", {
+  assert(v.len() == usize(5), "length should be 5");
+  assert(v.get(usize(0)).unwrap() == i32(1), "first");
+  assert(v.get(usize(4)).unwrap() == i32(5), "last");
+});
+test("Vec push preserves original", {
   v1 := Vec(i32).new().push(i32(10));
   v1_copy := v1;
   v2 := v1_copy.push(i32(20));
-  assert((v1.len() == usize(1)), "original unchanged");
-  assert((v2.len() == usize(2)), "new has both");
-  assert((v1.get(usize(0)).unwrap() == i32(10)), "original value intact");
-};
-
-test "Vec get element", {
+  assert(v1.len() == usize(1), "original unchanged");
+  assert(v2.len() == usize(2), "new has both");
+  assert(v1.get(usize(0)).unwrap() == i32(10), "original value intact");
+});
+test("Vec get element", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
-  assert((v.get(usize(0)).unwrap() == i32(10)), "first element");
-  assert((v.get(usize(1)).unwrap() == i32(20)), "second element");
-  assert((v.get(usize(2)).unwrap() == i32(30)), "third element");
+  assert(v.get(usize(0)).unwrap() == i32(10), "first element");
+  assert(v.get(usize(1)).unwrap() == i32(20), "second element");
+  assert(v.get(usize(2)).unwrap() == i32(30), "third element");
   assert(v.get(usize(3)).is_none(), "out of bounds returns None");
-};
-
-test "Vec set element", {
+});
+test("Vec set element", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   v_copy := v;
   v2 := v_copy.set(usize(1), i32(99));
-  assert((v.get(usize(1)).unwrap() == i32(2)), "original unchanged");
-  assert((v2.get(usize(1)).unwrap() == i32(99)), "new has updated value");
-  assert((v2.get(usize(0)).unwrap() == i32(1)), "other elements preserved");
-  assert((v2.get(usize(2)).unwrap() == i32(3)), "other elements preserved 2");
-};
-
-test "Vec first and last", {
+  assert(v.get(usize(1)).unwrap() == i32(2), "original unchanged");
+  assert(v2.get(usize(1)).unwrap() == i32(99), "new has updated value");
+  assert(v2.get(usize(0)).unwrap() == i32(1), "other elements preserved");
+  assert(v2.get(usize(2)).unwrap() == i32(3), "other elements preserved 2");
+});
+test("Vec first and last", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
-  assert((v.first().unwrap() == i32(10)), "first");
-  assert((v.last().unwrap() == i32(30)), "last");
-
+  assert(v.first().unwrap() == i32(10), "first");
+  assert(v.last().unwrap() == i32(30), "last");
   empty := Vec(i32).new();
   assert(empty.first().is_none(), "first of empty is None");
   assert(empty.last().is_none(), "last of empty is None");
-};
-
-test "Vec pop", {
+});
+test("Vec pop", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   result := v.pop();
-  assert((result.value.unwrap() == i32(3)), "popped value");
-  assert((result.vec.len() == usize(2)), "vec len after pop");
-  assert((result.vec.get(usize(0)).unwrap() == i32(1)), "remaining first");
-  assert((result.vec.get(usize(1)).unwrap() == i32(2)), "remaining second");
-};
-
-test "Vec pop empty", {
+  assert(result.value.unwrap() == i32(3), "popped value");
+  assert(result.vec.len() == usize(2), "vec len after pop");
+  assert(result.vec.get(usize(0)).unwrap() == i32(1), "remaining first");
+  assert(result.vec.get(usize(1)).unwrap() == i32(2), "remaining second");
+});
+test("Vec pop empty", {
   v := Vec(i32).new();
   result := v.pop();
   assert(result.value.is_none(), "pop empty returns None");
   assert(result.vec.is_empty(), "vec still empty");
-};
-
-test "Vec slice", {
+});
+test("Vec slice", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30)).push(i32(40)).push(i32(50));
   s := v.slice(usize(1), usize(4));
-  assert((s.len() == usize(3)), "slice length");
-  assert((s.get(usize(0)).unwrap() == i32(20)), "slice first");
-  assert((s.get(usize(1)).unwrap() == i32(30)), "slice second");
-  assert((s.get(usize(2)).unwrap() == i32(40)), "slice third");
-};
-
-test "Vec slice edge cases", {
+  assert(s.len() == usize(3), "slice length");
+  assert(s.get(usize(0)).unwrap() == i32(20), "slice first");
+  assert(s.get(usize(1)).unwrap() == i32(30), "slice second");
+  assert(s.get(usize(2)).unwrap() == i32(40), "slice third");
+});
+test("Vec slice edge cases", {
   v := Vec(i32).new().push(i32(1)).push(i32(2));
   assert(v.slice(usize(0), usize(0)).is_empty(), "empty slice");
   assert(v.slice(usize(5), usize(10)).is_empty(), "out of bounds slice");
-  assert((v.slice(usize(0), usize(100)).len() == usize(2)), "clamped end");
-};
-
-test "Vec concat", {
+  assert(v.slice(usize(0), usize(100)).len() == usize(2), "clamped end");
+});
+test("Vec concat", {
   v1 := Vec(i32).new().push(i32(1)).push(i32(2));
   v2 := Vec(i32).new().push(i32(3)).push(i32(4));
   result := v1.concat(v2);
-  assert((result.len() == usize(4)), "concat length");
-  assert((result.get(usize(0)).unwrap() == i32(1)), "concat 0");
-  assert((result.get(usize(1)).unwrap() == i32(2)), "concat 1");
-  assert((result.get(usize(2)).unwrap() == i32(3)), "concat 2");
-  assert((result.get(usize(3)).unwrap() == i32(4)), "concat 3");
-};
-
-test "Vec concat empty", {
+  assert(result.len() == usize(4), "concat length");
+  assert(result.get(usize(0)).unwrap() == i32(1), "concat 0");
+  assert(result.get(usize(1)).unwrap() == i32(2), "concat 1");
+  assert(result.get(usize(2)).unwrap() == i32(3), "concat 2");
+  assert(result.get(usize(3)).unwrap() == i32(4), "concat 3");
+});
+test("Vec concat empty", {
   v1 := Vec(i32).new().push(i32(1));
   v2 := Vec(i32).new();
   v1_copy := v1;
   v2_copy := v2;
-  assert((v1_copy.concat(v2).len() == usize(1)), "concat with empty right");
-  assert((v2_copy.concat(v1).len() == usize(1)), "concat with empty left");
-};
-
-test "Vec concat two empties then push", {
+  assert(v1_copy.concat(v2).len() == usize(1), "concat with empty right");
+  assert(v2_copy.concat(v1).len() == usize(1), "concat with empty left");
+});
+test("Vec concat two empties then push", {
   v1 := Vec(i32).new();
   v2 := Vec(i32).new();
   combined := v1.concat(v2);
   combined_copy := combined;
   pushed := combined_copy.push(i32(9));
   assert(combined.is_empty(), "concat of empties stays empty");
-  assert((pushed.len() == usize(1)), "push grows empty concat result");
-  assert((pushed.get(usize(0)).unwrap() == i32(9)), "pushed value preserved");
-};
-
-test "Vec reverse", {
+  assert(pushed.len() == usize(1), "push grows empty concat result");
+  assert(pushed.get(usize(0)).unwrap() == i32(9), "pushed value preserved");
+});
+test("Vec reverse", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   r := v.reverse();
-  assert((r.get(usize(0)).unwrap() == i32(3)), "reversed first");
-  assert((r.get(usize(1)).unwrap() == i32(2)), "reversed second");
-  assert((r.get(usize(2)).unwrap() == i32(1)), "reversed third");
-};
-
-test "Vec reverse single and empty", {
+  assert(r.get(usize(0)).unwrap() == i32(3), "reversed first");
+  assert(r.get(usize(1)).unwrap() == i32(2), "reversed second");
+  assert(r.get(usize(2)).unwrap() == i32(1), "reversed third");
+});
+test("Vec reverse single and empty", {
   empty := Vec(i32).new();
   assert(empty.reverse().is_empty(), "reverse empty");
-
   single := Vec(i32).new().push(i32(42));
-  assert((single.reverse().get(usize(0)).unwrap() == i32(42)), "reverse single");
-};
-
-test "Vec map", {
+  assert(single.reverse().get(usize(0)).unwrap() == i32(42), "reverse single");
+});
+test("Vec map", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   doubled := v.map((a) => (a * i32(2)));
-  assert((doubled.len() == usize(3)), "map preserves length");
-  assert((doubled.get(usize(0)).unwrap() == i32(2)), "map 0");
-  assert((doubled.get(usize(1)).unwrap() == i32(4)), "map 1");
-  assert((doubled.get(usize(2)).unwrap() == i32(6)), "map 2");
-};
-
-test "Vec filter", {
+  assert(doubled.len() == usize(3), "map preserves length");
+  assert(doubled.get(usize(0)).unwrap() == i32(2), "map 0");
+  assert(doubled.get(usize(1)).unwrap() == i32(4), "map 1");
+  assert(doubled.get(usize(2)).unwrap() == i32(6), "map 2");
+});
+test("Vec filter", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3)).push(i32(4)).push(i32(5));
   evens := v.filter((a) => ((a % i32(2)) == i32(0)));
-  assert((evens.len() == usize(2)), "filter length");
-  assert((evens.get(usize(0)).unwrap() == i32(2)), "filter 0");
-  assert((evens.get(usize(1)).unwrap() == i32(4)), "filter 1");
-};
-
-test "Vec fold", {
+  assert(evens.len() == usize(2), "filter length");
+  assert(evens.get(usize(0)).unwrap() == i32(2), "filter 0");
+  assert(evens.get(usize(1)).unwrap() == i32(4), "filter 1");
+});
+test("Vec fold", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3)).push(i32(4));
   sum := v.fold(i32(0), (acc, elem) => (acc + elem));
-  assert((sum == i32(10)), "fold sum");
-};
-
-test "Vec any", {
+  assert(sum == i32(10), "fold sum");
+});
+test("Vec any", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   assert(v.any((a) => (a == i32(2))), "any finds 2");
   assert(!(v.any((a) => (a == i32(99)))), "any misses 99");
-};
-
-test "Vec all", {
+});
+test("Vec all", {
   v := Vec(i32).new().push(i32(2)).push(i32(4)).push(i32(6));
   assert(v.all((a) => ((a % i32(2)) == i32(0))), "all even");
   v2 := v.push(i32(3));
   assert(!(v2.all((a) => ((a % i32(2)) == i32(0)))), "not all even");
-};
-
-test "Vec find", {
+});
+test("Vec find", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
-  assert((v.find((a) => (a > i32(15))).unwrap() == i32(20)), "find first > 15");
+  assert(v.find((a) => (a > i32(15))).unwrap() == i32(20), "find first > 15");
   assert(v.find((a) => (a > i32(100))).is_none(), "find none > 100");
-};
-
-test "Vec index_of", {
+});
+test("Vec index_of", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
-  assert((v.index_of(i32(20)).unwrap() == usize(1)), "index_of 20");
+  assert(v.index_of(i32(20)).unwrap() == usize(1), "index_of 20");
   assert(v.index_of(i32(99)).is_none(), "index_of missing");
-};
-
-test "Vec contains", {
+});
+test("Vec contains", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   assert(v.contains(i32(2)), "contains 2");
   assert(!(v.contains(i32(99))), "not contains 99");
-};
-
-test "Vec dedup", {
+});
+test("Vec dedup", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(1)).push(i32(3)).push(i32(2));
   d := v.dedup();
-  assert((d.len() == usize(3)), "dedup length");
-  assert((d.get(usize(0)).unwrap() == i32(1)), "dedup 0");
-  assert((d.get(usize(1)).unwrap() == i32(2)), "dedup 1");
-  assert((d.get(usize(2)).unwrap() == i32(3)), "dedup 2");
-};
-
-test "Vec zip_with", {
+  assert(d.len() == usize(3), "dedup length");
+  assert(d.get(usize(0)).unwrap() == i32(1), "dedup 0");
+  assert(d.get(usize(1)).unwrap() == i32(2), "dedup 1");
+  assert(d.get(usize(2)).unwrap() == i32(3), "dedup 2");
+});
+test("Vec zip_with", {
   v1 := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   v2 := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
   result := v1.zip_with(v2, (a, b) => (a + b));
-  assert((result.len() == usize(3)), "zip_with length");
-  assert((result.get(usize(0)).unwrap() == i32(11)), "zip_with 0");
-  assert((result.get(usize(1)).unwrap() == i32(22)), "zip_with 1");
-  assert((result.get(usize(2)).unwrap() == i32(33)), "zip_with 2");
-};
-
-test "Vec zip_with different lengths", {
+  assert(result.len() == usize(3), "zip_with length");
+  assert(result.get(usize(0)).unwrap() == i32(11), "zip_with 0");
+  assert(result.get(usize(1)).unwrap() == i32(22), "zip_with 1");
+  assert(result.get(usize(2)).unwrap() == i32(33), "zip_with 2");
+});
+test("Vec zip_with different lengths", {
   v1 := Vec(i32).new().push(i32(1)).push(i32(2));
   v2 := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
   result := v1.zip_with(v2, (a, b) => (a + b));
-  assert((result.len() == usize(2)), "zip_with takes min length");
-};
-
-test "Vec equality", {
+  assert(result.len() == usize(2), "zip_with takes min length");
+});
+test("Vec equality", {
   v1 := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   v2 := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   v3 := Vec(i32).new().push(i32(1)).push(i32(2));
   v4 := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(99));
-  assert((v1 == v2), "equal vectors");
-  assert((v1 != v3), "different lengths");
-  assert((v1 != v4), "different values");
-};
-
-test "Vec push many elements (capacity growth)", {
+  assert(v1 == v2, "equal vectors");
+  assert(v1 != v3, "different lengths");
+  assert(v1 != v4, "different values");
+});
+test("Vec push many elements (capacity growth)", {
   v := Vec(i32).new();
   i := i32(0);
-  while (i < i32(100)), (i = (i + i32(1))), {
+  while(i < i32(100), i = (i + i32(1)), {
     v = v.push(i);
-  };
-  assert((v.len() == usize(100)), "100 elements");
-  assert((v.get(usize(0)).unwrap() == i32(0)), "first");
-  assert((v.get(usize(99)).unwrap() == i32(99)), "last");
-};
-
-test "Vec structural sharing", {
+  });
+  assert(v.len() == usize(100), "100 elements");
+  assert(v.get(usize(0)).unwrap() == i32(0), "first");
+  assert(v.get(usize(99)).unwrap() == i32(99), "last");
+});
+test("Vec structural sharing", {
   v1 := Vec(i32).new().push(i32(1)).push(i32(2));
   v1a := v1;
   v1b := v1;
   v2 := v1a.push(i32(3));
   v3 := v1b.push(i32(4));
-  assert((v1.len() == usize(2)), "v1 unchanged");
-  assert((v2.len() == usize(3)), "v2 has 3");
-  assert((v3.len() == usize(3)), "v3 has 3");
-  assert((v2.get(usize(2)).unwrap() == i32(3)), "v2 last = 3");
-  assert((v3.get(usize(2)).unwrap() == i32(4)), "v3 last = 4");
-};
-
-test "Vec from_slice single element", {
-  arr := [i32; 1](i32(42));
-  v := Vec(i32).from_slice(arr(usize(0)..usize(1)));
-  assert((v.len() == usize(1)), "len = 1");
-  assert((v.get(usize(0)).unwrap() == i32(42)), "elem 0");
-};
-
-test "Vec from_slice with elements", {
-  arr := [i32; 5](i32(10), i32(20), i32(30), i32(40), i32(50));
-  v := Vec(i32).from_slice(arr(usize(0)..usize(5)));
-  assert((v.len() == usize(5)), "len = 5");
-  assert((v.get(usize(0)).unwrap() == i32(10)), "elem 0");
-  assert((v.get(usize(2)).unwrap() == i32(30)), "elem 2");
-  assert((v.get(usize(4)).unwrap() == i32(50)), "elem 4");
-};
-
-test "Vec from_slice then push", {
-  arr := [i32; 3](i32(1), i32(2), i32(3));
-  v1 := Vec(i32).from_slice(arr(usize(0)..usize(3)));
+  assert(v1.len() == usize(2), "v1 unchanged");
+  assert(v2.len() == usize(3), "v2 has 3");
+  assert(v3.len() == usize(3), "v3 has 3");
+  assert(v2.get(usize(2)).unwrap() == i32(3), "v2 last = 3");
+  assert(v3.get(usize(2)).unwrap() == i32(4), "v3 last = 4");
+});
+test("Vec from_slice single element", {
+  arr := [i32 ; 1](i32(42));
+  v := Vec(i32).from_slice(arr(usize(0) .. usize(1)));
+  assert(v.len() == usize(1), "len = 1");
+  assert(v.get(usize(0)).unwrap() == i32(42), "elem 0");
+});
+test("Vec from_slice with elements", {
+  arr := [i32 ; 5](i32(10), i32(20), i32(30), i32(40), i32(50));
+  v := Vec(i32).from_slice(arr(usize(0) .. usize(5)));
+  assert(v.len() == usize(5), "len = 5");
+  assert(v.get(usize(0)).unwrap() == i32(10), "elem 0");
+  assert(v.get(usize(2)).unwrap() == i32(30), "elem 2");
+  assert(v.get(usize(4)).unwrap() == i32(50), "elem 4");
+});
+test("Vec from_slice then push", {
+  arr := [i32 ; 3](i32(1), i32(2), i32(3));
+  v1 := Vec(i32).from_slice(arr(usize(0) .. usize(3)));
   v1_copy := v1;
   v2 := v1_copy.push(i32(4));
-  assert((v1.len() == usize(3)), "original unchanged");
-  assert((v2.len() == usize(4)), "new has 4");
-  assert((v2.get(usize(3)).unwrap() == i32(4)), "appended elem");
-};
-
-test "Vec from_slice equality", {
-  arr := [i32; 3](i32(1), i32(2), i32(3));
-  v1 := Vec(i32).from_slice(arr(usize(0)..usize(3)));
+  assert(v1.len() == usize(3), "original unchanged");
+  assert(v2.len() == usize(4), "new has 4");
+  assert(v2.get(usize(3)).unwrap() == i32(4), "appended elem");
+});
+test("Vec from_slice equality", {
+  arr := [i32 ; 3](i32(1), i32(2), i32(3));
+  v1 := Vec(i32).from_slice(arr(usize(0) .. usize(3)));
   v2 := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
-  assert((v1 == v2), "from_slice equals manual push");
-};
-
-test "Vec supports RC-backed Send elements", {
-  v1 := Vec(VecRcEntry).new()
-    .push(VecRcEntry(text: String.from("a")))
-    .push(VecRcEntry(text: String.from("b")));
+  assert(v1 == v2, "from_slice equals manual push");
+});
+test("Vec supports RC-backed Send elements", {
+  v1 := Vec(VecRcEntry).new().push(VecRcEntry(text : String.from("a"))).push(VecRcEntry(text : String.from("b")));
   v1a := v1;
-  v2 := v1a.push(VecRcEntry(text: String.from("c")));
+  v2 := v1a.push(VecRcEntry(text : String.from("c")));
   v2a := v2;
-  v3 := v2a.set(usize(0), VecRcEntry(text: String.from("z")));
+  v3 := v2a.set(usize(0), VecRcEntry(text : String.from("z")));
   v3a := v3;
   popped := v3a.pop();
   v1b := v1;
-  v4 := v1b.concat(Vec(VecRcEntry).new().push(VecRcEntry(text: String.from("d"))));
+  v4 := v1b.concat(Vec(VecRcEntry).new().push(VecRcEntry(text : String.from("d"))));
   v5 := v4.slice(usize(1), usize(3));
-
   assert(v1.get(usize(0)).unwrap().text.eq_str("a"), "v1 keeps first value");
   assert(v2.get(usize(2)).unwrap().text.eq_str("c"), "push appends rc value");
   assert(v3.get(usize(0)).unwrap().text.eq_str("z"), "set replaces rc value");
   assert(popped.value.unwrap().text.eq_str("c"), "pop returns rc value");
-  assert((popped.vec.len() == usize(2)), "pop shrinks vector");
+  assert(popped.vec.len() == usize(2), "pop shrinks vector");
   assert(v5.get(usize(0)).unwrap().text.eq_str("b"), "slice keeps middle value");
   assert(v5.get(usize(1)).unwrap().text.eq_str("d"), "concat adds tail value");
-};
-
+});
 // COW (copy-on-write) specific tests
-test "Vec COW push unique path", {
+test("Vec COW push unique path", {
   // When rc==1 (no sharing), push should mutate in place
   v := Vec(i32).new();
   v = v.push(i32(1));
   v = v.push(i32(2));
   v = v.push(i32(3));
-  assert((v.len() == usize(3)), "unique push works");
-  assert((v.get(usize(0)).unwrap() == i32(1)), "elem 0");
-  assert((v.get(usize(2)).unwrap() == i32(3)), "elem 2");
-};
-
-test "Vec COW push shared path preserves original", {
+  assert(v.len() == usize(3), "unique push works");
+  assert(v.get(usize(0)).unwrap() == i32(1), "elem 0");
+  assert(v.get(usize(2)).unwrap() == i32(3), "elem 2");
+});
+test("Vec COW push shared path preserves original", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   v_copy := v;
   v2 := v_copy.push(i32(4));
-  assert((v.len() == usize(3)), "original preserved when shared");
-  assert((v2.len() == usize(4)), "new has 4 elements");
-  assert((v2.get(usize(3)).unwrap() == i32(4)), "appended value correct");
-};
-
-test "Vec COW set unique path", {
+  assert(v.len() == usize(3), "original preserved when shared");
+  assert(v2.len() == usize(4), "new has 4 elements");
+  assert(v2.get(usize(3)).unwrap() == i32(4), "appended value correct");
+});
+test("Vec COW set unique path", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
   v = v.set(usize(1), i32(99));
-  assert((v.get(usize(1)).unwrap() == i32(99)), "in-place set works");
-  assert((v.get(usize(0)).unwrap() == i32(10)), "other elements intact");
-};
-
-test "Vec COW pop unique path", {
+  assert(v.get(usize(1)).unwrap() == i32(99), "in-place set works");
+  assert(v.get(usize(0)).unwrap() == i32(10), "other elements intact");
+});
+test("Vec COW pop unique path", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   result := v.pop();
-  assert((result.value.unwrap() == i32(3)), "popped value");
-  assert((result.vec.len() == usize(2)), "len after pop");
-};
-
-test "Vec COW reverse unique path", {
+  assert(result.value.unwrap() == i32(3), "popped value");
+  assert(result.vec.len() == usize(2), "len after pop");
+});
+test("Vec COW reverse unique path", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   v = v.reverse();
-  assert((v.get(usize(0)).unwrap() == i32(3)), "reversed 0");
-  assert((v.get(usize(1)).unwrap() == i32(2)), "reversed 1");
-  assert((v.get(usize(2)).unwrap() == i32(1)), "reversed 2");
-};
-
-test "Vec COW concat unique path", {
+  assert(v.get(usize(0)).unwrap() == i32(3), "reversed 0");
+  assert(v.get(usize(1)).unwrap() == i32(2), "reversed 1");
+  assert(v.get(usize(2)).unwrap() == i32(1), "reversed 2");
+});
+test("Vec COW concat unique path", {
   v := Vec(i32).new().push(i32(1)).push(i32(2));
   other := Vec(i32).new().push(i32(3)).push(i32(4));
   v = v.concat(other);
-  assert((v.len() == usize(4)), "concat length");
-  assert((v.get(usize(2)).unwrap() == i32(3)), "concat elem 2");
-  assert((v.get(usize(3)).unwrap() == i32(4)), "concat elem 3");
-};
-
-test "Vec COW dedup unique path", {
+  assert(v.len() == usize(4), "concat length");
+  assert(v.get(usize(2)).unwrap() == i32(3), "concat elem 2");
+  assert(v.get(usize(3)).unwrap() == i32(4), "concat elem 3");
+});
+test("Vec COW dedup unique path", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(1)).push(i32(3));
   v = v.dedup();
-  assert((v.len() == usize(3)), "dedup length");
-  assert((v.get(usize(0)).unwrap() == i32(1)), "dedup 0");
-  assert((v.get(usize(1)).unwrap() == i32(2)), "dedup 1");
-  assert((v.get(usize(2)).unwrap() == i32(3)), "dedup 2");
-};
-
+  assert(v.len() == usize(3), "dedup length");
+  assert(v.get(usize(0)).unwrap() == i32(1), "dedup 0");
+  assert(v.get(usize(1)).unwrap() == i32(2), "dedup 1");
+  assert(v.get(usize(2)).unwrap() == i32(3), "dedup 2");
+});
 // Regression test: Vec(ImmString) exercises genericImplMethodCache with
 // same-named types from different modules (std/imm/string::String vs
 // std/string::String).
-test "Vec of ImmString push and get", {
+test("Vec of ImmString push and get", {
   v := Vec(String).new();
   v = v.push(String.from("hello"));
   v = v.push(String.from("world"));
-  assert((v.len() == usize(2)), "length should be 2");
-  assert((v.get(usize(0)).unwrap() == String.from("hello")), "elem 0");
-  assert((v.get(usize(1)).unwrap() == String.from("world")), "elem 1");
-};
-
-test "Vec of ImmString concat", {
+  assert(v.len() == usize(2), "length should be 2");
+  assert(v.get(usize(0)).unwrap() == String.from("hello"), "elem 0");
+  assert(v.get(usize(1)).unwrap() == String.from("world"), "elem 1");
+});
+test("Vec of ImmString concat", {
   a := Vec(String).new().push(String.from("a")).push(String.from("b"));
   b := Vec(String).new().push(String.from("c"));
   c := a.concat(b);
-  assert((c.len() == usize(3)), "concat length");
-  assert((c.get(usize(2)).unwrap() == String.from("c")), "concat elem 2");
-};
-
-test "Vec of ImmString with struct element", {
+  assert(c.len() == usize(3), "concat length");
+  assert(c.get(usize(2)).unwrap() == String.from("c"), "concat elem 2");
+});
+test("Vec of ImmString with struct element", {
   v := Vec(VecRcEntry).new();
-  v = v.push(VecRcEntry(text: String.from("item1")));
-  v = v.push(VecRcEntry(text: String.from("item2")));
-  assert((v.len() == usize(2)), "length");
-  assert((v.get(usize(0)).unwrap().text == String.from("item1")), "text 0");
-};
+  v = v.push(VecRcEntry(text : String.from("item1")));
+  v = v.push(VecRcEntry(text : String.from("item2")));
+  assert(v.len() == usize(2), "length");
+  assert(v.get(usize(0)).unwrap().text == String.from("item1"), "text 0");
+});

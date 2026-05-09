@@ -10,11 +10,9 @@
 //! assert(is_valid_entity_code(i32(65)), "A is valid");
 //! s := from_code_point(i32(65));  // "A"
 //! ```
-
-open import "../string";
-
+open(import("../string"));
 /// Check if a Unicode codepoint is a valid HTML entity value.
-is_valid_entity_code :: (fn(c: i32) -> bool)(
+is_valid_entity_code :: (fn(c : i32) -> bool)(
   cond(
     ((c >= i32(0xD800)) && (c <= i32(0xDFFF))) => false,
     ((c >= i32(0xFDD0)) && (c <= i32(0xFDEF))) => false,
@@ -27,13 +25,9 @@ is_valid_entity_code :: (fn(c: i32) -> bool)(
     true => true
   )
 );
-
 /// Convert a Unicode codepoint to a `String`.
-from_code_point :: (fn(c: i32) -> String)(
-  {
-    (r : rune) = rune(u32(c));
-    `${r}`
-  }
-);
-
-export is_valid_entity_code, from_code_point;
+from_code_point :: (fn(c : i32) -> String)({
+  (r : rune) = rune(u32(c));
+  `${r}`
+});
+export(is_valid_entity_code, from_code_point);

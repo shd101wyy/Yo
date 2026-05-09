@@ -5,118 +5,134 @@
 //! `va_start(va_list, last_param)` — initializes variadic argument processing.
 //! Validates that all arguments are atom identifiers, then marks the va_list
 //! variable as initialized in the environment.
-
-open import "std/string";
-
-{ AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_is_atom, ast_expr_to_string,
-  BF_VA_START }                                      :: import "../../expr/expr.yo";
-{ ArrayList }                                        :: import "std/collections/array_list";
-{ ExprInfo, new_expr_info, expr_info_table_set }     :: import "../../expr/expr_info.yo";
-{ Environment, Variable, get_variables_from_env,
-  update_existing_variable }                         :: import "../../env/env.yo";
-{ EvalContext }                                      :: import "../context.yo";
-{ TypeValue, t_unit }                                :: import "../../types/type.yo";
-{ EvalValue }                                        :: import "../value.yo";
-{ format_error_message }                             :: import "../../error/error.yo";
-{ is_valid_variable_name }                           :: import "../exprs/binding.yo";
-{ Exception }                                        :: import "std/error";
-
-evaluate_va_start :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  (args : ArrayList(AstExpr)) = match(expr,
+open(import("std/string"));
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_atom,
+  ast_expr_to_string,
+  BF_VA_START
+} :: import("../../expr/expr.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ ExprInfo, new_expr_info, expr_info_table_set } :: import("../../expr/expr_info.yo");
+{
+  Environment,
+  Variable,
+  get_variables_from_env,
+  update_existing_variable
+} :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ EvalValue } :: import("../value.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ Exception } :: import("std/error");
+evaluate_va_start :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  (args : ArrayList(AstExpr)) = match(
+    expr,
     .FnCall(_, _, fargs, _, _) => fargs,
-    _                          => ArrayList(AstExpr).new()
+    _ => ArrayList(AstExpr).new()
   );
-
   n := args.len();
   (i : usize) = usize(0);
-
-  while runtime((i < n)), {
+  while(runtime(i < n), {
     arg_opt := args.get(i);
-    match(arg_opt,
-      .None => { i = n; },
+    match(
+      arg_opt,
+      .None => {
+        i = n;
+      },
       .Some(arg) => {
         // All arguments must be atom identifiers.
-        if((!(ast_expr_is_atom(arg)) || !(is_valid_variable_name(arg))), {
-          exn.throw(dyn format_error_message(
-            ast_expr_token(arg),
-            `Invalid argument for va_start. Expected identifier, got:\n${ast_expr_to_string(arg)}`,
-            false,
-            .None
-          ));
+        if(!(ast_expr_is_atom(arg)) || !(is_valid_variable_name(arg)), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(arg),
+                `Invalid argument for va_start. Expected identifier, got:\n${ast_expr_to_string(arg)}`,
+                false,
+                .None
+              )
+            )
+          );
         });
-
         var_name := ast_expr_token(arg).value;
-
         // Arg 0: mark the va_list variable as initialized.
-        if((i == usize(0)), {
+        if(i == usize(0), {
           variables := get_variables_from_env(env, var_name);
-          if((variables.len() == usize(0)), {
-            exn.throw(dyn format_error_message(
-              ast_expr_token(arg),
-              `Variable '${var_name}' not found in the environment.`,
-              false,
-              .None
-            ));
+          if(variables.len() == usize(0), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(arg),
+                  `Variable '${var_name}' not found in the environment.`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
-          variable_opt := variables.get((variables.len() - usize(1)));
-          match(variable_opt,
+          variable_opt := variables.get(variables.len() - usize(1));
+          match(
+            variable_opt,
             .None => {},
             .Some(variable) => {
               new_var := Variable(
-                id:                                         variable.id,
-                name:                                       variable.name,
-                ty:                                         variable.ty,
-                is_compile_time_only:                       variable.is_compile_time_only,
-                frame_level:                                variable.frame_level,
-                value:                                      variable.value,
-                is_owning_the_rc_value:                     variable.is_owning_the_rc_value,
-                is_owning_the_same_rc_value_as:             variable.is_owning_the_same_rc_value_as,
-                is_reassignable:                            variable.is_reassignable,
-                token:                                      variable.token,
-                initialized_at_token:                       .Some(ast_expr_token(arg)),
-                consumed_at_token:                          variable.consumed_at_token,
-                is_implicit:                                variable.is_implicit,
-                is_created_from_destructuring_atom_variable: variable.is_created_from_destructuring_atom_variable,
-                parameter_alias:                            variable.parameter_alias,
-                is_from_effect_spread:                      variable.is_from_effect_spread,
-                is_effect_param:                            variable.is_effect_param,
-                is_module_level:                            variable.is_module_level,
-                doc_comment:                                variable.doc_comment
+                id : variable.id,
+                name : variable.name,
+                ty : variable.ty,
+                is_compile_time_only : variable.is_compile_time_only,
+                frame_level : variable.frame_level,
+                value : variable.value,
+                is_owning_the_rc_value : variable.is_owning_the_rc_value,
+                is_owning_the_same_rc_value_as : variable.is_owning_the_same_rc_value_as,
+                is_reassignable : variable.is_reassignable,
+                token : variable.token,
+                initialized_at_token :.Some(ast_expr_token(arg)),
+                consumed_at_token : variable.consumed_at_token,
+                is_implicit : variable.is_implicit,
+                is_created_from_destructuring_atom_variable : variable.is_created_from_destructuring_atom_variable,
+                parameter_alias : variable.parameter_alias,
+                is_from_effect_spread : variable.is_from_effect_spread,
+                is_effect_param : variable.is_effect_param,
+                is_module_level : variable.is_module_level,
+                doc_comment : variable.doc_comment
               );
               update_existing_variable(env, variable, new_var);
             }
           );
         });
-
         // Arg 1: just verify the variable exists.
-        if((i == usize(1)), {
+        if(i == usize(1), {
           variables := get_variables_from_env(env, var_name);
-          if((variables.len() == usize(0)), {
-            exn.throw(dyn format_error_message(
-              ast_expr_token(arg),
-              `Variable '${var_name}' not found in the environment.`,
-              false,
-              .None
-            ));
+          if(variables.len() == usize(0), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(arg),
+                  `Variable '${var_name}' not found in the environment.`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
         });
-
         i = (i + usize(1));
       }
     );
-  };
-
+  });
   info := new_expr_info(env, t_unit());
-  info.value = .Some(EvalValue.UnitVal);
+  info.value =.Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-
   expr
 });
-
-export evaluate_va_start;
+export(evaluate_va_start);

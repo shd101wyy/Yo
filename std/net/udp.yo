@@ -18,30 +18,25 @@
 //     sock := io.await(UdpSocket.bind(addr));
 //     io.await(sock.close());
 //   });
-
-{ GlobalAllocator } :: import "../allocator";
+{ GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
-{ ArrayList } :: import "../collections/array_list";
-open import "../string";
-open import "../fmt";
-{ NetError } :: import "./errors";
-{ IOError } :: import "../sys/errors";
-{ IpAddr, SocketAddr } :: import "./addr";
-{ Error, AnyError, Exception } :: import "../error";
-IO_udp :: import "../sys/udp";
-IO_tcp :: import "../sys/tcp";
-{
-  AF_INET, AF_INET6, SOCK_DGRAM,
-  SOL_SOCKET, SO_BROADCAST
-} :: import "../sys/socket";
-{ snprintf } :: import "../libc/stdio";
-
+{ ArrayList } :: import("../collections/array_list");
+open(import("../string"));
+open(import("../fmt"));
+{ NetError } :: import("./errors");
+{ IOError } :: import("../sys/errors");
+{ IpAddr, SocketAddr } :: import("./addr");
+{ Error, AnyError, Exception } :: import("../error");
+IO_udp :: import("../sys/udp");
+IO_tcp :: import("../sys/tcp");
+{ AF_INET, AF_INET6, SOCK_DGRAM, SOL_SOCKET, SO_BROADCAST } :: import("../sys/socket");
+{ snprintf } :: import("../libc/stdio");
 // ============================================================================
 // Internal helpers
 // ============================================================================
-
-_make_sockaddr :: (fn(addr: SocketAddr) -> IO_tcp.SockAddr)(
-  match(addr.ip,
+_make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
+  match(
+    addr.ip,
     .V4(a, b, c, d) => {
       buf := Array(u8, usize(16)).fill(u8(0));
       snprintf(*(char)(&(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d));
@@ -51,25 +46,22 @@ _make_sockaddr :: (fn(addr: SocketAddr) -> IO_tcp.SockAddr)(
       IO_tcp.make_sockaddr_in6(*(u8)("::1"), addr.port)
   )
 );
-
-_throw_net_io :: (fn(errno_val: i32, using(exn : Exception)) -> unit)(
-  exn.throw(dyn NetError.from_io(IOError.from_errno(errno_val)))
+_throw_net_io :: (fn(errno_val : i32, using(exn : Exception)) -> unit)(
+  exn.throw(dyn(NetError.from_io(IOError.from_errno(errno_val))))
 );
-
 // ============================================================================
 // UdpSocket
 // ============================================================================
-
 /// A UDP socket for sending and receiving datagrams.
 UdpSocket :: object(
-  _fd         : i32,
+  _fd : i32,
   _local_addr : SocketAddr,
-  _is_closed  : bool
+  _is_closed : bool
 );
-
-impl(UdpSocket,
+impl(
+  UdpSocket,
   /// Create and bind a UDP socket to the given address.
-  bind : (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(UdpSocket, IO, Exception)))(
+  bind : (fn(addr : SocketAddr, using(io : IO)) -> Impl(Future(UdpSocket, IO, Exception)))(
     io.async((using(io : IO, exn : Exception)) => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
@@ -83,17 +75,16 @@ impl(UdpSocket,
       cond(
         (bind_r < i32(0)) => {
           io.await(IO_udp.close(fd));
-          _throw_net_io((i32(0) - bind_r));
+          _throw_net_io(i32(0) - bind_r);
         },
         true => ()
       );
-      return UdpSocket(_fd: fd, _local_addr: addr, _is_closed: false);
+      return(UdpSocket(_fd : fd, _local_addr : addr, _is_closed : false));
     })
   ),
-
   /// Send a datagram to a specific address.
   /// Returns the number of bytes sent.
-  send_to : (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  send_to : (fn(self : Self, data : ArrayList(u8), addr : SocketAddr, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       saddr := _make_sockaddr(addr);
@@ -102,38 +93,34 @@ impl(UdpSocket,
       NetError.check(r)
     })
   }),
-
   /// Receive a datagram into the provided buffer.
   /// Returns the number of bytes received.
-  recv : (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  recv : (fn(self : Self, buf : *(u8), size : usize, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_udp.recv(fd, buf, size, i32(0)));
       NetError.check(r)
     })
   }),
-
   /// Receive a datagram and retrieve the sender's address.
   /// Returns the number of bytes received.
-  recv_from : (fn(self: Self, buf: *(u8), size: usize, src_addr: *(u8), src_addr_len: *(u32), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  recv_from : (fn(self : Self, buf : *(u8), size : usize, src_addr : *(u8), src_addr_len : *(u32), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_udp.recvfrom(fd, buf, size, i32(0), src_addr, src_addr_len));
       NetError.check(r)
     })
   }),
-
   /// Send data on a connected socket (requires prior connect).
-  send : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  send : (fn(self : Self, data : ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)));
       NetError.check(r)
     })
   }),
-
   /// Close the socket.
-  close : (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  close : (fn(self : Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       cond(
@@ -142,50 +129,52 @@ impl(UdpSocket,
           r := io.await(IO_udp.close(fd));
           self._is_closed = true;
           cond(
-            (r < i32(0)) => { _throw_net_io((i32(0) - r)); },
+            (r < i32(0)) => {
+              _throw_net_io(i32(0) - r);
+            },
             true => ()
           );
         }
       );
     })
   }),
-
   /// Enable or disable SO_BROADCAST on the socket.
-  set_broadcast : (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  set_broadcast : (fn(self : Self, enabled : bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       val := cond(enabled => i32(1), true => i32(0));
-      val_ptr := &val;
+      val_ptr := &(val);
       r := io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, *(u8)(val_ptr), u32(4)));
       cond(
-        (r < i32(0)) => { _throw_net_io((i32(0) - r)); },
+        (r < i32(0)) => {
+          _throw_net_io(i32(0) - r);
+        },
         true => ()
       );
     })
   }),
-
   /// Get the local address this socket is bound to.
-  local_addr : (fn(self: Self) -> SocketAddr)(
+  local_addr : (fn(self : Self) -> SocketAddr)(
     self._local_addr
   ),
-
   /// Get the underlying file descriptor.
-  fd : (fn(self: Self) -> i32)(
+  fd : (fn(self : Self) -> i32)(
     self._fd
   )
 );
-
-impl(UdpSocket, Dispose(
-  dispose : (fn(self: Self) -> unit)({
-    cond(
-      (!(self._is_closed)) => {
-        { close_sync } :: import "../sys/file";
-        close_sync(self._fd);
-        self._is_closed = true;
-      },
-      true => ()
-    );
-  })
-));
-
-export UdpSocket;
+impl(
+  UdpSocket,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        (!(self._is_closed)) => {
+          { close_sync } :: import("../sys/file");
+          close_sync(self._fd);
+          self._is_closed = true;
+        },
+        true => ()
+      );
+    })
+  )
+);
+export(UdpSocket);

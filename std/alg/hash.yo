@@ -2,37 +2,29 @@
 //!
 //! A fast, non-cryptographic hash function with good distribution.
 //! Used internally by `HashMap` and `HashSet`.
-
 /// FNV offset basis constant (0xcbf29ce484222325).
 FNV_OFFSET_BASIS :: u64(14695981039346656037);
 /// FNV prime constant (0x100000001b3).
 FNV_PRIME :: u64(1099511628211);
-
 /// Hash a byte sequence using FNV-1a.
-fnv1a_hash_bytes :: (fn(bytes: *(u8), length: usize) -> u64)
-  {
-    hash := FNV_OFFSET_BASIS;
-    i := usize(0);
-    while(i < length, i = (i + usize(1)), {
-      byte := (bytes &+ i).*;
-      xor := (hash ^ u64(byte));
-      hash = (xor * FNV_PRIME);
-    });
-    return hash;
-  }
-;
-
+fnv1a_hash_bytes :: (fn(bytes : *(u8), length : usize) -> u64)({
+  hash := FNV_OFFSET_BASIS;
+  i := usize(0);
+  while(i < length, i = (i + usize(1)), {
+    byte := (bytes &+ i).*;
+    xor := (hash ^ u64(byte));
+    hash = (xor * FNV_PRIME);
+  });
+  return(hash);
+});
 /// Combine two hash values using `hash * 31 + other`.
 ///
 /// The constant 31 is chosen because it is prime, close to a power of 2
 /// (fast multiplication), and proven effective in practice.
-hash_combine :: (fn(hash: u64, other: u64) -> u64)
-  ((hash * u64(31)) + other)
-;
-
-export
+hash_combine :: (fn(hash : u64, other : u64) -> u64)((hash * u64(31)) + other);
+export(
   fnv1a_hash_bytes,
   hash_combine,
   FNV_OFFSET_BASIS,
   FNV_PRIME
-;
+);

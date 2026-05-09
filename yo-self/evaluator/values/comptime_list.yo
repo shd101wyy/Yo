@@ -8,151 +8,160 @@
 //!   - All elements must have the same type (no comptime promotion).
 //!   - Fails with an explicit error for empty lists.
 //!   - Stores the resulting `ComptimeListVal` directly in the ExprInfoTable.
-
-open import "std/string";
-open import "std/fmt";
-
-{ ArrayList }                                            :: import "std/collections/array_list";
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import "../../expr/expr.yo";
-{ new_expr_info, expr_info_table_set }                   :: import "../../expr/expr_info.yo";
-{ Environment }                                          :: import "../../env/env.yo";
-{ EvalContext }                                          :: import "../context.yo";
-{ EvalValue }                                            :: import "../value.yo";
-{ TypeValue, t_comptime_list, t_usize }                  :: import "../../types/type.yo";
-{ is_comptime_list_type }                                :: import "../../types/guards.yo";
-{ are_types_compatible }                                 :: import "../../types/compatibility.yo";
-{ type_to_string }                                       :: import "../../types/string.yo";
-{ format_error_message }                                 :: import "../../error/error.yo";
-{ Exception }                                            :: import "std/error";
-{ evaluate_expression }                                  :: import "../exprs/expr.yo";
-{ expr_info_table_get }                                  :: import "../../expr/expr_info.yo";
-
-evaluate_comptime_list_value :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
+{ new_expr_info, expr_info_table_set } :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../value.yo");
+{ TypeValue, t_comptime_list, t_usize } :: import("../../types/type.yo");
+{ is_comptime_list_type } :: import("../../types/guards.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ expr_info_table_get } :: import("../../expr/expr_info.yo");
+evaluate_comptime_list_value :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Extract args from the FnCall node.
-  args := match(expr,
+  args := match(
+    expr,
     .FnCall(_, _, a, _, _) => a,
-    .Atom(_, _)            => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
-
   // Disallow empty comptime_lists.
   n_args := args.len();
-  if((n_args == usize(0)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr),
-      `Expected at least one element in comptime_list, got ${n_args}`,
-      false,
-      .None
-    ));
+  if(n_args == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected at least one element in comptime_list, got ${n_args}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // If the context expects a comptime_list type, use its child type as a hint.
-  (child_type_opt : Option(TypeValue)) = match(ctx.expected_type,
+  (child_type_opt : Option(TypeValue)) = match(
+    ctx.expected_type,
     .Some(et) => cond(
-      is_comptime_list_type(et.ty) => match(et.ty,
+      is_comptime_list_type(et.ty) => match(
+        et.ty,
         .ComptimeListT(box_child) => Option(TypeValue).Some(box_child.*),
-        _                         => Option(TypeValue).None
+        _ => Option(TypeValue).None
       ),
       true => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
   );
-
-  (elements   : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
-  (env_loop   : Environment)          = env;
-
+  (elements : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+  (env_loop : Environment) = env;
   (j : usize) = usize(0);
-  while runtime((j < n_args)), {
-    arg           := match(args.get(j), .Some(a) => a, .None => make_err_expr());
+  while(runtime(j < n_args), {
+    arg := match(args.get(j),.Some(a) => a,.None => make_err_expr());
     evaluated_arg := evaluate_expression(arg, env_loop, ctx);
-
     arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
-
     // Elements must have a compile-time value.
-    has_value := match(arg_info_opt,
+    has_value := match(
+      arg_info_opt,
       .Some(info) => info.value.is_some(),
-      .None       => false
+      .None => false
     );
     if(!(has_value), {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(arg),
-        `Failed to evaluate expr_list element. Expected compile-time known value`,
-        false,
-        .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            `Failed to evaluate expr_list element. Expected compile-time known value`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
-    arg_info := match(arg_info_opt,
+    arg_info := match(
+      arg_info_opt,
       .Some(info) => info,
-      .None       => new_expr_info(env_loop, t_usize())  // unreachable
+      .None => new_expr_info(env_loop, t_usize()) // unreachable
     );
-
     env_loop = arg_info.env;
-
-    val := match(arg_info.value,
+    val := match(
+      arg_info.value,
       .Some(v) => v,
-      .None    => {
-        exn.throw(dyn format_error_message(
-          ast_expr_token(arg),
-          `comptime_list element has no compile-time value`,
-          false,
-          .None
-        ));
-        EvalValue.BoolVal(false)  // unreachable
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg),
+              `comptime_list element has no compile-time value`,
+              false,
+              .None
+            )
+          )
+        );
+        EvalValue.BoolVal(false) // unreachable
       }
     );
-
     elements.push(val);
-
     arg_ty := arg_info.ty;
-
     // Determine or type-check the running child type.
-    child_type_opt = match(child_type_opt,
-      .None     => Option(TypeValue).Some(arg_ty),
+    child_type_opt = match(
+      child_type_opt,
+      .None => Option(TypeValue).Some(arg_ty),
       .Some(ct) => {
         compat := are_types_compatible(arg_ty, ct);
         if(!(compat), {
-          ct_str  := type_to_string(ct);
+          ct_str := type_to_string(ct);
           arg_str := type_to_string(arg_ty);
-          exn.throw(dyn format_error_message(
-            ast_expr_token(arg),
-            `Mismatched element types in comptime_list. Expected element of type ${ct_str}, got ${arg_str}`,
-            false,
-            .None
-          ));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(arg),
+                `Mismatched element types in comptime_list. Expected element of type ${ct_str}, got ${arg_str}`,
+                false,
+                .None
+              )
+            )
+          );
         });
         Option(TypeValue).Some(ct)
       }
     );
-
     j = (j + usize(1));
-  };
-
-  child_type := match(child_type_opt,
+  });
+  child_type := match(
+    child_type_opt,
     .Some(ct) => ct,
-    .None     => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(expr),
-        `Failed to infer comptime_list element type`,
-        false,
-        .None
-      ));
-      t_usize()  // unreachable
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Failed to infer comptime_list element type`,
+            false,
+            .None
+          )
+        )
+      );
+      t_usize() // unreachable
     }
   );
-
   list_type := t_comptime_list(child_type);
-  list_val  := EvalValue.ComptimeListVal(elements);
-
+  list_val := EvalValue.ComptimeListVal(elements);
   info := new_expr_info(env_loop, list_type);
   info.value = Option(EvalValue).Some(list_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-
   expr
 });
-
-export evaluate_comptime_list_value;
+export(evaluate_comptime_list_value);

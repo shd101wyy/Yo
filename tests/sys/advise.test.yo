@@ -1,62 +1,49 @@
 // @skip_wasm32-wasi — Emscripten syscalls (__syscall_*) not available in standalone WASI
-
-open import "std/string";
-open import "std/libc/stdio";
-{ arch, Arch } :: import "std/process";
-{ temp_dir, path_join } :: import "../helper";
-file :: import "std/sys/file";
-dir :: import "std/sys/dir";
-{ AT_FDCWD } :: import "std/sys/constants";
-temp_io :: import "std/sys/temp";
-mmap_io :: import "std/sys/mmap";
-advise_io :: import "std/sys/advise";
-
-test "fadvise sequential hint returns success", {
+open(import("std/string"));
+open(import("std/libc/stdio"));
+{ arch, Arch } :: import("std/process");
+{ temp_dir, path_join } :: import("../helper");
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+{ AT_FDCWD } :: import("std/sys/constants");
+temp_io :: import("std/sys/temp");
+mmap_io :: import("std/sys/mmap");
+advise_io :: import("std/sys/advise");
+test("fadvise sequential hint returns success", {
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_advise_fadvise_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
-
   fd := temp_io.mkstemp(template_path);
-  assert((fd >= i32(0)), "mkstemp for fadvise test should return a valid fd");
-
+  assert(fd >= i32(0), "mkstemp for fadvise test should return a valid fd");
   trunc := io.await(file.ftruncate(fd, i64(4096)));
-  assert((trunc == i32(0)), "ftruncate for fadvise test should succeed");
-
+  assert(trunc == i32(0), "ftruncate for fadvise test should succeed");
   ret := advise_io.fadvise(fd, i64(0), i64(4096), advise_io.POSIX_FADV_SEQUENTIAL);
-  assert((ret == i32(0)), "fadvise should return success");
-
+  assert(ret == i32(0), "fadvise should return success");
   close_ret := io.await(file.close(fd));
-  assert((close_ret == i32(0)), "closing fadvise test file should succeed");
-
+  assert(close_ret == i32(0), "closing fadvise test file should succeed");
   rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
-  assert((rm == i32(0)), "unlinking fadvise test file should succeed");
-};
-
-test "madvise dontneed on anonymous mapping returns success", {
+  assert(rm == i32(0), "unlinking fadvise test file should succeed");
+});
+test("madvise dontneed on anonymous mapping returns success", {
   // mmap not supported on WASM
-  if((arch == Arch.Wasm32), {
+  if(arch == Arch.Wasm32, {
     printf("  skipping madvise test on WASM (no mmap)\n");
-    return ();
+    return(());
   });
-
   mapped := mmap_io.mmap(
     .None,
     usize(4096),
-    (mmap_io.PROT_READ | mmap_io.PROT_WRITE),
-    (mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS),
-    i32(-1),
+    mmap_io.PROT_READ | mmap_io.PROT_WRITE,
+    mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS,
+    i32(-(1)),
     i64(0)
   );
-
-  assert((!mmap_io.is_error(mapped)), "anonymous mmap for madvise test should succeed");
+  assert(!(mmap_io.is_error(mapped)), "anonymous mmap for madvise test should succeed");
   ptr := mapped.unwrap();
-
   (ptr &+ usize(0)).* = u8(123);
-
   advise_ret := advise_io.madvise(ptr, usize(4096), advise_io.MADV_DONTNEED);
-  assert((advise_ret == i32(0)), "madvise(MADV_DONTNEED) should return success");
-
+  assert(advise_ret == i32(0), "madvise(MADV_DONTNEED) should return success");
   unmap_ret := mmap_io.munmap(ptr, usize(4096));
-  assert((unmap_ret == i32(0)), "munmap in madvise test should succeed");
-};
+  assert(unmap_ret == i32(0), "munmap in madvise test should succeed");
+});

@@ -1,4 +1,4 @@
-//! test — evaluate `test "name", { body }` declarations.
+//! test — evaluate `test("name", { body })` declarations.
 //!
 //! 1:1 port of `src/evaluator/exprs/test.ts`.
 //!
@@ -12,221 +12,259 @@
 //!   test "test_name", { body };
 //!
 //! Returns unit (no-op, preserves original env).
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_to_string,
-  make_err_expr, BK_TEST }                            :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                              :: import "../../expr/expr_info.yo";
-{ Environment, Variable, get_variables_from_env,
-  add_variable_to_env }                               :: import "../../env/env.yo";
-{ EvalContext, FuncOrAsyncBlockKind,
-  FuncOrAsyncBlockCtx }                               :: import "../context.yo";
-{ EvalValue, create_unknown_val,
-  is_type_val, is_str_lit }                           :: import "../value.yo";
-{ TypeValue, t_unit }                                  :: import "../../types/type.yo";
-{ is_unit_type }                                      :: import "../../types/guards.yo";
-{ type_to_string }                                    :: import "../../types/string.yo";
-{ format_error_message }                              :: import "../../error/error.yo";
-{ evaluate_expression }                               :: import "./expr.yo";
-{ Exception }                                         :: import "std/error";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_fn_call_of,
+  ast_expr_to_string,
+  make_err_expr,
+  BK_TEST
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{
+  Environment,
+  Variable,
+  get_variables_from_env,
+  add_variable_to_env
+} :: import("../../env/env.yo");
+{
+  EvalContext,
+  FuncOrAsyncBlockKind,
+  FuncOrAsyncBlockCtx
+} :: import("../context.yo");
+{
+  EvalValue,
+  create_unknown_val,
+  is_type_val,
+  is_str_lit
+} :: import("../value.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("./expr.yo");
+{ Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // evaluate_test
 // ---------------------------------------------------------------------------
-
-/// Evaluate a `test "name", { body }` declaration.
+/// Evaluate a `test("name", { body })` declaration.
 ///
 /// Mirrors `evaluateTest` in `src/evaluator/exprs/test.ts`.
 ///
 /// Returns the expression tagged with unit type (no-op); test bodies are
 /// evaluated at compile time only to catch errors early.
-evaluate_test :: (fn(
-  expr   : AstExpr,
-  env_in : Environment,
-  ctx    : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_test :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   (env : Environment) = env_in;
-
   // Validate shape: must be "test" call.
-  if(!(ast_expr_is_fn_call_of(expr, BK_TEST, .None)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr),
-      `Expected test, got ${ast_expr_to_string(expr)}`,
-      false,
-      .None
-    ));
+  if(!(ast_expr_is_fn_call_of(expr, BK_TEST,.None)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected test, got ${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // test expects exactly 2 arguments: test "name", { body }
-  (arg_count : usize) = match(expr,
+  (arg_count : usize) = match(
+    expr,
     .FnCall(_, _, args, _, _) => args.len(),
-    .Atom(_, _)               => usize(0)
+    .Atom(_, _) => usize(0)
   );
-
-  if((arg_count != usize(2)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr),
-      `test expects 2 arguments (name, body), got ${arg_count}. IO is implicitly available via "io" — no using clause needed.`,
-      false,
-      .None
-    ));
+  if(arg_count != usize(2), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `test expects 2 arguments (name, body), got ${arg_count}. IO is implicitly available via "io" — no using clause needed.`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  test_name_expr := match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _)               => make_err_expr()
+  test_name_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
   );
-
-  test_body_expr := match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _)               => make_err_expr()
+  test_body_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
   );
-
   // Evaluate test name to ensure it's a comptime_string.
   evaluated_test_name_expr := evaluate_expression(test_name_expr, env, ctx);
   name_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_test_name_expr));
-
   if(!(name_info_opt.is_some()), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(test_name_expr),
-      `Failed to evaluate test name: ${ast_expr_to_string(test_name_expr)}`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(test_name_expr),
+          `Failed to evaluate test name: ${ast_expr_to_string(test_name_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  name_info := match(name_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
-
+  name_info := match(name_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
   // Update env from the name evaluation.
   env = name_info.env;
-
   // Validate test name is a comptime string.
-  name_is_str_lit := match(name_info.value,
+  name_is_str_lit := match(
+    name_info.value,
     .Some(v) => is_str_lit(v),
-    .None    => false
+    .None => false
   );
   if(!(name_is_str_lit), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(test_name_expr),
-      `Expected string for test name, got ${ast_expr_to_string(test_name_expr)}`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(test_name_expr),
+          `Expected string for test name, got ${ast_expr_to_string(test_name_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Inject `io : IO` into the body scope.
   // The IO module type is looked up from the env.
   io_vars := get_variables_from_env(env, String.from("IO"));
   n_io := io_vars.len();
-  if((n_io == usize(0)), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr),
-      String.from("IO module not found in environment. Is the prelude loaded?"),
-      false,
-      .None
-    ));
+  if(n_io == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("IO module not found in environment. Is the prelude loaded?"),
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  io_module_var := match(io_vars.get((n_io - usize(1))), .Some(v) => v, .None => {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr),
-      String.from("IO module not found in environment."),
-      false,
-      .None
-    ));
-    // unreachable
-    return make_err_expr();
-  });
-
+  io_module_var := match(
+    io_vars.get(n_io - usize(1)),
+    .Some(v) => v,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("IO module not found in environment."),
+            false,
+            .None
+          )
+        )
+      );
+      // unreachable
+      return(make_err_expr());
+    }
+  );
   // Extract the actual module type from IO's TypeVal.
   // IO :: module(...) means io_module_var.value == .Some(.TypeVal(ModuleType)).
-  io_module_type := match(io_module_var.value,
-    .Some(v) => match(v,
+  io_module_type := match(
+    io_module_var.value,
+    .Some(v) => match(
+      v,
       .TypeVal(ty) => ty.*,
-      _            => io_module_var.ty
+      _ => io_module_var.ty
     ),
     .None => io_module_var.ty
   );
-
   // Push a new frame for the test body (isolates io variable from outer scope).
   _frame_idx := (&(env)).push_frame(false);
-
   // Add the implicit `io : IO` variable to the new frame.
   io_unknown_val := create_unknown_val(io_module_type);
   _io_var_opt := add_variable_to_env(
-    (&(env)),
+    &(env),
     String.from("io"),
     io_module_type,
     Option(EvalValue).Some(io_unknown_val),
-    true,    // is_compile_time_only
-    false,   // is_reassignable
-    false,   // is_owning_the_rc_value
-    true,    // is_implicit
+    true,
+    // is_compile_time_only
+    false,
+    // is_reassignable
+    false,
+    // is_owning_the_rc_value
+    true,
+    // is_implicit
     ast_expr_token(expr)
   );
-
   // Clone test body for originalExpr storage (used by test codegen).
   original_test_body_expr := test_body_expr.clone();
-
   // Save and set context for test block evaluation.
   old_func_ctx := ctx.is_evaluating_function_body_or_async_block;
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
     FuncOrAsyncBlockCtx(
-      kind:       FuncOrAsyncBlockKind.TestBlock,
-      func_type:  Option(TypeValue).None,
-      func_value: Option(EvalValue).None,
-      eval_env:   env
+      kind : FuncOrAsyncBlockKind.TestBlock,
+      func_type : Option(TypeValue).None,
+      func_value : Option(EvalValue).None,
+      eval_env : env
     )
   );
-
   // Evaluate the test body to catch compile-time errors.
   evaluated_test_body_expr := evaluate_expression(test_body_expr, env, ctx);
-
   // Restore context.
   ctx.is_evaluating_function_body_or_async_block = old_func_ctx;
-
   // Pop the frame to restore env to pre-test state.
   (&(env)).pop_frame();
-
   // Validate that the test body returns unit.
   body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_test_body_expr));
-
   if(!(body_info_opt.is_some()), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(test_body_expr),
-      `Failed to evaluate test body: ${ast_expr_to_string(test_body_expr)}`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(test_body_expr),
+          `Failed to evaluate test body: ${ast_expr_to_string(test_body_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  body_info := match(body_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
-
+  body_info := match(body_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
   if(!(is_unit_type(body_info.ty)), {
     body_ty_str := type_to_string(body_info.ty);
-    exn.throw(dyn format_error_message(
-      ast_expr_token(test_body_expr),
-      `Test body must have 'unit' type, got ${body_ty_str}`,
-      false,
-      .None
-    ));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(test_body_expr),
+          `Test body must have 'unit' type, got ${body_ty_str}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Attach originalExpr to the body ExprInfo (used by test codegen).
   body_info.original_expr = Option(AstExpr).Some(original_test_body_expr);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated_test_body_expr), body_info);
-
   // NOTE: Don't propagate env (matches TypeScript behavior).
   // Return unit — test has no compile-time value.
   result_info := new_expr_info(env, t_unit());
   result_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), result_info);
-
   expr
 });
-
-export evaluate_test;
+export(evaluate_test);

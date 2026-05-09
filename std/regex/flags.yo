@@ -9,96 +9,115 @@
 //! - `s` — dotAll: `.` matches newline characters
 //! - `u` — unicode: full Unicode matching
 //! - `y` — sticky: match from lastIndex only
-
-open import "std/string";
-open import "std/collections/array_list";
-
+open(import("std/string"));
+open(import("std/collections/array_list"));
 RegexFlags :: struct(
-  global      : bool,
+  global : bool,
   ignore_case : bool,
-  multiline   : bool,
-  dot_all     : bool,
-  unicode     : bool,
-  sticky      : bool
+  multiline : bool,
+  dot_all : bool,
+  unicode : bool,
+  sticky : bool
 );
-
-impl(RegexFlags,
+impl(
+  RegexFlags,
   // Create default flags (all false)
   default : (fn() -> Self)(
     Self(
-      global: false,
-      ignore_case: false,
-      multiline: false,
-      dot_all: false,
-      unicode: false,
-      sticky: false
+      global : false,
+      ignore_case : false,
+      multiline : false,
+      dot_all : false,
+      unicode : false,
+      sticky : false
     )
   ),
-
   // Parse flags from a string like `gi`, `ms`, etc.
-  parse : (fn(flags_str: String) -> Result(Self, String))({
+  parse : (fn(flags_str : String) -> Result(Self, String))({
     result := Self.default();
     bytes := flags_str.as_bytes();
     i := usize(0);
-    while (i < bytes.len()), (i = (i + usize(1))), {
+    while(i < bytes.len(), i = (i + usize(1)), {
       byte_opt := bytes.get(i);
-      match(byte_opt,
+      match(
+        byte_opt,
         .Some(b) => {
           cond(
             (b == u8(103)) => {
               // 'g'
               cond(
-                result.global => { return .Err(`Duplicate flag: g`); },
-                true => { result.global = true; }
+                result.global => {
+                  return(.Err(`Duplicate flag: g`));
+                },
+                true => {
+                  result.global = true;
+                }
               );
             },
             (b == u8(105)) => {
               // 'i'
               cond(
-                result.ignore_case => { return .Err(`Duplicate flag: i`); },
-                true => { result.ignore_case = true; }
+                result.ignore_case => {
+                  return(.Err(`Duplicate flag: i`));
+                },
+                true => {
+                  result.ignore_case = true;
+                }
               );
             },
             (b == u8(109)) => {
               // 'm'
               cond(
-                result.multiline => { return .Err(`Duplicate flag: m`); },
-                true => { result.multiline = true; }
+                result.multiline => {
+                  return(.Err(`Duplicate flag: m`));
+                },
+                true => {
+                  result.multiline = true;
+                }
               );
             },
             (b == u8(115)) => {
               // 's'
               cond(
-                result.dot_all => { return .Err(`Duplicate flag: s`); },
-                true => { result.dot_all = true; }
+                result.dot_all => {
+                  return(.Err(`Duplicate flag: s`));
+                },
+                true => {
+                  result.dot_all = true;
+                }
               );
             },
             (b == u8(117)) => {
               // 'u'
               cond(
-                result.unicode => { return .Err(`Duplicate flag: u`); },
-                true => { result.unicode = true; }
+                result.unicode => {
+                  return(.Err(`Duplicate flag: u`));
+                },
+                true => {
+                  result.unicode = true;
+                }
               );
             },
             (b == u8(121)) => {
               // 'y'
               cond(
-                result.sticky => { return .Err(`Duplicate flag: y`); },
-                true => { result.sticky = true; }
+                result.sticky => {
+                  return(.Err(`Duplicate flag: y`));
+                },
+                true => {
+                  result.sticky = true;
+                }
               );
             },
             true => {
-              return .Err(`Invalid flag character`);
+              return(.Err(`Invalid flag character`));
             }
           );
         },
         .None => ()
       );
-    };
+    });
     .Ok(result)
   })
 );
-
-export
-  RegexFlags
-;
+export(RegexFlags);

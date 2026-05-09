@@ -66,6 +66,6 @@ The evaluator uses frame-based environments. Key debugging facts:
 
 Each `.test.yo` file has its own import set. Check whether a test file imports `std/fmt` before using `println`:
 
-- Files with `open import "std/fmt"` → `println` available
+- Files with `open(import("std/fmt"))` → `println` available
 - Files without it → use `assert` only, or add the import
 - Match the existing style of the test file when adding new tests

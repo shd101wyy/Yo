@@ -34,16 +34,13 @@
 //!   }
 //!
 //! Wildcard arms (tag_const = "") emit a `default:` case.
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ AstExpr } :: import "../expr/expr.yo";
-{ CodegenContext } :: import "./context.yo";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../expr/expr.yo");
+{ CodegenContext } :: import("./context.yo");
 // ---------------------------------------------------------------------------
 // Data structures for resolved match arms
 // ---------------------------------------------------------------------------
-
 /// A single field binding inside a data-enum arm.
 ///
 /// E.g., in `.Circle(r) => body`:
@@ -51,11 +48,10 @@ open import "std/string";
 ///   field_path = "data.Circle.r"   (C field path within the scrutinee value)
 ///   type_c    = "int32_t"
 DataBinding :: struct(
-  var_name   : String,
+  var_name : String,
   field_path : String,
-  type_c     : String
+  type_c : String
 );
-
 /// A single arm in a simple (unit-variant-only) match.
 SimpleArm :: struct(
   /// The C tag constant, e.g., `"__YO_ENUM_MOD_ID_N_RED"`.
@@ -64,43 +60,42 @@ SimpleArm :: struct(
   /// The arm body AST node.
   body : AstExpr
 );
-
 /// A single arm in a data-enum match (may also be unit if bindings is empty).
 DataArm :: struct(
   /// The C tag constant.  Empty string means wildcard → `default:`.
   tag_const : String,
   /// Field bindings (empty for unit variants or wildcards).
-  bindings  : ArrayList(DataBinding),
+  bindings : ArrayList(DataBinding),
   /// The arm body AST node.
   body : AstExpr
 );
-
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
 /// Indent string for one extra level inside the switch body.
 SWITCH_INDENT :: "  ";
-
 /// Emit `ResultType tempname;\n` into the code section.
-emit_match_temp_decl :: (fn(
-  result_type_c : str,
-  temp_name     : str,
-  ctx           : *(CodegenContext)
-) -> unit)({
+emit_match_temp_decl :: (
+  fn(
+    result_type_c : str,
+    temp_name : str,
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
   decl := String.from(result_type_c);
   decl.push_str(" ");
   decl.push_str(temp_name);
   decl.push_str(";");
   ctx.*.emitter.emit_line(decl.as_str());
 });
-
 /// Emit `switch (scrutinee_c) {` or `switch ((scrutinee_c).tag) {`.
-emit_switch_open :: (fn(
-  scrutinee_c  : str,
-  use_tag_field : bool,
-  ctx           : *(CodegenContext)
-) -> unit)({
+emit_switch_open :: (
+  fn(
+    scrutinee_c : str,
+    use_tag_field : bool,
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
   line := String.from("switch (");
   if(use_tag_field, {
     line.push_str("(");
@@ -112,27 +107,24 @@ emit_switch_open :: (fn(
   line.push_str(") {");
   ctx.*.emitter.emit_line(line.as_str());
 });
-
 /// Emit `case TAG: {` or `default: {`.
 emit_case_open :: (fn(tag_const : str, ctx : *(CodegenContext)) -> unit)({
-  line := if((tag_const == ""),
-    String.from("default: {"),
-    {
-      s := String.from("case ");
-      s.push_str(tag_const);
-      s.push_str(": {");
-      s
-    }
-  );
+  line := if(tag_const == "", String.from("default: {"), {
+    s := String.from("case ");
+    s.push_str(tag_const);
+    s.push_str(": {");
+    s
+  });
   ctx.*.emitter.emit_line(line.as_str());
 });
-
 /// Emit `  temp_name = body_c;\n  break;\n}`.
-emit_case_body :: (fn(
-  temp_name : str,
-  body_c    : str,
-  ctx       : *(CodegenContext)
-) -> unit)({
+emit_case_body :: (
+  fn(
+    temp_name : str,
+    body_c : str,
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
   assign := String.from("  ");
   assign.push_str(temp_name);
   assign.push_str(" = ");
@@ -142,11 +134,9 @@ emit_case_body :: (fn(
   ctx.*.emitter.emit_line("  break;");
   ctx.*.emitter.emit_line("}");
 });
-
 // ---------------------------------------------------------------------------
 // Simple match (unit enums)
 // ---------------------------------------------------------------------------
-
 /// Generate a `switch` statement for a unit-only enum match.
 ///
 /// `scrutinee_c`  — the C expression for the value being matched
@@ -156,27 +146,30 @@ emit_case_body :: (fn(
 /// `gen_body`      — callback to compile an arm body: `(body, ctx, indent) -> Option(String)`
 ///
 /// Returns the temp variable name (callers use it as the expression value).
-generate_match_simple :: (fn(
-  scrutinee_c   : str,
-  result_type_c : str,
-  temp_name     : str,
-  arms          : ArrayList(SimpleArm),
-  gen_body      : (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)),
-  ctx           : *(CodegenContext),
-  indent        : str
-) -> unit)({
+generate_match_simple :: (
+  fn(
+    scrutinee_c : str,
+    result_type_c : str,
+    temp_name : str,
+    arms : ArrayList(SimpleArm),
+    gen_body : (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)),
+    ctx : *(CodegenContext),
+    indent : str
+  ) -> unit
+)({
   emit_match_temp_decl(result_type_c, temp_name, ctx);
   emit_switch_open(scrutinee_c, false, ctx);
-
   (i : usize) = usize(0);
   n := arms.len();
   while(runtime(i < n), {
     arm_opt := arms.get(i);
-    match(arm_opt,
+    match(
+      arm_opt,
       .Some(arm) => {
         emit_case_open(arm.tag_const.as_str(), ctx);
         body_c_opt := gen_body(arm.body, ctx, String.from(indent));
-        match(body_c_opt,
+        match(
+          body_c_opt,
           .Some(body_c) => emit_case_body(temp_name, body_c.as_str(), ctx),
           .None => ()
         );
@@ -185,28 +178,28 @@ generate_match_simple :: (fn(
     );
     i = (i + usize(1));
   });
-
   ctx.*.emitter.emit_line("}");
 });
-
 // ---------------------------------------------------------------------------
 // Data match (data enums with field bindings)
 // ---------------------------------------------------------------------------
-
 /// Emit field binding declarations for a data enum arm.
 ///
 /// For each binding:
 ///   `type_c var_name = scrutinee_c.field_path;`
-emit_data_bindings :: (fn(
-  scrutinee_c : str,
-  bindings    : ArrayList(DataBinding),
-  ctx         : *(CodegenContext)
-) -> unit)({
+emit_data_bindings :: (
+  fn(
+    scrutinee_c : str,
+    bindings : ArrayList(DataBinding),
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
   (i : usize) = usize(0);
   n := bindings.len();
   while(runtime(i < n), {
     b_opt := bindings.get(i);
-    match(b_opt,
+    match(
+      b_opt,
       .Some(b) => {
         decl := String.from("  ");
         decl.push_string(b.type_c);
@@ -224,33 +217,35 @@ emit_data_bindings :: (fn(
     i = (i + usize(1));
   });
 });
-
 /// Generate a `switch ((scrutinee).tag)` statement for a data enum match.
 ///
 /// Works for enums that may have a mix of unit variants (no bindings) and
 /// data variants (with bindings).  Wildcards use an empty `tag_const`.
-generate_match_data :: (fn(
-  scrutinee_c   : str,
-  result_type_c : str,
-  temp_name     : str,
-  arms          : ArrayList(DataArm),
-  gen_body      : (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)),
-  ctx           : *(CodegenContext),
-  indent        : str
-) -> unit)({
+generate_match_data :: (
+  fn(
+    scrutinee_c : str,
+    result_type_c : str,
+    temp_name : str,
+    arms : ArrayList(DataArm),
+    gen_body : (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)),
+    ctx : *(CodegenContext),
+    indent : str
+  ) -> unit
+)({
   emit_match_temp_decl(result_type_c, temp_name, ctx);
   emit_switch_open(scrutinee_c, true, ctx);
-
   (i : usize) = usize(0);
   n := arms.len();
   while(runtime(i < n), {
     arm_opt := arms.get(i);
-    match(arm_opt,
+    match(
+      arm_opt,
       .Some(arm) => {
         emit_case_open(arm.tag_const.as_str(), ctx);
         emit_data_bindings(scrutinee_c, arm.bindings, ctx);
         body_c_opt := gen_body(arm.body, ctx, String.from(indent));
-        match(body_c_opt,
+        match(
+          body_c_opt,
           .Some(body_c) => emit_case_body(temp_name, body_c.as_str(), ctx),
           .None => ()
         );
@@ -259,12 +254,17 @@ generate_match_data :: (fn(
     );
     i = (i + usize(1));
   });
-
   ctx.*.emitter.emit_line("}");
 });
-
-export
-  DataBinding, SimpleArm, DataArm,
-  emit_match_temp_decl, emit_switch_open, emit_case_open, emit_case_body,
+export(
+  DataBinding,
+  SimpleArm,
+  DataArm,
+  emit_match_temp_decl,
+  emit_switch_open,
+  emit_case_open,
+  emit_case_body,
   emit_data_bindings,
-  generate_match_simple, generate_match_data;
+  generate_match_simple,
+  generate_match_data
+);

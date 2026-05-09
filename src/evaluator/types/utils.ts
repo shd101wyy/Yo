@@ -272,7 +272,7 @@ export function addFunctionCodeToSelfTypeModule({
    */
   label: string;
   /**
-   * Function code string, like ((fn()-> unit) { return (); })
+   * Function code string, like ((fn()-> unit)({ return(()); }))
    */
   functionCode: string;
   SelfType: StructType | EnumType | DynType | SomeType | IsoType;
@@ -392,7 +392,7 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
 } {
   const signature = DisposeFnSignature;
   if (!isRcType(structType)) {
-    return { signature, code: `(${signature} ())` };
+    return { signature, code: `(${signature})(())` };
   }
 
   const destructuringLabels = structType.fields
@@ -405,7 +405,7 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
   // The C codegen will check for Dispose trait and emit the call before this code runs.
 
   if (!destructuringLabels.length) {
-    return { signature, code: `(${signature} ())` };
+    return { signature, code: `(${signature})(())` };
   }
 
   const { destructuringExpr, callsExpr } = generateDestructuringAndCalls(
@@ -420,9 +420,9 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
 
   return {
     signature,
-    code: `(${signature} { // ___dispose
+    code: `(${signature})({ // ___dispose
       ${dropDestructuringsExpr}
-      return ();
+      return(());
   })`,
   };
 }
@@ -460,10 +460,10 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
 `;
   }
 
-  const finalCode = `(${signature} { // ___drop
+  const finalCode = `(${signature})({ // ___drop
   ${dropDestructuringsExpr}
   ${decrRcExpr}
-  return ();
+  return(());
 })`;
 
   return {
@@ -497,9 +497,9 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
       : BuiltinFunctions.__yo_incr_rc[0]!;
     return {
       signature,
-      code: `(${signature} {  // ___dup (RC type)
+      code: `(${signature})({  // ___dup (RC type)
   ${incrRcFn}(${YoSelf});
-  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
+  return(${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf}));
 })`,
     };
   }
@@ -515,8 +515,8 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
   if (rcFieldLabels.size === 0) {
     return {
       signature,
-      code: `(${signature} {  // ___dup (plain value type)
-  return ${YoSelf};
+      code: `(${signature})({  // ___dup (plain value type)
+  return(${YoSelf});
 })`,
     };
   }
@@ -559,9 +559,9 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
 
   return {
     signature,
-    code: `(${signature} {  // ___dup (value type with RC fields)
+    code: `(${signature})({  // ___dup (value type with RC fields)
   ${destructuringExpr}
-  return ${constructExpr};
+  return(${constructExpr});
 })`,
   };
 }
@@ -694,7 +694,7 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
 } {
   const signature = DisposeFnSignature;
   if (!isRcType(enumType)) {
-    return { signature, code: `(${signature} ())` };
+    return { signature, code: `(${signature})(())` };
   }
 
   const hasDisposeFunction = enumType.trait.fields.some(
@@ -708,7 +708,7 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
   );
 
   if (!variantsWithRcTypes.length && !hasDisposeFunction) {
-    return { signature, code: `(${signature} ())` };
+    return { signature, code: `(${signature})(())` };
   }
 
   const matchCases = variantsWithRcTypes
@@ -800,10 +800,10 @@ ${dropStatements}
 
   return {
     signature,
-    code: `(${signature} { // ___drop
+    code: `(${signature})({ // ___drop
   ${dropVariantsExpr}
   ${decrRcExpr}
-  return ();
+  return(());
 })`,
   };
 }
@@ -829,9 +829,9 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
   if (isRcType(enumType)) {
     return {
       signature,
-      code: `(${signature} {  // ___dup (RC type)
+      code: `(${signature})({  // ___dup (RC type)
   ${BuiltinFunctions.__yo_incr_rc[0]!}(${YoSelf});
-  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
+  return(${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf}));
 })`,
     };
   }
@@ -879,8 +879,8 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
 
   return {
     signature,
-    code: `(${signature} {  // ___dup (value type with RC fields)
-  return ${matchExpr};
+    code: `(${signature})({  // ___dup (value type with RC fields)
+  return(${matchExpr});
 })`,
   };
 }
@@ -1046,9 +1046,9 @@ export function addRcFunctionsToDynType({
 function generateDropFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, drop should use __yo_dyn_drop
   // This builtin function handles both the wrapped object cleanup and reference counting
-  return `((fn(${YoSelf} : Self) -> unit) { // ___drop for ${typeToString(_dynType)}
+  return `((fn(${YoSelf} : Self) -> unit)({ // ___drop for ${typeToString(_dynType)}
     ${BuiltinFunctions.__yo_dyn_drop[0]!}(${YoSelf});
-  })`;
+  }))`;
 }
 
 /**
@@ -1057,10 +1057,10 @@ function generateDropFunctionCodeForDynType(_dynType: DynType): string {
 function generateDupFunctionCodeForDynType(_dynType: DynType): string {
   // For dyn types, dup should use __yo_dyn_dup
   // This builtin function handles the dyn reference counting properly
-  return `((fn(${YoSelf} : Self) -> Self) {  // ___dup for ${typeToString(_dynType)}
+  return `((fn(${YoSelf} : Self) -> Self)({  // ___dup for ${typeToString(_dynType)}
     ${BuiltinFunctions.__yo_dyn_dup[0]!}(${YoSelf});
-    return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
-  })`;
+    return(${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf}));
+  }))`;
 }
 
 /**
@@ -1069,9 +1069,9 @@ function generateDupFunctionCodeForDynType(_dynType: DynType): string {
 function generateDropFunctionCodeForSomeType(someType: SomeType): string {
   // For SomeType, drop should use __yo_sometype_drop
   // This builtin function dispatches to resolvedConcreteType if available
-  return `((fn(${YoSelf} : Self) -> unit) { // ___drop for ${typeToString(someType)}
+  return `((fn(${YoSelf} : Self) -> unit)({ // ___drop for ${typeToString(someType)}
     ${BuiltinFunctions.__yo_sometype_drop[0]!}(${YoSelf});
-  })`;
+  }))`;
 }
 
 /**
@@ -1080,10 +1080,10 @@ function generateDropFunctionCodeForSomeType(someType: SomeType): string {
 function generateDupFunctionCodeForSomeType(someType: SomeType): string {
   // For SomeType, dup should use __yo_sometype_dup
   // This builtin function dispatches to resolvedConcreteType if available
-  return `((fn(${YoSelf} : Self) -> Self) {  // ___dup for ${typeToString(someType)}
+  return `((fn(${YoSelf} : Self) -> Self)({  // ___dup for ${typeToString(someType)}
     ${BuiltinFunctions.__yo_sometype_dup[0]!}(${YoSelf});
-    return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
-  })`;
+    return(${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf}));
+  }))`;
 }
 
 /**
@@ -1132,10 +1132,10 @@ export function addRcFunctionsToSomeType({
 function generateDisposeFunctionCodeForIsoType(_isoType: IsoType): string {
   // The inner value needs to be dropped if not extracted
   // We use __yo_iso_dispose which checks the extracted flag and drops the inner value
-  return `((fn(${YoSelf} : Self) -> unit) { // ___dispose for Iso
+  return `((fn(${YoSelf} : Self) -> unit)({ // ___dispose for Iso
   ${BuiltinFunctions.__yo_iso_dispose[0]!}(${YoSelf});
-  return ();
-})`;
+  return(());
+}))`;
 }
 
 /**
@@ -1143,10 +1143,10 @@ function generateDisposeFunctionCodeForIsoType(_isoType: IsoType): string {
  * Uses atomic operations for thread-safe reference counting
  */
 function generateDropFunctionCodeForIsoType(_isoType: IsoType): string {
-  return `((fn(${YoSelf} : Self) -> unit) { // ___drop for Iso
+  return `((fn(${YoSelf} : Self) -> unit)({ // ___drop for Iso
   ${BuiltinFunctions.__yo_decr_rc_atomic[0]!}(${YoSelf});
-  return ();
-})`;
+  return(());
+}))`;
 }
 
 /**
@@ -1154,10 +1154,10 @@ function generateDropFunctionCodeForIsoType(_isoType: IsoType): string {
  * Uses atomic operations for thread-safe reference counting
  */
 function generateDupFunctionCodeForIsoType(_isoType: IsoType): string {
-  return `((fn(${YoSelf} : Self) -> Self) {  // ___dup for Iso
+  return `((fn(${YoSelf} : Self) -> Self)({  // ___dup for Iso
   ${BuiltinFunctions.__yo_incr_rc_atomic[0]!}(${YoSelf});
-  return ${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf});
-})`;
+  return(${BuiltinFunctions.__yo_rc_own[0]!}(${YoSelf}));
+}))`;
 }
 
 /**

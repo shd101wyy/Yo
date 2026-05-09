@@ -1,16 +1,17 @@
-open import "std/string";
-{ platform, Platform } :: import "std/process";
-{ env } :: import "std/env";
-
+open(import("std/string"));
+{ platform, Platform } :: import("std/process");
+{ env } :: import("std/env");
 temp_dir :: (fn() -> String)(
   cond(
     (platform == Platform.Windows) => {
       temp := env.get(`TEMP`);
-      match(temp,
+      match(
+        temp,
         .Some(v) => v,
         .None => {
           tmp := env.get(`TMP`);
-          match(tmp,
+          match(
+            tmp,
             .Some(v2) => v2,
             .None => `C:\\Temp`
           )
@@ -19,11 +20,13 @@ temp_dir :: (fn() -> String)(
     },
     true => {
       tmp := env.get(`TMPDIR`);
-      match(tmp,
+      match(
+        tmp,
         .Some(v) => v,
         .None => {
           tmp2 := env.get(`TMP`);
-          match(tmp2,
+          match(
+            tmp2,
             .Some(v2) => v2,
             .None => `/tmp`
           )
@@ -32,9 +35,8 @@ temp_dir :: (fn() -> String)(
     }
   )
 );
-export temp_dir;
-
-path_join :: (fn(base: String, name: String) -> String)({
+export(temp_dir);
+path_join :: (fn(base : String, name : String) -> String)({
   sep := cond(
     (platform == Platform.Windows) => `\\`,
     true => `/`
@@ -44,4 +46,4 @@ path_join :: (fn(base: String, name: String) -> String)({
     true => `${base}${sep}${name}`
   )
 });
-export path_join;
+export(path_join);

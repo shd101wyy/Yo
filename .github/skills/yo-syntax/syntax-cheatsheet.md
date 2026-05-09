@@ -13,7 +13,7 @@ These are baseline syntax rules for portable Yo code.
 ## Common declaration forms
 
 ```rust
-{ println } :: import "std/fmt";
+{ println } :: import("std/fmt");
 
 app_name :: "yo-demo";
 
@@ -23,21 +23,22 @@ main :: (fn() -> unit)({
   println(message);
 });
 
-export main;
+export(main);
 ```
 
 - Top-level binding: `name :: expr;`
 - Local binding: `name := expr;`
 - Typed binding: `(name : Type) = expr;`
 - Function definition: `name :: (fn(args...) -> ReturnType)(body);`
+- Export: `export(name);`
 
 ## Blocks and expressions
 
-| Goal              | Write                      | Avoid                      |
-| ----------------- | -------------------------- | -------------------------- |
-| Single expression | `cond(...)`                | `{ cond(...) }`            |
-| Begin block       | `{ x := i32(1); x }`       | `{ x := i32(1), x }`       |
-| Struct literal    | `{ name: "yo", ok: true }` | `{ name: "yo"; ok: true }` |
+| Goal              | Write                        | Avoid                        |
+| ----------------- | ---------------------------- | ---------------------------- |
+| Single expression | `cond(...)`                  | `{ cond(...) }`              |
+| Begin block       | `{ x := i32(1); x }`         | `{ x := i32(1), x }`         |
+| Struct literal    | `{ name : "yo", ok : true }` | `{ name : "yo"; ok : true }` |
 
 ```rust
 result := cond(
@@ -52,6 +53,8 @@ total := {
 ```
 
 Remember: `{ expr }` without semicolons is a struct literal, not a block. The parser now detects this mistake and emits a clear error if the single expression is not a valid struct field.
+
+In struct literals, keep spaces around `:` and parenthesize infix field values: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
 
 ## Control flow
 
@@ -74,6 +77,8 @@ if(done, println("done"), println("pending"));
 - Always write `cond(...)`, never bare `cond ...`
 - Always write `match(...)`, never bare `match ...`
 - `if(a, b)` and `if(a, b, c)` are macro forms over `cond`
+- Write `return(value)` or `return()`; `return value` is invalid.
+- Write `escape(value)` or `escape()`; `escape value` is invalid.
 
 ## String types
 
@@ -101,10 +106,18 @@ flag := ((a > b) && (b > c));
 masked := ((A | B) | C);
 ```
 
-- Prefer parenthesized calls: `func(arg1, arg2)`
-- `func (a, b)` is a different parse shape than `func(a, b)`
+- Calls require immediate parentheses: `func(arg1, arg2)`
+- `func arg1, arg2` and `func (arg1, arg2)` are invalid
 - Yo has no operator precedence; fully parenthesize binary expressions
-- **All unary operators (`!`, `&`, `-`, `~`) greedily consume everything that follows, including comma-separated args.** `func(&s, a, b)` is parsed as `func(&(s, a, b))` — ONE tuple argument! Preferred fix: parenthesize the operand: `func(&(s), a, b)`. The outer-parens form `func((&s), a, b)` also works. Either is fine; the operand-parens form `&(x)` matches how the parser thinks about it.
+- Preserve grouping around infix expressions on operator RHS positions: `true => (x / y)`, `value := (x + y)`, `(ptr &+ 1).*`
+- Line breaks can disambiguate operator chains; keep line-leading operators like `(4\n| 5\n| 6)` and newlines after `:` before a lambda unless you add equivalent grouping
+- When an operator ends a line, indent its RHS one level as a continuation: `(given(x) : T) =\n  (v) -> { ... }`
+- Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
+- Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <: !(Runtime)`
+- Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
+- Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
+- Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
+- Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
 - **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
 - **Nested `&&` / `||` in a single compound condition causes "Ambiguous operator precedence"** even with explicit parentheses: `((A && B) && (C && D))` on one line triggers the error. Fix: extract sub-conditions into named booleans first: `_c1 := (A && B); _c2 := (C && D); if((_c1 && _c2), ...)`.
@@ -169,7 +182,7 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 
 caller :: (fn() -> i32)({
   (given(raise) : Raise) = (fn(msg : String) -> i32)({
-    return i32(0);
+    return(i32(0));
   });
 
   safe_divide(i32(10), i32(0))
@@ -189,9 +202,9 @@ caller :: (fn() -> i32)({
 result := closure(i32(5));
 
 transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
-  for list.iter(), (ptr) => {
+  for(list.iter(), (ptr) => {
     ptr.* = f(ptr.*);
-  };
+  });
 });
 ```
 
@@ -203,15 +216,15 @@ transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
 ## Imports and modules
 
 ```rust
-{ Parser } :: import "./parser.yo";
-parser_module :: import "./parser.yo";
+{ Parser } :: import("./parser.yo");
+parser_module :: import("./parser.yo");
 
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 ```
 
 - Use relative imports for nearby `.yo` files
-- Use `open import "std/module"` for standard-library modules you want fully in scope
+- Use `open(import("std/module"))` for standard-library modules you want fully in scope
 - Do not write `import "./file.yo" as name`
 - Do not import `std/prelude`
 
@@ -273,17 +286,17 @@ show :: (fn(forall(T : Type), value : T, where(T <: ToString)) -> unit)(
 
 ```rust
 main :: (fn() -> unit)(());
-export main;
+export(main);
 
-export
+export(
   helper,
   Config
-;
+);
 ```
 
-- `export name;` exports a single binding
+- `export(name);` exports a single binding
 - Block form exports multiple bindings separated by commas
-- Every executable needs `export main;`
+- Every executable needs `export(main);`
 
 ## Static and dynamic dispatch types
 
@@ -321,15 +334,15 @@ factorial :: (fn(n : i32) -> i32)(
   )
 );
 
-// Runtime infinite loop — `while cond` is ALWAYS runtime
-while true, {
+// Runtime infinite loop — `while(cond, body)` is ALWAYS runtime
+while(true, {
   work();
-};
+});
 
 // Compile-time loop unrolling — requires comptime() modifier
-while comptime(i < 10), {
+while(comptime((i < 10)), {
   // body evaluated/unrolled at compile time
-};
+});
 
 // for loop — 2-arg prelude macro; first arg MUST be an iterator (has .next()):
 for(list.iter(), x => {    // ArrayList, array → call .iter() first
@@ -346,8 +359,8 @@ for(list.iter(), (ptr) => { // ptr is a mutable reference to each element
 ```
 
 - Use `recur(...)` for self-recursion
-- `while cond` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
-- `while comptime(cond)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
+- `while(cond, body)` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
+- `while(comptime(cond), body)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
 - **`for(arr, item => { body })`** — correct 2-arg prelude macro form. The `item => { body }` is an anonymous closure.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation, not valid top-level Yo syntax. (The self-hosted evaluator currently only understands the 3-arg form in its internal for-loop handler; track issue: `issues/eval-for-loop-3arg-vs-2arg.md`)
@@ -355,19 +368,19 @@ for(list.iter(), (ptr) => { // ptr is a mutable reference to each element
 ## Return and branch safety
 
 ```rust
-// WRONG — return consumes the comma, capturing the next match branch:
+// WRONG — paren-less return is invalid:
 match(opt,
-  .Some(v) => return v,    // parsed as return(v, .None => ...)
+  .Some(v) => return v,
   .None => default_value()
 );
 
-// CORRECT — begin blocks isolate return from the comma:
+// CORRECT — explicit return calls in begin blocks:
 match(opt,
   .Some(v) => {
-    return v;
+    return(v);
   },
   .None => {
-    return default_value();
+    return(default_value());
   }
 );
 
@@ -380,11 +393,11 @@ get_value :: (fn(opt : Option(i32)) -> i32)(
 );
 ```
 
-- `return expr1, expr2` parses as a single function call: `return(expr1, expr2)`
+- `return expr` is invalid; write `return(expr)` or `return()` for unit
 - In `cond` or `match` branches, **always use begin blocks** when you need `return`
-- `return` must be the **last expression** in a begin block — dead code after `return` is rejected. Do NOT write `{ return x; fallback_val }`. Write `{ return x; }` only.
+- `return(...)` must be the **last expression** in a begin block — dead code after `return(...)` is rejected. Do NOT write `{ return(x); fallback_val }`. Write `{ return(x); }` only.
 - If the whole function is one expression, prefer expression-bodied style and skip `return` entirely
-- The same trap applies to any function call without parens in match branches
+- The same rule applies to all calls in match branches: use immediate `(...)`
 
 ## String concatenation pitfall
 
@@ -406,43 +419,43 @@ content := String.from("line1\nline2\n");
 ## Iterator and for loop
 
 ```rust
-{ ArrayList } :: import "std/collections/array_list";
+{ ArrayList } :: import("std/collections/array_list");
 
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
-for list.iter(), (ptr) => {
+for(list.iter(), (ptr) => {
   println(ptr.*);
-};
+});
 
-for list.into_iter(), (value) => {
+for(list.into_iter(), (value) => {
   println(value);
-};
+});
 ```
 
-- `for collection, (variable) => { body }` iterates via the `Iterator` trait
+- `for(collection, (variable) => { body })` iterates via the `Iterator` trait
 - `.iter()` borrows the collection and yields pointers
 - `.into_iter()` takes ownership and yields values
 
 ## Testing
 
 ```rust
-test "Addition works", {
+test("Addition works", {
   assert(((i32(1) + i32(1)) == i32(2)), "1+1 should be 2");
-};
+});
 
-test "Compile-time check", {
+test("Compile-time check", {
   comptime_assert((2 + 2) == 4);
   comptime_expect_error({ x :: (1 / 0); });
-};
+});
 
-test "Async test", {
+test("Async test", {
   io.await(yield());
-};
+});
 ```
 
-- `test "description", { body }` defines a test — `io : IO` is automatically available
+- `test("description", { body })` defines a test — `io : IO` is automatically available
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - `assert(condition, "message")` — runtime assertion (always include a message)
 - `comptime_assert(condition)` — compile-time assertion
@@ -671,7 +684,7 @@ if((!cond), { do_thing(); });
 
 ### `escape` requires a nested-function context
 
-`escape value` exits the **enclosing function** — the nearest `fn(...)` that
+`escape(value)` exits the **enclosing function** — the nearest `fn(...)` that
 wraps the current code. It requires that the code is inside a nested function
 (e.g., a closure or `given` handler lambda), NOT at the top level of a
 standalone function definition.
@@ -679,20 +692,20 @@ standalone function definition.
 ```rust
 // CORRECT — escape inside a given handler lambda (lambda has enclosing fn):
 given(exn) := Exception(throw: ((err) -> {
-  escape result   // exits the outer function that contains this given()
+  escape(result); // exits the outer function that contains this given()
 }));
 do_something(using(exn));
 
 // CORRECT — escape inside a closure passed as argument:
 result := match(opt, .Some(x) => x, .None => {
   // This is NOT a nested function — use return:
-  // WRONG: escape default_val  // ERROR: no enclosing fn
-  return default_val  // CORRECT: return exits the enclosing fn directly
+  // WRONG: escape(default_val)  // ERROR: no enclosing fn
+  return(default_val); // CORRECT: return exits the enclosing fn directly
 });
 
 // WRONG — escape inside a match arm (not a nested fn):
 match(opt,
-  .Some(x) => { escape x }  // ERROR: "can only be used inside a function that has an enclosing function"
+  .Some(x) => { escape(x); }  // ERROR: "can only be used inside a function that has an enclosing function"
 );
 ```
 
@@ -923,16 +936,16 @@ if (((is_tuple_type(ty) || is_struct_type(ty)) || is_union_type(ty)), ...)
 
 ### Duplicate imports from the same path must be merged
 
-Having two `:: import "path"` lines importing from the same file causes a compile error.
+Having two `:: import("path")` lines importing from the same file causes a compile error.
 Always merge them into a single destructuring import:
 
 ```rust
 // ❌ Two imports from the same path
-{ Foo } :: import "../../mod.yo";
-{ Bar } :: import "../../mod.yo";
+{ Foo } :: import("../../mod.yo");
+{ Bar } :: import("../../mod.yo");
 
 // ✅ Merged
-{ Foo, Bar } :: import "../../mod.yo";
+{ Foo, Bar } :: import("../../mod.yo");
 ```
 
 ### Implicit (`using`) parameters cannot be used with `:=` assignment

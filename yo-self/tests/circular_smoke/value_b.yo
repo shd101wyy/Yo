@@ -2,26 +2,22 @@
 //! re-uses it inside its own variants. `ValueB` is exported AFTER the
 //! import to verify the partial-module mechanism works for late-defined
 //! exports too.
-
-open import "std/string";
-{ TypeShape } :: import "./type_a.yo";
-
+open(import("std/string"));
+{ TypeShape } :: import("./type_a.yo");
 ValueB :: enum(
   IntV(value : i32),
   BoolV(value : bool),
   /// Carries the same TypeShape that lives in the other module.
   FnV(declared_type : TypeShape)
 );
-
-export ValueB;
-
+export(ValueB);
 /// Helper that consumes a TypeShape (proves the back-edge is usable here).
 default_value :: (fn(t : TypeShape) -> ValueB)(
-  match(t,
-    .IntT => .IntV(i32(0)),
-    .BoolT => .BoolV(false),
-    .FuncT(name) => .FnV(.FuncT(name))
+  match(
+    t,
+    .IntT =>.IntV(i32(0)),
+    .BoolT =>.BoolV(false),
+    .FuncT(name) =>.FnV(.FuncT(name))
   )
 );
-
-export default_value;
+export(default_value);

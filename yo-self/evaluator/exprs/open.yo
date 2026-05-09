@@ -7,161 +7,206 @@
 //! current environment as a fresh variable. For struct opens, the per-field
 //! bindings are also recorded in `out_info.runtime_destructurings` so codegen
 //! can emit the equivalent runtime destructuring.
-
-open import "std/string";
-open import "std/fmt";
-{ ArrayList } :: import "std/collections/array_list";
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_fn_call,
-  BK_OPEN, BF_DOT, make_err_expr } :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set,
-  RuntimeDestructuring } :: import "../../expr/expr_info.yo";
-{ Environment, add_variable_to_env, get_variables_from_env } :: import "../../env/env.yo";
-{ EvalContext } :: import "../context.yo";
-{ EvalValue, type_of_eval_value } :: import "../value.yo";
-{ TypeValue, t_unit, is_struct_type } :: import "../../types/type.yo";
-{ format_error_message, YoError } :: import "../../error/error.yo";
-{ Exception } :: import "std/error";
-{ evaluate_expression } :: import "./expr.yo";
-
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  BK_OPEN,
+  BF_DOT,
+  make_err_expr
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set,
+  RuntimeDestructuring
+} :: import("../../expr/expr_info.yo");
+{ Environment, add_variable_to_env, get_variables_from_env } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, type_of_eval_value } :: import("../value.yo");
+{ TypeValue, t_unit, is_struct_type } :: import("../../types/type.yo");
+{ format_error_message, YoError } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("./expr.yo");
 /// Walk down a `.`-chain to its leftmost root atom (or any non-`.` expr).
-/// Mirrors the TS `while (exprIsFunctionCallOf(rootExpr, "."))` walk.
+/// Mirrors the TS `while((exprIsFunctionCallOf(rootExpr, ".")))` walk.
 walk_to_root :: (fn(e : AstExpr) -> AstExpr)({
   cur := e;
   // Local-mutable loop: while cur is `.`-call, descend to first arg.
   done := false;
-  while runtime(!(done)), {
+  while(runtime(!(done)), {
     cond(
-      ast_expr_is_fn_call_of(cur, BF_DOT, .None) => {
-        match(cur,
+      ast_expr_is_fn_call_of(cur, BF_DOT,.None) => {
+        match(
+          cur,
           .FnCall(_, _, args, _, _) =>
             cond(
               (args.len() >= usize(1)) => {
-                match(args.get(usize(0)),
-                  .Some(child) => { cur = child; },
-                  .None        => { done = true; }
+                match(
+                  args.get(usize(0)),
+                  .Some(child) => {
+                    cur = child;
+                  },
+                  .None => {
+                    done = true;
+                  }
                 );
               },
-              true => { done = true; }
+              true => {
+                done = true;
+              }
             ),
-          .Atom(_, _) => { done = true; }
+          .Atom(_, _) => {
+            done = true;
+          }
         );
       },
-      true => { done = true; }
+      true => {
+        done = true;
+      }
     );
-  };
+  });
   cur
 });
-
 /// Evaluate `open(expr)`. Validates shape, evaluates the argument via the
 /// dispatcher seam, then binds each module/struct field as a fresh variable
 /// in `env`. The returned `out_info` carries the new env, type `()`, value
 /// `UnitVal`, and (for struct opens) `runtime_destructurings`.
-evaluate_open :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_open :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Validate shape: `open` with exactly 1 argument.
-  if(!(ast_expr_is_fn_call_of(expr, BK_OPEN, .Some(usize(1)))), {
-    exn.throw(dyn format_error_message(
-      ast_expr_token(expr),
-      `Expected "${BK_OPEN}" with 1 argument, got:\n${ast_expr_to_string(expr)}`,
-      false,
-      .None
-    ));
+  if(!(ast_expr_is_fn_call_of(expr, BK_OPEN,.Some(usize(1)))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected "${BK_OPEN}" with 1 argument, got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Pull the single argument out of the FnCall.
-  arg_expr := match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),
+  arg_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
       .Some(a) => a,
-      .None    => make_err_expr()
+      .None => make_err_expr()
     ),
     .Atom(_, _) => make_err_expr()
   );
-
   // Disallow `open` on implicit variables (or `.`-chains rooted at one).
   root_expr := walk_to_root(arg_expr);
   if(ast_expr_is_atom(root_expr), {
-    root_name := match(root_expr,
+    root_name := match(
+      root_expr,
       .Atom(_, tok) => tok.value,
       .FnCall(_, _, _, _, _) => String.from("")
     );
     root_vars := get_variables_from_env(env, root_name);
-    if((root_vars.len() > usize(0)), {
+    if(root_vars.len() > usize(0), {
       last_idx := (root_vars.len() - usize(1));
-      match(root_vars.get(last_idx),
+      match(
+        root_vars.get(last_idx),
         .Some(v) =>
           if(v.is_implicit, {
-            exn.throw(dyn format_error_message(
-              ast_expr_token(arg_expr),
-              `Cannot use "open" on implicit variable "${v.name}". Implicit variables must be passed via using() parameters.`,
-              false,
-              .None
-            ));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(arg_expr),
+                  `Cannot use "open" on implicit variable "${v.name}". Implicit variables must be passed via using() parameters.`,
+                  false,
+                  .None
+                )
+              )
+            );
           }),
         .None => ()
       );
     });
   });
-
   // Recursively evaluate the argument via the dispatcher seam.
   evaluated := evaluate_expression(arg_expr, env, ctx);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  match(arg_info_opt,
+  match(
+    arg_info_opt,
     .None => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(evaluated),
-        `Failed to evaluate the module argument:\n${ast_expr_to_string(evaluated)}`,
-        false,
-        .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(evaluated),
+            `Failed to evaluate the module argument:\n${ast_expr_to_string(evaluated)}`,
+            false,
+            .None
+          )
+        )
+      );
     },
     .Some(_) => ()
   );
-  arg_info := match(arg_info_opt,
+  arg_info := match(
+    arg_info_opt,
     .Some(i) => i,
-    .None    => new_expr_info(env, t_unit())
+    .None => new_expr_info(env, t_unit())
   );
-
-  arg_ty    := arg_info.ty;
+  arg_ty := arg_info.ty;
   arg_value := arg_info.value;
-  next_env  := arg_info.env;
-
+  next_env := arg_info.env;
   runtime_destructurings_opt := Option(ArrayList(RuntimeDestructuring)).None;
-
   // Branch on value/type shape.
-  is_module := match(arg_value,
-    .Some(v) => match(v, .ModuleVal(_, _) => true, _ => false),
-    .None    => false
+  is_module := match(
+    arg_value,
+    .Some(v) => match(v,.ModuleVal(_, _) => true, _ => false),
+    .None => false
   );
-  is_struct_v := match(arg_value,
-    .Some(v) => match(v, .StructVal(_, _, _) => true, _ => false),
-    .None    => false
+  is_struct_v := match(
+    arg_value,
+    .Some(v) => match(v,.StructVal(_, _, _) => true, _ => false),
+    .None => false
   );
   is_struct_t := is_struct_type(arg_ty);
-
   cond(
     is_module => {
       // Iterate module fields (parallel `names` / `values`).
-      match(arg_value,
-        .Some(v) => match(v,
+      match(
+        arg_value,
+        .Some(v) => match(
+          v,
           .ModuleVal(mnames, mvals) => {
             i := usize(0);
-            while runtime((i < mnames.len())), {
-              field_name := match(mnames.get(i), .Some(n) => n, .None => String.from(""));
-              field_val  := match(mvals.get(i),  .Some(x) => x, .None => EvalValue.UnitVal);
-              field_ty   := type_of_eval_value(field_val);
+            while(runtime(i < mnames.len()), {
+              field_name := match(mnames.get(i),.Some(n) => n,.None => String.from(""));
+              field_val := match(mvals.get(i),.Some(x) => x,.None => EvalValue.UnitVal);
+              field_ty := type_of_eval_value(field_val);
               _added := add_variable_to_env(
-                (&next_env), field_name, field_ty,
-                .Some(field_val), true, false, false, false,
+                &(next_env),
+                field_name,
+                field_ty,
+                .Some(field_val),
+                true,
+                false,
+                false,
+                false,
                 ast_expr_token(arg_expr)
               );
               i = (i + usize(1));
-            };
+            });
           },
           _ => ()
         ),
@@ -171,55 +216,67 @@ evaluate_open :: (fn(
     is_struct_t => {
       // Iterate struct type fields. Pull values from StructVal when present.
       rds := ArrayList(RuntimeDestructuring).new();
-      match(arg_ty,
+      match(
+        arg_ty,
         .Struct(_, _, field_labels, field_types, _, _, _) => {
           i := usize(0);
-          while runtime((i < field_labels.len())), {
-            label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
-            fty   := match(field_types.get(i),  .Some(t) => t, .None => t_unit());
+          while(runtime(i < field_labels.len()), {
+            label := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
+            fty := match(field_types.get(i),.Some(t) => t,.None => t_unit());
             // Pull the corresponding value from the StructVal, if any.
-            fval_opt := match(arg_value,
-              .Some(v) => match(v,
+            fval_opt := match(
+              arg_value,
+              .Some(v) => match(
+                v,
                 .StructVal(_, _, fvals) => fvals.get(i),
                 _ => Option(EvalValue).None
               ),
               .None => Option(EvalValue).None
             );
-            is_comptime := match(fval_opt, .Some(_) => true, .None => false);
+            is_comptime := match(fval_opt,.Some(_) => true,.None => false);
             _added := add_variable_to_env(
-              (&next_env), label, fty,
-              fval_opt, is_comptime, false, false, false,
+              &(next_env),
+              label,
+              fty,
+              fval_opt,
+              is_comptime,
+              false,
+              false,
+              false,
               ast_expr_token(arg_expr)
             );
-            rds.push(RuntimeDestructuring(
-              label: label,
-              ty: fty,
-              variable_name: label
-            ));
+            rds.push(
+              RuntimeDestructuring(
+                label : label,
+                ty : fty,
+                variable_name : label
+              )
+            );
             i = (i + usize(1));
-          };
+          });
         },
         _ => ()
       );
-      runtime_destructurings_opt = .Some(rds);
+      runtime_destructurings_opt =.Some(rds);
     },
     true => {
-      exn.throw(dyn format_error_message(
-        ast_expr_token(arg_expr),
-        `Expected module/struct for "${BK_OPEN}", got:\n${ast_expr_to_string(arg_expr)}`,
-        false,
-        .None
-      ));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `Expected module/struct for "${BK_OPEN}", got:\n${ast_expr_to_string(arg_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
     }
   );
-
   // Build out_info: env mutated, type `()`, value `UnitVal`.
   out_info := new_expr_info(next_env, t_unit());
-  out_info.value = .Some(EvalValue.UnitVal);
+  out_info.value =.Some(EvalValue.UnitVal);
   out_info.runtime_destructurings = runtime_destructurings_opt;
-
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-
-export evaluate_open;
+export(evaluate_open);

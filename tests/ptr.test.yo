@@ -1,51 +1,48 @@
-open import "std/libc/stdio.yo";
-{ GlobalAllocator } :: import "std/allocator";
-open GlobalAllocator;
-
+open(import("std/libc/stdio.yo"));
+{ GlobalAllocator } :: import("std/allocator");
+open(GlobalAllocator);
 MyBox :: object(
   (*) : i32
 );
-impl(MyBox, Dispose(
-  dispose : (fn(self : Self) -> unit)({
-    printf("Disposing MyBox with value: %d\n", self.*);
-  })
-));
-
-test "Test basic pointer arithmetic operations", {
+impl(
+  MyBox,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      printf("Disposing MyBox with value: %d\n", self.*);
+    })
+  )
+);
+test("Test basic pointer arithmetic operations", {
   x := 12;
   p := &(x);
-  
-  q := (p &+ 2);  // Test &+
+  q := (p &+ 2); // Test &+
   assert(q &> p); // Test &>
   assert(p &< q); // Test &<
   assert(q &>= p); // Test &>=
   assert(p &<= q); // Test &<=
   assert((q &/ p) == 2); // Test &/
-
-  z := (q &- 2);   // Test &-
+  z := (q &- 2); // Test &-
   assert(z &== p); // Test &==
   assert(z &<= p); // Test &<=
   assert(p &>= z); // Test &>=
-};
-
-test "Test pointer to object type value and `consume` builtin function", {
+});
+test("Test pointer to object type value and `consume` builtin function", {
   b := MyBox(42);
   p := malloc(sizeof(Option(MyBox)));
-  match(p,
+  match(
+    p,
     .None => {
       printf("Memory allocation failed\n");
     },
     .Some(ptr) => {
       casted_ptr := (*(Option(MyBox)))(ptr);
-
       // Test the `consume` function here.
       // In theory, the old value will be dropped.
       // So we need to `consume` it here as this is our initialization of the pointer value.
-      consume(casted_ptr.* = .Some b);
-
-      // Test moving out the `b`.        
-      casted_ptr.* = .None;
+      consume(casted_ptr.* =.Some(b));
+      // Test moving out the `b`.
+      casted_ptr.* =.None;
     }
   );
   free(p);
-};
+});

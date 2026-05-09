@@ -1,55 +1,50 @@
 //! Cross-platform filesystem path manipulation.
-
-open import "./string";
-open import "./fmt";
-open import "./collections/array_list";
-
+open(import("./string"));
+open(import("./fmt"));
+open(import("./collections/array_list"));
 /// Path parsing error variants.
 PathError :: enum(
   /// The path string was empty.
   EmptyPath,
   /// The path string was malformed.
-  InvalidPath(message: String)
+  InvalidPath(message : String)
 );
-export PathError;
-
+export(PathError);
 /// Platform-specific path separator: `'/'` on Unix, `'\\'` on Windows.
 PATH_SEPARATOR :: cond(
-  (__yo_process_platform() == "windows") => u8(92),  // '\' for Windows
-  true => u8(47)  // '/' for Unix
+  (__yo_process_platform() == "windows") => u8(92),
+  // '\' for Windows
+  true => u8(47) // '/' for Unix
 );
-export PATH_SEPARATOR;
-
+export(PATH_SEPARATOR);
 /// Platform-specific path list delimiter: `':'` on Unix, `';'` on Windows.
 PATH_DELIMITER :: cond(
-  (__yo_process_platform() == "windows") => u8(59),  // ';' for Windows
-  true => u8(58)  // ':' for Unix
+  (__yo_process_platform() == "windows") => u8(59),
+  // ';' for Windows
+  true => u8(58) // ':' for Unix
 );
-export PATH_DELIMITER;
-
+export(PATH_DELIMITER);
 /// Filesystem path with segment-based operations.
 /// Paths are normalized on construction: `.` segments are removed, `..` pops the parent.
 Path :: object(
-  _segments: ArrayList(String),
-  _is_absolute: bool
+  _segments : ArrayList(String),
+  _is_absolute : bool
 );
-impl(Path,
+impl(
+  Path,
   /// Create a new path from a string. Normalizes separators and resolves `.`/`..`.
-  new : (fn(path_str: String) -> Self)({
+  new : (fn(path_str : String) -> Self)({
     segments := ArrayList(String).new();
     is_abs := false;
-
     // Handle empty path early
     cond(
       (path_str.is_empty()) => {
-        return Self(_segments: segments, _is_absolute: is_abs);
+        return(Self(_segments : segments, _is_absolute : is_abs));
       },
       true => ()
     );
-
     // Normalize backslashes to forward slashes for cross-platform support
     normalized := path_str.replace_all(String.from("\\"), String.from("/"));
-
     // Check if path is absolute
     // Unix: starts with '/'
     // Windows: starts with drive letter like 'C:' or UNC path '\\'
@@ -57,7 +52,8 @@ impl(Path,
     cond(
       (bytes.len() > usize(0)) => {
         first_byte := bytes.get(usize(0));
-        match(first_byte,
+        match(
+          first_byte,
           .Some(b) => cond(
             // Unix-style absolute path (starts with /)
             (b == u8(47)) => {
@@ -68,7 +64,8 @@ impl(Path,
               cond(
                 (bytes.len() >= usize(2)) => {
                   second_byte_opt := bytes.get(usize(1));
-                  match(second_byte_opt,
+                  match(
+                    second_byte_opt,
                     .Some(second_byte) => cond(
                       // Check if second byte is ':' (colon)
                       (second_byte == u8(58)) => {
@@ -91,51 +88,54 @@ impl(Path,
             }
           ),
           .None => ()
-        );        
+        );
       },
       true => ()
     );
-
     // Split path by "/" separator (backslashes already normalized)
     sep := String.from("/");
     parts := normalized.split(sep);
-    
     // Process each part
     i := usize(0);
-    while ((i < parts.len())),
-          (i = (i + usize(1))),
-    {
+    while(i < parts.len(), i = (i + usize(1)), {
       part_opt := parts.get(i);
-      match(part_opt,
+      match(
+        part_opt,
         .Some(part) => {
           // Skip empty segments (from leading/trailing slashes)
           cond(
             (part.is_empty()) => (),
             true => {
               // Check if it's "." (current directory)
-              is_dot := ((part.len() == usize(1)) && {
-                byte_opt := part.as_bytes().get(usize(0));
-                match(byte_opt,
-                  .Some(b) => (b == u8(46)),
-                  .None => false
-                )
-              });
-              
-              // Check if it's ".." (parent directory)
-              is_dotdot := ((part.len() == usize(2)) && {
-                b0_opt := part.as_bytes().get(usize(0));
-                b1_opt := part.as_bytes().get(usize(1));
-                match(b0_opt,
-                  .Some(b0) => match(b1_opt,
-                    .Some(b1) => ((b0 == u8(46)) && (b1 == u8(46))),
+              is_dot := (
+                (part.len() == usize(1)) && {
+                  byte_opt := part.as_bytes().get(usize(0));
+                  match(
+                    byte_opt,
+                    .Some(b) => (b == u8(46)),
                     .None => false
-                  ),
-                  .None => false
-                )
-              });
-              
+                  )
+                }
+              );
+              // Check if it's ".." (parent directory)
+              is_dotdot := (
+                (part.len() == usize(2)) && {
+                  b0_opt := part.as_bytes().get(usize(0));
+                  b1_opt := part.as_bytes().get(usize(1));
+                  match(
+                    b0_opt,
+                    .Some(b0) => match(
+                      b1_opt,
+                      .Some(b1) => ((b0 == u8(46)) && (b1 == u8(46))),
+                      .None => false
+                    ),
+                    .None => false
+                  )
+                }
+              );
               cond(
-                (is_dot) => (),  // Skip "."
+                (is_dot) => (),
+                // Skip "."
                 (is_dotdot) => {
                   // Pop the last segment if exists
                   cond(
@@ -154,355 +154,322 @@ impl(Path,
         },
         .None => ()
       );
-    };
-
-    return Self(_segments: segments, _is_absolute: is_abs);
+    });
+    return(Self(_segments : segments, _is_absolute : is_abs));
   }),
-
   /// Create a path from a C string pointer.
-  from_cstr : (fn(cstr: *(u8)) -> Self)({
+  from_cstr : (fn(cstr : *(u8)) -> Self)({
     str_result := String.from_cstr(cstr);
-    match(str_result,
+    match(
+      str_result,
       .Ok(s) => {
-        return Self.new(s);
+        return(Self.new(s));
       },
       .Err(_) => {
         // Return empty path on error
-        return Self(_segments: ArrayList(String).new(), _is_absolute: false);
+        return(Self(_segments : ArrayList(String).new(), _is_absolute : false));
       }
     );
   }),
-
   /// Join this path with another. If `other` is absolute, returns `other`.
-  join : (fn(self: Self, other: Self) -> Self)({
+  join : (fn(self : Self, other : Self) -> Self)({
     // If other is absolute, return other
     cond(
       (other._is_absolute) => {
-        return other;
+        return(other);
       },
       true => ()
     );
-
     // Otherwise, concatenate segments
-    new_segments := ArrayList(String).with_capacity((self._segments.len() + other._segments.len()));
-    
+    new_segments := ArrayList(String).with_capacity(self._segments.len() + other._segments.len());
     // Copy self segments
     i := usize(0);
-    while ((i < self._segments.len())),
-          (i = (i + usize(1))),
-    {
+    while(i < self._segments.len(), i = (i + usize(1)), {
       seg := self._segments.get(i);
-      match(seg,
+      match(
+        seg,
         .Some(s) => {
           new_segments.push(s);
         },
         .None => ()
       );
-    };
-
+    });
     // Copy other segments
     j := usize(0);
-    while ((j < other._segments.len())),
-          (j = (j + usize(1))),
-    {
+    while(j < other._segments.len(), j = (j + usize(1)), {
       seg := other._segments.get(j);
-      match(seg,
+      match(
+        seg,
         .Some(s) => {
           new_segments.push(s);
         },
         .None => ()
       );
-    };
-
-    return Self(_segments: new_segments, _is_absolute: self._is_absolute);
+    });
+    return(Self(_segments : new_segments, _is_absolute : self._is_absolute));
   }),
-
   /// Get the parent directory path, or `.None` if there are no segments.
-  parent : (fn(self: Self) -> Option(Self))({
+  parent : (fn(self : Self) -> Option(Self))({
     cond(
       (self._segments.len() == usize(0)) => {
-        return .None;
+        return(.None);
       },
       true => ()
     );
-
-    new_segments := ArrayList(String).with_capacity((self._segments.len() - usize(1)));
+    new_segments := ArrayList(String).with_capacity(self._segments.len() - usize(1));
     i := usize(0);
-    while ((i < (self._segments.len() - usize(1)))),
-          (i = (i + usize(1))),
-    {
+    while(i < (self._segments.len() - usize(1)), i = (i + usize(1)), {
       seg := self._segments.get(i);
-      match(seg,
+      match(
+        seg,
         .Some(s) => {
           new_segments.push(s);
         },
         .None => ()
       );
-    };
-
-    return .Some(Self(_segments: new_segments, _is_absolute: self._is_absolute));
+    });
+    return(.Some(Self(_segments : new_segments, _is_absolute : self._is_absolute)));
   }),
-
   /// Get the last path segment (filename), or `.None` for empty paths.
-  file_name : (fn(self: Self) -> Option(String))({
+  file_name : (fn(self : Self) -> Option(String))({
     cond(
       (self._segments.len() == usize(0)) => {
-        return .None;
+        return(.None);
       },
       true => ()
     );
-
-    return self._segments.get((self._segments.len() - usize(1)));
+    return(self._segments.get(self._segments.len() - usize(1)));
   }),
-
   /// Get the filename without its extension, or `.None` for empty paths.
-  file_stem : (fn(self: Self) -> Option(String))({
+  file_stem : (fn(self : Self) -> Option(String))({
     name_opt := self.file_name();
-    match(name_opt,
+    match(
+      name_opt,
       .Some(name) => {
         // Find the last dot using String methods
         dot := String.from(".");
         last_dot_result := name.last_index_of(dot);
-        match(last_dot_result,
+        match(
+          last_dot_result,
           .Some(idx) => {
             // Return substring before the dot
             stem := name.substring(usize(0), idx);
-            return .Some(stem);
+            return(.Some(stem));
           },
           .None => {
             // No dot found, return the whole name
-            return .Some(name);
+            return(.Some(name));
           }
         );
       },
       .None => {
-        return .None;
+        return(.None);
       }
     );
   }),
-
   /// Get the file extension (without the dot), or `.None` if there is none.
-  extension : (fn(self: Self) -> Option(String))({
+  extension : (fn(self : Self) -> Option(String))({
     name_opt := self.file_name();
-    match(name_opt,
+    match(
+      name_opt,
       .Some(name) => {
         // Find the last dot using String methods
         dot := String.from(".");
         last_dot_result := name.last_index_of(dot);
-        match(last_dot_result,
+        match(
+          last_dot_result,
           .Some(idx) => {
             // Return substring after the dot
-            ext := name.substring((idx + usize(1)), name.len());
+            ext := name.substring(idx + usize(1), name.len());
             cond(
               (ext.is_empty()) => {
-                return .None;
+                return(.None);
               },
               true => {
-                return .Some(ext);
+                return(.Some(ext));
               }
             );
           },
           .None => {
             // No dot found, no extension
-            return .None;
+            return(.None);
           }
         );
       },
       .None => {
-        return .None;
+        return(.None);
       }
     );
   }),
-
   /// Return a new path with the extension replaced by `ext`.
-  with_extension : (fn(self: Self, ext: String) -> Self)({
+  with_extension : (fn(self : Self, ext : String) -> Self)({
     cond(
       (self._segments.len() == usize(0)) => {
-        return self;
+        return(self);
       },
       true => ()
     );
-
     // Get the file stem
     stem_opt := self.file_stem();
-    match(stem_opt,
+    match(
+      stem_opt,
       .Some(stem) => {
         // Build new file name with extension
         dot := String.from(".");
         new_name := stem.concat(dot).concat(ext);
-        
         // Replace the last segment
         new_segments := ArrayList(String).with_capacity(self._segments.len());
         i := usize(0);
-        while ((i < (self._segments.len() - usize(1)))),
-              (i = (i + usize(1))),
-        {
+        while(i < (self._segments.len() - usize(1)), i = (i + usize(1)), {
           seg := self._segments.get(i);
-          match(seg,
+          match(
+            seg,
             .Some(s) => {
               new_segments.push(s);
             },
             .None => ()
           );
-        };
+        });
         new_segments.push(new_name);
-
-        return Self(_segments: new_segments, _is_absolute: self._is_absolute);
+        return(Self(_segments : new_segments, _is_absolute : self._is_absolute));
       },
       .None => {
-        return self;
+        return(self);
       }
     );
   }),
-
   /// Return a new path with the last segment replaced by `name`.
-  with_file_name : (fn(self: Self, name: String) -> Self)({
+  with_file_name : (fn(self : Self, name : String) -> Self)({
     cond(
       (self._segments.len() == usize(0)) => {
         // Empty path, just return a new path with the name
         segments := ArrayList(String).new();
         segments.push(name);
-        return Self(_segments: segments, _is_absolute: self._is_absolute);
+        return(Self(_segments : segments, _is_absolute : self._is_absolute));
       },
       true => ()
     );
-
     // Replace the last segment
     new_segments := ArrayList(String).with_capacity(self._segments.len());
     i := usize(0);
-    while ((i < (self._segments.len() - usize(1)))),
-          (i = (i + usize(1))),
-    {
+    while(i < (self._segments.len() - usize(1)), i = (i + usize(1)), {
       seg := self._segments.get(i);
-      match(seg,
+      match(
+        seg,
         .Some(s) => {
           new_segments.push(s);
         },
         .None => ()
       );
-    };
+    });
     new_segments.push(name);
-
-    return Self(_segments: new_segments, _is_absolute: self._is_absolute);
+    return(Self(_segments : new_segments, _is_absolute : self._is_absolute));
   }),
-
   /// Check if this path starts with the given base path (segment-wise).
-  starts_with : (fn(self: Self, base: Self) -> bool)({
+  starts_with : (fn(self : Self, base : Self) -> bool)({
     // Absolute vs relative mismatch
     cond(
       (self._is_absolute != base._is_absolute) => {
-        return false;
+        return(false);
       },
       true => ()
     );
-
     // Base has more segments than self
     cond(
       (base._segments.len() > self._segments.len()) => {
-        return false;
+        return(false);
       },
       true => ()
     );
-
     // Check if all base segments match
     i := usize(0);
-    while ((i < base._segments.len())),
-          (i = (i + usize(1))),
-    {
+    while(i < base._segments.len(), i = (i + usize(1)), {
       self_seg_opt := self._segments.get(i);
       base_seg_opt := base._segments.get(i);
-      
-      match(self_seg_opt,
-        .Some(self_seg) => match(base_seg_opt,
+      match(
+        self_seg_opt,
+        .Some(self_seg) => match(
+          base_seg_opt,
           .Some(base_seg) => {
             cond(
               (self_seg == base_seg) => (),
               true => {
-                return false;
+                return(false);
               }
             );
           },
           .None => {
-            return false;
+            return(false);
           }
         ),
         .None => {
-          return false;
+          return(false);
         }
       );
-    };
-
-    return true;
+    });
+    return(true);
   }),
-
   /// Check if this path ends with the given suffix path (segment-wise).
-  ends_with : (fn(self: Self, suffix: Self) -> bool)({
+  ends_with : (fn(self : Self, suffix : Self) -> bool)({
     // Suffix has more segments than self
     cond(
       (suffix._segments.len() > self._segments.len()) => {
-        return false;
+        return(false);
       },
       true => ()
     );
-
     // If suffix is absolute, it must match exactly
     cond(
       (suffix._is_absolute) => {
         cond(
           (self._is_absolute != suffix._is_absolute) => {
-            return false;
+            return(false);
           },
           true => ()
         );
         cond(
           (self._segments.len() != suffix._segments.len()) => {
-            return false;
+            return(false);
           },
           true => ()
         );
       },
       true => ()
     );
-
     // Check if suffix segments match the end of self
     suffix_len := suffix._segments.len();
     self_len := self._segments.len();
     offset := (self_len - suffix_len);
-
     i := usize(0);
-    while ((i < suffix_len)),
-          (i = (i + usize(1))),
-    {
-      self_seg_opt := self._segments.get((offset + i));
+    while(i < suffix_len, i = (i + usize(1)), {
+      self_seg_opt := self._segments.get(offset + i);
       suffix_seg_opt := suffix._segments.get(i);
-      
-      match(self_seg_opt,
-        .Some(self_seg) => match(suffix_seg_opt,
+      match(
+        self_seg_opt,
+        .Some(self_seg) => match(
+          suffix_seg_opt,
           .Some(suffix_seg) => {
             cond(
               (self_seg == suffix_seg) => (),
               true => {
-                return false;
+                return(false);
               }
             );
           },
           .None => {
-            return false;
+            return(false);
           }
         ),
         .None => {
-          return false;
+          return(false);
         }
       );
-    };
-
-    return true;
+    });
+    return(true);
   }),
-
   /// Get all path components as a list. Absolute paths start with `"/"`.
-  components : (fn(self: Self) -> ArrayList(String))({
-    result := ArrayList(String).with_capacity((self._segments.len() + usize(1)));
-    
+  components : (fn(self : Self) -> ArrayList(String))({
+    result := ArrayList(String).with_capacity(self._segments.len() + usize(1));
     // Add root component if absolute
     cond(
       (self._is_absolute) => {
@@ -510,151 +477,149 @@ impl(Path,
       },
       true => ()
     );
-
     // Add all segments
     i := usize(0);
-    while ((i < self._segments.len())),
-          (i = (i + usize(1))),
-    {
+    while(i < self._segments.len(), i = (i + usize(1)), {
       seg := self._segments.get(i);
-      match(seg,
+      match(
+        seg,
         .Some(s) => {
           result.push(s);
         },
         .None => ()
       );
-    };
-
-    return result;
+    });
+    return(result);
   }),
-
   /// Check if the path is absolute.
-  is_absolute : (fn(self: Self) -> bool)(
+  is_absolute : (fn(self : Self) -> bool)(
     self._is_absolute
   ),
-
   /// Check if the path is relative (not absolute).
-  is_relative : (fn(self: Self) -> bool)(
-    !self._is_absolute
+  is_relative : (fn(self : Self) -> bool)(
+    !(self._is_absolute)
   )
 );
-
-impl(Path, ToString(
-  to_string : (self -> {
-    segments := self._segments;
-    sep := String.from("/");
-    result := String.new();
-    
-    // Check if first segment is a Windows drive letter (e.g., "C:")
-    has_drive_letter := cond(
-      (segments.len() > usize(0)) => {
-        first_seg_opt := segments.get(usize(0));
-        match(first_seg_opt,
-          .Some(first_seg) =>
-            // Check if it's a drive letter like "C:"
-            cond(
-              (first_seg.len() == usize(2)) => {
-                b0_opt := first_seg.as_bytes().get(usize(0));
-                b1_opt := first_seg.as_bytes().get(usize(1));
-                match(b0_opt,
-                  .Some(b0) => match(b1_opt,
-                    .Some(b1) => {
-                      is_letter := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))));
-                      is_colon := (b1 == u8(58));
-                      (is_letter && is_colon)
-                    },
-                    .None => false
-                  ),
-                  .None => false
-                )
-              },
-              true => false
-            ),
-          .None => false
-        )
-      },
-      true => false
-    );
-    
-    // For Unix absolute paths, prepend /
-    // For Windows paths with drive letter, don't prepend /
-    cond(
-      (self._is_absolute && !has_drive_letter) => {
-        result = result.concat(sep);
-      },
-      true => ()
-    );
-    i := usize(0);
-    segments_len := segments.len();
-    while ((i < segments_len)),
-          (i = (i + usize(1))),
-    {     
-      seg := segments.get(i);
-      match(seg,
-        .Some(s) => {
-          result = result.concat(s);
-          cond(
-            ((i < (segments_len - usize(1)))) => {
-              result = result.concat(sep);
-            },
-            true => ()
-          );
-        },
-        .None => ()
-      );    
-    };
-    return result;
-  })
-));
-
-impl(Path, Eq(Path)(
-  (==) : ((self, other)-> {
-    // Compare absolute vs relative
-    cond(
-      (self._is_absolute != other._is_absolute) => {
-        return false;
-      },
-      true => ()
-    );
-
-    // Compare segment lengths
-    cond(
-      (self._segments.len() != other._segments.len()) => {
-        return false;
-      },
-      true => ()
-    );
-
-    // Compare each segment
-    i := usize(0);
-    while ((i < self._segments.len())),
-          (i = (i + usize(1))),
-    {
-      self_seg_opt := self._segments.get(i);
-      other_seg_opt := other._segments.get(i);
-      
-      match(self_seg_opt,
-        .Some(self_seg) => match(other_seg_opt,
-          .Some(other_seg) => {
-            cond(
-              (self_seg == other_seg) => (),
-              true => {
-                return false;
-              }
-            );
+impl(
+  Path,
+  ToString(
+    to_string : (
+      self -> {
+        segments := self._segments;
+        sep := String.from("/");
+        result := String.new();
+        // Check if first segment is a Windows drive letter (e.g., "C:")
+        has_drive_letter := cond(
+          (segments.len() > usize(0)) => {
+            first_seg_opt := segments.get(usize(0));
+            match(
+              first_seg_opt,
+              .Some(first_seg) =>
+                // Check if it's a drive letter like "C:"
+                cond(
+                  (first_seg.len() == usize(2)) => {
+                    b0_opt := first_seg.as_bytes().get(usize(0));
+                    b1_opt := first_seg.as_bytes().get(usize(1));
+                    match(
+                      b0_opt,
+                      .Some(b0) => match(
+                        b1_opt,
+                        .Some(b1) => {
+                          is_letter := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))));
+                          is_colon := (b1 == u8(58));
+                          is_letter && is_colon
+                        },
+                        .None => false
+                      ),
+                      .None => false
+                    )
+                  },
+                  true => false
+                ),
+              .None => false
+            )
           },
-          .None => {
-            return false;
-          }
-        ),
-        .None => {
-          return false;
-        }
-      );
-    };
-
-    return true;
-  })
-));
-
-export Path;
+          true => false
+        );
+        // For Unix absolute paths, prepend /
+        // For Windows paths with drive letter, don't prepend /
+        cond(
+          (self._is_absolute && !(has_drive_letter)) => {
+            result = result.concat(sep);
+          },
+          true => ()
+        );
+        i := usize(0);
+        segments_len := segments.len();
+        while(i < segments_len, i = (i + usize(1)), {
+          seg := segments.get(i);
+          match(
+            seg,
+            .Some(s) => {
+              result = result.concat(s);
+              cond(
+                (i < (segments_len - usize(1))) => {
+                  result = result.concat(sep);
+                },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+        });
+        return(result);
+      }
+    )
+  )
+);
+impl(
+  Path,
+  Eq(Path)(
+    (==) : (
+      (self, other) -> {
+        // Compare absolute vs relative
+        cond(
+          (self._is_absolute != other._is_absolute) => {
+            return(false);
+          },
+          true => ()
+        );
+        // Compare segment lengths
+        cond(
+          (self._segments.len() != other._segments.len()) => {
+            return(false);
+          },
+          true => ()
+        );
+        // Compare each segment
+        i := usize(0);
+        while(i < self._segments.len(), i = (i + usize(1)), {
+          self_seg_opt := self._segments.get(i);
+          other_seg_opt := other._segments.get(i);
+          match(
+            self_seg_opt,
+            .Some(self_seg) => match(
+              other_seg_opt,
+              .Some(other_seg) => {
+                cond(
+                  (self_seg == other_seg) => (),
+                  true => {
+                    return(false);
+                  }
+                );
+              },
+              .None => {
+                return(false);
+              }
+            ),
+            .None => {
+              return(false);
+            }
+          );
+        });
+        return(true);
+      }
+    )
+  )
+);
+export(Path);

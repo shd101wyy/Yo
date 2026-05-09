@@ -14,202 +14,228 @@
 //!   - `registerPartialModule`: not supported (VSCode-extension-only feature).
 //!   - `moduleLevelInitExprs`: not tracked (not in yo-self's `EvalValue.ModuleVal`).
 //!   - `moduleValue.isLoading`: not in yo-self's `EvalValue.ModuleVal`, skipped.
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
-  ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_atom, ast_expr_is_fn_call,
-  ast_expr_is_fn_call_of, ast_expr_is_atom_of,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom_of,
   make_err_expr,
   BK_EXPORT
-}                                          :: import "../../expr/expr.yo";
-{ ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set } :: import "../../expr/expr_info.yo";
-{ Environment, get_variables_from_env }    :: import "../../env/env.yo";
-{ TypeValue }                              :: import "../../types/type.yo";
-{ is_module_type }                         :: import "../../types/guards.yo";
-{ type_to_string }                         :: import "../../types/string.yo";
-{ EvalValue }                              :: import "../value.yo";
-{ EvalContext }                            :: import "../context.yo";
-{ evaluate_expression_raw }                      :: import "../exprs/expr.yo";
-{ is_valid_variable_name }                 :: import "../exprs/binding.yo";
-{ format_error_message }                   :: import "../../error/error.yo";
-{ Exception }                              :: import "std/error";
-
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment, get_variables_from_env } :: import("../../env/env.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ is_module_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ EvalValue } :: import("../value.yo");
+{ EvalContext } :: import("../context.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
 /// Result type for `evaluate_anonymous_module_begin_exprs`.
 ///
 /// Mirrors the return value of `evaluateAnonymousModuleBeginExprs` in
 /// `src/evaluator/values/anonymous-module.ts`.
 AnonModuleResult :: object(
-  module_value         : EvalValue,
-  module_type          : TypeValue,
-  env                  : Environment,
+  module_value : EvalValue,
+  module_type : TypeValue,
+  env : Environment,
   partial_module_error : Option(String)
 );
-
 /// Helper: find the first index of `label` in `field_labels`, or `.None`.
 _find_field_label_index :: (fn(field_labels : ArrayList(String), label : str) -> Option(usize))({
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
   n := field_labels.len();
-  while runtime(((i < n) && idx.is_none())), {
-    match(field_labels.get(i),
-      .Some(lbl) => if((lbl.as_str() == label), { idx = .Some(i); }),
-      .None      => ()
+  while(runtime((i < n) && idx.is_none()), {
+    match(
+      field_labels.get(i),
+      .Some(lbl) => if(lbl.as_str() == label, {
+        idx =.Some(i);
+      }),
+      .None => ()
     );
     i = (i + usize(1));
-  };
+  });
   idx
 });
-
 /// Helper: check if `label` is in `excluded` list.
 _is_excluded_label :: (fn(excluded : ArrayList(String), label : str) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := excluded.len();
-  while runtime(((i < n) && !(found))), {
-    match(excluded.get(i),
-      .Some(lbl) => if((lbl.as_str() == label), { found = true; }),
-      .None      => ()
+  while(runtime((i < n) && !(found)), {
+    match(
+      excluded.get(i),
+      .Some(lbl) => if(lbl.as_str() == label, {
+        found = true;
+      }),
+      .None => ()
     );
     i = (i + usize(1));
-  };
+  });
   found
 });
-
 /// Evaluate a list of module-body expressions (the body of a `module { ... }` block)
 /// and produce a `ModuleVal` + `ModuleT`.
 ///
 /// Mirrors `evaluateAnonymousModuleBeginExprs` in
 /// `src/evaluator/values/anonymous-module.ts`.
-evaluate_anonymous_module_begin_exprs :: (fn(
-  begin_exprs          : ArrayList(AstExpr),
-  init_env             : Environment,
-  ctx                  : *(EvalContext),
-  allow_partial_module : bool,
-  using(exn            : Exception)
-) -> AnonModuleResult)({
+evaluate_anonymous_module_begin_exprs :: (
+  fn(
+    begin_exprs : ArrayList(AstExpr),
+    init_env : Environment,
+    ctx : *(EvalContext),
+    allow_partial_module : bool,
+    using(exn : Exception)
+  ) -> AnonModuleResult
+)({
   // Mutable local copy — mirrors TypeScript's `let env = inEnv`.
   (env : Environment) = init_env;
-
   // Parallel arrays that together build `TypeValue.ModuleT` and `EvalValue.ModuleVal`.
-  field_labels  := ArrayList(String).new();
-  field_types   := ArrayList(TypeValue).new();
-  module_names  := ArrayList(String).new();
-  module_vals   := ArrayList(EvalValue).new();
-
+  field_labels := ArrayList(String).new();
+  field_types := ArrayList(TypeValue).new();
+  module_names := ArrayList(String).new();
+  module_vals := ArrayList(EvalValue).new();
   (partial_error : Option(String)) = Option(String).None;
-  (should_stop   : bool)           = false;
-
+  (should_stop : bool) = false;
   // Push new frame to the env
   env.push_frame(false);
-
   // Evaluate each expression in the module body
   (i : usize) = usize(0);
   n := begin_exprs.len();
-  while runtime(((i < n) && !(should_stop))), {
-    match(begin_exprs.get(i),
-      .None      => { should_stop = true; },
+  while(runtime((i < n) && !(should_stop)), {
+    match(
+      begin_exprs.get(i),
+      .None => {
+        should_stop = true;
+      },
       .Some(expr) => {
         // NOTE: allow_partial_module = true (VSCode LSP) is not implemented here
         // because closures in given() handlers cannot capture outer variables yet
         // (codegen bug: issues/closure-capture-mutable.md). For tests, allow_partial_module
         // is always false, so we propagate errors to the outer exn directly.
-
         // Export expression: export(Name1, Name2, ...)
-        if((ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_EXPORT, .None)), {
-          export_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
-
+        if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_EXPORT,.None), {
+          export_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
           (j : usize) = usize(0);
           nj := export_args.len();
-          while runtime(((j < nj) && !(should_stop))), {
-            match(export_args.get(j),
-              .None => { should_stop = true; },
+          while(runtime((j < nj) && !(should_stop)), {
+            match(
+              export_args.get(j),
+              .None => {
+                should_stop = true;
+              },
               .Some(export_expr) => {
                 // Spread export: export ...OtherModule
                 cond(
-                  (ast_expr_is_fn_call(export_expr) &&
-                   ast_expr_is_fn_call_of(export_expr, "...", .None)) => {
-                    spread_args := match(export_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-                    ext_mod_expr := match(spread_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
-
+                  (
+                    ast_expr_is_fn_call(export_expr) &&
+                      ast_expr_is_fn_call_of(export_expr, "...",.None)
+                  ) => {
+                    spread_args := match(export_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                    ext_mod_expr := match(spread_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
                     // Optional exclude(...) second arg
                     exclude_expr_opt := spread_args.get(usize(1));
-
                     // Evaluate the extended module expression
                     saved_expected := ctx.*.expected_type;
-                    ctx.*.expected_type = .None;
+                    ctx.*.expected_type =.None;
                     eval_ext := evaluate_expression_raw(ext_mod_expr, env, ctx, using(exn));
                     ctx.*.expected_type = saved_expected;
-
                     ext_info_opt := expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(eval_ext));
                     if(ext_info_opt.is_none(), {
-                      exn.throw(dyn format_error_message(
-                        ast_expr_token(ext_mod_expr),
-                        String.from("Failed to evaluate the extended struct expression"),
-                        false, .None
-                      ));
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(ext_mod_expr),
+                            String.from("Failed to evaluate the extended struct expression"),
+                            false,
+                            .None
+                          )
+                        )
+                      );
                     });
-                    ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(env, TypeValue.Unit));
+                    ext_info := match(ext_info_opt,.Some(it) => it,.None => new_expr_info(env, TypeValue.Unit));
                     env = ext_info.env;
-
                     ext_mod_type := ext_info.ty;
                     if(!(is_module_type(ext_mod_type)), {
-                      exn.throw(dyn format_error_message(
-                        ast_expr_token(ext_mod_expr),
-                        `Expected struct type for export, got:\n${type_to_string(ext_mod_type)}`,
-                        false, .None
-                      ));
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(ext_mod_expr),
+                            `Expected struct type for export, got:\n${type_to_string(ext_mod_type)}`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
                     });
-
                     // Extract the ModuleVal if available
-                    ext_mod_val_opt := match(ext_info.value,
-                      .Some(inner_v) => match(inner_v,
+                    ext_mod_val_opt := match(
+                      ext_info.value,
+                      .Some(inner_v) => match(
+                        inner_v,
                         .ModuleVal(ns, vs) => Option(EvalValue).Some(EvalValue.ModuleVal(ns, vs)),
                         _ => Option(EvalValue).None
                       ),
                       .None => Option(EvalValue).None
                     );
-
                     // Build excluded-labels list
                     excluded_labels := ArrayList(String).new();
-                    match(exclude_expr_opt,
+                    match(
+                      exclude_expr_opt,
                       .None => (),
                       .Some(exclude_expr_raw) => {
                         // If the second arg is `exclude: (...)` or `exclude: Name`, strip the `exclude:` label
                         exclude_expr := cond(
-                          (ast_expr_is_fn_call(exclude_expr_raw) &&
-                           ast_expr_is_fn_call_of(exclude_expr_raw, ":", .Some(usize(2))) &&
-                           match(
-                             match(exclude_expr_raw, .FnCall(_, _, ea, _, _) => ea, _ => ArrayList(AstExpr).new()).get(usize(0)),
-                             .Some(first) => ast_expr_is_atom_of(first, "exclude"),
-                             .None => false
-                           )) =>
+                          (
+                            ast_expr_is_fn_call(exclude_expr_raw) &&
+                              ast_expr_is_fn_call_of(exclude_expr_raw, ":",.Some(usize(2))) &&
+                                match(
+                                  match(exclude_expr_raw,.FnCall(_, _, ea, _, _) => ea, _ => ArrayList(AstExpr).new()).get(usize(0)),
+                                  .Some(first) => ast_expr_is_atom_of(first, "exclude"),
+                                  .None => false
+                                )
+                          ) =>
                             match(
-                              match(exclude_expr_raw, .FnCall(_, _, ea, _, _) => ea, _ => ArrayList(AstExpr).new()).get(usize(1)),
+                              match(exclude_expr_raw,.FnCall(_, _, ea, _, _) => ea, _ => ArrayList(AstExpr).new()).get(usize(1)),
                               .Some(e2) => e2,
                               .None => exclude_expr_raw
                             ),
                           true => exclude_expr_raw
                         );
-
                         // Single identifier exclude
                         cond(
                           ast_expr_is_atom(exclude_expr) => {
                             tok_val := ast_expr_token(exclude_expr);
-                            lbl := (&tok_val.value).clone();
+                            lbl := (&(tok_val.value)).clone();
                             // Verify label exists in ext_mod_type
-                            match(ext_mod_type,
+                            match(
+                              ext_mod_type,
                               .ModuleT(_, _, efls, _) => {
                                 if(_find_field_label_index(efls, lbl.as_str()).is_none(), {
-                                  exn.throw(dyn format_error_message(
-                                    ast_expr_token(exclude_expr),
-                                    `Label "${lbl}" is not found in the extended module type.`,
-                                    false, .None
-                                  ));
+                                  exn.throw(
+                                    dyn(
+                                      format_error_message(
+                                        ast_expr_token(exclude_expr),
+                                        `Label "${lbl}" is not found in the extended module type.`,
+                                        false,
+                                        .None
+                                      )
+                                    )
+                                  );
                                 });
                               },
                               _ => ()
@@ -217,31 +243,47 @@ evaluate_anonymous_module_begin_exprs :: (fn(
                             excluded_labels.push(lbl);
                           },
                           // Tuple of identifiers: tuple(a, b, c)
-                          (ast_expr_is_fn_call(exclude_expr) &&
-                           ast_expr_is_fn_call_of(exclude_expr, "tuple", .None)) => {
-                            tuple_args := match(exclude_expr, .FnCall(_, _, ta, _, _) => ta, _ => ArrayList(AstExpr).new());
+                          (
+                            ast_expr_is_fn_call(exclude_expr) &&
+                              ast_expr_is_fn_call_of(exclude_expr, "tuple",.None)
+                          ) => {
+                            tuple_args := match(exclude_expr,.FnCall(_, _, ta, _, _) => ta, _ => ArrayList(AstExpr).new());
                             (k : usize) = usize(0);
                             nk := tuple_args.len();
-                            while runtime(((k < nk) && !(should_stop))), {
-                              match(tuple_args.get(k),
-                                .None => { should_stop = true; },
+                            while(runtime((k < nk) && !(should_stop)), {
+                              match(
+                                tuple_args.get(k),
+                                .None => {
+                                  should_stop = true;
+                                },
                                 .Some(member_expr) => {
                                   if(!(ast_expr_is_atom(member_expr)), {
-                                    exn.throw(dyn format_error_message(
-                                      ast_expr_token(member_expr),
-                                      `Expected identifier for excluded label, got:\n${ast_expr_to_string(member_expr)}`,
-                                      false, .None
-                                    ));
+                                    exn.throw(
+                                      dyn(
+                                        format_error_message(
+                                          ast_expr_token(member_expr),
+                                          `Expected identifier for excluded label, got:\n${ast_expr_to_string(member_expr)}`,
+                                          false,
+                                          .None
+                                        )
+                                      )
+                                    );
                                   });
-                                  lbl := (&ast_expr_token(member_expr).value).clone();
-                                  match(ext_mod_type,
+                                  lbl := (&(ast_expr_token(member_expr).value)).clone();
+                                  match(
+                                    ext_mod_type,
                                     .ModuleT(_, _, efls, _) => {
                                       if(_find_field_label_index(efls, lbl.as_str()).is_none(), {
-                                        exn.throw(dyn format_error_message(
-                                          ast_expr_token(member_expr),
-                                          `Label "${lbl}" is not found in the extended module type.`,
-                                          false, .None
-                                        ));
+                                        exn.throw(
+                                          dyn(
+                                            format_error_message(
+                                              ast_expr_token(member_expr),
+                                              `Label "${lbl}" is not found in the extended module type.`,
+                                              false,
+                                              .None
+                                            )
+                                          )
+                                        );
                                       });
                                     },
                                     _ => ()
@@ -250,167 +292,213 @@ evaluate_anonymous_module_begin_exprs :: (fn(
                                 }
                               );
                               k = (k + usize(1));
-                            };
+                            });
                           },
                           true => {
-                            exn.throw(dyn format_error_message(
-                              ast_expr_token(exclude_expr),
-                              `Expected identifier or tuple for excluded labels, got:\n${ast_expr_to_string(exclude_expr)}`,
-                              false, .None
-                            ));
+                            exn.throw(
+                              dyn(
+                                format_error_message(
+                                  ast_expr_token(exclude_expr),
+                                  `Expected identifier or tuple for excluded labels, got:\n${ast_expr_to_string(exclude_expr)}`,
+                                  false,
+                                  .None
+                                )
+                              )
+                            );
                           }
                         );
                       }
                     );
-
                     // Iterate over fields of the extended module and add non-excluded ones
-                    match(ext_mod_type,
+                    match(
+                      ext_mod_type,
                       .ModuleT(_, _, efls, efts) => {
                         (k : usize) = usize(0);
                         nk := efls.len();
-                        while runtime(((k < nk) && !(should_stop))), {
-                          ext_label := match(efls.get(k), .Some(l) => l, .None => String.from(""));
-                          ext_type  := match(efts.get(k), .Some(t) => t, .None => TypeValue.Unit);
-
+                        while(runtime((k < nk) && !(should_stop)), {
+                          ext_label := match(efls.get(k),.Some(l) => l,.None => String.from(""));
+                          ext_type := match(efts.get(k),.Some(t) => t,.None => TypeValue.Unit);
                           if(!(_is_excluded_label(excluded_labels, ext_label.as_str())), {
                             // Check for duplicate label
                             if(_find_field_label_index(field_labels, ext_label.as_str()).is_some(), {
-                              exn.throw(dyn format_error_message(
-                                ast_expr_token(export_expr),
-                                `Element "${ext_label}" is already exported in the module.`,
-                                false, .None
-                              ));
+                              exn.throw(
+                                dyn(
+                                  format_error_message(
+                                    ast_expr_token(export_expr),
+                                    `Element "${ext_label}" is already exported in the module.`,
+                                    false,
+                                    .None
+                                  )
+                                )
+                              );
                             });
-
                             // Get corresponding value from extended ModuleVal
-                            ext_val := match(ext_mod_val_opt,
-                              .Some(inner_mv) => match(inner_mv,
-                                .ModuleVal(_, vs) => match(vs.get(k), .Some(v) => v, .None => EvalValue.UnitVal),
+                            ext_val := match(
+                              ext_mod_val_opt,
+                              .Some(inner_mv) => match(
+                                inner_mv,
+                                .ModuleVal(_, vs) => match(vs.get(k),.Some(v) => v,.None => EvalValue.UnitVal),
                                 _ => EvalValue.UnitVal
                               ),
                               .None => EvalValue.UnitVal
                             );
-
-                            field_labels.push((&ext_label).clone());
+                            field_labels.push((&(ext_label)).clone());
                             field_types.push(ext_type);
-                            module_names.push((&ext_label).clone());
+                            module_names.push((&(ext_label)).clone());
                             module_vals.push(ext_val);
-
                             // Set ExprInfo on export_expr (last field wins, matching TS behavior)
                             out_info := new_expr_info(env, ext_type);
-                            out_info.value = .Some(ext_val);
+                            out_info.value =.Some(ext_val);
                             expr_info_table_set(ctx.*.expr_info_table, ast_expr_id(export_expr), out_info);
                           });
-
                           k = (k + usize(1));
-                        };
+                        });
                       },
                       _ => ()
                     );
                   },
-                  // Named export: `export Name` or `export Label : OriginalName`
+                  // Named export: `export(Name)` or `export(Label : OriginalName)`
                   true => {
-                    (variable_name  : String) = String.from("");
+                    (variable_name : String) = String.from("");
                     (given_var_name : String) = String.from("");
-
                     cond(
                       ast_expr_is_atom(export_expr) => {
                         if(!(is_valid_variable_name(export_expr)), {
-                          exn.throw(dyn format_error_message(
-                            ast_expr_token(export_expr),
-                            `Expected identifier for export, got:\n${ast_expr_to_string(export_expr)}`,
-                            false, .None
-                          ));
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(export_expr),
+                                `Expected identifier for export, got:\n${ast_expr_to_string(export_expr)}`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
                         });
-                        variable_name  = (&ast_expr_token(export_expr).value).clone();
-                        given_var_name = (&variable_name).clone();
+                        variable_name = (&(ast_expr_token(export_expr).value)).clone();
+                        given_var_name = (&(variable_name)).clone();
                       },
                       // export Label : _OriginalName
-                      (ast_expr_is_fn_call(export_expr) &&
-                       ast_expr_is_fn_call_of(export_expr, ":", .Some(usize(2)))) => {
-                        colon_args := match(export_expr, .FnCall(_, _, ca, _, _) => ca, _ => ArrayList(AstExpr).new());
-                        label_expr := match(colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
-                        name_expr  := match(colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
-
+                      (
+                        ast_expr_is_fn_call(export_expr) &&
+                          ast_expr_is_fn_call_of(export_expr, ":",.Some(usize(2)))
+                      ) => {
+                        colon_args := match(export_expr,.FnCall(_, _, ca, _, _) => ca, _ => ArrayList(AstExpr).new());
+                        label_expr := match(colon_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+                        name_expr := match(colon_args.get(usize(1)),.Some(e) => e,.None => make_err_expr());
                         if(!(ast_expr_is_atom(label_expr)), {
-                          exn.throw(dyn format_error_message(
-                            ast_expr_token(label_expr),
-                            `Expected identifier for export, got:\n${ast_expr_to_string(label_expr)}`,
-                            false, .None
-                          ));
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(label_expr),
+                                `Expected identifier for export, got:\n${ast_expr_to_string(label_expr)}`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
                         });
                         if(!(is_valid_variable_name(label_expr)), {
-                          exn.throw(dyn format_error_message(
-                            ast_expr_token(label_expr),
-                            `Expected identifier for export, got:\n${ast_expr_to_string(label_expr)}`,
-                            false, .None
-                          ));
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(label_expr),
+                                `Expected identifier for export, got:\n${ast_expr_to_string(label_expr)}`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
                         });
-                        variable_name = (&ast_expr_token(label_expr).value).clone();
-
+                        variable_name = (&(ast_expr_token(label_expr).value)).clone();
                         if(!(ast_expr_is_atom(name_expr)), {
-                          exn.throw(dyn format_error_message(
-                            ast_expr_token(name_expr),
-                            `Expected identifier for export, got:\n${ast_expr_to_string(name_expr)}`,
-                            false, .None
-                          ));
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(name_expr),
+                                `Expected identifier for export, got:\n${ast_expr_to_string(name_expr)}`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
                         });
                         if(!(is_valid_variable_name(name_expr)), {
-                          exn.throw(dyn format_error_message(
-                            ast_expr_token(name_expr),
-                            `Expected identifier for export, got:\n${ast_expr_to_string(name_expr)}`,
-                            false, .None
-                          ));
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(name_expr),
+                                `Expected identifier for export, got:\n${ast_expr_to_string(name_expr)}`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
                         });
-                        given_var_name = (&ast_expr_token(name_expr).value).clone();
+                        given_var_name = (&(ast_expr_token(name_expr).value)).clone();
                       },
                       true => ()
                     );
-
                     // Look up the variable
-                    vars := get_variables_from_env(env, (&given_var_name).clone());
-                    if((vars.len() == usize(0)), {
-                      exn.throw(dyn format_error_message(
-                        ast_expr_token(export_expr),
-                        `Variable "${given_var_name}" is not defined in the module.`,
-                        false, .None
-                      ));
+                    vars := get_variables_from_env(env, (&(given_var_name)).clone());
+                    if(vars.len() == usize(0), {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(export_expr),
+                            `Variable "${given_var_name}" is not defined in the module.`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
                     });
-                    the_var := match(vars.get((vars.len() - usize(1))), .Some(v) => v, .None => {
-                      panic("unreachable: vars.len() was checked above");
-                      return AnonModuleResult(
-                        module_value:         EvalValue.UnitVal,
-                        module_type:          TypeValue.Unit,
-                        env:                  env,
-                        partial_module_error: Option(String).None
-                      )
-                    });
-
+                    the_var := match(
+                      vars.get(vars.len() - usize(1)),
+                      .Some(v) => v,
+                      .None => {
+                        panic("unreachable: vars.len() was checked above");
+                        return(
+                          AnonModuleResult(
+                            module_value : EvalValue.UnitVal,
+                            module_type : TypeValue.Unit,
+                            env : env,
+                            partial_module_error : Option(String).None
+                          )
+                        )
+                      }
+                    );
                     // Check for duplicate export
                     if(_find_field_label_index(field_labels, variable_name.as_str()).is_some(), {
-                      exn.throw(dyn format_error_message(
-                        ast_expr_token(export_expr),
-                        `Variable "${variable_name}" is already exported in the module.`,
-                        false, .None
-                      ));
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(export_expr),
+                            `Variable "${variable_name}" is already exported in the module.`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
                     });
-
                     // Only compile-time variables can be exported
                     if(!(the_var.is_compile_time_only), {
-                      exn.throw(dyn format_error_message(
-                        ast_expr_token(export_expr),
-                        `Variable "${given_var_name}" is not a compile-time variable and cannot be exported.`,
-                        false, .None
-                      ));
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(export_expr),
+                            `Variable "${given_var_name}" is not a compile-time variable and cannot be exported.`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
                     });
-
-                    the_val := match(the_var.value, .Some(v) => v, .None => EvalValue.UnitVal);
-
-                    field_labels.push((&variable_name).clone());
+                    the_val := match(the_var.value,.Some(v) => v,.None => EvalValue.UnitVal);
+                    field_labels.push((&(variable_name)).clone());
                     field_types.push(the_var.ty);
-                    module_names.push((&variable_name).clone());
+                    module_names.push((&(variable_name)).clone());
                     module_vals.push(the_val);
-
                     // Set ExprInfo on export_expr
                     out_info := new_expr_info(env, the_var.ty);
                     expr_info_table_set(ctx.*.expr_info_table, ast_expr_id(export_expr), out_info);
@@ -419,41 +507,39 @@ evaluate_anonymous_module_begin_exprs :: (fn(
               }
             );
             j = (j + usize(1));
-          };
+          });
         }, {
           // Non-export expression: evaluate normally
           saved_expected := ctx.*.expected_type;
-          ctx.*.expected_type = .None;
+          ctx.*.expected_type =.None;
           evaluated := evaluate_expression_raw(expr, env, ctx, using(exn));
           ctx.*.expected_type = saved_expected;
-
           info_opt := expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(evaluated));
-          match(info_opt,
-            .Some(info) => { env = info.env; },
+          match(
+            info_opt,
+            .Some(info) => {
+              env = info.env;
+            },
             .None => ()
           );
         });
       }
     );
     i = (i + usize(1));
-  };
-
+  });
   // Pop the env frame (only if no partial error)
   // NOTE: pop_exn handler omitted — see allow_partial_module note above.
   if(partial_error.is_none(), {
     env.pop_frame();
   });
-
   module_type := TypeValue.ModuleT(String.from(""), String.from(""), field_labels, field_types);
-  module_val  := EvalValue.ModuleVal(module_names, module_vals);
-
+  module_val := EvalValue.ModuleVal(module_names, module_vals);
   AnonModuleResult(
-    module_value:         module_val,
-    module_type:          module_type,
-    env:                  env,
-    partial_module_error: partial_error
+    module_value : module_val,
+    module_type : module_type,
+    env : env,
+    partial_module_error : partial_error
   )
 });
-
-export AnonModuleResult;
-export evaluate_anonymous_module_begin_exprs;
+export(AnonModuleResult);
+export(evaluate_anonymous_module_begin_exprs);

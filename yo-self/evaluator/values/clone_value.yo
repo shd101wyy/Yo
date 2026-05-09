@@ -13,11 +13,9 @@
 //! independent clone, which is sufficient for Phase 3 bootstrap purposes.
 //!
 //! Mirrors `cloneValue` in `src/evaluator/values/clone-value.ts`.
-
-open import "std/string";
-{ ArrayList } :: import "std/collections/array_list";
-{ EvalValue } :: import "../value.yo";
-
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ EvalValue } :: import("../value.yo");
 /// Deep-clone `v`.
 ///
 /// When `preserve_pointer_refs` is `true` (default usage), `PtrVal` and
@@ -26,131 +24,122 @@ open import "std/string";
 ///
 /// Mirrors `cloneValue` in `src/evaluator/values/clone-value.ts`.
 clone_value :: (fn(v : EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
-  match(v,
+  match(
+    v,
     // Primitive / immutable — return as-is
-    .UnitVal                            => EvalValue.UnitVal,
-    .BoolVal(_)                         => v,
-    .IntLit(_)                          => v,
-    .FloatLit(_)                        => v,
-    .StrLit(_)                          => v,
-    .VarRef(_)                          => v,
-    .BreakVal                           => v,
-    .ContinueVal                        => v,
+    .UnitVal => EvalValue.UnitVal,
+    .BoolVal(_) => v,
+    .IntLit(_) => v,
+    .FloatLit(_) => v,
+    .StrLit(_) => v,
+    .VarRef(_) => v,
+    .BreakVal => v,
+    .ContinueVal => v,
     .FuncVal(_, _, _, _, _, _, _, _, _) => v,
-    .TypeVal(_)                         => v,
-    .ExprVal(_)                         => v,
-    .UnknownVal(_)                      => v,
-
+    .TypeVal(_) => v,
+    .ExprVal(_) => v,
+    .UnknownVal(_) => v,
     // ReturnVal — recursively clone the wrapped value
-    .ReturnVal(val: val_box, ty: ty) =>
-      EvalValue.ReturnVal(val: box(recur(val_box.*, preserve_pointer_refs)), ty: ty),
-
+    .ReturnVal(val : val_box, ty : ty) =>
+      EvalValue.ReturnVal(val : box(recur(val_box.*, preserve_pointer_refs)), ty : ty),
     // PtrVal — preserve or deep-clone depending on flag
-    .PtrVal(target: tgt_box, index: idx) =>
-      cond(
-        (preserve_pointer_refs)           => v,
-        true                              => EvalValue.PtrVal(target: box(recur(tgt_box.*, preserve_pointer_refs)), index: idx)
-      ),
-
-    // SliceVal — preserve or deep-clone depending on flag
-    .SliceVal(source: src_box, start_idx: start, end_idx: end_idx) =>
+    .PtrVal(target : tgt_box, index : idx) =>
       cond(
         (preserve_pointer_refs) => v,
-        true                    => EvalValue.SliceVal(
-          source:    box(recur(src_box.*, preserve_pointer_refs)),
-          start_idx: start,
-          end_idx:   end_idx
+        true => EvalValue.PtrVal(target : box(recur(tgt_box.*, preserve_pointer_refs)), index : idx)
+      ),
+    // SliceVal — preserve or deep-clone depending on flag
+    .SliceVal(source : src_box, start_idx : start, end_idx : end_idx) =>
+      cond(
+        (preserve_pointer_refs) => v,
+        true => EvalValue.SliceVal(
+          source : box(recur(src_box.*, preserve_pointer_refs)),
+          start_idx : start,
+          end_idx : end_idx
         )
       ),
-
     // EnumVal — recursively clone each field
-    .EnumVal(variant: vname, fields: flds) => {
+    .EnumVal(variant : vname, fields : flds) => {
       new_fields := ArrayList(EvalValue).new();
       i := usize(0);
-      while runtime((i < flds.len())), {
-        elem := match(flds.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+      while(runtime(i < flds.len()), {
+        elem := match(flds.get(i),.Some(e) => e,.None => EvalValue.UnitVal);
         new_fields.push(recur(elem, preserve_pointer_refs));
         i = (i + usize(1));
-      };
-      EvalValue.EnumVal(variant: vname, fields: new_fields)
+      });
+      EvalValue.EnumVal(variant : vname, fields : new_fields)
     },
-
     // StructVal — recursively clone field_values
-    .StructVal(ty_name: tname, field_names: fnames, field_values: fvals) => {
+    .StructVal(ty_name : tname, field_names : fnames, field_values : fvals) => {
       new_fvals := ArrayList(EvalValue).new();
       i := usize(0);
-      while runtime((i < fvals.len())), {
-        elem := match(fvals.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+      while(runtime(i < fvals.len()), {
+        elem := match(fvals.get(i),.Some(e) => e,.None => EvalValue.UnitVal);
         new_fvals.push(recur(elem, preserve_pointer_refs));
         i = (i + usize(1));
-      };
-      EvalValue.StructVal(ty_name: tname, field_names: fnames, field_values: new_fvals)
+      });
+      EvalValue.StructVal(ty_name : tname, field_names : fnames, field_values : new_fvals)
     },
-
     // ModuleVal — recursively clone values
-    .ModuleVal(names: nms, values: vals) => {
+    .ModuleVal(names : nms, values : vals) => {
       new_vals := ArrayList(EvalValue).new();
       i := usize(0);
-      while runtime((i < vals.len())), {
-        elem := match(vals.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+      while(runtime(i < vals.len()), {
+        elem := match(vals.get(i),.Some(e) => e,.None => EvalValue.UnitVal);
         new_vals.push(recur(elem, preserve_pointer_refs));
         i = (i + usize(1));
-      };
-      EvalValue.ModuleVal(names: nms, values: new_vals)
+      });
+      EvalValue.ModuleVal(names : nms, values : new_vals)
     },
-
     // TupleVal — recursively clone fields
-    .TupleVal(fields: flds) => {
+    .TupleVal(fields : flds) => {
       new_fields := ArrayList(EvalValue).new();
       i := usize(0);
-      while runtime((i < flds.len())), {
-        elem := match(flds.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+      while(runtime(i < flds.len()), {
+        elem := match(flds.get(i),.Some(e) => e,.None => EvalValue.UnitVal);
         new_fields.push(recur(elem, preserve_pointer_refs));
         i = (i + usize(1));
-      };
-      EvalValue.TupleVal(fields: new_fields)
+      });
+      EvalValue.TupleVal(fields : new_fields)
     },
-
     // ArrayVal — recursively clone elements
-    .ArrayVal(elements: elems) => {
+    .ArrayVal(elements : elems) => {
       new_elems := ArrayList(EvalValue).new();
       i := usize(0);
-      while runtime((i < elems.len())), {
-        elem := match(elems.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+      while(runtime(i < elems.len()), {
+        elem := match(elems.get(i),.Some(e) => e,.None => EvalValue.UnitVal);
         new_elems.push(recur(elem, preserve_pointer_refs));
         i = (i + usize(1));
-      };
-      EvalValue.ArrayVal(elements: new_elems)
+      });
+      EvalValue.ArrayVal(elements : new_elems)
     },
-
     // TraitVal — recursively clone field_values (each is Option(EvalValue))
-    .TraitVal(ty_name: tname, field_names: fnames, field_values: fvals) => {
+    .TraitVal(ty_name : tname, field_names : fnames, field_values : fvals) => {
       new_fvals := ArrayList(Option(EvalValue)).new();
       i := usize(0);
-      while runtime((i < fvals.len())), {
-        opt_f := match(fvals.get(i), .Some(o) => o, .None => Option(EvalValue).None);
-        cloned_opt := match(opt_f,
-          .None    => Option(EvalValue).None,
+      while(runtime(i < fvals.len()), {
+        opt_f := match(fvals.get(i),.Some(o) => o,.None => Option(EvalValue).None);
+        cloned_opt := match(
+          opt_f,
+          .None => Option(EvalValue).None,
           .Some(f) => Option(EvalValue).Some(recur(f, preserve_pointer_refs))
         );
         new_fvals.push(cloned_opt);
         i = (i + usize(1));
-      };
-      EvalValue.TraitVal(ty_name: tname, field_names: fnames, field_values: new_fvals)
+      });
+      EvalValue.TraitVal(ty_name : tname, field_names : fnames, field_values : new_fvals)
     },
-
     // ComptimeListVal — recursively clone elements
-    .ComptimeListVal(elements: elems) => {
+    .ComptimeListVal(elements : elems) => {
       new_elems := ArrayList(EvalValue).new();
       i := usize(0);
-      while runtime((i < elems.len())), {
-        elem := match(elems.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
+      while(runtime(i < elems.len()), {
+        elem := match(elems.get(i),.Some(e) => e,.None => EvalValue.UnitVal);
         new_elems.push(recur(elem, preserve_pointer_refs));
         i = (i + usize(1));
-      };
-      EvalValue.ComptimeListVal(elements: new_elems)
+      });
+      EvalValue.ComptimeListVal(elements : new_elems)
     }
   )
 );
-
-export clone_value;
+export(clone_value);

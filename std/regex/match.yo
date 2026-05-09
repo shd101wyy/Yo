@@ -1,81 +1,70 @@
 //! Match result type — represents the result of a regex match,
 //! including the matched text, position, and captured groups.
-
-open import "std/collections/array_list";
-open import "std/string";
-{ GroupNameEntry } :: import "./node.yo";
-
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ GroupNameEntry } :: import("./node.yo");
 /// A single regex match result.
 RegexMatch :: object(
-  _value       : String,
-  _index       : usize,
-  _input       : String,
-  _groups      : ArrayList(Option(String)),
+  _value : String,
+  _index : usize,
+  _input : String,
+  _groups : ArrayList(Option(String)),
   _group_names : ArrayList(GroupNameEntry)
 );
-
-impl(RegexMatch,
+impl(
+  RegexMatch,
   // Create a match result
   new : (fn(value : String, index : usize, input : String, groups : ArrayList(Option(String)), group_names : ArrayList(GroupNameEntry)) -> Self)(
     Self(
-      _value: value,
-      _index: index,
-      _input: input,
-      _groups: groups,
-      _group_names: group_names
+      _value : value,
+      _index : index,
+      _input : input,
+      _groups : groups,
+      _group_names : group_names
     )
   ),
-
   // Get the full matched text
   value : (fn(self : Self) -> String)(
     self._value
   ),
-
   // Get the start position (character index) of the match
   index : (fn(self : Self) -> usize)(
     self._index
   ),
-
   // Get the original input string
   input : (fn(self : Self) -> String)(
     self._input
   ),
-
   // Get capture group by index (1-based, group 0 is the full match)
   group : (fn(self : Self, idx : usize) -> Option(String))(
     cond(
-      (idx == usize(0)) => .Some(self._value),
+      (idx == usize(0)) =>.Some(self._value),
       true => {
         actual_idx := (idx - usize(1));
         cond(
           (actual_idx < self._groups.len()) => self._groups.get(actual_idx).unwrap(),
-          true => .None
+          true =>.None
         )
       }
     )
   ),
-
   // Get capture group by name
   named_group : (fn(self : Self, name : String) -> Option(String))({
     i := usize(0);
-    while (i < self._group_names.len()), (i = (i + usize(1))), {
+    while(i < self._group_names.len(), i = (i + usize(1)), {
       entry := self._group_names.get(i).unwrap();
       cond(
         (entry.name == name) => {
-          return self.group(entry.index);
+          return(self.group(entry.index));
         },
         true => ()
       );
-    };
+    });
     .None
   }),
-
   // Get number of capture groups (not counting group 0)
   group_count : (fn(self : Self) -> usize)(
     self._groups.len()
   )
 );
-
-export
-  RegexMatch
-;
+export(RegexMatch);

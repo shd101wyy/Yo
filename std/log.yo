@@ -1,71 +1,61 @@
 //! Structured logging with configurable level and output destination.
-
-open import "./string";
-{ ToString } :: import "./fmt";
-{ fwrite, stdout, stderr, FILE } :: import "./libc/stdio";
-
+open(import("./string"));
+{ ToString } :: import("./fmt");
+{ fwrite, stdout, stderr, FILE } :: import("./libc/stdio");
 /// Log severity level.
 Level :: enum(Trace, Debug, Info, Warn, Error);
-
-impl(Level, ToString(
-  to_string : (fn(self: *(Self)) -> String)(
-    match(self.*,
-      .Trace => String.from("TRACE"),
-      .Debug => String.from("DEBUG"),
-      .Info  => String.from("INFO "),
-      .Warn  => String.from("WARN "),
-      .Error => String.from("ERROR")
+impl(
+  Level,
+  ToString(
+    to_string : (fn(self : *(Self)) -> String)(
+      match(
+        self.*,
+        .Trace => String.from("TRACE"),
+        .Debug => String.from("DEBUG"),
+        .Info => String.from("INFO "),
+        .Warn => String.from("WARN "),
+        .Error => String.from("ERROR")
+      )
     )
   )
-));
-
-export Level;
-
+);
+export(Level);
 /// Where log messages are written.
 LogOutput :: enum(
   Stderr,
   Stdout
 );
-
-export LogOutput;
-
+export(LogOutput);
 // ============================================================================
 // Global logger state (module-level mutable)
 // ============================================================================
-
-_global_level  := Level.Info;
+_global_level := Level.Info;
 _global_output := LogOutput.Stderr;
-
 // ============================================================================
 // Configuration
 // ============================================================================
-
-set_level :: (fn(level: Level) -> unit)({
+set_level :: (fn(level : Level) -> unit)({
   _global_level = level;
 });
-
-set_output :: (fn(output: LogOutput) -> unit)({
+set_output :: (fn(output : LogOutput) -> unit)({
   _global_output = output;
 });
-
-export set_level, set_output;
-
+export(set_level, set_output);
 // ============================================================================
 // Core log function
 // ============================================================================
-
-_level_value :: (fn(l: Level) -> i32)(
-  match(l,
+_level_value :: (fn(l : Level) -> i32)(
+  match(
+    l,
     .Trace => i32(0),
     .Debug => i32(1),
-    .Info  => i32(2),
-    .Warn  => i32(3),
+    .Info => i32(2),
+    .Warn => i32(3),
     .Error => i32(4)
   )
 );
-
 // Write all bytes from a String to the file handle.
-_write_string :: (fn(s: String, dest: *(FILE)) -> unit)({
+_write_string :: (fn(s : String, dest : *(FILE)) -> unit)({
   bytes := s.as_bytes();
   cond(
     (bytes.len() > usize(0)) => {
@@ -75,19 +65,19 @@ _write_string :: (fn(s: String, dest: *(FILE)) -> unit)({
     true => ()
   );
 });
-
-log :: (fn(level: Level, msg: String) -> unit)({
+log :: (fn(level : Level, msg : String) -> unit)({
   cond(
-    (_level_value(level) < _level_value(_global_level)) => { return (); },
+    (_level_value(level) < _level_value(_global_level)) => {
+      return(());
+    },
     true => ()
   );
   level_str := level.to_string();
-
-  dest := match(_global_output,
+  dest := match(
+    _global_output,
     .Stdout => stdout,
     .Stderr => stderr
   );
-
   // Write "[LEVEL] msg\n"
   fwrite(*(void)(*(u8)("[")), usize(1), usize(1), dest);
   _write_string(level_str, dest);
@@ -95,17 +85,13 @@ log :: (fn(level: Level, msg: String) -> unit)({
   _write_string(msg, dest);
   fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), dest);
 });
-
-export log;
-
+export(log);
 // ============================================================================
 // Convenience functions
 // ============================================================================
-
-trace :: (fn(msg: String) -> unit)( log(.Trace, msg) );
-debug :: (fn(msg: String) -> unit)( log(.Debug, msg) );
-info  :: (fn(msg: String) -> unit)( log(.Info,  msg) );
-warn  :: (fn(msg: String) -> unit)( log(.Warn,  msg) );
-error :: (fn(msg: String) -> unit)( log(.Error, msg) );
-
-export trace, debug, info, warn, error;
+trace :: (fn(msg : String) -> unit)(log(.Trace, msg));
+debug :: (fn(msg : String) -> unit)(log(.Debug, msg));
+info :: (fn(msg : String) -> unit)(log(.Info, msg));
+warn :: (fn(msg : String) -> unit)(log(.Warn, msg));
+error :: (fn(msg : String) -> unit)(log(.Error, msg));
+export(trace, debug, info, warn, error);

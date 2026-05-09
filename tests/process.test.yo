@@ -1,26 +1,39 @@
-open import "std/process";
-open import "std/fmt";
-
-test "platform and arch are valid strings", {
+open(import("std/process"));
+open(import("std/fmt"));
+test("platform and arch are valid strings", {
   println(`Platform: ${platform}`);
   println(`Arch: ${arch}`);
-
-  valid_platform := (
-    ((((((platform == "linux") ||
-         (platform == "macos")) ||
-        (platform == "windows")) ||
-       (platform == "freebsd")) ||
-      (platform == "emscripten")) ||
-     (platform == "wasi"))
-  );
+  valid_platform :=
+    (
+      (
+        (
+          (
+            (
+              (platform == "linux") ||
+                (platform == "macos")
+            ) ||
+              (platform == "windows")
+          ) ||
+            (platform == "freebsd")
+        ) ||
+          (platform == "emscripten")
+      ) ||
+        (platform == "wasi")
+    );
   assert(valid_platform, "platform should be a known value");
-
-  valid_arch := (
-    (((((arch == "x86_64") ||
-        (arch == "aarch64")) ||
-       (arch == "x86")) ||
-      (arch == "arm")) ||
-     (arch == "wasm32"))
-  );
+  valid_arch :=
+    (
+      (
+        (
+          (
+            (arch == "x86_64") ||
+              (arch == "aarch64")
+          ) ||
+            (arch == "x86")
+        ) ||
+          (arch == "arm")
+      ) ||
+        (arch == "wasm32")
+    );
   assert(valid_arch, "arch should be a known value");
-};
+});

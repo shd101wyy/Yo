@@ -8,9 +8,7 @@
 //! Regression test for the "SomeType leakage" bug where `IterMap(Self, A, B)`
 //! returned by a blanket-impl `map` retained `SomeType(A)`, `SomeType(B)`,
 //! breaking subsequent `.next()` calls.
-
-open import "std/collections/array_list";
-
+open(import("std/collections/array_list"));
 // A simple "wrapper" struct parameterized by inner type and an extra type B.
 Wrap :: (fn(comptime(I) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(
@@ -18,48 +16,50 @@ Wrap :: (fn(comptime(I) : Type, comptime(B) : Type) -> comptime(Type))(
     _tag : B
   )
 );
-
 // Method on Wrap that returns the tag.
-impl(forall(I : Type, B : Type), Wrap(I, B),
+impl(
+  forall(I : Type, B : Type),
+  Wrap(I, B),
   get_tag : (fn(self : Self) -> B)(self._tag)
 );
-
 // Trait with a method that has inner forall params.
 Wrappable :: trait(
   wrap_with : (fn(forall(B : Type), self : Self, tag : B) -> Wrap(Self, B))
 );
-
 // Blanket impl on any i32-like type. Inner forall (B) is method-level only.
-impl(forall(I : Type), where(I <: Wrappable), I,
+impl(
+  forall(I : Type),
+  where(I <: Wrappable),
+  I,
   double_wrap : (fn(forall(B : Type), self : Self, tag : B) -> Wrap(Wrap(Self, B), B))(
-    Wrap(Wrap(Self, B), B)(_inner: Wrap(Self, B)(_inner: self, _tag: tag), _tag: tag)
+    Wrap(Wrap(Self, B), B)(_inner : Wrap(Self, B)(_inner : self, _tag : tag), _tag : tag)
   )
 );
-
-impl(i32, Wrappable(
-  wrap_with : (fn(forall(B : Type), self : Self, tag : B) -> Wrap(Self, B))(
-    Wrap(Self, B)(_inner: self, _tag: tag)
+impl(
+  i32,
+  Wrappable(
+    wrap_with : (fn(forall(B : Type), self : Self, tag : B) -> Wrap(Self, B))(
+      Wrap(Self, B)(_inner : self, _tag : tag)
+    )
   )
-));
-
-test "Inner forall in blanket impl method returns concrete struct type", {
+);
+test("Inner forall in blanket impl method returns concrete struct type", {
   x := i32(7);
   // double_wrap is from blanket impl with inner forall(B). When called with
   // tag = i32(99), B should resolve to i32 — NOT remain as SomeType(B).
   wrapped := x.double_wrap(i32(99));
   // The outer get_tag must return concrete i32 (not SomeType(B)).
   outer_tag := wrapped.get_tag();
-  assert((outer_tag == i32(99)), "outer tag should be 99");
+  assert(outer_tag == i32(99), "outer tag should be 99");
   // Access inner.get_tag to verify nested type resolution.
   inner_wrap := wrapped._inner;
   inner_tag := inner_wrap.get_tag();
-  assert((inner_tag == i32(99)), "inner tag should be 99");
-  assert((inner_wrap._inner == i32(7)), "innermost value should be 7");
-};
-
-test "Inner forall with different B type", {
+  assert(inner_tag == i32(99), "inner tag should be 99");
+  assert(inner_wrap._inner == i32(7), "innermost value should be 7");
+});
+test("Inner forall with different B type", {
   x := i32(5);
   wrapped := x.double_wrap(true);
   outer_tag := wrapped.get_tag();
   assert(outer_tag, "outer tag should be true");
-};
+});

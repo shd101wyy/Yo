@@ -6,473 +6,495 @@
 //! compilation for each artifact.
 //!
 //! Mirrors `src/build-runner.ts`.
-
-open import "std/string";
-open import "std/fmt";
-{ ArrayList }                     :: import "std/collections/array_list";
-{ HashMap }                       :: import "std/collections/hash_map";
-{ Exception }                     :: import "std/error";
-{ Path }                          :: import "std/path";
-{ cwd }                           :: import "std/env";
-{ exists }                        :: import "std/fs/file";
-{ Command, ExitStatus, Output }   :: import "std/process/command";
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ Exception } :: import("std/error");
+{ Path } :: import("std/path");
+{ cwd } :: import("std/env");
+{ exists } :: import("std/fs/file");
+{ Command, ExitStatus, Output } :: import("std/process/command");
 {
-  ArtifactKind, BuildArtifact, BuildTestSuite, BuildRunStep, BuildStep,
-  BuildDocConfig, BuildModuleEntry, BuildRegistry, ResolvedDep
-} :: import "./build_registry.yo";
-{ TargetInfo, parse_target, is_target_windows, is_target_wasm } :: import "../target/target.yo";
-
+  ArtifactKind,
+  BuildArtifact,
+  BuildTestSuite,
+  BuildRunStep,
+  BuildStep,
+  BuildDocConfig,
+  BuildModuleEntry,
+  BuildRegistry,
+  ResolvedDep
+} :: import("./build_registry.yo");
+{ TargetInfo, parse_target, is_target_windows, is_target_wasm } :: import("../target/target.yo");
 // ---------------------------------------------------------------------------
 // Build options  (mirrors TypeScript BuildOptions interface)
 // ---------------------------------------------------------------------------
-
 BuildOptions :: object(
-  build_file    : String,
+  build_file : String,
   target_triple : Option(String),
-  verbose       : bool,
-  dry_run       : bool,
-  list_steps    : bool,
-  steps         : ArrayList(String),
-  defines       : HashMap(String, String),
-  c_compiler    : Option(String),
-  sysroot       : Option(String),
-  summary       : bool
+  verbose : bool,
+  dry_run : bool,
+  list_steps : bool,
+  steps : ArrayList(String),
+  defines : HashMap(String, String),
+  c_compiler : Option(String),
+  sysroot : Option(String),
+  summary : bool
 );
-
 // ---------------------------------------------------------------------------
 // DAG types
 // ---------------------------------------------------------------------------
-
 DAGNodeKind :: enum(Artifact, Test, Run, Step, Doc);
-
 DAGNode :: object(
-  name       : String,
-  kind       : DAGNodeKind,
+  name : String,
+  kind : DAGNodeKind,
   depends_on : ArrayList(String)
 );
-
 StepResult :: object(
-  name        : String,
-  kind        : DAGNodeKind,
-  success     : bool,
+  name : String,
+  kind : DAGNodeKind,
+  success : bool,
   duration_ms : i64,
   description : String
 );
-
 ExecutionContext :: object(
-  registry      : BuildRegistry,
-  project_dir   : String,
-  c_compiler    : String,
+  registry : BuildRegistry,
+  project_dir : String,
+  c_compiler : String,
   target_triple : Option(String),
-  sysroot       : Option(String),
-  verbose       : bool,
-  dry_run       : bool,
-  summary       : bool
+  sysroot : Option(String),
+  verbose : bool,
+  dry_run : bool,
+  summary : bool
 );
-
 // ---------------------------------------------------------------------------
 // Artifact output file name
 // ---------------------------------------------------------------------------
-
 /// Compute the output file name for a build artifact.
 /// Mirrors `getArtifactOutputFileName` in build-runner.ts.
-get_artifact_output_file_name :: (fn(
-  kind              : ArtifactKind,
-  name              : str,
-  artifact_target   : str,
-  c_flags           : ArrayList(String),
-  target_triple_opt : Option(String)
-) -> String)({
-  match(kind,
-    .StaticLibrary => { return `lib${name}`; },
-    .SharedLibrary => { return String.from(name); },
-    .Executable    => ()
+get_artifact_output_file_name :: (
+  fn(
+    kind : ArtifactKind,
+    name : str,
+    artifact_target : str,
+    c_flags : ArrayList(String),
+    target_triple_opt : Option(String)
+  ) -> String
+)({
+  match(
+    kind,
+    .StaticLibrary => {
+      return(`lib${name}`);
+    },
+    .SharedLibrary => {
+      return(String.from(name));
+    },
+    .Executable => ()
   );
-
-  effective_str := match(target_triple_opt,
+  effective_str := match(
+    target_triple_opt,
     .Some(t) => t,
-    .None    => String.from(artifact_target)
+    .None => String.from(artifact_target)
   );
-
   parsed_result := parse_target(effective_str);
-  match(parsed_result,
-    .Err(_) => { return String.from(name); },
+  match(
+    parsed_result,
+    .Err(_) => {
+      return(String.from(name));
+    },
     .Ok(info) => {
-      if(is_target_windows(info), return `${name}.exe`);
+      if(is_target_windows(info), return(`${name}.exe`));
       if(is_target_wasm(info), {
         has_modularize := false;
         i := usize(0);
         n := c_flags.len();
-        while runtime((i < n)), {
+        while(runtime(i < n), {
           if(c_flags(i).contains(String.from("-sMODULARIZE")), {
             has_modularize = true;
           });
           i = (i + usize(1));
-        };
+        });
         ext := if(has_modularize, "js", "html");
-        return `${name}.${ext}`;
+        return(`${name}.${ext}`);
       });
       String.from(name)
     }
   )
 });
-
 /// Get the target-specific output directory.
 /// Layout: <project>/yo-out/<target>/bin/ or …/lib/
-_get_target_output_dir :: (fn(
-  project_dir  : str,
-  target_triple : str,
-  kind         : str
-) -> String)(
+_get_target_output_dir :: (
+  fn(
+    project_dir : str,
+    target_triple : str,
+    kind : str
+  ) -> String
+)(
   `${project_dir}/yo-out/${target_triple}/${kind}`
 );
-
 // ---------------------------------------------------------------------------
 // Build DAG
 // ---------------------------------------------------------------------------
-
-_walk_dag :: (fn(
-  registry : *(BuildRegistry),
-  nodes    : HashMap(String, DAGNode),
-  visited  : HashMap(String, bool),
-  name     : String
-) -> unit)({
-  if(visited.contains_key(name), return ());
+_walk_dag :: (
+  fn(
+    registry : *(BuildRegistry),
+    nodes : HashMap(String, DAGNode),
+    visited : HashMap(String, bool),
+    name : String
+  ) -> unit
+)({
+  if(visited.contains_key(name), return(()));
   visited.set(name, true);
-
-  match(registry.*.resolve_dependency(name.as_str()),
-    .None => { return (); },
-    .Some(resolved) => match(resolved,
+  match(
+    registry.*.resolve_dependency(name.as_str()),
+    .None => {
+      return(());
+    },
+    .Some(resolved) => match(
+      resolved,
       .Artifact(artifact) => {
         deps := ArrayList(String).new();
         i := usize(0);
         n := artifact.linked_artifacts.len();
-        while runtime((i < n)), {
+        while(runtime(i < n), {
           linked := artifact.linked_artifacts(i);
           deps.push(linked);
           recur(registry, nodes, visited, linked);
           i = (i + usize(1));
-        };
-        nodes.set(name, DAGNode(name: name, kind: DAGNodeKind.Artifact, depends_on: deps));
+        });
+        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps));
       },
       .Test(_t) => {
-        nodes.set(name, DAGNode(name: name, kind: DAGNodeKind.Test, depends_on: ArrayList(String).new()));
+        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Test, depends_on : ArrayList(String).new()));
       },
       .Run(run_step) => {
         deps := ArrayList(String).new();
         deps.push(run_step.artifact_name);
         recur(registry, nodes, visited, run_step.artifact_name);
-        nodes.set(name, DAGNode(name: name, kind: DAGNodeKind.Run, depends_on: deps));
+        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
       },
       .Doc(_d) => {
-        nodes.set(name, DAGNode(name: name, kind: DAGNodeKind.Doc, depends_on: ArrayList(String).new()));
+        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
       },
       .Step(step) => {
         deps := ArrayList(String).new();
         i := usize(0);
         n := step.dependency_names.len();
-        while runtime((i < n)), {
+        while(runtime(i < n), {
           dep_name := step.dependency_names(i);
           deps.push(dep_name);
           recur(registry, nodes, visited, dep_name);
           i = (i + usize(1));
-        };
-        nodes.set(name, DAGNode(name: name, kind: DAGNodeKind.Step, depends_on: deps));
+        });
+        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Step, depends_on : deps));
       }
     )
   );
 });
-
 /// Build a DAG by walking the step's dependency tree.
-build_dag :: (fn(
-  registry       : *(BuildRegistry),
-  root_step_name : str
-) -> ArrayList(DAGNode))({
-  nodes   := HashMap(String, DAGNode).new();
+build_dag :: (
+  fn(
+    registry : *(BuildRegistry),
+    root_step_name : str
+  ) -> ArrayList(DAGNode)
+)({
+  nodes := HashMap(String, DAGNode).new();
   visited := HashMap(String, bool).new();
   _walk_dag(registry, nodes, visited, String.from(root_step_name));
-
   result := ArrayList(DAGNode).new();
   iter := nodes.values();
   more := true;
-  while runtime(more), {
-    match(iter.next(),
-      .None    => { more = false; },
-      .Some(v) => { result.push(v); }
+  while(runtime(more), {
+    match(
+      iter.next(),
+      .None => {
+        more = false;
+      },
+      .Some(v) => {
+        result.push(v);
+      }
     );
-  };
+  });
   result
 });
-
 // DFS colors for cycle detection
 _COLOR_WHITE :: i32(0);
-_COLOR_GRAY  :: i32(1);
+_COLOR_GRAY :: i32(1);
 _COLOR_BLACK :: i32(2);
-
-_dfs_cycle :: (fn(
-  node_map : HashMap(String, DAGNode),
-  color    : HashMap(String, i32),
-  name     : String
-) -> Option(String))({
+_dfs_cycle :: (
+  fn(
+    node_map : HashMap(String, DAGNode),
+    color : HashMap(String, i32),
+    name : String
+  ) -> Option(String)
+)({
   color.set(name, _COLOR_GRAY);
-
-  match(node_map.get(name),
+  match(
+    node_map.get(name),
     .None => {
       color.set(name, _COLOR_BLACK);
-      return Option(String).None;
+      return(Option(String).None);
     },
     .Some(node) => {
       i := usize(0);
       nd := node.depends_on.len();
-      while runtime((i < nd)), {
+      while(runtime(i < nd), {
         dep := node.depends_on(i);
-        if((!node_map.contains_key(dep)), {
+        if(!(node_map.contains_key(dep)), {
           i = (i + usize(1));
         });
         dep_color := color.get(dep).unwrap_or(_COLOR_WHITE);
-        if((dep_color == _COLOR_GRAY), return Option(String).Some(dep));
-        if((dep_color == _COLOR_WHITE), {
+        if(dep_color == _COLOR_GRAY, return(Option(String).Some(dep)));
+        if(dep_color == _COLOR_WHITE, {
           res := recur(node_map, color, dep);
-          match(res,
-            .Some(c) => { return Option(String).Some(c); },
-            .None    => ()
+          match(
+            res,
+            .Some(c) => {
+              return(Option(String).Some(c));
+            },
+            .None => ()
           );
         });
         i = (i + usize(1));
-      };
+      });
     }
   );
-
   color.set(name, _COLOR_BLACK);
   Option(String).None
 });
-
 /// Detect cycles in a DAG via DFS. Returns the cycle node name if found.
-detect_cycle :: (fn(dag: ArrayList(DAGNode)) -> Option(String))({
+detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
   node_map := HashMap(String, DAGNode).new();
   i := usize(0);
   n := dag.len();
-  while runtime((i < n)), {
+  while(runtime(i < n), {
     node := dag(i);
     node_map.set(node.name, node);
     i = (i + usize(1));
-  };
-
+  });
   color := HashMap(String, i32).new();
   i = usize(0);
-  while runtime((i < n)), {
+  while(runtime(i < n), {
     color.set(dag(i).name, _COLOR_WHITE);
     i = (i + usize(1));
-  };
-
+  });
   i = usize(0);
-  while runtime((i < n)), {
+  while(runtime(i < n), {
     node_name := dag(i).name;
-    if((color.get(node_name).unwrap_or(_COLOR_WHITE) == _COLOR_WHITE), {
+    if(color.get(node_name).unwrap_or(_COLOR_WHITE) == _COLOR_WHITE, {
       result := _dfs_cycle(node_map, color, node_name);
-      match(result,
-        .Some(c) => { return Option(String).Some(c); },
-        .None    => ()
+      match(
+        result,
+        .Some(c) => {
+          return(Option(String).Some(c));
+        },
+        .None => ()
       );
     });
     i = (i + usize(1));
-  };
-
+  });
   Option(String).None
 });
-
 // ---------------------------------------------------------------------------
 // Artifact compilation
 // ---------------------------------------------------------------------------
-
 /// Compile a build artifact by invoking the Yo compiler.
-compile_artifact :: (fn(
-  artifact : BuildArtifact,
-  ctx      : *(ExecutionContext),
-  using(io : IO, exn : Exception)
-) -> Impl(Future(Result(unit, String), IO, Exception)))(
+compile_artifact :: (
+  fn(
+    artifact : BuildArtifact,
+    ctx : *(ExecutionContext),
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(Result(unit, String), IO, Exception))
+)(
   io.async((using(io, exn)) => {
-    effective_target := match(ctx.*.target_triple,
+    effective_target := match(
+      ctx.*.target_triple,
       .Some(t) => t,
-      .None    => artifact.target
+      .None => artifact.target
     );
-
-    is_lib := match(artifact.kind,
+    is_lib := match(
+      artifact.kind,
       .StaticLibrary => true,
       .SharedLibrary => true,
-      .Executable    => false
+      .Executable => false
     );
-    kind_dir    := if(is_lib, "lib", "bin");
-    output_dir  := _get_target_output_dir(ctx.*.project_dir.as_str(), effective_target.as_str(), kind_dir);
+    kind_dir := if(is_lib, "lib", "bin");
+    output_dir := _get_target_output_dir(ctx.*.project_dir.as_str(), effective_target.as_str(), kind_dir);
     output_name := get_artifact_output_file_name(
-      artifact.kind, artifact.name.as_str(), artifact.target.as_str(),
-      artifact.c_flags, ctx.*.target_triple
+      artifact.kind,
+      artifact.name.as_str(),
+      artifact.target.as_str(),
+      artifact.c_flags,
+      ctx.*.target_triple
     );
     output_path := Path.new(output_dir).join(Path.new(output_name));
-
     source_path := Path.new(ctx.*.project_dir).join(Path.new(artifact.root));
-
     if(ctx.*.verbose, println(`Building ${artifact.name} -> ${output_path}`));
-
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("compile"));
     cmd.arg(source_path.to_string());
     cmd.arg(String.from("-o"));
     cmd.arg(output_path.to_string());
-
-    if((effective_target != artifact.target), {
+    if(effective_target != artifact.target, {
       cmd.arg(String.from("--target"));
       cmd.arg(effective_target);
     });
-    if((ctx.*.c_compiler != String.from("clang")), {
+    if(ctx.*.c_compiler != String.from("clang"), {
       cmd.arg(String.from("--cc"));
       cmd.arg(ctx.*.c_compiler);
     });
-    match(ctx.*.sysroot,
+    match(
+      ctx.*.sysroot,
       .Some(s) => {
         cmd.arg(String.from("--sysroot"));
         cmd.arg(s);
       },
       .None => ()
     );
-
     i := usize(0);
     n := artifact.c_sources.len();
-    while runtime((i < n)), {
+    while(runtime(i < n), {
       cmd.arg(String.from("--extern"));
       cmd.arg(artifact.c_sources(i));
       i = (i + usize(1));
-    };
-
+    });
     i = usize(0);
     n = artifact.include_paths.len();
-    while runtime((i < n)), {
+    while(runtime(i < n), {
       cmd.arg(String.from("--include"));
       cmd.arg(artifact.include_paths(i));
       i = (i + usize(1));
-    };
-
-    given(compile_exn) := Exception(throw: ((err) -> {
-      return Result(unit, String).Err(err.to_string());
-    }));
+    });
+    given(compile_exn) := Exception(
+      throw : (
+        (err) -> {
+          return(Result(unit, String).Err(err.to_string()));
+        }
+      )
+    );
     out := io.await(cmd.output(using(io, compile_exn)));
-    if(out.status.success(),
-      Result(unit, String).Ok(()),
-      {
-        stderr_str := String.from_bytes(out.stderr).trim();
-        Result(unit, String).Err(`Compilation failed: ${stderr_str}`)
-      })
+    if(out.status.success(), Result(unit, String).Ok(()), {
+      stderr_str := String.from_bytes(out.stderr).trim();
+      Result(unit, String).Err(`Compilation failed: ${stderr_str}`)
+    })
   })
 );
-
 // ---------------------------------------------------------------------------
 // Run executable
 // ---------------------------------------------------------------------------
-
-run_executable :: (fn(
-  artifact : BuildArtifact,
-  args     : ArrayList(String),
-  ctx      : *(ExecutionContext),
-  using(io : IO, exn : Exception)
-) -> Impl(Future(Result(unit, String), IO, Exception)))(
+run_executable :: (
+  fn(
+    artifact : BuildArtifact,
+    args : ArrayList(String),
+    ctx : *(ExecutionContext),
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(Result(unit, String), IO, Exception))
+)(
   io.async((using(io, exn)) => {
-    effective_target := match(ctx.*.target_triple,
+    effective_target := match(
+      ctx.*.target_triple,
       .Some(t) => t,
-      .None    => artifact.target
+      .None => artifact.target
     );
-
     output_dir := _get_target_output_dir(ctx.*.project_dir.as_str(), effective_target.as_str(), "bin");
-    exe_name   := get_artifact_output_file_name(
-      artifact.kind, artifact.name.as_str(), artifact.target.as_str(),
-      artifact.c_flags, ctx.*.target_triple
+    exe_name := get_artifact_output_file_name(
+      artifact.kind,
+      artifact.name.as_str(),
+      artifact.target.as_str(),
+      artifact.c_flags,
+      ctx.*.target_triple
     );
     exe_path := Path.new(output_dir).join(Path.new(exe_name));
-
     cmd := Command.new(exe_path.to_string());
-
     i := usize(0);
     n := args.len();
-    while runtime((i < n)), {
+    while(runtime(i < n), {
       cmd.arg(args(i));
       i = (i + usize(1));
-    };
-
-    given(run_exn) := Exception(throw: ((err) -> {
-      return Result(unit, String).Err(err.to_string());
-    }));
+    });
+    given(run_exn) := Exception(
+      throw : (
+        (err) -> {
+          return(Result(unit, String).Err(err.to_string()));
+        }
+      )
+    );
     out := io.await(cmd.output(using(io, run_exn)));
-    if(out.status.success(),
-      Result(unit, String).Ok(()),
-      {
-        code := out.status.code();
-        Result(unit, String).Err(`Executable exited with code ${code}`)
-      })
+    if(out.status.success(), Result(unit, String).Ok(()), {
+      code := out.status.code();
+      Result(unit, String).Err(`Executable exited with code ${code}`)
+    })
   })
 );
-
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
-
-run_test_suite :: (fn(
-  suite : BuildTestSuite,
-  ctx   : *(ExecutionContext),
-  using(io : IO, exn : Exception)
-) -> Impl(Future(Result(unit, String), IO, Exception)))(
+run_test_suite :: (
+  fn(
+    suite : BuildTestSuite,
+    ctx : *(ExecutionContext),
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(Result(unit, String), IO, Exception))
+)(
   io.async((using(io, exn)) => {
     test_path := Path.new(ctx.*.project_dir).join(Path.new(suite.root));
-
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("test"));
     cmd.arg(test_path.to_string());
     if(suite.verbose, cmd.arg(String.from("--verbose")));
-    if(suite.bail,    cmd.arg(String.from("--bail")));
-    if((suite.parallel > i32(1)), {
+    if(suite.bail, cmd.arg(String.from("--bail")));
+    if(suite.parallel > i32(1), {
       cmd.arg(String.from("--parallel"));
       cmd.arg(suite.parallel.to_string());
     });
     if(ctx.*.verbose, cmd.arg(String.from("--verbose")));
-
-    given(test_exn) := Exception(throw: ((err) -> {
-      return Result(unit, String).Err(err.to_string());
-    }));
+    given(test_exn) := Exception(
+      throw : (
+        (err) -> {
+          return(Result(unit, String).Err(err.to_string()));
+        }
+      )
+    );
     out := io.await(cmd.output(using(io, test_exn)));
-    if(out.status.success(),
-      Result(unit, String).Ok(()),
-      {
-        code := out.status.code();
-        Result(unit, String).Err(`Tests failed (exit ${code})`)
-      })
+    if(out.status.success(), Result(unit, String).Ok(()), {
+      code := out.status.code();
+      Result(unit, String).Err(`Tests failed (exit ${code})`)
+    })
   })
 );
 // ---------------------------------------------------------------------------
 // Node execution
 // ---------------------------------------------------------------------------
-
 /// Execute a single DAG node.
-execute_node :: (fn(
-  node : DAGNode,
-  ctx  : *(ExecutionContext),
-  using(io : IO, exn : Exception)
-) -> Impl(Future(StepResult, IO, Exception)))(
+execute_node :: (
+  fn(
+    node : DAGNode,
+    ctx : *(ExecutionContext),
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(StepResult, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     description := String.from(node.name.as_str());
-    success     := true;
-
-    match(node.kind,
+    success := true;
+    match(
+      node.kind,
       .Artifact => {
-        match(ctx.*.registry.find_artifact(node.name.as_str()),
+        match(
+          ctx.*.registry.find_artifact(node.name.as_str()),
           .None => (),
           .Some(artifact) => {
-            kind_label := match(artifact.kind,
+            kind_label := match(
+              artifact.kind,
               .StaticLibrary => "lib",
               .SharedLibrary => "shared lib",
-              .Executable    => "exe"
+              .Executable => "exe"
             );
             description = `compile ${kind_label} ${artifact.name}`;
             result := io.await(compile_artifact(artifact, ctx));
-            match(result,
-              .Ok(_)    => (),
+            match(
+              result,
+              .Ok(_) => (),
               .Err(err) => {
                 println(`Compilation error: ${err}`);
                 success = false;
@@ -482,30 +504,39 @@ execute_node :: (fn(
         );
       },
       .Test => {
-        match(ctx.*.registry.find_test(node.name.as_str()),
+        match(
+          ctx.*.registry.find_test(node.name.as_str()),
           .None => (),
           .Some(suite) => {
             description = `test ${suite.name}`;
             result := io.await(run_test_suite(suite, ctx));
-            match(result,
-              .Ok(_)  => (),
-              .Err(_) => { success = false; }
+            match(
+              result,
+              .Ok(_) => (),
+              .Err(_) => {
+                success = false;
+              }
             );
           }
         );
       },
       .Run => {
-        match(ctx.*.registry.find_run_step(node.name.as_str()),
+        match(
+          ctx.*.registry.find_run_step(node.name.as_str()),
           .None => (),
           .Some(run_step) => {
             description = `run ${run_step.artifact_name}`;
-            match(ctx.*.registry.find_artifact(run_step.artifact_name.as_str()),
+            match(
+              ctx.*.registry.find_artifact(run_step.artifact_name.as_str()),
               .None => (),
               .Some(artifact) => {
                 result := io.await(run_executable(artifact, run_step.args, ctx));
-                match(result,
-                  .Ok(_)  => (),
-                  .Err(_) => { success = false; }
+                match(
+                  result,
+                  .Ok(_) => (),
+                  .Err(_) => {
+                    success = false;
+                  }
                 );
               }
             );
@@ -513,166 +544,165 @@ execute_node :: (fn(
         );
       },
       .Step => (),
-      .Doc  => {
-        match(ctx.*.registry.find_documentation(node.name.as_str()),
+      .Doc => {
+        match(
+          ctx.*.registry.find_documentation(node.name.as_str()),
           .None => (),
-          .Some(doc_cfg) => { description = `doc ${doc_cfg.name}`; }
+          .Some(doc_cfg) => {
+            description = `doc ${doc_cfg.name}`;
+          }
         );
       }
     );
-
     StepResult(
-      name:        node.name,
-      kind:        node.kind,
-      success:     success,
-      duration_ms: i64(0),
-      description: description
+      name : node.name,
+      kind : node.kind,
+      success : success,
+      duration_ms : i64(0),
+      description : description
     )
   })
 );
-
 // ---------------------------------------------------------------------------
 // DAG executor (Kahn's algorithm)
 // ---------------------------------------------------------------------------
-
 /// Execute nodes in dependency order (Kahn's algorithm).
-execute_dag :: (fn(
-  dag      : ArrayList(DAGNode),
-  ctx      : *(ExecutionContext),
-  using(io  : IO, exn : Exception)
-) -> Impl(Future(HashMap(String, StepResult), IO, Exception)))(
+execute_dag :: (
+  fn(
+    dag : ArrayList(DAGNode),
+    ctx : *(ExecutionContext),
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(HashMap(String, StepResult), IO, Exception))
+)(
   io.async((using(io, exn)) => {
     results := HashMap(String, StepResult).new();
     n := dag.len();
-    if((n == usize(0)), return results);
-
+    if(n == usize(0), return(results));
     in_degree := HashMap(String, i32).new();
     completed := HashMap(String, bool).new();
-
     // Compute initial in-degrees
     i := usize(0);
-    while runtime((i < n)), {
+    while(runtime(i < n), {
       node := dag(i);
-      if((!in_degree.contains_key(node.name)), {
+      if(!(in_degree.contains_key(node.name)), {
         in_degree.set(node.name, i32(0));
       });
       j := usize(0);
       nd := node.depends_on.len();
-      while runtime((j < nd)), {
+      while(runtime(j < nd), {
         dep := node.depends_on(j);
         // Only count if dep is in the dag
         k := usize(0);
         dep_in_dag := false;
-        while runtime((k < n)), {
-          if((dag(k).name == dep), { dep_in_dag = true; });
+        while(runtime(k < n), {
+          if(dag(k).name == dep, {
+            dep_in_dag = true;
+          });
           k = (k + usize(1));
-        };
+        });
         if(dep_in_dag, {
           cur := in_degree.get(node.name).unwrap_or(i32(0));
-          in_degree.set(node.name, (cur + i32(1)));
+          in_degree.set(node.name, cur + i32(1));
         });
         j = (j + usize(1));
-      };
+      });
       i = (i + usize(1));
-    };
-
+    });
     // Kahn's algorithm
-    while runtime((completed.len() < n)), {
+    while(runtime(completed.len() < n), {
       ready := ArrayList(DAGNode).new();
       i = usize(0);
-      while runtime((i < n)), {
+      while(runtime(i < n), {
         node := dag(i);
-        if((!completed.contains_key(node.name) && (in_degree.get(node.name).unwrap_or(i32(0)) == i32(0))), {
+        if(!(completed.contains_key(node.name)) && (in_degree.get(node.name).unwrap_or(i32(0)) == i32(0)), {
           ready.push(node);
         });
         i = (i + usize(1));
-      };
-
-      if((ready.len() == usize(0)), {
-        exn.throw(dyn String.from("Error: Build DAG stalled — possible undetected cycle."));
       });
-
+      if(ready.len() == usize(0), {
+        exn.throw(dyn(String.from("Error: Build DAG stalled — possible undetected cycle.")));
+      });
       // Execute ready nodes
       rn := ready.len();
       k := usize(0);
-      while runtime((k < rn)), {
+      while(runtime(k < rn), {
         node := ready(k);
         result := io.await(execute_node(node, ctx));
         results.set(node.name, result);
         k = (k + usize(1));
-      };
-
+      });
       // Mark complete and update in-degrees
       k = usize(0);
-      while runtime((k < rn)), {
+      while(runtime(k < rn), {
         completed_name := ready(k).name;
         completed.set(completed_name, true);
-
         // Decrement in-degree of all not-yet-completed nodes that depend on this
         m := usize(0);
-        while runtime((m < n)), {
+        while(runtime(m < n), {
           other := dag(m);
-          if((!completed.contains_key(other.name)), {
+          if(!(completed.contains_key(other.name)), {
             j := usize(0);
             nd := other.depends_on.len();
-            while runtime((j < nd)), {
+            while(runtime(j < nd), {
               dep := other.depends_on(j);
-              if((dep == completed_name), {
+              if(dep == completed_name, {
                 cur := in_degree.get(other.name).unwrap_or(i32(1));
-                in_degree.set(other.name, (cur - i32(1)));
+                in_degree.set(other.name, cur - i32(1));
               });
               j = (j + usize(1));
-            };
+            });
           });
           m = (m + usize(1));
-        };
+        });
         k = (k + usize(1));
-      };
-    };
-
+      });
+    });
     results
   })
 );
-
-
 // ---------------------------------------------------------------------------
 // Build summary
 // ---------------------------------------------------------------------------
-
-_print_summary_node :: (fn(
-  node            : DAGNode,
-  results         : HashMap(String, StepResult),
-  node_map        : HashMap(String, DAGNode),
-  line_prefix     : str,
-  children_prefix : str,
-  is_root         : bool
-) -> unit)({
-  status_str := match(results.get(node.name),
-    .None    => String.from("skipped"),
+_print_summary_node :: (
+  fn(
+    node : DAGNode,
+    results : HashMap(String, StepResult),
+    node_map : HashMap(String, DAGNode),
+    line_prefix : str,
+    children_prefix : str,
+    is_root : bool
+  ) -> unit
+)({
+  status_str := match(
+    results.get(node.name),
+    .None => String.from("skipped"),
     .Some(r) => if(r.success, String.from("ok"), String.from("FAILED"))
   );
-  desc := match(results.get(node.name),
-    .None    => node.name,
+  desc := match(
+    results.get(node.name),
+    .None => node.name,
     .Some(r) => r.description
   );
-
-  if(is_root,
+  if(
+    is_root,
     println(`${desc} ${status_str}`),
     println(`${line_prefix}${desc} ${status_str}`)
   );
-
   nd := node.depends_on.len();
   i := usize(0);
-  while runtime((i < nd)), {
+  while(runtime(i < nd), {
     dep_name := node.depends_on(i);
-    match(node_map.get(dep_name),
+    match(
+      node_map.get(dep_name),
       .None => (),
       .Some(child) => {
-        is_last        := (i == (nd - usize(1)));
-        connector      := if(is_last, "└── ", "├── ");
+        is_last := (i == (nd - usize(1)));
+        connector := if(is_last, "└── ", "├── ");
         next_child_pfx := if(is_last, "    ", "│   ");
         recur(
-          child, results, node_map,
+          child,
+          results,
+          node_map,
           (`${children_prefix}${connector}`).as_str(),
           (`${children_prefix}${next_child_pfx}`).as_str(),
           false
@@ -680,117 +710,114 @@ _print_summary_node :: (fn(
       }
     );
     i = (i + usize(1));
-  };
+  });
 });
-print_build_summary :: (fn(
-  results   : HashMap(String, StepResult),
-  dag       : ArrayList(DAGNode),
-  root_name : str
-) -> unit)({
+print_build_summary :: (
+  fn(
+    results : HashMap(String, StepResult),
+    dag : ArrayList(DAGNode),
+    root_name : str
+  ) -> unit
+)({
   n := dag.len();
-  total     := n;
+  total := n;
   succeeded := usize(0);
-
   i := usize(0);
-  while runtime((i < n)), {
-    match(results.get(dag(i).name),
-      .None    => (),
-      .Some(r) => { if(r.success, { succeeded = (succeeded + usize(1)); }); }
+  while(runtime(i < n), {
+    match(
+      results.get(dag(i).name),
+      .None => (),
+      .Some(r) => {
+        if(r.success, {
+          succeeded = (succeeded + usize(1));
+        });
+      }
     );
     i = (i + usize(1));
-  };
-
+  });
   println("");
   println(`Build Summary: ${succeeded}/${total} steps succeeded`);
-
   // Find root node and print tree
   i = usize(0);
-  while runtime((i < n)), {
-    if((dag(i).name == String.from(root_name)), {
+  while(runtime(i < n), {
+    if(dag(i).name == String.from(root_name), {
       node_map := HashMap(String, DAGNode).new();
       j := usize(0);
-      while runtime((j < n)), {
+      while(runtime(j < n), {
         nd := dag(j);
         node_map.set(nd.name, nd);
         j = (j + usize(1));
-      };
+      });
       _print_summary_node(dag(i), results, node_map, "", "", true);
     });
     i = (i + usize(1));
-  };
+  });
 });
-
-
 // ---------------------------------------------------------------------------
 // Step execution
 // ---------------------------------------------------------------------------
-
-execute_step :: (fn(
-  step_name : str,
-  ctx       : *(ExecutionContext),
-  using(io : IO, exn : Exception)
-) -> Impl(Future(unit, IO, Exception)))(
+execute_step :: (
+  fn(
+    step_name : str,
+    ctx : *(ExecutionContext),
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(unit, IO, Exception))
+)(
   io.async((using(io, exn)) => {
-    match(ctx.*.registry.find_step(step_name),
+    match(
+      ctx.*.registry.find_step(step_name),
       .None => {
         available := ctx.*.registry.get_step_names();
         names_str := String.new();
         i := usize(0);
         n := available.len();
-        while runtime((i < n)), {
-          if((i > usize(0)), names_str.push_str(", "));
+        while(runtime(i < n), {
+          if(i > usize(0), names_str.push_str(", "));
           names_str.push_str(available(i).as_str());
           i = (i + usize(1));
-        };
-        if((names_str.len() == usize(0)), names_str.push_str("(none)"));
-        exn.throw(dyn `Error: Unknown step "${step_name}". Available: ${names_str}`);
+        });
+        if(names_str.len() == usize(0), names_str.push_str("(none)"));
+        exn.throw(dyn(`Error: Unknown step "${step_name}". Available: ${names_str}`));
       },
       .Some(_) => ()
     );
-
     dag := build_dag(&(ctx.*.registry), step_name);
-
-    match(detect_cycle(dag),
+    match(
+      detect_cycle(dag),
       .Some(cycle_node) => {
-        exn.throw(dyn `Error: Cycle in build DAG involving "${cycle_node}"`);
+        exn.throw(dyn(`Error: Cycle in build DAG involving "${cycle_node}"`));
       },
       .None => ()
     );
-
     results := io.await(execute_dag(dag, ctx));
-
     if(ctx.*.summary, print_build_summary(results, dag, step_name));
   })
 );
-
 // ---------------------------------------------------------------------------
-print_steps :: (fn(registry: *(BuildRegistry)) -> unit)({
+print_steps :: (fn(registry : *(BuildRegistry)) -> unit)({
   steps := registry.*.steps;
   println("Available build steps:");
   println("");
   i := usize(0);
   n := steps.len();
-  while runtime((i < n)), {
+  while(runtime(i < n), {
     step := steps(i);
-    is_default := if((step.name == String.from("install")), " (default)", "");
+    is_default := if(step.name == String.from("install"), " (default)", "");
     println(`  ${step.name}${is_default}`);
-    if((step.description != String.from("")), {
+    if(step.description != String.from(""), {
       println(`    ${step.description}`);
     });
     i = (i + usize(1));
-  };
+  });
 });
-
 // ---------------------------------------------------------------------------
 // Build file evaluation (calls yo-cli --serialize-registry)
 // ---------------------------------------------------------------------------
-
 /// Parse a BuildRegistry from JSON produced by `yo-cli --serialize-registry`.
 /// TODO(phase-7): Implement using std/json once a Reader interface exists.
-_parse_registry_from_json :: (fn(json: str) -> BuildRegistry)(
+_parse_registry_from_json :: (fn(json : str) -> BuildRegistry)(
   BuildRegistry.new()
 );
-
 /// Evaluate a build.yo file to obtain a BuildRegistry.
 ///
 /// Current implementation calls `yo-cli build --serialize-registry` and
@@ -798,133 +825,129 @@ _parse_registry_from_json :: (fn(json: str) -> BuildRegistry)(
 ///
 /// TODO(phase-7): Replace with direct call to self-hosted module manager
 /// once `yo-self/module-manager/module_manager.yo` is ported.
-evaluate_build_file :: (fn(
-  build_file : String,
-  defines    : HashMap(String, String),
-  using(io : IO, exn : Exception)
-) -> Impl(Future(BuildRegistry, IO, Exception)))(
+evaluate_build_file :: (
+  fn(
+    build_file : String,
+    defines : HashMap(String, String),
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(BuildRegistry, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("build"));
     cmd.arg(String.from("--build-file"));
     cmd.arg(build_file);
     cmd.arg(String.from("--serialize-registry"));
-
     define_keys := ArrayList(String).new();
     key_iter := defines.keys();
     more := true;
-    while runtime(more), {
-      match(key_iter.next(),
-        .None    => { more = false; },
-        .Some(k) => { define_keys.push(k); }
+    while(runtime(more), {
+      match(
+        key_iter.next(),
+        .None => {
+          more = false;
+        },
+        .Some(k) => {
+          define_keys.push(k);
+        }
       );
-    };
-
+    });
     i := usize(0);
     n := define_keys.len();
-    while runtime((i < n)), {
+    while(runtime(i < n), {
       k := define_keys(i);
       v := defines.get(k).unwrap_or(String.from(""));
       cmd.arg(`-D${k}=${v}`);
       i = (i + usize(1));
-    };
-
+    });
     out := io.await(cmd.output());
     if(!(out.status.success()), {
       stderr_str := String.from_bytes(out.stderr).trim();
-      exn.throw(dyn `Error evaluating build file: ${stderr_str}`);
+      exn.throw(dyn(`Error evaluating build file: ${stderr_str}`));
     });
-
     stdout_str := String.from_bytes(out.stdout);
     _parse_registry_from_json(stdout_str.as_str())
   })
 );
-
-
 // ---------------------------------------------------------------------------
 // Exports
-run_build :: (fn(
-  options : BuildOptions,
-  using(io : IO, exn : Exception)
-) -> Impl(Future(unit, IO, Exception)))(
+run_build :: (
+  fn(
+    options : BuildOptions,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(unit, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     build_file_path := Path.new(options.build_file);
-
     build_file_exists := io.await(exists(build_file_path));
-    if((!build_file_exists), {
-      exn.throw(dyn `Error: Build file not found: ${build_file_path.to_string()}`);
+    if(!(build_file_exists), {
+      exn.throw(dyn(`Error: Build file not found: ${build_file_path.to_string()}`));
     });
-
-    project_dir := match(build_file_path.parent(),
+    project_dir := match(
+      build_file_path.parent(),
       .Some(p) => p.to_string(),
-      .None    => String.from(".")
+      .None => String.from(".")
     );
-
     if(options.list_steps, {
       // We still need to evaluate the build file to list steps.
       // TODO(phase-7): Replace with direct evaluator call.
-      return ();
+      return(());
     });
-
-    c_compiler := match(options.c_compiler,
+    c_compiler := match(
+      options.c_compiler,
       .Some(cc) => cc,
-      .None     => String.from("clang")
+      .None => String.from("clang")
     );
-
     // Evaluate build.yo to populate the registry.
-    registry := io.await(evaluate_build_file(
-      build_file_path.to_string(),
-      options.defines
-    ));
-
-    if(options.list_steps, {
-      print_steps(&registry);
-      return ();
-    });
-
-    ctx := ExecutionContext(
-      registry:      registry,
-      project_dir:   project_dir,
-      c_compiler:    c_compiler,
-      target_triple: options.target_triple,
-      sysroot:       options.sysroot,
-      verbose:       options.verbose,
-      dry_run:       options.dry_run,
-      summary:       options.summary
+    registry := io.await(
+      evaluate_build_file(
+        build_file_path.to_string(),
+        options.defines
+      )
     );
-
-    requested := if((options.steps.len() == usize(0)), {
+    if(options.list_steps, {
+      print_steps(&(registry));
+      return(());
+    });
+    ctx := ExecutionContext(
+      registry : registry,
+      project_dir : project_dir,
+      c_compiler : c_compiler,
+      target_triple : options.target_triple,
+      sysroot : options.sysroot,
+      verbose : options.verbose,
+      dry_run : options.dry_run,
+      summary : options.summary
+    );
+    requested := if(options.steps.len() == usize(0), {
       defaults := ArrayList(String).new();
       defaults.push(String.from("install"));
       defaults
     }, options.steps);
-
     i := usize(0);
     n := requested.len();
-    while runtime((i < n)), {
-      io.await(execute_step(requested(i).as_str(), &ctx));
+    while(runtime(i < n), {
+      io.await(execute_step(requested(i).as_str(), &(ctx)));
       i = (i + usize(1));
-    };
+    });
   })
 );
-
 // ---------------------------------------------------------------------------
-
-export BuildOptions;
-export DAGNodeKind;
-export DAGNode;
-export StepResult;
-export ExecutionContext;
-export get_artifact_output_file_name;
-export build_dag;
-export detect_cycle;
-export execute_dag;
-export execute_node;
-export execute_step;
-export compile_artifact;
-export run_executable;
-export run_test_suite;
-export run_build;
-export evaluate_build_file;
-export print_steps;
-export print_build_summary;
+export(BuildOptions);
+export(DAGNodeKind);
+export(DAGNode);
+export(StepResult);
+export(ExecutionContext);
+export(get_artifact_output_file_name);
+export(build_dag);
+export(detect_cycle);
+export(execute_dag);
+export(execute_node);
+export(execute_step);
+export(compile_artifact);
+export(run_executable);
+export(run_test_suite);
+export(run_build);
+export(evaluate_build_file);
+export(print_steps);
+export(print_build_summary);

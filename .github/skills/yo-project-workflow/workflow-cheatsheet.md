@@ -18,6 +18,8 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Inspect generated C       | `yo compile main.yo --emit-c --skip-c-compiler`           |
 | Run tests in one file     | `yo test ./tests/main.test.yo --parallel 1`               |
 | Filter tests by name      | `yo test ./tests/main.test.yo --test-name-pattern "Name"` |
+| Format Yo source          | `yo fmt ./src ./tests`                                    |
+| Check Yo formatting       | `yo fmt --check`                                          |
 | Generate docs for project | `yo doc ./src`                                            |
 | Generate docs (custom)    | `yo doc ./src -o docs --title "My Project"`               |
 | Install AI agent skills   | `yo skills install`                                       |
@@ -48,7 +50,7 @@ my-project/
 ## Minimal `build.yo`
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 mod :: build.module({ name: "my-project", root: "./src/lib.yo" });
 
@@ -89,6 +91,7 @@ doc_step.depend_on(docs);
 | Whole project with `build.yo`   | `yo build ...`                             |
 | One standalone file             | `yo compile ...`                           |
 | One test file or test directory | `yo test ...`                              |
+| Formatting Yo source            | `yo fmt ...`                               |
 | Dependency changes              | `yo install ...` then `yo fetch` if needed |
 
 ## Testing patterns
@@ -103,25 +106,45 @@ yo test ./tests/main.test.yo --bail --verbose --parallel 1
 - Use `--test-name-pattern` when a file contains many tests
 - Use `yo build test` when the repository's main test workflow is defined in `build.yo`
 
+## Formatting
+
+```bash
+yo fmt
+yo fmt ./src ./tests
+yo fmt --check
+```
+
+- `yo fmt` recursively formats `.yo` files under the current directory by default
+- Pass files or directories to limit the scope
+- `yo fmt --check` reports files that need formatting without writing changes
+- Formatting is intentionally fixed: 2-space indentation and no configuration
+- Formatting must be idempotent: a second `yo fmt` run on the same files should report no changes and must not produce parser errors
+- The formatter removes redundant grouping parentheses, e.g. `return((1 + 2))` → `return(1 + 2)`
+- Infix-like separators keep spaces on both sides, including `{ x : value }` fields and `[T ; N]` array type sugar
+- It preserves delimiter syntax whose meaning is not just grouping: tuples, `{...}` struct/begin forms, `[T ; N]` arrays, `[T]` slices, call parentheses, function body calls, and prefix-operator operands
+- It preserves grouping or operator line breaks where removing them would expose ambiguous infix syntax, e.g. `{ x : (1 + 2), y : 3 }`, `true => (x / y)`, `(ptr &+ 1).*`, and line-leading `|` chains
+- When an operator ends a line, `yo fmt` indents the RHS one extra level as a continuation
+- `yo fmt` canonicalizes legacy deref spelling `ptr.(*)` to `ptr.*` and keeps single-line array/tuple literals compact
+
 ### Writing tests in Yo
 
 ```rust
-test "Basic assertion", {
+test("Basic assertion", {
   assert(((i32(1) + i32(1)) == i32(2)), "1+1 should be 2");
-};
+});
 
-test "Compile-time check", {
+test("Compile-time check", {
   comptime_assert((2 + 2) == 4);
   comptime_expect_error({ x :: (1 / 0); });
-};
+});
 
-test "Async test", {
-  { yield } :: import "std/async";
+test("Async test", {
+  { yield } :: import("std/async");
   io.await(yield());
-};
+});
 ```
 
-- `test "name", { body }` defines a test — `io : IO` is automatically available
+- `test("name", { body })` defines a test — `io : IO` is automatically available
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - `assert(condition, "message")` — always include a message string
 - `comptime_assert(expr)` — verified at compile time
@@ -147,7 +170,7 @@ yo test ./tests/main.test.yo --target wasm-wasi
 For projects that compile to WASM npm packages, use `target: build.CompilationTarget.Wasm32_Emscripten` and `add_c_flags(...)` for Emscripten settings:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 wasm_api :: build.executable({
   name: "my_lib_wasm_api",
@@ -191,7 +214,7 @@ yo doc --document-private            # Include non-exported items
 In `build.yo`:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 docs :: build.doc({ name: "docs", root: "./src" });
 doc_step :: build.step("doc", "Generate documentation");
