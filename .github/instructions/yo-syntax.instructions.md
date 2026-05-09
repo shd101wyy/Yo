@@ -257,7 +257,7 @@ next :
   fn(self : *(Self)) -> Option(Self.Item)
 ```
 
-Special tight syntaxes must stay immediate: macro splices `#(expr)`, optional pointer types `?*(T)`, and negated trait constraints `T <:!(Runtime)` must not be formatted as `# (expr)`, `?* (T)`, or `T <:! (Runtime)`.
+Special tight syntaxes must stay immediate: macro splices `#(expr)`, optional pointer types `?*(T)`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `?* (T)`, or `T <: !(Runtime)`.
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 

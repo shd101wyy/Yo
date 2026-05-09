@@ -113,7 +113,7 @@ masked := ((A | B) | C);
 - Line breaks can disambiguate operator chains; keep line-leading operators like `(4\n| 5\n| 6)` and newlines after `:` before a lambda unless you add equivalent grouping
 - When an operator ends a line, indent its RHS one level as a continuation: `(given(x) : T) =\n  (v) -> { ... }`
 - Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
-- Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <:!(Runtime)`
+- Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <: !(Runtime)`
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
