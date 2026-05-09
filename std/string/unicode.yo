@@ -8,84 +8,78 @@
 //! lower := unicode_to_lowercase(`HELLO WÖRLD`);  // "hello wörld"
 //! upper := unicode_to_uppercase(`hello wörld`);  // "HELLO WÖRLD"
 //! ```
-
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
-
 // Declare towlower/towupper directly with i32 to avoid wint_t cast issues.
 // On all major platforms, wint_t is compatible with int/i32.
-c_include("<wctype.h>",
+c_include(
+  "<wctype.h>",
   towlower :
     fn(wc : i32) -> i32,
   towupper :
     fn(wc : i32) -> i32
 );
-
 // Result of decoding a single UTF-8 codepoint
 _DecodeResult :: struct(
   codepoint : i32,
   bytes_consumed : usize
 );
-
 // Decode a single UTF-8 codepoint from bytes at position i.
-_decode_utf8 :: (fn(bytes: ArrayList(u8), i: usize) -> _DecodeResult)({
+_decode_utf8 :: (fn(bytes : ArrayList(u8), i : usize) -> _DecodeResult)({
   (b0 : i32) = i32(bytes.get(i).unwrap());
   cond(
     // 1-byte ASCII
-    ((b0 & i32(0x80)) == i32(0)) => 
-      _DecodeResult(codepoint: b0, bytes_consumed: usize(1))
-    ,
+    ((b0 & i32(0x80)) == i32(0)) =>
+      _DecodeResult(codepoint : b0, bytes_consumed : usize(1)),
     // 2-byte
     ((b0 & i32(0xE0)) == i32(0xC0)) => {
-      (b1 : i32) = i32(bytes.get((i + usize(1))).unwrap());
+      (b1 : i32) = i32(bytes.get(i + usize(1)).unwrap());
       (cp : i32) = (((b0 & i32(0x1F)) << i32(6)) | (b1 & i32(0x3F)));
-      _DecodeResult(codepoint: cp, bytes_consumed: usize(2))
+      _DecodeResult(codepoint : cp, bytes_consumed : usize(2))
     },
     // 3-byte
     ((b0 & i32(0xF0)) == i32(0xE0)) => {
-      (b1 : i32) = i32(bytes.get((i + usize(1))).unwrap());
-      (b2 : i32) = i32(bytes.get((i + usize(2))).unwrap());
+      (b1 : i32) = i32(bytes.get(i + usize(1)).unwrap());
+      (b2 : i32) = i32(bytes.get(i + usize(2)).unwrap());
       (cp : i32) = ((((b0 & i32(0x0F)) << i32(12)) | ((b1 & i32(0x3F)) << i32(6))) | (b2 & i32(0x3F)));
-      _DecodeResult(codepoint: cp, bytes_consumed: usize(3))
+      _DecodeResult(codepoint : cp, bytes_consumed : usize(3))
     },
     // 4-byte
     true => {
-      (b1 : i32) = i32(bytes.get((i + usize(1))).unwrap());
-      (b2 : i32) = i32(bytes.get((i + usize(2))).unwrap());
-      (b3 : i32) = i32(bytes.get((i + usize(3))).unwrap());
+      (b1 : i32) = i32(bytes.get(i + usize(1)).unwrap());
+      (b2 : i32) = i32(bytes.get(i + usize(2)).unwrap());
+      (b3 : i32) = i32(bytes.get(i + usize(3)).unwrap());
       (cp : i32) = (((((b0 & i32(0x07)) << i32(18)) | ((b1 & i32(0x3F)) << i32(12))) | ((b2 & i32(0x3F)) << i32(6))) | (b3 & i32(0x3F)));
-      _DecodeResult(codepoint: cp, bytes_consumed: usize(4))
+      _DecodeResult(codepoint : cp, bytes_consumed : usize(4))
     }
   )
 });
-
 // Encode a Unicode codepoint as UTF-8 bytes into an ArrayList.
-_encode_utf8 :: (fn(cp: i32, out: *(ArrayList(u8))) -> unit)({
+_encode_utf8 :: (fn(cp : i32, out : *(ArrayList(u8))) -> unit)({
   cond(
     (cp < i32(0x80)) => {
       out.*.push(u8(cp));
     },
     (cp < i32(0x800)) => {
-      out.*.push(u8((i32(0xC0) | (cp >> i32(6)))));
-      out.*.push(u8((i32(0x80) | (cp & i32(0x3F)))));
+      out.*.push(u8(i32(0xC0) | (cp >> i32(6))));
+      out.*.push(u8(i32(0x80) | (cp & i32(0x3F))));
     },
     (cp < i32(0x10000)) => {
-      out.*.push(u8((i32(0xE0) | (cp >> i32(12)))));
-      out.*.push(u8((i32(0x80) | ((cp >> i32(6)) & i32(0x3F)))));
-      out.*.push(u8((i32(0x80) | (cp & i32(0x3F)))));
+      out.*.push(u8(i32(0xE0) | (cp >> i32(12))));
+      out.*.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
+      out.*.push(u8(i32(0x80) | (cp & i32(0x3F))));
     },
     true => {
-      out.*.push(u8((i32(0xF0) | (cp >> i32(18)))));
-      out.*.push(u8((i32(0x80) | ((cp >> i32(12)) & i32(0x3F)))));
-      out.*.push(u8((i32(0x80) | ((cp >> i32(6)) & i32(0x3F)))));
-      out.*.push(u8((i32(0x80) | (cp & i32(0x3F)))));
+      out.*.push(u8(i32(0xF0) | (cp >> i32(18))));
+      out.*.push(u8(i32(0x80) | ((cp >> i32(12)) & i32(0x3F))));
+      out.*.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
+      out.*.push(u8(i32(0x80) | (cp & i32(0x3F))));
     }
   );
 });
-
 // Special case folding: codepoints that expand to multiple codepoints
 // when lowercased. These are Unicode case folding entries of type 'F' (full).
-_special_to_lower :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)(
+_special_to_lower :: (fn(cp : i32, out : *(ArrayList(u8))) -> bool)(
   cond(
     // ẞ (U+1E9E LATIN CAPITAL LETTER SHARP S) → ss
     (cp == i32(0x1E9E)) => {
@@ -103,10 +97,9 @@ _special_to_lower :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)(
     true => false
   )
 );
-
 // Special case folding: codepoints that expand to multiple codepoints
 // when uppercased.
-_special_to_upper :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)(
+_special_to_upper :: (fn(cp : i32, out : *(ArrayList(u8))) -> bool)(
   cond(
     // ß (U+00DF LATIN SMALL LETTER SHARP S) → SS
     (cp == i32(0x00DF)) => {
@@ -161,21 +154,19 @@ _special_to_upper :: (fn(cp: i32, out: *(ArrayList(u8))) -> bool)(
     true => false
   )
 );
-
 // Convert a String to lowercase using Unicode-aware case mapping.
 /// Convert a `String` to lowercase using Unicode case mapping rules.
 /// Handles both ASCII and non-ASCII codepoints, plus special multi-char expansions (e.g., ẞ → ss).
-unicode_to_lowercase :: (fn(input: String) -> String)({
+unicode_to_lowercase :: (fn(input : String) -> String)({
   (bytes : ArrayList(u8)) = input.as_bytes();
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);
-
-  while((i < bytes.len()), {
+  while(i < bytes.len(), {
     (b0 : i32) = i32(bytes.get(i).unwrap());
     // Fast path for ASCII
-    if(((b0 & i32(0x80)) == i32(0)), {
-      if(((b0 >= i32(0x41)) && (b0 <= i32(0x5A))), {
-        out.push(u8((b0 + i32(0x20))));
+    if((b0 & i32(0x80)) == i32(0), {
+      if((b0 >= i32(0x41)) && (b0 <= i32(0x5A)), {
+        out.push(u8(b0 + i32(0x20)));
       }, {
         out.push(u8(b0));
       });
@@ -185,35 +176,30 @@ unicode_to_lowercase :: (fn(input: String) -> String)({
       (result : _DecodeResult) = _decode_utf8(bytes, i);
       (cp : i32) = result.codepoint;
       (len : usize) = result.bytes_consumed;
-
       // Try special case folding first
-      if(!(_special_to_lower(cp, (&(out)))), {
+      if(!(_special_to_lower(cp, &(out))), {
         // Use C towlower for standard Unicode lowercase
         (lower : i32) = i32(towlower(cp));
-        _encode_utf8(lower, (&(out)));
+        _encode_utf8(lower, &(out));
       });
-
       i = (i + len);
     });
   });
-
   String.from_bytes(out)
 });
-
 // Convert a String to uppercase using Unicode-aware case mapping.
 /// Convert a `String` to uppercase using Unicode case mapping rules.
 /// Handles both ASCII and non-ASCII codepoints, plus special multi-char expansions (e.g., ß → SS).
-unicode_to_uppercase :: (fn(input: String) -> String)({
+unicode_to_uppercase :: (fn(input : String) -> String)({
   (bytes : ArrayList(u8)) = input.as_bytes();
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);
-
-  while((i < bytes.len()), {
+  while(i < bytes.len(), {
     (b0 : i32) = i32(bytes.get(i).unwrap());
     // Fast path for ASCII
-    if(((b0 & i32(0x80)) == i32(0)), {
-      if(((b0 >= i32(0x61)) && (b0 <= i32(0x7A))), {
-        out.push(u8((b0 - i32(0x20))));
+    if((b0 & i32(0x80)) == i32(0), {
+      if((b0 >= i32(0x61)) && (b0 <= i32(0x7A)), {
+        out.push(u8(b0 - i32(0x20)));
       }, {
         out.push(u8(b0));
       });
@@ -223,19 +209,15 @@ unicode_to_uppercase :: (fn(input: String) -> String)({
       (result : _DecodeResult) = _decode_utf8(bytes, i);
       (cp : i32) = result.codepoint;
       (len : usize) = result.bytes_consumed;
-
       // Try special case folding first
-      if(!(_special_to_upper(cp, (&(out)))), {
+      if(!(_special_to_upper(cp, &(out))), {
         // Use C towupper for standard Unicode uppercase
         (upper : i32) = i32(towupper(cp));
-        _encode_utf8(upper, (&(out)));
+        _encode_utf8(upper, &(out));
       });
-
       i = (i + len);
     });
   });
-
   String.from_bytes(out)
 });
-
 export(unicode_to_lowercase, unicode_to_uppercase);

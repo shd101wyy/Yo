@@ -8,34 +8,28 @@
 //! s := base64_encode(data);
 //! b := base64_decode(s.to_str()).unwrap();
 //! ```
-
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 { EncodingError } :: import("./hex");
 { Error, AnyError, Exception } :: import("../error");
-
 // ============================================================================
 // Standard alphabet
 // ============================================================================
-
 _STD_ALPHA :: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 _URL_ALPHA :: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 _PAD :: u8(61); // '='
-
 // ============================================================================
 // Encoding
 // ============================================================================
-
-_encode_with :: (fn(data: ArrayList(u8), alpha: str, pad: bool) -> String)({
-  n   := data.len();
-  out := ArrayList(u8).with_capacity((((n + usize(2)) / usize(3)) * usize(4)));
-  i   := usize(0);
-  while((i < n), (i = (i + usize(3))), {
+_encode_with :: (fn(data : ArrayList(u8), alpha : str, pad : bool) -> String)({
+  n := data.len();
+  out := ArrayList(u8).with_capacity(((n + usize(2)) / usize(3)) * usize(4));
+  i := usize(0);
+  while(i < n, i = (i + usize(3)), {
     b0 := data.get(i).unwrap();
-    b1 := cond(((i + usize(1)) < n) => data.get((i + usize(1))).unwrap(), true => u8(0));
-    b2 := cond(((i + usize(2)) < n) => data.get((i + usize(2))).unwrap(), true => u8(0));
-
-    out.push(alpha.bytes(usize((b0 >> u8(2)))));
+    b1 := cond(((i + usize(1)) < n) => data.get(i + usize(1)).unwrap(), true => u8(0));
+    b2 := cond(((i + usize(2)) < n) => data.get(i + usize(2)).unwrap(), true => u8(0));
+    out.push(alpha.bytes(usize(b0 >> u8(2))));
     out.push(alpha.bytes(usize(((b0 & u8(3)) << u8(4)) | (b1 >> u8(4)))));
     cond(
       ((i + usize(1)) < n) => {
@@ -48,7 +42,7 @@ _encode_with :: (fn(data: ArrayList(u8), alpha: str, pad: bool) -> String)({
     );
     cond(
       ((i + usize(2)) < n) => {
-        out.push(alpha.bytes(usize((b2 & u8(63)))));
+        out.push(alpha.bytes(usize(b2 & u8(63))));
       },
       pad => {
         out.push(_PAD);
@@ -58,55 +52,51 @@ _encode_with :: (fn(data: ArrayList(u8), alpha: str, pad: bool) -> String)({
   });
   String.from_bytes(out)
 });
-
 /// Encode bytes as standard base64 with padding.
-base64_encode :: (fn(data: ArrayList(u8)) -> String)(
+base64_encode :: (fn(data : ArrayList(u8)) -> String)(
   _encode_with(data, _STD_ALPHA, true)
 );
-
 /// Encode bytes as URL-safe base64 without padding.
-base64_encode_url :: (fn(data: ArrayList(u8)) -> String)(
+base64_encode_url :: (fn(data : ArrayList(u8)) -> String)(
   _encode_with(data, _URL_ALPHA, false)
 );
-
 export(base64_encode, base64_encode_url);
-
 // ============================================================================
 // Decoding
 // ============================================================================
-
-_decode_char :: (fn(c: u8, alpha: str, using(exn : Exception)) -> u8)({
+_decode_char :: (fn(c : u8, alpha : str, using(exn : Exception)) -> u8)({
   i := usize(0);
-  while((i < usize(64)), (i = (i + usize(1))), {
+  while(i < usize(64), i = (i + usize(1)), {
     cond(
-      (alpha.bytes(i) == c) => { return(u8(i)); },
+      (alpha.bytes(i) == c) => {
+        return(u8(i));
+      },
       true => ()
     );
   });
   exn.throw(dyn(EncodingError.InvalidChar(c)))
 });
-
-_decode_with :: (fn(s: str, alpha: str, using(exn : Exception)) -> ArrayList(u8))({
+_decode_with :: (fn(s : str, alpha : str, using(exn : Exception)) -> ArrayList(u8))({
   // Strip trailing padding
   len := s.len();
-  while(((len > usize(0)) && (s.bytes((len - usize(1))) == _PAD)), (len = (len - usize(1))), ());
-  out := ArrayList(u8).with_capacity(((len * usize(3)) / usize(4)));
-  i   := usize(0);
-  while((i < len), (i = (i + usize(4))), {
+  while((len > usize(0)) && (s.bytes(len - usize(1)) == _PAD), len = (len - usize(1)), ());
+  out := ArrayList(u8).with_capacity((len * usize(3)) / usize(4));
+  i := usize(0);
+  while(i < len, i = (i + usize(4)), {
     c0 := _decode_char(s.bytes(i), alpha);
     c1 := cond(
-      ((i + usize(1)) < len) => _decode_char(s.bytes((i + usize(1))), alpha),
+      ((i + usize(1)) < len) => _decode_char(s.bytes(i + usize(1)), alpha),
       true => u8(0)
     );
-    out.push(((c0 << u8(2)) | (c1 >> u8(4))));
+    out.push((c0 << u8(2)) | (c1 >> u8(4)));
     cond(
       ((i + usize(2)) < len) => {
-        c2 := _decode_char(s.bytes((i + usize(2))), alpha);
-        out.push((((c1 & u8(15)) << u8(4)) | (c2 >> u8(2))));
+        c2 := _decode_char(s.bytes(i + usize(2)), alpha);
+        out.push(((c1 & u8(15)) << u8(4)) | (c2 >> u8(2)));
         cond(
           ((i + usize(3)) < len) => {
-            c3 := _decode_char(s.bytes((i + usize(3))), alpha);
-            out.push((((c2 & u8(3)) << u8(6)) | c3));
+            c3 := _decode_char(s.bytes(i + usize(3)), alpha);
+            out.push(((c2 & u8(3)) << u8(6)) | c3);
           },
           true => ()
         );
@@ -116,80 +106,97 @@ _decode_with :: (fn(s: str, alpha: str, using(exn : Exception)) -> ArrayList(u8)
   });
   out
 });
-
 /// Decode a standard base64 string to bytes. Throws via `Exception` on invalid input.
-base64_decode :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8))(
+base64_decode :: (fn(s : str, using(exn : Exception)) -> ArrayList(u8))(
   _decode_with(s, _STD_ALPHA)
 );
-
 /// Decode a URL-safe base64 string to bytes. Throws via `Exception` on invalid input.
-base64_decode_url :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8))(
+base64_decode_url :: (fn(s : str, using(exn : Exception)) -> ArrayList(u8))(
   _decode_with(s, _URL_ALPHA)
 );
-
 export(base64_decode, base64_decode_url);
-
 // ============================================================================
 // String-level convenience API
 // ============================================================================
-
 /// Encode a `String` to standard base64.
-base64_encode_string :: (fn(input: String) -> String)(
+base64_encode_string :: (fn(input : String) -> String)(
   _encode_with(input.as_bytes(), _STD_ALPHA, true)
 );
-
 // Reverse lookup: base64 char to 0-63, or -1 for invalid.
-_base64_index :: (fn(c: u8) -> i32)({
+_base64_index :: (fn(c : u8) -> i32)({
   alpha := _STD_ALPHA;
   i := usize(0);
-  while((i < usize(64)), (i = (i + usize(1))), {
+  while(i < usize(64), i = (i + usize(1)), {
     cond(
-      (alpha.bytes(i) == c) => { return(i32(i)); },
+      (alpha.bytes(i) == c) => {
+        return(i32(i));
+      },
       true => ()
     );
   });
   i32(-(1))
 });
-
 /// Decode a base64 `String`, ignoring whitespace. Returns `Result(String, String)`.
-base64_decode_string :: (fn(input: String) -> Result(String, String))({
+base64_decode_string :: (fn(input : String) -> Result(String, String))({
   raw := input.as_str();
   cleaned := ArrayList(u8).new();
   i := usize(0);
-  while((i < raw.len()), (i = (i + usize(1))), {
+  while(i < raw.len(), i = (i + usize(1)), {
     ch := raw.bytes(i);
     cond(
       (((ch == u8(32)) || (ch == u8(9))) || ((ch == u8(10)) || (ch == u8(13)))) => (),
-      true => { cleaned.push(ch); }
+      true => {
+        cleaned.push(ch);
+      }
     );
   });
   // Strip trailing padding
   len := cleaned.len();
-  while(((len > usize(0)) && (cleaned.get((len - usize(1))).unwrap() == u8(61))), (len = (len - usize(1))), ());
+  while((len > usize(0)) && (cleaned.get(len - usize(1)).unwrap() == u8(61)), len = (len - usize(1)), ());
   out := ArrayList(u8).new();
   j := usize(0);
-  while((j < len), (j = (j + usize(4))), {
+  while(j < len, j = (j + usize(4)), {
     v0 := _base64_index(cleaned.get(j).unwrap());
-    cond((v0 == i32(-(1))) => { return(.Err(`Invalid base64 input`)); }, true => ());
+    cond(
+      (v0 == i32(-(1))) => {
+        return(.Err(`Invalid base64 input`));
+      },
+      true => ()
+    );
     v1 := cond(
       ((j + usize(1)) < len) => {
-        tmp := _base64_index(cleaned.get((j + usize(1))).unwrap());
-        cond((tmp == i32(-(1))) => { return(.Err(`Invalid base64 input`)); }, true => ());
+        tmp := _base64_index(cleaned.get(j + usize(1)).unwrap());
+        cond(
+          (tmp == i32(-(1))) => {
+            return(.Err(`Invalid base64 input`));
+          },
+          true => ()
+        );
         tmp
       },
       true => i32(0)
     );
-    out.push(u8(((v0 << i32(2)) | (v1 >> i32(4)))));
+    out.push(u8((v0 << i32(2)) | (v1 >> i32(4))));
     cond(
       ((j + usize(2)) < len) => {
-        v2 := _base64_index(cleaned.get((j + usize(2))).unwrap());
-        cond((v2 == i32(-(1))) => { return(.Err(`Invalid base64 input`)); }, true => ());
-        out.push(u8((((v1 & i32(15)) << i32(4)) | (v2 >> i32(2)))));
+        v2 := _base64_index(cleaned.get(j + usize(2)).unwrap());
+        cond(
+          (v2 == i32(-(1))) => {
+            return(.Err(`Invalid base64 input`));
+          },
+          true => ()
+        );
+        out.push(u8(((v1 & i32(15)) << i32(4)) | (v2 >> i32(2))));
         cond(
           ((j + usize(3)) < len) => {
-            v3 := _base64_index(cleaned.get((j + usize(3))).unwrap());
-            cond((v3 == i32(-(1))) => { return(.Err(`Invalid base64 input`)); }, true => ());
-            out.push(u8((((v2 & i32(3)) << i32(6)) | v3)));
+            v3 := _base64_index(cleaned.get(j + usize(3)).unwrap());
+            cond(
+              (v3 == i32(-(1))) => {
+                return(.Err(`Invalid base64 input`));
+              },
+              true => ()
+            );
+            out.push(u8(((v2 & i32(3)) << i32(6)) | v3));
           },
           true => ()
         );
@@ -199,5 +206,4 @@ base64_decode_string :: (fn(input: String) -> Result(String, String))({
   });
   .Ok(String.from_bytes(out))
 });
-
 export(base64_encode_string, base64_decode_string);

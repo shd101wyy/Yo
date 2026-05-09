@@ -2,19 +2,19 @@
 //!
 //! Synchronous wrapper for `lseek`.
 //! Returns resulting absolute file offset on success, -errno on failure.
-
 { __yo_sync_lseek } :: import("./externs.yo");
-
 // Whence constants
-SEEK_SET :: i32(0);  // Set offset to absolute position
-SEEK_CUR :: i32(1);  // Set offset relative to current position
-SEEK_END :: i32(2);  // Set offset relative to end of file
-
+SEEK_SET :: i32(0); // Set offset to absolute position
+SEEK_CUR :: i32(1); // Set offset relative to current position
+SEEK_END :: i32(2); // Set offset relative to end of file
 // Reposition read/write file offset.
 // Returns resulting offset from file start, or -errno on failure.
-lseek :: (fn(fd: i32, offset: i64, whence: i32) -> i64)(
+lseek :: (fn(fd : i32, offset : i64, whence : i32) -> i64)(
   __yo_sync_lseek(fd, offset, whence)
 );
-
-export(lseek,
-  SEEK_SET, SEEK_CUR, SEEK_END);
+export(
+  lseek,
+  SEEK_SET,
+  SEEK_CUR,
+  SEEK_END
+);

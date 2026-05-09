@@ -1,62 +1,90 @@
 //! C11 `<signal.h>` — signal handling functions and constants.
-
-c_include("<signal.h>",
+c_include(
+  "<signal.h>",
   // Signal handler type
   // Note: In C this is: void (*signal(int sig, void (*func)(int)))(int)
   // We simplify this for Yo
   signal :
     fn(sig : int, func : (fn(signal_num : int) -> unit)) -> (fn(signal_num : int) -> unit),
-  
   // Raise a signal
   raise :
     fn(sig : int) -> int,
-
   // Standard signal numbers (POSIX.1)
-  SIGHUP : int,      // Hangup
-  SIGINT : int,      // Interrupt (Ctrl+C)
-  SIGQUIT : int,     // Quit (Ctrl+\)
-  SIGILL : int,      // Illegal instruction
-  SIGTRAP : int,     // Trace/breakpoint trap
-  SIGABRT : int,     // Abort signal
-  SIGBUS : int,      // Bus error
-  SIGFPE : int,      // Floating point exception
-  SIGKILL : int,     // Kill signal (cannot be caught)
-  SIGUSR1 : int,     // User-defined signal 1
-  SIGSEGV : int,     // Segmentation fault
-  SIGUSR2 : int,     // User-defined signal 2
-  SIGPIPE : int,     // Broken pipe
-  SIGALRM : int,     // Alarm clock
-  SIGTERM : int,     // Termination signal
-  SIGCHLD : int,     // Child status changed
-  SIGCONT : int,     // Continue if stopped
-  SIGSTOP : int,     // Stop executing (cannot be caught)
-  SIGTSTP : int,     // Terminal stop signal (Ctrl+Z)
-  SIGTTIN : int,     // Background process attempting read
-  SIGTTOU : int,     // Background process attempting write
-  SIGURG : int,      // Urgent condition on socket
-  SIGXCPU : int,     // CPU limit exceeded
-  SIGXFSZ : int,     // File size limit exceeded
-  SIGVTALRM : int,   // Virtual alarm clock
-  SIGPROF : int,     // Profiling alarm clock
-  SIGWINCH : int,    // Window resize signal
-  SIGIO : int,       // I/O now possible
-  SIGPWR : int,      // Power failure restart
-  SIGSYS : int,      // Bad system call
-
+  SIGHUP : int,
+  // Hangup
+  SIGINT : int,
+  // Interrupt (Ctrl+C)
+  SIGQUIT : int,
+  // Quit (Ctrl+\)
+  SIGILL : int,
+  // Illegal instruction
+  SIGTRAP : int,
+  // Trace/breakpoint trap
+  SIGABRT : int,
+  // Abort signal
+  SIGBUS : int,
+  // Bus error
+  SIGFPE : int,
+  // Floating point exception
+  SIGKILL : int,
+  // Kill signal (cannot be caught)
+  SIGUSR1 : int,
+  // User-defined signal 1
+  SIGSEGV : int,
+  // Segmentation fault
+  SIGUSR2 : int,
+  // User-defined signal 2
+  SIGPIPE : int,
+  // Broken pipe
+  SIGALRM : int,
+  // Alarm clock
+  SIGTERM : int,
+  // Termination signal
+  SIGCHLD : int,
+  // Child status changed
+  SIGCONT : int,
+  // Continue if stopped
+  SIGSTOP : int,
+  // Stop executing (cannot be caught)
+  SIGTSTP : int,
+  // Terminal stop signal (Ctrl+Z)
+  SIGTTIN : int,
+  // Background process attempting read
+  SIGTTOU : int,
+  // Background process attempting write
+  SIGURG : int,
+  // Urgent condition on socket
+  SIGXCPU : int,
+  // CPU limit exceeded
+  SIGXFSZ : int,
+  // File size limit exceeded
+  SIGVTALRM : int,
+  // Virtual alarm clock
+  SIGPROF : int,
+  // Profiling alarm clock
+  SIGWINCH : int,
+  // Window resize signal
+  SIGIO : int,
+  // I/O now possible
+  SIGPWR : int,
+  // Power failure restart
+  SIGSYS : int,
+  // Bad system call
   // Signal handling constants
-  SIG_DFL : (fn(signal_num : int) -> unit),  // Default signal handling
-  SIG_IGN : (fn(signal_num : int) -> unit),  // Ignore signal
-  SIG_ERR : (fn(signal_num : int) -> unit),  // Signal error return
-
+  SIG_DFL : (fn(signal_num : int) -> unit),
+  // Default signal handling
+  SIG_IGN : (fn(signal_num : int) -> unit),
+  // Ignore signal
+  SIG_ERR : (fn(signal_num : int) -> unit),
+  // Signal error return
   // C11 - Additional signal handling (optional)
-  sig_atomic_t : Type         // Type for atomic signal variables
+  sig_atomic_t : Type // Type for atomic signal variables
 );
-
 // Export all signal functionality
-export(// Signal functions
+export(
+  // Signal functions
   signal,
   raise,
-
   // Standard signals
   SIGHUP,
   SIGINT,
@@ -88,11 +116,10 @@ export(// Signal functions
   SIGIO,
   SIGPWR,
   SIGSYS,
-
   // Signal handling constants
   SIG_DFL,
   SIG_IGN,
   SIG_ERR,
-
   // Types
-  sig_atomic_t);
+  sig_atomic_t
+);

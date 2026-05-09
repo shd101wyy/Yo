@@ -10,43 +10,38 @@
 //! elapsed := start.elapsed();
 //! println(elapsed.as_millis());
 //! ```
-
 { Duration } :: import("./duration");
 { CLOCK_MONOTONIC, clock_gettime } :: import("../sys/clock");
-
 /// Snapshot from the monotonic clock. Use `elapsed` to measure durations.
 Instant :: struct(
-  secs  : i64,
+  secs : i64,
   nanos : i64
 );
-
-impl(Instant,
+impl(
+  Instant,
   // Capture the current monotonic time.
   now : (fn() -> Self)({
-    clk    := CLOCK_MONOTONIC;
-    out_s  := i64(0);
+    clk := CLOCK_MONOTONIC;
+    out_s := i64(0);
     out_ns := i64(0);
-    clock_gettime(clk, (&(out_s)), (&(out_ns)));
-    Self(secs: out_s, nanos: out_ns)
+    clock_gettime(clk, &(out_s), &(out_ns));
+    Self(secs : out_s, nanos : out_ns)
   }),
-
   // Duration between this instant and an earlier one.
   // Returns Duration.zero() if `earlier` is actually later.
-  duration_since : (fn(self: *(Self), earlier: Instant) -> Duration)({
+  duration_since : (fn(self : *(Self), earlier : Instant) -> Duration)({
     self_ns := ((self.secs * i64(1000000000)) + self.nanos);
     earlier_ns := ((earlier.secs * i64(1000000000)) + earlier.nanos);
     cond(
       (self_ns <= earlier_ns) => Duration.zero(),
-      true => Duration.from_nanos((self_ns - earlier_ns))
+      true => Duration.from_nanos(self_ns - earlier_ns)
     )
   }),
-
   // Duration elapsed since this instant was created.
-  elapsed : (fn(self: *(Self)) -> Duration)({
+  elapsed : (fn(self : *(Self)) -> Duration)({
     current := Instant.now();
     cur_ptr := (&(current));
     cur_ptr.duration_since(self.*)
   })
 );
-
 export(Instant);

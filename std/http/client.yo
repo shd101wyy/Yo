@@ -16,7 +16,6 @@
 //     resp := io.await(fetch(`http://example.com/api/data`, using(io)));
 //     println(resp.body);
 //   });
-
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 { GlobalAllocator } :: import("../allocator");
@@ -27,112 +26,109 @@ open(import("../fmt"));
 { IpAddr, SocketAddr } :: import("../net/addr");
 { lookup_host } :: import("../net/dns");
 { Url, UrlError } :: import("../url");
-{
-  HttpMethod, HttpHeader, HttpRequest, HttpResponse,
-  parse_response, http_status_text
-} :: import("./http.yo");
-
+{ HttpMethod, HttpHeader, HttpRequest, HttpResponse, parse_response, http_status_text } :: import("./http.yo");
 // ============================================================================
 // HttpError
 // ============================================================================
-
 /// HTTP client error variants.
 HttpError :: enum(
   /// Failed to connect to the remote host.
-  ConnectionFailed(msg: String),
+  ConnectionFailed(msg : String),
   /// The URL could not be parsed.
-  InvalidUrl(msg: String),
+  InvalidUrl(msg : String),
   /// The request timed out.
   Timeout,
   /// Too many HTTP redirects.
   TooManyRedirects,
   /// The URL scheme is not supported (only http/https).
-  UnsupportedScheme(scheme: String),
+  UnsupportedScheme(scheme : String),
   /// The response body exceeds the size limit.
   ResponseTooLarge,
   /// An unclassified HTTP error.
-  Other(msg: String)
+  Other(msg : String)
 );
-
-impl(HttpError, ToString(
-  to_string : (self ->
-    match(self,
-      .ConnectionFailed(msg) => `HTTP connection failed: ${msg}`,
-      .InvalidUrl(msg) => `Invalid URL: ${msg}`,
-      .Timeout => `HTTP request timed out`,
-      .TooManyRedirects => `Too many redirects`,
-      .UnsupportedScheme(scheme) => `Unsupported scheme: ${scheme}`,
-      .ResponseTooLarge => `Response too large`,
-      .Other(msg) => `HTTP error: ${msg}`
+impl(
+  HttpError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .ConnectionFailed(msg) => `HTTP connection failed: ${msg}`,
+          .InvalidUrl(msg) => `Invalid URL: ${msg}`,
+          .Timeout => `HTTP request timed out`,
+          .TooManyRedirects => `Too many redirects`,
+          .UnsupportedScheme(scheme) => `Unsupported scheme: ${scheme}`,
+          .ResponseTooLarge => `Response too large`,
+          .Other(msg) => `HTTP error: ${msg}`
+        )
     )
   )
-));
-
+);
 impl(HttpError, Error());
-
 export(HttpError);
-
 // ============================================================================
 // FetchOptions
 // ============================================================================
-
 /// Options for configuring an HTTP request.
 FetchOptions :: object(
-  method  : HttpMethod,
+  method : HttpMethod,
   headers : ArrayList(HttpHeader),
-  body    : String
+  body : String
 );
-
-impl(FetchOptions,
+impl(
+  FetchOptions,
   /// Create default options (GET, no headers, empty body).
   new : (fn() -> Self)(
     Self(
-      method: .GET,
-      headers: ArrayList(HttpHeader).new(),
-      body: ``
+      method :.GET,
+      headers : ArrayList(HttpHeader).new(),
+      body : ``
     )
   ),
-
   /// Set the HTTP method.
-  with_method : (fn(self: Self, method: HttpMethod) -> Self)({
+  with_method : (fn(self : Self, method : HttpMethod) -> Self)({
     self.method = method;
     self
   }),
-
   /// Add a request header.
-  with_header : (fn(self: Self, name: String, value: String) -> Self)({
+  with_header : (fn(self : Self, name : String, value : String) -> Self)({
     self.headers.push(HttpHeader.new(name, value));
     self
   }),
-
   /// Set the request body.
-  with_body : (fn(self: Self, body: String) -> Self)({
+  with_body : (fn(self : Self, body : String) -> Self)({
     self.body = body;
     self
   })
 );
-
 export(FetchOptions);
-
 // ============================================================================
 // Internal helpers
 // ============================================================================
-
 // Find the position of \r\n\r\n (end of HTTP headers)
-_find_header_end :: (fn(data: ArrayList(u8)) -> usize)({
+_find_header_end :: (fn(data : ArrayList(u8)) -> usize)({
   len := data.len();
   cond(
-    (len < usize(4)) => { return(usize(0)); },
+    (len < usize(4)) => {
+      return(usize(0));
+    },
     true => ()
   );
   i := usize(0);
   limit := (len - usize(3));
-  while(runtime((i < limit)), {
+  while(runtime(i < limit), {
     cond(
-      ((data.get(i).unwrap() == u8(13)) &&
-       ((data.get((i + usize(1))).unwrap() == u8(10)) &&
-        ((data.get((i + usize(2))).unwrap() == u8(13)) &&
-         (data.get((i + usize(3))).unwrap() == u8(10))))) => {
+      (
+        (data.get(i).unwrap() == u8(13)) &&
+          (
+            (data.get(i + usize(1)).unwrap() == u8(10)) &&
+              (
+                (data.get(i + usize(2)).unwrap() == u8(13)) &&
+                  (data.get(i + usize(3)).unwrap() == u8(10))
+              )
+          )
+      ) => {
         return(i);
       },
       true => ()
@@ -141,33 +137,36 @@ _find_header_end :: (fn(data: ArrayList(u8)) -> usize)({
   });
   usize(0)
 });
-
 // Parse Content-Length from headers; returns -1 if not found.
-_find_content_length :: (fn(data: ArrayList(u8), header_end: usize) -> i32)({
+_find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
   // Build header string up to header_end
   header_bytes := ArrayList(u8).new();
   i := usize(0);
-  while(runtime((i < header_end)), {
+  while(runtime(i < header_end), {
     header_bytes.push(data.get(i).unwrap());
     i = (i + usize(1));
   });
   header_str := String.from_bytes(header_bytes).to_lowercase();
-  match(header_str.index_of(`content-length:`),
+  match(
+    header_str.index_of(`content-length:`),
     .Some(pos) => {
       val_start := (pos + usize(16));
       // Find end of value by looking for \r\n after val_start
       rest := header_str.substring(val_start, header_str.len());
-      match(rest.index_of(`\r\n`),
+      match(
+        rest.index_of(`\r\n`),
         .Some(eol) => {
           val_str := rest.substring(usize(0), eol).trim();
-          match(val_str.parse_i32(),
+          match(
+            val_str.parse_i32(),
             .Some(n) => n,
             .None => i32(-(1))
           )
         },
         .None => {
           val_str := rest.trim();
-          match(val_str.parse_i32(),
+          match(
+            val_str.parse_i32(),
             .Some(n) => n,
             .None => i32(-(1))
           )
@@ -177,16 +176,13 @@ _find_content_length :: (fn(data: ArrayList(u8), header_end: usize) -> i32)({
     .None => i32(-(1))
   )
 });
-
 // ============================================================================
 // Internal: read full HTTP response from a TCP stream
 // ============================================================================
-
-_read_http_response :: (fn(stream: TcpStream, using(io : IO, exn : Exception)) -> String)({
+_read_http_response :: (fn(stream : TcpStream, using(io : IO, exn : Exception)) -> String)({
   buf_size := usize(8192);
   buf := *(u8)(malloc(buf_size).unwrap());
   result := ArrayList(u8).new();
-
   // Read until connection closes or we've read the full response
   done := false;
   while(runtime(!(done)), {
@@ -197,7 +193,7 @@ _read_http_response :: (fn(stream: TcpStream, using(io : IO, exn : Exception)) -
       },
       true => {
         i := usize(0);
-        while(runtime((i < usize(n))), {
+        while(runtime(i < usize(n)), {
           result.push((buf &+ i).*);
           i = (i + usize(1));
         });
@@ -238,11 +234,9 @@ _read_http_response :: (fn(stream: TcpStream, using(io : IO, exn : Exception)) -
   free(.Some(*(void)(buf)));
   String.from_bytes(result)
 });
-
 // ============================================================================
 // fetch — High-level async HTTP request (like JavaScript's fetch)
 // ============================================================================
-
 /// Perform an HTTP request with custom options.
 ///
 /// # Example
@@ -251,13 +245,13 @@ _read_http_response :: (fn(stream: TcpStream, using(io : IO, exn : Exception)) -
 /// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
 /// resp := io.await(fetch_with(`http://example.com/api`, opts, using(io)));
 /// ```
-fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
-  Impl(Future(HttpResponse, IO, Exception))
+fetch_with :: (
+  fn(url_str : String, opts : FetchOptions, using(io : IO)) ->
+    Impl(Future(HttpResponse, IO, Exception))
 )(
   io.async((using(io : IO, exn : Exception)) => {
     // Parse URL
     url := Url.parse(url_str.as_str(), using(exn));
-
     // Validate scheme
     scheme := url.scheme();
     is_http := (scheme == `http`);
@@ -268,25 +262,24 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
         exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
       }
     );
-
     // Extract host
-    host := match(url.host(),
+    host := match(
+      url.host(),
       .Some(h) => h,
       .None => {
         exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
         `_` // unreachable
       }
     );
-
     // Determine port (default: 80 for http, 443 for https)
-    port := match(url.port(),
+    port := match(
+      url.port(),
       .Some(p) => p,
       .None => cond(
         (scheme == `https`) => u16(443),
         true => u16(80)
       )
     );
-
     // Resolve hostname to IP
     addrs := io.await(lookup_host(host, using(io)));
     cond(
@@ -297,33 +290,33 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
     );
     ip := addrs.get(usize(0)).unwrap();
     addr := SocketAddr.new(ip, port);
-
     // Connect
     stream := io.await(TcpStream.connect(addr, using(io)));
-
     // Build the request path (include query string if present)
     req_path := url.path();
     cond(
-      req_path.is_empty() => { req_path = `/`; },
+      req_path.is_empty() => {
+        req_path = `/`;
+      },
       true => ()
     );
-    match(url.query(),
-      .Some(q) => { req_path = `${req_path}?${q}`; },
+    match(
+      url.query(),
+      .Some(q) => {
+        req_path = `${req_path}?${q}`;
+      },
       .None => ()
     );
-
     // Build HTTP request
     req := HttpRequest.new(opts.method, req_path);
     req.set_host(host);
-
     // Add user-provided headers
     hi := usize(0);
-    while(runtime((hi < opts.headers.len())), {
+    while(runtime(hi < opts.headers.len()), {
       h := opts.headers.get(hi).unwrap();
       req.set_header(h.name, h.value);
       hi = (hi + usize(1));
     });
-
     // Set Content-Length if body is provided
     cond(
       (!(opts.body.is_empty())) => {
@@ -332,22 +325,18 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
       },
       true => ()
     );
-
     // Set Connection: close to ensure the server closes after response
     req.set_header(`Connection`, `close`);
-
     // Send request
     req_str := req.to_string();
     io.await(stream.write_string(req_str, using(io)));
-
     // Read response
     raw_response := _read_http_response(stream, using(io, exn));
-
     // Close connection
     io.await(stream.close(using(io)));
-
     // Parse response
-    match(parse_response(raw_response),
+    match(
+      parse_response(raw_response),
       .Ok(resp) => resp,
       .Err(e) => {
         exn.throw(dyn(HttpError.Other(e)));
@@ -356,9 +345,7 @@ fetch_with :: (fn(url_str: String, opts: FetchOptions, using(io : IO)) ->
     )
   })
 );
-
 export(fetch_with);
-
 /// Perform an HTTP GET request to the given URL string.
 /// Returns the `HttpResponse` on success.
 ///
@@ -368,12 +355,12 @@ export(fetch_with);
 /// resp := io.await(fetch(`http://example.com`, using(io)));
 /// cond(resp.is_ok() => println(resp.body), true => println(`Error`));
 /// ```
-fetch :: (fn(url_str: String, using(io : IO)) ->
-  Impl(Future(HttpResponse, IO, Exception))
+fetch :: (
+  fn(url_str : String, using(io : IO)) ->
+    Impl(Future(HttpResponse, IO, Exception))
 )(
   io.async((using(io : IO, exn : Exception)) => {
     return(io.await(fetch_with(url_str, FetchOptions.new(), using(io))));
   })
 );
-
 export(fetch);

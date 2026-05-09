@@ -17,57 +17,51 @@
 //! assert(s.contains(i32(1)), "set contains 1");
 //! assert((s.len() == usize(2)), "two elements");
 //! ```
-
 { Map } :: import("./map.yo");
 { List } :: import("./list.yo");
-
 /// Persistent immutable hash set backed by a HAMT.
 ///
 /// Wraps `Map(T, bool)` internally. The bool values are always `true`.
 Set :: (fn(comptime(T) : Type, where(T <: (Eq(T), Hash, Send))) -> comptime(Type))(
   struct(_inner : Map(T, bool))
 );
-
-impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T),
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Hash, Send)),
+  Set(T),
   /// Create an empty set.
   new : (fn() -> Self)(
-    Self(_inner: Map(T, bool).new())
+    Self(_inner : Map(T, bool).new())
   ),
-
   /// Number of elements.
-  len : (fn(self: Self) -> usize)(self._inner.len()),
-
+  len : (fn(self : Self) -> usize)(self._inner.len()),
   /// Check if the set is empty.
-  is_empty : (fn(self: Self) -> bool)(self._inner.is_empty()),
-
+  is_empty : (fn(self : Self) -> bool)(self._inner.is_empty()),
   /// Check if the set contains `elem`.
-  contains : (fn(self: Self, elem: T) -> bool)(
+  contains : (fn(self : Self, elem : T) -> bool)(
     self._inner.contains_key(elem)
   ),
-
   /// Return a new set with `elem` added.
-  insert : (fn(self: Self, elem: T) -> Self)(
-    Self(_inner: self._inner.insert(elem, true))
+  insert : (fn(self : Self, elem : T) -> Self)(
+    Self(_inner : self._inner.insert(elem, true))
   ),
-
   /// Return a new set with `elem` removed.
-  remove : (fn(self: Self, elem: T) -> Self)(
-    Self(_inner: self._inner.remove(elem))
+  remove : (fn(self : Self, elem : T) -> Self)(
+    Self(_inner : self._inner.remove(elem))
   ),
-
   /// Return the union of two sets (`self ∪ other`).
-  union : (fn(self: Self, other: Self) -> Self)(
-    Self(_inner: self._inner.merge(other._inner))
+  union : (fn(self : Self, other : Self) -> Self)(
+    Self(_inner : self._inner.merge(other._inner))
   ),
-
   /// Return the intersection of two sets (`self ∩ other`).
-  intersection : (fn(self: Self, other: Self) -> Self)({
+  intersection : (fn(self : Self, other : Self) -> Self)({
     elems := self.to_list();
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
     (done : bool) = false;
     while(runtime(!(done)), {
-      match(cur.head(),
+      match(
+        cur.head(),
         .Some(elem) => {
           if(other.contains(elem), {
             result = result.insert(elem);
@@ -81,15 +75,15 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T),
     });
     result
   }),
-
   /// Return the difference (`self \ other`).
-  difference : (fn(self: Self, other: Self) -> Self)({
+  difference : (fn(self : Self, other : Self) -> Self)({
     elems := self.to_list();
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
     (done : bool) = false;
     while(runtime(!(done)), {
-      match(cur.head(),
+      match(
+        cur.head(),
         .Some(elem) => {
           if(!(other.contains(elem)), {
             result = result.insert(elem);
@@ -103,17 +97,17 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T),
     });
     result
   }),
-
   /// Check if `self` is a subset of `other`.
-  is_subset : (fn(self: Self, other: Self) -> bool)({
-    if((self.len() > other.len()), {
+  is_subset : (fn(self : Self, other : Self) -> bool)({
+    if(self.len() > other.len(), {
       return(false);
     });
     elems := self.to_list();
     (cur : List(T)) = elems;
     (result : bool) = true;
-    while(runtime((result && !(cur.is_empty()))), {
-      match(cur.head(),
+    while(runtime(result &&!(cur.is_empty())), {
+      match(
+        cur.head(),
         .Some(elem) => {
           if(!(other.contains(elem)), {
             result = false;
@@ -125,9 +119,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T),
     });
     result
   }),
-
   /// Check if two sets are disjoint.
-  is_disjoint : (fn(self: Self, other: Self) -> bool)({
+  is_disjoint : (fn(self : Self, other : Self) -> bool)({
     (smaller : Self) = cond(
       (self.len() <= other.len()) => self,
       true => other
@@ -139,8 +132,9 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T),
     elems := smaller.to_list();
     (cur : List(T)) = elems;
     (result : bool) = true;
-    while(runtime((result && !(cur.is_empty()))), {
-      match(cur.head(),
+    while(runtime(result &&!(cur.is_empty())), {
+      match(
+        cur.head(),
         .Some(elem) => {
           if(larger.contains(elem), {
             result = false;
@@ -152,28 +146,29 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T),
     });
     result
   }),
-
   /// Collect all elements into a List.
-  to_list : (fn(self: Self) -> List(T))(
+  to_list : (fn(self : Self) -> List(T))(
     self._inner.keys()
   ),
-
   /// Create a set from a slice of elements.
-  from_slice : (fn(s: Slice(T)) -> Self)({
+  from_slice : (fn(s : Slice(T)) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
     slen := s.len();
-    while((i < slen), (i = (i + usize(1))), {
+    while(i < slen, i = (i + usize(1)), {
       result = result.insert((s.ptr() &+ i).*);
     });
     result
   })
 );
-
-impl(forall(T : Type), where(T <: (Eq(T), Hash, Send)), Set(T), Eq(Set(T))(
-  (==) : (fn(lhs: Self, rhs: Self) -> bool)(
-    (lhs._inner == rhs._inner)
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Hash, Send)),
+  Set(T),
+  Eq(Set(T))(
+    ( ==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs._inner == rhs._inner
+    )
   )
-));
-
+);
 export(Set);

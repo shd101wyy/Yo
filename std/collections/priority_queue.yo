@@ -11,9 +11,7 @@
 //! pq.push(3);
 //! x := pq.pop().unwrap();  // 1
 //! ```
-
 { ArrayList } :: import("./array_list");
-
 /// Min-heap backed by an ArrayList.
 /// Elements are ordered ascending (smallest first). Negate keys for max-heap behavior.
 PriorityQueue :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -21,39 +19,36 @@ PriorityQueue :: (fn(comptime(T) : Type) -> comptime(Type))(
     _data : ArrayList(T)
   )
 );
-
-impl(forall(T : Type), PriorityQueue(T),
+impl(
+  forall(T : Type),
+  PriorityQueue(T),
   // Create an empty priority queue.
   new : (fn() -> Self)(
-    Self(_data: ArrayList(T).new())
+    Self(_data : ArrayList(T).new())
   ),
-
   // Number of elements.
-  len : (fn(self: Self) -> usize)(
+  len : (fn(self : Self) -> usize)(
     self._data.len()
   ),
-
   // True if empty.
-  is_empty : (fn(self: Self) -> bool)(
-    (self._data.len() == usize(0))
+  is_empty : (fn(self : Self) -> bool)(
+    self._data.len() == usize(0)
   ),
-
   // Inspect the smallest element without removing it.
-  peek : (fn(self: Self) -> Option(T))(
+  peek : (fn(self : Self) -> Option(T))(
     cond(
-      (self._data.len() == usize(0)) => .None,
+      (self._data.len() == usize(0)) =>.None,
       true => self._data.get(usize(0))
     )
   ),
-
   // Insert a new element.
-  push : (fn(self: Self, val: T, where(T <: Ord(T))) -> unit)({
+  push : (fn(self : Self, val : T, where(T <: Ord(T))) -> unit)({
     self._data.push(val);
     // Sift up
     i := (self._data.len() - usize(1));
-    while((i > usize(0)), {
+    while(i > usize(0), {
       parent := ((i - usize(1)) / usize(2));
-      child_val  := self._data.get(i).unwrap();
+      child_val := self._data.get(i).unwrap();
       parent_val := self._data.get(parent).unwrap();
       cond(
         (child_val < parent_val) => {
@@ -67,21 +62,20 @@ impl(forall(T : Type), PriorityQueue(T),
       );
     });
   }),
-
   // Remove and return the smallest element.
-  pop : (fn(self: Self, where(T <: Ord(T))) -> Option(T))({
+  pop : (fn(self : Self, where(T <: Ord(T))) -> Option(T))({
     n := self._data.len();
     cond(
-      (n == usize(0)) => .None,
+      (n == usize(0)) =>.None,
       true => {
-        top  := self._data.get(usize(0)).unwrap();
-        last := self._data.get((n - usize(1))).unwrap();
+        top := self._data.get(usize(0)).unwrap();
+        last := self._data.get(n - usize(1)).unwrap();
         &(self._data(usize(0))).* = last;
         self._data.pop();
         // Sift down
         i := usize(0);
         while(runtime(true), {
-          left  := ((i * usize(2)) + usize(1));
+          left := ((i * usize(2)) + usize(1));
           right := ((i * usize(2)) + usize(2));
           smallest := i;
           new_n := self._data.len();
@@ -115,72 +109,80 @@ impl(forall(T : Type), PriorityQueue(T),
     )
   })
 );
-
 /**
- * Value iterator for PriorityQueue - yields elements in heap (arbitrary) order
- * Note: This iterates in internal storage order, NOT sorted order.
- */
+* Value iterator for PriorityQueue - yields elements in heap (arbitrary) order
+* Note: This iterates in internal storage order, NOT sorted order.
+*/
 PriorityQueueIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _data  : ArrayList(T),
+    _data : ArrayList(T),
     _index : usize
   )
 );
-
-impl(forall(T : Type), PriorityQueueIter(T), Iterator(
-  Item : T,
-  next : (fn(self : *(Self)) -> Option(T))(
-    cond(
-      (self._index >= self._data.len()) => .None,
-      true => {
-        value := self._data.get(self._index).unwrap();
-        self._index = (self._index + usize(1));
-        .Some(value)
-      }
+impl(
+  forall(T : Type),
+  PriorityQueueIter(T),
+  Iterator(
+    Item : T,
+    next : (fn(self : *(Self)) -> Option(T))(
+      cond(
+        (self._index >= self._data.len()) =>.None,
+        true => {
+          value := self._data.get(self._index).unwrap();
+          self._index = (self._index + usize(1));
+          .Some(value)
+        }
+      )
     )
   )
-));
-
-impl(forall(T : Type), PriorityQueue(T),
+);
+impl(
+  forall(T : Type),
+  PriorityQueue(T),
   into_iter : (fn(self : Self) -> PriorityQueueIter(T))(
-    PriorityQueueIter(T)(_data: self._data, _index: usize(0))
+    PriorityQueueIter(T)(_data : self._data, _index : usize(0))
   )
 );
-
 /**
- * Pointer iterator for PriorityQueue - yields pointers to elements in heap order
- */
+* Pointer iterator for PriorityQueue - yields pointers to elements in heap order
+*/
 PriorityQueueIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _data  : ArrayList(T),
+    _data : ArrayList(T),
     _index : usize
   )
 );
-
-impl(forall(T : Type), PriorityQueueIterPtr(T), Iterator(
-  Item : *(T),
-  next : (fn(self : *(Self)) -> Option(*(T)))(
-    cond(
-      (self._index >= self._data.len()) => .None,
-      true =>
-        match(self._data._ptr,
-          .Some(ptr) => {
-            element_ptr := (ptr &+ self._index);
-            self._index = (self._index + usize(1));
-            .Some(element_ptr)
-          },
-          .None => .None
-        )
+impl(
+  forall(T : Type),
+  PriorityQueueIterPtr(T),
+  Iterator(
+    Item : *(T),
+    next : (fn(self : *(Self)) -> Option(*(T)))(
+      cond(
+        (self._index >= self._data.len()) =>.None,
+        true =>
+          match(
+            self._data._ptr,
+            .Some(ptr) => {
+              element_ptr := (ptr &+ self._index);
+              self._index = (self._index + usize(1));
+              .Some(element_ptr)
+            },
+            .None =>.None
+          )
+      )
     )
   )
-));
-
-impl(forall(T : Type), PriorityQueue(T),
+);
+impl(
+  forall(T : Type),
+  PriorityQueue(T),
   iter : (fn(self : *(Self)) -> PriorityQueueIterPtr(T))(
-    PriorityQueueIterPtr(T)(_data: self.*._data, _index: usize(0))
+    PriorityQueueIterPtr(T)(_data : self.*._data, _index : usize(0))
   )
 );
-
-export(PriorityQueue,
+export(
+  PriorityQueue,
   PriorityQueueIter,
-  PriorityQueueIterPtr);
+  PriorityQueueIterPtr
+);

@@ -1,163 +1,177 @@
 //! HTTP core types — methods, headers, requests, and responses.
 // std/http/http.yo - HTTP types and request/response builders
-
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 { ToString } :: import("../fmt");
-
 /// Standard HTTP request methods.
 HttpMethod :: enum(GET, POST, PUT, DELETE, HEAD, PATCH);
-
-impl(HttpMethod, ToString(
-  to_string : (self ->
-    match(self,
-      .GET => `GET`,
-      .POST => `POST`,
-      .PUT => `PUT`,
-      .DELETE => `DELETE`,
-      .HEAD => `HEAD`,
-      .PATCH => `PATCH`
+impl(
+  HttpMethod,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .GET => `GET`,
+          .POST => `POST`,
+          .PUT => `PUT`,
+          .DELETE => `DELETE`,
+          .HEAD => `HEAD`,
+          .PATCH => `PATCH`
+        )
     )
   )
-));
-
+);
 /// An HTTP header as a name-value pair.
-HttpHeader :: object(name: String, value: String);
-
-impl(HttpHeader,
+HttpHeader :: object(name : String, value : String);
+impl(
+  HttpHeader,
   /// Create a new header with the given name and value.
-  new : (fn(name: String, value: String) -> Self)(
-    Self(name: name, value: value)
+  new : (fn(name : String, value : String) -> Self)(
+    Self(name : name, value : value)
   )
 );
-
 /// An HTTP request with method, path, headers, and optional body.
 HttpRequest :: object(
-  method: HttpMethod,
-  path: String,
-  headers: ArrayList(HttpHeader),
-  body: String
+  method : HttpMethod,
+  path : String,
+  headers : ArrayList(HttpHeader),
+  body : String
 );
-
-impl(HttpRequest,
+impl(
+  HttpRequest,
   /// Create a new request with the given method and path.
-  new : (fn(method: HttpMethod, path: String) -> Self)(
-    Self(method: method, path: path, headers: ArrayList(HttpHeader).new(), body: ``)
+  new : (fn(method : HttpMethod, path : String) -> Self)(
+    Self(method : method, path : path, headers : ArrayList(HttpHeader).new(), body : ``)
   ),
-
   /// Add a header and return the request (builder pattern).
-  header : (fn(self: Self, name: String, value: String) -> Self)({
+  header : (fn(self : Self, name : String, value : String) -> Self)({
     self.headers.push(HttpHeader.new(name, value));
     self
   }),
-
   /// Set the request body and return the request (builder pattern).
-  with_body : (fn(self: Self, body: String) -> Self)({
+  with_body : (fn(self : Self, body : String) -> Self)({
     self.body = body;
     self
   }),
-
   /// Set the Host header.
-  set_host : (fn(self: Self, host: String) -> unit)({
+  set_host : (fn(self : Self, host : String) -> unit)({
     self.headers.push(HttpHeader.new(`Host`, host));
   }),
-
   /// Append a header to the request.
-  set_header : (fn(self: Self, name: String, value: String) -> unit)({
+  set_header : (fn(self : Self, name : String, value : String) -> unit)({
     self.headers.push(HttpHeader.new(name, value));
   }),
-
   /// Set the request body.
-  set_body : (fn(self: Self, body: String) -> unit)({
+  set_body : (fn(self : Self, body : String) -> unit)({
     self.body = body;
   }),
-
   /// Serialize the request to an HTTP/1.1 wire-format string.
-  to_string : (fn(self: Self) -> String)({
+  to_string : (fn(self : Self) -> String)({
     result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
     i := usize(0);
-    while((i < self.headers.len()), (i = (i + usize(1))), {
+    while(i < self.headers.len(), i = (i + usize(1)), {
       h := self.headers.get(i).unwrap();
       result = `${result}${h.name}: ${h.value}\r\n`;
     });
     result = `${result}\r\n`;
     cond(
-      (!(self.body.is_empty())) => { result = `${result}${self.body}`; },
+      (!(self.body.is_empty())) => {
+        result = `${result}${self.body}`;
+      },
       true => ()
     );
     result
   })
 );
-
 /// An HTTP response with status code, headers, and body.
 HttpResponse :: object(
-  status_code: i32,
-  status_text: String,
-  headers: ArrayList(HttpHeader),
-  body: String
+  status_code : i32,
+  status_text : String,
+  headers : ArrayList(HttpHeader),
+  body : String
 );
-
-impl(HttpResponse,
+impl(
+  HttpResponse,
   /// Create a new response with the given status code and text.
-  new : (fn(status_code: i32, status_text: String) -> Self)(
-    Self(status_code: status_code, status_text: status_text, headers: ArrayList(HttpHeader).new(), body: ``)
+  new : (fn(status_code : i32, status_text : String) -> Self)(
+    Self(status_code : status_code, status_text : status_text, headers : ArrayList(HttpHeader).new(), body : ``)
   ),
-
   /// Look up a header value by name (case-insensitive).
-  get_header : (fn(self: Self, name: String) -> Option(String))({
+  get_header : (fn(self : Self, name : String) -> Option(String))({
     lower_name := name.to_lowercase();
     i := usize(0);
-    while((i < self.headers.len()), (i = (i + usize(1))), {
+    while(i < self.headers.len(), i = (i + usize(1)), {
       h := self.headers.get(i).unwrap();
-      cond((h.name.to_lowercase() == lower_name) => { return(.Some(h.value)); }, true => ());
+      cond(
+        (h.name.to_lowercase() == lower_name) => {
+          return(.Some(h.value));
+        },
+        true => ()
+      );
     });
     .None
   }),
-
   /// Return `true` if the status code is in the 2xx range.
-  is_ok : (fn(self: Self) -> bool)(
-    ((self.status_code >= i32(200)) && (self.status_code < i32(300)))
+  is_ok : (fn(self : Self) -> bool)(
+    (self.status_code >= i32(200)) && (self.status_code < i32(300))
   ),
-
   /// Return `true` if the status code is in the 3xx range.
-  is_redirect : (fn(self: Self) -> bool)(
-    ((self.status_code >= i32(300)) && (self.status_code < i32(400)))
+  is_redirect : (fn(self : Self) -> bool)(
+    (self.status_code >= i32(300)) && (self.status_code < i32(400))
   ),
-
   /// Return `true` if the status code is 4xx or higher.
-  is_error : (fn(self: Self) -> bool)(
-    (self.status_code >= i32(400))
+  is_error : (fn(self : Self) -> bool)(
+    self.status_code >= i32(400)
   )
 );
-
 /// Parse a raw HTTP response string into an `HttpResponse`.
-parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
+parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
   lines := raw.split(`\r\n`);
-  cond((lines.len() == usize(0)) => { return(.Err(`Empty response`)); }, true => ());
-
+  cond(
+    (lines.len() == usize(0)) => {
+      return(.Err(`Empty response`));
+    },
+    true => ()
+  );
   status_line := lines.get(usize(0)).unwrap();
-  cond((!(status_line.starts_with(`HTTP/`))) => { return(.Err(`Invalid status line`)); }, true => ());
-
+  cond(
+    (!(status_line.starts_with(`HTTP/`))) => {
+      return(.Err(`Invalid status line`));
+    },
+    true => ()
+  );
   sp1_opt := status_line.index_of(` `);
-  cond(sp1_opt.is_none() => { return(.Err(`Invalid status line format`)); }, true => ());
+  cond(
+    sp1_opt.is_none() => {
+      return(.Err(`Invalid status line format`));
+    },
+    true => ()
+  );
   sp1 := sp1_opt.unwrap();
-  rest := status_line.substring((sp1 + usize(1)), status_line.len());
-
+  rest := status_line.substring(sp1 + usize(1), status_line.len());
   sp2_opt := rest.index_of(` `);
-  cond(sp2_opt.is_none() => { return(.Err(`Invalid status line format`)); }, true => ());
+  cond(
+    sp2_opt.is_none() => {
+      return(.Err(`Invalid status line format`));
+    },
+    true => ()
+  );
   sp2 := sp2_opt.unwrap();
   code_str := rest.substring(usize(0), sp2);
-  status_text := rest.substring((sp2 + usize(1)), rest.len());
-
+  status_text := rest.substring(sp2 + usize(1), rest.len());
   code_opt := code_str.parse_i32();
-  cond(code_opt.is_none() => { return(.Err(`Invalid status code`)); }, true => ());
+  cond(
+    code_opt.is_none() => {
+      return(.Err(`Invalid status code`));
+    },
+    true => ()
+  );
   code := code_opt.unwrap();
-
   resp := HttpResponse.new(code, status_text);
-
   j := usize(1);
   body_start := lines.len();
-  while((j < lines.len()), (j = (j + usize(1))), {
+  while(j < lines.len(), j = (j + usize(1)), {
     hline := lines.get(j).unwrap();
     cond(
       hline.is_empty() => {
@@ -170,7 +184,7 @@ parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
           colon_opt.is_some() => {
             colon := colon_opt.unwrap();
             hname := hline.substring(usize(0), colon).trim();
-            hval := hline.substring((colon + usize(1)), hline.len()).trim();
+            hval := hline.substring(colon + usize(1), hline.len()).trim();
             resp.headers.push(HttpHeader.new(hname, hval));
           },
           true => ()
@@ -178,23 +192,20 @@ parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
       }
     );
   });
-
   cond(
     (body_start < lines.len()) => {
       resp.body = lines.get(body_start).unwrap();
       m := (body_start + usize(1));
-      while((m < lines.len()), (m = (m + usize(1))), {
+      while(m < lines.len(), m = (m + usize(1)), {
         resp.body = `${resp.body}\r\n${lines.get(m).unwrap()}`;
       });
     },
     true => ()
   );
-
   .Ok(resp)
 });
-
 /// Return the standard status text for an HTTP status code.
-http_status_text :: (fn(code: i32) -> String)(
+http_status_text :: (fn(code : i32) -> String)(
   cond(
     (code == i32(200)) => `OK`,
     (code == i32(201)) => `Created`,
@@ -211,6 +222,5 @@ http_status_text :: (fn(code: i32) -> String)(
     true => `Unknown`
   )
 );
-
 export(HttpMethod, HttpHeader, HttpRequest, HttpResponse);
 export(parse_response, http_status_text);

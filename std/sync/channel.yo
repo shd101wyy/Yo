@@ -18,52 +18,57 @@
 //! assert((val.unwrap() == i32(42)), "received value");
 //! t.join();
 //! ```
-
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");
-
 /// Thread-safe bounded channel for passing values between threads.
 /// Uses atomic reference counting — implements `Send` and can be
 /// safely shared across threads without `Arc` wrapping.
 /// T must implement `Send` to ensure values are safe to transfer between threads.
-Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(atomic(object(
-    _data      : *(T),
-    _head      : usize,
-    _len       : usize,
-    _capacity  : usize,
-    _mutex     : Mutex,
-    _not_empty : Cond,
-    _not_full  : Cond,
-    _closed    : bool
-  )));
-
-impl(forall(T : Type), Channel(T), where(T <: Send),
+Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  atomic(
+    object(
+      _data : *(T),
+      _head : usize,
+      _len : usize,
+      _capacity : usize,
+      _mutex : Mutex,
+      _not_empty : Cond,
+      _not_full : Cond,
+      _closed : bool
+    )
+  )
+);
+impl(
+  forall(T : Type),
+  Channel(T),
+  where(T <: Send),
   /// Create a bounded channel with the given capacity.
   /// Capacity must be > 0.
-  new : (fn(capacity: usize) -> Self)({
-    assert((capacity > usize(0)), "Channel.new: capacity must be > 0");
-    (ptr : *(T)) = *(T)(malloc((capacity * sizeof(T))).unwrap());
-    return(Self(
-      _data: ptr,
-      _head: usize(0),
-      _len: usize(0),
-      _capacity: capacity,
-      _mutex: Mutex.new(),
-      _not_empty: Cond.new(),
-      _not_full: Cond.new(),
-      _closed: false
-    ));
+  new : (fn(capacity : usize) -> Self)({
+    assert(capacity > usize(0), "Channel.new: capacity must be > 0");
+    (ptr : *(T)) = *(T)(malloc(capacity * sizeof(T)).unwrap());
+    return(
+      Self(
+        _data : ptr,
+        _head : usize(0),
+        _len : usize(0),
+        _capacity : capacity,
+        _mutex : Mutex.new(),
+        _not_empty : Cond.new(),
+        _not_full : Cond.new(),
+        _closed : false
+      )
+    );
   }),
-
   /// Send a value into the channel.
   /// Blocks if the channel is full until space becomes available.
   /// Returns .Ok(()) on success, .Err(()) if the channel is closed.
-  send : (fn(self: Self, value: T) -> Result(unit, unit))({
+  send : (fn(self : Self, value : T) -> Result(unit, unit))({
     self._mutex.lock();
     // Wait while buffer is full and channel is not closed
-    while(runtime(((self._len >= self._capacity) && (!(self._closed)))), {
+    while(runtime((self._len >= self._capacity) && (!(self._closed))), {
       self._not_full.wait(self._mutex);
     });
     cond(
@@ -81,14 +86,13 @@ impl(forall(T : Type), Channel(T), where(T <: Send),
     self._mutex.unlock();
     return(.Ok(()));
   }),
-
   /// Receive a value from the channel.
   /// Blocks if the channel is empty until a value is available.
   /// Returns .Some(value) on success, .None if the channel is closed and empty.
-  recv : (fn(self: Self) -> ?(T))({
+  recv : (fn(self : Self) -> ? (T))({
     self._mutex.lock();
     // Wait while buffer is empty and channel is not closed
-    while(runtime(((self._len == usize(0)) && (!(self._closed)))), {
+    while(runtime((self._len == usize(0)) && (!(self._closed))), {
       self._not_empty.wait(self._mutex);
     });
     cond(
@@ -108,10 +112,9 @@ impl(forall(T : Type), Channel(T), where(T <: Send),
     self._mutex.unlock();
     return(.Some(val));
   }),
-
   /// Try to send a value without blocking.
   /// Returns .Ok(()) if sent, .Err(()) if full or closed.
-  try_send : (fn(self: Self, value: T) -> Result(unit, unit))({
+  try_send : (fn(self : Self, value : T) -> Result(unit, unit))({
     self._mutex.lock();
     cond(
       (self._closed || (self._len >= self._capacity)) => {
@@ -127,10 +130,9 @@ impl(forall(T : Type), Channel(T), where(T <: Send),
     self._mutex.unlock();
     return(.Ok(()));
   }),
-
   /// Try to receive a value without blocking.
   /// Returns .Some(value) if available, .None if empty.
-  try_recv : (fn(self: Self) -> ?(T))({
+  try_recv : (fn(self : Self) -> ? (T))({
     self._mutex.lock();
     cond(
       (self._len == usize(0)) => {
@@ -148,45 +150,44 @@ impl(forall(T : Type), Channel(T), where(T <: Send),
     self._mutex.unlock();
     return(.Some(val));
   }),
-
   /// Close the channel. No more values can be sent.
   /// Pending recv() calls will return .None once the buffer is drained.
   /// Pending send() calls will return .Err(()).
-  close : (fn(self: Self) -> unit)({
+  close : (fn(self : Self) -> unit)({
     self._mutex.lock();
     self._closed = true;
     self._not_empty.broadcast();
     self._not_full.broadcast();
     self._mutex.unlock();
   }),
-
   /// Check if the channel is closed.
-  is_closed : (fn(self: Self) -> bool)(
+  is_closed : (fn(self : Self) -> bool)(
     self._closed
   ),
-
   /// Return the number of values currently buffered.
-  len : (fn(self: Self) -> usize)(
+  len : (fn(self : Self) -> usize)(
     self._len
   ),
-
   /// Check if the channel buffer is empty.
-  is_empty : (fn(self: Self) -> bool)(
-    (self._len == usize(0))
+  is_empty : (fn(self : Self) -> bool)(
+    self._len == usize(0)
   )
 );
-
 // Dispose: drop remaining elements and free the buffer
-impl(forall(T : Type), Channel(T), where(T <: Send), Dispose(
-  dispose : (fn(self: Self) -> unit)({
-    (i : usize) = usize(0);
-    while(runtime((i < self._len)), {
-      (idx : usize) = ((self._head + i) % self._capacity);
-      unsafe.drop((self._data &+ idx).*);
-      i = (i + usize(1));
-    });
-    free(.Some(*(void)(self._data)));
-  })
-));
-
+impl(
+  forall(T : Type),
+  Channel(T),
+  where(T <: Send),
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      (i : usize) = usize(0);
+      while(runtime(i < self._len), {
+        (idx : usize) = ((self._head + i) % self._capacity);
+        unsafe.drop((self._data &+ idx).*);
+        i = (i + usize(1));
+      });
+      free(.Some(*(void)(self._data)));
+    })
+  )
+);
 export(Channel);

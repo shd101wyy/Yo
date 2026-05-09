@@ -1,20 +1,11 @@
 //! `IOError` type — comprehensive I/O error type with errno-to-error mapping.
-
 { String } :: import("../string");
 { ToString } :: import("../fmt");
 { Error, Exception } :: import("../error");
-{
-  ENOENT, EPERM, EACCES, EEXIST, ENOTDIR, EISDIR, ENOTEMPTY, EPIPE,
-  EAGAIN, EWOULDBLOCK, EINVAL, EINTR, EMFILE, ENFILE, EFBIG, ENOSPC,
-  EROFS, EXDEV, EMLINK, ENAMETOOLONG, ENOTSUP, EOPNOTSUPP, ETIMEDOUT, EBUSY,
-  ECONNREFUSED, ECONNRESET, ECONNABORTED, ENOTCONN, EADDRINUSE, EADDRNOTAVAIL,
-  ENETUNREACH, EHOSTUNREACH, ENETDOWN, EISCONN, EBADF, EIO
-} :: import("../libc/errno");
-
+{ ENOENT, EPERM, EACCES, EEXIST, ENOTDIR, EISDIR, ENOTEMPTY, EPIPE, EAGAIN, EWOULDBLOCK, EINVAL, EINTR, EMFILE, ENFILE, EFBIG, ENOSPC, EROFS, EXDEV, EMLINK, ENAMETOOLONG, ENOTSUP, EOPNOTSUPP, ETIMEDOUT, EBUSY, ECONNREFUSED, ECONNRESET, ECONNABORTED, ENOTCONN, EADDRINUSE, EADDRNOTAVAIL, ENETUNREACH, EHOSTUNREACH, ENETDOWN, EISCONN, EBADF, EIO } :: import("../libc/errno");
 // ============================================================================
 // IOError - I/O error type
 // ============================================================================
-
 /// Comprehensive I/O error type with errno-to-error mapping.
 IOError :: enum(
   /// File or directory not found (ENOENT).
@@ -61,7 +52,6 @@ IOError :: enum(
   BadFileDescriptor,
   /// Generic I/O error (EIO).
   IOError,
-
   /// Connection refused (ECONNREFUSED).
   ConnectionRefused,
   /// Connection reset by peer (ECONNRESET).
@@ -82,108 +72,110 @@ IOError :: enum(
   NetworkDown,
   /// Already connected (EISCONN).
   AlreadyConnected,
-
   /// Other error with raw errno code.
-  Other(code: i32)
+  Other(code : i32)
 );
-
-impl(IOError,
-  from_errno : (fn(errno: i32) -> Self)(
+impl(
+  IOError,
+  from_errno : (fn(errno : i32) -> Self)(
     cond(
-      (errno == i32(ENOENT)) => .NotFound,
-      ((errno == i32(EPERM)) || (errno == i32(EACCES))) => .PermissionDenied,
-      (errno == i32(EEXIST)) => .AlreadyExists,
-      (errno == i32(ENOTDIR)) => .NotADirectory,
-      (errno == i32(EISDIR)) => .IsADirectory,
-      (errno == i32(ENOTEMPTY)) => .DirectoryNotEmpty,
-      (errno == i32(EPIPE)) => .BrokenPipe,
-      ((errno == i32(EAGAIN)) || (errno == i32(EWOULDBLOCK))) => .WouldBlock,
-      (errno == i32(EINVAL)) => .InvalidInput,
-      (errno == i32(EINTR)) => .Interrupted,
-      ((errno == i32(EMFILE)) || (errno == i32(ENFILE))) => .TooManyOpenFiles,
-      (errno == i32(EFBIG)) => .FileTooLarge,
-      (errno == i32(ENOSPC)) => .NoSpace,
-      (errno == i32(EROFS)) => .ReadOnlyFilesystem,
-      (errno == i32(EXDEV)) => .CrossDeviceLink,
-      (errno == i32(EMLINK)) => .TooManyLinks,
-      (errno == i32(ENAMETOOLONG)) => .NameTooLong,
-      ((errno == i32(ENOTSUP)) || (errno == i32(EOPNOTSUPP))) => .NotSupported,
-      (errno == i32(ETIMEDOUT)) => .TimedOut,
-      (errno == i32(EBUSY)) => .Busy,
-      (errno == i32(EBADF)) => .BadFileDescriptor,
-      (errno == i32(EIO)) => .IOError,
-      (errno == i32(ECONNREFUSED)) => .ConnectionRefused,
-      (errno == i32(ECONNRESET)) => .ConnectionReset,
-      (errno == i32(ECONNABORTED)) => .ConnectionAborted,
-      (errno == i32(ENOTCONN)) => .NotConnected,
-      (errno == i32(EADDRINUSE)) => .AddressInUse,
-      (errno == i32(EADDRNOTAVAIL)) => .AddressNotAvailable,
-      (errno == i32(ENETUNREACH)) => .NetworkUnreachable,
-      (errno == i32(EHOSTUNREACH)) => .HostUnreachable,
-      (errno == i32(ENETDOWN)) => .NetworkDown,
-      (errno == i32(EISCONN)) => .AlreadyConnected,
-      true => .Other(errno)
+      (errno == i32(ENOENT)) =>.NotFound,
+      ((errno == i32(EPERM)) || (errno == i32(EACCES))) =>.PermissionDenied,
+      (errno == i32(EEXIST)) =>.AlreadyExists,
+      (errno == i32(ENOTDIR)) =>.NotADirectory,
+      (errno == i32(EISDIR)) =>.IsADirectory,
+      (errno == i32(ENOTEMPTY)) =>.DirectoryNotEmpty,
+      (errno == i32(EPIPE)) =>.BrokenPipe,
+      ((errno == i32(EAGAIN)) || (errno == i32(EWOULDBLOCK))) =>.WouldBlock,
+      (errno == i32(EINVAL)) =>.InvalidInput,
+      (errno == i32(EINTR)) =>.Interrupted,
+      ((errno == i32(EMFILE)) || (errno == i32(ENFILE))) =>.TooManyOpenFiles,
+      (errno == i32(EFBIG)) =>.FileTooLarge,
+      (errno == i32(ENOSPC)) =>.NoSpace,
+      (errno == i32(EROFS)) =>.ReadOnlyFilesystem,
+      (errno == i32(EXDEV)) =>.CrossDeviceLink,
+      (errno == i32(EMLINK)) =>.TooManyLinks,
+      (errno == i32(ENAMETOOLONG)) =>.NameTooLong,
+      ((errno == i32(ENOTSUP)) || (errno == i32(EOPNOTSUPP))) =>.NotSupported,
+      (errno == i32(ETIMEDOUT)) =>.TimedOut,
+      (errno == i32(EBUSY)) =>.Busy,
+      (errno == i32(EBADF)) =>.BadFileDescriptor,
+      (errno == i32(EIO)) =>.IOError,
+      (errno == i32(ECONNREFUSED)) =>.ConnectionRefused,
+      (errno == i32(ECONNRESET)) =>.ConnectionReset,
+      (errno == i32(ECONNABORTED)) =>.ConnectionAborted,
+      (errno == i32(ENOTCONN)) =>.NotConnected,
+      (errno == i32(EADDRINUSE)) =>.AddressInUse,
+      (errno == i32(EADDRNOTAVAIL)) =>.AddressNotAvailable,
+      (errno == i32(ENETUNREACH)) =>.NetworkUnreachable,
+      (errno == i32(EHOSTUNREACH)) =>.HostUnreachable,
+      (errno == i32(ENETDOWN)) =>.NetworkDown,
+      (errno == i32(EISCONN)) =>.AlreadyConnected,
+      true =>.Other(errno)
     )
   ),
-
-  from_result : (fn(result: i32) -> Result(i32, Self))(
+  from_result : (fn(result : i32) -> Result(i32, Self))(
     cond(
-      (result >= i32(0)) => .Ok(result),
-      true => .Err(Self.from_errno((i32(0) - result)))
+      (result >= i32(0)) =>.Ok(result),
+      true =>.Err(Self.from_errno(i32(0) - result))
     )
   )
 );
-
-impl(IOError, ToString(
-  to_string : (self -> {
-    s := match(self,
-      .NotFound => String.from("file or directory not found"),
-      .PermissionDenied => String.from("permission denied"),
-      .AlreadyExists => String.from("file or directory already exists"),
-      .NotADirectory => String.from("not a directory"),
-      .IsADirectory => String.from("is a directory"),
-      .DirectoryNotEmpty => String.from("directory not empty"),
-      .BrokenPipe => String.from("broken pipe"),
-      .WouldBlock => String.from("operation would block"),
-      .InvalidInput => String.from("invalid input"),
-      .Interrupted => String.from("operation interrupted"),
-      .TooManyOpenFiles => String.from("too many open files"),
-      .FileTooLarge => String.from("file too large"),
-      .NoSpace => String.from("no space left on device"),
-      .ReadOnlyFilesystem => String.from("read-only filesystem"),
-      .CrossDeviceLink => String.from("cross-device link"),
-      .TooManyLinks => String.from("too many links"),
-      .NameTooLong => String.from("name too long"),
-      .NotSupported => String.from("operation not supported"),
-      .TimedOut => String.from("operation timed out"),
-      .Busy => String.from("resource busy"),
-      .BadFileDescriptor => String.from("bad file descriptor"),
-      .IOError => String.from("I/O error"),
-      .ConnectionRefused => String.from("connection refused"),
-      .ConnectionReset => String.from("connection reset by peer"),
-      .ConnectionAborted => String.from("connection aborted"),
-      .NotConnected => String.from("socket not connected"),
-      .AddressInUse => String.from("address already in use"),
-      .AddressNotAvailable => String.from("address not available"),
-      .NetworkUnreachable => String.from("network unreachable"),
-      .HostUnreachable => String.from("host unreachable"),
-      .NetworkDown => String.from("network is down"),
-      .AlreadyConnected => String.from("socket already connected"),
-      .Other(errno) => String.from("unknown I/O error")
-    );
-    return(s);
-  })
-));
+impl(
+  IOError,
+  ToString(
+    to_string : (
+      self -> {
+        s := match(
+          self,
+          .NotFound => String.from("file or directory not found"),
+          .PermissionDenied => String.from("permission denied"),
+          .AlreadyExists => String.from("file or directory already exists"),
+          .NotADirectory => String.from("not a directory"),
+          .IsADirectory => String.from("is a directory"),
+          .DirectoryNotEmpty => String.from("directory not empty"),
+          .BrokenPipe => String.from("broken pipe"),
+          .WouldBlock => String.from("operation would block"),
+          .InvalidInput => String.from("invalid input"),
+          .Interrupted => String.from("operation interrupted"),
+          .TooManyOpenFiles => String.from("too many open files"),
+          .FileTooLarge => String.from("file too large"),
+          .NoSpace => String.from("no space left on device"),
+          .ReadOnlyFilesystem => String.from("read-only filesystem"),
+          .CrossDeviceLink => String.from("cross-device link"),
+          .TooManyLinks => String.from("too many links"),
+          .NameTooLong => String.from("name too long"),
+          .NotSupported => String.from("operation not supported"),
+          .TimedOut => String.from("operation timed out"),
+          .Busy => String.from("resource busy"),
+          .BadFileDescriptor => String.from("bad file descriptor"),
+          .IOError => String.from("I/O error"),
+          .ConnectionRefused => String.from("connection refused"),
+          .ConnectionReset => String.from("connection reset by peer"),
+          .ConnectionAborted => String.from("connection aborted"),
+          .NotConnected => String.from("socket not connected"),
+          .AddressInUse => String.from("address already in use"),
+          .AddressNotAvailable => String.from("address not available"),
+          .NetworkUnreachable => String.from("network unreachable"),
+          .HostUnreachable => String.from("host unreachable"),
+          .NetworkDown => String.from("network is down"),
+          .AlreadyConnected => String.from("socket already connected"),
+          .Other(errno) => String.from("unknown I/O error")
+        );
+        return(s);
+      }
+    )
+  )
+);
 impl(IOError, Error());
-
-impl(IOError,
+impl(
+  IOError,
   // Check a raw result code, throwing on error via Exception effect.
-  check : (fn(result: i32, using(exn : Exception)) -> i32)(
+  check : (fn(result : i32, using(exn : Exception)) -> i32)(
     cond(
       (result >= i32(0)) => result,
       true => exn.throw(dyn(Self.from_errno(i32(0) - result)))
     )
   )
 );
-
 export(IOError);

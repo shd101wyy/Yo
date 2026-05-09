@@ -21,7 +21,6 @@
 //       i = (i + usize(1));
 //     };
 //   });
-
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
 { ArrayList } :: import("../collections/array_list");
@@ -32,18 +31,16 @@ open(import("../fmt"));
 { Error, AnyError, Exception } :: import("../error");
 IO_dns :: import("../sys/dns");
 { AF_INET, AF_INET6 } :: import("../sys/socket");
-
 // ============================================================================
 // DNS lookup
 // ============================================================================
-
 /// Resolve a hostname to a list of IP addresses.
-lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr), IO, Exception)))(
+lookup_host :: (fn(host : String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr), IO, Exception)))(
   io.async((using(io : IO, exn : Exception)) => {
     host_cstr_bytes := host.to_cstr();
     host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
-    ret := io.await(IO_dns.getaddrinfo(host_cstr, .None, .None, result_ptr));
+    ret := io.await(IO_dns.getaddrinfo(host_cstr,.None,.None, result_ptr));
     cond(
       (ret != i32(0)) => {
         IO_dns.free_result(result_ptr);
@@ -54,7 +51,8 @@ lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr
     addrs := ArrayList(IpAddr).new();
     cur := IO_dns.get_result(result_ptr);
     while(runtime(true), {
-      match(cur,
+      match(
+        cur,
         .Some(ai) => {
           family := IO_dns.addrinfo_family(ai);
           addr_ptr := IO_dns.addrinfo_addr(ai);
@@ -72,11 +70,14 @@ lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr
           );
           cur = IO_dns.addrinfo_next(ai);
         },
-        .None => { break; }
+        .None => {
+          break;
+        }
       );
     });
     // Free the result
-    match(IO_dns.get_result(result_ptr),
+    match(
+      IO_dns.get_result(result_ptr),
       .Some(ai) => IO_dns.freeaddrinfo(ai),
       .None => ()
     );
@@ -84,14 +85,13 @@ lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr
     return(addrs);
   })
 );
-
 /// Resolve a hostname and port to a list of socket addresses.
-resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(ArrayList(SocketAddr), IO, Exception)))(
+resolve :: (fn(host : String, port : u16, using(io : IO)) -> Impl(Future(ArrayList(SocketAddr), IO, Exception)))(
   io.async((using(io : IO, exn : Exception)) => {
     addrs := io.await(lookup_host(host, using(io)));
     result := ArrayList(SocketAddr).new();
     i := usize(0);
-    while(runtime((i < addrs.len())), {
+    while(runtime(i < addrs.len()), {
       ip := addrs.get(i).unwrap();
       result.push(SocketAddr.new(ip, port));
       i = (i + usize(1));
@@ -99,5 +99,4 @@ resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(ArrayList
     return(result);
   })
 );
-
 export(lookup_host, resolve);

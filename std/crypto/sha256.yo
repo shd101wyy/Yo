@@ -7,63 +7,110 @@
 //!
 //! digest := sha256_hex(data);  // "2cf24dba..."
 //! ```
-
 { ArrayList } :: import("../collections/array_list");
 { hex_encode } :: import("../encoding/hex");
 open(import("../string"));
-
 // ============================================================================
 // SHA-256 constants
 // ============================================================================
-
 _K :: Array(u32, usize(64))(
-  u32(0x428a2f98), u32(0x71374491), u32(0xb5c0fbcf), u32(0xe9b5dba5),
-  u32(0x3956c25b), u32(0x59f111f1), u32(0x923f82a4), u32(0xab1c5ed5),
-  u32(0xd807aa98), u32(0x12835b01), u32(0x243185be), u32(0x550c7dc3),
-  u32(0x72be5d74), u32(0x80deb1fe), u32(0x9bdc06a7), u32(0xc19bf174),
-  u32(0xe49b69c1), u32(0xefbe4786), u32(0x0fc19dc6), u32(0x240ca1cc),
-  u32(0x2de92c6f), u32(0x4a7484aa), u32(0x5cb0a9dc), u32(0x76f988da),
-  u32(0x983e5152), u32(0xa831c66d), u32(0xb00327c8), u32(0xbf597fc7),
-  u32(0xc6e00bf3), u32(0xd5a79147), u32(0x06ca6351), u32(0x14292967),
-  u32(0x27b70a85), u32(0x2e1b2138), u32(0x4d2c6dfc), u32(0x53380d13),
-  u32(0x650a7354), u32(0x766a0abb), u32(0x81c2c92e), u32(0x92722c85),
-  u32(0xa2bfe8a1), u32(0xa81a664b), u32(0xc24b8b70), u32(0xc76c51a3),
-  u32(0xd192e819), u32(0xd6990624), u32(0xf40e3585), u32(0x106aa070),
-  u32(0x19a4c116), u32(0x1e376c08), u32(0x2748774c), u32(0x34b0bcb5),
-  u32(0x391c0cb3), u32(0x4ed8aa4a), u32(0x5b9cca4f), u32(0x682e6ff3),
-  u32(0x748f82ee), u32(0x78a5636f), u32(0x84c87814), u32(0x8cc70208),
-  u32(0x90befffa), u32(0xa4506ceb), u32(0xbef9a3f7), u32(0xc67178f2)
+  u32(0x428a2f98),
+  u32(0x71374491),
+  u32(0xb5c0fbcf),
+  u32(0xe9b5dba5),
+  u32(0x3956c25b),
+  u32(0x59f111f1),
+  u32(0x923f82a4),
+  u32(0xab1c5ed5),
+  u32(0xd807aa98),
+  u32(0x12835b01),
+  u32(0x243185be),
+  u32(0x550c7dc3),
+  u32(0x72be5d74),
+  u32(0x80deb1fe),
+  u32(0x9bdc06a7),
+  u32(0xc19bf174),
+  u32(0xe49b69c1),
+  u32(0xefbe4786),
+  u32(0x0fc19dc6),
+  u32(0x240ca1cc),
+  u32(0x2de92c6f),
+  u32(0x4a7484aa),
+  u32(0x5cb0a9dc),
+  u32(0x76f988da),
+  u32(0x983e5152),
+  u32(0xa831c66d),
+  u32(0xb00327c8),
+  u32(0xbf597fc7),
+  u32(0xc6e00bf3),
+  u32(0xd5a79147),
+  u32(0x06ca6351),
+  u32(0x14292967),
+  u32(0x27b70a85),
+  u32(0x2e1b2138),
+  u32(0x4d2c6dfc),
+  u32(0x53380d13),
+  u32(0x650a7354),
+  u32(0x766a0abb),
+  u32(0x81c2c92e),
+  u32(0x92722c85),
+  u32(0xa2bfe8a1),
+  u32(0xa81a664b),
+  u32(0xc24b8b70),
+  u32(0xc76c51a3),
+  u32(0xd192e819),
+  u32(0xd6990624),
+  u32(0xf40e3585),
+  u32(0x106aa070),
+  u32(0x19a4c116),
+  u32(0x1e376c08),
+  u32(0x2748774c),
+  u32(0x34b0bcb5),
+  u32(0x391c0cb3),
+  u32(0x4ed8aa4a),
+  u32(0x5b9cca4f),
+  u32(0x682e6ff3),
+  u32(0x748f82ee),
+  u32(0x78a5636f),
+  u32(0x84c87814),
+  u32(0x8cc70208),
+  u32(0x90befffa),
+  u32(0xa4506ceb),
+  u32(0xbef9a3f7),
+  u32(0xc67178f2)
 );
-
-_rotr32 :: (fn(x: u32, n: u32) -> u32)(
-  ((x >> n) | (x << (u32(32) - n)))
+_rotr32 :: (fn(x : u32, n : u32) -> u32)(
+  (x >> n) | (x << (u32(32) - n))
 );
-
-_ch  :: (fn(e: u32, f: u32, g: u32) -> u32)( ((e & f) ^ ((~(e)) & g)) );
-_maj :: (fn(a: u32, b: u32, c: u32) -> u32)( (((a & b) ^ (a & c)) ^ (b & c)) );
-_ep0 :: (fn(a: u32) -> u32)( ((_rotr32(a, u32(2)) ^ _rotr32(a, u32(13))) ^ _rotr32(a, u32(22))) );
-_ep1 :: (fn(e: u32) -> u32)( ((_rotr32(e, u32(6)) ^ _rotr32(e, u32(11))) ^ _rotr32(e, u32(25))) );
-_sg0 :: (fn(x: u32) -> u32)( ((_rotr32(x, u32(7)) ^ _rotr32(x, u32(18))) ^ (x >> u32(3))) );
-_sg1 :: (fn(x: u32) -> u32)( ((_rotr32(x, u32(17)) ^ _rotr32(x, u32(19))) ^ (x >> u32(10))) );
-
+_ch :: (fn(e : u32, f : u32, g : u32) -> u32)((e & f)^((~(e)) & g));
+_maj :: (fn(a : u32, b : u32, c : u32) -> u32)(((a & b)^(a & c))^(b & c));
+_ep0 :: (fn(a : u32) -> u32)((_rotr32(a, u32(2)) ^ _rotr32(a, u32(13))) ^ _rotr32(a, u32(22)));
+_ep1 :: (fn(e : u32) -> u32)((_rotr32(e, u32(6)) ^ _rotr32(e, u32(11))) ^ _rotr32(e, u32(25)));
+_sg0 :: (fn(x : u32) -> u32)((_rotr32(x, u32(7)) ^ _rotr32(x, u32(18)))^(x >> u32(3)));
+_sg1 :: (fn(x : u32) -> u32)((_rotr32(x, u32(17)) ^ _rotr32(x, u32(19)))^(x >> u32(10)));
 // Process one 512-bit block. `block` must be 64 bytes. `h` is 8 u32 words.
-_sha256_block :: (fn(block: *(u8), h: *(u32)) -> unit)({
+_sha256_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
   w := Array(u32, usize(64)).fill(u32(0));
   // Load message schedule
   i := usize(0);
-  while((i < usize(16)), (i = (i + usize(1))), {
+  while(i < usize(16), i = (i + usize(1)), {
     off := (i * usize(4));
-    w(i) = (
-      (((u32((block &+ off).*) << u32(24)) |
-       (u32((block &+ (off + usize(1))).*) << u32(16))) |
-       ((u32((block &+ (off + usize(2))).*) << u32(8)) |
-        u32((block &+ (off + usize(3))).*)))
-    );
+    w(i) =
+      (
+        (
+          (u32((block &+ off).*) << u32(24)) |
+            (u32((block &+ (off + usize(1))).*) << u32(16))
+        ) |
+          (
+            (u32((block &+ (off + usize(2))).*) << u32(8)) |
+              u32((block &+ (off + usize(3))).*)
+          )
+      );
   });
-  while((i < usize(64)), (i = (i + usize(1))), {
-    s1 := _sg1(w((i - usize(2))));
-    s0 := _sg0(w((i - usize(15))));
-    w(i) = (((s1 + w((i - usize(7)))) + s0) + w((i - usize(16))));
+  while(i < usize(64), i = (i + usize(1)), {
+    s1 := _sg1(w(i - usize(2)));
+    s0 := _sg0(w(i - usize(15)));
+    w(i) = (((s1 + w(i - usize(7))) + s0) + w(i - usize(16)));
   });
   // Compression
   a := (h &+ usize(0)).*;
@@ -75,17 +122,17 @@ _sha256_block :: (fn(block: *(u8), h: *(u32)) -> unit)({
   g := (h &+ usize(6)).*;
   hh := (h &+ usize(7)).*;
   i2 := usize(0);
-  while((i2 < usize(64)), (i2 = (i2 + usize(1))), {
+  while(i2 < usize(64), i2 = (i2 + usize(1)), {
     t1 := ((((hh + _ep1(e)) + _ch(e, f, g)) + _K(i2)) + w(i2));
     t2 := (_ep0(a) + _maj(a, b, c));
     hh = g;
-    g  = f;
-    f  = e;
-    e  = (d + t1);
-    d  = c;
-    c  = b;
-    b  = a;
-    a  = (t1 + t2);
+    g = f;
+    f = e;
+    e = (d + t1);
+    d = c;
+    c = b;
+    b = a;
+    a = (t1 + t2);
   });
   (h &+ usize(0)).* = ((h &+ usize(0)).* + a);
   (h &+ usize(1)).* = ((h &+ usize(1)).* + b);
@@ -96,43 +143,46 @@ _sha256_block :: (fn(block: *(u8), h: *(u32)) -> unit)({
   (h &+ usize(6)).* = ((h &+ usize(6)).* + g);
   (h &+ usize(7)).* = ((h &+ usize(7)).* + hh);
 });
-
 // ============================================================================
 // Sha256 streaming state
 // ============================================================================
-
 Sha256 :: object(
-  _h      : Array(u32, usize(8)),
-  _buf    : Array(u8, usize(64)),
+  _h : Array(u32, usize(8)),
+  _buf : Array(u8, usize(64)),
   _buflen : usize,
-  _total  : u64
+  _total : u64
 );
-
-impl(Sha256,
+impl(
+  Sha256,
   // Initialise a new hasher.
   new : (fn() -> Self)(
     Self(
-      _h: Array(u32, usize(8))(
-        u32(0x6a09e667), u32(0xbb67ae85), u32(0x3c6ef372), u32(0xa54ff53a),
-        u32(0x510e527f), u32(0x9b05688c), u32(0x1f83d9ab), u32(0x5be0cd19)
+      _h : Array(u32, usize(8))(
+        u32(0x6a09e667),
+        u32(0xbb67ae85),
+        u32(0x3c6ef372),
+        u32(0xa54ff53a),
+        u32(0x510e527f),
+        u32(0x9b05688c),
+        u32(0x1f83d9ab),
+        u32(0x5be0cd19)
       ),
-      _buf:    Array(u8, usize(64)).fill(u8(0)),
-      _buflen: usize(0),
-      _total:  u64(0)
+      _buf : Array(u8, usize(64)).fill(u8(0)),
+      _buflen : usize(0),
+      _total : u64(0)
     )
   ),
-
   // Feed more data into the hasher.
-  update : (fn(self: Self, data: ArrayList(u8)) -> Self)({
+  update : (fn(self : Self, data : ArrayList(u8)) -> Self)({
     i := usize(0);
-    while((i < data.len()), (i = (i + usize(1))), {
+    while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data.get(i).unwrap();
       self._buflen = (self._buflen + usize(1));
-      self._total  = (self._total + u64(1));
+      self._total = (self._total + u64(1));
       cond(
         (self._buflen == usize(64)) => {
           buf_ptr := &(self._buf(usize(0)));
-          h_ptr   := &(self._h(usize(0)));
+          h_ptr := &(self._h(usize(0)));
           _sha256_block(buf_ptr, h_ptr);
           self._buflen = usize(0);
         },
@@ -141,9 +191,8 @@ impl(Sha256,
     });
     self
   }),
-
   // Finalise and return the 32-byte digest.
-  finish : (fn(self: Self) -> Array(u8, usize(32)))({
+  finish : (fn(self : Self) -> Array(u8, usize(32)))({
     // Padding
     bit_len := (self._total * u64(8));
     self._buf(self._buflen) = u8(0x80);
@@ -151,66 +200,61 @@ impl(Sha256,
     cond(
       (self._buflen > usize(56)) => {
         // Fill rest with zeros and process
-        while((self._buflen < usize(64)), (self._buflen = (self._buflen + usize(1))), {
+        while(self._buflen < usize(64), self._buflen = (self._buflen + usize(1)), {
           self._buf(self._buflen) = u8(0);
         });
         buf_ptr := &(self._buf(usize(0)));
-        h_ptr   := &(self._h(usize(0)));
+        h_ptr := &(self._h(usize(0)));
         _sha256_block(buf_ptr, h_ptr);
         self._buflen = usize(0);
       },
       true => ()
     );
-    while((self._buflen < usize(56)), (self._buflen = (self._buflen + usize(1))), {
+    while(self._buflen < usize(56), self._buflen = (self._buflen + usize(1)), {
       self._buf(self._buflen) = u8(0);
     });
     // Big-endian bit length
-    self._buf(usize(56)) = u8((bit_len >> u64(56)));
-    self._buf(usize(57)) = u8((bit_len >> u64(48)));
-    self._buf(usize(58)) = u8((bit_len >> u64(40)));
-    self._buf(usize(59)) = u8((bit_len >> u64(32)));
-    self._buf(usize(60)) = u8((bit_len >> u64(24)));
-    self._buf(usize(61)) = u8((bit_len >> u64(16)));
-    self._buf(usize(62)) = u8((bit_len >> u64(8)));
+    self._buf(usize(56)) = u8(bit_len >> u64(56));
+    self._buf(usize(57)) = u8(bit_len >> u64(48));
+    self._buf(usize(58)) = u8(bit_len >> u64(40));
+    self._buf(usize(59)) = u8(bit_len >> u64(32));
+    self._buf(usize(60)) = u8(bit_len >> u64(24));
+    self._buf(usize(61)) = u8(bit_len >> u64(16));
+    self._buf(usize(62)) = u8(bit_len >> u64(8));
     self._buf(usize(63)) = u8(bit_len);
     buf_ptr := &(self._buf(usize(0)));
-    h_ptr   := &(self._h(usize(0)));
+    h_ptr := &(self._h(usize(0)));
     _sha256_block(buf_ptr, h_ptr);
     // Extract digest
     digest := Array(u8, usize(32)).fill(u8(0));
     j := usize(0);
-    while((j < usize(8)), (j = (j + usize(1))), {
+    while(j < usize(8), j = (j + usize(1)), {
       word := self._h(j);
-      digest((j * usize(4)))                  = u8((word >> u32(24)));
-      digest(((j * usize(4)) + usize(1)))     = u8((word >> u32(16)));
-      digest(((j * usize(4)) + usize(2)))     = u8((word >> u32(8)));
-      digest(((j * usize(4)) + usize(3)))     = u8(word);
+      digest(j * usize(4)) = u8(word >> u32(24));
+      digest((j * usize(4)) + usize(1)) = u8(word >> u32(16));
+      digest((j * usize(4)) + usize(2)) = u8(word >> u32(8));
+      digest((j * usize(4)) + usize(3)) = u8(word);
     });
     digest
   })
 );
-
 export(Sha256);
-
 // ============================================================================
 // Convenience functions
 // ============================================================================
-
 // Hash data and return the 32-byte digest.
-sha256 :: (fn(data: ArrayList(u8)) -> Array(u8, usize(32)))(
+sha256 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(32)))(
   Sha256.new().update(data).finish()
 );
-
 // Hash data and return the 64-character lowercase hex digest.
-sha256_hex :: (fn(data: ArrayList(u8)) -> String)({
+sha256_hex :: (fn(data : ArrayList(u8)) -> String)({
   digest := sha256(data);
   // Convert fixed array to ArrayList(u8) for hex_encode
   bytes := ArrayList(u8).with_capacity(usize(32));
   i := usize(0);
-  while((i < usize(32)), (i = (i + usize(1))), {
+  while(i < usize(32), i = (i + usize(1)), {
     bytes.push(digest(i));
   });
   hex_encode(bytes)
 });
-
 export(sha256, sha256_hex);

@@ -1,211 +1,241 @@
 //! C11 `<stdatomic.h>` — atomic operations and types.
-
-c_include("<stdatomic.h>",  
+c_include(
+  "<stdatomic.h>",
   // Atomic types
-  atomic_bool: Type,
-  atomic_char: Type,
-  atomic_schar: Type,
-  atomic_uchar: Type,
-  atomic_short: Type,
-  atomic_ushort: Type,
-  atomic_int: Type,
-  atomic_uint: Type,
-  atomic_long: Type,
-  atomic_ulong: Type,
-  atomic_llong: Type,
-  atomic_ullong: Type,
-  atomic_char16_t: Type,
-  atomic_char32_t: Type,
-  atomic_wchar_t: Type,
-  atomic_int_least8_t: Type,
-  atomic_uint_least8_t: Type,
-  atomic_int_least16_t: Type,
-  atomic_uint_least16_t: Type,
-  atomic_int_least32_t: Type,
-  atomic_uint_least32_t: Type,
-  atomic_int_least64_t: Type,
-  atomic_uint_least64_t: Type,
-  atomic_int_fast8_t: Type,
-  atomic_uint_fast8_t: Type,
-  atomic_int_fast16_t: Type,
-  atomic_uint_fast16_t: Type,
-  atomic_int_fast32_t: Type,
-  atomic_uint_fast32_t: Type,
-  atomic_int_fast64_t: Type,
-  atomic_uint_fast64_t: Type,
-  atomic_intptr_t: Type,
-  atomic_uintptr_t: Type,
-  atomic_size_t: Type,
-  atomic_ptrdiff_t: Type,
-  atomic_intmax_t: Type,
-  atomic_uintmax_t: Type,
-
+  atomic_bool : Type,
+  atomic_char : Type,
+  atomic_schar : Type,
+  atomic_uchar : Type,
+  atomic_short : Type,
+  atomic_ushort : Type,
+  atomic_int : Type,
+  atomic_uint : Type,
+  atomic_long : Type,
+  atomic_ulong : Type,
+  atomic_llong : Type,
+  atomic_ullong : Type,
+  atomic_char16_t : Type,
+  atomic_char32_t : Type,
+  atomic_wchar_t : Type,
+  atomic_int_least8_t : Type,
+  atomic_uint_least8_t : Type,
+  atomic_int_least16_t : Type,
+  atomic_uint_least16_t : Type,
+  atomic_int_least32_t : Type,
+  atomic_uint_least32_t : Type,
+  atomic_int_least64_t : Type,
+  atomic_uint_least64_t : Type,
+  atomic_int_fast8_t : Type,
+  atomic_uint_fast8_t : Type,
+  atomic_int_fast16_t : Type,
+  atomic_uint_fast16_t : Type,
+  atomic_int_fast32_t : Type,
+  atomic_uint_fast32_t : Type,
+  atomic_int_fast64_t : Type,
+  atomic_uint_fast64_t : Type,
+  atomic_intptr_t : Type,
+  atomic_uintptr_t : Type,
+  atomic_size_t : Type,
+  atomic_ptrdiff_t : Type,
+  atomic_intmax_t : Type,
+  atomic_uintmax_t : Type,
   // Memory order enumeration
-  memory_order: Type,
-  memory_order_relaxed: memory_order,
-  memory_order_consume: memory_order,
-  memory_order_acquire: memory_order,
-  memory_order_release: memory_order,
-  memory_order_acq_rel: memory_order,
-  memory_order_seq_cst: memory_order,
-
+  memory_order : Type,
+  memory_order_relaxed : memory_order,
+  memory_order_consume : memory_order,
+  memory_order_acquire : memory_order,
+  memory_order_release : memory_order,
+  memory_order_acq_rel : memory_order,
+  memory_order_seq_cst : memory_order,
   // Atomic flag type
-  atomic_flag: Type,
-  ATOMIC_FLAG_INIT: atomic_flag,
-
+  atomic_flag : Type,
+  ATOMIC_FLAG_INIT : atomic_flag,
   // Generic atomic operations
-  atomic_init: 
-    fn(obj: *(atomic_bool), value: bool) -> unit,
-  atomic_load: 
-    fn(obj: *(atomic_bool)) -> bool,
-  atomic_load_explicit: 
-    fn(obj: *(atomic_bool), order: memory_order) -> bool,
-  atomic_store: 
-    fn(obj: *(atomic_bool), desired: bool) -> unit,
-  atomic_store_explicit: 
-    fn(obj: *(atomic_bool), desired: bool, order: memory_order) -> unit,
-  atomic_exchange: 
-    fn(obj: *(atomic_bool), desired: bool) -> bool,
-  atomic_exchange_explicit: 
-    fn(obj: *(atomic_bool), desired: bool, order: memory_order) -> bool,
-  atomic_compare_exchange_strong: 
-    fn(obj: *(atomic_bool), expected: *(bool), desired: bool) -> bool,
-  atomic_compare_exchange_strong_explicit: 
-    fn(obj: *(atomic_bool), expected: *(bool), desired: bool, success: memory_order, failure: memory_order) -> bool,
-  atomic_compare_exchange_weak: 
-    fn(obj: *(atomic_bool), expected: *(bool), desired: bool) -> bool,
-  atomic_compare_exchange_weak_explicit: 
-    fn(obj: *(atomic_bool), expected: *(bool), desired: bool, success: memory_order, failure: memory_order) -> bool,
-
+  atomic_init :
+    fn(obj : *(atomic_bool), value : bool) -> unit,
+  atomic_load :
+    fn(obj : *(atomic_bool)) -> bool,
+  atomic_load_explicit :
+    fn(obj : *(atomic_bool), order : memory_order) -> bool,
+  atomic_store :
+    fn(obj : *(atomic_bool), desired : bool) -> unit,
+  atomic_store_explicit :
+    fn(obj : *(atomic_bool), desired : bool, order : memory_order) -> unit,
+  atomic_exchange :
+    fn(obj : *(atomic_bool), desired : bool) -> bool,
+  atomic_exchange_explicit :
+    fn(obj : *(atomic_bool), desired : bool, order : memory_order) -> bool,
+  atomic_compare_exchange_strong :
+    fn(obj : *(atomic_bool), expected : *(bool), desired : bool) -> bool,
+  atomic_compare_exchange_strong_explicit :
+    fn(obj : *(atomic_bool), expected : *(bool), desired : bool, success : memory_order, failure : memory_order) -> bool,
+  atomic_compare_exchange_weak :
+    fn(obj : *(atomic_bool), expected : *(bool), desired : bool) -> bool,
+  atomic_compare_exchange_weak_explicit :
+    fn(obj : *(atomic_bool), expected : *(bool), desired : bool, success : memory_order, failure : memory_order) -> bool,
   // Integer atomic operations
-  atomic_fetch_add: 
-    fn(obj: *(atomic_int), arg: int) -> int,
-  atomic_fetch_add_explicit: 
-    fn(obj: *(atomic_int), arg: int, order: memory_order) -> int,
-  atomic_fetch_sub: 
-    fn(obj: *(atomic_int), arg: int) -> int,
-  atomic_fetch_sub_explicit: 
-    fn(obj: *(atomic_int), arg: int, order: memory_order) -> int,
-  atomic_fetch_or: 
-    fn(obj: *(atomic_int), arg: int) -> int,
-  atomic_fetch_or_explicit: 
-    fn(obj: *(atomic_int), arg: int, order: memory_order) -> int,
-  atomic_fetch_xor: 
-    fn(obj: *(atomic_int), arg: int) -> int,
-  atomic_fetch_xor_explicit: 
-    fn(obj: *(atomic_int), arg: int, order: memory_order) -> int,
-  atomic_fetch_and: 
-    fn(obj: *(atomic_int), arg: int) -> int,
-  atomic_fetch_and_explicit: 
-    fn(obj: *(atomic_int), arg: int, order: memory_order) -> int,
-
+  atomic_fetch_add :
+    fn(obj : *(atomic_int), arg : int) -> int,
+  atomic_fetch_add_explicit :
+    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
+  atomic_fetch_sub :
+    fn(obj : *(atomic_int), arg : int) -> int,
+  atomic_fetch_sub_explicit :
+    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
+  atomic_fetch_or :
+    fn(obj : *(atomic_int), arg : int) -> int,
+  atomic_fetch_or_explicit :
+    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
+  atomic_fetch_xor :
+    fn(obj : *(atomic_int), arg : int) -> int,
+  atomic_fetch_xor_explicit :
+    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
+  atomic_fetch_and :
+    fn(obj : *(atomic_int), arg : int) -> int,
+  atomic_fetch_and_explicit :
+    fn(obj : *(atomic_int), arg : int, order : memory_order) -> int,
   // Pointer atomic operations
-  atomic_load_ptr: 
-    fn(obj: *(*(void))) -> *(void),
-  atomic_store_ptr: 
-    fn(obj: *(*(void)), desired: *(void)) -> unit,
-  atomic_exchange_ptr: 
-    fn(obj: *(*(void)), desired: *(void)) -> *(void),
-  atomic_compare_exchange_strong_ptr: 
-    fn(obj: *(*(void)), expected: *(*(void)), desired: *(void)) -> bool,
-  atomic_compare_exchange_weak_ptr: 
-    fn(obj: *(*(void)), expected: *(*(void)), desired: *(void)) -> bool,
-
+  atomic_load_ptr :
+    fn(obj : *(*(void))) -> *(void),
+  atomic_store_ptr :
+    fn(obj : *(*(void)), desired : *(void)) -> unit,
+  atomic_exchange_ptr :
+    fn(obj : *(*(void)), desired : *(void)) -> *(void),
+  atomic_compare_exchange_strong_ptr :
+    fn(obj : *(*(void)), expected : *(*(void)), desired : *(void)) -> bool,
+  atomic_compare_exchange_weak_ptr :
+    fn(obj : *(*(void)), expected : *(*(void)), desired : *(void)) -> bool,
   // Atomic flag operations
-  atomic_flag_test_and_set: 
-    fn(obj: *(atomic_flag)) -> bool,
-  atomic_flag_test_and_set_explicit: 
-    fn(obj: *(atomic_flag), order: memory_order) -> bool,
-  atomic_flag_clear: 
-    fn(obj: *(atomic_flag)) -> unit,
-  atomic_flag_clear_explicit: 
-    fn(obj: *(atomic_flag), order: memory_order) -> unit,
-
+  atomic_flag_test_and_set :
+    fn(obj : *(atomic_flag)) -> bool,
+  atomic_flag_test_and_set_explicit :
+    fn(obj : *(atomic_flag), order : memory_order) -> bool,
+  atomic_flag_clear :
+    fn(obj : *(atomic_flag)) -> unit,
+  atomic_flag_clear_explicit :
+    fn(obj : *(atomic_flag), order : memory_order) -> unit,
   // Memory fences
-  atomic_thread_fence: 
-    fn(order: memory_order) -> unit,
-  atomic_signal_fence: 
-    fn(order: memory_order) -> unit,
-
+  atomic_thread_fence :
+    fn(order : memory_order) -> unit,
+  atomic_signal_fence :
+    fn(order : memory_order) -> unit,
   // Lock-free property query
-  atomic_is_lock_free: 
-    fn(obj: *(atomic_bool)) -> bool,
-
+  atomic_is_lock_free :
+    fn(obj : *(atomic_bool)) -> bool,
   // Kill dependency
-  kill_dependency: 
-    fn(y: i32) -> i32,
-
+  kill_dependency :
+    fn(y : i32) -> i32,
   // Lock-free constants
-  ATOMIC_BOOL_LOCK_FREE: i32,
-  ATOMIC_CHAR_LOCK_FREE: i32,
-  ATOMIC_CHAR16_T_LOCK_FREE: i32,
-  ATOMIC_CHAR32_T_LOCK_FREE: i32,
-  ATOMIC_WCHAR_T_LOCK_FREE: i32,
-  ATOMIC_SHORT_LOCK_FREE: i32,
-  ATOMIC_INT_LOCK_FREE: i32,
-  ATOMIC_LONG_LOCK_FREE: i32,
-  ATOMIC_LLONG_LOCK_FREE: i32,
-  ATOMIC_POINTER_LOCK_FREE: i32);
-
-export(// Atomic types
-  atomic_bool, atomic_char, atomic_schar, atomic_uchar,
-  atomic_short, atomic_ushort, atomic_int, atomic_uint,
-  atomic_long, atomic_ulong, atomic_llong, atomic_ullong,
-  atomic_char16_t, atomic_char32_t, atomic_wchar_t,
-  atomic_int_least8_t, atomic_uint_least8_t,
-  atomic_int_least16_t, atomic_uint_least16_t,
-  atomic_int_least32_t, atomic_uint_least32_t,
-  atomic_int_least64_t, atomic_uint_least64_t,
-  atomic_int_fast8_t, atomic_uint_fast8_t,
-  atomic_int_fast16_t, atomic_uint_fast16_t,
-  atomic_int_fast32_t, atomic_uint_fast32_t,
-  atomic_int_fast64_t, atomic_uint_fast64_t,
-  atomic_intptr_t, atomic_uintptr_t,
-  atomic_size_t, atomic_ptrdiff_t,
-  atomic_intmax_t, atomic_uintmax_t,
-  
+  ATOMIC_BOOL_LOCK_FREE : i32,
+  ATOMIC_CHAR_LOCK_FREE : i32,
+  ATOMIC_CHAR16_T_LOCK_FREE : i32,
+  ATOMIC_CHAR32_T_LOCK_FREE : i32,
+  ATOMIC_WCHAR_T_LOCK_FREE : i32,
+  ATOMIC_SHORT_LOCK_FREE : i32,
+  ATOMIC_INT_LOCK_FREE : i32,
+  ATOMIC_LONG_LOCK_FREE : i32,
+  ATOMIC_LLONG_LOCK_FREE : i32,
+  ATOMIC_POINTER_LOCK_FREE : i32
+);
+export(
+  // Atomic types
+  atomic_bool,
+  atomic_char,
+  atomic_schar,
+  atomic_uchar,
+  atomic_short,
+  atomic_ushort,
+  atomic_int,
+  atomic_uint,
+  atomic_long,
+  atomic_ulong,
+  atomic_llong,
+  atomic_ullong,
+  atomic_char16_t,
+  atomic_char32_t,
+  atomic_wchar_t,
+  atomic_int_least8_t,
+  atomic_uint_least8_t,
+  atomic_int_least16_t,
+  atomic_uint_least16_t,
+  atomic_int_least32_t,
+  atomic_uint_least32_t,
+  atomic_int_least64_t,
+  atomic_uint_least64_t,
+  atomic_int_fast8_t,
+  atomic_uint_fast8_t,
+  atomic_int_fast16_t,
+  atomic_uint_fast16_t,
+  atomic_int_fast32_t,
+  atomic_uint_fast32_t,
+  atomic_int_fast64_t,
+  atomic_uint_fast64_t,
+  atomic_intptr_t,
+  atomic_uintptr_t,
+  atomic_size_t,
+  atomic_ptrdiff_t,
+  atomic_intmax_t,
+  atomic_uintmax_t,
   // Memory order and flag types
-  memory_order, atomic_flag,
-  
+  memory_order,
+  atomic_flag,
   // Memory order constants
-  memory_order_relaxed, memory_order_consume,
-  memory_order_acquire, memory_order_release,
-  memory_order_acq_rel, memory_order_seq_cst,
-  
+  memory_order_relaxed,
+  memory_order_consume,
+  memory_order_acquire,
+  memory_order_release,
+  memory_order_acq_rel,
+  memory_order_seq_cst,
   // Generic atomic operations
-  atomic_init, atomic_load, atomic_load_explicit,
-  atomic_store, atomic_store_explicit,
-  atomic_exchange, atomic_exchange_explicit,
-  atomic_compare_exchange_strong, atomic_compare_exchange_strong_explicit,
-  atomic_compare_exchange_weak, atomic_compare_exchange_weak_explicit,
-  
+  atomic_init,
+  atomic_load,
+  atomic_load_explicit,
+  atomic_store,
+  atomic_store_explicit,
+  atomic_exchange,
+  atomic_exchange_explicit,
+  atomic_compare_exchange_strong,
+  atomic_compare_exchange_strong_explicit,
+  atomic_compare_exchange_weak,
+  atomic_compare_exchange_weak_explicit,
   // Integer atomic operations
-  atomic_fetch_add, atomic_fetch_add_explicit,
-  atomic_fetch_sub, atomic_fetch_sub_explicit,
-  atomic_fetch_or, atomic_fetch_or_explicit,
-  atomic_fetch_xor, atomic_fetch_xor_explicit,
-  atomic_fetch_and, atomic_fetch_and_explicit,
-  
+  atomic_fetch_add,
+  atomic_fetch_add_explicit,
+  atomic_fetch_sub,
+  atomic_fetch_sub_explicit,
+  atomic_fetch_or,
+  atomic_fetch_or_explicit,
+  atomic_fetch_xor,
+  atomic_fetch_xor_explicit,
+  atomic_fetch_and,
+  atomic_fetch_and_explicit,
   // Pointer atomic operations
-  atomic_load_ptr, atomic_store_ptr, atomic_exchange_ptr,
-  atomic_compare_exchange_strong_ptr, atomic_compare_exchange_weak_ptr,
-  
+  atomic_load_ptr,
+  atomic_store_ptr,
+  atomic_exchange_ptr,
+  atomic_compare_exchange_strong_ptr,
+  atomic_compare_exchange_weak_ptr,
   // Atomic flag operations
-  atomic_flag_test_and_set, atomic_flag_test_and_set_explicit,
-  atomic_flag_clear, atomic_flag_clear_explicit,
-  
+  atomic_flag_test_and_set,
+  atomic_flag_test_and_set_explicit,
+  atomic_flag_clear,
+  atomic_flag_clear_explicit,
   // Memory fences
-  atomic_thread_fence, atomic_signal_fence,
-  
+  atomic_thread_fence,
+  atomic_signal_fence,
   // Lock-free property
   atomic_is_lock_free,
-  
   // Lock-free constants
-  ATOMIC_BOOL_LOCK_FREE, ATOMIC_CHAR_LOCK_FREE,
-  ATOMIC_CHAR16_T_LOCK_FREE, ATOMIC_CHAR32_T_LOCK_FREE,
-  ATOMIC_WCHAR_T_LOCK_FREE, ATOMIC_SHORT_LOCK_FREE,
-  ATOMIC_INT_LOCK_FREE, ATOMIC_LONG_LOCK_FREE,
-  ATOMIC_LLONG_LOCK_FREE, ATOMIC_POINTER_LOCK_FREE,
-  
+  ATOMIC_BOOL_LOCK_FREE,
+  ATOMIC_CHAR_LOCK_FREE,
+  ATOMIC_CHAR16_T_LOCK_FREE,
+  ATOMIC_CHAR32_T_LOCK_FREE,
+  ATOMIC_WCHAR_T_LOCK_FREE,
+  ATOMIC_SHORT_LOCK_FREE,
+  ATOMIC_INT_LOCK_FREE,
+  ATOMIC_LONG_LOCK_FREE,
+  ATOMIC_LLONG_LOCK_FREE,
+  ATOMIC_POINTER_LOCK_FREE,
   // Kill dependency
-  kill_dependency);
+  kill_dependency
+);

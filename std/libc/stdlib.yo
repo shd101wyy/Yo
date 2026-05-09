@@ -1,12 +1,11 @@
 //! C11 `<stdlib.h>` — general utility functions.
-
-c_include("<stdlib.h>",
+c_include(
+  "<stdlib.h>",
   // Types for div functions
   div_t : Type,
   ldiv_t : Type,
   lldiv_t : Type,
   wchar_t : Type,
-
   // Program termination
   exit :
     fn(status : int) -> unit,
@@ -20,7 +19,6 @@ c_include("<stdlib.h>",
     fn(func : (fn() -> unit)) -> int,
   at_quick_exit :
     fn(func : (fn() -> unit)) -> int,
-
   // Memory management
   malloc :
     fn(size : usize) -> ?*(void),
@@ -32,7 +30,6 @@ c_include("<stdlib.h>",
     fn(ptr : ?*(void)) -> unit,
   aligned_alloc :
     fn(alignment : usize, size : usize) -> ?*(void),
-
   // String to number conversion
   atof :
     fn(nptr : *(char)) -> f64,
@@ -42,7 +39,6 @@ c_include("<stdlib.h>",
     fn(nptr : *(char)) -> long,
   atoll :
     fn(nptr : *(char)) -> longlong,
-  
   strtol :
     fn(nptr : *(char), endptr : ?*(?*(char)), base : int) -> long,
   strtoll :
@@ -51,32 +47,36 @@ c_include("<stdlib.h>",
     fn(nptr : *(char), endptr : ?*(?*(char)), base : int) -> ulong,
   strtoull :
     fn(nptr : *(char), endptr : ?*(?*(char)), base : int) -> ulonglong,
-  
   strtof :
     fn(nptr : *(char), endptr : ?*(?*(char))) -> f32,
   strtod :
     fn(nptr : *(char), endptr : ?*(?*(char))) -> f64,
   strtold :
     fn(nptr : *(char), endptr : ?*(?*(char))) -> longdouble,
-
   // Pseudo-random sequence generation
   rand :
     fn() -> int,
   srand :
     fn(seed : uint) -> unit,
-  
   // C11 - Thread-safe random functions
   rand_r :
     fn(seedp : *(uint)) -> int,
-
   // Searching and sorting
   bsearch :
-    fn(key : *(void), base : *(void), nmemb : usize, size : usize, 
-     compar : (fn(a : *(void), b : *(void)) -> int)) -> ?*(void),
+    fn(
+      key : *(void),
+      base : *(void),
+      nmemb : usize,
+      size : usize,
+      compar : (fn(a : *(void), b : *(void)) -> int)
+    ) -> ?*(void),
   qsort :
-    fn(base : *(void), nmemb : usize, size : usize, 
-     compar : (fn(a : *(void), b : *(void)) -> int)) -> unit,
-
+    fn(
+      base : *(void),
+      nmemb : usize,
+      size : usize,
+      compar : (fn(a : *(void), b : *(void)) -> int)
+    ) -> unit,
   // Integer arithmetic
   abs :
     fn(j : int) -> int,
@@ -84,14 +84,12 @@ c_include("<stdlib.h>",
     fn(j : long) -> long,
   llabs :
     fn(j : longlong) -> longlong,
-  
   div :
     fn(numer : int, denom : int) -> div_t,
   ldiv :
     fn(numer : long, denom : long) -> ldiv_t,
   lldiv :
     fn(numer : longlong, denom : longlong) -> lldiv_t,
-
   // Environment functions
   getenv :
     fn(name : *(char)) -> ?*(char),
@@ -99,11 +97,9 @@ c_include("<stdlib.h>",
     fn(name : *(char), value : *(char), overwrite : int) -> int,
   system :
     fn(command : ?*(char)) -> int,
-
   // C11 Annex K - Bounds-checking interfaces
   getenv_s :
     fn(len : ?*(usize), value : *(char), maxsize : usize, name : *(char)) -> int,
-
   // Multibyte/wide character conversion
   mblen :
     fn(s : ?*(char), n : usize) -> int,
@@ -111,44 +107,49 @@ c_include("<stdlib.h>",
     fn(pwc : ?*(wchar_t), s : ?*(char), n : usize) -> int,
   wctomb :
     fn(s : ?*(char), wc : wchar_t) -> int,
-  
   // Multibyte/wide string conversion
   mbstowcs :
     fn(dest : ?*(wchar_t), src : *(char), n : usize) -> usize,
   wcstombs :
     fn(dest : ?*(char), src : *(wchar_t), n : usize) -> usize,
-
   // C11 Annex K - Safe multibyte functions
   mbstowcs_s :
-    fn(retval : ?*(usize), dest : ?*(wchar_t), destsz : usize, 
-     src : *(char), len : usize) -> int,
+    fn(
+      retval : ?*(usize),
+      dest : ?*(wchar_t),
+      destsz : usize,
+      src : *(char),
+      len : usize
+    ) -> int,
   wcstombs_s :
-    fn(retval : ?*(usize), dest : ?*(char), destsz : usize,
-     src : *(wchar_t), len : usize) -> int,
-
+    fn(
+      retval : ?*(usize),
+      dest : ?*(char),
+      destsz : usize,
+      src : *(wchar_t),
+      len : usize
+    ) -> int,
   // Constants
   EXIT_SUCCESS : int,
   EXIT_FAILURE : int,
   RAND_MAX : int,
   MB_CUR_MAX : int
 );
-
 // Export all stdlib functionality
-export(// Program termination
+export(
+  // Program termination
   exit,
   quick_exit,
   _Exit,
   abort,
   atexit,
   at_quick_exit,
-
   // Memory management
   malloc,
   calloc,
   realloc,
   free,
   aligned_alloc,
-
   // String to number conversion
   atof,
   atoi,
@@ -161,16 +162,13 @@ export(// Program termination
   strtof,
   strtod,
   strtold,
-
   // Random number generation
   rand,
   srand,
   rand_r,
-
   // Searching and sorting
   bsearch,
   qsort,
-
   // Integer arithmetic
   abs,
   labs,
@@ -178,13 +176,11 @@ export(// Program termination
   div,
   ldiv,
   lldiv,
-
   // Environment
   getenv,
   setenv,
   system,
   getenv_s,
-
   // Multibyte/wide character
   mblen,
   mbtowc,
@@ -193,15 +189,14 @@ export(// Program termination
   wcstombs,
   mbstowcs_s,
   wcstombs_s,
-
   // Types
   div_t,
   ldiv_t,
   lldiv_t,
   wchar_t,
-
   // Constants
   EXIT_SUCCESS,
   EXIT_FAILURE,
   RAND_MAX,
-  MB_CUR_MAX);
+  MB_CUR_MAX
+);

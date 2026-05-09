@@ -18,7 +18,6 @@
 //!   printf("is file: %d\n", i32(m.is_file()));
 //! });
 //! ```
-
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
 open(import("../string"));
@@ -27,106 +26,88 @@ open(import("../string"));
 { Error, AnyError, Exception } :: import("../error");
 { Statx } :: import("../sys/statx");
 IO_file :: import("../sys/file");
-{
-  AT_FDCWD, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT,
-  STATX_BASIC_STATS, S_IFMT, S_IFREG, S_IFDIR, S_IFLNK,
-  S_IWUSR, S_IWGRP, S_IWOTH
-} :: import("../sys/constants");
-
+{ AT_FDCWD, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, S_IFMT, S_IFREG, S_IFDIR, S_IFLNK, S_IWUSR, S_IWGRP, S_IWOTH } :: import("../sys/constants");
 /// File metadata wrapper around `Statx`.
 Metadata :: object(
   _statx : Statx,
   _buf_ptr : *(u8)
 );
-
-impl(Metadata,
+impl(
+  Metadata,
   // File size in bytes.
-  size : (fn(self: Self) -> i64)(
+  size : (fn(self : Self) -> i64)(
     self._statx.size()
   ),
-
   // Raw permission mode bits.
-  mode : (fn(self: Self) -> u32)(
+  mode : (fn(self : Self) -> u32)(
     self._statx.mode()
   ),
-
   // True if this is a regular file.
-  is_file : (fn(self: Self) -> bool)(
+  is_file : (fn(self : Self) -> bool)(
     self._statx.is_file()
   ),
-
   // True if this is a directory.
-  is_dir : (fn(self: Self) -> bool)(
+  is_dir : (fn(self : Self) -> bool)(
     self._statx.is_directory()
   ),
-
   // True if this is a symbolic link.
-  is_symlink : (fn(self: Self) -> bool)(
+  is_symlink : (fn(self : Self) -> bool)(
     self._statx.is_symlink()
   ),
-
   // Last modification time (seconds since epoch).
-  modified_time : (fn(self: Self) -> i64)(
+  modified_time : (fn(self : Self) -> i64)(
     self._statx.mtime_sec()
   ),
-
   // Last access time (seconds since epoch).
-  accessed_time : (fn(self: Self) -> i64)(
+  accessed_time : (fn(self : Self) -> i64)(
     self._statx.atime_sec()
   ),
-
   // Status change time (seconds since epoch).
-  created_time : (fn(self: Self) -> i64)(
+  created_time : (fn(self : Self) -> i64)(
     self._statx.ctime_sec()
   ),
-
   // True if the file is read-only (no write permission for anyone).
-  is_readonly : (fn(self: Self) -> bool)({
+  is_readonly : (fn(self : Self) -> bool)({
     m := self._statx.mode();
-    ((m & ((S_IWUSR | S_IWGRP) | S_IWOTH)) == u32(0))
+    (m&((S_IWUSR | S_IWGRP) | S_IWOTH)) == u32(0)
   }),
-
   // Owner user ID.
-  uid : (fn(self: Self) -> u32)(
+  uid : (fn(self : Self) -> u32)(
     self._statx.uid()
   ),
-
   // Owner group ID.
-  gid : (fn(self: Self) -> u32)(
+  gid : (fn(self : Self) -> u32)(
     self._statx.gid()
   ),
-
   // Inode number.
-  ino : (fn(self: Self) -> u64)(
+  ino : (fn(self : Self) -> u64)(
     self._statx.ino()
   ),
-
   // Number of hard links.
-  nlink : (fn(self: Self) -> u64)(
+  nlink : (fn(self : Self) -> u64)(
     self._statx.nlink()
   )
 );
-
-impl(Metadata, Dispose(
-  dispose : (fn(self: Self) -> unit)({
-    free(.Some(*(void)(self._buf_ptr)));
-  })
-));
-
+impl(
+  Metadata,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      free(.Some(*(void)(self._buf_ptr)));
+    })
+  )
+);
 export(Metadata);
-
 // ============================================================================
 // Statx buffer size extern
 // ============================================================================
-
-extern("Yo",
-  __yo_statx_buf_size : (fn() -> usize));
-
+extern(
+  "Yo",
+  __yo_statx_buf_size : (fn() -> usize)
+);
 // ============================================================================
 // Internal helper to stat a path
 // ============================================================================
-
-_stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(
+_stat_path :: (fn(path : Path, flags : i32, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -136,26 +117,21 @@ _stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Metadat
     cond(
       (result < i32(0)) => {
         free(.Some(*(void)(buf)));
-        exn.throw(dyn(IOError.from_errno((i32(0) - result))))
+        exn.throw(dyn(IOError.from_errno(i32(0) - result)))
       },
       true => {
-        sx := Statx(_buf_ptr: buf, _buf_size: buf_size);
-        Metadata(_statx: sx, _buf_ptr: buf)
+        sx := Statx(_buf_ptr : buf, _buf_size : buf_size);
+        Metadata(_statx : sx, _buf_ptr : buf)
       }
     )
   })
 );
-
 /// Get metadata for a path (follows symlinks).
-metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, AT_STATX_SYNC_AS_STAT));
-
+metadata :: (fn(path : Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, AT_STATX_SYNC_AS_STAT));
 /// Get metadata for a path given as a raw string (follows symlinks).
-metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(metadata(Path.new(String.from(path))));
-
+metadata_str :: (fn(path : str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(metadata(Path.new(String.from(path))));
 /// Get metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, (AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT)));
-
+symlink_metadata :: (fn(path : Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT));
 /// Get metadata for a path given as a raw string (does NOT follow symlinks).
-symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(symlink_metadata(Path.new(String.from(path))));
-
+symlink_metadata_str :: (fn(path : str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(symlink_metadata(Path.new(String.from(path))));
 export(metadata, metadata_str, symlink_metadata, symlink_metadata_str);

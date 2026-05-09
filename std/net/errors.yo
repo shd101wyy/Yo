@@ -5,16 +5,13 @@
 //
 // Example:
 //   { NetError } :: import "std/net/errors";
-
 open(import("../string"));
 { IOError } :: import("../sys/errors");
 { ToString } :: import("../fmt");
 { Error, AnyError, Exception } :: import("../error");
-
 // ============================================================================
 // NetError
 // ============================================================================
-
 /// Network-specific error type wrapping lower-level I/O errors.
 NetError :: enum(
   /// The remote host refused the connection.
@@ -34,60 +31,64 @@ NetError :: enum(
   /// The network is unreachable.
   NetworkUnreachable,
   /// DNS resolution failed.
-  DNSFailed(msg: String),
+  DNSFailed(msg : String),
   /// A wrapped lower-level I/O error.
-  IO(err: IOError),
+  IO(err : IOError),
   /// An unclassified network error with a message.
-  Other(msg: String)
+  Other(msg : String)
 );
-
-impl(NetError,
+impl(
+  NetError,
   /// Convert an `IOError` into the corresponding `NetError` variant.
-  from_io : (fn(err: IOError) -> Self)(
-    match(err,
-      .ConnectionRefused => .ConnectionRefused,
-      .ConnectionReset   => .ConnectionReset,
-      .ConnectionAborted => .ConnectionAborted,
-      .AddressInUse      => .AddrInUse,
-      .AddressNotAvailable => .AddrNotAvailable,
-      .TimedOut          => .TimedOut,
-      .HostUnreachable   => .HostUnreachable,
-      .NetworkUnreachable => .NetworkUnreachable,
-      _                  => .IO(err)
+  from_io : (fn(err : IOError) -> Self)(
+    match(
+      err,
+      .ConnectionRefused =>.ConnectionRefused,
+      .ConnectionReset =>.ConnectionReset,
+      .ConnectionAborted =>.ConnectionAborted,
+      .AddressInUse =>.AddrInUse,
+      .AddressNotAvailable =>.AddrNotAvailable,
+      .TimedOut =>.TimedOut,
+      .HostUnreachable =>.HostUnreachable,
+      .NetworkUnreachable =>.NetworkUnreachable,
+      _ =>.IO(err)
     )
   )
 );
-
-impl(NetError, ToString(
-  to_string : (self -> {
-    s := match(self,
-      .ConnectionRefused => String.from("connection refused"),
-      .ConnectionReset => String.from("connection reset by peer"),
-      .ConnectionAborted => String.from("connection aborted"),
-      .AddrInUse => String.from("address already in use"),
-      .AddrNotAvailable => String.from("address not available"),
-      .TimedOut => String.from("operation timed out"),
-      .HostUnreachable => String.from("host unreachable"),
-      .NetworkUnreachable => String.from("network unreachable"),
-      .DNSFailed(msg) => `DNS lookup failed: ${msg}`,
-      .IO(err) => err.to_string(),
-      .Other(msg) => msg
-    );
-    return(s);
-  })
-));
-
+impl(
+  NetError,
+  ToString(
+    to_string : (
+      self -> {
+        s := match(
+          self,
+          .ConnectionRefused => String.from("connection refused"),
+          .ConnectionReset => String.from("connection reset by peer"),
+          .ConnectionAborted => String.from("connection aborted"),
+          .AddrInUse => String.from("address already in use"),
+          .AddrNotAvailable => String.from("address not available"),
+          .TimedOut => String.from("operation timed out"),
+          .HostUnreachable => String.from("host unreachable"),
+          .NetworkUnreachable => String.from("network unreachable"),
+          .DNSFailed(msg) => `DNS lookup failed: ${msg}`,
+          .IO(err) => err.to_string(),
+          .Other(msg) => msg
+        );
+        return(s);
+      }
+    )
+  )
+);
 impl(NetError, Error());
-
-impl(NetError,
+impl(
+  NetError,
   /// Check a raw syscall result and throw on error.
   /// Positive values are returned as-is; negative values are converted to a `NetError` and thrown.
-  check : (fn(result: i32, using(exn : Exception)) -> i32)(
+  check : (fn(result : i32, using(exn : Exception)) -> i32)(
     cond(
       (result >= i32(0)) => result,
-      true => exn.throw(dyn(Self.from_io(IOError.from_errno((i32(0) - result)))))
+      true => exn.throw(dyn(Self.from_io(IOError.from_errno(i32(0) - result))))
     )
   )
 );
-
 export(NetError);

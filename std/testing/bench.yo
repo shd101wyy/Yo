@@ -11,85 +11,83 @@
 //! result := bench(`sort`, u64(1000), () => { /* work */ });
 //! println(result.to_string());
 //! ```
-
 open(import("../string"));
 { ToString } :: import("../fmt");
 { snprintf } :: import("../libc/stdio");
 { Instant } :: import("../time/instant");
-
 // ============================================================================
 // BenchResult
 // ============================================================================
-
 /// Timing statistics returned by `bench`.
 BenchResult :: struct(
   /// Benchmark name.
-  name       : String,
+  name : String,
   /// Total number of iterations executed.
   iterations : u64,
   /// Total elapsed nanoseconds across all iterations.
-  total_ns   : i64,
+  total_ns : i64,
   /// Average nanoseconds per iteration.
-  avg_ns     : i64,
+  avg_ns : i64,
   /// Minimum nanoseconds for a single iteration.
-  min_ns     : i64,
+  min_ns : i64,
   /// Maximum nanoseconds for a single iteration.
-  max_ns     : i64
+  max_ns : i64
 );
-
-_i64_to_string :: (fn(v: i64) -> String)({
+_i64_to_string :: (fn(v : i64) -> String)({
   buf := Array(u8, usize(32)).fill(u8(0));
   buf_ptr := &(buf(usize(0)));
   snprintf(*(char)(buf_ptr), usize(32), "%lld", v);
   String.from_cstr(buf_ptr).unwrap()
 });
-
-_u64_to_string :: (fn(v: u64) -> String)({
+_u64_to_string :: (fn(v : u64) -> String)({
   buf := Array(u8, usize(32)).fill(u8(0));
   buf_ptr := &(buf(usize(0)));
   snprintf(*(char)(buf_ptr), usize(32), "%llu", v);
   String.from_cstr(buf_ptr).unwrap()
 });
-
-impl(BenchResult, ToString(
-  to_string : (fn(self: *(Self)) -> String)({
-    prefix  := String.from("bench '");
-    part1   := prefix.concat(self.name);
-    part2   := part1.concat(String.from("': iters="));
-    part3   := part2.concat(_u64_to_string(self.iterations));
-    part4   := part3.concat(String.from(" avg_ns="));
-    part5   := part4.concat(_i64_to_string(self.avg_ns));
-    part6   := part5.concat(String.from(" min="));
-    part7   := part6.concat(_i64_to_string(self.min_ns));
-    part8   := part7.concat(String.from(" max="));
-    part8.concat(_i64_to_string(self.max_ns))
-  })
-));
-
+impl(
+  BenchResult,
+  ToString(
+    to_string : (fn(self : *(Self)) -> String)({
+      prefix := String.from("bench '");
+      part1 := prefix.concat(self.name);
+      part2 := part1.concat(String.from("': iters="));
+      part3 := part2.concat(_u64_to_string(self.iterations));
+      part4 := part3.concat(String.from(" avg_ns="));
+      part5 := part4.concat(_i64_to_string(self.avg_ns));
+      part6 := part5.concat(String.from(" min="));
+      part7 := part6.concat(_i64_to_string(self.min_ns));
+      part8 := part7.concat(String.from(" max="));
+      part8.concat(_i64_to_string(self.max_ns))
+    })
+  )
+);
 export(BenchResult);
-
 // ============================================================================
 // bench
 // ============================================================================
-
 /// Run `body` for `iterations` times and return timing statistics.
-bench :: (fn(name: String, iterations: u64, body: Impl(Fn() -> unit)) -> BenchResult)({
+bench :: (fn(name : String, iterations : u64, body : Impl(Fn() -> unit)) -> BenchResult)({
   total_ns := i64(0);
-  min_ns   := i64(9223372036854775807); // i64::MAX
-  max_ns   := i64(0);
-  i        := u64(0);
-  while((i < iterations), (i = (i + u64(1))), {
+  min_ns := i64(9223372036854775807); // i64::MAX
+  max_ns := i64(0);
+  i := u64(0);
+  while(i < iterations, i = (i + u64(1)), {
     t_start := Instant.now();
     body();
-    t_end   := Instant.now();
+    t_end := Instant.now();
     elapsed := t_end.duration_since(t_start).as_nanos();
     total_ns = (total_ns + elapsed);
     cond(
-      (elapsed < min_ns) => { min_ns = elapsed; },
+      (elapsed < min_ns) => {
+        min_ns = elapsed;
+      },
       true => ()
     );
     cond(
-      (elapsed > max_ns) => { max_ns = elapsed; },
+      (elapsed > max_ns) => {
+        max_ns = elapsed;
+      },
       true => ()
     );
   });
@@ -98,13 +96,12 @@ bench :: (fn(name: String, iterations: u64, body: Impl(Fn() -> unit)) -> BenchRe
     true => i64(0)
   );
   BenchResult(
-    name:       name,
-    iterations: iterations,
-    total_ns:   total_ns,
-    avg_ns:     avg_ns,
-    min_ns:     min_ns,
-    max_ns:     max_ns
+    name : name,
+    iterations : iterations,
+    total_ns : total_ns,
+    avg_ns : avg_ns,
+    min_ns : min_ns,
+    max_ns : max_ns
   )
 });
-
 export(bench);

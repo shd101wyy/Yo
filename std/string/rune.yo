@@ -1,83 +1,73 @@
 //! Unicode code point type (`rune`) for representing individual characters.
-
 /// Unicode code point (U+0000 to U+10FFFF, excluding surrogates).
 /// Similar to Go's `rune` or Rust's `char`.
 rune :: newtype(
   /// The raw Unicode code point value.
   char : u32
 );
-impl(rune,
+impl(
+  rune,
   /// Create a rune from a `u32` value, returning `None` if the value is not a valid Unicode code point.
-  from_u32 : (fn(value: u32) -> Option(Self))(
+  from_u32 : (fn(value : u32) -> Option(Self))(
     cond(
-      ((value <= u32(0x10FFFF)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(value)),
-      true => .None
+      ((value <= u32(0x10FFFF)) && ((value < 0xD800) || (value > 0xDFFF))) =>.Some(Self(value)),
+      true =>.None
     )
   ),
-
   /// Return the raw `u32` code point value.
-  to_u32 : (fn(self: Self) -> u32)(
+  to_u32 : (fn(self : Self) -> u32)(
     self.char
   ),
-
   /// Check if this is an ASCII character (U+0000 to U+007F).
-  is_ascii : (fn(self: Self) -> bool)(
-    (self.char <= 0x7F)
+  is_ascii : (fn(self : Self) -> bool)(
+    self.char <= 0x7F
   ),
-
   /// Check if this is a whitespace character (space, tab, newline, or carriage return).
-  is_whitespace : (fn(self: Self) -> bool)(
-    (((self.char == 0x20) || (self.char == 0x09)) || ((self.char == 0x0A) || (self.char == 0x0D)))
+  is_whitespace : (fn(self : Self) -> bool)(
+    ((self.char == 0x20) || (self.char == 0x09)) || ((self.char == 0x0A) || (self.char == 0x0D))
   ),
-
   /// Check if this is an ASCII digit ('0' to '9').
-  is_digit : (fn(self: Self) -> bool)(
-    ((self.char >= 0x30) && (self.char <= 0x39))
+  is_digit : (fn(self : Self) -> bool)(
+    (self.char >= 0x30) && (self.char <= 0x39)
   ),
-
   /// Check if this is an ASCII letter ('A'-'Z' or 'a'-'z').
-  is_alphabetic : (fn(self: Self) -> bool)(
-    (((self.char >= 0x41) && (self.char <= 0x5A)) || ((self.char >= 0x61) && (self.char <= 0x7A)))
+  is_alphabetic : (fn(self : Self) -> bool)(
+    ((self.char >= 0x41) && (self.char <= 0x5A)) || ((self.char >= 0x61) && (self.char <= 0x7A))
   ),
-
   /// Check if this is an ASCII uppercase letter ('A'-'Z').
-  is_uppercase : (fn(self: Self) -> bool)(
-    ((self.char >= 0x41) && (self.char <= 0x5A))
+  is_uppercase : (fn(self : Self) -> bool)(
+    (self.char >= 0x41) && (self.char <= 0x5A)
   ),
-
   /// Check if this is an ASCII lowercase letter ('a'-'z').
-  is_lowercase : (fn(self: Self) -> bool)(
-    ((self.char >= 0x61) && (self.char <= 0x7A))
+  is_lowercase : (fn(self : Self) -> bool)(
+    (self.char >= 0x61) && (self.char <= 0x7A)
   ),
-
   /// Convert to lowercase. Only affects ASCII uppercase letters.
-  to_lowercase : (fn(self: Self) -> Self)(
+  to_lowercase : (fn(self : Self) -> Self)(
     cond(
-      is_uppercase(self) => Self((self.char + 32)),
+      is_uppercase(self) => Self(self.char + 32),
       true => self
     )
   ),
-
   /// Convert to uppercase. Only affects ASCII lowercase letters.
-  to_uppercase : (fn(self: Self) -> Self)(
+  to_uppercase : (fn(self : Self) -> Self)(
     cond(
-      is_lowercase(self) => Self((self.char - 32)),
+      is_lowercase(self) => Self(self.char - 32),
       true => self
     )
   ),
-
   /// Null character (U+0000).
-  NUL        : Self(0x00),
+  NUL : Self(0x00),
   /// Horizontal tab (U+0009).
-  TAB        : Self(0x09),
+  TAB : Self(0x09),
   /// Line feed / newline (U+000A).
-  NEWLINE    : Self(0x0A),
+  NEWLINE : Self(0x0A),
   /// Space (U+0020).
-  SPACE      : Self(0x20),
+  SPACE : Self(0x20),
   /// Digit zero '0' (U+0030).
-  ZERO       : Self(0x30),
+  ZERO : Self(0x30),
   /// Digit nine '9' (U+0039).
-  NINE       : Self(0x39),
+  NINE : Self(0x39),
   /// Uppercase 'A' (U+0041).
   UPPERCASE_A : Self(0x41),
   /// Uppercase 'Z' (U+005A).
@@ -87,19 +77,21 @@ impl(rune,
   /// Lowercase 'z' (U+007A).
   LOWERCASE_Z : Self(0x7A)
 );
-
-impl(rune, Eq(rune)(
-  (==) : ((a, b) -> (a.char == b.char)),
-  (!=) : ((a, b) -> (a.char != b.char))
-));
-
-impl(rune, Ord(rune)(
-  (<) : ((a, b) -> (a.char < b.char)),
-  (<=) : ((a, b) -> (a.char <= b.char)),
-  (>) : ((a, b) -> (a.char > b.char)),
-  (>=) : ((a, b) -> (a.char >= b.char))
-));
-
+impl(
+  rune,
+  Eq(rune)(
+    ( ==) : ((a, b) -> (a.char == b.char)),
+    ( !=) : ((a, b) -> (a.char != b.char))
+  )
+);
+impl(
+  rune,
+  Ord(rune)(
+    ( <) : ((a, b) -> (a.char < b.char)),
+    ( <=) : ((a, b) -> (a.char <= b.char)),
+    ( >) : ((a, b) -> (a.char > b.char)),
+    ( >=) : ((a, b) -> (a.char >= b.char))
+  )
+);
 impl(rune, Send());
-
 export(rune);

@@ -7,51 +7,47 @@
 //!
 //! `argv`/`envp` are NULL-terminated arrays of C strings.
 // Use `?*(u8)` for entries so .None can be used as the terminator.
-
 { IOFuture } :: import("./future.yo");
-{
-  __yo_async_spawn_start, __yo_async_waitpid_start,
-  __yo_process_exit_status, __yo_process_term_signal,
-  __yo_kill
-} :: import("./externs.yo");
-
+{ __yo_async_spawn_start, __yo_async_waitpid_start, __yo_process_exit_status, __yo_process_term_signal, __yo_kill } :: import("./externs.yo");
 // Spawn a child process.
 // Returns the child pid on success, -errno on failure.
 // `argv` is a NULL-terminated array of argument strings.
 // `envp` is a NULL-terminated array of "KEY=VALUE" strings (or .None for inherit).
 // stdin_fd/stdout_fd/stderr_fd: fd redirections (-1 = inherit)
-spawn :: (fn(
-  file: *(u8),
-  argv: *(?*(u8)),
-  envp: ?*(?*(u8)),
-  stdin_fd: i32,
-  stdout_fd: i32,
-  stderr_fd: i32
-) -> IOFuture)(
+spawn :: (
+  fn(
+    file : *(u8),
+    argv : *(?*(u8)),
+    envp : ?*(?*(u8)),
+    stdin_fd : i32,
+    stdout_fd : i32,
+    stderr_fd : i32
+  ) -> IOFuture
+)(
   __yo_async_spawn_start(file, argv, envp, stdin_fd, stdout_fd, stderr_fd)
 );
-
 // Wait for a child process to exit.
 // Returns the exit status (encoded; use exit_status/term_signal helpers).
-waitpid :: (fn(pid: i32, options: i32) -> IOFuture)(
+waitpid :: (fn(pid : i32, options : i32) -> IOFuture)(
   __yo_async_waitpid_start(pid, options)
 );
-
 // Send a signal to a process.
 // Returns 0 on success, -errno on failure.
-kill :: (fn(pid: i32, signum: i32) -> i32)(
+kill :: (fn(pid : i32, signum : i32) -> i32)(
   __yo_kill(pid, signum)
 );
-
 // Helper: extract exit code from waitpid status.
-exit_status :: (fn(status: i32) -> i32)(
+exit_status :: (fn(status : i32) -> i32)(
   __yo_process_exit_status(status)
 );
-
 // Helper: check if process was terminated by signal.
-term_signal :: (fn(status: i32) -> i32)(
+term_signal :: (fn(status : i32) -> i32)(
   __yo_process_term_signal(status)
 );
-
-export(spawn, waitpid, kill,
-  exit_status, term_signal);
+export(
+  spawn,
+  waitpid,
+  kill,
+  exit_status,
+  term_signal
+);

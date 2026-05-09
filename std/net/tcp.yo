@@ -19,7 +19,6 @@
 //     stream := io.await(listener.accept());
 //     // ...
 //   });
-
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
 { ArrayList } :: import("../collections/array_list");
@@ -30,19 +29,14 @@ open(import("../fmt"));
 { IpAddr, SocketAddr } :: import("./addr");
 { Error, AnyError, Exception } :: import("../error");
 IO_tcp :: import("../sys/tcp");
-{
-  AF_INET, AF_INET6, SOCK_STREAM,
-  SOL_SOCKET, SO_REUSEADDR,
-  IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE
-} :: import("../sys/socket");
-
+{ AF_INET, AF_INET6, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE } :: import("../sys/socket");
 // ============================================================================
 // Internal helpers
 // ============================================================================
-
 // Convert a SocketAddr to a low-level SockAddr buffer.
-_make_sockaddr :: (fn(addr: SocketAddr) -> IO_tcp.SockAddr)(
-  match(addr.ip,
+_make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
+  match(
+    addr.ip,
     .V4(a, b, c, d) => {
       // Build the IP string "a.b.c.d"
       { snprintf } :: import("../libc/stdio");
@@ -55,36 +49,31 @@ _make_sockaddr :: (fn(addr: SocketAddr) -> IO_tcp.SockAddr)(
       IO_tcp.make_sockaddr_in6(*(u8)("::1"), addr.port)
   )
 );
-
-_throw_io :: (fn(errno_val: i32, using(exn : Exception)) -> unit)(
+_throw_io :: (fn(errno_val : i32, using(exn : Exception)) -> unit)(
   exn.throw(dyn(NetError.from_io(IOError.from_errno(errno_val))))
 );
-
 // ============================================================================
 // TcpStream (declared before TcpListener so accept can reference it)
 // ============================================================================
-
 /// A connected TCP stream for bidirectional data transfer.
 TcpStream :: object(
-  _fd        : i32,
+  _fd : i32,
   _peer_addr : SocketAddr,
   _is_closed : bool
 );
-
 // ============================================================================
 // TcpListener
 // ============================================================================
-
 /// A TCP socket that listens for incoming connections.
 TcpListener :: object(
-  _fd         : i32,
+  _fd : i32,
   _local_addr : SocketAddr,
-  _is_closed  : bool
+  _is_closed : bool
 );
-
-impl(TcpListener,
+impl(
+  TcpListener,
   /// Bind to a socket address and start listening.
-  bind : (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(TcpListener, IO, Exception)))(
+  bind : (fn(addr : SocketAddr, using(io : IO)) -> Impl(Future(TcpListener, IO, Exception)))(
     io.async((using(io : IO, exn : Exception)) => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
@@ -104,7 +93,7 @@ impl(TcpListener,
       cond(
         (bind_result < i32(0)) => {
           io.await(IO_tcp.close(fd));
-          _throw_io((i32(0) - bind_result));
+          _throw_io(i32(0) - bind_result);
         },
         true => ()
       );
@@ -113,16 +102,15 @@ impl(TcpListener,
       cond(
         (listen_result < i32(0)) => {
           io.await(IO_tcp.close(fd));
-          _throw_io((i32(0) - listen_result));
+          _throw_io(i32(0) - listen_result);
         },
         true => ()
       );
-      return(TcpListener(_fd: fd, _local_addr: addr, _is_closed: false));
+      return(TcpListener(_fd : fd, _local_addr : addr, _is_closed : false));
     })
   ),
-
   /// Accept an incoming connection, returning a new `TcpStream`.
-  accept : (fn(self: Self, using(io : IO)) -> Impl(Future(TcpStream, IO, Exception)))({
+  accept : (fn(self : Self, using(io : IO)) -> Impl(Future(TcpStream, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       // Allocate space for the peer address
@@ -134,7 +122,7 @@ impl(TcpListener,
         (client_fd < i32(0)) => {
           free(.Some(*(void)(addr_buf)));
           free(.Some(*(void)(addr_len)));
-          _throw_io((i32(0) - client_fd));
+          _throw_io(i32(0) - client_fd);
         },
         true => ()
       );
@@ -143,21 +131,21 @@ impl(TcpListener,
       free(.Some(*(void)(addr_buf)));
       free(.Some(*(void)(addr_len)));
       peer_addr := SocketAddr.new(IpAddr.any_v4(), peer_port);
-      return(TcpStream(
-        _fd: client_fd,
-        _peer_addr: peer_addr,
-        _is_closed: false
-      ));
+      return(
+        TcpStream(
+          _fd : client_fd,
+          _peer_addr : peer_addr,
+          _is_closed : false
+        )
+      );
     })
   }),
-
   /// Get the local address this listener is bound to.
-  local_addr : (fn(self: Self) -> SocketAddr)(
+  local_addr : (fn(self : Self) -> SocketAddr)(
     self._local_addr
   ),
-
   /// Close the listener socket.
-  close : (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  close : (fn(self : Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       cond(
@@ -166,42 +154,43 @@ impl(TcpListener,
           r := io.await(IO_tcp.close(fd));
           self._is_closed = true;
           cond(
-            (r < i32(0)) => { _throw_io((i32(0) - r)); },
+            (r < i32(0)) => {
+              _throw_io(i32(0) - r);
+            },
             true => ()
           );
         }
       );
     })
   }),
-
   /// Get the underlying file descriptor.
-  fd : (fn(self: Self) -> i32)(
+  fd : (fn(self : Self) -> i32)(
     self._fd
   )
 );
-
-impl(TcpListener, Dispose(
-  dispose : (fn(self: Self) -> unit)({
-    cond(
-      (!(self._is_closed)) => {
-        { close_sync } :: import("../sys/file");
-        close_sync(self._fd);
-        self._is_closed = true;
-      },
-      true => ()
-    );
-  })
-));
-
+impl(
+  TcpListener,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        (!(self._is_closed)) => {
+          { close_sync } :: import("../sys/file");
+          close_sync(self._fd);
+          self._is_closed = true;
+        },
+        true => ()
+      );
+    })
+  )
+);
 export(TcpListener);
-
 // ============================================================================
 // TcpStream impl
 // ============================================================================
-
-impl(TcpStream,
+impl(
+  TcpStream,
   /// Connect to a remote address, returning a new `TcpStream`.
-  connect : (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(TcpStream, IO, Exception)))(
+  connect : (fn(addr : SocketAddr, using(io : IO)) -> Impl(Future(TcpStream, IO, Exception)))(
     io.async((using(io : IO, exn : Exception)) => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
@@ -215,31 +204,31 @@ impl(TcpStream,
       cond(
         (conn_result < i32(0)) => {
           io.await(IO_tcp.close(fd));
-          _throw_io((i32(0) - conn_result));
+          _throw_io(i32(0) - conn_result);
         },
         true => ()
       );
-      return(TcpStream(
-        _fd: fd,
-        _peer_addr: addr,
-        _is_closed: false
-      ));
+      return(
+        TcpStream(
+          _fd : fd,
+          _peer_addr : addr,
+          _is_closed : false
+        )
+      );
     })
   ),
-
   /// Read bytes from the stream into `buf`.
   /// Returns the number of bytes read, or 0 if the peer closed the connection.
-  read : (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  read : (fn(self : Self, buf : *(u8), size : usize, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_tcp.recv(fd, buf, size, i32(0)));
       NetError.check(r)
     })
   }),
-
   /// Write a `str` to the stream.
   /// Returns the number of bytes written.
-  write_str : (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  write_str : (fn(self : Self, data : str, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     s := String.from(data);
     s_bytes := s.as_bytes();
@@ -248,10 +237,9 @@ impl(TcpStream,
       NetError.check(r)
     })
   }),
-
   /// Write a `String` to the stream.
   /// Returns the number of bytes written.
-  write_string : (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  write_string : (fn(self : Self, data : String, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     data_bytes := data.as_bytes();
     io.async((using(io : IO, exn : Exception)) => {
@@ -259,19 +247,17 @@ impl(TcpStream,
       NetError.check(r)
     })
   }),
-
   /// Write raw bytes from an `ArrayList(u8)` to the stream.
   /// Returns the number of bytes written.
-  write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  write_bytes : (fn(self : Self, data : ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_tcp.send(fd, data.ptr().unwrap(), data.len(), i32(0)));
       NetError.check(r)
     })
   }),
-
   /// Read all available data from the stream into a byte list.
-  read_bytes : (fn(self: Self, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))({
+  read_bytes : (fn(self : Self, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       buf_size := usize(4096);
@@ -284,14 +270,14 @@ impl(TcpStream,
           (n < i32(0)) => {
             free(.Some(*(void)(buf)));
             done = true;
-            _throw_io((i32(0) - n));
+            _throw_io(i32(0) - n);
           },
           (n == i32(0)) => {
             done = true;
           },
           true => {
             i := usize(0);
-            while(runtime((i < usize(n))), {
+            while(runtime(i < usize(n)), {
               acc.push((buf &+ i).*);
               i = (i + usize(1));
             });
@@ -302,22 +288,22 @@ impl(TcpStream,
       return(acc);
     })
   }),
-
   /// Shut down part or all of the connection.
   /// `how`: 0 = read, 1 = write, 2 = both.
-  shutdown : (fn(self: Self, how: i32, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  shutdown : (fn(self : Self, how : i32, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_tcp.shutdown(fd, how));
       cond(
-        (r < i32(0)) => { _throw_io((i32(0) - r)); },
+        (r < i32(0)) => {
+          _throw_io(i32(0) - r);
+        },
         true => ()
       );
     })
   }),
-
   /// Close the stream.
-  close : (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  close : (fn(self : Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       cond(
@@ -326,64 +312,67 @@ impl(TcpStream,
           r := io.await(IO_tcp.close(fd));
           self._is_closed = true;
           cond(
-            (r < i32(0)) => { _throw_io((i32(0) - r)); },
+            (r < i32(0)) => {
+              _throw_io(i32(0) - r);
+            },
             true => ()
           );
         }
       );
     })
   }),
-
   /// Get the remote peer's socket address.
-  peer_addr : (fn(self: Self) -> SocketAddr)(
+  peer_addr : (fn(self : Self) -> SocketAddr)(
     self._peer_addr
   ),
-
   /// Get the underlying file descriptor.
-  fd : (fn(self: Self) -> i32)(
+  fd : (fn(self : Self) -> i32)(
     self._fd
   ),
-
   /// Enable or disable TCP_NODELAY (disables Nagle's algorithm).
-  set_nodelay : (fn(self: Self, nodelay: bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  set_nodelay : (fn(self : Self, nodelay : bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     sock_fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       val := cond(nodelay => i32(1), true => i32(0));
       val_ptr := &(val);
       r := io.await(IO_tcp.setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, *(u8)(val_ptr), u32(4)));
       cond(
-        (r < i32(0)) => { _throw_io((i32(0) - r)); },
+        (r < i32(0)) => {
+          _throw_io(i32(0) - r);
+        },
         true => ()
       );
     })
   }),
-
   /// Enable or disable SO_KEEPALIVE on the socket.
-  set_keepalive : (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  set_keepalive : (fn(self : Self, enabled : bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     sock_fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := &(val);
       r := io.await(IO_tcp.setsockopt(sock_fd, SOL_SOCKET, SO_KEEPALIVE, *(u8)(val_ptr), u32(4)));
       cond(
-        (r < i32(0)) => { _throw_io((i32(0) - r)); },
+        (r < i32(0)) => {
+          _throw_io(i32(0) - r);
+        },
         true => ()
       );
     })
   })
 );
-
-impl(TcpStream, Dispose(
-  dispose : (fn(self: Self) -> unit)({
-    cond(
-      (!(self._is_closed)) => {
-        { close_sync } :: import("../sys/file");
-        close_sync(self._fd);
-        self._is_closed = true;
-      },
-      true => ()
-    );
-  })
-));
-
+impl(
+  TcpStream,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        (!(self._is_closed)) => {
+          { close_sync } :: import("../sys/file");
+          close_sync(self._fd);
+          self._is_closed = true;
+        },
+        true => ()
+      );
+    })
+  )
+);
 export(TcpStream);

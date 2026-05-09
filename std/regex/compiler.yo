@@ -1,10 +1,8 @@
 //! NFA compiler — compiles a `RegexNode` AST into a flat list of NFA instructions
 //! using Thompson's construction algorithm.
-
 open(import("std/collections/array_list"));
 open(import("std/string"));
 { RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import("./node.yo");
-
 /// NFA instruction types.
 InstrKind :: enum(
   Char,
@@ -22,136 +20,226 @@ InstrKind :: enum(
   Lookahead,
   Lookbehind
 );
-
 // A single NFA instruction
 Instr :: struct(
-  kind      : InstrKind,
+  kind : InstrKind,
   codepoint : u32,
   class_idx : usize,
-  target_a  : usize,
-  target_b  : usize,
-  target    : usize,
-  slot      : usize
+  target_a : usize,
+  target_b : usize,
+  target : usize,
+  slot : usize
 );
-
-impl(Instr,
+impl(
+  Instr,
   char_instr : (fn(cp : u32) -> Self)(
-    Self(kind: .Char, codepoint: cp, class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: usize(0))
+    Self(
+      kind :.Char,
+      codepoint : cp,
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : usize(0)
+    )
   ),
   any_char_instr : (fn() -> Self)(
-    Self(kind: .AnyChar, codepoint: u32(0), class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: usize(0))
+    Self(
+      kind :.AnyChar,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : usize(0)
+    )
   ),
   char_class_instr : (fn(idx : usize) -> Self)(
-    Self(kind: .CharClass, codepoint: u32(0), class_idx: idx,
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: usize(0))
+    Self(
+      kind :.CharClass,
+      codepoint : u32(0),
+      class_idx : idx,
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : usize(0)
+    )
   ),
   split_instr : (fn(a : usize, b : usize) -> Self)(
-    Self(kind: .Split, codepoint: u32(0), class_idx: usize(0),
-         target_a: a, target_b: b, target: usize(0), slot: usize(0))
+    Self(
+      kind :.Split,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : a,
+      target_b : b,
+      target : usize(0),
+      slot : usize(0)
+    )
   ),
   jump_instr : (fn(t : usize) -> Self)(
-    Self(kind: .Jump, codepoint: u32(0), class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: t, slot: usize(0))
+    Self(
+      kind :.Jump,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : t,
+      slot : usize(0)
+    )
   ),
   save_instr : (fn(s : usize) -> Self)(
-    Self(kind: .Save, codepoint: u32(0), class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: s)
+    Self(
+      kind :.Save,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : s
+    )
   ),
   match_instr : (fn() -> Self)(
-    Self(kind: .Match, codepoint: u32(0), class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: usize(0))
+    Self(
+      kind :.Match,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : usize(0)
+    )
   ),
   assert_start_instr : (fn() -> Self)(
-    Self(kind: .AssertStart, codepoint: u32(0), class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: usize(0))
+    Self(
+      kind :.AssertStart,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : usize(0)
+    )
   ),
   assert_end_instr : (fn() -> Self)(
-    Self(kind: .AssertEnd, codepoint: u32(0), class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: usize(0))
+    Self(
+      kind :.AssertEnd,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : usize(0)
+    )
   ),
   assert_word_boundary_instr : (fn() -> Self)(
-    Self(kind: .AssertWordBoundary, codepoint: u32(0), class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: usize(0))
+    Self(
+      kind :.AssertWordBoundary,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : usize(0)
+    )
   ),
   assert_non_word_boundary_instr : (fn() -> Self)(
-    Self(kind: .AssertNonWordBoundary, codepoint: u32(0), class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: usize(0))
+    Self(
+      kind :.AssertNonWordBoundary,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : usize(0)
+    )
   ),
   backref_instr : (fn(group_idx : usize) -> Self)(
-    Self(kind: .Backref, codepoint: u32(0), class_idx: usize(0),
-         target_a: usize(0), target_b: usize(0), target: usize(0), slot: group_idx)
+    Self(
+      kind :.Backref,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : usize(0),
+      target_b : usize(0),
+      target : usize(0),
+      slot : group_idx
+    )
   ),
   // Lookahead: target_a=sub_start, target_b=sub_end, slot=1 for positive/0 for negative
   lookahead_instr : (fn(sub_start : usize, sub_end : usize, positive : bool) -> Self)(
-    Self(kind: .Lookahead, codepoint: u32(0), class_idx: usize(0),
-         target_a: sub_start, target_b: sub_end, target: usize(0),
-         slot: cond(positive => usize(1), true => usize(0)))
+    Self(
+      kind :.Lookahead,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : sub_start,
+      target_b : sub_end,
+      target : usize(0),
+      slot : cond(positive => usize(1), true => usize(0))
+    )
   ),
   // Lookbehind: target_a=sub_start, target_b=sub_end, slot=1 for positive/0 for negative
   lookbehind_instr : (fn(sub_start : usize, sub_end : usize, positive : bool) -> Self)(
-    Self(kind: .Lookbehind, codepoint: u32(0), class_idx: usize(0),
-         target_a: sub_start, target_b: sub_end, target: usize(0),
-         slot: cond(positive => usize(1), true => usize(0)))
+    Self(
+      kind :.Lookbehind,
+      codepoint : u32(0),
+      class_idx : usize(0),
+      target_a : sub_start,
+      target_b : sub_end,
+      target : usize(0),
+      slot : cond(positive => usize(1), true => usize(0))
+    )
   )
 );
-
 // Character class table entry
 ClassEntry :: struct(
-  ranges  : ArrayList(CharRange),
+  ranges : ArrayList(CharRange),
   negated : bool
 );
-
 // The compiled NFA program
 NfaProgram :: object(
-  instructions   : ArrayList(Instr),
-  classes        : ArrayList(ClassEntry),
-  n_groups       : usize,
-  group_names    : ArrayList(GroupNameEntry),
+  instructions : ArrayList(Instr),
+  classes : ArrayList(ClassEntry),
+  n_groups : usize,
+  group_names : ArrayList(GroupNameEntry),
   literal_prefix : ArrayList(u8)
 );
-
 // The NFA compiler
 NfaCompiler :: object(
   _program : NfaProgram
 );
-
 // Utilities defined first (bottom-up ordering required)
-impl(NfaCompiler,
+impl(
+  NfaCompiler,
   new : (fn() -> Self)(
     Self(
-      _program: NfaProgram(
-        instructions: ArrayList(Instr).new(),
-        classes: ArrayList(ClassEntry).new(),
-        n_groups: usize(0),
-        group_names: ArrayList(GroupNameEntry).new(),
-        literal_prefix: ArrayList(u8).new()
+      _program : NfaProgram(
+        instructions : ArrayList(Instr).new(),
+        classes : ArrayList(ClassEntry).new(),
+        n_groups : usize(0),
+        group_names : ArrayList(GroupNameEntry).new(),
+        literal_prefix : ArrayList(u8).new()
       )
     )
   ),
-
   _emit : (fn(self : Self, instr : Instr) -> usize)({
     idx := self._program.instructions.len();
     self._program.instructions.push(instr);
     idx
   }),
-
   _current_pc : (fn(self : Self) -> usize)(
     self._program.instructions.len()
   ),
-
   _add_class : (fn(self : Self, ranges : ArrayList(CharRange), negated : bool) -> usize)({
     idx := self._program.classes.len();
-    self._program.classes.push(ClassEntry(ranges: ranges, negated: negated));
+    self._program.classes.push(ClassEntry(ranges : ranges, negated : negated));
     idx
   })
 );
-
 // Compile methods: _compile_node is self-recursive, quantifier logic inlined
-impl(NfaCompiler,
+impl(
+  NfaCompiler,
   _compile_node : (fn(self : Self, node : RegexNode) -> unit)({
-    match(node.kind,
+    match(
+      node.kind,
       .Literal => {
         self._emit(Instr.char_instr(node.codepoint));
       },
@@ -163,15 +251,24 @@ impl(NfaCompiler,
         self._emit(Instr.char_class_instr(idx));
       },
       .Anchor =>
-        match(node.anchor,
-          .Start => { self._emit(Instr.assert_start_instr()); },
-          .End => { self._emit(Instr.assert_end_instr()); },
-          .WordBoundary => { self._emit(Instr.assert_word_boundary_instr()); },
-          .NonWordBoundary => { self._emit(Instr.assert_non_word_boundary_instr()); }
+        match(
+          node.anchor,
+          .Start => {
+            self._emit(Instr.assert_start_instr());
+          },
+          .End => {
+            self._emit(Instr.assert_end_instr());
+          },
+          .WordBoundary => {
+            self._emit(Instr.assert_word_boundary_instr());
+          },
+          .NonWordBoundary => {
+            self._emit(Instr.assert_non_word_boundary_instr());
+          }
         ),
       .Sequence => {
         i := usize(0);
-        while((i < node.children.len()), (i = (i + usize(1))), {
+        while(i < node.children.len(), i = (i + usize(1)), {
           child := node.children.get(i).unwrap();
           recur(self, child);
         });
@@ -195,15 +292,13 @@ impl(NfaCompiler,
         min_val := node.q_min;
         max_val := node.q_max;
         greedy := node.q_greedy;
-
         // Emit min required copies, tracking start of last copy for loop-back
         (last_body_start : usize) = self._current_pc();
         qi := usize(0);
-        while((qi < min_val), (qi = (qi + usize(1))), {
+        while(qi < min_val, qi = (qi + usize(1)), {
           last_body_start = self._current_pc();
           recur(self, child);
         });
-
         cond(
           ((max_val == usize(0)) && (min_val == usize(0))) => {
             // * — zero or more (max=0 means unbounded when min=0)
@@ -239,7 +334,7 @@ impl(NfaCompiler,
             // {min, max} — emit (max - min) optional copies
             remaining := (max_val - min_val);
             qj := usize(0);
-            while((qj < remaining), (qj = (qj + usize(1))), {
+            while(qj < remaining, qj = (qj + usize(1)), {
               split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
               body_start := self._current_pc();
               recur(self, child);
@@ -295,9 +390,9 @@ impl(NfaCompiler,
     );
   })
 );
-
 // Literal prefix extraction (must be before compile)
-impl(NfaCompiler,
+impl(
+  NfaCompiler,
   // Extract literal bytes from the start of the pattern for fast scanning.
   // Walks past Save/AssertStart instructions, then collects Char instructions.
   _extract_literal_prefix : (fn(self : Self) -> unit)({
@@ -305,12 +400,16 @@ impl(NfaCompiler,
     pc := usize(0);
     instrs := self._program.instructions;
     (done : bool) = false;
-
-    while(((pc < instrs.len()) && (!(done))), {
+    while((pc < instrs.len()) && (!(done)), {
       instr := instrs.get(pc).unwrap();
-      match(instr.kind,
-        .Save => { pc = (pc + usize(1)); },
-        .AssertStart => { pc = (pc + usize(1)); },
+      match(
+        instr.kind,
+        .Save => {
+          pc = (pc + usize(1));
+        },
+        .AssertStart => {
+          pc = (pc + usize(1));
+        },
         .Char => {
           cp := instr.codepoint;
           cond(
@@ -318,19 +417,22 @@ impl(NfaCompiler,
               prefix.push(u8(cp));
               pc = (pc + usize(1));
             },
-            true => { done = true; }
+            true => {
+              done = true;
+            }
           );
         },
-        _ => { done = true; }
+        _ => {
+          done = true;
+        }
       );
     });
-
     self._program.literal_prefix = prefix;
   })
 );
-
 // Top-level compile method
-impl(NfaCompiler,
+impl(
+  NfaCompiler,
   compile : (fn(self : Self, root : RegexNode, n_groups : usize, group_names : ArrayList(GroupNameEntry)) -> NfaProgram)({
     self._program.n_groups = n_groups;
     self._program.group_names = group_names;
@@ -342,10 +444,11 @@ impl(NfaCompiler,
     self._program
   })
 );
-
-export(NfaCompiler,
+export(
+  NfaCompiler,
   NfaProgram,
   Instr,
   InstrKind,
   ClassEntry,
-  GroupNameEntry);
+  GroupNameEntry
+);

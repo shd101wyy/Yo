@@ -1,8 +1,6 @@
 //! Hash set using SwissTable algorithm with set-theoretic operations.
-
 { GlobalAllocator, AllocError } :: import("../allocator.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
-
 /// Error variants for HashSet operations.
 HashSetError :: enum(
   /// Memory allocation failed.
@@ -12,426 +10,380 @@ HashSetError :: enum(
   /// Capacity calculation overflowed.
   CapacityOverflow
 );
-
 /// Control byte for an empty slot.
 CTRL_EMPTY :: u8(255);
 /// Control byte for a deleted slot (tombstone).
 CTRL_DELETED :: u8(254);
-
 /// Default initial capacity (must be power of 2).
 DEFAULT_CAPACITY :: usize(16);
-
 /// Maximum load factor numerator (7/8 = 0.875).
 MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
 MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
-
 /// Extract H2 hash (lower 7 bits) from full hash.
-h2_hash :: (fn(hash: u64) -> u8)(u8((hash & u64(127))))
-;
-
+h2_hash :: (fn(hash : u64) -> u8)(u8(hash & u64(127)));
 /// Extract H1 hash (upper bits) for slot index.
-h1_hash :: (fn(hash: u64, capacity: usize) -> usize)((usize((hash >> u64(7))) % capacity))
-;
-
+h1_hash :: (fn(hash : u64, capacity : usize) -> usize)(usize(hash >> u64(7)) % capacity);
 /// High-performance hash set using SwissTable algorithm.
 /// Elements must implement `Eq` and `Hash`. Provides O(1) average lookup and insert.
-HashSet :: (fn(
-  comptime(T): Type,
-  where(T <: (Eq(T), Hash))
-) -> comptime(Type))(object(
+HashSet :: (
+  fn(
+    comptime(T) : Type,
+    where(T <: (Eq(T), Hash))
+  ) -> comptime(Type)
+)(
+  object(
     ctrl : ?*(u8),
     data : ?*(T),
     capacity : usize,
     size : usize
-  ));
-impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
+  )
+);
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
   /**
-    * Allocate memory for HashSet with given capacity
-    * Initializes all control bytes to EMPTY
-    */
-  _alloc_with_capacity : (fn(capacity: usize) -> Result(Self, HashSetError))(
-    {
-      element_size :: sizeof(T);
-      ctrl_size := capacity;
-      data_size := (capacity * element_size);
-      
-      ctrl_result := malloc(ctrl_size);
-      match(ctrl_result,
-        .None => .Err(.AllocError(error: .OutOfMemory)),
-        .Some(ctrl_void_ptr) => {
-          ctrl_ptr := *(u8)(ctrl_void_ptr);
-          
-          data_result := malloc(data_size);
-          match(data_result,
-            .None => {
-              free(.Some(*(void)(ctrl_ptr)));
-              .Err(.AllocError(error: .OutOfMemory))
-            },
-            .Some(data_void_ptr) => {
-              data_ptr := *(T)(data_void_ptr);
-              
-              i := usize(0);
-              while(i < capacity, i = (i + usize(1)), {
-                (ctrl_ptr &+ i).* = CTRL_EMPTY;
-              });
-              
-              .Ok(Self(
-                ctrl: .Some(ctrl_ptr),
-                data: .Some(data_ptr),
-                capacity: capacity,
-                size: usize(0)
-              ))
-            }
-          )
-        }
-      )
-    }
-  ),
-
+  * Allocate memory for HashSet with given capacity
+  * Initializes all control bytes to EMPTY
+  */
+  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashSetError))({
+    element_size :: sizeof(T);
+    ctrl_size := capacity;
+    data_size := (capacity * element_size);
+    ctrl_result := malloc(ctrl_size);
+    match(
+      ctrl_result,
+      .None =>.Err(.AllocError(error :.OutOfMemory)),
+      .Some(ctrl_void_ptr) => {
+        ctrl_ptr := *(u8)(ctrl_void_ptr);
+        data_result := malloc(data_size);
+        match(
+          data_result,
+          .None => {
+            free(.Some(*(void)(ctrl_ptr)));
+            .Err(.AllocError(error :.OutOfMemory))
+          },
+          .Some(data_void_ptr) => {
+            data_ptr := *(T)(data_void_ptr);
+            i := usize(0);
+            while(i < capacity, i = (i + usize(1)), {
+              (ctrl_ptr &+ i).* = CTRL_EMPTY;
+            });
+            .Ok(
+              Self(
+                ctrl :.Some(ctrl_ptr),
+                data :.Some(data_ptr),
+                capacity : capacity,
+                size : usize(0)
+              )
+            )
+          }
+        )
+      }
+    )
+  }),
   /**
-    * Create a new empty HashSet with default capacity
-    */
-  new : (fn() -> Self)(
-    {
-      result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
-      match(result,
-        .Ok(set) => set,
-        .Err(_) => panic("Failed to allocate HashSet")
-      )
-    }
-  ),
-
+  * Create a new empty HashSet with default capacity
+  */
+  new : (fn() -> Self)({
+    result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
+    match(
+      result,
+      .Ok(set) => set,
+      .Err(_) => panic("Failed to allocate HashSet")
+    )
+  }),
   /**
-    * Create a HashSet with a specific initial capacity
-    * Capacity will be rounded up to next power of 2
-    */
-  with_capacity : (fn(requested_capacity: usize) -> Self)(
-    {
-      capacity := cond(
-        (requested_capacity < DEFAULT_CAPACITY) => DEFAULT_CAPACITY,
-        true => {
-          c := requested_capacity;
-          c = (c - usize(1));
-          c = (c | (c >> usize(1)));
-          c = (c | (c >> usize(2)));
-          c = (c | (c >> usize(4)));
-          c = (c | (c >> usize(8)));
-          c = (c | (c >> usize(16)));
-          (c + usize(1))
-        }
-      );
-      
-      result := Self._alloc_with_capacity(capacity);
-      match(result,
-        .Ok(set) => set,
-        .Err(_) => panic("Failed to allocate HashSet")
-      )
-    }
-  ),
-
+  * Create a HashSet with a specific initial capacity
+  * Capacity will be rounded up to next power of 2
+  */
+  with_capacity : (fn(requested_capacity : usize) -> Self)({
+    capacity := cond(
+      (requested_capacity < DEFAULT_CAPACITY) => DEFAULT_CAPACITY,
+      true => {
+        c := requested_capacity;
+        c = (c - usize(1));
+        c = (c | (c >> usize(1)));
+        c = (c | (c >> usize(2)));
+        c = (c | (c >> usize(4)));
+        c = (c | (c >> usize(8)));
+        c = (c | (c >> usize(16)));
+        c + usize(1)
+      }
+    );
+    result := Self._alloc_with_capacity(capacity);
+    match(
+      result,
+      .Ok(set) => set,
+      .Err(_) => panic("Failed to allocate HashSet")
+    )
+  }),
   /**
-    * Get ctrl pointer (unwrapped for internal use)
-    */
-  _ctrl_ptr : (fn(self: Self) -> *(u8))(
-    match(self.ctrl,
+  * Get ctrl pointer (unwrapped for internal use)
+  */
+  _ctrl_ptr : (fn(self : Self) -> *(u8))(
+    match(
+      self.ctrl,
       .Some(ptr) => ptr,
       .None => panic("HashSet ctrl pointer is null")
     )
   ),
-
   /**
-    * Get data pointer (unwrapped for internal use)
-    */
-  _data_ptr : (fn(self: Self) -> *(T))(
-    match(self.data,
+  * Get data pointer (unwrapped for internal use)
+  */
+  _data_ptr : (fn(self : Self) -> *(T))(
+    match(
+      self.data,
       .Some(ptr) => ptr,
       .None => panic("HashSet data pointer is null")
     )
   ),
-
   /**
-    * Find slot index for a given element using quadratic probing
-    * Returns Some(index) if element is found, None otherwise
-    */
-  _find_slot : (fn(self: Self, element: T, hash: u64) -> Option(usize))(
-    {
-      h2 := h2_hash(hash);
-      index := h1_hash(hash, self.capacity);
-      probe := usize(0);
-      ctrl_ptr := Self._ctrl_ptr(self);
-      data_ptr := Self._data_ptr(self);
-
-      while(probe < self.capacity, probe = (probe + usize(1)), {
-        probe_index := ((index + probe) % self.capacity);
-        ctrl_byte := (ctrl_ptr &+ probe_index).*;
-        
-        cond(
-          (ctrl_byte == CTRL_EMPTY) => {
-            return(.None);
-          },
-          (ctrl_byte == h2) => {
-            stored_element := (data_ptr &+ probe_index).*;
-            cond(
-              (stored_element == element) => {
-                return(.Some(probe_index));
-              },
-              true => ()
-            );
-          },
-          true => ()
-        );
-      });
-      
-      .None
-    }
-  ),
-
-  /**
-    * Find first available slot (EMPTY or DELETED) for insertion
-    * Returns slot index using quadratic probing
-    */
-  _find_insert_slot : (fn(self: Self, hash: u64) -> usize)(
-    {
-      index := h1_hash(hash, self.capacity);
-      probe := usize(0);
-      ctrl_ptr := Self._ctrl_ptr(self);
-      
-      while(probe < self.capacity, probe = (probe + usize(1)), {
-        probe_index := ((index + probe) % self.capacity);
-        ctrl_byte := (ctrl_ptr &+ probe_index).*;
-        
-        cond(
-          ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
-            return(probe_index);
-          },
-          true => ()
-        );
-      });
-      
-      panic("HashSet is full - should have resized")
-    }
-  ),
-
-  /**
-    * Check if HashSet needs resizing based on load factor
-    */
-  _needs_resize : (fn(self: Self) -> bool)(
-    {
-      threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
-      (self.size >= threshold)
-    }
-  ),
-
-  /**
-    * Resize and rehash the HashSet to a new capacity
-    */
-  _resize : (fn(self: Self, new_capacity: usize) -> Result(unit, HashSetError))(
-    {
-      result := Self._alloc_with_capacity(new_capacity);
-      match(result,
-        .Err(err) => .Err(err),
-        .Ok(new_set) => {
-          i := usize(0);
-          ctrl_ptr := Self._ctrl_ptr(self);
-          data_ptr := Self._data_ptr(self);
-          while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
-                hash := element.hash();
-                h2 := h2_hash(hash);
-                new_index := Self._find_insert_slot(new_set, hash);
-                
-                new_ctrl_ptr := Self._ctrl_ptr(new_set);
-                new_data_ptr := Self._data_ptr(new_set);
-                (new_ctrl_ptr &+ new_index).* = h2;
-                consume((new_data_ptr &+ new_index).* = element);
-                new_set.size = (new_set.size + usize(1));
-              },
-              true => ()
-            );
-          });
-          
-          // Drop old elements before freeing old data array
-          // (element := ... above duped them, so we need to drop the old refs)
+  * Find slot index for a given element using quadratic probing
+  * Returns Some(index) if element is found, None otherwise
+  */
+  _find_slot : (fn(self : Self, element : T, hash : u64) -> Option(usize))({
+    h2 := h2_hash(hash);
+    index := h1_hash(hash, self.capacity);
+    probe := usize(0);
+    ctrl_ptr := Self._ctrl_ptr(self);
+    data_ptr := Self._data_ptr(self);
+    while(probe < self.capacity, probe = (probe + usize(1)), {
+      probe_index := ((index + probe) % self.capacity);
+      ctrl_byte := (ctrl_ptr &+ probe_index).*;
+      cond(
+        (ctrl_byte == CTRL_EMPTY) => {
+          return(.None);
+        },
+        (ctrl_byte == h2) => {
+          stored_element := (data_ptr &+ probe_index).*;
           cond(
-            Type.contains_rc_type(T) => {
-              j := usize(0);
-              while(j < self.capacity, j = (j + usize(1)), {
-                ctrl_byte := (ctrl_ptr &+ j).*;
-                cond(
-                  ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                    element_ptr := (data_ptr &+ j);
-                    unsafe.drop(element_ptr.*);
-                  },
-                  true => ()
-                );
-              });
+            (stored_element == element) => {
+              return(.Some(probe_index));
             },
             true => ()
           );
-          
-          match(self.ctrl,
-            .Some(ptr) => free(.Some(*(void)(ptr))),
-            .None => ()
-          );
-          match(self.data,
-            .Some(ptr) => free(.Some(*(void)(ptr))),
-            .None => ()
-          );
-          
-          self.ctrl = new_set.ctrl;
-          self.data = new_set.data;
-          self.capacity = new_set.capacity;
-
-          new_set.ctrl = .None;
-          new_set.data = .None;
-
-          .Ok(())
-        }
-      )
-    }
-  ),
-
+        },
+        true => ()
+      );
+    });
+    .None
+  }),
   /**
-    * Insert an element into the set
-    * Returns Ok(true) if element was newly inserted, Ok(false) if already present
-    */
-  add : (fn(self: Self, element: T) -> Result(bool, HashSetError))(
-    {
-      hash := element.hash();
-      slot_opt := Self._find_slot(self, element, hash);
-      
-      match(slot_opt,
-        .Some(_) => .Ok(false),
-        .None => {
-          resize_check := cond(
-            (Self._needs_resize(self)) => {
-              new_capacity := (self.capacity * usize(2));
-              Self._resize(self, new_capacity)
-            },
-            true => (Result(unit, HashSetError).Ok(()))
-          );
-          
-          match(resize_check,
-            .Err(err) => .Err(err),
-            .Ok(_) => {
-              h2 := h2_hash(hash);
-              index := Self._find_insert_slot(self, hash);
-              
-              ctrl_ptr := Self._ctrl_ptr(self);
-              data_ptr := Self._data_ptr(self);
-              (ctrl_ptr &+ index).* = h2;
-              consume((data_ptr &+ index).* = element);
-              self.size = (self.size + usize(1));
-              
-              .Ok(true)
-            }
-          )
-        }
-      )
-    }
-  ),
-
+  * Find first available slot (EMPTY or DELETED) for insertion
+  * Returns slot index using quadratic probing
+  */
+  _find_insert_slot : (fn(self : Self, hash : u64) -> usize)({
+    index := h1_hash(hash, self.capacity);
+    probe := usize(0);
+    ctrl_ptr := Self._ctrl_ptr(self);
+    while(probe < self.capacity, probe = (probe + usize(1)), {
+      probe_index := ((index + probe) % self.capacity);
+      ctrl_byte := (ctrl_ptr &+ probe_index).*;
+      cond(
+        ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
+          return(probe_index);
+        },
+        true => ()
+      );
+    });
+    panic("HashSet is full - should have resized")
+  }),
   /**
-    * Check if an element exists in the set
-    */
-  contains : (fn(self: Self, element: T) -> bool)(
-    {
-      hash := element.hash();
-      slot_opt := Self._find_slot(self, element, hash);
-      match(slot_opt,
-        .Some(_) => true,
-        .None => false
-      )
-    }
-  ),
-
+  * Check if HashSet needs resizing based on load factor
+  */
+  _needs_resize : (fn(self : Self) -> bool)({
+    threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
+    self.size >= threshold
+  }),
   /**
-    * Remove an element from the set
-    * Returns true if the element was present and removed, false otherwise
-    */
-  remove : (fn(self: Self, element: T) -> bool)(
-    {
-      hash := element.hash();
-      slot_opt := Self._find_slot(self, element, hash);
-      match(slot_opt,
-        .Some(index) => {
-          // Drop the element value before marking as deleted
+  * Resize and rehash the HashSet to a new capacity
+  */
+  _resize : (fn(self : Self, new_capacity : usize) -> Result(unit, HashSetError))({
+    result := Self._alloc_with_capacity(new_capacity);
+    match(
+      result,
+      .Err(err) =>.Err(err),
+      .Ok(new_set) => {
+        i := usize(0);
+        ctrl_ptr := Self._ctrl_ptr(self);
+        data_ptr := Self._data_ptr(self);
+        while(i < self.capacity, i = (i + usize(1)), {
+          ctrl_byte := (ctrl_ptr &+ i).*;
           cond(
-            Type.contains_rc_type(T) => {
-              data_ptr := Self._data_ptr(self);
-              element_ptr := (data_ptr &+ index);
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              element := (data_ptr &+ i).*;
+              hash := element.hash();
+              h2 := h2_hash(hash);
+              new_index := Self._find_insert_slot(new_set, hash);
+              new_ctrl_ptr := Self._ctrl_ptr(new_set);
+              new_data_ptr := Self._data_ptr(new_set);
+              (new_ctrl_ptr &+ new_index).* = h2;
+              consume((new_data_ptr &+ new_index).* = element);
+              new_set.size = (new_set.size + usize(1));
+            },
+            true => ()
+          );
+        });
+        // Drop old elements before freeing old data array
+        // (element := ... above duped them, so we need to drop the old refs)
+        cond(
+          Type.contains_rc_type(T) => {
+            j := usize(0);
+            while(j < self.capacity, j = (j + usize(1)), {
+              ctrl_byte := (ctrl_ptr &+ j).*;
+              cond(
+                ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                  element_ptr := (data_ptr &+ j);
+                  unsafe.drop(element_ptr.*);
+                },
+                true => ()
+              );
+            });
+          },
+          true => ()
+        );
+        match(
+          self.ctrl,
+          .Some(ptr) => free(.Some(*(void)(ptr))),
+          .None => ()
+        );
+        match(
+          self.data,
+          .Some(ptr) => free(.Some(*(void)(ptr))),
+          .None => ()
+        );
+        self.ctrl = new_set.ctrl;
+        self.data = new_set.data;
+        self.capacity = new_set.capacity;
+        new_set.ctrl =.None;
+        new_set.data =.None;
+        .Ok(())
+      }
+    )
+  }),
+  /**
+  * Insert an element into the set
+  * Returns Ok(true) if element was newly inserted, Ok(false) if already present
+  */
+  add : (fn(self : Self, element : T) -> Result(bool, HashSetError))({
+    hash := element.hash();
+    slot_opt := Self._find_slot(self, element, hash);
+    match(
+      slot_opt,
+      .Some(_) =>.Ok(false),
+      .None => {
+        resize_check := cond(
+          (Self._needs_resize(self)) => {
+            new_capacity := (self.capacity * usize(2));
+            Self._resize(self, new_capacity)
+          },
+          true => Result(unit, HashSetError).Ok(())
+        );
+        match(
+          resize_check,
+          .Err(err) =>.Err(err),
+          .Ok(_) => {
+            h2 := h2_hash(hash);
+            index := Self._find_insert_slot(self, hash);
+            ctrl_ptr := Self._ctrl_ptr(self);
+            data_ptr := Self._data_ptr(self);
+            (ctrl_ptr &+ index).* = h2;
+            consume((data_ptr &+ index).* = element);
+            self.size = (self.size + usize(1));
+            .Ok(true)
+          }
+        )
+      }
+    )
+  }),
+  /**
+  * Check if an element exists in the set
+  */
+  contains : (fn(self : Self, element : T) -> bool)({
+    hash := element.hash();
+    slot_opt := Self._find_slot(self, element, hash);
+    match(
+      slot_opt,
+      .Some(_) => true,
+      .None => false
+    )
+  }),
+  /**
+  * Remove an element from the set
+  * Returns true if the element was present and removed, false otherwise
+  */
+  remove : (fn(self : Self, element : T) -> bool)({
+    hash := element.hash();
+    slot_opt := Self._find_slot(self, element, hash);
+    match(
+      slot_opt,
+      .Some(index) => {
+        // Drop the element value before marking as deleted
+        cond(
+          Type.contains_rc_type(T) => {
+            data_ptr := Self._data_ptr(self);
+            element_ptr := (data_ptr &+ index);
+            unsafe.drop(element_ptr.*);
+          },
+          true => ()
+        );
+        ctrl_ptr := Self._ctrl_ptr(self);
+        (ctrl_ptr &+ index).* = CTRL_DELETED;
+        self.size = (self.size - usize(1));
+        true
+      },
+      .None => false
+    )
+  }),
+  /**
+  * Get the number of elements in the set
+  */
+  len : (fn(self : Self) -> usize)(
+    self.size
+  ),
+  /**
+  * Check if the set is empty
+  */
+  is_empty : (fn(self : Self) -> bool)(
+    self.size == usize(0)
+  ),
+  /**
+  * Clear all elements from the set
+  * Resets all control bytes to EMPTY
+  */
+  clear : (fn(self : Self) -> unit)({
+    // Drop all occupied elements before clearing
+    cond(
+      Type.contains_rc_type(T) => {
+        ctrl_ptr := Self._ctrl_ptr(self);
+        data_ptr := Self._data_ptr(self);
+        i := usize(0);
+        while(i < self.capacity, i = (i + usize(1)), {
+          ctrl_byte := (ctrl_ptr &+ i).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              element_ptr := (data_ptr &+ i);
               unsafe.drop(element_ptr.*);
             },
             true => ()
           );
-          
-          ctrl_ptr := Self._ctrl_ptr(self);
-          (ctrl_ptr &+ index).* = CTRL_DELETED;
-          self.size = (self.size - usize(1));
-          true
-        },
-        .None => false
-      )
-    }
-  ),
-
+        });
+      },
+      true => ()
+    );
+    ctrl_ptr := Self._ctrl_ptr(self);
+    i := usize(0);
+    while(i < self.capacity, i = (i + usize(1)), {
+      (ctrl_ptr &+ i).* = CTRL_EMPTY;
+    });
+    self.size = usize(0);
+  }),
   /**
-    * Get the number of elements in the set
-    */
-  len : (fn(self: Self) -> usize)(
-    self.size
-  ),
-
-  /**
-    * Check if the set is empty
-    */
-  is_empty : (fn(self: Self) -> bool)(
-    (self.size == usize(0))
-  ),
-
-  /**
-    * Clear all elements from the set
-    * Resets all control bytes to EMPTY
-    */
-  clear : (fn(self: Self) -> unit)(
-    {
-      // Drop all occupied elements before clearing
-      cond(
-        Type.contains_rc_type(T) => {
-          ctrl_ptr := Self._ctrl_ptr(self);
-          data_ptr := Self._data_ptr(self);
-          i := usize(0);
-          while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element_ptr := (data_ptr &+ i);
-                unsafe.drop(element_ptr.*);
-              },
-              true => ()
-            );
-          });
-        },
-        true => ()
-      );
-      
-      ctrl_ptr := Self._ctrl_ptr(self);
-      i := usize(0);
-      while(i < self.capacity, i = (i + usize(1)), {
-        (ctrl_ptr &+ i).* = CTRL_EMPTY;
-      });
-      self.size = usize(0);
-    }
-  ),
-
-  /**
-    * Check if this set is a subset of another set
-    * Returns true if all elements in self are also in other
-    */
-  is_subset : (fn(self: Self, other: Self) -> bool)(
+  * Check if this set is a subset of another set
+  * Returns true if all elements in self are also in other
+  */
+  is_subset : (fn(self : Self, other : Self) -> bool)(
     cond(
       (self.size > other.size) => false,
       true => {
@@ -439,7 +391,6 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         is_sub := true;
-        
         while(i < self.capacity, i = (i + usize(1)), {
           ctrl_byte := (ctrl_ptr &+ i).*;
           cond(
@@ -456,257 +407,237 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
             true => ()
           );
         });
-        
         is_sub
       }
     )
   ),
-
   /**
-    * Check if this set is a superset of another set
-    * Returns true if all elements in other are also in self
-    */
-  is_superset : (fn(self: Self, other: Self) -> bool)(
+  * Check if this set is a superset of another set
+  * Returns true if all elements in other are also in self
+  */
+  is_superset : (fn(self : Self, other : Self) -> bool)(
     other.is_subset(self)
   ),
-
   /**
-    * Check if this set is disjoint from another set
-    * Returns true if the sets have no elements in common
-    */
-  is_disjoint : (fn(self: Self, other: Self) -> bool)(
-    {
-      smaller := cond((self.size <= other.size) => self, true => other);
-      larger := cond((self.size <= other.size) => other, true => self);
-      
-      i := usize(0);
-      ctrl_ptr := Self._ctrl_ptr(smaller);
-      data_ptr := Self._data_ptr(smaller);
-      result := true;
-      
-      while(i < smaller.capacity, i = (i + usize(1)), {
-        ctrl_byte := (ctrl_ptr &+ i).*;
-        cond(
-          ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-            element := (data_ptr &+ i).*;
-            contains_result := larger.contains(element);
-            cond(
-              (contains_result == true) => {
-                result = false;
-              },
-              true => ()
-            );
-          },
-          true => ()
-        );
-      });
-      
-      result
-    }
-  ),
-
-  /**
-    * Create a new set containing the union of two sets
-    * Returns a new HashSet containing all elements from both sets
-    */
-  union : (fn(self: Self, other: Self) -> Result(Self, HashSetError))(
-    {
-      new_capacity := cond(
-        ((self.size + other.size) > DEFAULT_CAPACITY) => {
-          combined := (self.size + other.size);
-          c := combined;
-          c = (c - usize(1));
-          c = (c | (c >> usize(1)));
-          c = (c | (c >> usize(2)));
-          c = (c | (c >> usize(4)));
-          c = (c | (c >> usize(8)));
-          c = (c | (c >> usize(16)));
-          (c + usize(1))
+  * Check if this set is disjoint from another set
+  * Returns true if the sets have no elements in common
+  */
+  is_disjoint : (fn(self : Self, other : Self) -> bool)({
+    smaller := cond((self.size <= other.size) => self, true => other);
+    larger := cond((self.size <= other.size) => other, true => self);
+    i := usize(0);
+    ctrl_ptr := Self._ctrl_ptr(smaller);
+    data_ptr := Self._data_ptr(smaller);
+    result := true;
+    while(i < smaller.capacity, i = (i + usize(1)), {
+      ctrl_byte := (ctrl_ptr &+ i).*;
+      cond(
+        ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+          element := (data_ptr &+ i).*;
+          contains_result := larger.contains(element);
+          cond(
+            (contains_result == true) => {
+              result = false;
+            },
+            true => ()
+          );
         },
-        true => DEFAULT_CAPACITY
+        true => ()
       );
-      
-      result_set_result := Self._alloc_with_capacity(new_capacity);
-      match(result_set_result,
-        .Err(err) => .Err(err),
-        .Ok(result_set) => {
-          i := usize(0);
-          ctrl_ptr := Self._ctrl_ptr(self);
-          data_ptr := Self._data_ptr(self);
-          while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
-                result_set.add(element);
-              },
-              true => ()
-            );
-          });
-          
-          j := usize(0);
-          other_ctrl_ptr := Self._ctrl_ptr(other);
-          other_data_ptr := Self._data_ptr(other);
-          while(j < other.capacity, j = (j + usize(1)), {
-            ctrl_byte := (other_ctrl_ptr &+ j).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (other_data_ptr &+ j).*;
-                result_set.add(element);
-              },
-              true => ()
-            );
-          });
-          
-          .Ok(result_set)
-        }
-      )
-    }
-  ),
-
+    });
+    result
+  }),
   /**
-    * Create a new set containing the intersection of two sets
-    * Returns a new HashSet containing only elements present in both sets
-    */
-  intersection : (fn(self: Self, other: Self) -> Result(Self, HashSetError))(
-    {
-      smaller := cond((self.size <= other.size) => self, true => other);
-      larger := cond((self.size <= other.size) => other, true => self);
-      
-      result_set_result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
-      match(result_set_result,
-        .Err(err) => .Err(err),
-        .Ok(result_set) => {
-          i := usize(0);
-          ctrl_ptr := Self._ctrl_ptr(smaller);
-          data_ptr := Self._data_ptr(smaller);
-          while(i < smaller.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
-                cond(
-                  (larger.contains(element)) => {
-                    _ := result_set.add(element);
-                  },
-                  true => ()
-                );
-              },
-              true => ()
-            );
-          });
-          
-          .Ok(result_set)
-        }
-      )
-    }
-  ),
-
+  * Create a new set containing the union of two sets
+  * Returns a new HashSet containing all elements from both sets
+  */
+  union : (fn(self : Self, other : Self) -> Result(Self, HashSetError))({
+    new_capacity := cond(
+      ((self.size + other.size) > DEFAULT_CAPACITY) => {
+        combined := (self.size + other.size);
+        c := combined;
+        c = (c - usize(1));
+        c = (c | (c >> usize(1)));
+        c = (c | (c >> usize(2)));
+        c = (c | (c >> usize(4)));
+        c = (c | (c >> usize(8)));
+        c = (c | (c >> usize(16)));
+        c + usize(1)
+      },
+      true => DEFAULT_CAPACITY
+    );
+    result_set_result := Self._alloc_with_capacity(new_capacity);
+    match(
+      result_set_result,
+      .Err(err) =>.Err(err),
+      .Ok(result_set) => {
+        i := usize(0);
+        ctrl_ptr := Self._ctrl_ptr(self);
+        data_ptr := Self._data_ptr(self);
+        while(i < self.capacity, i = (i + usize(1)), {
+          ctrl_byte := (ctrl_ptr &+ i).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              element := (data_ptr &+ i).*;
+              result_set.add(element);
+            },
+            true => ()
+          );
+        });
+        j := usize(0);
+        other_ctrl_ptr := Self._ctrl_ptr(other);
+        other_data_ptr := Self._data_ptr(other);
+        while(j < other.capacity, j = (j + usize(1)), {
+          ctrl_byte := (other_ctrl_ptr &+ j).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              element := (other_data_ptr &+ j).*;
+              result_set.add(element);
+            },
+            true => ()
+          );
+        });
+        .Ok(result_set)
+      }
+    )
+  }),
   /**
-    * Create a new set containing the difference of two sets
-    * Returns a new HashSet containing elements in self but not in other
-    */
-  difference : (fn(self: Self, other: Self) -> Result(Self, HashSetError))(
-    {
-      result_set_result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
-      match(result_set_result,
-        .Err(err) => .Err(err),
-        .Ok(result_set) => {
-          i := usize(0);
-          ctrl_ptr := Self._ctrl_ptr(self);
-          data_ptr := Self._data_ptr(self);
-          while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
-                contains_result := other.contains(element);
-                cond(
-                  (contains_result == false) => {
-                    _ := result_set.add(element);
-                  },
-                  true => ()
-                );
-              },
-              true => ()
-            );
-          });
-          
-          .Ok(result_set)
-        }
-      )
-    }
-  ),
-
+  * Create a new set containing the intersection of two sets
+  * Returns a new HashSet containing only elements present in both sets
+  */
+  intersection : (fn(self : Self, other : Self) -> Result(Self, HashSetError))({
+    smaller := cond((self.size <= other.size) => self, true => other);
+    larger := cond((self.size <= other.size) => other, true => self);
+    result_set_result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
+    match(
+      result_set_result,
+      .Err(err) =>.Err(err),
+      .Ok(result_set) => {
+        i := usize(0);
+        ctrl_ptr := Self._ctrl_ptr(smaller);
+        data_ptr := Self._data_ptr(smaller);
+        while(i < smaller.capacity, i = (i + usize(1)), {
+          ctrl_byte := (ctrl_ptr &+ i).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              element := (data_ptr &+ i).*;
+              cond(
+                (larger.contains(element)) => {
+                  _ := result_set.add(element);
+                },
+                true => ()
+              );
+            },
+            true => ()
+          );
+        });
+        .Ok(result_set)
+      }
+    )
+  }),
   /**
-    * Create a new set containing the symmetric difference of two sets
-    * Returns a new HashSet containing elements in either set but not in both
-    */
-  symmetric_difference : (fn(self: Self, other: Self) -> Result(Self, HashSetError))(
-    {
-      result_set_result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
-      match(result_set_result,
-        .Err(err) => .Err(err),
-        .Ok(result_set) => {
-          i := usize(0);
-          ctrl_ptr := Self._ctrl_ptr(self);
-          data_ptr := Self._data_ptr(self);
-          while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
-                contains_result := other.contains(element);
-                cond(
-                  (contains_result == false) => {
-                    _ := result_set.add(element);
-                  },
-                  true => ()
-                );
-              },
-              true => ()
-            );
-          });
-          
-          j := usize(0);
-          other_ctrl_ptr := Self._ctrl_ptr(other);
-          other_data_ptr := Self._data_ptr(other);
-          while(j < other.capacity, j = (j + usize(1)), {
-            ctrl_byte := (other_ctrl_ptr &+ j).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (other_data_ptr &+ j).*;
-                contains_result := self.contains(element);
-                cond(
-                  (contains_result == false) => {
-                    _ := result_set.add(element);
-                  },
-                  true => ()
-                );
-              },
-              true => ()
-            );
-          });
-          
-          .Ok(result_set)
-        }
-      )
-    }
-  )
+  * Create a new set containing the difference of two sets
+  * Returns a new HashSet containing elements in self but not in other
+  */
+  difference : (fn(self : Self, other : Self) -> Result(Self, HashSetError))({
+    result_set_result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
+    match(
+      result_set_result,
+      .Err(err) =>.Err(err),
+      .Ok(result_set) => {
+        i := usize(0);
+        ctrl_ptr := Self._ctrl_ptr(self);
+        data_ptr := Self._data_ptr(self);
+        while(i < self.capacity, i = (i + usize(1)), {
+          ctrl_byte := (ctrl_ptr &+ i).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              element := (data_ptr &+ i).*;
+              contains_result := other.contains(element);
+              cond(
+                (contains_result == false) => {
+                  _ := result_set.add(element);
+                },
+                true => ()
+              );
+            },
+            true => ()
+          );
+        });
+        .Ok(result_set)
+      }
+    )
+  }),
+  /**
+  * Create a new set containing the symmetric difference of two sets
+  * Returns a new HashSet containing elements in either set but not in both
+  */
+  symmetric_difference : (fn(self : Self, other : Self) -> Result(Self, HashSetError))({
+    result_set_result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
+    match(
+      result_set_result,
+      .Err(err) =>.Err(err),
+      .Ok(result_set) => {
+        i := usize(0);
+        ctrl_ptr := Self._ctrl_ptr(self);
+        data_ptr := Self._data_ptr(self);
+        while(i < self.capacity, i = (i + usize(1)), {
+          ctrl_byte := (ctrl_ptr &+ i).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              element := (data_ptr &+ i).*;
+              contains_result := other.contains(element);
+              cond(
+                (contains_result == false) => {
+                  _ := result_set.add(element);
+                },
+                true => ()
+              );
+            },
+            true => ()
+          );
+        });
+        j := usize(0);
+        other_ctrl_ptr := Self._ctrl_ptr(other);
+        other_data_ptr := Self._data_ptr(other);
+        while(j < other.capacity, j = (j + usize(1)), {
+          ctrl_byte := (other_ctrl_ptr &+ j).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              element := (other_data_ptr &+ j).*;
+              contains_result := self.contains(element);
+              cond(
+                (contains_result == false) => {
+                  _ := result_set.add(element);
+                },
+                true => ()
+              );
+            },
+            true => ()
+          );
+        });
+        .Ok(result_set)
+      }
+    )
+  })
 );
-
-impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), Dispose(
-  /**
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  Dispose(
+    /**
     * RAII destructor - automatically called when HashSet goes out of scope
     */
-  dispose : (fn(self: Self) -> unit)(
-    {
+    dispose : (fn(self : Self) -> unit)({
       // Drop all occupied elements before freeing memory
       cond(
         Type.contains_rc_type(T) => {
-          match(self.ctrl,
+          match(
+            self.ctrl,
             .Some(ctrl_ptr) => {
-              match(self.data,
+              match(
+                self.data,
                 .Some(data_ptr) => {
                   i := usize(0);
                   while(i < self.capacity, i = (i + usize(1)), {
@@ -728,110 +659,120 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), Dispose(
         },
         true => ()
       );
-      
-      match(self.ctrl,
+      match(
+        self.ctrl,
         .Some(ptr) => free(.Some(*(void)(ptr))),
         .None => ()
       );
-      match(self.data,
+      match(
+        self.data,
         .Some(ptr) => free(.Some(*(void)(ptr))),
         .None => ()
       );
-    }
+    })
   )
-));
-
+);
 /**
- * Value iterator for HashSet - yields elements by value (T)
- * Scans ctrl bytes to find occupied slots.
- */
+* Value iterator for HashSet - yields elements by value (T)
+* Scans ctrl bytes to find occupied slots.
+*/
 HashSetIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _set   : HashSet(T),
+    _set : HashSet(T),
     _index : usize
   )
 );
-
-impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIter(T), Iterator(
-  Item : T,
-  next : (fn(self : *(Self)) -> Option(T))(
-    cond(
-      (self._set.capacity == usize(0)) => .None,
-      true => {
-        ctrl_ptr := self._set.ctrl.unwrap();
-        data_ptr := self._set.data.unwrap();
-        result := Option(T).None;
-        while(((self._index < self._set.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
-          ctrl_byte := (ctrl_ptr &+ self._index).*;
-          cond(
-            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              result = .Some((data_ptr &+ self._index).*);
-            },
-            true => ()
-          );
-        });
-        result
-      }
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSetIter(T),
+  Iterator(
+    Item : T,
+    next : (fn(self : *(Self)) -> Option(T))(
+      cond(
+        (self._set.capacity == usize(0)) =>.None,
+        true => {
+          ctrl_ptr := self._set.ctrl.unwrap();
+          data_ptr := self._set.data.unwrap();
+          result := Option(T).None;
+          while((self._index < self._set.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
+            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            cond(
+              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                result =.Some((data_ptr &+ self._index).*);
+              },
+              true => ()
+            );
+          });
+          result
+        }
+      )
     )
   )
-));
-
-impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
+);
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
   into_iter : (fn(self : Self) -> HashSetIter(T))(
-    HashSetIter(T)(_set: self, _index: usize(0))
+    HashSetIter(T)(_set : self, _index : usize(0))
   )
 );
-
 /**
- * Pointer iterator for HashSet - yields pointers to elements (*(T))
- * Pointers are valid as long as the set is not modified during iteration.
- */
+* Pointer iterator for HashSet - yields pointers to elements (*(T))
+* Pointers are valid as long as the set is not modified during iteration.
+*/
 HashSetIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _set   : HashSet(T),
+    _set : HashSet(T),
     _index : usize
   )
 );
-
-impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIterPtr(T), Iterator(
-  Item : *(T),
-  next : (fn(self : *(Self)) -> Option(*(T)))(
-    cond(
-      (self._set.capacity == usize(0)) => .None,
-      true => {
-        ctrl_ptr := self._set.ctrl.unwrap();
-        data_ptr := self._set.data.unwrap();
-        result := Option(*(T)).None;
-        while(((self._index < self._set.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
-          ctrl_byte := (ctrl_ptr &+ self._index).*;
-          cond(
-            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              result = .Some((data_ptr &+ self._index));
-            },
-            true => ()
-          );
-        });
-        result
-      }
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSetIterPtr(T),
+  Iterator(
+    Item : *(T),
+    next : (fn(self : *(Self)) -> Option(*(T)))(
+      cond(
+        (self._set.capacity == usize(0)) =>.None,
+        true => {
+          ctrl_ptr := self._set.ctrl.unwrap();
+          data_ptr := self._set.data.unwrap();
+          result := Option(*(T)).None;
+          while((self._index < self._set.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
+            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            cond(
+              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                result =.Some(data_ptr &+ self._index);
+              },
+              true => ()
+            );
+          });
+          result
+        }
+      )
     )
   )
-));
-
-impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
+);
+impl(
+  forall(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
   iter : (fn(self : *(Self)) -> HashSetIterPtr(T))(
-    HashSetIterPtr(T)(_set: self.*, _index: usize(0))
+    HashSetIterPtr(T)(_set : self.*, _index : usize(0))
   )
 );
-
-export(HashSet,
+export(
+  HashSet,
   HashSetError,
   HashSetIter,
-  HashSetIterPtr);
-
+  HashSetIterPtr
+);
 // =============================================================================
 // hash_set! literal macro
 // =============================================================================
-
 /// Internal helper: build a list of `tmp.add(elem).unwrap()` statements from `elems`.
 __hash_set_build_adds :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -> comptime(ExprList))(
   cond(
@@ -839,12 +780,11 @@ __hash_set_build_adds :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -
     true => {
       first :: elems.car();
       rest :: elems.cdr();
-      stmt :: quote((unquote(tmp).add(unquote(first)).unwrap()));
+      stmt :: quote(unquote(tmp).add(unquote(first)).unwrap());
       stmt.cons(recur(tmp, rest))
     }
   )
 );
-
 /// `hash_set` macro — construct a `HashSet(T)` literal.
 ///
 /// `T` is inferred from the first element via `typeof`, so at least one
@@ -855,8 +795,10 @@ __hash_set_build_adds :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -
 /// s := hash_set(i32(1), i32(2), i32(3));
 /// ```
 hash_set :: (fn(...(quote(elems))) -> unquote(Expr))({
-  __ :: comptime_assert((elems.len() > usize(0)),
-    "hash_set requires at least one element to infer the element type");
+  __ :: comptime_assert(
+    elems.len() > usize(0),
+    "hash_set requires at least one element to infer the element type"
+  );
   first :: elems.car();
   rest :: elems.cdr();
   tmp :: gensym("hash_set");
@@ -868,5 +810,6 @@ hash_set :: (fn(...(quote(elems))) -> unquote(Expr))({
     unquote(tmp).add(unquote(first_tmp)).unwrap();
     unquote_splicing(rest_adds);
     unquote(tmp)
-  })});
+  })
+});
 export(hash_set);
