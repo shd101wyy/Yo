@@ -1,0 +1,538 @@
+// @skip_wasm32-emscripten — split file (~5min Yo compile alone, C output ~6 MB)
+// @skip_wasm32-wasi        — split file (~5min Yo compile alone, C output ~6 MB)
+/// Tests for the evaluator — Phase 5o series: break and continue in loops.
+///
+/// Phases covered:
+///   5oa — break in while loops (module level)
+///   5ob — continue in while loops (module level)
+///   5oc — break and continue inside impl method bodies
+///   5od — break and continue in for-loops at module level
+///   5oe — complex combos: break/continue + struct + helper + multi-export
+
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+// ---------------------------------------------------------------------------
+// Phase 5oa — break in while loops (module level)
+// ---------------------------------------------------------------------------
+test("Phase 5oa: break when i > 5, result = first such i", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(0);\nresult := i32(0);\nwhile(runtime(i < i32(10)), {\n  cond((i > i32(5)) => { result = i; break(); }, true => ());\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "6", "i>5 first=6"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oa: break when cumulative sum exceeds 10", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "result := i32(0);\n(i : i32) = i32(1);\nwhile(runtime(i < i32(20)), {\n  result = (result + i);\n  cond((result > i32(10)) => break(), true => ());\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "15", "1+2+3+4+5=15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oa: break on first multiple of 7 in [1..30]", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\nresult := i32(0);\nwhile(runtime(i <= i32(30)), {\n  cond(((i % i32(7)) == i32(0)) => { result = i; break(); }, true => ());\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "7", "first mult7=7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oa: break when i*i > 50, return i", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\nresult := i32(0);\nwhile(runtime(i <= i32(10)), {\n  cond(((i * i) > i32(50)) => { result = i; break(); }, true => ());\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "8", "8*8=64>50"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oa: count iterations before break at i==5", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(0);\ncount := i32(0);\nwhile(runtime(i < i32(10)), {\n  cond((i == i32(5)) => break(), true => ());\n  count = (count + i32(1));\n  i = (i + i32(1));\n});\nexport(count);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "5", "count=5"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oa: last value captured before break at i >= 4", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(0);\nlast := i32(0);\nwhile(runtime(i < i32(10)), {\n  cond((i >= i32(4)) => break(), true => { last = i; });\n  i = (i + i32(1));\n});\nexport(last);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "last=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oa: sum 1+2+...+k until i*i >= 20", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\nresult := i32(0);\nwhile(runtime(i < i32(20)), {\n  cond(((i * i) >= i32(20)) => break(), true => ());\n  result = (result + i);\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "1+2+3+4=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oa: break on found 17 in [1..20], export bool", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\nfound := false;\nwhile(runtime(i <= i32(20)), {\n  cond((i == i32(17)) => { found = true; break(); }, true => ());\n  i = (i + i32(1));\n});\nexport(found);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "found 17"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oa: first element > 5 in ArrayList via while+break", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(0));\narr.push(i32(3));\narr.push(i32(8));\narr.push(i32(2));\narr.push(i32(9));\narr.push(i32(1));\narr.push(i32(6));\nresult := i32(0);\n(i : usize) = usize(0);\nn := arr.len();\nwhile(runtime(i < n), {\n  match(arr.get(i), .Some(v) => cond((v > i32(5)) => { result = v; break(); }, true => ()), .None => ());\n  i = (i + usize(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "8", "first>5=8"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oa: first even AND > 3 in [0..10]", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(0);\nresult := i32(0);\nwhile(runtime(i < i32(10)), {\n  cond((((i % i32(2)) == i32(0)) && (i > i32(3))) => { result = i; break(); }, true => ());\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "4", "first even>3=4"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5ob — continue in while loops (module level)
+// ---------------------------------------------------------------------------
+test("Phase 5ob: sum even numbers in [0..9] via continue", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(0);\nresult := i32(0);\nwhile(runtime(i < i32(10)), {\n  cond(((i % i32(2)) != i32(0)) => { i = (i + i32(1)); continue(); }, true => ());\n  result = (result + i);\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "20", "0+2+4+6+8=20"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ob: skip negatives/zero via continue, sum positives", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(0) - i32(2));\narr.push(i32(0) - i32(1));\narr.push(i32(0));\narr.push(i32(1));\narr.push(i32(2));\narr.push(i32(3));\narr.push(i32(4));\nresult := i32(0);\n(i : usize) = usize(0);\nwhile(runtime(i < arr.len()), {\n  match(arr.get(i), .Some(v) => cond((v <= i32(0)) => { i = (i + usize(1)); continue(); }, true => { result = (result + v); }), .None => ());\n  i = (i + usize(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "1+2+3+4=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ob: count odd numbers in [1..10] via continue on evens", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\ncount := i32(0);\nwhile(runtime(i <= i32(10)), {\n  cond(((i % i32(2)) == i32(0)) => { i = (i + i32(1)); continue(); }, true => ());\n  count = (count + i32(1));\n  i = (i + i32(1));\n});\nexport(count);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "5", "odds[1..10]=5"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ob: sum multiples of 3 in [1..12] via continue on non-multiples", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\nresult := i32(0);\nwhile(runtime(i <= i32(12)), {\n  cond(((i % i32(3)) != i32(0)) => { i = (i + i32(1)); continue(); }, true => ());\n  result = (result + i);\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "30", "3+6+9+12=30"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ob: skip value 5 via continue, sum [1..8]", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\nresult := i32(0);\nwhile(runtime(i <= i32(8)), {\n  cond((i == i32(5)) => { i = (i + i32(1)); continue(); }, true => ());\n  result = (result + i);\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "31", "36-5=31"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ob: count even numbers in [1..12] via continue on odds", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\ncount := i32(0);\nwhile(runtime(i <= i32(12)), {\n  cond(((i % i32(2)) != i32(0)) => { i = (i + i32(1)); continue(); }, true => ());\n  count = (count + i32(1));\n  i = (i + i32(1));\n});\nexport(count);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "6", "evens[1..12]=6"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ob: skip i < 5 via continue, sum [5..9]", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(0);\nresult := i32(0);\nwhile(runtime(i < i32(10)), {\n  cond((i < i32(5)) => { i = (i + i32(1)); continue(); }, true => ());\n  result = (result + i);\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "35", "5+6+7+8+9=35"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ob: skip multiples of 4, sum rest in [1..8]", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\nresult := i32(0);\nwhile(runtime(i <= i32(8)), {\n  cond(((i % i32(4)) == i32(0)) => { i = (i + i32(1)); continue(); }, true => ());\n  result = (result + i);\n  i = (i + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "24", "1+2+3+5+6+7=24"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ob: count elements skipped via continue (evens in [1..10])", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "(i : i32) = i32(1);\nskipped := i32(0);\nwhile(runtime(i <= i32(10)), {\n  cond(((i % i32(2)) == i32(0)) => { skipped = (skipped + i32(1)); i = (i + i32(1)); continue(); }, true => ());\n  i = (i + i32(1));\n});\nexport(skipped);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "5", "5 evens skipped"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ob: continue on negatives in ArrayList, sum positives", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(0) - i32(3));\narr.push(i32(0) - i32(1));\narr.push(i32(2));\narr.push(i32(4));\narr.push(i32(0) - i32(2));\narr.push(i32(6));\nresult := i32(0);\n(i : usize) = usize(0);\nwhile(runtime(i < arr.len()), {\n  match(arr.get(i), .Some(v) => cond((v < i32(0)) => { i = (i + usize(1)); continue(); }, true => { result = (result + v); }), .None => ());\n  i = (i + usize(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "12", "2+4+6=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5oc — break and continue inside impl method bodies
+// ---------------------------------------------------------------------------
+test("Phase 5oc: method finds first element above threshold via break", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32), thresh : i32);\nimpl(S, Find(\n  first_above : (fn(s : S) -> i32)({\n    result := i32(0);\n    for(x, s.items, {\n      cond((x > s.thresh) => { result = x; break(); }, true => ());\n    });\n    result\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(3));\narr.push(i32(7));\narr.push(i32(2));\ns := S(items: arr, thresh: i32(4));\nexport(s.first_above());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "7", "first>4=7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oc: method sums elements until partial sum exceeds limit", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32), limit : i32);\nimpl(S, SumUntil(\n  sum_until : (fn(s : S) -> i32)({\n    acc := i32(0);\n    for(x, s.items, {\n      acc = (acc + x);\n      cond((acc > s.limit) => break(), true => ());\n    });\n    acc\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(3));\narr.push(i32(4));\narr.push(i32(5));\narr.push(i32(6));\ns := S(items: arr, limit: i32(10));\nexport(s.sum_until());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "12", "3+4+5=12>10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oc: method counts non-zero elements via continue", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32));\nimpl(S, Count(\n  count_nonzero : (fn(s : S) -> i32)({\n    cnt := i32(0);\n    for(x, s.items, {\n      cond((x == i32(0)) => continue(), true => ());\n      cnt = (cnt + i32(1));\n    });\n    cnt\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(0));\narr.push(i32(3));\narr.push(i32(0));\narr.push(i32(5));\ns := S(items: arr);\nexport(s.count_nonzero());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "nonzero=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oc: method sums even elements via continue on odds", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32));\nimpl(S, SumEvens(\n  sum_evens : (fn(s : S) -> i32)({\n    acc := i32(0);\n    for(x, s.items, {\n      cond(((x % i32(2)) != i32(0)) => continue(), true => ());\n      acc = (acc + x);\n    });\n    acc\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(2));\narr.push(i32(3));\narr.push(i32(4));\narr.push(i32(5));\narr.push(i32(6));\ns := S(items: arr);\nexport(s.sum_evens());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "12", "2+4+6=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oc: method finds first negative via break", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32));\nimpl(S, FindNeg(\n  first_neg : (fn(s : S) -> i32)({\n    result := i32(0);\n    for(x, s.items, {\n      cond((x < i32(0)) => { result = x; break(); }, true => ());\n    });\n    result\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(3));\narr.push(i32(7));\narr.push(i32(0) - i32(2));\narr.push(i32(0) - i32(5));\narr.push(i32(1));\ns := S(items: arr);\nexport(s.first_neg());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "-2", "first_neg=-2"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oc: method skips target value via continue, sums rest", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32), skip_val : i32);\nimpl(S, Sum(\n  sum_skip : (fn(s : S) -> i32)({\n    acc := i32(0);\n    for(x, s.items, {\n      cond((x == s.skip_val) => continue(), true => ());\n      acc = (acc + x);\n    });\n    acc\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(2));\narr.push(i32(3));\narr.push(i32(2));\narr.push(i32(4));\ns := S(items: arr, skip_val: i32(2));\nexport(s.sum_skip());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "8", "1+3+4=8"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oc: method counts elements before first big via break", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32));\nimpl(S, Pos(\n  count_before_big : (fn(s : S) -> i32)({\n    cnt := i32(0);\n    for(x, s.items, {\n      cond((x > i32(10)) => break(), true => { cnt = (cnt + i32(1)); });\n    });\n    cnt\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(3));\narr.push(i32(7));\narr.push(i32(15));\narr.push(i32(20));\ns := S(items: arr);\nexport(s.count_before_big());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "2", "3,7 before 15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oc: method computes product of even elements via continue", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32));\nimpl(S, Prod(\n  prod_evens : (fn(s : S) -> i32)({\n    prod := i32(1);\n    for(x, s.items, {\n      cond(((x % i32(2)) != i32(0)) => continue(), true => ());\n      prod = (prod * x);\n    });\n    prod\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(2));\narr.push(i32(3));\narr.push(i32(4));\narr.push(i32(5));\narr.push(i32(6));\ns := S(items: arr);\nexport(s.prod_evens());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "48", "2*4*6=48"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oc: method counts elements added before acc exceeds limit", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32), max_sum : i32);\nimpl(S, SumCount(\n  count_until_limit : (fn(s : S) -> i32)({\n    acc := i32(0);\n    cnt := i32(0);\n    for(x, s.items, {\n      acc = (acc + x);\n      cond((acc > s.max_sum) => break(), true => ());\n      cnt = (cnt + i32(1));\n    });\n    cnt\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(2));\narr.push(i32(3));\narr.push(i32(4));\narr.push(i32(5));\narr.push(i32(6));\ns := S(items: arr, max_sum: i32(8));\nexport(s.count_until_limit());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "2", "2+3=5, +4=9>8"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oc: method counts small elements (<=100) via continue on large", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(items : ArrayList(i32));\nimpl(S, Count(\n  count_small : (fn(s : S) -> i32)({\n    cnt := i32(0);\n    for(x, s.items, {\n      cond((x > i32(100)) => continue(), true => ());\n      cnt = (cnt + i32(1));\n    });\n    cnt\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(50));\narr.push(i32(200));\narr.push(i32(75));\narr.push(i32(150));\narr.push(i32(30));\ns := S(items: arr);\nexport(s.count_small());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "50,75,30 are small"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5od — break and continue in for-loops at module level
+// ---------------------------------------------------------------------------
+test("Phase 5od: for-loop break when acc > 10, return breaking element", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(3));\narr.push(i32(5));\narr.push(i32(2));\narr.push(i32(8));\narr.push(i32(1));\nacc := i32(0);\nfound := i32(0);\nfor(x, arr, {\n  acc = (acc + x);\n  cond((acc > i32(10)) => { found = x; break(); }, true => ());\n});\nexport(found);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "8", "8 causes acc>10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5od: for-loop continue on evens, count odd elements", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(2));\narr.push(i32(3));\narr.push(i32(4));\narr.push(i32(5));\ncount := i32(0);\nfor(x, arr, {\n  cond(((x % i32(2)) == i32(0)) => continue(), true => ());\n  count = (count + i32(1));\n});\nexport(count);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "odds 1,3,5=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5od: for-loop break when target found, export bool", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(10));\narr.push(i32(20));\narr.push(i32(30));\narr.push(i32(40));\ntarget := i32(30);\nresult := false;\nfor(x, arr, {\n  cond((x == target) => { result = true; break(); }, true => ());\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "30 found"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5od: for-loop continue skips multiples of 3, sum rest in [1..9]", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(2));\narr.push(i32(3));\narr.push(i32(4));\narr.push(i32(5));\narr.push(i32(6));\narr.push(i32(7));\narr.push(i32(8));\narr.push(i32(9));\nresult := i32(0);\nfor(x, arr, {\n  cond(((x % i32(3)) == i32(0)) => continue(), true => ());\n  result = (result + x);\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "27", "1+2+4+5+7+8=27"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5od: for-loop break after 3 iterations, check last value", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(5));\narr.push(i32(3));\narr.push(i32(8));\narr.push(i32(2));\narr.push(i32(9));\ncount := i32(0);\nlast := i32(0);\nfor(x, arr, {\n  count = (count + i32(1));\n  last = x;\n  cond((count >= i32(3)) => break(), true => ());\n});\nexport(last);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "8", "3rd element=8"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5od: for-loop continue skips negatives, product of positives", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(2));\narr.push(i32(0) - i32(3));\narr.push(i32(4));\narr.push(i32(0) - i32(1));\narr.push(i32(3));\nresult := i32(1);\nfor(x, arr, {\n  cond((x < i32(0)) => continue(), true => ());\n  result = (result * x);\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "24", "2*4*3=24"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5od: for-loop over structs, break when dist2 > 20", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "P :: struct(x : i32, y : i32);\nimpl(P, Dist(\n  dist2 : (fn(p : P) -> i32)({ ((p.x * p.x) + (p.y * p.y)) })\n));\npoints := ArrayList(P).new();\npoints.push(P(x: i32(1), y: i32(2)));\npoints.push(P(x: i32(3), y: i32(4)));\npoints.push(P(x: i32(5), y: i32(6)));\nresult := i32(0);\nfor(p, points, {\n  cond((p.dist2() > i32(20)) => { result = p.dist2(); break(); }, true => ());\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "25", "3^2+4^2=25"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5od: for-loop continue skips element 3, sums rest", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(2));\narr.push(i32(3));\narr.push(i32(4));\narr.push(i32(5));\nresult := i32(0);\nfor(x, arr, {\n  cond((x == i32(3)) => continue(), true => ());\n  result = (result + x);\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "12", "1+2+4+5=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5od: for-loop break when element >= 30, count elements before", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(10));\narr.push(i32(20));\narr.push(i32(5));\narr.push(i32(30));\narr.push(i32(15));\ncnt := i32(0);\nfor(x, arr, {\n  cond((x >= i32(30)) => break(), true => ());\n  cnt = (cnt + i32(1));\n});\nexport(cnt);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "10,20,5 before 30"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5od: for-loop with both break (>5) and continue (even) paths", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(4));\narr.push(i32(2));\narr.push(i32(7));\narr.push(i32(3));\nresult := i32(0);\nfor(x, arr, {\n  cond((x > i32(5)) => break(), ((x % i32(2)) == i32(0)) => continue(), true => ());\n  result = (result + x);\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "1", "1 only (4,2 skipped, 7 breaks)"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5oe — complex combos: break/continue + struct + helper + multi-export
+// ---------------------------------------------------------------------------
+test("Phase 5oe: break + struct field mutation, export done bool", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(val : i32, done : bool);\n(i : i32) = i32(0);\ns := S(val: i32(0), done: false);\nwhile(runtime(i < i32(10)), {\n  s.val = (s.val + i);\n  cond((s.val > i32(15)) => { s.done = true; break(); }, true => ());\n  i = (i + i32(1));\n});\nexport(s.done);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "done=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oe: continue + helper fn + method, sum positives via abs", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "abs_val := (fn(x : i32) -> i32)({ cond((x < i32(0)) => (i32(0) - x), true => x) });\nS :: struct(items : ArrayList(i32));\nimpl(S, Sum(\n  sum_pos : (fn(s : S) -> i32)({\n    acc := i32(0);\n    for(x, s.items, {\n      cond((x < i32(0)) => continue(), true => ());\n      acc = (acc + abs_val(x));\n    });\n    acc\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(0) - i32(2));\narr.push(i32(3));\narr.push(i32(0) - i32(1));\narr.push(i32(4));\ns := S(items: arr);\nexport(s.sum_pos());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "7", "3+4=7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oe: break + free function (clamp) + accumulate", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "clamp := (fn(v : i32, lo : i32, hi : i32) -> i32)({ cond((v < lo) => lo, (v > hi) => hi, true => v) });\narr := ArrayList(i32).new();\narr.push(i32(5));\narr.push(i32(12));\narr.push(i32(3));\narr.push(i32(8));\nresult := i32(0);\nfor(x, arr, {\n  cv := clamp(x, i32(0), i32(10));\n  result = (result + cv);\n  cond((result > i32(15)) => break(), true => ());\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "18", "5+10+3=18>15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oe: continue skips multiples of 5, two exports (small_sum, big_sum)", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(1));\narr.push(i32(2));\narr.push(i32(5));\narr.push(i32(3));\narr.push(i32(10));\narr.push(i32(4));\nsmall_sum := i32(0);\nbig_sum := i32(0);\nfor(x, arr, {\n  cond(((x % i32(5)) == i32(0)) => continue(), true => ());\n  cond((x < i32(3)) => { small_sum = (small_sum + x); }, true => { big_sum = (big_sum + x); });\n});\nexport(small_sum);\nexport(big_sum);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "small=1+2=3"), _ => assert(false, "t0")), .None => assert(false, "v0"));
+    match(v.get(usize(1)), .Some(y) => match(y, .IntLit(n) => assert(n.as_str() == "7", "big=3+4=7"), _ => assert(false, "t1")), .None => assert(false, "v1"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oe: break in for-loop, count elements before break", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(2));\narr.push(i32(4));\narr.push(i32(6));\narr.push(i32(8));\narr.push(i32(10));\nbefore := i32(0);\nbrk_val := i32(0);\nfor(x, arr, {\n  cond((x > i32(5)) => { brk_val = x; break(); }, true => ());\n  before = (before + i32(1));\n});\nexport(before);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "2", "2,4 before 6"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oe: continue in method calling sibling method (is_small + sum_big)", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(val : i32);\nimpl(S, Ops(\n  is_small : (fn(s : S) -> bool)({ (s.val < i32(5)) }),\n  sum_big : (fn(s : S, others : ArrayList(S)) -> i32)({\n    acc := i32(0);\n    for(other, others, {\n      cond(other.is_small() => continue(), true => ());\n      acc = (acc + other.val);\n    });\n    acc\n  })\n));\nitems := ArrayList(S).new();\nitems.push(S(val: i32(3)));\nitems.push(S(val: i32(7)));\nitems.push(S(val: i32(2)));\nitems.push(S(val: i32(9)));\ns := S(val: i32(0));\nexport(s.sum_big(items));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "16", "7+9=16"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oe: break in for-loop finds minimum value", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := ArrayList(i32).new();\narr.push(i32(50));\narr.push(i32(30));\narr.push(i32(10));\narr.push(i32(40));\narr.push(i32(20));\nmin := i32(100);\nfor(x, arr, {\n  cond((x < min) => { min = x; }, true => ());\n  cond((min <= i32(10)) => break(), true => ());\n});\nexport(min);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "min=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oe: continue with score filter, export total", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(name : str, score : i32);\nitems := ArrayList(S).new();\nitems.push(S(name: \"Alice\", score: i32(85)));\nitems.push(S(name: \"Bob\", score: i32(70)));\nitems.push(S(name: \"Alice2\", score: i32(90)));\nitems.push(S(name: \"Charlie\", score: i32(80)));\ntotal := i32(0);\nfor(item, items, {\n  cond((item.score < i32(75)) => continue(), true => ());\n  total = (total + item.score);\n});\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "255", "85+90+80=255"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oe: break in for-loop in method returning struct, export found bool", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "R :: struct(found : bool, val : i32);\nS :: struct(items : ArrayList(i32));\nimpl(S, Search(\n  find_above : (fn(s : S, thresh : i32) -> R)({\n    result := R(found: false, val: i32(0));\n    for(x, s.items, {\n      cond((x > thresh) => { result = R(found: true, val: x); break(); }, true => ());\n    });\n    result\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(3));\narr.push(i32(8));\narr.push(i32(1));\narr.push(i32(6));\ns := S(items: arr);\nr := s.find_above(i32(5));\nexport(r.found);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "found=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5oe: full combo break+continue+struct+helper+method", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "double := (fn(x : i32) -> i32)({ (x * i32(2)) });\nS :: struct(items : ArrayList(i32), limit : i32);\nimpl(S, Process(\n  run : (fn(s : S) -> i32)({\n    acc := i32(0);\n    for(x, s.items, {\n      cond((x < i32(0)) => continue(), (double(x) > s.limit) => break(), true => ());\n      acc = (acc + double(x));\n    });\n    acc\n  })\n));\narr := ArrayList(i32).new();\narr.push(i32(2));\narr.push(i32(0) - i32(1));\narr.push(i32(3));\narr.push(i32(7));\narr.push(i32(1));\ns := S(items: arr, limit: i32(12));\nexport(s.run());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "double(2)+double(3)=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
