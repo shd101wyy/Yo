@@ -520,13 +520,13 @@ test("Test type auto derive Runtime", {
   fn1 :: (fn(comptime(T) : Type) -> unit)({
     comptime_assert(Type.impls(T, Runtime));
   });
-  fn2 :: (fn(comptime(T) : Type, where(T <:!(Runtime))) -> unit)({
+  fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
   fn3 :: (fn(forall(T : Type), v : T) -> unit)({
     comptime_assert(Type.impls(T, Runtime));
   });
-  fn4 :: (fn(forall(T : Type), v : T, where(T <:!(Runtime))) -> unit)({
+  fn4 :: (fn(forall(T : Type), v : T, where(T <: !(Runtime))) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
   // Self recursive types
@@ -1141,14 +1141,14 @@ test("Test 'match'", {
   area :: (fn(shape : Shape) -> i32)(
     match(
       shape,
-      .Circle(r) => (i32(3)*(r * r)),
+      .Circle(r) => (i32(3) * (r * r)),
       .Rectangle(w, h) => (w * h)
     )
   );
   area_2 :: (fn(shape : Shape) -> i32)(
     match(
       shape,
-      .Circle(radius) => (i32(3)*(radius * radius)),
+      .Circle(radius) => (i32(3) * (radius * radius)),
       .Rectangle(width, height) => (width * height)
     )
   );
@@ -1157,7 +1157,7 @@ test("Test 'match'", {
     match(
       shape,
       .Circle(r : radius) =>
-        (i32(3)*(radius * radius)),
+        (i32(3) * (radius * radius)),
       .Rectangle(h : height, w : width) =>
         (height * width)
     )
@@ -1188,7 +1188,7 @@ test("Test 'match'", {
       shape_ptr,
       // automatic dereference
       .Circle(r) =>
-        (i32(3)*(r * r)),
+        (i32(3) * (r * r)),
       .Rectangle(w, h) =>
         (w * h)
     )

@@ -26,7 +26,7 @@ MASK :: u64(31);
 /// Count the number of set bits in a u32 (popcount).
 popcount :: (fn(x : u32) -> u32)({
   (v : u32) = x;
-  v = (v-((v >> u32(1)) & u32(1431655765)));
+  v = (v - ((v >> u32(1)) & u32(1431655765)));
   v = ((v & u32(858993459)) + ((v >> u32(2)) & u32(858993459)));
   (((v + (v >> u32(4))) & u32(252645135)) * u32(16843009)) >> u32(24)
 });
@@ -151,7 +151,7 @@ _alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, w
   )
 });
 _branch_index_for :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send), V <: Send)) -> u8)(
-  u8(popcount(branch.bitmap&(bit - u32(1))))
+  u8(popcount(branch.bitmap & (bit - u32(1))))
 );
 _branch_has_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send), V <: Send)) -> bool)(
   (branch.bitmap & bit) != u32(0)
@@ -219,11 +219,11 @@ _branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : Ma
   if(usize(idx) > usize(0), {
     _copy_children(K, V, new_ptr, branch._children_ptr, u8(0), u8(0), idx);
   });
-  remaining := (branch._children_len-(idx + u8(1)));
+  remaining := (branch._children_len - (idx + u8(1)));
   if(usize(remaining) > usize(0), {
     _copy_children(K, V, new_ptr, branch._children_ptr, idx, idx + u8(1), remaining);
   });
-  MapBranch(K, V)(bitmap : (branch.bitmap&(~(bit))), _children_ptr : new_ptr, _children_len : new_len)
+  MapBranch(K, V)(bitmap : (branch.bitmap & (~(bit))), _children_ptr : new_ptr, _children_len : new_len)
 });
 // -- MapCollision helpers --
 _alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where(K <: (Eq(K), Hash, Send), V <: Send)) -> *(Pair(K, V)))({
@@ -291,7 +291,7 @@ _coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapColli
       if(usize(idx) > usize(0), {
         _copy_pairs(K, V, new_ptr, coll._pairs_ptr, usize(0), usize(0), idx);
       });
-      remaining := (coll._pairs_len-(idx + usize(1)));
+      remaining := (coll._pairs_len - (idx + usize(1)));
       if(usize(remaining) > usize(0), {
         _copy_pairs(K, V, new_ptr, coll._pairs_ptr, idx, idx + usize(1), remaining);
       });

@@ -82,12 +82,12 @@ _K :: Array(u32, usize(64))(
 _rotr32 :: (fn(x : u32, n : u32) -> u32)(
   (x >> n) | (x << (u32(32) - n))
 );
-_ch :: (fn(e : u32, f : u32, g : u32) -> u32)((e & f)^((~(e)) & g));
-_maj :: (fn(a : u32, b : u32, c : u32) -> u32)(((a & b)^(a & c))^(b & c));
+_ch :: (fn(e : u32, f : u32, g : u32) -> u32)((e & f) ^ ((~(e)) & g));
+_maj :: (fn(a : u32, b : u32, c : u32) -> u32)(((a & b) ^ (a & c)) ^ (b & c));
 _ep0 :: (fn(a : u32) -> u32)((_rotr32(a, u32(2)) ^ _rotr32(a, u32(13))) ^ _rotr32(a, u32(22)));
 _ep1 :: (fn(e : u32) -> u32)((_rotr32(e, u32(6)) ^ _rotr32(e, u32(11))) ^ _rotr32(e, u32(25)));
-_sg0 :: (fn(x : u32) -> u32)((_rotr32(x, u32(7)) ^ _rotr32(x, u32(18)))^(x >> u32(3)));
-_sg1 :: (fn(x : u32) -> u32)((_rotr32(x, u32(17)) ^ _rotr32(x, u32(19)))^(x >> u32(10)));
+_sg0 :: (fn(x : u32) -> u32)((_rotr32(x, u32(7)) ^ _rotr32(x, u32(18))) ^ (x >> u32(3)));
+_sg1 :: (fn(x : u32) -> u32)((_rotr32(x, u32(17)) ^ _rotr32(x, u32(19))) ^ (x >> u32(10)));
 // Process one 512-bit block. `block` must be 64 bytes. `h` is 8 u32 words.
 _sha256_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
   w := Array(u32, usize(64)).fill(u32(0));

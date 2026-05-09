@@ -67,13 +67,13 @@ _from_unix_secs :: (fn(secs : i64, nanos : i64) -> DateTime)({
     (z >= i64(0)) => (z / i64(146097)),
     true => ((z - i64(146096)) / i64(146097))
   );
-  doe := (z-(era * i64(146097)));
-  yoe := (((doe-(doe / i64(1460))) + (doe / i64(36524)))-(doe / i64(146096)));
+  doe := (z - (era * i64(146097)));
+  yoe := (((doe - (doe / i64(1460))) + (doe / i64(36524))) - (doe / i64(146096)));
   yoe = (yoe / i64(365));
   y := (yoe + (era * i64(400)));
-  doy := (doe-(((i64(365) * yoe) + (yoe / i64(4)))-(yoe / i64(100))));
+  doy := (doe - (((i64(365) * yoe) + (yoe / i64(4))) - (yoe / i64(100))));
   mp := (((i64(5) * doy) + i64(2)) / i64(153));
-  d := (doy-(((i64(153) * mp) + i64(2)) / i64(5)));
+  d := (doy - (((i64(153) * mp) + i64(2)) / i64(5)));
   m := cond(
     (mp < i64(10)) => (mp + i64(3)),
     true => (mp - i64(9))
@@ -124,13 +124,13 @@ impl(
       (y2 >= i64(0)) => (y2 / i64(400)),
       true => ((y2 - i64(399)) / i64(400))
     );
-    yoe := (y2-(era * i64(400)));
+    yoe := (y2 - (era * i64(400)));
     mp := cond(
       (m > i64(2)) => (m - i64(3)),
       true => (m + i64(9))
     );
     doy := ((((i64(153) * mp) + i64(2)) / i64(5)) + (d - i64(1)));
-    doe := ((((yoe * i64(365)) + (yoe / i64(4)))-(yoe / i64(100))) + doy);
+    doe := ((((yoe * i64(365)) + (yoe / i64(4))) - (yoe / i64(100))) + doy);
     days := (((era * i64(146097)) + doe) - i64(719468));
     time_secs := (((i64(self.hour) * i64(3600)) + (i64(self.minute) * i64(60))) + i64(self.second));
     (days * i64(86400)) + time_secs
@@ -160,7 +160,7 @@ impl(
       (i32(self.month) < i32(3)) => (self.year - i32(1)),
       true => self.year
     );
-    sum := (((((y + (y / i32(4)))-(y / i32(100))) + (y / i32(400))) + t(usize(i32(self.month) - i32(1)))) + i32(self.day));
+    sum := (((((y + (y / i32(4))) - (y / i32(100))) + (y / i32(400))) + t(usize(i32(self.month) - i32(1)))) + i32(self.day));
     dow := (sum % i32(7));
     // Convert: 0=Sun → remap to 0=Mon
     u8(
