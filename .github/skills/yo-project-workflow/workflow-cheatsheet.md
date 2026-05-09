@@ -18,6 +18,7 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Inspect generated C       | `yo compile main.yo --emit-c --skip-c-compiler`           |
 | Run tests in one file     | `yo test ./tests/main.test.yo --parallel 1`               |
 | Filter tests by name      | `yo test ./tests/main.test.yo --test-name-pattern "Name"` |
+| Tune test batch size      | `yo test ./tests/main.test.yo --test-batch-size 100`      |
 | Format Yo source          | `yo fmt ./src ./tests`                                    |
 | Check Yo formatting       | `yo fmt --check`                                          |
 | Generate docs for project | `yo doc ./src`                                            |
@@ -104,6 +105,7 @@ yo test ./tests/main.test.yo --bail --verbose --parallel 1
 
 - Use `--parallel 1` for focused, readable single-file runs
 - Use `--test-name-pattern` when a file contains many tests
+- Use `--test-batch-size N` if a large `.test.yo` file generates C that compiles slowly or looks stuck
 - Use `yo build test` when the repository's main test workflow is defined in `build.yo`
 
 ## Formatting

@@ -1254,7 +1254,7 @@ test("Phase 5gb: string comparison operations", {
       }
     )
   );
-  src := "export((\"abc\" < \"abd\");\nexport((\"xyz\" > \"abc\"));\nexport((\"hello\" == \"hello\"));\nexport((\"aa\" < \"ab\"));)";
+  src := "export((\"abc\" < \"abd\"));\nexport((\"xyz\" > \"abc\"));\nexport((\"hello\" == \"hello\"));\nexport((\"aa\" < \"ab\"));";
   exprs := generate_exprs_from_code(src, using(exn));
   result := evaluate_module_body(exprs, &(env));
   match(
@@ -1339,7 +1339,7 @@ test("Phase 5gb: multiple return(points function)", {
       }
     )
   );
-  src := "classify := (fn(n : i32) -> str)({\ncond((n < i32(0)) => { return(\"negative\"; }, true => ());\ncond((n == i32(0)) => { return(\"zero\"); }, true => ());\ncond(((n % i32(2)) == i32(0)) => { return(\"even\"); }, true => ());\n\"odd\"\n});\nexport((classify(i32(-(3))) == \"negative\"));\nexport((classify(i32(0)) == \"zero\"));\nexport((classify(i32(4)) == \"even\"));\nexport((classify(i32(7)) == \"odd\"));)";
+  src := "classify := (fn(n : i32) -> str)({\ncond((n < i32(0)) => { return(\"negative\"); }, true => ());\ncond((n == i32(0)) => { return(\"zero\"); }, true => ());\ncond(((n % i32(2)) == i32(0)) => { return(\"even\"); }, true => ());\n\"odd\"\n});\nexport((classify(i32(-(3))) == \"negative\"));\nexport((classify(i32(0)) == \"zero\"));\nexport((classify(i32(4)) == \"even\"));\nexport((classify(i32(7)) == \"odd\"));";
   exprs := generate_exprs_from_code(src, using(exn));
   result := evaluate_module_body(exprs, &(env));
   match(

@@ -222,14 +222,7 @@ is_pkg_config_available :: (
   io.async((using(io, exn)) => {
     cmd := Command.new(String.from("pkg-config"));
     cmd.arg(String.from("--version"));
-    given(try_exn) := Exception(
-      throw : (
-        (err) -> {
-          return(ExitStatus(raw : i32(1)));
-        }
-      )
-    );
-    status := io.await(cmd.status(using(io, try_exn)));
+    status := io.await(cmd.status(using(io, exn)));
     status.success()
   })
 );
@@ -246,14 +239,7 @@ query_pkg_config :: (
     cflags_cmd := Command.new(String.from("pkg-config"));
     cflags_cmd.arg(String.from("--cflags"));
     cflags_cmd.arg(pkg_name);
-    given(cflags_exn) := Exception(
-      throw : (
-        (err) -> {
-          return(Output(status : ExitStatus(raw : i32(1)), stdout : ArrayList(u8).new(), stderr : ArrayList(u8).new()));
-        }
-      )
-    );
-    cflags_out := io.await(cflags_cmd.output(using(io, cflags_exn)));
+    cflags_out := io.await(cflags_cmd.output(using(io, exn)));
     if(!(cflags_out.status.success()), {
       return(Option(PkgConfigResult).None);
     });
@@ -261,14 +247,7 @@ query_pkg_config :: (
     ldflags_cmd := Command.new(String.from("pkg-config"));
     ldflags_cmd.arg(String.from("--libs"));
     ldflags_cmd.arg(pkg_name);
-    given(ldflags_exn) := Exception(
-      throw : (
-        (err) -> {
-          return(Output(status : ExitStatus(raw : i32(1)), stdout : ArrayList(u8).new(), stderr : ArrayList(u8).new()));
-        }
-      )
-    );
-    ldflags_out := io.await(ldflags_cmd.output(using(io, ldflags_exn)));
+    ldflags_out := io.await(ldflags_cmd.output(using(io, exn)));
     if(!(ldflags_out.status.success()), {
       return(Option(PkgConfigResult).None);
     });

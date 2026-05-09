@@ -300,55 +300,85 @@ evaluate_module_value :: (
     },
     .None => ()
   );
-  // Process each field expression: name : fn_def
+  // Process each field expression: `name : fn_def` or a trait constructor
+  // like `Trait(name: fn_def, ...)` whose inner args are colon pairs.
   (field_idx : usize) = usize(1);
   while(runtime(field_idx < n_args), {
     match(
       args.get(field_idx),
       .None => (),
       .Some(field_expr) => {
-        // Only handle `name : fn_def` infix forms.
+        // Collect method colon-pair expressions from either the direct form
+        // `name : fn_def` or from inside a trait constructor `Trait(name: fn_def, ...)`.
+        (method_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
         if(ast_expr_is_fn_call(field_expr) && ast_expr_is_fn_call_of(field_expr, BK_COLON,.Some(usize(2))), {
-          colon_args := match(
+          // Direct colon pair: add it directly.
+          method_exprs.push(field_expr);
+        });
+        if(ast_expr_is_fn_call(field_expr) && !(ast_expr_is_fn_call_of(field_expr, BK_COLON,.Some(usize(2)))), {
+          // Non-colon FnCall: treat as trait constructor, extract its colon-pair args.
+          trait_inner_args := match(
             field_expr,
-            .FnCall(_, _, ca, _, _) => ca,
+            .FnCall(_, _, tia, _, _) => tia,
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
-          name_expr := match(colon_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
-          val_expr := match(colon_args.get(usize(1)),.Some(e) => e,.None => make_err_expr());
-          // Build qualified name: ReceiverType.method_name
-          name_tok := ast_expr_token(name_expr);
-          method_name := (&(name_tok.value)).clone();
-          qualified := `${receiver_name}.${method_name}`;
-          // Evaluate the method value expression.
-          saved2 := ctx.*.expected_type;
-          ctx.*.expected_type =.None;
-          eval_val := evaluate_expression_raw(val_expr, local_env, ctx, using(exn));
-          ctx.*.expected_type = saved2;
-          // Register the method in env under the qualified name.
+          (ti2 : usize) = usize(0);
+          while(runtime(ti2 < trait_inner_args.len()), {
+            match(
+              trait_inner_args.get(ti2),
+              .None => (),
+              .Some(inner_e) => {
+                if(ast_expr_is_fn_call(inner_e) && ast_expr_is_fn_call_of(inner_e, BK_COLON,.Some(usize(2))), {
+                  method_exprs.push(inner_e);
+                });
+              }
+            );
+            ti2 = (ti2 + usize(1));
+          });
+        });
+        // Register each collected colon-pair method expression.
+        (mj : usize) = usize(0);
+        while(runtime(mj < method_exprs.len()), {
           match(
-            expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(eval_val)),
+            method_exprs.get(mj),
             .None => (),
-            .Some(fi) => {
-              local_env = fi.env;
-              method_val := match(fi.value,.Some(v) => v,.None => EvalValue.UnitVal);
-              _dv := add_variable_to_env(
-                &(local_env),
-                qualified,
-                fi.ty,
-                .Some(method_val),
-                true,
-                // is_compile_time_only
-                false,
-                // is_reassignable
-                false,
-                // is_owning_the_rc_value
-                false,
-                // is_implicit
-                name_tok
+            .Some(meth_expr) => {
+              colon_args := match(
+                meth_expr,
+                .FnCall(_, _, ca, _, _) => ca,
+                .Atom(_, _) => ArrayList(AstExpr).new()
+              );
+              name_expr := match(colon_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+              val_expr := match(colon_args.get(usize(1)),.Some(e) => e,.None => make_err_expr());
+              name_tok := ast_expr_token(name_expr);
+              method_name := (&(name_tok.value)).clone();
+              qualified := `${receiver_name}.${method_name}`;
+              saved2 := ctx.*.expected_type;
+              ctx.*.expected_type =.None;
+              eval_val := evaluate_expression_raw(val_expr, local_env, ctx, using(exn));
+              ctx.*.expected_type = saved2;
+              match(
+                expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(eval_val)),
+                .None => (),
+                .Some(fi) => {
+                  local_env = fi.env;
+                  method_val := match(fi.value,.Some(v) => v,.None => EvalValue.UnitVal);
+                  _dv := add_variable_to_env(
+                    &(local_env),
+                    qualified,
+                    fi.ty,
+                    .Some(method_val),
+                    true,
+                    false,
+                    false,
+                    false,
+                    name_tok
+                  );
+                }
               );
             }
           );
+          mj = (mj + usize(1));
         });
       }
     );

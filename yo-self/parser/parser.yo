@@ -871,9 +871,11 @@ impl(
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     });
+    // No separator seen means a single expression or empty block → begin block, not anon struct.
+    // Comma separator → anonymous struct; semicolon separator → begin block.
     is_comma := match(
       separator_is_comma,
-      .None => true,
+      .None => false,
       .Some(__sb) => __sb
     );
     cond(

@@ -3646,7 +3646,77 @@ handle_impl_form :: (
                           },
                           .FnCall(_, _, _, _, _) => ()
                         ),
-                      true => ()
+                      true => {
+                        // Non-infix FnCall: may be a trait constructor like
+                        // ToString(to_string: fn_def). Iterate its args and
+                        // register any colon-pair method impls.
+                        (tmi : usize) = usize(0);
+                        while(runtime((tmi < colon_args.len()) && mok), {
+                          match(
+                            colon_args.get(tmi),
+                            .Some(inner_expr) =>
+                              match(
+                                inner_expr,
+                                .FnCall(_, inner_func, inner_args, inner_infix, _) => {
+                                  cond(
+                                    (inner_infix) =>
+                                      match(
+                                        inner_func.*,
+                                        .Atom(_, inner_tok) => {
+                                          cond(
+                                            (inner_tok.value.as_str() == ":") => {
+                                              match(
+                                                inner_args.get(usize(0)),
+                                                .Some(iname_expr) =>
+                                                  match(
+                                                    iname_expr,
+                                                    .Atom(_, iname_tok) => {
+                                                      match(
+                                                        inner_args.get(usize(1)),
+                                                        .Some(ifn_expr) => {
+                                                          match(
+                                                            match(
+                                                              g_eval_fn,
+                                                              .Some(ef) => ef(ifn_expr, env),
+                                                              .None => Option(EvalResult).None
+                                                            ),
+                                                            .Some(imres) => {
+                                                              iqn := `${String.from(ty_nm)}.${iname_tok.value}`;
+                                                              _idm := env.define_val(
+                                                                iqn,
+                                                                type_of_eval_value(imres.value),
+                                                                value_is_comptime(imres.value),
+                                                                .Some(imres.value)
+                                                              );
+                                                            },
+                                                            .None => {
+                                                              mok = false;
+                                                            }
+                                                          );
+                                                        },
+                                                        .None => ()
+                                                      );
+                                                    },
+                                                    .FnCall(_, _, _, _, _) => ()
+                                                  ),
+                                                .None => ()
+                                              );
+                                            },
+                                            true => ()
+                                          );
+                                        },
+                                        .FnCall(_, _, _, _, _) => ()
+                                      ),
+                                    true => ()
+                                  );
+                                },
+                                .Atom(_, _) => ()
+                              ),
+                            .None => ()
+                          );
+                          tmi = (tmi + usize(1));
+                        });
+                      }
                     );
                   },
                   _ => ()

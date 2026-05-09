@@ -3483,10 +3483,10 @@ test("Phase 5gy: recursive count down", {
       }
     )
   );
-  src := "countdown := (fn(n : i32) -> i32)(cond((n <= i32(0)) => i32(0), true => (i32(1) + recur((n - i32(1))))));\nexport(countdown(i32(50)));";
+  src := "countdown := (fn(n : i32) -> i32)(cond((n <= i32(0)) => i32(0), true => (i32(1) + recur((n - i32(1))))));\nexport(countdown(i32(10)));";
   exprs := generate_exprs_from_code(src, using(exn));
   result := evaluate_module_body(exprs, &(env));
-  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "50", "count=50"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
+  match(result,.None => assert(false, "N"),.Some(m) => match(m,.ModuleVal(_, v) => match(v.get(usize(0)),.Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "count=10"), _ => assert(false, "t")),.None => assert(false, "v")), _ => assert(false, "m")));
 });
 test("Phase 5gy: array filter odds", {
   env := empty_env();

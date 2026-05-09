@@ -21,7 +21,11 @@ import {
   isTargetWindows,
   parseTarget,
 } from "./target";
-import { findTestFiles, runTests } from "./test-runner";
+import {
+  DEFAULT_TEST_BATCH_SIZE,
+  findTestFiles,
+  runTests,
+} from "./test-runner";
 import { getCurrentYoVersion, readYoVersion } from "./version";
 import {
   cleanVersionCache,
@@ -518,6 +522,12 @@ yo --version                     Show version number
               "Print per-test timing breakdown (Yo compile, C compile, run) and heap usage",
             type: "boolean",
             default: false,
+          })
+          .option("test-batch-size", {
+            describe:
+              "Maximum number of tests to compile into one generated test binary",
+            type: "number",
+            default: DEFAULT_TEST_BATCH_SIZE,
           });
       },
       async (argv) => {
@@ -532,6 +542,11 @@ yo --version                     Show version number
         const parallel = argv.parallel as number;
         if (parallel < 0) {
           console.error("Error: --parallel value cannot be negative");
+          process.exit(1);
+        }
+        const testBatchSize = argv.testBatchSize as number;
+        if (!Number.isInteger(testBatchSize) || testBatchSize < 1) {
+          console.error("Error: --test-batch-size must be a positive integer");
           process.exit(1);
         }
 
@@ -570,6 +585,7 @@ yo --version                     Show version number
           keepGeneratedFiles: argv.keepGeneratedFiles as boolean,
           noSanitize: argv.disableSanitize as boolean,
           profile: argv.profile as boolean,
+          testBatchSize,
         });
 
         if (argv.jsonSummary as boolean) {

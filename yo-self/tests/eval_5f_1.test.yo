@@ -1349,7 +1349,7 @@ test("Phase 5fa: for loop array", {
       }
     )
   );
-  src := "arr := [i32(1), i32(2), i32(3)];\n(sum : i32) = i32(0);\nfor item, arr, {\n  sum = (sum + item);\n};\nexport(sum);";
+  src := "arr := [i32(1), i32(2), i32(3)];\n(sum : i32) = i32(0);\nfor(item, arr, {\n  sum = (sum + item);\n});\nexport(sum);";
   exprs := generate_exprs_from_code(src, using(exn));
   result := evaluate_module_body(exprs, &(env));
   match(
@@ -3120,7 +3120,7 @@ test("Phase 5fe: multiple modules", {
       )
     )
   );
-  src := "open(import(\"constants\";\nopen(import(\"defaults\"));\nexport((MAX + START));))";
+  src := "open(import(\"constants\"));\nopen(import(\"defaults\"));\nexport((MAX + START));";
   exprs := generate_exprs_from_code(src, using(exn));
   result := evaluate_module_body(exprs, &(env));
   match(
