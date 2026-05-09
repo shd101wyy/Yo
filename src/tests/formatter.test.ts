@@ -217,6 +217,25 @@ assert((ptr &+ 1).* == 84);
     expect(formatYoSource(once)).toBe(once);
   });
 
+  test("keeps space between infix operator and following prefix operator", () => {
+    // "||!" must not merge into a single operator token
+    const source = `if(!(major_ok)
+|| !(minor_ok)
+|| !(patch_ok), {
+  return(1);
+});`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`if(!(major_ok)
+|| !(minor_ok)
+|| !(patch_ok), {
+  return(1);
+});
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
   test("canonicalizes parenthesized dot dereference sugar", () => {
     const source = `main::(fn()->unit)({
 assert(a.(*) == 99);

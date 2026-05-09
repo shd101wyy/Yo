@@ -1195,9 +1195,10 @@ function prefixOperatorNeedsLeadingSpace(
   return (
     previous?.type === TokenType.Comma ||
     (token.value === "<:!" && previous !== undefined) ||
-    (token.value === "-" && previous?.type === TokenType.Operator) ||
-    (previous?.type === TokenType.Operator &&
-      operatorAllowsUngroupedRhs(previous.value))
+    // Any infix operator (e.g. ||, &&, +) before a prefix op needs a space so
+    // they don't merge into a single lexer token (e.g. "||!" or "+!").
+    // The dot operator is excluded because it binds tightly (e.g. ptr.*(x)).
+    (previous?.type === TokenType.Operator && previous.value !== ".")
   );
 }
 
