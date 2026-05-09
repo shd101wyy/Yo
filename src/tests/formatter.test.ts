@@ -402,6 +402,24 @@ expr := quote(self.(#(field.name.to_expr())).my_eq(other.#(field.name.to_expr())
     expect(formatYoSource(once)).toBe(once);
   });
 
+  test("treats operator with space before '(' as infix", () => {
+    // sum.* = (...) — '=' has space before '(' so it's infix assignment,
+    // not a prefix operator on a parenthesized expression.
+    const source = `main :: (fn() -> unit)({
+  sum.* = (sum.* + result);
+  counter.* = (counter.* + 1);
+});`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`main :: (fn() -> unit)({
+  sum.* = (sum.* + result);
+  counter.* = (counter.* + 1);
+});
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
   test("keeps optional type syntax tight", () => {
     // ? is a prefix type operator: ?(V) means Option(V)
     const source = `get :: (fn(self : Self, k : K) -> ?(V))({});`;

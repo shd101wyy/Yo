@@ -1233,9 +1233,20 @@ function isTightlyBoundOperator(
   if (previous?.type === TokenType.Dot) {
     return true;
   }
-  // An operator followed by '(' is a prefix op (tight) unless the previous
-  // token is an rvalue-end — in that case the operator is infix, not prefix.
   if (next?.type !== TokenType.LParen) {
+    return false;
+  }
+  // Tight only when both:
+  //   1. There is no whitespace between the operator and the '(' in the source
+  //      (e.g. !(x), ?(V), *(T)). If the user wrote "= (x)", the space signals
+  //      an infix operator with a parenthesized RHS, not a prefix op.
+  //   2. The previous token is not an rvalue-end (atom, ')', ']', '}'). If it
+  //      is, the operator is infix even when there's no space before '(',
+  //      e.g. main::(fn()...) — '::' is infix between 'main' and '(fn...)'.
+  const noSpaceBeforeParen =
+    next.position.row === token.position.row &&
+    next.position.column === token.position.column + token.value.length;
+  if (!noSpaceBeforeParen) {
     return false;
   }
   const prevIsRvalueEnd =
