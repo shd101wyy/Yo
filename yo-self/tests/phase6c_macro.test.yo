@@ -8,21 +8,25 @@
 ///   y := id_macro(42);
 /// `y` should be `IntLit("42")` — i.e. the `42` literal returned by the
 /// macro after splicing.
-
 open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/error"));
-{ ArrayList }                      :: import("std/collections/array_list");
-{ Token, TokenKind }               :: import("../lexer/token.yo");
-{ EvalValue }                      :: import("../evaluator/value.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ Token, TokenKind } :: import("../lexer/token.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
 { has_comment_attribute, Evaluator } :: import("../evaluator/index.yo");
-
 noop_loader :: (fn(_path : String) -> Option(EvalValue))(
   Option(EvalValue).None
 );
-
 test("Phase6c verify: identity macro expands correctly", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        escape(());
+      }
+    )
+  );
   src := String.from("// @skip_prelude\nid_macro :: (fn(quote(e) : Expr) -> unquote(Expr))(quote(unquote(e)));\ny := id_macro(42);\nexport(y);\n");
   eval := Evaluator.new(
     String.from("<phase6c1>"),
@@ -31,45 +35,72 @@ test("Phase6c verify: identity macro expands correctly", {
     src,
     using(exn)
   );
-  match(eval.get_module_error(),
-    .Some(_) => { assert(false, "module_error on identity macro"); },
-    .None    => ()
+  match(
+    eval.get_module_error(),
+    .Some(_) => {
+      assert(false, "module_error on identity macro");
+    },
+    .None => ()
   );
-  match(eval.get_module_value(),
-    .None => { assert(false, "no module value produced"); },
-    .Some(mv) => match(mv,
+  match(
+    eval.get_module_value(),
+    .None => {
+      assert(false, "no module value produced");
+    },
+    .Some(mv) => match(
+      mv,
       .ModuleVal(names, values) => {
-        (found_idx : Option(usize)) = .None;
+        (found_idx : Option(usize)) =.None;
         (i : usize) = usize(0);
         n := names.len();
-        while(runtime((i < n)), {
-          match(names.get(i),
+        while(runtime(i < n), {
+          match(
+            names.get(i),
             .Some(nm) => cond(
-              (nm.as_str() == "y") => { found_idx = .Some(i); },
+              (nm.as_str() == "y") => {
+                found_idx =.Some(i);
+              },
               true => ()
             ),
             .None => ()
           );
           i = (i + usize(1));
         });
-        match(found_idx,
-          .None      => { assert(false, "y not in module exports"); },
-          .Some(idx) => match(values.get(idx),
-            .None      => { assert(false, "y index missing in values"); },
-            .Some(yv)  => match(yv,
-              .IntLit(s) => assert((s.as_str() == "42"), "y is not 42"),
-              _ => { assert(false, "y is not an IntLit"); }
+        match(
+          found_idx,
+          .None => {
+            assert(false, "y not in module exports");
+          },
+          .Some(idx) => match(
+            values.get(idx),
+            .None => {
+              assert(false, "y index missing in values");
+            },
+            .Some(yv) => match(
+              yv,
+              .IntLit(s) => assert(s.as_str() == "42", "y is not 42"),
+              _ => {
+                assert(false, "y is not an IntLit");
+              }
             )
           )
         );
       },
-      _ => { assert(false, "module value is not ModuleVal"); }
+      _ => {
+        assert(false, "module value is not ModuleVal");
+      }
     )
   );
 });
-
 test("Phase6c verify: two-arg macro builds sum AST", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        escape(());
+      }
+    )
+  );
   src := String.from("// @skip_prelude\nadd_macro :: (fn(quote(a) : Expr, quote(b) : Expr) -> unquote(Expr))(quote((unquote(a) + unquote(b))));\nz := add_macro(3, 4);\nexport(z);\n");
   eval := Evaluator.new(
     String.from("<phase6c2>"),
@@ -78,39 +109,60 @@ test("Phase6c verify: two-arg macro builds sum AST", {
     src,
     using(exn)
   );
-  match(eval.get_module_error(),
-    .Some(_) => { assert(false, "module_error on add_macro"); },
-    .None    => ()
+  match(
+    eval.get_module_error(),
+    .Some(_) => {
+      assert(false, "module_error on add_macro");
+    },
+    .None => ()
   );
-  match(eval.get_module_value(),
-    .None => { assert(false, "no module value produced"); },
-    .Some(mv) => match(mv,
+  match(
+    eval.get_module_value(),
+    .None => {
+      assert(false, "no module value produced");
+    },
+    .Some(mv) => match(
+      mv,
       .ModuleVal(names, values) => {
-        (found_idx : Option(usize)) = .None;
+        (found_idx : Option(usize)) =.None;
         (i : usize) = usize(0);
         n := names.len();
-        while(runtime((i < n)), {
-          match(names.get(i),
+        while(runtime(i < n), {
+          match(
+            names.get(i),
             .Some(nm) => cond(
-              (nm.as_str() == "z") => { found_idx = .Some(i); },
+              (nm.as_str() == "z") => {
+                found_idx =.Some(i);
+              },
               true => ()
             ),
             .None => ()
           );
           i = (i + usize(1));
         });
-        match(found_idx,
-          .None      => { assert(false, "z not in module exports"); },
-          .Some(idx) => match(values.get(idx),
-            .None      => { assert(false, "z index missing in values"); },
-            .Some(zv)  => match(zv,
-              .IntLit(s) => assert((s.as_str() == "7"), "z is not 7"),
-              _ => { assert(false, "z is not an IntLit"); }
+        match(
+          found_idx,
+          .None => {
+            assert(false, "z not in module exports");
+          },
+          .Some(idx) => match(
+            values.get(idx),
+            .None => {
+              assert(false, "z index missing in values");
+            },
+            .Some(zv) => match(
+              zv,
+              .IntLit(s) => assert(s.as_str() == "7", "z is not 7"),
+              _ => {
+                assert(false, "z is not an IntLit");
+              }
             )
           )
         );
       },
-      _ => { assert(false, "module value is not ModuleVal"); }
+      _ => {
+        assert(false, "module value is not ModuleVal");
+      }
     )
   );
 });

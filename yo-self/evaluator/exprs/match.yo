@@ -2,40 +2,45 @@
 //! 1:1 port of `src/evaluator/exprs/match.ts` (Phase 2ae-main).
 //!
 //! Exported symbols: evaluate_match
-
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-
 {
   AstExpr,
-  ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of,
-  make_err_expr, BK_MATCH
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom_of,
+  make_err_expr,
+  BK_MATCH
 } :: import("../../expr/expr.yo");
-
 {
-  ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set,
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set,
   ControlFlowFlags,
-  has_control_flow, has_any_control_flow, merge_control_flows
+  has_control_flow,
+  has_any_control_flow,
+  merge_control_flows
 } :: import("../../expr/expr_info.yo");
-
 { Environment, Variable } :: import("../../env/env.yo");
-{ add_variable_to_env }   :: import("../../env/env.yo");
-
+{ add_variable_to_env } :: import("../../env/env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-
 {
-  EvalValue, create_unknown_val,
-  is_enum_val, is_unknown_val
+  EvalValue,
+  create_unknown_val,
+  is_enum_val,
+  is_unknown_val
 } :: import("../value.yo");
-
 { value_to_string } :: import("../value.yo");
-
 {
-  TypeValue, t_unit, t_ptr
+  TypeValue,
+  t_unit,
+  t_ptr
 } :: import("../../types/type.yo");
-
 {
   is_bool_type,
   is_enum_type,
@@ -48,67 +53,65 @@ open(import("std/string"));
   is_comptime_string_type,
   is_function_type_and_returns_comptime_value
 } :: import("../../types/guards.yo");
-
 {
   type_contains_some_type,
   convert_comptime_type_to_runtime_type
 } :: import("../../types/utils.yo");
-
 { are_types_compatible } :: import("../../types/compatibility.yo");
-
 { type_to_string } :: import("../../types/string.yo");
-
 { format_error_message } :: import("../../error/error.yo");
-
 {
   merge_and_check_envs,
   consume_case_body_temp_var,
   attach_temp_variable_to_expr,
   are_values_equal
 } :: import("../utils.yo");
-
 { evaluate_begin_expression } :: import("./begin.yo");
-{ evaluate_expression }       :: import("./expr.yo");
-
+{ evaluate_expression } :: import("./expr.yo");
 { Exception } :: import("std/error");
-
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
-
 /// Linear search: does `list` contain a String equal to `s`?
 contains_str_in_list :: (fn(list : ArrayList(String), s : str) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
-  while(runtime(((i < list.len()) && !(found))), {
-    match(list.get(i),
-      .Some(item) => { if((item.as_str() == s), { found = true; }); },
-      .None       => ()
+  while(runtime((i < list.len()) && !(found)), {
+    match(
+      list.get(i),
+      .Some(item) => {
+        if(item.as_str() == s, {
+          found = true;
+        });
+      },
+      .None => ()
     );
     i = (i + usize(1));
   });
   found
 });
-
 /// Linear search: return the index of the first String in `list` equal to `s`.
 find_str_in_list :: (fn(list : ArrayList(String), s : str) -> Option(usize))({
   (i : usize) = usize(0);
   (result : Option(usize)) = Option(usize).None;
-  while(runtime(((i < list.len()) && result.is_none())), {
-    match(list.get(i),
-      .Some(item) => { if((item.as_str() == s), { result = Option(usize).Some(i); }); },
-      .None       => ()
+  while(runtime((i < list.len()) && result.is_none()), {
+    match(
+      list.get(i),
+      .Some(item) => {
+        if(item.as_str() == s, {
+          result = Option(usize).Some(i);
+        });
+      },
+      .None => ()
     );
     i = (i + usize(1));
   });
   result
 });
-
 /// True when `expr` is an or-pattern `|(a, b)`.
 is_or_pattern :: (fn(expr : AstExpr) -> bool)(
-  (ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "|", .Some(usize(2))))
+  ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "|",.Some(usize(2)))
 );
-
 /// Flatten an or-pattern `(a | b | c)` into `[a, b, c]`.
 /// Uses `recur` for self-recursion.
 flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
@@ -117,213 +120,244 @@ flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
     result.push(expr);
     return(result);
   });
-  left  := match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _)               => make_err_expr()
+  left := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
   );
-  right := match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
-    .Atom(_, _)               => make_err_expr()
+  right := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
   );
-  left_flat  := recur(left);
+  left_flat := recur(left);
   right_flat := recur(right);
   result := ArrayList(AstExpr).new();
   (lfi : usize) = usize(0);
-  while(runtime((lfi < left_flat.len())), {
-    match(left_flat.get(lfi), .Some(e) => { result.push(e); }, .None => ());
+  while(runtime(lfi < left_flat.len()), {
+    match(
+      left_flat.get(lfi),
+      .Some(e) => {
+        result.push(e);
+      },
+      .None => ()
+    );
     lfi = (lfi + usize(1));
   });
   (rfi : usize) = usize(0);
-  while(runtime((rfi < right_flat.len())), {
-    match(right_flat.get(rfi), .Some(e) => { result.push(e); }, .None => ());
+  while(runtime(rfi < right_flat.len()), {
+    match(
+      right_flat.get(rfi),
+      .Some(e) => {
+        result.push(e);
+      },
+      .None => ()
+    );
     rfi = (rfi + usize(1));
   });
   result
 });
-
 /// True when `ty` is a primitive type that can be matched (int, float, bool, comptime_*).
 is_matchable_primitive_type :: (fn(ty : TypeValue) -> bool)(
-  ((((is_integer_type(ty) || is_float_type(ty)) || is_c_compatible_type(ty)) ||
-    (is_bool_type(ty) || is_comptime_int_type(ty))) ||
-    (is_comptime_float_type(ty) || is_comptime_string_type(ty)))
+  (
+    ((is_integer_type(ty) || is_float_type(ty)) || is_c_compatible_type(ty)) ||
+      (is_bool_type(ty) || is_comptime_int_type(ty))
+  ) ||
+    (is_comptime_float_type(ty) || is_comptime_string_type(ty))
 );
-
 // ---------------------------------------------------------------------------
 // evaluate_primitive_match
 // ---------------------------------------------------------------------------
-
 /// Evaluate `match(...)` on a primitive scrutinee (int, bool, comptime_*).
 ///
 /// Mirrors `evaluatePrimitiveMatch` in `src/evaluator/exprs/match.ts`.
-evaluate_primitive_match :: (fn(
-  expr              : AstExpr,
-  env_in            : Environment,
-  ctx               : *(EvalContext),
-  scrutinee_expr    : AstExpr,
-  scrutinee_type    : TypeValue,
-  scrutinee_val_opt : Option(EvalValue),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_primitive_match :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    scrutinee_expr : AstExpr,
+    scrutinee_type : TypeValue,
+    scrutinee_val_opt : Option(EvalValue),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   (env : Environment) = env_in;
-
-  all_args := match(expr,
+  all_args := match(
+    expr,
     .FnCall(_, _, args, _, _) => args,
-    .Atom(_, _)               => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
-
-  bodies                  := ArrayList(AstExpr).new();
+  bodies := ArrayList(AstExpr).new();
   (result_type_pm : Option(TypeValue)) = Option(TypeValue).None;
-  checked_literal_values  := ArrayList(String).new();
+  checked_literal_values := ArrayList(String).new();
   (has_case_without_cf : bool) = false;
-  (used_wildcard : bool)       = false;
-  control_flows               := ArrayList(ControlFlowFlags).new();
-  return_bodies               := ArrayList(AstExpr).new();
-
+  (used_wildcard : bool) = false;
+  control_flows := ArrayList(ControlFlowFlags).new();
+  return_bodies := ArrayList(AstExpr).new();
   (pat_i : usize) = usize(1);
-  while(runtime((pat_i < all_args.len())), {
-    pattern := match(all_args.get(pat_i),
+  while(runtime(pat_i < all_args.len()), {
+    pattern := match(
+      all_args.get(pat_i),
       .Some(p) => p,
-      .None    => { pat_i = all_args.len(); return(expr); }
+      .None => {
+        pat_i = all_args.len();
+        return(expr);
+      }
     );
     pat_i = (pat_i + usize(1));
-
     (case_env : Environment) = env;
-
-    if(!(ast_expr_is_fn_call_of(pattern, "=>", .Some(usize(2)))), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(pattern),
-        `Expected "=>" for match pattern, got ${ast_expr_to_string(pattern)}`,
-        false, .None
-      )));
+    if(!(ast_expr_is_fn_call_of(pattern, "=>",.Some(usize(2)))), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(pattern),
+            `Expected "=>" for match pattern, got ${ast_expr_to_string(pattern)}`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     });
-
-    match_arm_expr := match(pattern,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      .Atom(_, _)                => make_err_expr()
+    match_arm_expr := match(
+      pattern,
+      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
     );
-    rhs_expr := match(pattern,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
-      .Atom(_, _)                => make_err_expr()
+    rhs_expr := match(
+      pattern,
+      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
     );
-
     if(ast_expr_is_atom_of(match_arm_expr, "_"), {
       // -----------------------------------------------------------------------
       // Wildcard arm: `_ => body`
       // -----------------------------------------------------------------------
       if(used_wildcard, {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(match_arm_expr),
-          `Wildcard pattern "_" can only be used once and must be the last match arm in a "match" expression.`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(match_arm_expr),
+              `Wildcard pattern "_" can only be used once and must be the last match arm in a "match" expression.`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
       used_wildcard = true;
-
       mae_wc_info := new_expr_info(case_env, scrutinee_type);
       mae_wc_info.case_executed = Option(bool).Some(true);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_wc_info);
-
       ___ := env.push_frame(false);
-
-      is_arm_executing_wc := match(scrutinee_val_opt,
-        .None     => false,
+      is_arm_executing_wc := match(
+        scrutinee_val_opt,
+        .None => false,
         .Some(sv) => !(is_unknown_val(sv))
       );
       old_executing_wc := ctx.is_executing;
       ctx.is_executing = is_arm_executing_wc;
       evaluated_body_wc := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false);
       ctx.is_executing = old_executing_wc;
-
       env.pop_frame();
-
       body_info_wc_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wc));
       if(body_info_wc_opt.is_none(), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(rhs_expr),
-          `Expected type for match result expression, got ${ast_expr_to_string(rhs_expr)}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(rhs_expr),
+              `Expected type for match result expression, got ${ast_expr_to_string(rhs_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-      body_info_wc := match(body_info_wc_opt, .Some(bi) => bi, .None => new_expr_info(env, t_unit()));
-
+      body_info_wc := match(body_info_wc_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
       consume_case_body_temp_var(evaluated_body_wc, body_info_wc.env, ctx);
-
       if(scrutinee_val_opt.is_none(), {
         body_info_wc.value = Option(EvalValue).None;
       });
-
       if(has_any_control_flow(body_info_wc.control_flow), {
-        cf_wc := match(body_info_wc.control_flow,
+        cf_wc := match(
+          body_info_wc.control_flow,
           .Some(f) => f,
-          .None    => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: false, continue_flag: false)
+          .None => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false)
         );
         control_flows.push(cf_wc);
-        if(has_control_flow(body_info_wc.control_flow, .Return), {
+        if(has_control_flow(body_info_wc.control_flow,.Return), {
           return_bodies.push(evaluated_body_wc);
         });
         // Concrete CT match with CF → set info and return
-        (should_set_cf_wc : bool) = match(scrutinee_val_opt,
-          .None     => false,
+        (should_set_cf_wc : bool) = match(
+          scrutinee_val_opt,
+          .None => false,
           .Some(sv) => !(is_unknown_val(sv))
         );
         if(should_set_cf_wc, {
           result_ty_wc := cond(
-            match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-              match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wc.ty),
+            match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+              match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wc.ty),
             true => body_info_wc.ty
           );
           out_wc_cf := new_expr_info(body_info_wc.env, result_ty_wc);
-          out_wc_cf.value        = body_info_wc.value;
+          out_wc_cf.value = body_info_wc.value;
           out_wc_cf.control_flow = body_info_wc.control_flow;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc_cf);
           return(expr);
         }, {
           if(scrutinee_val_opt.is_none(), {
             result_ty_wc2 := cond(
-              match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-                match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wc.ty),
+              match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+                match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wc.ty),
               true => body_info_wc.ty
             );
             out_wc_cf2 := new_expr_info(body_info_wc.env, result_ty_wc2);
-            out_wc_cf2.value        = Option(EvalValue).None;
+            out_wc_cf2.value = Option(EvalValue).None;
             out_wc_cf2.control_flow = body_info_wc.control_flow;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc_cf2);
           });
         });
       }, {
         has_case_without_cf = true;
-
-        match(ctx.expected_type,
-          .None      => (),
-          .Some(et)  => {
+        match(
+          ctx.expected_type,
+          .None => (),
+          .Some(et) => {
             if(!(are_types_compatible(body_info_wc.ty, et.ty)), {
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(evaluated_body_wc),
-                `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_info_wc.ty)}`,
-                false, .None
-              )));
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(evaluated_body_wc),
+                    `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_info_wc.ty)}`,
+                    false,
+                    .None
+                  )
+                )
+              );
               return(expr);
             });
           }
         );
-
         // Wildcard matches concrete CT scrutinee: merge prev envs, set info, return
-        (should_early_return_wc : bool) = match(scrutinee_val_opt,
-          .None     => false,
+        (should_early_return_wc : bool) = match(
+          scrutinee_val_opt,
+          .None => false,
           .Some(sv) => !(is_unknown_val(sv))
         );
         if(should_early_return_wc, {
           filtered_wc := ArrayList(AstExpr).new();
           (fwc_i : usize) = usize(0);
-          while(runtime((fwc_i < bodies.len())), {
-            b_wc := match(bodies.get(fwc_i), .Some(b2) => b2, .None => make_err_expr());
-            match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_wc)),
-              .None     => (),
+          while(runtime(fwc_i < bodies.len()), {
+            b_wc := match(bodies.get(fwc_i),.Some(b2) => b2,.None => make_err_expr());
+            match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_wc)),
+              .None => (),
               .Some(bi) => {
-                if((!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Escape))), {
+                if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Escape)), {
                   filtered_wc.push(b_wc);
                 });
               }
@@ -331,38 +365,43 @@ evaluate_primitive_match :: (fn(
             fwc_i = (fwc_i + usize(1));
           });
           env = merge_and_check_envs(env, filtered_wc, ctx);
-
           result_ty_wc3 := cond(
-            match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-              match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wc.ty),
+            match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+              match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wc.ty),
             true => body_info_wc.ty
           );
           out_wc_early := new_expr_info(env, result_ty_wc3);
-          out_wc_early.value             = body_info_wc.value;
+          out_wc_early.value = body_info_wc.value;
           out_wc_early.is_primitive_match = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc_early);
           attach_temp_variable_to_expr(expr, true, ctx);
           return(expr);
         });
       });
-
       case_env = body_info_wc.env;
       bodies.push(evaluated_body_wc);
-
       if(!(has_any_control_flow(body_info_wc.control_flow)), {
-        match(result_type_pm,
-          .None     => { result_type_pm = Option(TypeValue).Some(body_info_wc.ty); },
+        match(
+          result_type_pm,
+          .None => {
+            result_type_pm = Option(TypeValue).Some(body_info_wc.ty);
+          },
           .Some(rt) => {
             if(!(are_types_compatible(body_info_wc.ty, rt)), {
               rt_wc_rt := convert_comptime_type_to_runtime_type(rt, env);
               if(are_types_compatible(body_info_wc.ty, rt_wc_rt), {
                 result_type_pm = Option(TypeValue).Some(body_info_wc.ty);
               }, {
-                exn.throw(dyn(format_error_message(
-                  ast_expr_token(evaluated_body_wc),
-                  `Incompatible types in match branches:\n- Previous: ${type_to_string(rt)}\n- Current : ${type_to_string(body_info_wc.ty)}`,
-                  false, .None
-                )));
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(evaluated_body_wc),
+                      `Incompatible types in match branches:\n- Previous: ${type_to_string(rt)}\n- Current : ${type_to_string(body_info_wc.ty)}`,
+                      false,
+                      .None
+                    )
+                  )
+                );
                 return(expr);
               });
             });
@@ -374,86 +413,98 @@ evaluate_primitive_match :: (fn(
       // Literal / or-pattern arm
       // -----------------------------------------------------------------------
       flattened := flatten_or_pattern(match_arm_expr);
-      pat_vals       := ArrayList(EvalValue).new();
+      pat_vals := ArrayList(EvalValue).new();
       pat_exprs_eval := ArrayList(AstExpr).new();
-
       (fp_i : usize) = usize(0);
-      while(runtime((fp_i < flattened.len())), {
-        fp_expr := match(flattened.get(fp_i), .Some(e) => e, .None => make_err_expr());
+      while(runtime(fp_i < flattened.len()), {
+        fp_expr := match(flattened.get(fp_i),.Some(e) => e,.None => make_err_expr());
         fp_i = (fp_i + usize(1));
-
         old_expected_fp := ctx.expected_type;
-        ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty: scrutinee_type, env: case_env));
+        ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : scrutinee_type, env : case_env));
         evaluated_pat := evaluate_expression(fp_expr, case_env, ctx);
         ctx.expected_type = old_expected_fp;
-
         fp_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_pat));
         if(fp_info_opt.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(fp_expr),
-            `Failed to evaluate pattern expression: ${ast_expr_to_string(fp_expr)}`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(fp_expr),
+                `Failed to evaluate pattern expression: ${ast_expr_to_string(fp_expr)}`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-        fp_info := match(fp_info_opt, .Some(fi) => fi, .None => new_expr_info(case_env, scrutinee_type));
-
+        fp_info := match(fp_info_opt,.Some(fi) => fi,.None => new_expr_info(case_env, scrutinee_type));
         if(!(are_types_compatible(scrutinee_type, fp_info.ty)), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(fp_expr),
-            `Pattern type ${type_to_string(fp_info.ty)} is not compatible with scrutinee type ${type_to_string(scrutinee_type)}`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(fp_expr),
+                `Pattern type ${type_to_string(fp_info.ty)} is not compatible with scrutinee type ${type_to_string(scrutinee_type)}`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-
         if(fp_info.value.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(fp_expr),
-            `Match patterns must be compile-time known values. "${ast_expr_to_string(fp_expr)}" is a runtime value.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(fp_expr),
+                `Match patterns must be compile-time known values. "${ast_expr_to_string(fp_expr)}" is a runtime value.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-
-        pv := match(fp_info.value, .Some(v) => v, .None => EvalValue.UnitVal);
-
+        pv := match(fp_info.value,.Some(v) => v,.None => EvalValue.UnitVal);
         lit_key := value_to_string(pv);
-        if((lit_key.len() > usize(0)), {
+        if(lit_key.len() > usize(0), {
           if(contains_str_in_list(checked_literal_values, lit_key.as_str()), {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(fp_expr),
-              `Duplicate pattern value: ${lit_key.as_str()}`,
-              false, .None
-            )));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(fp_expr),
+                  `Duplicate pattern value: ${lit_key.as_str()}`,
+                  false,
+                  .None
+                )
+              )
+            );
             return(expr);
           });
           checked_literal_values.push(lit_key);
         });
-
         pat_vals.push(pv);
         pat_exprs_eval.push(evaluated_pat);
       });
-
       // Check if any pattern matches at compile time
       (matches_at_ct : bool) = false;
-      match(scrutinee_val_opt,
-        .None     => (),
+      match(
+        scrutinee_val_opt,
+        .None => (),
         .Some(sv) => {
           if(!(is_unknown_val(sv)), {
             scrutinee_info_pm := match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(scrutinee_expr)),
               .Some(si) => si,
-              .None     => new_expr_info(env, scrutinee_type)
+              .None => new_expr_info(env, scrutinee_type)
             );
             (pv_check_i : usize) = usize(0);
-            while(runtime(((pv_check_i < pat_vals.len()) && !(matches_at_ct))), {
-              pv_item := match(pat_vals.get(pv_check_i), .Some(v) => v, .None => EvalValue.UnitVal);
-              pe_item := match(pat_exprs_eval.get(pv_check_i), .Some(e) => e, .None => make_err_expr());
+            while(runtime((pv_check_i < pat_vals.len()) && !(matches_at_ct)), {
+              pv_item := match(pat_vals.get(pv_check_i),.Some(v) => v,.None => EvalValue.UnitVal);
+              pe_item := match(pat_exprs_eval.get(pv_check_i),.Some(e) => e,.None => make_err_expr());
               pe_info := match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(pe_item)),
                 .Some(i) => i,
-                .None    => new_expr_info(case_env, scrutinee_type)
+                .None => new_expr_info(case_env, scrutinee_type)
               );
               if(are_values_equal(sv, scrutinee_info_pm.env, pv_item, pe_info.env), {
                 matches_at_ct = true;
@@ -463,135 +514,144 @@ evaluate_primitive_match :: (fn(
           });
         }
       );
-
       // Build primitive_pattern_values list for ExprInfo
       pattern_value_opts := ArrayList(Option(EvalValue)).new();
       (pvs_i : usize) = usize(0);
-      while(runtime((pvs_i < pat_vals.len())), {
-        pvi := match(pat_vals.get(pvs_i), .Some(v) => v, .None => EvalValue.UnitVal);
+      while(runtime(pvs_i < pat_vals.len()), {
+        pvi := match(pat_vals.get(pvs_i),.Some(v) => v,.None => EvalValue.UnitVal);
         pattern_value_opts.push(Option(EvalValue).Some(pvi));
         pvs_i = (pvs_i + usize(1));
       });
-
       mae_lit_info := new_expr_info(case_env, scrutinee_type);
-      mae_lit_info.case_executed          = Option(bool).Some(true);
+      mae_lit_info.case_executed = Option(bool).Some(true);
       mae_lit_info.primitive_pattern_values = Option(ArrayList(Option(EvalValue))).Some(pattern_value_opts);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_lit_info);
-
       ___ := env.push_frame(false);
-
       old_executing_lit := ctx.is_executing;
       ctx.is_executing = matches_at_ct;
       evaluated_body_lit := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false);
       ctx.is_executing = old_executing_lit;
-
       env.pop_frame();
-
       body_info_lit_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_lit));
       if(body_info_lit_opt.is_none(), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(rhs_expr),
-          `Expected type for match result expression, got ${ast_expr_to_string(rhs_expr)}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(rhs_expr),
+              `Expected type for match result expression, got ${ast_expr_to_string(rhs_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-      body_info_lit := match(body_info_lit_opt, .Some(bi) => bi, .None => new_expr_info(env, t_unit()));
-
+      body_info_lit := match(body_info_lit_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
       consume_case_body_temp_var(evaluated_body_lit, body_info_lit.env, ctx);
-
       if(scrutinee_val_opt.is_none(), {
         body_info_lit.value = Option(EvalValue).None;
       });
-
       if(has_any_control_flow(body_info_lit.control_flow), {
-        cf_lit := match(body_info_lit.control_flow,
+        cf_lit := match(
+          body_info_lit.control_flow,
           .Some(f) => f,
-          .None    => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: false, continue_flag: false)
+          .None => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false)
         );
         control_flows.push(cf_lit);
-        if(has_control_flow(body_info_lit.control_flow, .Return), {
+        if(has_control_flow(body_info_lit.control_flow,.Return), {
           return_bodies.push(evaluated_body_lit);
         });
         // CT match + CF → early return
-        if((scrutinee_val_opt.is_some() && matches_at_ct), {
+        if(scrutinee_val_opt.is_some() && matches_at_ct, {
           result_ty_lit_cf := cond(
-            match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-              match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_lit.ty),
+            match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+              match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_lit.ty),
             true => body_info_lit.ty
           );
           out_lit_cf := new_expr_info(body_info_lit.env, result_ty_lit_cf);
-          out_lit_cf.value        = body_info_lit.value;
+          out_lit_cf.value = body_info_lit.value;
           out_lit_cf.control_flow = body_info_lit.control_flow;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lit_cf);
           return(expr);
         }, {
           if(scrutinee_val_opt.is_none(), {
             result_ty_lit_cf2 := cond(
-              match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-                match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_lit.ty),
+              match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+                match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_lit.ty),
               true => body_info_lit.ty
             );
             out_lit_cf2 := new_expr_info(body_info_lit.env, result_ty_lit_cf2);
-            out_lit_cf2.value        = Option(EvalValue).None;
+            out_lit_cf2.value = Option(EvalValue).None;
             out_lit_cf2.control_flow = body_info_lit.control_flow;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lit_cf2);
           });
         });
       }, {
         has_case_without_cf = true;
-
-        match(ctx.expected_type,
-          .None     => (),
+        match(
+          ctx.expected_type,
+          .None => (),
           .Some(et) => {
             if(!(are_types_compatible(body_info_lit.ty, et.ty)), {
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(evaluated_body_lit),
-                `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_info_lit.ty)}`,
-                false, .None
-              )));
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(evaluated_body_lit),
+                    `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_info_lit.ty)}`,
+                    false,
+                    .None
+                  )
+                )
+              );
               return(expr);
             });
           }
         );
-
         // CT match without CF → early return
-        (should_early_return_lit : bool) = (scrutinee_val_opt.is_some() && (
-          !(is_unknown_val(match(scrutinee_val_opt, .Some(v2) => v2, .None => EvalValue.UnitVal))) &&
-          matches_at_ct
-        ));
+        (should_early_return_lit : bool) = (
+          scrutinee_val_opt.is_some() && (
+            !(is_unknown_val(match(scrutinee_val_opt,.Some(v2) => v2,.None => EvalValue.UnitVal))) &&
+              matches_at_ct
+          )
+        );
         if(should_early_return_lit, {
           result_ty_lit_early := cond(
-            match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-              match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_lit.ty),
+            match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+              match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_lit.ty),
             true => body_info_lit.ty
           );
           out_lit_early := new_expr_info(body_info_lit.env, result_ty_lit_early);
-          out_lit_early.value              = body_info_lit.value;
+          out_lit_early.value = body_info_lit.value;
           out_lit_early.is_primitive_match = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lit_early);
           attach_temp_variable_to_expr(expr, true, ctx);
           return(expr);
         });
       });
-
       case_env = body_info_lit.env;
       bodies.push(evaluated_body_lit);
-
       if(!(has_any_control_flow(body_info_lit.control_flow)), {
-        match(result_type_pm,
-          .None     => { result_type_pm = Option(TypeValue).Some(body_info_lit.ty); },
+        match(
+          result_type_pm,
+          .None => {
+            result_type_pm = Option(TypeValue).Some(body_info_lit.ty);
+          },
           .Some(rt2) => {
             if(!(are_types_compatible(body_info_lit.ty, rt2)), {
               rt2_rt := convert_comptime_type_to_runtime_type(rt2, env);
               if(are_types_compatible(body_info_lit.ty, rt2_rt), {
                 result_type_pm = Option(TypeValue).Some(body_info_lit.ty);
               }, {
-                exn.throw(dyn(format_error_message(
-                  ast_expr_token(evaluated_body_lit),
-                  `Incompatible types in match branches:\n- Previous: ${type_to_string(rt2)}\n- Current : ${type_to_string(body_info_lit.ty)}`,
-                  false, .None
-                )));
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(evaluated_body_lit),
+                      `Incompatible types in match branches:\n- Previous: ${type_to_string(rt2)}\n- Current : ${type_to_string(body_info_lit.ty)}`,
+                      false,
+                      .None
+                    )
+                  )
+                );
                 return(expr);
               });
             });
@@ -600,146 +660,172 @@ evaluate_primitive_match :: (fn(
       });
     });
   });
-
   // --- Exhaustiveness check ---
   if(!(used_wildcard), {
     if(is_bool_type(scrutinee_type), {
-      has_true  := contains_str_in_list(checked_literal_values, "true");
+      has_true := contains_str_in_list(checked_literal_values, "true");
       has_false := contains_str_in_list(checked_literal_values, "false");
-      if((!(has_true) || !(has_false)), {
+      if(!(has_true) || !(has_false), {
         missing_str := cond(
           (!(has_true) && !(has_false)) => "true, false",
-          !(has_true)                   => "true",
-          true                          => "false"
+          !(has_true) => "true",
+          true => "false"
         );
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(expr),
-          `Match expression on bool is not exhaustive. Missing cases for: ${missing_str}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `Match expression on bool is not exhaustive. Missing cases for: ${missing_str}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
     }, {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        `Match expression on ${type_to_string(scrutinee_type)} requires a wildcard pattern "_" for exhaustiveness.`,
-        false, .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Match expression on ${type_to_string(scrutinee_type)} requires a wildcard pattern "_" for exhaustiveness.`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     });
   });
-
   // --- Final result ---
   final_cf_pm := cond(
     (control_flows.len() > usize(0)) => Option(ControlFlowFlags).Some(merge_control_flows(control_flows)),
-    true                             => Option(ControlFlowFlags).None
+    true => Option(ControlFlowFlags).None
   );
-
-  if((has_case_without_cf || !(has_any_control_flow(final_cf_pm))), {
-    if((has_case_without_cf && result_type_pm.is_none()), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        `Failed to determine the type of value from the match.`,
-        false, .None
-      )));
+  if(has_case_without_cf || !(has_any_control_flow(final_cf_pm)), {
+    if(has_case_without_cf && result_type_pm.is_none(), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Failed to determine the type of value from the match.`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     }, {
       if(result_type_pm.is_none(), {
         result_type_pm = Option(TypeValue).Some(t_unit());
       });
     });
-
-    rt_pm := match(result_type_pm, .Some(t) => t, .None => t_unit());
-
+    rt_pm := match(result_type_pm,.Some(t) => t,.None => t_unit());
     non_return_pm := ArrayList(AstExpr).new();
     (nrpm_i : usize) = usize(0);
-    while(runtime((nrpm_i < bodies.len())), {
-      b_pm := match(bodies.get(nrpm_i), .Some(b2) => b2, .None => make_err_expr());
-      match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_pm)),
-        .None     => (),
+    while(runtime(nrpm_i < bodies.len()), {
+      b_pm := match(bodies.get(nrpm_i),.Some(b2) => b2,.None => make_err_expr());
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_pm)),
+        .None => (),
         .Some(bi) => {
-          if((!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Escape))), {
+          if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Escape)), {
             non_return_pm.push(b_pm);
           });
         }
       );
       nrpm_i = (nrpm_i + usize(1));
     });
-
     // Concrete CT scrutinee with exactly one non-return body → use that env directly
     (should_direct_pm : bool) = cond(
       scrutinee_val_opt.is_none() => false,
-      true => match(scrutinee_val_opt,
-        .None     => false,
+      true => match(
+        scrutinee_val_opt,
+        .None => false,
         .Some(sv) => (!(is_unknown_val(sv)) && (non_return_pm.len() == usize(1)))
       )
     );
     if(should_direct_pm, {
-      first_nrpm := match(non_return_pm.get(usize(0)), .Some(b) => b, .None => make_err_expr());
-      match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrpm)),
-        .None     => (),
-        .Some(bi) => { env = bi.env; }
+      first_nrpm := match(non_return_pm.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrpm)),
+        .None => (),
+        .Some(bi) => {
+          env = bi.env;
+        }
       );
     }, {
       env = merge_and_check_envs(env, non_return_pm, ctx);
     });
-
     out_val_pm := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
-      true                        => Option(EvalValue).Some(create_unknown_val(rt_pm))
+      true => Option(EvalValue).Some(create_unknown_val(rt_pm))
     );
-
     result_ty_final_pm := cond(
-      match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-        match(ctx.expected_type, .Some(et) => et.ty, .None => rt_pm),
+      match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+        match(ctx.expected_type,.Some(et) => et.ty,.None => rt_pm),
       true => rt_pm
     );
-
     out_pm := new_expr_info(env, result_ty_final_pm);
-    out_pm.value              = out_val_pm;
+    out_pm.value = out_val_pm;
     out_pm.is_primitive_match = Option(bool).Some(true);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_pm);
     attach_temp_variable_to_expr(expr, true, ctx);
   }, {
     // All arms have control flow
-    if((control_flows.len() == usize(0)), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        `No control flows found but expected some.`,
-        false, .None
-      )));
+    if(control_flows.len() == usize(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `No control flows found but expected some.`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     });
-
     cond(
-      has_control_flow(final_cf_pm, .Return) => {
+      has_control_flow(final_cf_pm,.Return) => {
         if(ctx.is_evaluating_function_body_or_async_block.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `All cases in match are returning from function, but not evaluating in function body.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `All cases in match are returning from function, but not evaluating in function body.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-
         (ret_type_pm : Option(TypeValue)) = Option(TypeValue).None;
-        if((return_bodies.len() > usize(0)), {
-          first_rb_pm := match(return_bodies.get(usize(0)), .Some(b) => b, .None => make_err_expr());
-          match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_rb_pm)),
-            .Some(bi) => { ret_type_pm = Option(TypeValue).Some(bi.ty); },
-            .None     => ()
+        if(return_bodies.len() > usize(0), {
+          first_rb_pm := match(return_bodies.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_rb_pm)),
+            .Some(bi) => {
+              ret_type_pm = Option(TypeValue).Some(bi.ty);
+            },
+            .None => ()
           );
         });
         if(ret_type_pm.is_none(), {
-          match(ctx.is_evaluating_function_body_or_async_block,
-            .None       => (),
+          match(
+            ctx.is_evaluating_function_body_or_async_block,
+            .None => (),
             .Some(fctx) => {
-              match(fctx.kind,
+              match(
+                fctx.kind,
                 .FunctionBody => {
-                  match(fctx.func_type,
-                    .None     => (),
+                  match(
+                    fctx.func_type,
+                    .None => (),
                     .Some(ft) => {
-                      match(ft,
+                      match(
+                        ft,
                         .Func(_, _, _, _, _, _, _, _, result_box) => {
                           ret_type_pm = Option(TypeValue).Some(result_box.*);
                         },
@@ -754,31 +840,42 @@ evaluate_primitive_match :: (fn(
           );
         });
         if(ret_type_pm.is_none(), {
-          match(ctx.expected_type,
-            .None     => (),
-            .Some(et) => { ret_type_pm = Option(TypeValue).Some(et.ty); }
+          match(
+            ctx.expected_type,
+            .None => (),
+            .Some(et) => {
+              ret_type_pm = Option(TypeValue).Some(et.ty);
+            }
           );
         });
-
-        match(ret_type_pm,
-          .None     => {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(expr),
-              `Failed to determine the return(type for match(statement.))`,
-              false, .None
-            )));
+        match(
+          ret_type_pm,
+          .None => {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `Failed to determine the return(type for match(statement.))`,
+                  false,
+                  .None
+                )
+              )
+            );
             return(expr);
           },
           .Some(rt) => {
-            is_fn_body_pm := match(ctx.is_evaluating_function_body_or_async_block,
-              .None       => false,
-              .Some(fctx) => match(fctx.kind, .FunctionBody => true, _ => false)
+            is_fn_body_pm := match(
+              ctx.is_evaluating_function_body_or_async_block,
+              .None => false,
+              .Some(fctx) => match(fctx.kind,.FunctionBody => true, _ => false)
             );
             is_comptime_ret_pm := cond(
-              is_fn_body_pm => match(ctx.is_evaluating_function_body_or_async_block,
-                .None       => false,
-                .Some(fctx) => match(fctx.func_type,
-                  .None     => false,
+              is_fn_body_pm => match(
+                ctx.is_evaluating_function_body_or_async_block,
+                .None => false,
+                .Some(fctx) => match(
+                  fctx.func_type,
+                  .None => false,
                   .Some(ft) => is_function_type_and_returns_comptime_value(ft)
                 )
               ),
@@ -786,113 +883,129 @@ evaluate_primitive_match :: (fn(
             );
             ret_val_pm := cond(
               is_comptime_ret_pm => Option(EvalValue).Some(create_unknown_val(rt)),
-              true               => Option(EvalValue).None
+              true => Option(EvalValue).None
             );
             out_ret_pm := new_expr_info(env, rt);
-            out_ret_pm.value              = ret_val_pm;
-            out_ret_pm.control_flow       = final_cf_pm;
+            out_ret_pm.value = ret_val_pm;
+            out_ret_pm.control_flow = final_cf_pm;
             out_ret_pm.is_primitive_match = Option(bool).Some(true);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ret_pm);
           }
         );
       },
-
-      has_control_flow(final_cf_pm, .Escape) => {
+      has_control_flow(final_cf_pm,.Escape) => {
         if(ctx.enclosing_function_return_type.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `All cases in match use "escape", but not inside a function with an enclosing function.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `All cases in match use "escape", but not inside a function with an enclosing function.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-        esc_ty_pm := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
+        esc_ty_pm := match(ctx.enclosing_function_return_type,.Some(t) => t,.None => t_unit());
         out_esc_pm := new_expr_info(env, esc_ty_pm);
-        out_esc_pm.control_flow       = final_cf_pm;
+        out_esc_pm.control_flow = final_cf_pm;
         out_esc_pm.is_primitive_match = Option(bool).Some(true);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_pm);
       },
-
-      has_control_flow(final_cf_pm, .Break) => {
+      has_control_flow(final_cf_pm,.Break) => {
         if(ctx.is_evaluating_loop_body.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `All cases in match are breaking from loop, but not inside a loop.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `All cases in match are breaking from loop, but not inside a loop.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
         out_brk_pm := new_expr_info(env, t_unit());
-        out_brk_pm.value              = Option(EvalValue).Some(EvalValue.UnitVal);
-        out_brk_pm.control_flow       = final_cf_pm;
+        out_brk_pm.value = Option(EvalValue).Some(EvalValue.UnitVal);
+        out_brk_pm.control_flow = final_cf_pm;
         out_brk_pm.is_primitive_match = Option(bool).Some(true);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_pm);
       },
-
-      has_control_flow(final_cf_pm, .Continue) => {
+      has_control_flow(final_cf_pm,.Continue) => {
         if(ctx.is_evaluating_loop_body.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `All cases in match are continuing loop, but not inside a loop.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `All cases in match are continuing loop, but not inside a loop.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
         out_cnt_pm := new_expr_info(env, t_unit());
-        out_cnt_pm.value              = Option(EvalValue).Some(EvalValue.UnitVal);
-        out_cnt_pm.control_flow       = final_cf_pm;
+        out_cnt_pm.value = Option(EvalValue).Some(EvalValue.UnitVal);
+        out_cnt_pm.control_flow = final_cf_pm;
         out_cnt_pm.is_primitive_match = Option(bool).Some(true);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_cnt_pm);
       },
-
       true => ()
     );
-
     return(expr);
   });
-
   expr
 });
-
 // ---------------------------------------------------------------------------
 // evaluate_match
 // ---------------------------------------------------------------------------
-
 /// Evaluate a `match(...)` expression.
 ///
 /// Mirrors `evaluateMatch` in `src/evaluator/exprs/match.ts`.
-evaluate_match :: (fn(
-  expr    : AstExpr,
-  env_in  : Environment,
-  ctx     : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_match :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   (env : Environment) = env_in;
-
-  if(!(ast_expr_is_fn_call_of(expr, BK_MATCH, .None)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected "match"`,
-      false, .None
-    )));
+  if(!(ast_expr_is_fn_call_of(expr, BK_MATCH,.None)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected "match"`,
+          false,
+          .None
+        )
+      )
+    );
     return(expr);
   });
-
-  all_args := match(expr,
+  all_args := match(
+    expr,
     .FnCall(_, _, args, _, _) => args,
-    .Atom(_, _)               => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
-  if((all_args.len() < usize(2)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected at least 2 arguments for "match", got ${all_args.len()}`,
-      false, .None
-    )));
+  if(all_args.len() < usize(2), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected at least 2 arguments for "match", got ${all_args.len()}`,
+          false,
+          .None
+        )
+      )
+    );
     return(expr);
   });
-
-  scrutinee_expr := match(all_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-
+  scrutinee_expr := match(all_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   // Evaluate scrutinee with cleared expectedType
   old_expected_scr := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -903,328 +1016,369 @@ evaluate_match :: (fn(
       evaluate_begin_expression(scrutinee_expr, env, ctx, ArrayList(Variable).new(), false)
   );
   ctx.expected_type = old_expected_scr;
-
   // Check scrutinee ExprInfo has variable_name
   scr_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_scrutinee));
-  (scr_has_var_name : bool) = match(scr_info_opt,
+  (scr_has_var_name : bool) = match(
+    scr_info_opt,
     .Some(si) => si.variable_name.is_some(),
-    .None     => false
+    .None => false
   );
   if(!(scr_has_var_name), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(scrutinee_expr),
-      `Failed to evaluate the match scrutinee expression: ${ast_expr_to_string(scrutinee_expr)}`,
-      false, .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(scrutinee_expr),
+          `Failed to evaluate the match scrutinee expression: ${ast_expr_to_string(scrutinee_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
     return(expr);
   });
-
-  scr_info := match(scr_info_opt,
+  scr_info := match(
+    scr_info_opt,
     .Some(si) => si,
-    .None     => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(scrutinee_expr),
-        `Internal error: no ExprInfo for scrutinee`,
-        false, .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(scrutinee_expr),
+            `Internal error: no ExprInfo for scrutinee`,
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(env, t_unit())
     }
   );
-
   env = scr_info.env;
-
-  scrutinee_type    := scr_info.ty;
+  scrutinee_type := scr_info.ty;
   scrutinee_val_opt := scr_info.value;
-
   // Check pointer type — dereference one level
   (matched_type : TypeValue) = scrutinee_type;
-  (is_ptr_match : bool)      = false;
+  (is_ptr_match : bool) = false;
   if(is_pointer_type(scrutinee_type), {
-    matched_type = match(scrutinee_type, .Pointer(inner) => inner.*, _ => scrutinee_type);
+    matched_type = match(scrutinee_type,.Pointer(inner) => inner.*, _ => scrutinee_type);
     is_ptr_match = true;
   });
-
   // Dispatch to primitive match
   if(is_matchable_primitive_type(matched_type), {
     return(evaluate_primitive_match(expr, env, ctx, evaluated_scrutinee, matched_type, scrutinee_val_opt));
   });
-
   // Must be enum
   if(!(is_enum_type(matched_type)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(scrutinee_expr),
-      `Expected enum type or primitive type (integer, bool) for match expression, got ${type_to_string(scrutinee_type)}`,
-      false, .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(scrutinee_expr),
+          `Expected enum type or primitive type (integer, bool) for match expression, got ${type_to_string(scrutinee_type)}`,
+          false,
+          .None
+        )
+      )
+    );
     return(expr);
   });
-
   // Extract enum type fields
-  en_name     := match(matched_type, .EnumT(_, n, _, _, _, _, _) => n, _ => String.new());
-  en_vnames   := match(matched_type, .EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
-  en_vfields  := match(matched_type, .EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-  en_vflabels := match(matched_type, .EnumT(_, _, _, _, _, vfl, _) => vfl, _ => ArrayList(ArrayList(String)).new());
-
+  en_name := match(matched_type,.EnumT(_, n, _, _, _, _, _) => n, _ => String.new());
+  en_vnames := match(matched_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
+  en_vfields := match(matched_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  en_vflabels := match(matched_type,.EnumT(_, _, _, _, _, vfl, _) => vfl, _ => ArrayList(ArrayList(String)).new());
   // Arm loop state
-  bodies                         := ArrayList(AstExpr).new();
+  bodies := ArrayList(AstExpr).new();
   (result_type_em : Option(TypeValue)) = Option(TypeValue).None;
-  checked_variant_names          := ArrayList(String).new();
+  checked_variant_names := ArrayList(String).new();
   (has_case_without_cf_em : bool) = false;
-  (used_wildcard_em : bool)       = false;
-  control_flows_em               := ArrayList(ControlFlowFlags).new();
-  return_bodies_em               := ArrayList(AstExpr).new();
+  (used_wildcard_em : bool) = false;
+  control_flows_em := ArrayList(ControlFlowFlags).new();
+  return_bodies_em := ArrayList(AstExpr).new();
   (matched_body_idx : Option(usize)) = Option(usize).None;
-
   (arm_i : usize) = usize(1);
-  while(runtime((arm_i < all_args.len())), {
-    pattern_em := match(all_args.get(arm_i),
+  while(runtime(arm_i < all_args.len()), {
+    pattern_em := match(
+      all_args.get(arm_i),
       .Some(p) => p,
-      .None    => { arm_i = all_args.len(); return(expr); }
+      .None => {
+        arm_i = all_args.len();
+        return(expr);
+      }
     );
     arm_i = (arm_i + usize(1));
-
-    if(!(ast_expr_is_fn_call_of(pattern_em, "=>", .Some(usize(2)))), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(pattern_em),
-        `Expected ":" for match pattern, got ${ast_expr_to_string(pattern_em)}`,
-        false, .None
-      )));
+    if(!(ast_expr_is_fn_call_of(pattern_em, "=>",.Some(usize(2)))), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(pattern_em),
+            `Expected ":" for match pattern, got ${ast_expr_to_string(pattern_em)}`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     });
-
-    match_arm_expr := match(pattern_em,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-      .Atom(_, _)                => make_err_expr()
+    match_arm_expr := match(
+      pattern_em,
+      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
     );
-    rhs_expr_em := match(pattern_em,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
-      .Atom(_, _)                => make_err_expr()
+    rhs_expr_em := match(
+      pattern_em,
+      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
     );
-
     // Detect arm kind
     is_fieldless := (
-      ast_expr_is_fn_call_of(match_arm_expr, ".", .Some(usize(1))) ||
-      ast_expr_is_atom_of(match_arm_expr, "_")
+      ast_expr_is_fn_call_of(match_arm_expr, ".",.Some(usize(1))) ||
+        ast_expr_is_atom_of(match_arm_expr, "_")
     );
-    func_of_mae := match(match_arm_expr,
+    func_of_mae := match(
+      match_arm_expr,
       .FnCall(_, func_box, _, _, _) => Option(AstExpr).Some(func_box.*),
-      .Atom(_, _)                   => Option(AstExpr).None
+      .Atom(_, _) => Option(AstExpr).None
     );
     is_with_fields := cond(
       !(ast_expr_is_fn_call(match_arm_expr)) => false,
-      true => match(func_of_mae,
-        .Some(f) => ast_expr_is_fn_call_of(f, ".", .Some(usize(1))),
-        .None    => false
+      true => match(
+        func_of_mae,
+        .Some(f) => ast_expr_is_fn_call_of(f, ".",.Some(usize(1))),
+        .None => false
       )
     );
-
     if(is_fieldless, {
       // -----------------------------------------------------------------
       // Fieldless arm: `.Variant => body` or `_ => body`
       // -----------------------------------------------------------------
       if(used_wildcard_em, {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(match_arm_expr),
-          `Wildcard pattern "_" can only be used once and must be the last match arm in a "match" expression.`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(match_arm_expr),
+              `Wildcard pattern "_" can only be used once and must be the last match arm in a "match" expression.`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-
       // Extract variant name expression
       is_wildcard_fl := ast_expr_is_atom_of(match_arm_expr, "_");
       variant_name_expr := cond(
-        is_wildcard_fl  => match_arm_expr,
-        true            => match(match_arm_expr,
-          .FnCall(_, _, mae_args, _, _) => match(mae_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-          .Atom(_, _)                   => make_err_expr()
+        is_wildcard_fl => match_arm_expr,
+        true => match(
+          match_arm_expr,
+          .FnCall(_, _, mae_args, _, _) => match(mae_args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+          .Atom(_, _) => make_err_expr()
         )
       );
-
       if(!(ast_expr_is_atom(variant_name_expr)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(match_arm_expr),
-          `Expected identifier for enum variant, got ${ast_expr_to_string(variant_name_expr)}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(match_arm_expr),
+              `Expected identifier for enum variant, got ${ast_expr_to_string(variant_name_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-
-      variant_name_fl := match(variant_name_expr,
+      variant_name_fl := match(
+        variant_name_expr,
         .Atom(_, tok) => tok.value.as_str(),
         .FnCall(_, _, _, _, tok) => tok.value.as_str()
       );
-
       if(is_wildcard_fl, {
         used_wildcard_em = true;
       });
-
       // Check variant exists (for non-wildcard)
       variant_idx_fl_opt := find_str_in_list(en_vnames, variant_name_fl);
-      if((!(variant_name_fl == "_") && variant_idx_fl_opt.is_none()), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(match_arm_expr),
-          `Enum variant "${variant_name_fl}" not found in ${type_to_string(matched_type)}`,
-          false, .None
-        )));
+      if(!(variant_name_fl == "_") && variant_idx_fl_opt.is_none(), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(match_arm_expr),
+              `Enum variant "${variant_name_fl}" not found in ${type_to_string(matched_type)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-
       // Check variant has no fields (fieldless form must have empty fields)
       if(variant_idx_fl_opt.is_some(), {
-        vf_idx := match(variant_idx_fl_opt, .Some(idx) => idx, .None => usize(0));
-        vf_fields := match(en_vfields.get(vf_idx), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
-        if((vf_fields.len() > usize(0)), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(match_arm_expr),
-            `Enum variant "${variant_name_fl}" has ${vf_fields.len()} field(s) and must be destructured. Use .${variant_name_fl}(...) instead of .${variant_name_fl}`,
-            false, .None
-          )));
+        vf_idx := match(variant_idx_fl_opt,.Some(idx) => idx,.None => usize(0));
+        vf_fields := match(en_vfields.get(vf_idx),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
+        if(vf_fields.len() > usize(0), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(match_arm_expr),
+                `Enum variant "${variant_name_fl}" has ${vf_fields.len()} field(s) and must be destructured. Use .${variant_name_fl}(...) instead of .${variant_name_fl}`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
       });
-
       // Record checked variant (BEFORE skip check)
       checked_variant_names.push(String.from(variant_name_fl));
-
       // Skip if concrete CT scrutinee doesn't match this variant (and it's not wildcard)
       should_process_fl := !(
         (!(variant_name_fl == "_")) &&
-        match(scrutinee_val_opt,
-          .None     => false,
-          .Some(sv) => (is_enum_val(sv) && match(sv,
-            .EnumVal(sv_vname, _) => (sv_vname.as_str() != variant_name_fl),
-            _                     => true
-          ))
-        )
+          match(
+            scrutinee_val_opt,
+            .None => false,
+            .Some(sv) => (
+              is_enum_val(sv) && match(
+                sv,
+                .EnumVal(sv_vname, _) => (sv_vname.as_str() != variant_name_fl),
+                _ => true
+              )
+            )
+          )
       );
-
       if(should_process_fl, {
         // Build new enum type with selectedVariantName
         new_selected_fl := cond(
           (variant_name_fl == "_") => Option(String).None,
-          true                     => Option(String).Some(String.from(variant_name_fl))
+          true => Option(String).Some(String.from(variant_name_fl))
         );
-        new_enum_type_fl := match(matched_type,
+        new_enum_type_fl := match(
+          matched_type,
           .EnumT(id, n, vn, vf, _, vfl, discs) => TypeValue.EnumT(id, n, vn, vf, new_selected_fl, vfl, discs),
-          _                                     => matched_type
+          _ => matched_type
         );
         variable_type_fl := cond(
           is_ptr_match => t_ptr(new_enum_type_fl),
-          true         => new_enum_type_fl
+          true => new_enum_type_fl
         );
-
         // Set ExprInfo for variantNameExpr (BEFORE push_frame)
         vne_fl_info := new_expr_info(env, new_enum_type_fl);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(variant_name_expr), vne_fl_info);
-
         // Push frame for this arm
         ___ := env.push_frame(false);
-
         // Set ExprInfo for matchArmExpr (AFTER push_frame)
         mae_fl_info := new_expr_info(env, variable_type_fl);
         mae_fl_info.case_executed = Option(bool).Some(true);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_fl_info);
-
         // Evaluate arm body
-        is_arm_executing_fl := match(scrutinee_val_opt,
-          .None     => false,
-          .Some(sv) => (is_enum_val(sv) && match(sv,
-            .EnumVal(sv_vname, _) => (sv_vname.as_str() == variant_name_fl),
-            _                     => false
-          ))
+        is_arm_executing_fl := match(
+          scrutinee_val_opt,
+          .None => false,
+          .Some(sv) => (
+            is_enum_val(sv) && match(
+              sv,
+              .EnumVal(sv_vname, _) => (sv_vname.as_str() == variant_name_fl),
+              _ => false
+            )
+          )
         );
         old_executing_fl := ctx.is_executing;
         ctx.is_executing = is_arm_executing_fl;
         evaluated_body_fl := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false);
         ctx.is_executing = old_executing_fl;
-
         env.pop_frame();
-
         body_info_fl_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_fl));
         if(body_info_fl_opt.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(rhs_expr_em),
-            `Expected type for match result expression, got ${ast_expr_to_string(rhs_expr_em)}`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(rhs_expr_em),
+                `Expected type for match result expression, got ${ast_expr_to_string(rhs_expr_em)}`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-        body_info_fl := match(body_info_fl_opt, .Some(bi) => bi, .None => new_expr_info(env, t_unit()));
-
+        body_info_fl := match(body_info_fl_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
         consume_case_body_temp_var(evaluated_body_fl, body_info_fl.env, ctx);
-
         if(scrutinee_val_opt.is_none(), {
           body_info_fl.value = Option(EvalValue).None;
         });
-
         if(has_any_control_flow(body_info_fl.control_flow), {
-          cf_fl := match(body_info_fl.control_flow,
+          cf_fl := match(
+            body_info_fl.control_flow,
             .Some(f) => f,
-            .None    => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: false, continue_flag: false)
+            .None => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false)
           );
           control_flows_em.push(cf_fl);
-          if(has_control_flow(body_info_fl.control_flow, .Return), {
+          if(has_control_flow(body_info_fl.control_flow,.Return), {
             return_bodies_em.push(evaluated_body_fl);
           });
           // Concrete CT match with CF → set info early
-          (is_concrete_sv_fl : bool) = match(scrutinee_val_opt,
-            .None     => false,
+          (is_concrete_sv_fl : bool) = match(
+            scrutinee_val_opt,
+            .None => false,
             .Some(sv) => (is_enum_val(sv) && !(is_unknown_val(sv)))
           );
           if(is_concrete_sv_fl, {
             result_ty_fl_cf := cond(
-              match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-                match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_fl.ty),
+              match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+                match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_fl.ty),
               true => body_info_fl.ty
             );
             out_fl_cf := new_expr_info(body_info_fl.env, result_ty_fl_cf);
-            out_fl_cf.value        = body_info_fl.value;
+            out_fl_cf.value = body_info_fl.value;
             out_fl_cf.control_flow = body_info_fl.control_flow;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_fl_cf);
           }, {
             if(scrutinee_val_opt.is_none(), {
               result_ty_fl_cf2 := cond(
-                match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-                  match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_fl.ty),
+                match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+                  match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_fl.ty),
                 true => body_info_fl.ty
               );
               out_fl_cf2 := new_expr_info(body_info_fl.env, result_ty_fl_cf2);
-              out_fl_cf2.value        = Option(EvalValue).None;
+              out_fl_cf2.value = Option(EvalValue).None;
               out_fl_cf2.control_flow = body_info_fl.control_flow;
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_fl_cf2);
             });
           });
         }, {
           has_case_without_cf_em = true;
-
-          match(ctx.expected_type,
-            .None     => (),
+          match(
+            ctx.expected_type,
+            .None => (),
             .Some(et) => {
               if(!(are_types_compatible(body_info_fl.ty, et.ty)), {
-                exn.throw(dyn(format_error_message(
-                  ast_expr_token(evaluated_body_fl),
-                  `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_info_fl.ty)}`,
-                  false, .None
-                )));
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(evaluated_body_fl),
+                      `Incompatible type with expected type:\n- Expected: ${type_to_string(et.ty)}\n- Actual  : ${type_to_string(body_info_fl.ty)}`,
+                      false,
+                      .None
+                    )
+                  )
+                );
                 return(expr);
               });
             }
           );
         });
-
         bodies.push(evaluated_body_fl);
-
         // Track matched_body_idx
         if(matched_body_idx.is_none(), {
-          match(scrutinee_val_opt,
-            .None     => (),
+          match(
+            scrutinee_val_opt,
+            .None => (),
             .Some(sv) => {
-              if((is_enum_val(sv) && !(is_unknown_val(sv))), {
-                match(sv,
+              if(is_enum_val(sv) && !(is_unknown_val(sv)), {
+                match(
+                  sv,
                   .EnumVal(sv_vname, _) => {
-                    if(((sv_vname.as_str() == variant_name_fl) || (variant_name_fl == "_")), {
-                      matched_body_idx = Option(usize).Some((bodies.len() - usize(1)));
+                    if((sv_vname.as_str() == variant_name_fl) || (variant_name_fl == "_"), {
+                      matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
                     });
                   },
                   _ => ()
@@ -1233,22 +1387,29 @@ evaluate_match :: (fn(
             }
           );
         });
-
         // Result type consistency
         if(!(has_any_control_flow(body_info_fl.control_flow)), {
-          match(result_type_em,
-            .None      => { result_type_em = Option(TypeValue).Some(body_info_fl.ty); },
+          match(
+            result_type_em,
+            .None => {
+              result_type_em = Option(TypeValue).Some(body_info_fl.ty);
+            },
             .Some(rt_fl) => {
               if(!(are_types_compatible(body_info_fl.ty, rt_fl)), {
                 rt_fl_rt := convert_comptime_type_to_runtime_type(rt_fl, env);
                 if(are_types_compatible(body_info_fl.ty, rt_fl_rt), {
                   result_type_em = Option(TypeValue).Some(body_info_fl.ty);
                 }, {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(evaluated_body_fl),
-                    `Incompatible types:\n- Previous: ${type_to_string(rt_fl)}\n- Current : ${type_to_string(body_info_fl.ty)}`,
-                    false, .None
-                  )));
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(evaluated_body_fl),
+                        `Incompatible types:\n- Previous: ${type_to_string(rt_fl)}\n- Current : ${type_to_string(body_info_fl.ty)}`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
                   return(expr);
                 });
               });
@@ -1262,107 +1423,140 @@ evaluate_match :: (fn(
         // With-fields arm: `.Variant(a, b, c) => body`
         // -----------------------------------------------------------------
         if(used_wildcard_em, {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(match_arm_expr),
-            `Wildcard pattern "_" can only be used once and must be the last match arm in a "match" expression.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(match_arm_expr),
+                `Wildcard pattern "_" can only be used once and must be the last match arm in a "match" expression.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-
         // func is `.Variant` (the "." call); extract variantNameExpr from it
-        fb_vne := match(func_of_mae, .Some(f) => f, .None => make_err_expr());
-        variant_name_expr_wf := match(fb_vne,
-          .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
-          .Atom(_, _)                => make_err_expr()
+        fb_vne := match(func_of_mae,.Some(f) => f,.None => make_err_expr());
+        variant_name_expr_wf := match(
+          fb_vne,
+          .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+          .Atom(_, _) => make_err_expr()
         );
-
         if(!(ast_expr_is_atom(variant_name_expr_wf)), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(match_arm_expr),
-            `Expected identifier for enum variant, got ${ast_expr_to_string(variant_name_expr_wf)}`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(match_arm_expr),
+                `Expected identifier for enum variant, got ${ast_expr_to_string(variant_name_expr_wf)}`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-
-        variant_name_wf := match(variant_name_expr_wf,
-          .Atom(_, tok)         => tok.value.as_str(),
+        variant_name_wf := match(
+          variant_name_expr_wf,
+          .Atom(_, tok) => tok.value.as_str(),
           .FnCall(_, _, _, _, tok) => tok.value.as_str()
         );
-
         // Check variant exists
         variant_idx_wf_opt := find_str_in_list(en_vnames, variant_name_wf);
         if(variant_idx_wf_opt.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(match_arm_expr),
-            `Enum variant "${variant_name_wf}" not found in ${type_to_string(matched_type)}`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(match_arm_expr),
+                `Enum variant "${variant_name_wf}" not found in ${type_to_string(matched_type)}`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-
-        variant_idx_wf := match(variant_idx_wf_opt, .Some(idx) => idx, .None => usize(0));
-        variant_fields_wf := match(en_vfields.get(variant_idx_wf), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
-        variant_labels_wf := match(en_vflabels.get(variant_idx_wf), .Some(vl) => vl, .None => ArrayList(String).new());
-
+        variant_idx_wf := match(variant_idx_wf_opt,.Some(idx) => idx,.None => usize(0));
+        variant_fields_wf := match(en_vfields.get(variant_idx_wf),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
+        variant_labels_wf := match(en_vflabels.get(variant_idx_wf),.Some(vl) => vl,.None => ArrayList(String).new());
         // Record checked variant (BEFORE skip check)
         checked_variant_names.push(String.from(variant_name_wf));
-
         // Skip if concrete CT scrutinee doesn't match this variant
-        should_process_wf := !(match(scrutinee_val_opt,
-          .None     => false,
-          .Some(sv) => (is_enum_val(sv) && match(sv,
-            .EnumVal(sv_vname, _) => (sv_vname.as_str() != variant_name_wf),
-            _                     => true
-          ))
-        ));
-
+        should_process_wf := !(
+          match(
+            scrutinee_val_opt,
+            .None => false,
+            .Some(sv) => (
+              is_enum_val(sv) && match(
+                sv,
+                .EnumVal(sv_vname, _) => (sv_vname.as_str() != variant_name_wf),
+                _ => true
+              )
+            )
+          )
+        );
         if(should_process_wf, {
           // Handle curly destructuring: single `_(inner...)` arg → lift inner args
-          mae_args_wf := match(match_arm_expr,
+          mae_args_wf := match(
+            match_arm_expr,
             .FnCall(_, _, margs, _, _) => margs,
-            .Atom(_, _)                => ArrayList(AstExpr).new()
+            .Atom(_, _) => ArrayList(AstExpr).new()
           );
           is_curly_wf := (
             (mae_args_wf.len() == usize(1)) &&
-            match(mae_args_wf.get(usize(0)),
-              .Some(first_arg) => ast_expr_is_fn_call_of(first_arg, "_", .None),
-              .None            => false
-            )
+              match(
+                mae_args_wf.get(usize(0)),
+                .Some(first_arg) => ast_expr_is_fn_call_of(first_arg, "_",.None),
+                .None => false
+              )
           );
           if(is_curly_wf, {
-            curly_arg := match(mae_args_wf.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-            curly_inner := match(curly_arg,
+            curly_arg := match(mae_args_wf.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+            curly_inner := match(
+              curly_arg,
               .FnCall(_, _, cargs, _, _) => cargs,
-              .Atom(_, _)               => ArrayList(AstExpr).new()
+              .Atom(_, _) => ArrayList(AstExpr).new()
             );
-            if((curly_inner.len() == usize(0)), {
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(curly_arg),
-                `Empty curly destructuring "{}" is not allowed in match patterns. Use ".${variant_name_wf}" without arguments for variants with no fields.`,
-                false, .None
-              )));
+            if(curly_inner.len() == usize(0), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(curly_arg),
+                    `Empty curly destructuring "{}" is not allowed in match patterns. Use ".${variant_name_wf}" without arguments for variants with no fields.`,
+                    false,
+                    .None
+                  )
+                )
+              );
               return(expr);
             });
             // Validate: no nested curly, no bare "_"
             (cvi : usize) = usize(0);
-            while(runtime((cvi < curly_inner.len())), {
-              cv_elem := match(curly_inner.get(cvi), .Some(e) => e, .None => make_err_expr());
-              if(ast_expr_is_fn_call_of(cv_elem, "_", .None), {
-                exn.throw(dyn(format_error_message(
-                  ast_expr_token(cv_elem),
-                  `Nested curly destructuring "{...}" inside another "{...}" is not supported.`,
-                  false, .None
-                )));
+            while(runtime(cvi < curly_inner.len()), {
+              cv_elem := match(curly_inner.get(cvi),.Some(e) => e,.None => make_err_expr());
+              if(ast_expr_is_fn_call_of(cv_elem, "_",.None), {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(cv_elem),
+                      `Nested curly destructuring "{...}" inside another "{...}" is not supported.`,
+                      false,
+                      .None
+                    )
+                  )
+                );
                 return(expr);
               });
               if(ast_expr_is_atom_of(cv_elem, "_"), {
-                exn.throw(dyn(format_error_message(
-                  ast_expr_token(cv_elem),
-                  `Bare "_" inside curly destructuring "{...}" is meaningless. Either omit the field, or write "label: _" to assert presence without binding.`,
-                  false, .None
-                )));
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(cv_elem),
+                      `Bare "_" inside curly destructuring "{...}" is meaningless. Either omit the field, or write "label: _" to assert presence without binding.`,
+                      false,
+                      .None
+                    )
+                  )
+                );
                 return(expr);
               });
               cvi = (cvi + usize(1));
@@ -1370,155 +1564,185 @@ evaluate_match :: (fn(
             // Lift inner args into mae_args_wf
             mae_args_wf.clear();
             (lfi2 : usize) = usize(0);
-            while(runtime((lfi2 < curly_inner.len())), {
-              match(curly_inner.get(lfi2), .Some(e) => { mae_args_wf.push(e); }, .None => ());
+            while(runtime(lfi2 < curly_inner.len()), {
+              match(
+                curly_inner.get(lfi2),
+                .Some(e) => {
+                  mae_args_wf.push(e);
+                },
+                .None => ()
+              );
               lfi2 = (lfi2 + usize(1));
             });
           });
-
           destr_params := mae_args_wf;
-
           // Check labeled vs positional
           has_labeled_wf := is_curly_wf;
           if(!(has_labeled_wf), {
             (lbl_check_i : usize) = usize(0);
-            while(runtime(((lbl_check_i < destr_params.len()) && !(has_labeled_wf))), {
-              lbl_p := match(destr_params.get(lbl_check_i), .Some(p) => p, .None => make_err_expr());
-              if(ast_expr_is_fn_call_of(lbl_p, ":", .Some(usize(2))), {
+            while(runtime((lbl_check_i < destr_params.len()) && !(has_labeled_wf)), {
+              lbl_p := match(destr_params.get(lbl_check_i),.Some(p) => p,.None => make_err_expr());
+              if(ast_expr_is_fn_call_of(lbl_p, ":",.Some(usize(2))), {
                 has_labeled_wf = true;
               });
               lbl_check_i = (lbl_check_i + usize(1));
             });
           });
-
           // Validate field count (positional: exact match; labeled: partial ok)
-          if((variant_fields_wf.len() > usize(0)), {
-            if((!(has_labeled_wf) && (destr_params.len() != variant_fields_wf.len())), {
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(match_arm_expr),
-                `Variant "${variant_name_wf}" expects ${variant_fields_wf.len()} parameters, got ${destr_params.len()}`,
-                false, .None
-              )));
+          if(variant_fields_wf.len() > usize(0), {
+            if(!(has_labeled_wf) && (destr_params.len() != variant_fields_wf.len()), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(match_arm_expr),
+                    `Variant "${variant_name_wf}" expects ${variant_fields_wf.len()} parameters, got ${destr_params.len()}`,
+                    false,
+                    .None
+                  )
+                )
+              );
               return(expr);
             });
           }, {
-            if((destr_params.len() > usize(0)), {
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(match_arm_expr),
-                `Variant "${variant_name_wf}" has no fields, but destructuring parameters were provided`,
-                false, .None
-              )));
+            if(destr_params.len() > usize(0), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(match_arm_expr),
+                    `Variant "${variant_name_wf}" has no fields, but destructuring parameters were provided`,
+                    false,
+                    .None
+                  )
+                )
+              );
               return(expr);
             });
           });
-
           // Build new enum type with selected variant
-          new_enum_type_wf := match(matched_type,
+          new_enum_type_wf := match(
+            matched_type,
             .EnumT(id, n, vn, vf, _, vfl, discs) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(String.from(variant_name_wf)), vfl, discs),
-            _                                     => matched_type
+            _ => matched_type
           );
           variable_type_wf := cond(
             is_ptr_match => t_ptr(new_enum_type_wf),
-            true         => new_enum_type_wf
+            true => new_enum_type_wf
           );
-
           // Set ExprInfo for fb_vne (BEFORE push_frame)
           vne_wf_info := new_expr_info(env, new_enum_type_wf);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(fb_vne), vne_wf_info);
-
           // Push frame for this arm
           ___ := env.push_frame(false);
-
           // is_comptime_scrutinee: concrete known enum value
-          is_comptime_scr_wf := match(scrutinee_val_opt,
-            .None     => false,
+          is_comptime_scr_wf := match(
+            scrutinee_val_opt,
+            .None => false,
             .Some(sv) => (is_enum_val(sv) && !(is_unknown_val(sv)))
           );
-
           // Add destructured variables to environment
-          if((variant_fields_wf.len() > usize(0)), {
+          if(variant_fields_wf.len() > usize(0), {
             destructured_labels := ArrayList(String).new();
-
             (dp_i : usize) = usize(0);
-            while(runtime((dp_i < destr_params.len())), {
-              param := match(destr_params.get(dp_i), .Some(p) => p, .None => make_err_expr());
-
-              if(ast_expr_is_fn_call_of(param, ":", .Some(usize(2))), {
+            while(runtime(dp_i < destr_params.len()), {
+              param := match(destr_params.get(dp_i),.Some(p) => p,.None => make_err_expr());
+              if(ast_expr_is_fn_call_of(param, ":",.Some(usize(2))), {
                 // Labeled destructuring: (label: variable) or (label: _)
-                label_expr    := match(param, .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-                variable_expr := match(param, .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-
+                label_expr := match(param,.FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),.Atom(_, _) => make_err_expr());
+                variable_expr := match(param,.FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)),.Some(a) => a,.None => make_err_expr()),.Atom(_, _) => make_err_expr());
                 if(!(ast_expr_is_atom(label_expr)), {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(label_expr),
-                    `Expected identifier for label in destructuring pattern, got ${ast_expr_to_string(label_expr)}`,
-                    false, .None
-                  )));
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(label_expr),
+                        `Expected identifier for label in destructuring pattern, got ${ast_expr_to_string(label_expr)}`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
                   return(expr);
                 });
-
-                lbl_str := match(label_expr,
-                  .Atom(_, tok)         => tok.value.as_str(),
+                lbl_str := match(
+                  label_expr,
+                  .Atom(_, tok) => tok.value.as_str(),
                   .FnCall(_, _, _, _, tok) => tok.value.as_str()
                 );
-
                 // Find field index by label
                 field_idx_lbl_opt := find_str_in_list(variant_labels_wf, lbl_str);
                 if(field_idx_lbl_opt.is_none(), {
                   // Build available labels string
                   available_labels := String.new();
                   (al_i : usize) = usize(0);
-                  while(runtime((al_i < variant_labels_wf.len())), {
-                    match(variant_labels_wf.get(al_i), .Some(lbl) => {
-                      if((al_i > usize(0)), { available_labels.push_str(", "); });
-                      available_labels.push_string(lbl);
-                    }, .None => ());
+                  while(runtime(al_i < variant_labels_wf.len()), {
+                    match(
+                      variant_labels_wf.get(al_i),
+                      .Some(lbl) => {
+                        if(al_i > usize(0), {
+                          available_labels.push_str(", ");
+                        });
+                        available_labels.push_string(lbl);
+                      },
+                      .None => ()
+                    );
                     al_i = (al_i + usize(1));
                   });
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(label_expr),
-                    `Label "${lbl_str}" not found in variant "${variant_name_wf}". Available labels: ${available_labels.as_str()}`,
-                    false, .None
-                  )));
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(label_expr),
+                        `Label "${lbl_str}" not found in variant "${variant_name_wf}". Available labels: ${available_labels.as_str()}`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
                   return(expr);
                 });
-
                 if(contains_str_in_list(destructured_labels, lbl_str), {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(label_expr),
-                    `Label "${lbl_str}" is already destructured`,
-                    false, .None
-                  )));
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(label_expr),
+                        `Label "${lbl_str}" is already destructured`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
                   return(expr);
                 });
                 destructured_labels.push(String.from(lbl_str));
-
-                field_idx_lbl := match(field_idx_lbl_opt, .Some(idx) => idx, .None => usize(0));
-                field_type_lbl := match(variant_fields_wf.get(field_idx_lbl), .Some(ft) => ft, .None => t_unit());
-
+                field_idx_lbl := match(field_idx_lbl_opt,.Some(idx) => idx,.None => usize(0));
+                field_type_lbl := match(variant_fields_wf.get(field_idx_lbl),.Some(ft) => ft,.None => t_unit());
                 // Get compile-time field value if scrutinee is concrete
                 field_val_lbl := cond(
-                  is_comptime_scr_wf => match(scrutinee_val_opt,
-                    .Some(sv) => match(sv,
+                  is_comptime_scr_wf => match(
+                    scrutinee_val_opt,
+                    .Some(sv) => match(
+                      sv,
                       .EnumVal(_, sv_fields) => sv_fields.get(field_idx_lbl),
-                      _                      => Option(EvalValue).None
+                      _ => Option(EvalValue).None
                     ),
                     .None => Option(EvalValue).None
                   ),
                   true => Option(EvalValue).None
                 );
-
                 if(!(ast_expr_is_atom(variable_expr)), {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(variable_expr),
-                    `Expected identifier or "_" for variable in labeled destructuring, got ${ast_expr_to_string(variable_expr)}`,
-                    false, .None
-                  )));
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(variable_expr),
+                        `Expected identifier or "_" for variable in labeled destructuring, got ${ast_expr_to_string(variable_expr)}`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
                   return(expr);
                 });
-
-                var_name_lbl := match(variable_expr,
-                  .Atom(_, tok)         => tok.value.as_str(),
+                var_name_lbl := match(
+                  variable_expr,
+                  .Atom(_, tok) => tok.value.as_str(),
                   .FnCall(_, _, _, _, tok) => tok.value.as_str()
                 );
                 if(!(var_name_lbl == "_"), {
@@ -1534,7 +1758,6 @@ evaluate_match :: (fn(
                     ast_expr_token(variable_expr)
                   );
                 });
-
                 var_info_lbl := new_expr_info(env, field_type_lbl);
                 lbl_info_lbl := new_expr_info(env, field_type_lbl);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(variable_expr), var_info_lbl);
@@ -1542,21 +1765,22 @@ evaluate_match :: (fn(
               }, {
                 if(ast_expr_is_atom(param), {
                   // Positional destructuring: param at index dp_i
-                  field_type_pos := match(variant_fields_wf.get(dp_i), .Some(ft) => ft, .None => t_unit());
-
+                  field_type_pos := match(variant_fields_wf.get(dp_i),.Some(ft) => ft,.None => t_unit());
                   field_val_pos := cond(
-                    is_comptime_scr_wf => match(scrutinee_val_opt,
-                      .Some(sv) => match(sv,
+                    is_comptime_scr_wf => match(
+                      scrutinee_val_opt,
+                      .Some(sv) => match(
+                        sv,
                         .EnumVal(_, sv_fields) => sv_fields.get(dp_i),
-                        _                      => Option(EvalValue).None
+                        _ => Option(EvalValue).None
                       ),
                       .None => Option(EvalValue).None
                     ),
                     true => Option(EvalValue).None
                   );
-
-                  param_name := match(param,
-                    .Atom(_, tok)         => tok.value.as_str(),
+                  param_name := match(
+                    param,
+                    .Atom(_, tok) => tok.value.as_str(),
                     .FnCall(_, _, _, _, tok) => tok.value.as_str()
                   );
                   if(!(param_name == "_"), {
@@ -1572,95 +1796,102 @@ evaluate_match :: (fn(
                       ast_expr_token(param)
                     );
                   });
-
                   param_info := new_expr_info(env, field_type_pos);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(param), param_info);
                 }, {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(param),
-                    cond(
-                      is_curly_wf => `Expected labeled pattern (label: variable) inside curly destructuring "{...}", got ${ast_expr_to_string(param)}`,
-                      true        => `Expected identifier, "_", or labeled pattern (label: variable) for destructuring parameter, got ${ast_expr_to_string(param)}`
-                    ),
-                    false, .None
-                  )));
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(param),
+                        cond(
+                          is_curly_wf => `Expected labeled pattern (label: variable) inside curly destructuring "{...}", got ${ast_expr_to_string(param)}`,
+                          true => `Expected identifier, "_", or labeled pattern (label: variable) for destructuring parameter, got ${ast_expr_to_string(param)}`
+                        ),
+                        false,
+                        .None
+                      )
+                    )
+                  );
                   return(expr);
                 });
               });
-
               dp_i = (dp_i + usize(1));
             });
           });
-
           // Set ExprInfo for matchArmExpr (AFTER push_frame and var adds)
           mae_wf_info := new_expr_info(env, variable_type_wf);
           mae_wf_info.case_executed = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_wf_info);
-
           // Evaluate arm body
-          is_arm_executing_wf := match(scrutinee_val_opt,
-            .None     => false,
-            .Some(sv) => (is_enum_val(sv) && match(sv,
-              .EnumVal(sv_vname, _) => (sv_vname.as_str() == variant_name_wf),
-              _                     => false
-            ))
+          is_arm_executing_wf := match(
+            scrutinee_val_opt,
+            .None => false,
+            .Some(sv) => (
+              is_enum_val(sv) && match(
+                sv,
+                .EnumVal(sv_vname, _) => (sv_vname.as_str() == variant_name_wf),
+                _ => false
+              )
+            )
           );
           old_executing_wf := ctx.is_executing;
           ctx.is_executing = is_arm_executing_wf;
           evaluated_body_wf := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false);
           ctx.is_executing = old_executing_wf;
-
           env.pop_frame();
-
           body_info_wf_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wf));
           if(body_info_wf_opt.is_none(), {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(rhs_expr_em),
-              `Expected type for match result expression, got ${ast_expr_to_string(rhs_expr_em)}`,
-              false, .None
-            )));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(rhs_expr_em),
+                  `Expected type for match result expression, got ${ast_expr_to_string(rhs_expr_em)}`,
+                  false,
+                  .None
+                )
+              )
+            );
             return(expr);
           });
-          body_info_wf := match(body_info_wf_opt, .Some(bi) => bi, .None => new_expr_info(env, t_unit()));
-
+          body_info_wf := match(body_info_wf_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
           consume_case_body_temp_var(evaluated_body_wf, body_info_wf.env, ctx);
-
           if(scrutinee_val_opt.is_none(), {
             body_info_wf.value = Option(EvalValue).None;
           });
-
           if(has_any_control_flow(body_info_wf.control_flow), {
-            cf_wf := match(body_info_wf.control_flow,
+            cf_wf := match(
+              body_info_wf.control_flow,
               .Some(f) => f,
-              .None    => ControlFlowFlags(return_flag: false, escape_flag: false, break_flag: false, continue_flag: false)
+              .None => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false)
             );
             control_flows_em.push(cf_wf);
-            if(has_control_flow(body_info_wf.control_flow, .Return), {
+            if(has_control_flow(body_info_wf.control_flow,.Return), {
               return_bodies_em.push(evaluated_body_wf);
             });
-            (is_concrete_sv_wf : bool) = match(scrutinee_val_opt,
-              .None     => false,
+            (is_concrete_sv_wf : bool) = match(
+              scrutinee_val_opt,
+              .None => false,
               .Some(sv) => (is_enum_val(sv) && !(is_unknown_val(sv)))
             );
             if(is_concrete_sv_wf, {
               result_ty_wf_cf := cond(
-                match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-                  match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wf.ty),
+                match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+                  match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wf.ty),
                 true => body_info_wf.ty
               );
               out_wf_cf := new_expr_info(body_info_wf.env, result_ty_wf_cf);
-              out_wf_cf.value        = body_info_wf.value;
+              out_wf_cf.value = body_info_wf.value;
               out_wf_cf.control_flow = body_info_wf.control_flow;
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wf_cf);
             }, {
               if(scrutinee_val_opt.is_none(), {
                 result_ty_wf_cf2 := cond(
-                  match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-                    match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wf.ty),
+                  match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+                    match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wf.ty),
                   true => body_info_wf.ty
                 );
                 out_wf_cf2 := new_expr_info(body_info_wf.env, result_ty_wf_cf2);
-                out_wf_cf2.value        = Option(EvalValue).None;
+                out_wf_cf2.value = Option(EvalValue).None;
                 out_wf_cf2.control_flow = body_info_wf.control_flow;
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wf_cf2);
               });
@@ -1668,19 +1899,19 @@ evaluate_match :: (fn(
           }, {
             has_case_without_cf_em = true;
           });
-
           bodies.push(evaluated_body_wf);
-
           // Track matched_body_idx
           if(matched_body_idx.is_none(), {
-            match(scrutinee_val_opt,
-              .None     => (),
+            match(
+              scrutinee_val_opt,
+              .None => (),
               .Some(sv) => {
-                if((is_enum_val(sv) && !(is_unknown_val(sv))), {
-                  match(sv,
+                if(is_enum_val(sv) && !(is_unknown_val(sv)), {
+                  match(
+                    sv,
                     .EnumVal(sv_vname, _) => {
-                      if(((sv_vname.as_str() == variant_name_wf) || (variant_name_wf == "_")), {
-                        matched_body_idx = Option(usize).Some((bodies.len() - usize(1)));
+                      if((sv_vname.as_str() == variant_name_wf) || (variant_name_wf == "_"), {
+                        matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
                       });
                     },
                     _ => ()
@@ -1689,22 +1920,29 @@ evaluate_match :: (fn(
               }
             );
           });
-
           // Result type consistency
           if(!(has_any_control_flow(body_info_wf.control_flow)), {
-            match(result_type_em,
-              .None       => { result_type_em = Option(TypeValue).Some(body_info_wf.ty); },
+            match(
+              result_type_em,
+              .None => {
+                result_type_em = Option(TypeValue).Some(body_info_wf.ty);
+              },
               .Some(rt_wf) => {
                 if(!(are_types_compatible(body_info_wf.ty, rt_wf)), {
                   rt_wf_rt := convert_comptime_type_to_runtime_type(rt_wf, env);
                   if(are_types_compatible(body_info_wf.ty, rt_wf_rt), {
                     result_type_em = Option(TypeValue).Some(body_info_wf.ty);
                   }, {
-                    exn.throw(dyn(format_error_message(
-                      ast_expr_token(evaluated_body_wf),
-                      `Incompatible types:\n- Previous: ${type_to_string(rt_wf)}\n- Current : ${type_to_string(body_info_wf.ty)}`,
-                      false, .None
-                    )));
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(evaluated_body_wf),
+                          `Incompatible types:\n- Previous: ${type_to_string(rt_wf)}\n- Current : ${type_to_string(body_info_wf.ty)}`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
                     return(expr);
                   });
                 });
@@ -1716,107 +1954,127 @@ evaluate_match :: (fn(
         // -----------------------------------------------------------------
         // Invalid pattern
         // -----------------------------------------------------------------
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(match_arm_expr),
-          `Invalid pattern in match expression: ${ast_expr_to_string(match_arm_expr)}
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(match_arm_expr),
+              `Invalid pattern in match expression: ${ast_expr_to_string(match_arm_expr)}
 Supported patterns:
 - .VariantName (for variants without fields)
 - .VariantName(param1, param2, ...) (for variants with fields)
 - _ (wildcard pattern)`,
-          false, .None
-        )));
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
     });
   });
-
   // ---------------------------------------------------------------------------
   // Post-loop: exhaustiveness + final result
   // ---------------------------------------------------------------------------
-
   final_cf_em := cond(
     (control_flows_em.len() > usize(0)) => Option(ControlFlowFlags).Some(merge_control_flows(control_flows_em)),
-    true                                => Option(ControlFlowFlags).None
+    true => Option(ControlFlowFlags).None
   );
-
-  if((has_case_without_cf_em || !(has_any_control_flow(final_cf_em))), {
-    if((has_case_without_cf_em && result_type_em.is_none()), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        `Failed to determine the type of value from the cond.`,
-        false, .None
-      )));
+  if(has_case_without_cf_em || !(has_any_control_flow(final_cf_em)), {
+    if(has_case_without_cf_em && result_type_em.is_none(), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Failed to determine the type of value from the cond.`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     }, {
       if(result_type_em.is_none(), {
         result_type_em = Option(TypeValue).Some(t_unit());
       });
     });
-
-    rt_em := match(result_type_em, .Some(t) => t, .None => t_unit());
-
+    rt_em := match(result_type_em,.Some(t) => t,.None => t_unit());
     // Exhaustiveness check
     if(!(contains_str_in_list(checked_variant_names, "_")), {
       missing_em := ArrayList(String).new();
       (vn_i : usize) = usize(0);
-      while(runtime((vn_i < en_vnames.len())), {
-        match(en_vnames.get(vn_i), .Some(vname) => {
-          if(!(contains_str_in_list(checked_variant_names, vname.as_str())), {
-            missing_em.push(vname);
-          });
-        }, .None => ());
+      while(runtime(vn_i < en_vnames.len()), {
+        match(
+          en_vnames.get(vn_i),
+          .Some(vname) => {
+            if(!(contains_str_in_list(checked_variant_names, vname.as_str())), {
+              missing_em.push(vname);
+            });
+          },
+          .None => ()
+        );
         vn_i = (vn_i + usize(1));
       });
-      if((missing_em.len() > usize(0)), {
+      if(missing_em.len() > usize(0), {
         missing_str_em := String.new();
         missing_str_em.push_str("\n- ");
         (ms_i : usize) = usize(0);
-        while(runtime((ms_i < missing_em.len())), {
-          match(missing_em.get(ms_i), .Some(mv) => {
-            if((ms_i > usize(0)), { missing_str_em.push_str("\n- "); });
-            missing_str_em.push_string(mv);
-          }, .None => ());
+        while(runtime(ms_i < missing_em.len()), {
+          match(
+            missing_em.get(ms_i),
+            .Some(mv) => {
+              if(ms_i > usize(0), {
+                missing_str_em.push_str("\n- ");
+              });
+              missing_str_em.push_string(mv);
+            },
+            .None => ()
+          );
           ms_i = (ms_i + usize(1));
         });
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(expr),
-          `Match expression is not exhaustive. Missing cases for variants:${missing_str_em.as_str()}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `Match expression is not exhaustive. Missing cases for variants:${missing_str_em.as_str()}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
     });
-
     // Select environment: concrete CT scrutinee → use matched body's env
     non_return_em := ArrayList(AstExpr).new();
     (nrem_i : usize) = usize(0);
-    while(runtime((nrem_i < bodies.len())), {
-      b_em := match(bodies.get(nrem_i), .Some(b2) => b2, .None => make_err_expr());
-      match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_em)),
-        .None     => (),
+    while(runtime(nrem_i < bodies.len()), {
+      b_em := match(bodies.get(nrem_i),.Some(b2) => b2,.None => make_err_expr());
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_em)),
+        .None => (),
         .Some(bi) => {
-          if((!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Escape))), {
+          if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Escape)), {
             non_return_em.push(b_em);
           });
         }
       );
       nrem_i = (nrem_i + usize(1));
     });
-
     (matched_body_val : Option(EvalValue)) = Option(EvalValue).None;
-
     // Case 1: concrete scrutinee with matched_body_idx set
     (did_use_matched_body : bool) = false;
     if(matched_body_idx.is_some(), {
-      match(scrutinee_val_opt,
-        .None     => (),
+      match(
+        scrutinee_val_opt,
+        .None => (),
         .Some(sv) => {
-          if((is_enum_val(sv) && !(is_unknown_val(sv))), {
-            idx_em := match(matched_body_idx, .Some(i) => i, .None => usize(0));
-            if((idx_em < bodies.len()), {
-              mb := match(bodies.get(idx_em), .Some(b) => b, .None => make_err_expr());
-              match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(mb)),
-                .None     => (),
+          if(is_enum_val(sv) && !(is_unknown_val(sv)), {
+            idx_em := match(matched_body_idx,.Some(i) => i,.None => usize(0));
+            if(idx_em < bodies.len(), {
+              mb := match(bodies.get(idx_em),.Some(b) => b,.None => make_err_expr());
+              match(
+                expr_info_table_get(ctx.expr_info_table, ast_expr_id(mb)),
+                .None => (),
                 .Some(mbi) => {
                   env = mbi.env;
                   matched_body_val = mbi.value;
@@ -1828,17 +2086,18 @@ Supported patterns:
         }
       );
     });
-
     if(!(did_use_matched_body), {
       // Case 2: concrete scrutinee + single non-return body (fieldless fallback)
       (did_use_single : bool) = false;
-      match(scrutinee_val_opt,
-        .None     => (),
+      match(
+        scrutinee_val_opt,
+        .None => (),
         .Some(sv) => {
-          if(((is_enum_val(sv) && !(is_unknown_val(sv))) && (non_return_em.len() == usize(1))), {
-            first_nrem := match(non_return_em.get(usize(0)), .Some(b) => b, .None => make_err_expr());
-            match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem)),
-              .None     => (),
+          if((is_enum_val(sv) && !(is_unknown_val(sv))) && (non_return_em.len() == usize(1)), {
+            first_nrem := match(non_return_em.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+            match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem)),
+              .None => (),
               .Some(bi) => {
                 env = bi.env;
                 matched_body_val = bi.value;
@@ -1847,10 +2106,11 @@ Supported patterns:
             );
           });
           // Case 3: unknown enum + single non-return body → use env only (no value)
-          if(((!(did_use_single) && is_unknown_val(sv)) && (non_return_em.len() == usize(1))), {
-            first_nrem2 := match(non_return_em.get(usize(0)), .Some(b) => b, .None => make_err_expr());
-            match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem2)),
-              .None     => (),
+          if((!(did_use_single) && is_unknown_val(sv)) && (non_return_em.len() == usize(1)), {
+            first_nrem2 := match(non_return_em.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+            match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem2)),
+              .None => (),
               .Some(bi) => {
                 env = bi.env;
                 did_use_single = true;
@@ -1864,64 +2124,76 @@ Supported patterns:
         env = merge_and_check_envs(env, non_return_em, ctx);
       });
     });
-
     // Determine output value
     out_val_em := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
-      matched_body_val.is_some()  => matched_body_val,
-      true                        => Option(EvalValue).Some(create_unknown_val(rt_em))
+      matched_body_val.is_some() => matched_body_val,
+      true => Option(EvalValue).Some(create_unknown_val(rt_em))
     );
-
     result_ty_final_em := cond(
-      match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
-        match(ctx.expected_type, .Some(et) => et.ty, .None => rt_em),
+      match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+        match(ctx.expected_type,.Some(et) => et.ty,.None => rt_em),
       true => rt_em
     );
-
     out_em := new_expr_info(env, result_ty_final_em);
     out_em.value = out_val_em;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_em);
     attach_temp_variable_to_expr(expr, true, ctx);
   }, {
     // All arms have control flow
-    if((control_flows_em.len() == usize(0)), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        `No control flows found but expected some.`,
-        false, .None
-      )));
+    if(control_flows_em.len() == usize(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `No control flows found but expected some.`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     });
-
     cond(
-      has_control_flow(final_cf_em, .Return) => {
+      has_control_flow(final_cf_em,.Return) => {
         if(ctx.is_evaluating_function_body_or_async_block.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `All cases in match are returning from function, but not evaluating in function body.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `All cases in match are returning from function, but not evaluating in function body.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-
         (ret_type_em : Option(TypeValue)) = Option(TypeValue).None;
-        if((return_bodies_em.len() > usize(0)), {
-          first_rb_em := match(return_bodies_em.get(usize(0)), .Some(b) => b, .None => make_err_expr());
-          match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_rb_em)),
-            .Some(bi) => { ret_type_em = Option(TypeValue).Some(bi.ty); },
-            .None     => ()
+        if(return_bodies_em.len() > usize(0), {
+          first_rb_em := match(return_bodies_em.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_rb_em)),
+            .Some(bi) => {
+              ret_type_em = Option(TypeValue).Some(bi.ty);
+            },
+            .None => ()
           );
         });
         if(ret_type_em.is_none(), {
-          match(ctx.is_evaluating_function_body_or_async_block,
-            .None       => (),
+          match(
+            ctx.is_evaluating_function_body_or_async_block,
+            .None => (),
             .Some(fctx) => {
-              match(fctx.kind,
+              match(
+                fctx.kind,
                 .FunctionBody => {
-                  match(fctx.func_type,
-                    .None     => (),
+                  match(
+                    fctx.func_type,
+                    .None => (),
                     .Some(ft) => {
-                      match(ft,
+                      match(
+                        ft,
                         .Func(_, _, _, _, _, _, _, _, result_box) => {
                           ret_type_em = Option(TypeValue).Some(result_box.*);
                         },
@@ -1936,31 +2208,42 @@ Supported patterns:
           );
         });
         if(ret_type_em.is_none(), {
-          match(ctx.expected_type,
-            .None     => (),
-            .Some(et) => { ret_type_em = Option(TypeValue).Some(et.ty); }
+          match(
+            ctx.expected_type,
+            .None => (),
+            .Some(et) => {
+              ret_type_em = Option(TypeValue).Some(et.ty);
+            }
           );
         });
-
-        match(ret_type_em,
-          .None     => {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(expr),
-              `Failed to determine the return(type for match(statement.))`,
-              false, .None
-            )));
+        match(
+          ret_type_em,
+          .None => {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `Failed to determine the return(type for match(statement.))`,
+                  false,
+                  .None
+                )
+              )
+            );
             return(expr);
           },
           .Some(rt) => {
-            is_fn_body_em := match(ctx.is_evaluating_function_body_or_async_block,
-              .None       => false,
-              .Some(fctx) => match(fctx.kind, .FunctionBody => true, _ => false)
+            is_fn_body_em := match(
+              ctx.is_evaluating_function_body_or_async_block,
+              .None => false,
+              .Some(fctx) => match(fctx.kind,.FunctionBody => true, _ => false)
             );
             is_comptime_ret_em := cond(
-              is_fn_body_em => match(ctx.is_evaluating_function_body_or_async_block,
-                .None       => false,
-                .Some(fctx) => match(fctx.func_type,
-                  .None     => false,
+              is_fn_body_em => match(
+                ctx.is_evaluating_function_body_or_async_block,
+                .None => false,
+                .Some(fctx) => match(
+                  fctx.func_type,
+                  .None => false,
                   .Some(ft) => is_function_type_and_returns_comptime_value(ft)
                 )
               ),
@@ -1968,68 +2251,76 @@ Supported patterns:
             );
             ret_val_em := cond(
               is_comptime_ret_em => Option(EvalValue).Some(create_unknown_val(rt)),
-              true               => Option(EvalValue).None
+              true => Option(EvalValue).None
             );
             out_ret_em := new_expr_info(env, rt);
-            out_ret_em.value        = ret_val_em;
+            out_ret_em.value = ret_val_em;
             out_ret_em.control_flow = final_cf_em;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ret_em);
           }
         );
       },
-
-      has_control_flow(final_cf_em, .Escape) => {
+      has_control_flow(final_cf_em,.Escape) => {
         if(ctx.enclosing_function_return_type.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `All cases in match use "escape", but not inside a function with an enclosing function.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `All cases in match use "escape", but not inside a function with an enclosing function.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-        esc_ty_em := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
+        esc_ty_em := match(ctx.enclosing_function_return_type,.Some(t) => t,.None => t_unit());
         out_esc_em := new_expr_info(env, esc_ty_em);
         out_esc_em.control_flow = final_cf_em;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_em);
       },
-
-      has_control_flow(final_cf_em, .Break) => {
+      has_control_flow(final_cf_em,.Break) => {
         if(ctx.is_evaluating_loop_body.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `All cases in match are breaking from loop, but not inside a loop.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `All cases in match are breaking from loop, but not inside a loop.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
         out_brk_em := new_expr_info(env, t_unit());
-        out_brk_em.value        = Option(EvalValue).Some(EvalValue.UnitVal);
+        out_brk_em.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out_brk_em.control_flow = final_cf_em;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_em);
       },
-
-      has_control_flow(final_cf_em, .Continue) => {
+      has_control_flow(final_cf_em,.Continue) => {
         if(ctx.is_evaluating_loop_body.is_none(), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `All cases in match are continuing loop, but not inside a loop.`,
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `All cases in match are continuing loop, but not inside a loop.`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
         out_cnt_em := new_expr_info(env, t_unit());
-        out_cnt_em.value        = Option(EvalValue).Some(EvalValue.UnitVal);
+        out_cnt_em.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out_cnt_em.control_flow = final_cf_em;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_cnt_em);
       },
-
       true => ()
     );
-
     return(expr);
   });
-
   expr
 });
-
 export(evaluate_match);

@@ -3,9 +3,7 @@
 //!
 //! `TypeShape` is exported FIRST so that when `value_b.yo` imports it back,
 //! the field is already in the partial module.
-
 open(import("std/string"));
-
 TypeShape :: enum(
   IntT,
   BoolT,
@@ -13,20 +11,17 @@ TypeShape :: enum(
   /// for the smoke test).
   FuncT(result_name : String)
 );
-
 export(TypeShape);
-
 // Now pull in Value, which imports us back. Anything ValueB needs from us
 // must already be exported above this line.
 { ValueB } :: import("./value_b.yo");
-
 /// A helper that uses both directions of the cycle.
 type_for_value :: (fn(v : ValueB) -> TypeShape)(
-  match(v,
-    .IntV(_) => .IntT,
-    .BoolV(_) => .BoolT,
+  match(
+    v,
+    .IntV(_) =>.IntT,
+    .BoolV(_) =>.BoolT,
     .FnV(declared) => declared
   )
 );
-
 export(type_for_value);

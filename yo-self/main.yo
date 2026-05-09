@@ -11,48 +11,52 @@
 //! test: Parses a `.test.yo` file, extracts `test("name", { body })` declarations,
 //!   compiles each test body to a standalone C program, and reports pass/fail.
 //!   Only supports pure tests (no IO effects, no struct methods) in Phase 5b.
-
 open(import("std/string"));
 open(import("std/error"));
 open(import("std/fmt"));
-{ args }          :: import("std/env");
-{ Path }          :: import("std/path");
+{ args } :: import("std/env");
+{ Path } :: import("std/path");
 { read_file, write_file } :: import("std/fs/file");
-{ Command }       :: import("std/process/command");
-{ exit }          :: import("std/libc/stdlib");
-{ ArrayList }     :: import("std/collections/array_list");
-{ AstExpr }       :: import("./expr/expr.yo");
-{ TokenKind }     :: import("./lexer/token.yo");
-{ parse }         :: import("./parser/parser.yo");
+{ Command } :: import("std/process/command");
+{ exit } :: import("std/libc/stdlib");
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("./expr/expr.yo");
+{ TokenKind } :: import("./lexer/token.yo");
+{ parse } :: import("./parser/parser.yo");
 { compile_module_to_c, compile_test_body_to_c, extract_import_path } :: import("./codegen/driver.yo");
-
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
 // Temporary binary path used for test execution.
 TEST_BIN_TMP :: "/tmp/yo_self_test_bin";
-
 /// Derive a simple module ID string from a file path String.
 /// For Phase 5a/5b: returns a fixed safe C identifier — sufficient for compilation.
 module_id_from_path :: (fn(path : String) -> String)(
   // path reserved for future use (filename stem extraction)
   String.from("yo_module")
 );
-
 /// Extract the test name string from a `test("name", { body })` expression.
 /// Returns None if the expression is not a 2-arg test call.
 extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
-  match(expr,
+  match(
+    expr,
     .Atom(_, _) => Option(String).None,
     .FnCall(_, func_box, fn_args, is_infix, _) => cond(
       (is_infix) => Option(String).None,
       (fn_args.len() < usize(2)) => Option(String).None,
-      (!(match(func_box.*,
-        .Atom(_, ftok) => (ftok.value.as_str() == "test"),
-        .FnCall(_, _, _, _, _) => false
-      ))) => Option(String).None,
-      true => match(fn_args.get(usize(0)),
+      (
+        !(
+          match(
+            func_box.*,
+            .Atom(_, ftok) => (ftok.value.as_str() == "test"),
+            .FnCall(_, _, _, _, _) => false
+          )
+        )
+      ) => Option(String).None,
+      true => match(
+        fn_args.get(usize(0)),
         .None => Option(String).None,
-        .Some(name_expr) => match(name_expr,
+        .Some(name_expr) => match(
+          name_expr,
           .FnCall(_, _, _, _, _) => Option(String).None,
           .Atom(_, ntok) => cond(
             (ntok.kind == TokenKind.StringLit) => {
@@ -60,8 +64,8 @@ extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
               // Strip them with substring(1, len-1).
               n := ntok.value.len();
               cond(
-                (n >= usize(2)) => .Some(ntok.value.substring(usize(1), (n - usize(1)))),
-                true => .Some(ntok.value)
+                (n >= usize(2)) =>.Some(ntok.value.substring(usize(1), n - usize(1))),
+                true =>.Some(ntok.value)
               )
             },
             true => Option(String).None
@@ -71,11 +75,11 @@ extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
     )
   )
 );
-
 /// Extract the test body expression from a `test("name", { body })` call.
 /// Returns the second argument (the body expression).
 extract_test_body :: (fn(expr : AstExpr) -> Option(AstExpr))(
-  match(expr,
+  match(
+    expr,
     .Atom(_, _) => Option(AstExpr).None,
     .FnCall(_, _, fn_args, _, _) => cond(
       (fn_args.len() < usize(2)) => Option(AstExpr).None,
@@ -83,11 +87,9 @@ extract_test_body :: (fn(expr : AstExpr) -> Option(AstExpr))(
     )
   )
 );
-
 // ---------------------------------------------------------------------------
 // Phase 5g: import resolution helpers
 // ---------------------------------------------------------------------------
-
 /// Normalize an import path: append `.yo` if not already present.
 normalize_import_path :: (fn(path_str : str) -> String)(
   cond(
@@ -95,7 +97,6 @@ normalize_import_path :: (fn(path_str : str) -> String)(
     true => `${path_str}.yo`
   )
 );
-
 /// Recursively collect all transitive module declarations for a given import.
 ///
 /// - `path_str`: unquoted import path (e.g. `"../types/tags.yo"`)
@@ -105,36 +106,36 @@ normalize_import_path :: (fn(path_str : str) -> String)(
 ///
 /// Skips `std/` imports — those are provided by the C preamble headers.
 /// Uses DFS post-order so each module's dependencies appear before it.
-collect_module_deps :: (fn(
-  path_str  : str,
-  base_dir  : str,
-  visited   : *(ArrayList(String)),
-  all_exprs : *(ArrayList(AstExpr)),
-  using(io : IO, exn : Exception)
-) -> unit)({
+collect_module_deps :: (
+  fn(
+    path_str : str,
+    base_dir : str,
+    visited : *(ArrayList(String)),
+    all_exprs : *(ArrayList(AstExpr)),
+    using(io : IO, exn : Exception)
+  ) -> unit
+)({
   // Skip standard library imports (handled via C preamble)
   if(String.from(path_str).starts_with(String.from("std/")), {
     return(());
   });
-
   // Normalize extension: append .yo if missing
   norm_path := normalize_import_path(path_str);
-
   // Resolve absolute path by normalizing base_dir/norm_path as one string.
   // Path.new normalizes ".." segments, which is needed for relative imports like "../types/tags.yo".
   // (Path.join does NOT re-normalize ".." in the second argument.)
   abs_path := Path.new(`${base_dir}/${norm_path.as_str()}`).to_string();
-
   // Deduplication: skip if already visited (also handles import cycles)
   nv := visited.*.len();
   (iv : usize) = usize(0);
   (already_visited : bool) = false;
-  while(runtime(((iv < nv) && (!(already_visited)))), {
+  while(runtime((iv < nv) && (!(already_visited))), {
     iv = (iv + usize(1));
-    match(visited.*.get((iv - usize(1))),
+    match(
+      visited.*.get(iv - usize(1)),
       .None => (),
       .Some(v) => {
-        if((v.as_str() == abs_path.as_str()), {
+        if(v.as_str() == abs_path.as_str(), {
           already_visited = true;
         });
       }
@@ -143,29 +144,28 @@ collect_module_deps :: (fn(
   if(already_visited, {
     return(());
   });
-
   // Mark as visited before recursing (prevents infinite loops on cycles)
   visited.*.push(String.from(abs_path.as_str()));
-
   // Compute the base directory of the imported module for recursive resolution
-  mod_base_dir := match(Path.new(String.from(abs_path.as_str())).parent(),
+  mod_base_dir := match(
+    Path.new(String.from(abs_path.as_str())).parent(),
     .None => String.from("."),
     .Some(p) => p.to_string()
   );
-
   // Read and parse the imported module
   src_bytes := io.await(read_file(Path.new(abs_path)));
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, String.from(mod_base_dir.as_str()), using(exn));
-
   // Recursively collect dependencies of this module first (post-order DFS)
   nm := mod_exprs.len();
   (im : usize) = usize(0);
-  while(runtime((im < nm)), {
+  while(runtime(im < nm), {
     im = (im + usize(1));
-    match(mod_exprs.get((im - usize(1))),
+    match(
+      mod_exprs.get(im - usize(1)),
       .None => (),
-      .Some(e) => match(extract_import_path(e),
+      .Some(e) => match(
+        extract_import_path(e),
         .None => (),
         .Some(child_path) => {
           recur(
@@ -179,12 +179,12 @@ collect_module_deps :: (fn(
       )
     );
   });
-
   // Append this module's declarations to all_exprs (after its deps)
-  (im = usize(0));
-  while(runtime((im < nm)), {
+  im = usize(0);
+  while(runtime(im < nm), {
     im = (im + usize(1));
-    match(mod_exprs.get((im - usize(1))),
+    match(
+      mod_exprs.get(im - usize(1)),
       .None => (),
       .Some(e) => {
         all_exprs.*.push(e);
@@ -192,47 +192,41 @@ collect_module_deps :: (fn(
     );
   });
 });
-
 /// Run the `compile` subcommand.
-run_compile :: (fn(
-  argv    : ArrayList(String),
-  using(io : IO, exn : Exception)
-) -> unit)({
-  if((argv.len() < usize(3)), {
+run_compile :: (
+  fn(
+    argv : ArrayList(String),
+    using(io : IO, exn : Exception)
+  ) -> unit
+)({
+  if(argv.len() < usize(3), {
     exn.throw(dyn(`compile: missing input file. Usage: yo-self compile <input.yo> [-o output]`));
   });
-
   input_path := argv.get(usize(2)).unwrap();
-
   // Determine output path (default: "a.out")
   (output_path : String) = `a.out`;
-  if((argv.len() >= usize(5)), {
+  if(argv.len() >= usize(5), {
     flag := argv.get(usize(3)).unwrap();
-    if((flag.as_str() == "-o"), {
+    if(flag.as_str() == "-o", {
       output_path = argv.get(usize(4)).unwrap();
     });
   });
-
   // Derive module id from input filename
   mod_id := module_id_from_path(input_path);
-
   // Read the input .yo file
   src_bytes := io.await(read_file(Path.new(input_path)));
   src := String.from_bytes(src_bytes);
-
   // Parse with the self-hosted parser
   exprs := parse(src, input_path, using(exn));
-
   // Generate C11 source
   opt_c := compile_module_to_c(exprs, mod_id.as_str(), "main");
-  (c_src : String) = match(opt_c,
+  (c_src : String) = match(
+    opt_c,
     .None => exn.throw(dyn(`compile: no main function found in input file`)),
     .Some(c) => c
   );
-
   // Write C to temp file
   io.await(write_file(Path.new(String.from(C_TMP)), c_src));
-
   // Compile C with system C compiler
   cc := Command.new(`cc`);
   cc.arg(String.from(C_TMP));
@@ -240,55 +234,55 @@ run_compile :: (fn(
   cc.arg(`-o`);
   cc.arg(output_path);
   st := io.await(cc.status());
-  if((!(st.success())), {
+  if(!(st.success()), {
     exn.throw(dyn(`compile: C compilation failed`));
   });
 });
-
 /// Run the `test` subcommand.
 ///
 /// Parses the given test file, finds all `test("name", { body })` declarations,
 /// compiles each to a standalone C program, runs it, and reports pass/fail.
-run_test :: (fn(
-  argv    : ArrayList(String),
-  using(io : IO, exn : Exception)
-) -> unit)({
-  if((argv.len() < usize(3)), {
+run_test :: (
+  fn(
+    argv : ArrayList(String),
+    using(io : IO, exn : Exception)
+  ) -> unit
+)({
+  if(argv.len() < usize(3), {
     exn.throw(dyn(`test: missing test file. Usage: yo-self test <file.test.yo>`));
   });
-
   input_path := argv.get(usize(2)).unwrap();
-
   // Optional name filter: --test-name-pattern <pattern>
   (name_filter : String) = String.new();
-  if((argv.len() >= usize(5)), {
+  if(argv.len() >= usize(5), {
     flag := argv.get(usize(3)).unwrap();
-    if((flag.as_str() == "--test-name-pattern"), {
+    if(flag.as_str() == "--test-name-pattern", {
       name_filter = argv.get(usize(4)).unwrap();
     });
   });
-
   // Read and parse the test file
   src_bytes := io.await(read_file(Path.new(input_path)));
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path, using(exn));
-
   // Phase 5g: resolve transitive imports and collect all module declarations.
   // dep_exprs will contain declarations from all transitively imported modules,
   // in post-order (dependencies before dependents) for correct C ordering.
-  visited   := ArrayList(String).new();
+  visited := ArrayList(String).new();
   dep_exprs := ArrayList(AstExpr).new();
-  input_base_dir := match(Path.new(String.from(input_path.as_str())).parent(),
+  input_base_dir := match(
+    Path.new(String.from(input_path.as_str())).parent(),
     .None => String.from("."),
     .Some(p) => p.to_string()
   );
   (nip : usize) = exprs.len();
   (iip : usize) = usize(0);
-  while(runtime((iip < nip)), {
+  while(runtime(iip < nip), {
     iip = (iip + usize(1));
-    match(exprs.get((iip - usize(1))),
+    match(
+      exprs.get(iip - usize(1)),
       .None => (),
-      .Some(e) => match(extract_import_path(e),
+      .Some(e) => match(
+        extract_import_path(e),
         .None => (),
         .Some(imp_path) => {
           collect_module_deps(
@@ -302,40 +296,45 @@ run_test :: (fn(
       )
     );
   });
-
   // Build all_module_exprs: dep declarations first, then test file declarations.
   all_module_exprs := ArrayList(AstExpr).new();
   (ndep : usize) = dep_exprs.len();
   (idep : usize) = usize(0);
-  while(runtime((idep < ndep)), {
+  while(runtime(idep < ndep), {
     idep = (idep + usize(1));
-    match(dep_exprs.get((idep - usize(1))),
+    match(
+      dep_exprs.get(idep - usize(1)),
       .None => (),
-      .Some(e) => { all_module_exprs.push(e); }
+      .Some(e) => {
+        all_module_exprs.push(e);
+      }
     );
   });
   (nexp : usize) = exprs.len();
   (iexp : usize) = usize(0);
-  while(runtime((iexp < nexp)), {
+  while(runtime(iexp < nexp), {
     iexp = (iexp + usize(1));
-    match(exprs.get((iexp - usize(1))),
+    match(
+      exprs.get(iexp - usize(1)),
       .None => (),
-      .Some(e) => { all_module_exprs.push(e); }
+      .Some(e) => {
+        all_module_exprs.push(e);
+      }
     );
   });
-
   // Extract all test declarations
   n := exprs.len();
   (i : usize) = usize(0);
   (passed : usize) = usize(0);
   (failed : usize) = usize(0);
   (skipped : usize) = usize(0);
-
-  while(runtime((i < n)), {
+  while(runtime(i < n), {
     i = (i + usize(1));
-    match(exprs.get(i - usize(1)),
+    match(
+      exprs.get(i - usize(1)),
       .None => (),
-      .Some(expr) => match(extract_test_name(expr),
+      .Some(expr) => match(
+        extract_test_name(expr),
         .None => (),
         .Some(test_name) => {
           // Apply name filter
@@ -344,15 +343,14 @@ run_test :: (fn(
             true => test_name.contains(name_filter)
           );
           if(filter_matches, {
-            match(extract_test_body(expr),
+            match(
+              extract_test_body(expr),
               .None => (),
               .Some(body) => {
                 // Generate C for this test body (includes all imported declarations)
                 c_src := compile_test_body_to_c(body, "test_module", all_module_exprs);
-
                 // Write to temp C file
                 io.await(write_file(Path.new(String.from(C_TMP)), c_src));
-
                 // Compile with cc
                 cc := Command.new(`cc`);
                 cc.arg(String.from(C_TMP));
@@ -360,10 +358,9 @@ run_test :: (fn(
                 cc.arg(`-o`);
                 cc.arg(String.from(TEST_BIN_TMP));
                 compile_st := io.await(cc.status());
-
                 if(compile_st.success(), {
                   // Run the test binary
-                  run   := Command.new(String.from(TEST_BIN_TMP));
+                  run := Command.new(String.from(TEST_BIN_TMP));
                   run_st := io.await(run.status());
                   cond(
                     run_st.success() => {
@@ -387,35 +384,31 @@ run_test :: (fn(
       )
     );
   });
-
   println("");
   println(`${input_path}`);
   println(`  ${passed} passed, ${failed} failed, ${skipped} skipped`);
-
-  if((failed > usize(0)), {
+  if(failed > usize(0), {
     exn.throw(dyn(`test: ${failed} test(s) failed`));
   });
 });
-
 main :: (fn(using(io : IO)) -> unit)({
-  given(exn) := Exception(throw: ((err) -> {
-    eprintln(`yo-self: error: ${err.to_string()}`);
-    exit(int(1));
-  }));
-
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`yo-self: error: ${err.to_string()}`);
+        exit(int(1));
+      }
+    )
+  );
   argv := args();
-
-  if((argv.len() < usize(2)), {
+  if(argv.len() < usize(2), {
     exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test> ...`));
   });
-
   subcmd := argv.get(usize(1)).unwrap();
-
   cond(
     (subcmd.as_str() == "compile") => run_compile(argv, using(io, exn)),
-    (subcmd.as_str() == "test")    => run_test(argv, using(io, exn)),
+    (subcmd.as_str() == "test") => run_test(argv, using(io, exn)),
     true => exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test> ...`))
   );
 });
-
 export(main);

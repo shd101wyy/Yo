@@ -13,73 +13,79 @@
 //! This registry is the only way to retrieve TypeField metadata post-construction,
 //! since `TypeValue.Struct` only stores field labels and types (no `TypeField[]`),
 //! to avoid a circular dependency between the types and evaluator layers.
-
 open(import("std/string"));
 open(import("std/fmt"));
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_fn_call,
-  make_err_expr, BK_COMPTIME, BK_IMPL_UPPER, BK_CONST, BK_ASSIGN } :: import("../../expr/expr.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set }          :: import("../../expr/expr_info.yo");
-{ Environment }                                                       :: import("../../env/env.yo");
-{ EvalContext, ExpectedTypeCtx }                                      :: import("../context.yo");
-{ EvalValue }                                                         :: import("../value.yo");
-{ TypeValue, is_some_type, is_tuple_type, is_struct_type,
-  is_module_type, is_trait_type }                                     :: import("../../types/type.yo");
-{ are_types_compatible }                                              :: import("../../types/compatibility.yo");
-{ format_error_message }                                              :: import("../../error/error.yo");
-{ type_to_string }                                                   :: import("../../types/string.yo");
-{ prohibit_void_type }                                               :: import("../../types/utils.yo");
-{ doc_comment_lookup_key_from_token }                                 :: import("../utils.yo");
-{ is_type_value }                                                     :: import("../value.yo");
-{ is_valid_variable_name }                                            :: import("../exprs/binding.yo");
-{ Exception }                                                         :: import("std/error");
-{ evaluate_expression }                                               :: import("../exprs/expr.yo");
-{ HashMap }                                                           :: import("std/collections/hash_map");
-{ ArrayList }                                                         :: import("std/collections/array_list");
-{ type_implements_fn }                                                :: import("../trait_checking.yo");
-
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  make_err_expr,
+  BK_COMPTIME,
+  BK_IMPL_UPPER,
+  BK_CONST,
+  BK_ASSIGN
+} :: import("../../expr/expr.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalValue } :: import("../value.yo");
+{
+  TypeValue,
+  is_some_type,
+  is_tuple_type,
+  is_struct_type,
+  is_module_type,
+  is_trait_type
+} :: import("../../types/type.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ prohibit_void_type } :: import("../../types/utils.yo");
+{ doc_comment_lookup_key_from_token } :: import("../utils.yo");
+{ is_type_value } :: import("../value.yo");
+{ is_valid_variable_name } :: import("../exprs/binding.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array_list");
+{ type_implements_fn } :: import("../trait_checking.yo");
 // ---------------------------------------------------------------------------
 // TypeField
 // ---------------------------------------------------------------------------
-
 TypeField :: struct(
-  label          : String,
-  ty             : TypeValue,
-  is_comptime    : bool,
-  default_value  : Option(EvalValue),
+  label : String,
+  ty : TypeValue,
+  is_comptime : bool,
+  default_value : Option(EvalValue),
   assigned_value : Option(EvalValue),
-  doc_comment    : Option(String)
+  doc_comment : Option(String)
 );
-
 /// Result type for evaluate_type_field.
 EvalTypeFieldResult :: struct(
   field : TypeField,
-  env   : Environment
+  env : Environment
 );
-
 // ---------------------------------------------------------------------------
 // Global struct registries
 // ---------------------------------------------------------------------------
-
 /// Global registry mapping struct id → list of TypeFields (one per field).
 /// `register_struct_fields` is called by `evaluate_struct_type` after building
 /// the struct. `get_struct_fields` is used by code that needs field extras
 /// (defaults, is_comptime, doc_comment, etc.).
 (g_struct_field_registry : HashMap(String, ArrayList(TypeField))) = HashMap(String, ArrayList(TypeField)).new();
-
 register_struct_fields :: (fn(id : String, fields : ArrayList(TypeField)) -> unit)(
   ___ := g_struct_field_registry.set(id, fields)
 );
-
 get_struct_fields :: (fn(id : String) -> Option(ArrayList(TypeField)))(
   g_struct_field_registry.get(id)
 );
-
 // ---------------------------------------------------------------------------
 // evaluate_type_field
 // ---------------------------------------------------------------------------
-
 /// Evaluate a single field expression in a struct/enum/tuple/union type definition.
 ///
 /// Handles the following syntaxes:
@@ -94,117 +100,137 @@ get_struct_fields :: (fn(id : String) -> Option(ArrayList(TypeField)))(
 /// field list, used for positional label generation and expected-type lookup.
 ///
 /// `for_type` must be one of `"tuple"`, `"struct"`, `"enum"`, or `"union"`.
-evaluate_type_field :: (fn(
-  expr              : AstExpr,
-  tuple_field_index : usize,
-  env_in            : Environment,
-  ctx               : *(EvalContext),
-  for_type          : str,
-  using(exn : Exception)
-) -> EvalTypeFieldResult)({
-  (env                 : Environment)      = env_in;
-  (label               : Option(String))   = Option(String).None;
-  (expr_               : AstExpr)          = expr;
-  (label_expr          : Option(AstExpr))  = Option(AstExpr).None;
-  (type_expr           : Option(AstExpr))  = Option(AstExpr).None;
-  (default_value_expr  : Option(AstExpr))  = Option(AstExpr).None;
-  (default_value       : Option(EvalValue)) = Option(EvalValue).None;
-  (assigned_value_expr : Option(AstExpr))  = Option(AstExpr).None;
-  (assigned_value      : Option(EvalValue)) = Option(EvalValue).None;
-  (is_comptime         : bool)             = false;
-  (field_type          : Option(TypeValue)) = Option(TypeValue).None;
-
+evaluate_type_field :: (
+  fn(
+    expr : AstExpr,
+    tuple_field_index : usize,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    for_type : str,
+    using(exn : Exception)
+  ) -> EvalTypeFieldResult
+)({
+  (env : Environment) = env_in;
+  (label : Option(String)) = Option(String).None;
+  (expr_ : AstExpr) = expr;
+  (label_expr : Option(AstExpr)) = Option(AstExpr).None;
+  (type_expr : Option(AstExpr)) = Option(AstExpr).None;
+  (default_value_expr : Option(AstExpr)) = Option(AstExpr).None;
+  (default_value : Option(EvalValue)) = Option(EvalValue).None;
+  (assigned_value_expr : Option(AstExpr)) = Option(AstExpr).None;
+  (assigned_value : Option(EvalValue)) = Option(EvalValue).None;
+  (is_comptime : bool) = false;
+  (field_type : Option(TypeValue)) = Option(TypeValue).None;
   // --- Check for default value: `x ?= default` ---
   if(ast_expr_is_fn_call_of(expr_, "?=", Option(usize).Some(usize(2))), {
-    args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-    default_value_expr = Option(AstExpr).Some(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-    expr_ = match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    args := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    default_value_expr = Option(AstExpr).Some(match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
+    expr_ = match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   });
-
   // --- Check for assigned value: `x = val` or `x :: val` ---
   if(ast_expr_is_fn_call_of(expr_, BK_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(expr_, BK_CONST, Option(usize).Some(usize(2))), {
     is_const := ast_expr_is_fn_call_of(expr_, BK_CONST, Option(usize).Some(usize(2)));
     if(is_const, {
       is_comptime = true;
-      args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-      lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      args := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+      lhs_expr := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
       if(!(is_valid_variable_name(lhs_expr)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(lhs_expr),
-          `Expected identifier for element label, got ${ast_expr_to_string(lhs_expr)}`,
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(lhs_expr),
+              `Expected identifier for element label, got ${ast_expr_to_string(lhs_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
       });
       label_expr = Option(AstExpr).Some(lhs_expr);
       label = Option(String).Some(ast_expr_token(lhs_expr).value);
     });
-    args2 := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-    assigned_value_expr = Option(AstExpr).Some(match(args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
-    expr_ = match(args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    args2 := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    assigned_value_expr = Option(AstExpr).Some(match(args2.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
+    expr_ = match(args2.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   });
-
   // Cannot have both default value and assigned value
   if(default_value_expr.is_some() && assigned_value_expr.is_some(), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      String.from("Cannot have both default value and required value for element."),
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("Cannot have both default value and required value for element."),
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // --- Parse the lhs expr: `x: T`, `comptime(x): T`, or just `comptime(x)` ---
   if(ast_expr_is_fn_call_of(expr_, ":", Option(usize).Some(usize(2))), {
-    colon_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-    (lhs_ : AstExpr) = match(colon_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    rhs  := match(colon_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+    colon_args := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    (lhs_ : AstExpr) = match(colon_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    rhs := match(colon_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
     type_expr = Option(AstExpr).Some(rhs);
-
     // Check if it's `comptime(x): T`
     if(ast_expr_is_fn_call_of(lhs_, BK_COMPTIME, Option(usize).Some(usize(1))), {
       if(is_comptime, {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(lhs_),
-          String.from("Cannot combine the use of \"comptime\" with ::"),
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(lhs_),
+              String.from("Cannot combine the use of \"comptime\" with ::"),
+              false,
+              .None
+            )
+          )
+        );
       });
       is_comptime = true;
-      ct_args := match(lhs_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-      lhs_ = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      ct_args := match(lhs_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+      lhs_ = match(ct_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     });
-
     if(!(ast_expr_is_atom(lhs_)) || !(is_valid_variable_name(lhs_)), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(lhs_),
-        `Expected identifier for element label, got ${ast_expr_to_string(lhs_)}`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs_),
+            `Expected identifier for element label, got ${ast_expr_to_string(lhs_)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
     label_expr = Option(AstExpr).Some(lhs_);
     label = Option(String).Some(ast_expr_token(lhs_).value);
   }, if(ast_expr_is_fn_call_of(expr_, BK_COMPTIME, Option(usize).Some(usize(1))), {
     if(is_comptime, {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr_),
-        String.from("Cannot combine the use of \"comptime\" with \"::\""),
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr_),
+            String.from("Cannot combine the use of \"comptime\" with \"::\""),
+            false,
+            .None
+          )
+        )
+      );
     });
     is_comptime = true;
-    ct_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-    lhs_ := match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    ct_args := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    lhs_ := match(ct_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     if(!(ast_expr_is_atom(lhs_)) || !(is_valid_variable_name(lhs_)), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(lhs_),
-        `Expected identifier for element label, got ${ast_expr_to_string(lhs_)}`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs_),
+            `Expected identifier for element label, got ${ast_expr_to_string(lhs_)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
     label_expr = Option(AstExpr).Some(lhs_);
     label = Option(String).Some(ast_expr_token(lhs_).value);
@@ -212,319 +238,362 @@ evaluate_type_field :: (fn(
     // Bare type expression (positional tuple field, or `Self :: i32` shorthand)
     type_expr = Option(AstExpr).Some(expr_);
   })));
-
   // --- Determine expected type for this field (from context) ---
   (expected_tuple_element_type : Option(TypeValue)) = Option(TypeValue).None;
   if(ctx.expected_type.is_some(), {
-    expected_type_val := match(ctx.expected_type, .Some(e) => e.ty, .None => TypeValue.Unit);
-    if(((is_tuple_type(expected_type_val) || is_struct_type(expected_type_val)) || (is_module_type(expected_type_val) || is_trait_type(expected_type_val))), {
-      maybe_field_ty := match(expected_type_val,
-        .Tuple(_, types)            => types.get(tuple_field_index),
-        .Struct(_, _, _, types, _, _, _)     => types.get(tuple_field_index),
-        .ModuleT(_, _, _, types)       => types.get(tuple_field_index),
-        .TraitT(_, _, _, types, _, _, _, _)     => types.get(tuple_field_index),
-        _                           => Option(TypeValue).None
+    expected_type_val := match(ctx.expected_type,.Some(e) => e.ty,.None => TypeValue.Unit);
+    if((is_tuple_type(expected_type_val) || is_struct_type(expected_type_val)) || (is_module_type(expected_type_val) || is_trait_type(expected_type_val)), {
+      maybe_field_ty := match(
+        expected_type_val,
+        .Tuple(_, types) => types.get(tuple_field_index),
+        .Struct(_, _, _, types, _, _, _) => types.get(tuple_field_index),
+        .ModuleT(_, _, _, types) => types.get(tuple_field_index),
+        .TraitT(_, _, _, types, _, _, _, _) => types.get(tuple_field_index),
+        _ => Option(TypeValue).None
       );
       if(maybe_field_ty.is_none(), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(expr),
-          `Failed to get the field at index ${tuple_field_index}`,
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `Failed to get the field at index ${tuple_field_index}`,
+              false,
+              .None
+            )
+          )
+        );
       });
       expected_tuple_element_type = maybe_field_ty;
     });
     // NOTE: For non-tuple/struct/module/trait expected types, do not throw.
   });
-
   // --- Evaluate the type expression ---
   if(type_expr.is_some(), {
-    te := match(type_expr, .Some(t) => t, .None => make_err_expr());
-
+    te := match(type_expr,.Some(t) => t,.None => make_err_expr());
     old_expected := ctx.expected_type;
     if(expected_tuple_element_type.is_some(), {
-      elem_env := match(ctx.expected_type, .Some(e) => e.env, .None => env);
-      ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(
-        ty:  match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
-        env: elem_env
-      ));
+      elem_env := match(ctx.expected_type,.Some(e) => e.env,.None => env);
+      ctx.expected_type = Option(ExpectedTypeCtx).Some(
+        ExpectedTypeCtx(
+          ty : match(expected_tuple_element_type,.Some(t) => t,.None => TypeValue.Unit),
+          env : elem_env
+        )
+      );
     }, {
       ctx.expected_type = Option(ExpectedTypeCtx).None;
     });
-
     evaluated_te := evaluate_expression(te, env, ctx);
     ctx.expected_type = old_expected;
-
     te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
-    te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env, TypeValue.Unit));
-
+    te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env, TypeValue.Unit));
     env = te_info.env;
-
     if(!(is_type_value(te_info.value)), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(te),
-        `(1) Expected type for element, got ${ast_expr_to_string(te)}`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(te),
+            `(1) Expected type for element, got ${ast_expr_to_string(te)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
-    field_type = match(te_info.value,
-      .Some(v) => match(v,
+    field_type = match(
+      te_info.value,
+      .Some(v) => match(
+        v,
         .TypeVal(inner) => Option(TypeValue).Some(inner.*),
-        _               => Option(TypeValue).None
+        _ => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
     );
   });
-
   // --- Evaluate assigned value expression ---
   if(assigned_value_expr.is_some(), {
-    av_expr := match(assigned_value_expr, .Some(e) => e, .None => make_err_expr());
-
+    av_expr := match(assigned_value_expr,.Some(e) => e,.None => make_err_expr());
     if(!(is_comptime), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(av_expr),
-        String.from("Assigned value expression is only allowed for compile-time only.\nPlease consider adding \"comptime\" modifier to the field label."),
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(av_expr),
+            String.from("Assigned value expression is only allowed for compile-time only.\nPlease consider adding \"comptime\" modifier to the field label."),
+            false,
+            .None
+          )
+        )
+      );
     });
-
-    field_expected_ctx := if(field_type.is_some(),
-      Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(
-        ty: match(field_type, .Some(t) => t, .None => TypeValue.Unit),
-        env: env
-      )),
-      if(expected_tuple_element_type.is_some(),
-        Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(
-          ty: match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
-          env: env
-        )),
+    field_expected_ctx := if(
+      field_type.is_some(),
+      Option(ExpectedTypeCtx).Some(
+        ExpectedTypeCtx(
+          ty : match(field_type,.Some(t) => t,.None => TypeValue.Unit),
+          env : env
+        )
+      ),
+      if(
+        expected_tuple_element_type.is_some(),
+        Option(ExpectedTypeCtx).Some(
+          ExpectedTypeCtx(
+            ty : match(expected_tuple_element_type,.Some(t) => t,.None => TypeValue.Unit),
+            env : env
+          )
+        ),
         Option(ExpectedTypeCtx).None
-      ));
-
-    old_expected    := ctx.expected_type;
-    old_force_ct    := ctx.force_compile_time_bindings;
-    ctx.expected_type              = field_expected_ctx;
+      )
+    );
+    old_expected := ctx.expected_type;
+    old_force_ct := ctx.force_compile_time_bindings;
+    ctx.expected_type = field_expected_ctx;
     // Do not propagate forceCompileTimeBindings when evaluating type field values.
     ctx.force_compile_time_bindings = false;
-
     evaluated_av := evaluate_expression(av_expr, env, ctx);
-    ctx.expected_type               = old_expected;
+    ctx.expected_type = old_expected;
     ctx.force_compile_time_bindings = old_force_ct;
-
     av_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_av));
-    av_info := match(av_info_opt, .Some(i) => i, .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(av_expr),
-        `Failed to evaluate required value expression: ${ast_expr_to_string(av_expr)}`,
-        false,
-        .None
-      )));
-      new_expr_info(env, TypeValue.Unit)
-    });
-
+    av_info := match(
+      av_info_opt,
+      .Some(i) => i,
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(av_expr),
+              `Failed to evaluate required value expression: ${ast_expr_to_string(av_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
+        new_expr_info(env, TypeValue.Unit)
+      }
+    );
     env = av_info.env;
-
     if(av_info.value.is_none(), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(av_expr),
-        `Expected compile-time known value for required value, got ${ast_expr_to_string(av_expr)}`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(av_expr),
+            `Expected compile-time known value for required value, got ${ast_expr_to_string(av_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
     assigned_value = av_info.value;
-
     av_type := av_info.ty;
     if(field_expected_ctx.is_some(), {
-      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
+      ft := match(field_expected_ctx,.Some(e) => e.ty,.None => TypeValue.Unit);
       if(!(are_types_compatible(av_type, ft)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(av_expr),
-          `Assigned value type mismatch:\nExpected type: ${type_to_string(ft)}\nGiven type: ${type_to_string(av_type)}`,
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(av_expr),
+              `Assigned value type mismatch:\nExpected type: ${type_to_string(ft)}\nGiven type: ${type_to_string(av_type)}`,
+              false,
+              .None
+            )
+          )
+        );
       });
       field_type = Option(TypeValue).Some(ft);
     }, {
       field_type = Option(TypeValue).Some(av_type);
     });
   });
-
   // --- Evaluate default value expression ---
   if(default_value_expr.is_some(), {
-    dv_expr := match(default_value_expr, .Some(e) => e, .None => make_err_expr());
-
-    field_expected_ctx := if(field_type.is_some(),
-      Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(
-        ty: match(field_type, .Some(t) => t, .None => TypeValue.Unit),
-        env: env
-      )),
-      if(expected_tuple_element_type.is_some(),
-        Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(
-          ty: match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
-          env: env
-        )),
+    dv_expr := match(default_value_expr,.Some(e) => e,.None => make_err_expr());
+    field_expected_ctx := if(
+      field_type.is_some(),
+      Option(ExpectedTypeCtx).Some(
+        ExpectedTypeCtx(
+          ty : match(field_type,.Some(t) => t,.None => TypeValue.Unit),
+          env : env
+        )
+      ),
+      if(
+        expected_tuple_element_type.is_some(),
+        Option(ExpectedTypeCtx).Some(
+          ExpectedTypeCtx(
+            ty : match(expected_tuple_element_type,.Some(t) => t,.None => TypeValue.Unit),
+            env : env
+          )
+        ),
         Option(ExpectedTypeCtx).None
-      ));
-
+      )
+    );
     old_expected := ctx.expected_type;
     ctx.expected_type = field_expected_ctx;
-
     evaluated_dv := evaluate_expression(dv_expr, env, ctx);
     ctx.expected_type = old_expected;
-
     dv_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dv));
-    dv_info := match(dv_info_opt, .Some(i) => i, .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(dv_expr),
-        `Failed to evaluate default value expression: ${ast_expr_to_string(dv_expr)}`,
-        false,
-        .None
-      )));
-      new_expr_info(env, TypeValue.Unit)
-    });
-
+    dv_info := match(
+      dv_info_opt,
+      .Some(i) => i,
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(dv_expr),
+              `Failed to evaluate default value expression: ${ast_expr_to_string(dv_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
+        new_expr_info(env, TypeValue.Unit)
+      }
+    );
     env = dv_info.env;
-
     if(dv_info.value.is_none(), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(dv_expr),
-        `Expected compile-time known value for default value, got ${ast_expr_to_string(dv_expr)}`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(dv_expr),
+            `Expected compile-time known value for default value, got ${ast_expr_to_string(dv_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
     default_value = dv_info.value;
-
     dv_type := dv_info.ty;
     if(field_expected_ctx.is_some(), {
-      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
+      ft := match(field_expected_ctx,.Some(e) => e.ty,.None => TypeValue.Unit);
       if(!(are_types_compatible(dv_type, ft)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(dv_expr),
-          `Default value type mismatch:\nExpected type: ${type_to_string(ft)}\nGiven type: ${type_to_string(dv_type)}`,
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(dv_expr),
+              `Default value type mismatch:\nExpected type: ${type_to_string(ft)}\nGiven type: ${type_to_string(dv_type)}`,
+              false,
+              .None
+            )
+          )
+        );
       });
       field_type = Option(TypeValue).Some(ft);
     }, {
       field_type = Option(TypeValue).Some(dv_type);
     });
   });
-
   // --- field_type must be resolved by now ---
   if(field_type.is_none(), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      String.from("Failed to infer the element type"),
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("Failed to infer the element type"),
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  final_type := match(field_type, .Some(t) => t, .None => TypeValue.Unit);
-
+  final_type := match(field_type,.Some(t) => t,.None => TypeValue.Unit);
   // For non-tuple types, a label is required
   if((for_type != "tuple") && label_expr.is_none(), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected label for ${for_type} field, got ${ast_expr_to_string(expr_)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected label for ${for_type} field, got ${ast_expr_to_string(expr_)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // --- Annotate label_expr in expr_info_table ---
   if(label_expr.is_some(), {
-    le := match(label_expr, .Some(e) => e, .None => make_err_expr());
+    le := match(label_expr,.Some(e) => e,.None => make_err_expr());
     doc_key := doc_comment_lookup_key_from_token(ast_expr_token(le));
-    field_doc_comment := match(ctx.doc_comment_lookup,
+    field_doc_comment := match(
+      ctx.doc_comment_lookup,
       .Some(lookup) => lookup.get(doc_key),
-      .None         => Option(String).None
+      .None => Option(String).None
     );
-    le_val := match(assigned_value,
+    le_val := match(
+      assigned_value,
       .Some(av) => Option(EvalValue).Some(av),
-      .None     => match(default_value,
+      .None => match(
+        default_value,
         .Some(dv) => Option(EvalValue).Some(dv),
-        .None     => Option(EvalValue).None
+        .None => Option(EvalValue).None
       )
     );
     le_info := new_expr_info(env, final_type);
-    le_info.value       = le_val;
+    le_info.value = le_val;
     le_info.doc_comment = field_doc_comment;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
   });
-
   // --- Annotate expr itself (if different from type_expr) ---
-  is_same_as_type_expr := match(type_expr,
+  is_same_as_type_expr := match(
+    type_expr,
     .Some(te) => (ast_expr_id(te) == ast_expr_id(expr)),
-    .None     => false
+    .None => false
   );
   if(!(is_same_as_type_expr), {
     expr_info := new_expr_info(env, TypeValue.Unit);
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
   });
-
   // --- Prohibit void type ---
   prohibit_void_type(final_type, ast_expr_token(expr), using(exn));
-
   // --- Prohibit Impl(Fn(...)) as field type for struct/enum/union ---
   // Runtime size of `Impl(Fn(...))` depends on the concrete closure capture
   // struct; it cannot live in a fixed-size field. Use `Dyn(Fn(...))` instead.
   if(((((for_type == "struct") || (for_type == "enum")) || (for_type == "union")) && is_some_type(final_type)) && type_implements_fn(final_type), {
     if(type_expr.is_some(), {
-      te := match(type_expr, .Some(e) => e, .None => make_err_expr());
+      te := match(type_expr,.Some(e) => e,.None => make_err_expr());
       if(ast_expr_is_fn_call_of(te, BK_IMPL_UPPER, Option(usize).None), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(te),
-          `Cannot use Impl(Fn(...)) as a field type:\n  ${type_to_string(final_type)}\n\nEach closure has a unique anonymous type with a capture-dependent size, so an Impl(Fn(...)) field has no fixed runtime size.\n\nOptions:\n  - Use Dyn(Fn(...)) for a heap-allocated, type-erased closure (and wrap the value with dyn(...)).\n  - Make the containing type generic over a closure type parameter, e.g.\n      MyStruct :: (fn(comptime(F) : Type) -> comptime(Type))(struct(cb : F));`,
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(te),
+              `Cannot use Impl(Fn(...)) as a field type:\n  ${type_to_string(final_type)}\n\nEach closure has a unique anonymous type with a capture-dependent size, so an Impl(Fn(...)) field has no fixed runtime size.\n\nOptions:\n  - Use Dyn(Fn(...)) for a heap-allocated, type-erased closure (and wrap the value with dyn(...)).\n  - Make the containing type generic over a closure type parameter, e.g.\n      MyStruct :: (fn(comptime(F) : Type) -> comptime(Type))(struct(cb : F));`,
+              false,
+              .None
+            )
+          )
+        );
       });
     });
   });
-
   // --- Determine the final label ---
   // Positional tuple fields use the index as a string label (matches TypeScript `${tupleFieldIndex}`).
-  final_label := match(label,
+  final_label := match(
+    label,
     .Some(l) => l,
-    .None    => `${tuple_field_index}`
+    .None => `${tuple_field_index}`
   );
-
   // --- Look up doc_comment for the returned TypeField ---
-  final_doc_comment := match(label_expr,
+  final_doc_comment := match(
+    label_expr,
     .Some(le) => {
       doc_key := doc_comment_lookup_key_from_token(ast_expr_token(le));
-      match(ctx.doc_comment_lookup,
+      match(
+        ctx.doc_comment_lookup,
         .Some(lookup) => lookup.get(doc_key),
-        .None         => Option(String).None
+        .None => Option(String).None
       )
     },
     .None => Option(String).None
   );
-
   field := TypeField(
-    label:          final_label,
-    ty:             final_type,
-    is_comptime:    is_comptime,
-    default_value:  default_value,
-    assigned_value: assigned_value,
-    doc_comment:    final_doc_comment
+    label : final_label,
+    ty : final_type,
+    is_comptime : is_comptime,
+    default_value : default_value,
+    assigned_value : assigned_value,
+    doc_comment : final_doc_comment
   );
-
-  EvalTypeFieldResult(field: field, env: env)
+  EvalTypeFieldResult(field : field, env : env)
 });
-
 export(TypeField, EvalTypeFieldResult);
 export(register_struct_fields, get_struct_fields);
 export(type_implements_fn);

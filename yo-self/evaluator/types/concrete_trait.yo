@@ -5,113 +5,136 @@
 //! `Concrete(T)` creates a marker trait type that specifies the concrete
 //! type for `Impl`. The `is_concrete` field on `TraitT` stores the wrapped
 //! type so downstream consumers (e.g. `Impl(Concrete(T), ...)`) can read it.
-
 open(import("std/string"));
 open(import("std/fmt"));
-
-{ ArrayList }                                      :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  make_err_expr }                                  :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }       :: import("../../expr/expr_info.yo");
-{ Environment }                                    :: import("../../env/env.yo");
-{ EvalContext }                                    :: import("../context.yo");
-{ EvalValue, create_type_value, is_type_value }    :: import("../value.yo");
-{ TypeValue, t_i32 }                               :: import("../../types/type.yo");
-{ type_of_type }                                   :: import("../../types/hierarchy.yo");
-{ type_to_string }                                 :: import("../../types/string.yo");
-{ format_error_message }                           :: import("../../error/error.yo");
-{ Exception }                                      :: import("std/error");
-{ evaluate_expression }                            :: import("../exprs/expr.yo");
-
-evaluate_concrete_type :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  make_err_expr
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, create_type_value, is_type_value } :: import("../value.yo");
+{ TypeValue, t_i32 } :: import("../../types/type.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+evaluate_concrete_type :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Concrete type constructor expects exactly 1 argument.
-  args := match(expr,
+  args := match(
+    expr,
     .FnCall(_, _, a, _, _) => a,
-    .Atom(_, _)            => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
-
-  if(!((args.len() == usize(1))), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Concrete type constructor expects exactly 1 argument, got ${args.len()}. Usage: Concrete(T)`,
-      false,
-      .None
-    )));
+  if(!(args.len() == usize(1)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Concrete type constructor expects exactly 1 argument, got ${args.len()}. Usage: Concrete(T)`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  concrete_type_expr := match(args.get(usize(0)),
+  concrete_type_expr := match(
+    args.get(usize(0)),
     .Some(a) => a,
-    .None    => make_err_expr()
+    .None => make_err_expr()
   );
-
   // Evaluate the concrete-type expression.
   evaluated := evaluate_expression(concrete_type_expr, env, ctx);
-
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  match(info_opt,
+  match(
+    info_opt,
     .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(concrete_type_expr),
-        `Failed to evaluate the concrete type expression for Concrete:\n${ast_expr_to_string(concrete_type_expr)}`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(concrete_type_expr),
+            `Failed to evaluate the concrete type expression for Concrete:\n${ast_expr_to_string(concrete_type_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
     },
     .Some(_) => ()
   );
-  inner_info := match(info_opt,
+  inner_info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => new_expr_info(env, t_i32())  // unreachable: guarded above
+    .None => new_expr_info(env, t_i32()) // unreachable: guarded above
   );
-
   // Validate the argument is a type value.
   if(!(is_type_value(inner_info.value)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(concrete_type_expr),
-      `Concrete type constructor expects a type as its argument, but got:\n${ast_expr_to_string(concrete_type_expr)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(concrete_type_expr),
+          `Concrete type constructor expects a type as its argument, but got:\n${ast_expr_to_string(concrete_type_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  concrete_ty := match(inner_info.value,
-    .Some(v) => match(v,
+  concrete_ty := match(
+    inner_info.value,
+    .Some(v) => match(
+      v,
       .TypeVal(inner) => inner.*,
-      _               => t_i32()  // unreachable: is_type_value guard above
+      _ => t_i32() // unreachable: is_type_value guard above
     ),
-    .None => t_i32()  // unreachable
+    .None => t_i32() // unreachable
   );
-
   // Canonical id format mirrors TS: `concrete_module_${concreteType.id}`.
   // yo-self does not yet have a uniform `type_id` accessor, so we use
   // `type_to_string` as a stable identity proxy.
   concrete_id := String.from("concrete_module_");
   concrete_id.push_str(type_to_string(concrete_ty).as_str());
-
   concrete_trait_ty := TypeValue.TraitT(
-    String.from(""),                          // name (anonymous concrete trait)
-    ArrayList(String).new(),                  // assoc_type_names
-    ArrayList(String).new(),                  // field_labels
-    ArrayList(TypeValue).new(),               // field_types
-    concrete_id,                              // id
-    Option(Box(TypeValue)).Some(box(concrete_ty)),  // is_concrete
-    ArrayList(TypeValue).new(),               // self_constraints
-    ArrayList(TypeValue).new()                // neg_self_constraints
+    String.from(""),
+    // name (anonymous concrete trait)
+    ArrayList(String).new(),
+    // assoc_type_names
+    ArrayList(String).new(),
+    // field_labels
+    ArrayList(TypeValue).new(),
+    // field_types
+    concrete_id,
+    // id
+    Option(Box(TypeValue)).Some(box(concrete_ty)),
+    // is_concrete
+    ArrayList(TypeValue).new(),
+    // self_constraints
+    ArrayList(TypeValue).new() // neg_self_constraints
   );
-
   trait_val := create_type_value(concrete_trait_ty);
   meta_type := type_of_type(concrete_trait_ty);
-  next_env  := inner_info.env;
-  out_info  := new_expr_info(next_env, meta_type);
-  out_info.value = .Some(trait_val);
+  next_env := inner_info.env;
+  out_info := new_expr_info(next_env, meta_type);
+  out_info.value =.Some(trait_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-
 export(evaluate_concrete_type);

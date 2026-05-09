@@ -5,36 +5,58 @@
 //!   - Built-in type keywords (i32, bool, Type, Module, etc.)
 //!   - Self, SelfTrait, SelfModule context references
 //!   - Variable lookup with closure-capture tracking
-
 open(import("std/string"));
-
-{ ArrayList }                       :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set }
-  :: import("../../expr/expr_info.yo");
-{ Token }                           :: import("../../lexer/token.yo");
+:: import("../../expr/expr_info.yo");
+{ Token } :: import("../../lexer/token.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env/env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage }
-  :: import("../context.yo");
-{ TypeValue,
-  t_unit, t_bool, t_void,
-  t_i8, t_i16, t_i32, t_i64,
-  t_u8, t_u16, t_u32, t_u64,
-  t_f32, t_f64,
-  t_usize, t_isize,
-  t_comptime_int, t_comptime_float, t_comptime_string,
-  t_type, t_type_1, t_expr_t,
-  t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint,
-  t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble,
-  is_some_type, is_function_type }
-  :: import("../../types/type.yo");
-{ is_type_hierarchy_type }          :: import("../../types/guards.yo");
+:: import("../context.yo");
+{
+  TypeValue,
+  t_unit,
+  t_bool,
+  t_void,
+  t_i8,
+  t_i16,
+  t_i32,
+  t_i64,
+  t_u8,
+  t_u16,
+  t_u32,
+  t_u64,
+  t_f32,
+  t_f64,
+  t_usize,
+  t_isize,
+  t_comptime_int,
+  t_comptime_float,
+  t_comptime_string,
+  t_type,
+  t_type_1,
+  t_expr_t,
+  t_c_char,
+  t_c_short,
+  t_c_ushort,
+  t_c_int,
+  t_c_uint,
+  t_c_long,
+  t_c_ulong,
+  t_c_longlong,
+  t_c_ulonglong,
+  t_c_longdouble,
+  is_some_type,
+  is_function_type
+}
+:: import("../../types/type.yo");
+{ is_type_hierarchy_type } :: import("../../types/guards.yo");
 { EvalValue, create_type_value, is_type_value, is_unknown_val }
-  :: import("../value.yo");
+:: import("../value.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { format_error_message, ErrorKind } :: import("../../error/error.yo");
-{ Exception }                       :: import("std/error");
-
+{ Exception } :: import("std/error");
 /// Evaluate an identifier or operator expression.
 ///
 /// Mirrors `evaluateIdentifierAndOperator` in
@@ -42,60 +64,62 @@ open(import("std/string"));
 ///
 /// Returns the (possibly annotated) expression after filling in its
 /// `ExprInfo` entry in `ctx.expr_info_table`.
-evaluate_identifier_and_operator :: (fn(
-  expr                     : AstExpr,
-  env                      : Environment,
-  ctx                      : *(EvalContext),
-  throw_error_on_undefined : bool,
-  using(exn                : Exception)
-) -> AstExpr)({
-  token      := ast_expr_token(expr);
+evaluate_identifier_and_operator :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    throw_error_on_undefined : bool,
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  token := ast_expr_token(expr);
   // `str` view used for all literal comparisons; token.value (String) used for APIs.
   identifier := token.value.as_str();
-
   // ------------------------------------------------------------------
   // Built-in type keywords
   // Match identifier to a TypeValue. If matched, build the ExprInfo
   // (value = TypeVal(ty), meta-type = Type(0)) and return immediately.
   // ------------------------------------------------------------------
   type_kw_opt := cond(
-    (identifier == "Type")            => Option(TypeValue).Some(t_type()),
-    (identifier == "Module")          => Option(TypeValue).Some(t_type_1()),
-    (identifier == "Trait")           => Option(TypeValue).Some(t_type_1()),
-    (identifier == "unit")            => Option(TypeValue).Some(t_unit()),
-    (identifier == "comptime_int")    => Option(TypeValue).Some(t_comptime_int()),
-    (identifier == "comptime_float")  => Option(TypeValue).Some(t_comptime_float()),
+    (identifier == "Type") => Option(TypeValue).Some(t_type()),
+    (identifier == "Module") => Option(TypeValue).Some(t_type_1()),
+    (identifier == "Trait") => Option(TypeValue).Some(t_type_1()),
+    (identifier == "unit") => Option(TypeValue).Some(t_unit()),
+    (identifier == "comptime_int") => Option(TypeValue).Some(t_comptime_int()),
+    (identifier == "comptime_float") => Option(TypeValue).Some(t_comptime_float()),
     (identifier == "comptime_string") => Option(TypeValue).Some(t_comptime_string()),
-    (identifier == "bool")            => Option(TypeValue).Some(t_bool()),
-    (identifier == "usize")           => Option(TypeValue).Some(t_usize()),
-    (identifier == "isize")           => Option(TypeValue).Some(t_isize()),
-    (identifier == "u8")              => Option(TypeValue).Some(t_u8()),
-    (identifier == "i8")              => Option(TypeValue).Some(t_i8()),
-    (identifier == "u16")             => Option(TypeValue).Some(t_u16()),
-    (identifier == "i16")             => Option(TypeValue).Some(t_i16()),
-    (identifier == "u32")             => Option(TypeValue).Some(t_u32()),
-    (identifier == "i32")             => Option(TypeValue).Some(t_i32()),
-    (identifier == "u64")             => Option(TypeValue).Some(t_u64()),
-    (identifier == "i64")             => Option(TypeValue).Some(t_i64()),
-    (identifier == "f32")             => Option(TypeValue).Some(t_f32()),
-    (identifier == "f64")             => Option(TypeValue).Some(t_f64()),
-    (identifier == "char")            => Option(TypeValue).Some(t_c_char()),
-    (identifier == "short")           => Option(TypeValue).Some(t_c_short()),
-    (identifier == "ushort")          => Option(TypeValue).Some(t_c_ushort()),
-    (identifier == "int")             => Option(TypeValue).Some(t_c_int()),
-    (identifier == "uint")            => Option(TypeValue).Some(t_c_uint()),
-    (identifier == "long")            => Option(TypeValue).Some(t_c_long()),
-    (identifier == "ulong")           => Option(TypeValue).Some(t_c_ulong()),
-    (identifier == "longlong")        => Option(TypeValue).Some(t_c_longlong()),
-    (identifier == "ulonglong")       => Option(TypeValue).Some(t_c_ulonglong()),
-    (identifier == "longdouble")      => Option(TypeValue).Some(t_c_longdouble()),
-    (identifier == "void")            => Option(TypeValue).Some(t_void()),
-    (identifier == "Expr")            => Option(TypeValue).Some(t_expr_t()),
-    true                              => Option(TypeValue).None
+    (identifier == "bool") => Option(TypeValue).Some(t_bool()),
+    (identifier == "usize") => Option(TypeValue).Some(t_usize()),
+    (identifier == "isize") => Option(TypeValue).Some(t_isize()),
+    (identifier == "u8") => Option(TypeValue).Some(t_u8()),
+    (identifier == "i8") => Option(TypeValue).Some(t_i8()),
+    (identifier == "u16") => Option(TypeValue).Some(t_u16()),
+    (identifier == "i16") => Option(TypeValue).Some(t_i16()),
+    (identifier == "u32") => Option(TypeValue).Some(t_u32()),
+    (identifier == "i32") => Option(TypeValue).Some(t_i32()),
+    (identifier == "u64") => Option(TypeValue).Some(t_u64()),
+    (identifier == "i64") => Option(TypeValue).Some(t_i64()),
+    (identifier == "f32") => Option(TypeValue).Some(t_f32()),
+    (identifier == "f64") => Option(TypeValue).Some(t_f64()),
+    (identifier == "char") => Option(TypeValue).Some(t_c_char()),
+    (identifier == "short") => Option(TypeValue).Some(t_c_short()),
+    (identifier == "ushort") => Option(TypeValue).Some(t_c_ushort()),
+    (identifier == "int") => Option(TypeValue).Some(t_c_int()),
+    (identifier == "uint") => Option(TypeValue).Some(t_c_uint()),
+    (identifier == "long") => Option(TypeValue).Some(t_c_long()),
+    (identifier == "ulong") => Option(TypeValue).Some(t_c_ulong()),
+    (identifier == "longlong") => Option(TypeValue).Some(t_c_longlong()),
+    (identifier == "ulonglong") => Option(TypeValue).Some(t_c_ulonglong()),
+    (identifier == "longdouble") => Option(TypeValue).Some(t_c_longdouble()),
+    (identifier == "void") => Option(TypeValue).Some(t_void()),
+    (identifier == "Expr") => Option(TypeValue).Some(t_expr_t()),
+    true => Option(TypeValue).None
   );
-  match(type_kw_opt,
+  match(
+    type_kw_opt,
     .Some(ty) => {
-      ev   := create_type_value(ty);
+      ev := create_type_value(ty);
       info := new_expr_info(env, t_type());
       info.value = Option(EvalValue).Some(ev);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
@@ -103,121 +127,126 @@ evaluate_identifier_and_operator :: (fn(
     },
     .None => ()
   );
-
   // ------------------------------------------------------------------
   // Self — check context.self_type BEFORE looking up variables.
   // If Self is a SomeType that is bound in the env, resolve the concrete type.
   // ------------------------------------------------------------------
   self_type_opt := ctx.self_type;
-  if(((identifier == "Self") && self_type_opt.is_some()), {
-    self_tv  := match(self_type_opt, .Some(tv) => tv, .None => t_unit());
+  if((identifier == "Self") && self_type_opt.is_some(), {
+    self_tv := match(self_type_opt,.Some(tv) => tv,.None => t_unit());
     resolved := if(is_some_type(self_tv), {
       bound := get_value_of_some_type_from_env(env, self_tv);
       if(is_some_type(bound), self_tv, bound)
     }, self_tv);
-    ev   := create_type_value(resolved);
+    ev := create_type_value(resolved);
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });
-
   // ------------------------------------------------------------------
   // SelfTrait — refers to the trait type currently being defined
   // ------------------------------------------------------------------
   self_trait_opt := ctx.self_trait_type;
-  if(((identifier == "SelfTrait") && self_trait_opt.is_some()), {
-    trait_tv := match(self_trait_opt, .Some(tv) => tv, .None => t_unit());
-    ev   := create_type_value(trait_tv);
+  if((identifier == "SelfTrait") && self_trait_opt.is_some(), {
+    trait_tv := match(self_trait_opt,.Some(tv) => tv,.None => t_unit());
+    ev := create_type_value(trait_tv);
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });
-
   // ------------------------------------------------------------------
   // SelfModule — refers to the module type currently being defined
   // ------------------------------------------------------------------
   self_module_opt := ctx.self_module_type;
-  if(((identifier == "SelfModule") && self_module_opt.is_some()), {
-    module_tv := match(self_module_opt, .Some(tv) => tv, .None => t_unit());
-    ev   := create_type_value(module_tv);
+  if((identifier == "SelfModule") && self_module_opt.is_some(), {
+    module_tv := match(self_module_opt,.Some(tv) => tv,.None => t_unit());
+    ev := create_type_value(module_tv);
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });
-
   // ------------------------------------------------------------------
   // Variable lookup
   // ------------------------------------------------------------------
   identifier_string := token.value;
   variables := get_variables_from_env(env, identifier_string);
-  if((variables.len() == usize(0)), {
-    exn.throw(dyn(format_error_message(
-      token,
-      (String.from("Variable \"") + identifier_string) + String.from("\" not found."),
-      false,
-      Option(ErrorKind).None
-    )));
+  if(variables.len() == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          token,
+          (String.from("Variable \"") + identifier_string) + String.from("\" not found."),
+          false,
+          Option(ErrorKind).None
+        )
+      )
+    );
   });
-
-  variable := match(variables.get((variables.len() - usize(1))),
+  variable := match(
+    variables.get(variables.len() - usize(1)),
     .Some(v) => v,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        token,
-        (String.from("Variable \"") + identifier_string) + String.from("\" not found (internal)."),
-        false,
-        Option(ErrorKind).None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            token,
+            (String.from("Variable \"") + identifier_string) + String.from("\" not found (internal)."),
+            false,
+            Option(ErrorKind).None
+          )
+        )
+      );
       return(expr);
     }
   );
-
   // Check initialization (unless it's a function type or type value — mutual recursion)
-  if(((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined), {
+  if((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined, {
     if(!(is_function_type(variable.ty) || is_type_value(variable.value)), {
-      exn.throw(dyn(format_error_message(
-        token,
-        (String.from("Variable \"") + identifier_string) + String.from("\" is not initialized"),
-        false,
-        Option(ErrorKind).None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            token,
+            (String.from("Variable \"") + identifier_string) + String.from("\" is not initialized"),
+            false,
+            Option(ErrorKind).None
+          )
+        )
+      );
     });
   });
-
   // c_include constants (e.g. O_RDONLY from <fcntl.h>) have UnknownValue.
   // Treat them as runtime values so operators like | use runtime BitOr.
   // NOTE: `is_extern` is not yet ported to yo-self; skip this special-case
   // and always use the variable's compile-time value.
   resolved_value := variable.value;
-
   // Build ExprInfo
   info := new_expr_info(env, variable.ty);
-  info.value           = resolved_value;
-  info.origin_type     = Option(TypeValue).Some(variable.ty);
-  info.variable_name   = Option(String).Some(variable.name);
+  info.value = resolved_value;
+  info.origin_type = Option(TypeValue).Some(variable.ty);
+  info.variable_name = Option(String).Some(variable.name);
   info.source_variable = Option(Variable).Some(variable);
-
   // Add [[variable.name]] to path_collection
   name_path := ArrayList(String).new();
   name_path.push(variable.name);
   info.path_collection.push(name_path);
-
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-
   // ------------------------------------------------------------------
   // Closure capture tracking — function body
   // ------------------------------------------------------------------
-  match(ctx.is_evaluating_function_body_or_async_block,
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
     .Some(sub_ctx) => {
-      match(sub_ctx.kind,
+      match(
+        sub_ctx.kind,
         .FunctionBody => {
-          match(ctx.captured_variables,
+          match(
+            ctx.captured_variables,
             .Some(_) => {
               closure_frame_level := sub_ctx.eval_env.frame_count();
-              if((variable.frame_level < closure_frame_level), {
+              if(variable.frame_level < closure_frame_level, {
                 track_variable_usage(
                   variable.name,
                   variable.frame_level,
@@ -232,7 +261,7 @@ evaluate_identifier_and_operator :: (fn(
         },
         .AsyncBlock => {
           async_frame_level := sub_ctx.eval_env.frame_count();
-          if((variable.frame_level < async_frame_level), {
+          if(variable.frame_level < async_frame_level, {
             track_variable_usage(
               variable.name,
               variable.frame_level,
@@ -247,8 +276,6 @@ evaluate_identifier_and_operator :: (fn(
     },
     .None => ()
   );
-
   expr
 });
-
 export(evaluate_identifier_and_operator);

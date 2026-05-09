@@ -1,93 +1,101 @@
 /// Tests for yo-self/evaluator/exprs/escape.yo — Phase 2r
 ///
 /// Covers `evaluate_escape` — the production handler for `escape(value)`.
-
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
-
 { Token, TokenKind } :: import("../lexer/token.yo");
 { AstExpr, ast_expr_id, BF_ESCAPE } :: import("../expr/expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set,
-  ControlFlowKind, control_flow_of, has_control_flow }
-  :: import("../expr/expr_info.yo");
-{ Environment }    :: import("../env/env.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set,
+  ControlFlowKind,
+  control_flow_of,
+  has_control_flow
+}
+:: import("../expr/expr_info.yo");
+{ Environment } :: import("../env/env.yo");
 { EvalContext, eval_context_new } :: import("../evaluator/context.yo");
-{ EvalValue }       :: import("../evaluator/value.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
 { TypeValue, t_i32 } :: import("../types/type.yo");
 { set_evaluate_expression_fn, evaluate_expression }
-  :: import("../evaluator/exprs/expr.yo");
+:: import("../evaluator/exprs/expr.yo");
 { evaluate_escape } :: import("../evaluator/exprs/escape.yo");
 { Exception } :: import("std/error");
-
 mk_token :: (fn(value : str) -> Token)(
   Token(
-    kind: TokenKind.Identifier,
-    value: String.from(value),
-    row: usize(0),
-    column: usize(0),
-    character: usize(0),
-    module_path: String.from("test"),
-    input: String.from("")
+    kind : TokenKind.Identifier,
+    value : String.from(value),
+    row : usize(0),
+    column : usize(0),
+    character : usize(0),
+    module_path : String.from("test"),
+    input : String.from("")
   )
 );
-
 mk_escape_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({
   arg_atom := AstExpr.Atom(arg_id, mk_token(arg_value));
-  callee   := AstExpr.Atom((call_id + usize(1000)), mk_token(BF_ESCAPE));
-  args     := ArrayList(AstExpr).new();
+  callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_ESCAPE));
+  args := ArrayList(AstExpr).new();
   args.push(arg_atom);
   AstExpr.FnCall(call_id, box(callee), args, false, mk_token(BF_ESCAPE))
 });
-
-stub_evaluate_i32 :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext)
-) -> AstExpr)({
+stub_evaluate_i32 :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext)
+  ) -> AstExpr
+)({
   info := new_expr_info(env, t_i32());
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
-
 test("evaluate_escape: writes ExprInfo with Escape control flow", {
   set_evaluate_expression_fn(stub_evaluate_i32);
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(()); }));
-
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        escape(());
+      }
+    )
+  );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   ctx_ptr := &(ctx);
   i32_ty := t_i32();
-  ctx_ptr.enclosing_function_return_type = .Some(i32_ty);
+  ctx_ptr.enclosing_function_return_type =.Some(i32_ty);
   ctx_ptr.is_inside_given_handler = true;
-
   env := Environment.new(String.from("test"));
-
   call := mk_escape_call(usize(21), "0", usize(22));
   result := evaluate_escape(call, env, &(ctx), using(exn));
-
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
-  assert(match(info_opt, .Some(_) => true, .None => false), "escape(did not record an ExprInfo)");
-  info := match(info_opt,
+  assert(match(info_opt,.Some(_) => true,.None => false), "escape(did not record an ExprInfo)");
+  info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => new_expr_info(env, t_i32())
+    .None => new_expr_info(env, t_i32())
   );
-
   // Type should be i32 (from stub).
-  match(info.ty,
+  match(
+    info.ty,
     .Int(bits, signed) => {
-      assert((bits == u8(32)), "expected escape(to inherit i32 bits=32)");
+      assert(bits == u8(32), "expected escape(to inherit i32 bits=32)");
       assert(signed, "expected escape(to inherit i32 signed=true)");
     },
     _ => assert(false, "expected escape(ty to be Int(32, true))")
   );
-
   // value must be .None
-  match(info.value,
-    .None    => (),
+  match(
+    info.value,
+    .None => (),
     .Some(_) => assert(false, "expected escape(to leave value = .None)")
   );
-
   // Control flow flag must include Escape.
-  assert(has_control_flow(info.control_flow, .Escape),
-    "expected escape(to set control_flow = .Escape)");
+  assert(
+    has_control_flow(info.control_flow,.Escape),
+    "expected escape(to set control_flow = .Escape)"
+  );
 });

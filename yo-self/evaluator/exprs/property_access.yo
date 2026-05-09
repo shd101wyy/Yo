@@ -13,95 +13,100 @@
 //! - `isRuntimeOnly` propagation on UnknownVal — skipped (no flag in Phase 2).
 //! - `comptimeRef` setting for pointer-through-struct access — skipped (Phase 3).
 //! - `ModuleVal.isLoading` check — skipped (no such flag in yo-self).
-
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-
 {
   AstExpr,
-  ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of,
-  make_err_expr, BF_DOT
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_atom,
+  ast_expr_is_atom_of,
+  ast_expr_is_fn_call_of,
+  make_err_expr,
+  BF_DOT
 } :: import("../../expr/expr.yo");
-
 {
-  ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
 } :: import("../../expr/expr_info.yo");
-
 { Environment, Variable, get_variables_from_env } :: import("../../env/env.yo");
-
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-
 {
   EvalValue,
-  create_type_value, create_unknown_val, type_of_eval_value,
+  create_type_value,
+  create_unknown_val,
+  type_of_eval_value,
   is_type_value
 } :: import("../value.yo");
-
 {
-  TypeValue, t_unit, t_type,
+  TypeValue,
+  t_unit,
+  t_type,
   is_pointer_type,
-  is_enum_type, is_struct_type, is_union_type,
-  is_module_type, is_trait_type, is_tuple_type,
+  is_enum_type,
+  is_struct_type,
+  is_union_type,
+  is_module_type,
+  is_trait_type,
+  is_tuple_type,
   is_some_type
 } :: import("../../types/type.yo");
-
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
-
-{ type_to_string }    :: import("../../types/string.yo");
-
+{ type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error/error.yo");
-
 { attach_temp_variable_to_expr } :: import("../utils.yo");
-
 { is_valid_variable_name } :: import("./binding.yo");
-
-{ evaluate_expression }  :: import("./expr.yo");
-
+{ evaluate_expression } :: import("./expr.yo");
 { TokenKind } :: import("../../lexer/token.yo");
-
 { Exception } :: import("std/error");
-
 { find_methods_from_generic_impls, MethodCandidate }
-  :: import("../values/generic_impl_registry.yo");
-
+:: import("../values/generic_impl_registry.yo");
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
-
 /// Return the last index in `labels` where `labels[i] == name`, or `.None`.
 /// Mirrors `Array.findLast` from the TypeScript source.
 find_last_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(usize))({
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
-  while(runtime((i < n)), {
-    match(labels.get(i),
-      .Some(lbl) => { if((lbl.as_str() == name), { result = Option(usize).Some(i); }); },
-      .None      => ()
+  while(runtime(i < n), {
+    match(
+      labels.get(i),
+      .Some(lbl) => {
+        if(lbl.as_str() == name, {
+          result = Option(usize).Some(i);
+        });
+      },
+      .None => ()
     );
     i = (i + usize(1));
   });
   result
 });
-
 /// Return the first index in `labels` where `labels[i] == name`, or `.None`.
 /// Mirrors `Array.findIndex` from the TypeScript source.
 find_first_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(usize))({
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
-  while(runtime(((i < n) && result.is_none())), {
-    match(labels.get(i),
-      .Some(lbl) => { if((lbl.as_str() == name), { result = Option(usize).Some(i); }); },
-      .None      => ()
+  while(runtime((i < n) && result.is_none()), {
+    match(
+      labels.get(i),
+      .Some(lbl) => {
+        if(lbl.as_str() == name, {
+          result = Option(usize).Some(i);
+        });
+      },
+      .None => ()
     );
     i = (i + usize(1));
   });
   result
 });
-
 /// Build the path_collection for a field-access node.
 ///
 /// If the object already has a non-empty path_collection, each path is
@@ -110,23 +115,29 @@ find_first_field_index :: (fn(labels : ArrayList(String), name : str) -> Option(
 ///
 /// Mirrors the `indexPathCollection` / `labelPathCollection` logic in the
 /// TypeScript source.
-build_field_path_collection :: (fn(
-  obj_pc    : ArrayList(ArrayList(String)),
-  obj_vname : Option(String),
-  prop_name : String
-) -> ArrayList(ArrayList(String)))({
+build_field_path_collection :: (
+  fn(
+    obj_pc : ArrayList(ArrayList(String)),
+    obj_vname : Option(String),
+    prop_name : String
+  ) -> ArrayList(ArrayList(String))
+)({
   result := ArrayList(ArrayList(String)).new();
-  if((obj_pc.len() > usize(0)), {
+  if(obj_pc.len() > usize(0), {
     (bpc_i : usize) = usize(0);
-    while(runtime((bpc_i < obj_pc.len())), {
-      match(obj_pc.get(bpc_i),
+    while(runtime(bpc_i < obj_pc.len()), {
+      match(
+        obj_pc.get(bpc_i),
         .Some(old_path) => {
           new_path := ArrayList(String).new();
           (bpc_j : usize) = usize(0);
-          while(runtime((bpc_j < old_path.len())), {
-            match(old_path.get(bpc_j),
-              .Some(seg) => { new_path.push(seg); },
-              .None      => ()
+          while(runtime(bpc_j < old_path.len()), {
+            match(
+              old_path.get(bpc_j),
+              .Some(seg) => {
+                new_path.push(seg);
+              },
+              .None => ()
             );
             bpc_j = (bpc_j + usize(1));
           });
@@ -139,92 +150,118 @@ build_field_path_collection :: (fn(
     });
   }, {
     base_path := ArrayList(String).new();
-    base_name := match(obj_vname, .Some(n) => n, .None => String.from("?"));
+    base_name := match(obj_vname,.Some(n) => n,.None => String.from("?"));
     base_path.push(base_name);
     base_path.push(prop_name);
     result.push(base_path);
   });
   result
 });
-
 // ---------------------------------------------------------------------------
 // evaluate_property_access
 // ---------------------------------------------------------------------------
-
-evaluate_property_access :: (fn(
-  expr    : AstExpr,
-  env_in  : Environment,
-  ctx     : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_property_access :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   (env : Environment) = env_in;
-
   // Guard: must be a "." function call.
-  if(!(ast_expr_is_fn_call_of(expr, BF_DOT, .None)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected "." for property access, got:\n${ast_expr_to_string(expr)}`,
-      false, .None
-    )));
+  if(!(ast_expr_is_fn_call_of(expr, BF_DOT,.None)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected "." for property access, got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
     return(expr);
   });
-
   // -------------------------------------------------------------------------
   // 1-arg shorthand: `.Red` — infer enum type from context.
   // -------------------------------------------------------------------------
-  if(ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(1))), {
-    all_args_1 := match(expr,
+  if(ast_expr_is_fn_call_of(expr, BF_DOT,.Some(usize(1))), {
+    all_args_1 := match(
+      expr,
       .FnCall(_, _, args, _, _) => args,
-      .Atom(_, _)               => ArrayList(AstExpr).new()
+      .Atom(_, _) => ArrayList(AstExpr).new()
     );
-    prop_expr_1 := match(all_args_1.get(usize(0)),
+    prop_expr_1 := match(
+      all_args_1.get(usize(0)),
       .Some(a) => a,
-      .None    => { return(expr); }
+      .None => {
+        return(expr);
+      }
     );
-
     // Property must be an identifier atom.
-    if((!(ast_expr_is_atom(prop_expr_1)) || !(is_valid_variable_name(prop_expr_1))), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(prop_expr_1),
-        `Expected identifier for enum variant access, got:\n${ast_expr_to_string(prop_expr_1)}`,
-        false, .None
-      )));
+    if(!(ast_expr_is_atom(prop_expr_1)) || !(is_valid_variable_name(prop_expr_1)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(prop_expr_1),
+            `Expected identifier for enum variant access, got:\n${ast_expr_to_string(prop_expr_1)}`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     });
-
     // Need an expected enum type from context.
-    match(ctx.expected_type,
+    match(
+      ctx.expected_type,
       .None => {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(expr),
-          String.from("Failed to infer enum variant type."),
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("Failed to infer enum variant type."),
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       },
       .Some(exp_ctx_1) => {
         if(!(is_enum_type(exp_ctx_1.ty)), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            String.from("Failed to infer enum variant type."),
-            false, .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                String.from("Failed to infer enum variant type."),
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-
         variant_name_1 := ast_expr_token(prop_expr_1).value;
-
-        match(exp_ctx_1.ty,
+        match(
+          exp_ctx_1.ty,
           .EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1) => {
             // Find the variant.
             fidx_1 := find_first_field_index(en_vnames_1, variant_name_1.as_str());
-            match(fidx_1,
+            match(
+              fidx_1,
               .None => {
-                exn.throw(dyn(format_error_message(
-                  ast_expr_token(prop_expr_1),
-                  `Enum variant "${variant_name_1}" not found in enum`,
-                  false, .None
-                )));
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(prop_expr_1),
+                      `Enum variant "${variant_name_1}" not found in enum`,
+                      false,
+                      .None
+                    )
+                  )
+                );
                 return(expr);
               },
               .Some(vi_1) => {
@@ -237,12 +274,11 @@ evaluate_property_access :: (fn(
                   en_vflabels_1,
                   en_discs_1
                 );
-
-                has_fields_1 := match(en_vfields_1.get(vi_1),
+                has_fields_1 := match(
+                  en_vfields_1.get(vi_1),
                   .Some(vf) => (vf.len() > usize(0)),
-                  .None     => false
+                  .None => false
                 );
-
                 if(!(has_fields_1), {
                   // Fieldless variant: Color.Red
                   dot_vname_1 := `.${ variant_name_1 }`;
@@ -264,11 +300,16 @@ evaluate_property_access :: (fn(
             );
           },
           _ => {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(expr),
-              String.from("Failed to infer enum variant type."),
-              false, .None
-            )));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(expr),
+                  String.from("Failed to infer enum variant type."),
+                  false,
+                  .None
+                )
+              )
+            );
             return(expr);
           }
         );
@@ -276,75 +317,83 @@ evaluate_property_access :: (fn(
     );
     return(expr);
   });
-
   // -------------------------------------------------------------------------
   // 2-arg form: `.(object, property)`
   // -------------------------------------------------------------------------
-  if(!(ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(2)))), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected "." with 2 arguments, got:\n${ast_expr_to_string(expr)}`,
-      false, .None
-    )));
+  if(!(ast_expr_is_fn_call_of(expr, BF_DOT,.Some(usize(2)))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected "." with 2 arguments, got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
     return(expr);
   });
-
-  all_args := match(expr,
+  all_args := match(
+    expr,
     .FnCall(_, _, args, _, _) => args,
-    .Atom(_, _)               => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
-  (object_expr : AstExpr) = match(all_args.get(usize(0)),
+  (object_expr : AstExpr) = match(
+    all_args.get(usize(0)),
     .Some(a) => a,
-    .None    => make_err_expr()
+    .None => make_err_expr()
   );
-  property_expr := match(all_args.get(usize(1)),
+  property_expr := match(
+    all_args.get(usize(1)),
     .Some(a) => a,
-    .None    => make_err_expr()
+    .None => make_err_expr()
   );
-
   // Evaluate the object without passing the expected type (it applies to the
   // property result, not the object itself).
   old_expected_type := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   object_expr = evaluate_expression(object_expr, env, ctx);
   ctx.expected_type = old_expected_type;
-
   // Update env from the evaluated object's ExprInfo.
   obj_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(object_expr));
-  match(obj_info_opt,
-    .Some(oi) => { env = oi.env; },
-    .None     => ()
+  match(
+    obj_info_opt,
+    .Some(oi) => {
+      env = oi.env;
+    },
+    .None => ()
   );
-
   // -------------------------------------------------------------------------
   // `.*` dereference
   // -------------------------------------------------------------------------
-  if((ast_expr_is_atom(property_expr) && ast_expr_is_atom_of(property_expr, "*")), {
-    obj_ty_deref := match(obj_info_opt, .Some(oi) => Option(TypeValue).Some(oi.ty), .None => Option(TypeValue).None);
-    match(obj_ty_deref,
+  if(ast_expr_is_atom(property_expr) && ast_expr_is_atom_of(property_expr, "*"), {
+    obj_ty_deref := match(obj_info_opt,.Some(oi) => Option(TypeValue).Some(oi.ty),.None => Option(TypeValue).None);
+    match(
+      obj_ty_deref,
       .Some(ot) => {
         if(is_pointer_type(ot), {
-          base_ty_deref := match(ot, .Pointer(pt) => pt.*, _ => t_unit());
-
+          base_ty_deref := match(ot,.Pointer(pt) => pt.*, _ => t_unit());
           // Resolve SomeType from env if needed.
           (resolved_base : TypeValue) = cond(
             is_some_type(base_ty_deref) => get_value_of_some_type_from_env(env, base_ty_deref),
-            true                        => base_ty_deref
+            true => base_ty_deref
           );
-
-          obj_val_deref := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
-          match(obj_val_deref,
+          obj_val_deref := match(obj_info_opt,.Some(oi) => oi.value,.None => Option(EvalValue).None);
+          match(
+            obj_val_deref,
             .Some(ov_deref) => {
-              match(ov_deref,
+              match(
+                ov_deref,
                 .PtrVal(target_box, _) => {
                   // Compile-time pointer: dereference to the pointed-to value.
                   out_ptr := new_expr_info(env, resolved_base);
-                  out_ptr.value               = Option(EvalValue).Some(target_box.*);
-                  out_ptr.origin_type         = Option(TypeValue).Some(ot);
+                  out_ptr.value = Option(EvalValue).Some(target_box.*);
+                  out_ptr.origin_type = Option(TypeValue).Some(ot);
                   out_ptr.is_accessing_property = Option(bool).Some(true);
-                  out_ptr.source_variable     = match(obj_info_opt,
+                  out_ptr.source_variable = match(
+                    obj_info_opt,
                     .Some(oi) => oi.source_variable,
-                    .None     => Option(Variable).None
+                    .None => Option(Variable).None
                   );
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ptr);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_ptr);
@@ -353,8 +402,8 @@ evaluate_property_access :: (fn(
                 .UnknownVal(_) => {
                   deref_unk := create_unknown_val(resolved_base);
                   out_unk := new_expr_info(env, resolved_base);
-                  out_unk.value               = Option(EvalValue).Some(deref_unk);
-                  out_unk.origin_type         = Option(TypeValue).Some(ot);
+                  out_unk.value = Option(EvalValue).Some(deref_unk);
+                  out_unk.origin_type = Option(TypeValue).Some(ot);
                   out_unk.is_accessing_property = Option(bool).Some(true);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_unk);
@@ -365,10 +414,9 @@ evaluate_property_access :: (fn(
             },
             .None => ()
           );
-
           // No compile-time pointer value — runtime dereference.
           out_rt := new_expr_info(env, resolved_base);
-          out_rt.origin_type          = Option(TypeValue).Some(ot);
+          out_rt.origin_type = Option(TypeValue).Some(ot);
           out_rt.is_accessing_property = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rt);
@@ -380,45 +428,54 @@ evaluate_property_access :: (fn(
     );
     // Not a pointer — fall through to normal property lookup below.
   });
-
   // -------------------------------------------------------------------------
   // TypeVal cases: `EnumType.Variant`, `StructType.field`, etc.
   // -------------------------------------------------------------------------
-  obj_val_opt := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
-
+  obj_val_opt := match(obj_info_opt,.Some(oi) => oi.value,.None => Option(EvalValue).None);
   if(is_type_value(obj_val_opt), {
-    type_val_inner := match(obj_val_opt,
-      .Some(v) => match(v,
+    type_val_inner := match(
+      obj_val_opt,
+      .Some(v) => match(
+        v,
         .TypeVal(ty_box) => ty_box.*,
-        _                => t_unit()
+        _ => t_unit()
       ),
       .None => t_unit()
     );
-
     // --- TypeVal + EnumT --------------------------------------------------
     if(is_enum_type(type_val_inner), {
       if(!(ast_expr_is_atom(property_expr)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(property_expr),
-          `Expected identifier for enum variant, got:\n${ast_expr_to_string(property_expr)}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(property_expr),
+              `Expected identifier for enum variant, got:\n${ast_expr_to_string(property_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-
       variant_name_tv := ast_expr_token(property_expr).value;
-
-      match(type_val_inner,
+      match(
+        type_val_inner,
         .EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs) => {
           fidx_tv_en := find_first_field_index(tv_en_vnames, variant_name_tv.as_str());
-          match(fidx_tv_en,
+          match(
+            fidx_tv_en,
             .None => {
               // Generic methods stub returns empty — throw directly.
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(property_expr),
-                `Enum variant "${variant_name_tv}" not found in enum`,
-                false, .None
-              )));
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(property_expr),
+                    `Enum variant "${variant_name_tv}" not found in enum`,
+                    false,
+                    .None
+                  )
+                )
+              );
               return(expr);
             },
             .Some(tv_vi) => {
@@ -431,24 +488,23 @@ evaluate_property_access :: (fn(
                 tv_en_vflabels,
                 tv_en_discs
               );
-
-              has_fields_tv := match(tv_en_vfields.get(tv_vi),
+              has_fields_tv := match(
+                tv_en_vfields.get(tv_vi),
                 .Some(vf) => (vf.len() > usize(0)),
-                .None     => false
+                .None => false
               );
-
               if(!(has_fields_tv), {
                 dot_tv_vname := `.${ variant_name_tv }`;
                 ev_tv_en := EvalValue.EnumVal(dot_tv_vname, ArrayList(EvalValue).new());
                 out_tv_en := new_expr_info(env, new_en_tv);
-                out_tv_en.value               = Option(EvalValue).Some(ev_tv_en);
+                out_tv_en.value = Option(EvalValue).Some(ev_tv_en);
                 out_tv_en.is_accessing_property = Option(bool).Some(true);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_en);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tv_en);
               }, {
                 tv_en_type_val := create_type_value(new_en_tv);
                 out_tv_en2 := new_expr_info(env, t_type());
-                out_tv_en2.value               = Option(EvalValue).Some(tv_en_type_val);
+                out_tv_en2.value = Option(EvalValue).Some(tv_en_type_val);
                 out_tv_en2.is_accessing_property = Option(bool).Some(true);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_en2);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tv_en2);
@@ -457,41 +513,47 @@ evaluate_property_access :: (fn(
             }
           );
         },
-        _ => { return(expr); }
+        _ => {
+          return(expr);
+        }
       );
     });
-
     // --- TypeVal + Struct or Union (replaces TS `typeValue.value.trait`) ---
-    if((is_struct_type(type_val_inner) || is_union_type(type_val_inner)), {
+    if(is_struct_type(type_val_inner) || is_union_type(type_val_inner), {
       if(!(is_valid_variable_name(property_expr)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(property_expr),
-          `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(property_expr),
+              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-
       prop_name_su := ast_expr_token(property_expr).value;
-
-      su_labels := match(type_val_inner,
+      su_labels := match(
+        type_val_inner,
         .Struct(_, _, labels, _, _, _, _) => labels,
-        .Union(_, labels, _)  => labels,
-        _                     => ArrayList(String).new()
+        .Union(_, labels, _) => labels,
+        _ => ArrayList(String).new()
       );
-      su_types := match(type_val_inner,
+      su_types := match(
+        type_val_inner,
         .Struct(_, _, _, types, _, _, _) => types,
-        .Union(_, _, types)  => types,
-        _                    => ArrayList(TypeValue).new()
+        .Union(_, _, types) => types,
+        _ => ArrayList(TypeValue).new()
       );
-
       // Search field_labels (replaces TS trait.fields.findLast).
       fidx_su := find_last_field_index(su_labels, prop_name_su.as_str());
-      match(fidx_su,
+      match(
+        fidx_su,
         .Some(fi_su) => {
-          ft_su := match(su_types.get(fi_su), .Some(t) => t, .None => t_unit());
+          ft_su := match(su_types.get(fi_su),.Some(t) => t,.None => t_unit());
           out_su := new_expr_info(env, ft_su);
-          out_su.value               = Option(EvalValue).Some(create_unknown_val(ft_su));
+          out_su.value = Option(EvalValue).Some(create_unknown_val(ft_su));
           out_su.is_accessing_property = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_su);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_su);
@@ -499,38 +561,42 @@ evaluate_property_access :: (fn(
         },
         .None => ()
       );
-
       // Check generic impl registry for methods on generic receiver types
       // (mirrors `findMethodsFromGenericImpls` in TS property-access.ts line 526-546).
       // Only resolve when exactly 1 candidate — multiple candidates are deferred to
       // function.yo which can disambiguate by argument types.
       generic_methods_su := find_methods_from_generic_impls(type_val_inner, prop_name_su, env);
-      if((generic_methods_su.len() == usize(1)), {
-        method_su := match(generic_methods_su.get(usize(0)), .Some(m) => m, .None => {
-          return(expr);
-        });
+      if(generic_methods_su.len() == usize(1), {
+        method_su := match(
+          generic_methods_su.get(usize(0)),
+          .Some(m) => m,
+          .None => {
+            return(expr);
+          }
+        );
         out_gm_su := new_expr_info(env, method_su.method_type);
-        out_gm_su.value               = method_su.method_value;
+        out_gm_su.value = method_su.method_value;
         out_gm_su.is_accessing_property = Option(bool).Some(true);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_su);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_su);
         return(expr);
       });
-
       // During generic impl specialization, the associated type may be in env.
       // (mirrors TS isEvaluatingGenericImplSpecialization block at line 553)
       if(ctx.is_evaluating_generic_impl_specialization, {
         spec_vars := get_variables_from_env(env, prop_name_su);
         n_spec := spec_vars.len();
-        if((n_spec > usize(0)), {
-          match(spec_vars.get((n_spec - usize(1))),
+        if(n_spec > usize(0), {
+          match(
+            spec_vars.get(n_spec - usize(1)),
             .Some(last_spec) => {
               if(is_type_value(last_spec.value), {
-                match(last_spec.value,
+                match(
+                  last_spec.value,
                   .Some(spec_tv) => {
                     spec_tv_ty := type_of_eval_value(spec_tv);
                     out_spec_su := new_expr_info(env, spec_tv_ty);
-                    out_spec_su.value               = Option(EvalValue).Some(spec_tv);
+                    out_spec_su.value = Option(EvalValue).Some(spec_tv);
                     out_spec_su.is_accessing_property = Option(bool).Some(true);
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_spec_su);
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_spec_su);
@@ -544,39 +610,42 @@ evaluate_property_access :: (fn(
           );
         });
       });
-
       // Not found — let function.yo handle it as a method call.
       return(expr);
     });
-
     // --- TypeVal + ModuleT ------------------------------------------------
     if(is_module_type(type_val_inner), {
       if(!(is_valid_variable_name(property_expr)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(property_expr),
-          `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(property_expr),
+              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-
       prop_name_mt := ast_expr_token(property_expr).value;
-
-      mt_labels := match(type_val_inner,
+      mt_labels := match(
+        type_val_inner,
         .ModuleT(_, _, labels, _) => labels,
-        _                      => ArrayList(String).new()
+        _ => ArrayList(String).new()
       );
-      mt_types := match(type_val_inner,
+      mt_types := match(
+        type_val_inner,
         .ModuleT(_, _, _, types) => types,
-        _                     => ArrayList(TypeValue).new()
+        _ => ArrayList(TypeValue).new()
       );
-
       fidx_mt := find_first_field_index(mt_labels, prop_name_mt.as_str());
-      match(fidx_mt,
+      match(
+        fidx_mt,
         .Some(fi_mt) => {
-          ft_mt := match(mt_types.get(fi_mt), .Some(t) => t, .None => t_unit());
+          ft_mt := match(mt_types.get(fi_mt),.Some(t) => t,.None => t_unit());
           out_mt := new_expr_info(env, ft_mt);
-          out_mt.value               = Option(EvalValue).Some(create_unknown_val(ft_mt));
+          out_mt.value = Option(EvalValue).Some(create_unknown_val(ft_mt));
           out_mt.is_accessing_property = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_mt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_mt);
@@ -588,37 +657,41 @@ evaluate_property_access :: (fn(
         }
       );
     });
-
     // --- TypeVal + TraitT -------------------------------------------------
     // Phase 3 skip: receiverType block (TS lines 651-723).
-    is_plain_trait_type := match(type_val_inner, .TraitT(_, _, _, _, _, _, _, _) => true, _ => false);
+    is_plain_trait_type := match(type_val_inner,.TraitT(_, _, _, _, _, _, _, _) => true, _ => false);
     if(is_plain_trait_type, {
       if(!(is_valid_variable_name(property_expr)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(property_expr),
-          `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(property_expr),
+              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-
       prop_name_tt := ast_expr_token(property_expr).value;
-
-      tt_labels := match(type_val_inner,
+      tt_labels := match(
+        type_val_inner,
         .TraitT(_, _, labels, _, _, _, _, _) => labels,
-        _                        => ArrayList(String).new()
+        _ => ArrayList(String).new()
       );
-      tt_types := match(type_val_inner,
+      tt_types := match(
+        type_val_inner,
         .TraitT(_, _, _, types, _, _, _, _) => types,
-        _                       => ArrayList(TypeValue).new()
+        _ => ArrayList(TypeValue).new()
       );
-
       fidx_tt := find_first_field_index(tt_labels, prop_name_tt.as_str());
-      match(fidx_tt,
+      match(
+        fidx_tt,
         .Some(fi_tt) => {
-          ft_tt := match(tt_types.get(fi_tt), .Some(t) => t, .None => t_unit());
+          ft_tt := match(tt_types.get(fi_tt),.Some(t) => t,.None => t_unit());
           out_tt := new_expr_info(env, ft_tt);
-          out_tt.value               = Option(EvalValue).Some(create_unknown_val(ft_tt));
+          out_tt.value = Option(EvalValue).Some(create_unknown_val(ft_tt));
           out_tt.is_accessing_property = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tt);
@@ -630,111 +703,130 @@ evaluate_property_access :: (fn(
         }
       );
     });
-
     // Unhandled TypeVal variant — fall through to runtime field access.
   });
-
   // -------------------------------------------------------------------------
   // Runtime field access: dereference any pointer chain, then access field.
   // -------------------------------------------------------------------------
-  obj_ty_main := match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit());
+  obj_ty_main := match(obj_info_opt,.Some(oi) => oi.ty,.None => t_unit());
   original_obj_ty := obj_ty_main;
   (base_ty : TypeValue) = obj_ty_main;
-
   // Dereference pointer chain (TS: while (isPtrType(objectType))).
   while(runtime(is_pointer_type(base_ty)), {
-    match(base_ty,
-      .Pointer(pt) => { base_ty = pt.*; },
-      _            => ()
+    match(
+      base_ty,
+      .Pointer(pt) => {
+        base_ty = pt.*;
+      },
+      _ => ()
     );
   });
-
-  obj_val_main := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
-
+  obj_val_main := match(obj_info_opt,.Some(oi) => oi.value,.None => Option(EvalValue).None);
   // -------------------------------------------------------------------------
   // Struct / Tuple / Union field access
   // -------------------------------------------------------------------------
-  if(((is_tuple_type(base_ty) || is_struct_type(base_ty)) || is_union_type(base_ty)), {
-    fields_labels := match(base_ty,
-      .Tuple(labels, _)       => labels,
+  if((is_tuple_type(base_ty) || is_struct_type(base_ty)) || is_union_type(base_ty), {
+    fields_labels := match(
+      base_ty,
+      .Tuple(labels, _) => labels,
       .Struct(_, _, labels, _, _, _, _) => labels,
-      .Union(_, labels, _)    => labels,
-      _                       => ArrayList(String).new()
+      .Union(_, labels, _) => labels,
+      _ => ArrayList(String).new()
     );
-    fields_types := match(base_ty,
-      .Tuple(_, types)        => types,
+    fields_types := match(
+      base_ty,
+      .Tuple(_, types) => types,
       .Struct(_, _, _, types, _, _, _) => types,
-      .Union(_, _, types)     => types,
-      _                       => ArrayList(TypeValue).new()
+      .Union(_, _, types) => types,
+      _ => ArrayList(TypeValue).new()
     );
-
     if(ast_expr_is_atom(property_expr), {
-
       // --- Integer index access (tuple fields only) -----------------------
-      if((ast_expr_token(property_expr).kind == TokenKind.Integer), {
-        if(!(is_tuple_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit()))), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(property_expr),
-            String.from("Accessing tuple field by index is only allowed for tuples."),
-            false, .None
-          )));
+      if(ast_expr_token(property_expr).kind == TokenKind.Integer, {
+        if(!(is_tuple_type(match(obj_info_opt,.Some(oi) => oi.ty,.None => t_unit()))), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(property_expr),
+                String.from("Accessing tuple field by index is only allowed for tuples."),
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         });
-
         idx_str := ast_expr_token(property_expr).value;
-        match(idx_str.parse_i64(),
+        match(
+          idx_str.parse_i64(),
           .None => {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(property_expr),
-              `Expected integer for tuple index, got:\n${ast_expr_to_string(property_expr)}`,
-              false, .None
-            )));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(property_expr),
+                  `Expected integer for tuple index, got:\n${ast_expr_to_string(property_expr)}`,
+                  false,
+                  .None
+                )
+              )
+            );
             return(expr);
           },
           .Some(idx_val) => {
             idx := usize(idx_val);
             field_count := fields_labels.len();
-            if((idx >= field_count), {
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(property_expr),
-                `Index out of bounds: ${idx_str} for accessing field in:\n${type_to_string(base_ty)}`,
-                false, .None
-              )));
+            if(idx >= field_count, {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(property_expr),
+                    `Index out of bounds: ${idx_str} for accessing field in:\n${type_to_string(base_ty)}`,
+                    false,
+                    .None
+                  )
+                )
+              );
               return(expr);
             });
-
-            ft_idx := match(fields_types.get(idx), .Some(t) => t, .None => t_unit());
-            field_origin_idx := match(match(obj_info_opt, .Some(oi) => oi.origin_type, .None => Option(TypeValue).None),
+            ft_idx := match(fields_types.get(idx),.Some(t) => t,.None => t_unit());
+            field_origin_idx := match(
+              match(obj_info_opt,.Some(oi) => oi.origin_type,.None => Option(TypeValue).None),
               .Some(ot) => ot,
-              .None     => original_obj_ty
+              .None => original_obj_ty
             );
             idx_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt,.Some(oi) => oi.path_collection,.None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt,.Some(oi) => oi.variable_name,.None => Option(String).None),
               idx_str
             );
-
             out_idx := new_expr_info(env, ft_idx);
-            out_idx.origin_type          = Option(TypeValue).Some(field_origin_idx);
+            out_idx.origin_type = Option(TypeValue).Some(field_origin_idx);
             out_idx.is_accessing_property = Option(bool).Some(true);
-            out_idx.path_collection      = idx_pc;
+            out_idx.path_collection = idx_pc;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_idx);
-
             // Propagate compile-time value if available.
-            match(obj_val_main,
+            match(
+              obj_val_main,
               .Some(ov_idx) => {
-                match(ov_idx,
+                match(
+                  ov_idx,
                   .TupleVal(flds_t) => {
-                    match(flds_t.get(idx),
-                      .Some(fv) => { out_idx.value = Option(EvalValue).Some(fv); },
-                      .None     => ()
+                    match(
+                      flds_t.get(idx),
+                      .Some(fv) => {
+                        out_idx.value = Option(EvalValue).Some(fv);
+                      },
+                      .None => ()
                     );
                   },
                   .StructVal(_, _, sflds_t) => {
-                    match(sflds_t.get(idx),
-                      .Some(fv) => { out_idx.value = Option(EvalValue).Some(fv); },
-                      .None     => ()
+                    match(
+                      sflds_t.get(idx),
+                      .Some(fv) => {
+                        out_idx.value = Option(EvalValue).Some(fv);
+                      },
+                      .None => ()
                     );
                   },
                   _ => ()
@@ -742,242 +834,285 @@ evaluate_property_access :: (fn(
               },
               .None => ()
             );
-
             attach_temp_variable_to_expr(expr, false, ctx);
             return(expr);
           }
         );
       });
-
       // --- Label name access ----------------------------------------------
       if(is_valid_variable_name(property_expr), {
         label_str := ast_expr_token(property_expr).value;
         field_idx_lbl := find_first_field_index(fields_labels, label_str.as_str());
-        match(field_idx_lbl,
+        match(
+          field_idx_lbl,
           .None => {
-            if(is_module_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(property_expr),
-                `Module field "${label_str}" not found in module type`,
-                false, .None
-              )));
+            if(is_module_type(match(obj_info_opt,.Some(oi) => oi.ty,.None => t_unit())), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(property_expr),
+                    `Module field "${label_str}" not found in module type`,
+                    false,
+                    .None
+                  )
+                )
+              );
               return(expr);
             });
             // Could be a method call — return without setting ExprInfo.
             return(expr);
           },
           .Some(fi_lbl) => {
-            ft_lbl := match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit());
-            field_origin_lbl := match(match(obj_info_opt, .Some(oi) => oi.origin_type, .None => Option(TypeValue).None),
+            ft_lbl := match(fields_types.get(fi_lbl),.Some(t) => t,.None => t_unit());
+            field_origin_lbl := match(
+              match(obj_info_opt,.Some(oi) => oi.origin_type,.None => Option(TypeValue).None),
               .Some(ot) => ot,
-              .None     => original_obj_ty
+              .None => original_obj_ty
             );
             lbl_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt,.Some(oi) => oi.path_collection,.None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt,.Some(oi) => oi.variable_name,.None => Option(String).None),
               label_str
             );
-
             out_lbl := new_expr_info(env, ft_lbl);
-            out_lbl.origin_type          = Option(TypeValue).Some(field_origin_lbl);
+            out_lbl.origin_type = Option(TypeValue).Some(field_origin_lbl);
             out_lbl.is_accessing_property = Option(bool).Some(true);
-            out_lbl.path_collection      = lbl_pc;
+            out_lbl.path_collection = lbl_pc;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lbl);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_lbl);
-
             // Propagate compile-time value if available.
-            match(obj_val_main,
+            match(
+              obj_val_main,
               .Some(ov_lbl) => {
-                match(ov_lbl,
+                match(
+                  ov_lbl,
                   .UnknownVal(_) => {
                     out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
                   },
                   _ => {
                     // Dereference through PtrVal before field selection.
                     (resolved_lbl : EvalValue) = ov_lbl;
-                    match(ov_lbl,
-                      .PtrVal(tgt_box, _) => { resolved_lbl = tgt_box.*; },
-                      _                   => ()
+                    match(
+                      ov_lbl,
+                      .PtrVal(tgt_box, _) => {
+                        resolved_lbl = tgt_box.*;
+                      },
+                      _ => ()
                     );
-
-                    match(resolved_lbl,
+                    match(
+                      resolved_lbl,
                       .TupleVal(flds_l) => {
-                        match(flds_l.get(fi_lbl),
-                          .Some(fv) => { out_lbl.value = Option(EvalValue).Some(fv); },
-                          .None     => { out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl)); }
+                        match(
+                          flds_l.get(fi_lbl),
+                          .Some(fv) => {
+                            out_lbl.value = Option(EvalValue).Some(fv);
+                          },
+                          .None => {
+                            out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
+                          }
                         );
                       },
                       .StructVal(_, _, sflds_l) => {
-                        match(sflds_l.get(fi_lbl),
-                          .Some(fv) => { out_lbl.value = Option(EvalValue).Some(fv); },
-                          .None     => { out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl)); }
+                        match(
+                          sflds_l.get(fi_lbl),
+                          .Some(fv) => {
+                            out_lbl.value = Option(EvalValue).Some(fv);
+                          },
+                          .None => {
+                            out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
+                          }
                         );
                       },
-                      _ => { out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl)); }
+                      _ => {
+                        out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
+                      }
                     );
                   }
                 );
               },
               .None => ()
             );
-
             attach_temp_variable_to_expr(expr, false, ctx);
             return(expr);
           }
         );
       });
-
     });
-  // } else if (isModuleType(objectType)) {
+    // } else if (isModuleType(objectType)) {
   });
-
   // -------------------------------------------------------------------------
   // Module field access
   // -------------------------------------------------------------------------
   if(is_module_type(base_ty), {
     if(ast_expr_is_atom(property_expr), {
-      if((ast_expr_token(property_expr).kind == TokenKind.Integer), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(property_expr),
-          `Accessing module field by index is not allowed, got:\n${ast_expr_to_string(property_expr)}`,
-          false, .None
-        )));
+      if(ast_expr_token(property_expr).kind == TokenKind.Integer, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(property_expr),
+              `Accessing module field by index is not allowed, got:\n${ast_expr_to_string(property_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-
       if(is_valid_variable_name(property_expr), {
         mod_label := ast_expr_token(property_expr).value;
-
-        mod_labels_rt := match(base_ty,
+        mod_labels_rt := match(
+          base_ty,
           .ModuleT(_, _, labels, _) => labels,
-          _                      => ArrayList(String).new()
+          _ => ArrayList(String).new()
         );
-        mod_types_rt := match(base_ty,
+        mod_types_rt := match(
+          base_ty,
           .ModuleT(_, _, _, types) => types,
-          _                     => ArrayList(TypeValue).new()
+          _ => ArrayList(TypeValue).new()
         );
-
         mod_fidx := find_first_field_index(mod_labels_rt, mod_label.as_str());
-        match(mod_fidx,
+        match(
+          mod_fidx,
           .None => {
-            if(is_module_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
+            if(is_module_type(match(obj_info_opt,.Some(oi) => oi.ty,.None => t_unit())), {
               // Phase 2: skip isLoading check (no such field in yo-self ModuleVal).
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(property_expr),
-                `Module field "${mod_label}" not found in module type`,
-                false, .None
-              )));
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(property_expr),
+                    `Module field "${mod_label}" not found in module type`,
+                    false,
+                    .None
+                  )
+                )
+              );
               return(expr);
             });
             // Could be a method call.
             return(expr);
           },
           .Some(fi_mod) => {
-            ft_mod := match(mod_types_rt.get(fi_mod), .Some(t) => t, .None => t_unit());
+            ft_mod := match(mod_types_rt.get(fi_mod),.Some(t) => t,.None => t_unit());
             mod_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt,.Some(oi) => oi.path_collection,.None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt,.Some(oi) => oi.variable_name,.None => Option(String).None),
               mod_label
             );
-
             out_mod := new_expr_info(env, ft_mod);
             out_mod.is_accessing_property = Option(bool).Some(true);
-            out_mod.path_collection      = mod_pc;
+            out_mod.path_collection = mod_pc;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_mod);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_mod);
-
             // Propagate compile-time value.
-            match(obj_val_main,
+            match(
+              obj_val_main,
               .Some(ov_mod) => {
-                match(ov_mod,
+                match(
+                  ov_mod,
                   .UnknownVal(_) => {
                     out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod));
                   },
                   .ModuleVal(_, mvals) => {
-                    match(mvals.get(fi_mod),
-                      .Some(mfv) => { out_mod.value = Option(EvalValue).Some(mfv); },
-                      .None      => { out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod)); }
+                    match(
+                      mvals.get(fi_mod),
+                      .Some(mfv) => {
+                        out_mod.value = Option(EvalValue).Some(mfv);
+                      },
+                      .None => {
+                        out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod));
+                      }
                     );
                   },
-                  _ => { out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod)); }
+                  _ => {
+                    out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod));
+                  }
                 );
               },
               .None => ()
             );
-
             return(expr);
           }
         );
       });
     });
   });
-
   // -------------------------------------------------------------------------
   // Enum selected-variant field access
   // -------------------------------------------------------------------------
   if(is_enum_type(base_ty), {
     if(ast_expr_is_atom(property_expr), {
       if(!(is_valid_variable_name(property_expr)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(property_expr),
-          `Expected identifier for enum variant property, got:\n${ast_expr_to_string(property_expr)}`,
-          false, .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(property_expr),
+              `Expected identifier for enum variant property, got:\n${ast_expr_to_string(property_expr)}`,
+              false,
+              .None
+            )
+          )
+        );
         return(expr);
       });
-
       prop_name_ev := ast_expr_token(property_expr).value;
-
-      match(base_ty,
+      match(
+        base_ty,
         .EnumT(_, _, ev_vnames, ev_vfields, ev_sel, ev_vflabels, _) => {
-          match(ev_sel,
+          match(
+            ev_sel,
             .Some(sel_vname) => {
               sel_vi_opt := find_first_field_index(ev_vnames, sel_vname.as_str());
-              match(sel_vi_opt,
+              match(
+                sel_vi_opt,
                 .Some(sel_vi) => {
-                  vfl := match(ev_vflabels.get(sel_vi),
+                  vfl := match(
+                    ev_vflabels.get(sel_vi),
                     .Some(fl) => fl,
-                    .None     => ArrayList(String).new()
+                    .None => ArrayList(String).new()
                   );
-                  vft := match(ev_vfields.get(sel_vi),
+                  vft := match(
+                    ev_vfields.get(sel_vi),
                     .Some(ft) => ft,
-                    .None     => ArrayList(TypeValue).new()
+                    .None => ArrayList(TypeValue).new()
                   );
-
                   prop_fidx_ev := find_first_field_index(vfl, prop_name_ev.as_str());
-                  match(prop_fidx_ev,
+                  match(
+                    prop_fidx_ev,
                     .None => {
                       // Could be an enum method call.
                     },
                     .Some(pfi) => {
-                      ft_ev := match(vft.get(pfi), .Some(t) => t, .None => t_unit());
-
+                      ft_ev := match(vft.get(pfi),.Some(t) => t,.None => t_unit());
                       enum_pc := ArrayList(ArrayList(String)).new();
                       ep_path := ArrayList(String).new();
-                      ep_obj_vname := match(obj_info_opt,
-                        .Some(oi) => match(oi.variable_name, .Some(n) => n, .None => String.from("?")),
-                        .None     => String.from("?")
+                      ep_obj_vname := match(
+                        obj_info_opt,
+                        .Some(oi) => match(oi.variable_name,.Some(n) => n,.None => String.from("?")),
+                        .None => String.from("?")
                       );
                       ep_path.push(ep_obj_vname);
                       ep_path.push(prop_name_ev);
                       enum_pc.push(ep_path);
-
                       out_ev := new_expr_info(env, ft_ev);
-                      out_ev.path_collection      = enum_pc;
+                      out_ev.path_collection = enum_pc;
                       out_ev.is_accessing_property = Option(bool).Some(true);
                       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ev);
                       expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_ev);
-
                       // Propagate compile-time enum value.
-                      match(obj_val_main,
+                      match(
+                        obj_val_main,
                         .Some(eov) => {
-                          match(eov,
+                          match(
+                            eov,
                             .EnumVal(ev_vn, ev_flds) => {
                               dot_sel := `.${ sel_vname }`;
-                              if((ev_vn.as_str() == dot_sel.as_str()), {
-                                match(ev_flds.get(pfi),
-                                  .Some(efv) => { out_ev.value = Option(EvalValue).Some(efv); },
-                                  .None      => ()
+                              if(ev_vn.as_str() == dot_sel.as_str(), {
+                                match(
+                                  ev_flds.get(pfi),
+                                  .Some(efv) => {
+                                    out_ev.value = Option(EvalValue).Some(efv);
+                                  },
+                                  .None => ()
                                 );
                               });
                             },
@@ -986,7 +1121,6 @@ evaluate_property_access :: (fn(
                         },
                         .None => ()
                       );
-
                       return(expr);
                     }
                   );
@@ -994,14 +1128,13 @@ evaluate_property_access :: (fn(
                 .None => ()
               );
             },
-            .None => ()  // No selected variant — fall through.
+            .None => () // No selected variant — fall through.
           );
         },
         _ => ()
       );
     });
   });
-
   // -------------------------------------------------------------------------
   // Fallback: property access could not be resolved at compile time.
   // Return expr without setting ExprInfo — codegen / function.ts will handle.
@@ -1009,5 +1142,4 @@ evaluate_property_access :: (fn(
   // -------------------------------------------------------------------------
   expr
 });
-
 export(evaluate_property_access);

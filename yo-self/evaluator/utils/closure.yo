@@ -10,87 +10,79 @@
 //!   - `create_capture_type_and_value`          → simplified inference only;
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
-
 open(import("std/string"));
-{ ArrayList }    :: import("std/collections/array_list");
-{ HashMap }      :: import("std/collections/hash_map");
-
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 {
   AstExpr
-}                :: import("../../expr/expr.yo");
-{ Token }        :: import("../../lexer/token.yo");
+} :: import("../../expr/expr.yo");
+{ Token } :: import("../../lexer/token.yo");
 {
   Variable,
   Environment,
   get_variables_from_env
-}                :: import("../../env/env.yo");
+} :: import("../../env/env.yo");
 {
   TypeValue,
   t_unit
-}                :: import("../../types/type.yo");
+} :: import("../../types/type.yo");
 {
   EvalValue
-}                :: import("../value.yo");
+} :: import("../value.yo");
 {
   CapturedVarInfo,
   CaptureUsage
-}                :: import("../context.yo");
+} :: import("../context.yo");
 {
   TypeField
-}                :: import("../types/field.yo");
+} :: import("../types/field.yo");
 {
   register_struct_fields
-}                :: import("../types/field.yo");
-{ random_id }    :: import("../utils.yo");
+} :: import("../types/field.yo");
+{ random_id } :: import("../utils.yo");
 { auto_derive_traits_for_struct_type } :: import("../types/auto_derive.yo");
-
 // ---------------------------------------------------------------------------
 // FuncCapturedVarInfo
 // ---------------------------------------------------------------------------
-
 /// `CapturedVarInfo` enriched with the actual type and optional value of the
 /// captured variable.  Produced by `enrich_captured_variables`.
 ///
 /// Mirrors `FunctionCapturedVariableInfo` from `src/function-value.ts`.
 FuncCapturedVarInfo :: struct(
-  frame_level     : usize,
-  usage           : CaptureUsage,
-  token           : Token,
-  ty              : TypeValue,
-  value           : Option(EvalValue),
+  frame_level : usize,
+  usage : CaptureUsage,
+  token : Token,
+  ty : TypeValue,
+  value : Option(EvalValue),
   is_effect_param : bool
 );
-
 // ---------------------------------------------------------------------------
 // CaptureTypeAndValueResult
 // ---------------------------------------------------------------------------
-
 /// Result type for `create_capture_type_and_value`.
 CaptureTypeAndValueResult :: struct(
-  capture_type  : Option(TypeValue),
+  capture_type : Option(TypeValue),
   capture_value : Option(EvalValue),
-  env           : Environment
+  env : Environment
 );
-
 // ---------------------------------------------------------------------------
 // consume_captured_variables
 // ---------------------------------------------------------------------------
-
 /// Mark closure-captured variables as consumed (move semantics).
 ///
 /// Phase 3 stub: no move semantics yet — returns env unchanged.
 ///
 /// Mirrors `consumeCapturedVariables` from `src/evaluator/utils/closure.ts`.
-consume_captured_variables :: (fn(
-  _captured_variables : HashMap(String, CapturedVarInfo),
-  env                 : Environment,
-  _closure_token      : Token
-) -> Environment)(env);
-
+consume_captured_variables :: (
+  fn(
+    _captured_variables : HashMap(String, CapturedVarInfo),
+    env : Environment,
+    _closure_token : Token
+  ) -> Environment
+)(env);
 // ---------------------------------------------------------------------------
 // build_path_collection_from_captured_variables
 // ---------------------------------------------------------------------------
-
 /// Build a path collection (list of variable-name paths) from captured
 /// variables.  Used for borrow tracking in C codegen.
 ///
@@ -98,16 +90,16 @@ consume_captured_variables :: (fn(
 ///
 /// Mirrors `buildPathCollectionFromCapturedVariables` from
 /// `src/evaluator/utils/closure.ts`.
-build_path_collection_from_captured_variables :: (fn(
-  _captured_variables : HashMap(String, CapturedVarInfo)
-) -> ArrayList(ArrayList(String)))(
+build_path_collection_from_captured_variables :: (
+  fn(
+    _captured_variables : HashMap(String, CapturedVarInfo)
+  ) -> ArrayList(ArrayList(String))
+)(
   ArrayList(ArrayList(String)).new()
 );
-
 // ---------------------------------------------------------------------------
 // validate_capture_trait_requirements
 // ---------------------------------------------------------------------------
-
 /// Validate that the closure's capture struct implements all required
 /// non-Fn traits from the wrapper type.
 ///
@@ -115,17 +107,17 @@ build_path_collection_from_captured_variables :: (fn(
 ///
 /// Mirrors `validateCaptureTraitRequirements` from
 /// `src/evaluator/utils/closure.ts`.
-validate_capture_trait_requirements :: (fn(
-  _wrapper_type  : TypeValue,
-  _capture_type  : TypeValue,
-  _env           : Environment,
-  _error_token   : Token
-) -> unit)(());
-
+validate_capture_trait_requirements :: (
+  fn(
+    _wrapper_type : TypeValue,
+    _capture_type : TypeValue,
+    _env : Environment,
+    _error_token : Token
+  ) -> unit
+)(());
 // ---------------------------------------------------------------------------
 // enrich_captured_variables
 // ---------------------------------------------------------------------------
-
 /// Look up each captured variable in `env` (at its `frame_level`) to
 /// discover its concrete type and runtime value.  Compile-time-only
 /// variables are excluded from captures (they are always inlined).
@@ -133,40 +125,47 @@ validate_capture_trait_requirements :: (fn(
 /// Returns a map of name → `FuncCapturedVarInfo`.
 ///
 /// Mirrors `enrichCapturedVariables` from `src/evaluator/utils/closure.ts`.
-enrich_captured_variables :: (fn(
-  captured_variables : HashMap(String, CapturedVarInfo),
-  env                : Environment
-) -> HashMap(String, FuncCapturedVarInfo))({
-  result    := HashMap(String, FuncCapturedVarInfo).new();
-  key_iter  := captured_variables.keys();
+enrich_captured_variables :: (
+  fn(
+    captured_variables : HashMap(String, CapturedVarInfo),
+    env : Environment
+  ) -> HashMap(String, FuncCapturedVarInfo)
+)({
+  result := HashMap(String, FuncCapturedVarInfo).new();
+  key_iter := captured_variables.keys();
   (more : bool) = true;
   while(runtime(more), {
-    match(key_iter.next(),
-      .None           => { more = false; },
+    match(
+      key_iter.next(),
+      .None => {
+        more = false;
+      },
       .Some(var_name) => {
-        vn_copy      := String.from(var_name.as_str());
+        vn_copy := String.from(var_name.as_str());
         cap_info_opt := captured_variables.get(String.from(var_name.as_str()));
-        match(cap_info_opt,
+        match(
+          cap_info_opt,
           .None => (),
           .Some(cap_info) => {
-            fl       := cap_info.frame_level;
+            fl := cap_info.frame_level;
             n_frames := env.frames.len();
-            if((fl < n_frames), {
+            if(fl < n_frames, {
               vars := get_variables_from_env(env, String.from(var_name.as_str()));
-              m    := vars.len();
+              m := vars.len();
               (j : usize) = usize(0);
-              while(runtime((j < m)), {
-                match(vars.get(j),
+              while(runtime(j < m), {
+                match(
+                  vars.get(j),
                   .None => (),
                   .Some(v) => {
-                    if((!(v.is_compile_time_only)), {
+                    if(!(v.is_compile_time_only), {
                       enriched := FuncCapturedVarInfo(
-                        frame_level:     fl,
-                        usage:           cap_info.usage,
-                        token:           cap_info.token,
-                        ty:              v.ty,
-                        value:           v.value,
-                        is_effect_param: v.is_effect_param
+                        frame_level : fl,
+                        usage : cap_info.usage,
+                        token : cap_info.token,
+                        ty : v.ty,
+                        value : v.value,
+                        is_effect_param : v.is_effect_param
                       );
                       _s := result.set(String.from(vn_copy.as_str()), enriched);
                       ()
@@ -181,14 +180,11 @@ enrich_captured_variables :: (fn(
       }
     );
   });
-
   result
 });
-
 // ---------------------------------------------------------------------------
 // create_capture_type_and_value
 // ---------------------------------------------------------------------------
-
 /// Create the capture struct type (and optional value) for a closure from
 /// its captured variables.
 ///
@@ -200,67 +196,73 @@ enrich_captured_variables :: (fn(
 ///     deferred to Phase 4.
 ///
 /// Mirrors `createCaptureTypeAndValue` from `src/evaluator/utils/closure.ts`.
-create_capture_type_and_value :: (fn(
-  expected_capture_type      : Option(TypeValue),
-  captured_vars_with_values  : Option(HashMap(String, FuncCapturedVarInfo)),
-  env                        : Environment,
-  closure_tok                : Token
-) -> CaptureTypeAndValueResult)(
+create_capture_type_and_value :: (
+  fn(
+    expected_capture_type : Option(TypeValue),
+    captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
+    env : Environment,
+    closure_tok : Token
+  ) -> CaptureTypeAndValueResult
+)(
   // Phase 4: explicit capture struct type check.
-  match(expected_capture_type,
+  match(
+    expected_capture_type,
     .Some(_) =>
       // Explicit capture type — deferred to Phase 4.
       // For now return None capture (will be refined).
       CaptureTypeAndValueResult(
-        capture_type:  Option(TypeValue).None,
-        capture_value: Option(EvalValue).None,
-        env:           env
+        capture_type : Option(TypeValue).None,
+        capture_value : Option(EvalValue).None,
+        env : env
       ),
     .None => {
       // Inference case: build struct from captured variables.
-      struct_id     := `capture_${random_id(env.module_path)}`;
-      field_labels  := ArrayList(String).new();
-      field_types   := ArrayList(TypeValue).new();
-      type_fields   := ArrayList(TypeField).new();
-      cap_values    := ArrayList(Option(EvalValue)).new();
-
-      has_any_caps := match(captured_vars_with_values,
+      struct_id := `capture_${random_id(env.module_path)}`;
+      field_labels := ArrayList(String).new();
+      field_types := ArrayList(TypeValue).new();
+      type_fields := ArrayList(TypeField).new();
+      cap_values := ArrayList(Option(EvalValue)).new();
+      has_any_caps := match(
+        captured_vars_with_values,
         .None => false,
         .Some(cvwv) => (cvwv.len() > usize(0))
       );
-
       if(has_any_caps, {
-        cvwv     := match(captured_vars_with_values, .Some(m) => m, .None => HashMap(String, FuncCapturedVarInfo).new());
+        cvwv := match(captured_vars_with_values,.Some(m) => m,.None => HashMap(String, FuncCapturedVarInfo).new());
         key_iter := cvwv.keys();
         (more_keys : bool) = true;
         while(runtime(more_keys), {
-          match(key_iter.next(),
-            .None           => { more_keys = false; },
+          match(
+            key_iter.next(),
+            .None => {
+              more_keys = false;
+            },
             .Some(cap_name) => {
-              match(cvwv.get(String.from(cap_name.as_str())),
+              match(
+                cvwv.get(String.from(cap_name.as_str())),
                 .None => (),
                 .Some(fci) => {
                   field_labels.push(String.from(cap_name.as_str()));
                   field_types.push(fci.ty);
                   cap_values.push(fci.value);
-                  type_fields.push(TypeField(
-                    label:          String.from(cap_name.as_str()),
-                    ty:             fci.ty,
-                    is_comptime:    false,
-                    default_value:  Option(EvalValue).None,
-                    assigned_value: Option(EvalValue).None,
-                    doc_comment:    Option(String).None
-                  ));
+                  type_fields.push(
+                    TypeField(
+                      label : String.from(cap_name.as_str()),
+                      ty : fci.ty,
+                      is_comptime : false,
+                      default_value : Option(EvalValue).None,
+                      assigned_value : Option(EvalValue).None,
+                      doc_comment : Option(String).None
+                    )
+                  );
                 }
               );
             }
           );
         });
       });
-
       // Register field metadata.
       register_struct_fields(String.from(struct_id.as_str()), type_fields);
-
       // Build the capture struct TypeValue.
       capture_ty := TypeValue.Struct(
         String.from(struct_id.as_str()),
@@ -271,7 +273,6 @@ create_capture_type_and_value :: (fn(
         false,
         false
       );
-
       // Auto-derive trait markers for the capture struct.
       // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` call in closure.ts.
       auto_derive_traits_for_struct_type(
@@ -282,83 +283,88 @@ create_capture_type_and_value :: (fn(
         env,
         capture_ty
       );
-
       // Build the capture struct EvalValue if all values are known.
       n_caps := cap_values.len();
       (all_known : bool) = true;
       (cv_i : usize) = usize(0);
-      while(runtime((cv_i < n_caps)), {
-        match(cap_values.get(cv_i),
+      while(runtime(cv_i < n_caps), {
+        match(
+          cap_values.get(cv_i),
           .None => (),
           .Some(v_opt) => {
-            match(v_opt,
-              .None => { all_known = false; },
+            match(
+              v_opt,
+              .None => {
+                all_known = false;
+              },
               .Some(_) => ()
             );
           }
         );
         cv_i = (cv_i + usize(1));
       });
-
       // Collect concrete values for StructVal if all are known.
       cap_struct_val := if(all_known, {
         concrete_vals := ArrayList(EvalValue).new();
         (ci : usize) = usize(0);
-        while(runtime((ci < n_caps)), {
-          match(cap_values.get(ci),
+        while(runtime(ci < n_caps), {
+          match(
+            cap_values.get(ci),
             .None => (),
             .Some(v_opt) => {
-              match(v_opt,
+              match(
+                v_opt,
                 .None => (),
-                .Some(v) => { concrete_vals.push(v); }
+                .Some(v) => {
+                  concrete_vals.push(v);
+                }
               );
             }
           );
           ci = (ci + usize(1));
         });
         // Use struct_id as the type name for the StructVal.
-        Option(EvalValue).Some(EvalValue.StructVal(
-          String.from(struct_id.as_str()),
-          field_labels,
-          concrete_vals
-        ))
+        Option(EvalValue).Some(
+          EvalValue.StructVal(
+            String.from(struct_id.as_str()),
+            field_labels,
+            concrete_vals
+          )
+        )
       }, Option(EvalValue).None);
-
       CaptureTypeAndValueResult(
-        capture_type:  Option(TypeValue).Some(capture_ty),
-        capture_value: cap_struct_val,
-        env:           env
+        capture_type : Option(TypeValue).Some(capture_ty),
+        capture_value : cap_struct_val,
+        env : env
       )
     }
   )
 );
-
 // ---------------------------------------------------------------------------
 // generate_captured_variable_dup_expressions
 // ---------------------------------------------------------------------------
-
 /// Result type for `generate_captured_variable_dup_expressions`.
 CapturedVarDupResult :: struct(
   dup_exprs : Option(ArrayList(AstExpr)),
-  env       : Environment
+  env : Environment
 );
-
 /// Generate `___dup()` expressions for captured ARC variables.
 ///
 /// Phase 3 stub: no ARC support yet — always returns None.
 ///
 /// Mirrors `generateCapturedVariableDupExpressions` from
 /// `src/evaluator/utils/closure.ts`.
-generate_captured_variable_dup_expressions :: (fn(
-  _captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
-  env                        : Environment
-) -> CapturedVarDupResult)(
+generate_captured_variable_dup_expressions :: (
+  fn(
+    _captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
+    env : Environment
+  ) -> CapturedVarDupResult
+)(
   CapturedVarDupResult(
-    dup_exprs: Option(ArrayList(AstExpr)).None,
-    env:       env
+    dup_exprs : Option(ArrayList(AstExpr)).None,
+    env : env
   )
 );
-
 export(FuncCapturedVarInfo);
 export(CaptureTypeAndValueResult);
 export(CapturedVarDupResult);

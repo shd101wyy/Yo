@@ -7,214 +7,287 @@
 //! evaluates `x` at compile time and splices the resulting `Expr` value back
 //! in, while `unquote_splicing(xs)` (or `...#(xs)`) splices a `ComptimeList(Expr)`
 //! into the surrounding argument list.
-
 open(import("std/string"));
 open(import("std/collections/array_list"));
-{ AstExpr, ExprId, ast_expr_token, ast_expr_id, ast_expr_is_atom,
-  ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr,
-  BK_QUOTE }                                     :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                          :: import("../../expr/expr_info.yo");
-{ Token }                                        :: import("../../lexer/token.yo");
-{ Environment }                                  :: import("../../env/env.yo");
-{ EvalContext }                                  :: import("../context.yo");
-{ EvalValue, is_unknown_val, is_expr_val,
-  is_comptime_list_val }                         :: import("../value.yo");
-{ TypeValue, t_expr_t, t_comptime_list }         :: import("../../types/type.yo");
-{ is_expr_type, is_expr_list_type }              :: import("../../types/guards.yo");
-{ format_error_message }                         :: import("../../error/error.yo");
-{ evaluate_expression }                          :: import("../exprs/expr.yo");
-{ Exception }                                    :: import("std/error");
-
+{
+  AstExpr,
+  ExprId,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  make_err_expr,
+  BK_QUOTE
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Token } :: import("../../lexer/token.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{
+  EvalValue,
+  is_unknown_val,
+  is_expr_val,
+  is_comptime_list_val
+} :: import("../value.yo");
+{ TypeValue, t_expr_t, t_comptime_list } :: import("../../types/type.yo");
+{ is_expr_type, is_expr_list_type } :: import("../../types/guards.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
 // Constant string aliases for unquote/unquote_splicing builtin keyword names.
-BK_UNQUOTE          :: "unquote";
-BK_HASH             :: "#";
+BK_UNQUOTE :: "unquote";
+BK_HASH :: "#";
 BK_UNQUOTE_SPLICING :: "unquote_splicing";
-BK_SPREAD_HASH      :: "...#";
-BK_SPREAD           :: "...";
-
+BK_SPREAD_HASH :: "...#";
+BK_SPREAD :: "...";
 /// Returns true if `expr` is an `unquote` / `#` call with exactly 1 argument.
 _is_unquote :: (fn(e : AstExpr) -> bool)(
-  (ast_expr_is_fn_call_of(e, BK_UNQUOTE, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_HASH,    Option(usize).Some(usize(1))))
+  ast_expr_is_fn_call_of(e, BK_UNQUOTE, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_HASH, Option(usize).Some(usize(1)))
 );
-
 /// Returns true if `expr` is an `unquote_splicing` / `...#` call with 1 arg.
 _is_unquote_splicing :: (fn(e : AstExpr) -> bool)(
-  (ast_expr_is_fn_call_of(e, BK_UNQUOTE_SPLICING, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_SPREAD_HASH,   Option(usize).Some(usize(1))))
+  ast_expr_is_fn_call_of(e, BK_UNQUOTE_SPLICING, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_SPREAD_HASH, Option(usize).Some(usize(1)))
 );
-
 /// Returns true if `expr` is `...(#(x))` — spread(unquote(x)).
 _is_spread_unquote :: (fn(e : AstExpr) -> bool)(
-  match(e,
+  match(
+    e,
     .FnCall(_, fb, args, _, _) => {
-      is_spread := match(fb.*, .Atom(_, tok) => (tok.value == String.from(BK_SPREAD)), _ => false);
-      if(!(is_spread), { return(false); });
-      if(!((args.len() == usize(1))), { return(false); });
-      inner := match(args.get(usize(0)), .Some(a) => a, .None => { return(false); });
+      is_spread := match(fb.*,.Atom(_, tok) => (tok.value == String.from(BK_SPREAD)), _ => false);
+      if(!(is_spread), {
+        return(false);
+      });
+      if(!(args.len() == usize(1)), {
+        return(false);
+      });
+      inner := match(
+        args.get(usize(0)),
+        .Some(a) => a,
+        .None => {
+          return(false);
+        }
+      );
       _is_unquote(inner)
     },
     .Atom(_, _) => false
   )
 );
-
 /// Recursively walk `expr`, evaluating any embedded `unquote`/`unquote_splicing`
 /// sub-expressions and constructing a new (possibly modified) AST node.
 ///
 /// Mirrors `processUnquotesInExpr` in `src/evaluator/builtins/quote.ts`.
-process_unquotes_in_expr :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+process_unquotes_in_expr :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Atom nodes pass through unchanged.
-  if(ast_expr_is_atom(expr), { return(expr); });
-
+  if(ast_expr_is_atom(expr), {
+    return(expr);
+  });
   // --- FnCall processing ---
-  match(expr,
+  match(
+    expr,
     .FnCall(id, func_box, args, is_infix, tok) => {
       // Case 1: func is `unquote` — evaluate the single argument and return
       // the expression it contains.
       if(_is_unquote(func_box.*), {
-        if(!((args.len() == usize(1))), { return(expr); });
-        arg := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+        if(!(args.len() == usize(1)), {
+          return(expr);
+        });
+        arg := match(
+          args.get(usize(0)),
+          .Some(a) => a,
+          .None => {
+            return(expr);
+          }
+        );
         eval_arg := evaluate_expression(arg, env, ctx);
         arg_info := match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
           .Some(i) => i,
           .None => {
-            exn.throw(dyn(format_error_message(
-              tok,
-              String.from("unquote: failed to evaluate argument"),
-              false,
-              .None
-            )));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  tok,
+                  String.from("unquote: failed to evaluate argument"),
+                  false,
+                  .None
+                )
+              )
+            );
             new_expr_info(env, t_expr_t())
           }
         );
-        val := match(arg_info.value,
-          .None    => {
-            exn.throw(dyn(format_error_message(tok, String.from("unquote: argument must have a compile-time value"), false, .None)));
+        val := match(
+          arg_info.value,
+          .None => {
+            exn.throw(dyn(format_error_message(tok, String.from("unquote: argument must have a compile-time value"), false,.None)));
             EvalValue.ExprVal(box(make_err_expr()))
           },
           .Some(v) => v
         );
         // If type is not Expr but value is unknown → leave original expr in
         if(!(is_expr_type(arg_info.ty)), {
-          if(is_unknown_val(val), { return(expr); });
-          exn.throw(dyn(format_error_message(tok, String.from("unquote: expected Expr type"), false, .None)));
+          if(is_unknown_val(val), {
+            return(expr);
+          });
+          exn.throw(dyn(format_error_message(tok, String.from("unquote: expected Expr type"), false,.None)));
         });
-        if(is_unknown_val(val), { return(expr); });
-        inner_expr := match(val,
+        if(is_unknown_val(val), {
+          return(expr);
+        });
+        inner_expr := match(
+          val,
           .ExprVal(eb) => eb.*,
           _ => {
-            exn.throw(dyn(format_error_message(tok, String.from("unquote: expected ExprVal"), false, .None)));
+            exn.throw(dyn(format_error_message(tok, String.from("unquote: expected ExprVal"), false,.None)));
             make_err_expr()
           }
         );
         return(inner_expr);
       });
-
       // Case 2: Process func and each arg, expanding unquote_splicing.
       new_func := recur(func_box.*, env, ctx);
       new_args := ArrayList(AstExpr).new();
       i := usize(0);
       n := args.len();
-      while(runtime((i < n)), {
+      while(runtime(i < n), {
         opt_arg := args.get(i);
         i = (i + usize(1));
-        match(opt_arg, .None => (), .Some(arg) => {
-          // Check for unquote_splicing or spread(unquote(...))
-          is_splice := (_is_unquote_splicing(arg) || _is_spread_unquote(arg));
-
-          if(is_splice, {
-            // Extract the inner unquote argument.
-            splice_inner := match(arg,
-              .FnCall(_, _, splice_args, _, _) =>
-                if(_is_spread_unquote(arg), {
-                  // ...(#(x)): arg is spread(...), its first arg is #(x)
-                  inner_arg := match(splice_args.get(usize(0)), .Some(a) => a, .None => arg);
-                  match(inner_arg, .FnCall(_, _, ia2, _, _) => match(ia2.get(usize(0)), .Some(a) => a, .None => arg), .Atom(_, _) => arg)
-                }, match(splice_args.get(usize(0)), .Some(a) => a, .None => arg)),
-              .Atom(_, _) => arg
-            );
-            eval_splice := evaluate_expression(splice_inner, env, ctx);
-            opt_splice_info := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_splice));
-            match(opt_splice_info,
-              .None => { new_args.push(arg); },
-              .Some(splice_info) => {
-                opt_splice_val := splice_info.value;
-                match(opt_splice_val,
-                  .None => { new_args.push(arg); },
-                  .Some(splice_val) => {
-                    if(!(is_expr_list_type(splice_info.ty)), {
-                      if(is_unknown_val(splice_val), {
-                        new_args.push(arg);
+        match(
+          opt_arg,
+          .None => (),
+          .Some(arg) => {
+            // Check for unquote_splicing or spread(unquote(...))
+            is_splice := (_is_unquote_splicing(arg) || _is_spread_unquote(arg));
+            if(is_splice, {
+              // Extract the inner unquote argument.
+              splice_inner := match(
+                arg,
+                .FnCall(_, _, splice_args, _, _) =>
+                  if(_is_spread_unquote(arg), {
+                    // ...(#(x)): arg is spread(...), its first arg is #(x)
+                    inner_arg := match(splice_args.get(usize(0)),.Some(a) => a,.None => arg);
+                    match(inner_arg,.FnCall(_, _, ia2, _, _) => match(ia2.get(usize(0)),.Some(a) => a,.None => arg),.Atom(_, _) => arg)
+                  }, match(splice_args.get(usize(0)),.Some(a) => a,.None => arg)),
+                .Atom(_, _) => arg
+              );
+              eval_splice := evaluate_expression(splice_inner, env, ctx);
+              opt_splice_info := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_splice));
+              match(
+                opt_splice_info,
+                .None => {
+                  new_args.push(arg);
+                },
+                .Some(splice_info) => {
+                  opt_splice_val := splice_info.value;
+                  match(
+                    opt_splice_val,
+                    .None => {
+                      new_args.push(arg);
+                    },
+                    .Some(splice_val) => {
+                      if(!(is_expr_list_type(splice_info.ty)), {
+                        if(is_unknown_val(splice_val), {
+                          new_args.push(arg);
+                        }, {
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(arg),
+                                String.from("unquote_splicing: expected ComptimeList(Expr) type"),
+                                false,
+                                .None
+                              )
+                            )
+                          );
+                        });
                       }, {
-                        exn.throw(dyn(format_error_message(
-                          ast_expr_token(arg),
-                          String.from("unquote_splicing: expected ComptimeList(Expr) type"),
-                          false,
-                          .None
-                        )));
-                      });
-                    }, {
-                      if(is_comptime_list_val(splice_val), {
-                        match(splice_val, .ComptimeListVal(elems) => {
-                          j := usize(0);
-                          m := elems.len();
-                          while(runtime((j < m)), {
-                            opt_elem := elems.get(j);
-                            j = (j + usize(1));
-                            match(opt_elem, .None => (), .Some(elem) => {
-                              if(is_expr_val(elem), {
-                                inner_node := match(elem, .ExprVal(eb) => eb.*, _ => arg);
-                                new_args.push(inner_node);
-                              }, {
-                                new_args.push(arg);
+                        if(is_comptime_list_val(splice_val), {
+                          match(
+                            splice_val,
+                            .ComptimeListVal(elems) => {
+                              j := usize(0);
+                              m := elems.len();
+                              while(runtime(j < m), {
+                                opt_elem := elems.get(j);
+                                j = (j + usize(1));
+                                match(
+                                  opt_elem,
+                                  .None => (),
+                                  .Some(elem) => {
+                                    if(is_expr_val(elem), {
+                                      inner_node := match(elem,.ExprVal(eb) => eb.*, _ => arg);
+                                      new_args.push(inner_node);
+                                    }, {
+                                      new_args.push(arg);
+                                    });
+                                  }
+                                );
                               });
-                            });
-                          });
-                        }, _ => ());
-                      }, {
-                        // Unknown value — keep original arg
-                        new_args.push(arg);
+                            },
+                            _ => ()
+                          );
+                        }, {
+                          // Unknown value — keep original arg
+                          new_args.push(arg);
+                        });
                       });
-                    });
-                  }
-                );
-              }
-            );
-          }, {
-            new_args.push(recur(arg, env, ctx));
-          });
-        });
+                    }
+                  );
+                }
+              );
+            }, {
+              new_args.push(recur(arg, env, ctx));
+            });
+          }
+        );
       });
-
       AstExpr.FnCall(id, box(new_func), new_args, is_infix, tok)
     },
     .Atom(_, _) => expr
   )
 });
-
-evaluate_quote :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
-  arg  := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
-
+evaluate_quote :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(expr);
+    }
+  );
+  arg := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
   // Process unquotes inside the quoted expression.
   quoted := process_unquotes_in_expr(arg, env, ctx);
-
   // Wrap result in ExprVal and register ExprInfo.
-  val      := EvalValue.ExprVal(box(quoted));
+  val := EvalValue.ExprVal(box(quoted));
   out_info := new_expr_info(env, t_expr_t());
   out_info.value = Option(EvalValue).Some(val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-
 export(process_unquotes_in_expr, evaluate_quote);

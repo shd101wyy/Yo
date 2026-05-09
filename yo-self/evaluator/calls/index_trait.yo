@@ -12,161 +12,198 @@
 //!   - _check_range_type: uses struct name heuristic (no CTFE resolution)
 //!   - Custom type ComptimeIndex: not yet implemented (Phase 4)
 //!   - has_index_impl: returns true for Array/Slice, false otherwise
-
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
-{ Environment }                     :: import("../../env/env.yo");
-{ TypeValue, t_unit, t_ptr, t_slice,
-  is_array_type, is_slice_type,
-  is_pointer_type, is_trait_type }  :: import("../../types/type.yo");
-{ EvalValue,
-  is_array_val, is_slice_val, is_str_lit,
-  is_struct_val, is_int_lit, is_unknown_val,
-  create_unknown_val }              :: import("../value.yo");
-{ EvalContext, IndexCallResult }    :: import("../context.yo");
-{ ExprInfo, new_expr_info,
-  expr_info_table_get }             :: import("../../expr/expr_info.yo");
-{ format_error_message }            :: import("../../error/error.yo");
-{ are_types_compatible }            :: import("../../types/compatibility.yo");
+{ Environment } :: import("../../env/env.yo");
+{
+  TypeValue,
+  t_unit,
+  t_ptr,
+  t_slice,
+  is_array_type,
+  is_slice_type,
+  is_pointer_type,
+  is_trait_type
+} :: import("../../types/type.yo");
+{
+  EvalValue,
+  is_array_val,
+  is_slice_val,
+  is_str_lit,
+  is_struct_val,
+  is_int_lit,
+  is_unknown_val,
+  create_unknown_val
+} :: import("../value.yo");
+{ EvalContext, IndexCallResult } :: import("../context.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/utils.yo");
-{ evaluate_expression }             :: import("../exprs/expr.yo");
-{ Exception }                       :: import("std/error");
-
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Private types
 // ---------------------------------------------------------------------------
-
 /// One candidate `index` method found on a type.
 _IndexMethodEntry :: struct(
-  method_type  : TypeValue,
+  method_type : TypeValue,
   method_value : Option(EvalValue)
 );
-
 /// Result of `_check_range_type`.
 _RangeCheck :: struct(is_range : bool, is_inclusive : bool);
-
 /// A resolved range pair (start inclusive, end exclusive).
 _IdxRange :: struct(start_idx : usize, end_idx : usize);
-
 // ---------------------------------------------------------------------------
 // _str_unquote / _str_quote
 // ---------------------------------------------------------------------------
-
 /// Strip surrounding `"..."` from a raw StrLit value.
 _str_unquote :: (fn(raw : String) -> String)({
   rn := raw.len();
-  if((rn >= usize(2)),
-    raw.substring(usize(1), (rn - usize(1))),
+  if(
+    rn >= usize(2),
+    raw.substring(usize(1), rn - usize(1)),
     String.new()
   )
 });
-
 /// Add surrounding `"..."` around a string value.
 _str_quote :: (fn(s : String) -> String)(
   (String.from("\"") + s) + String.from("\"")
 );
-
 // ---------------------------------------------------------------------------
 // _check_range_type
 // ---------------------------------------------------------------------------
-
 /// Returns a `_RangeCheck` based on the struct type name heuristic.
 ///   "RangeInclusive..." → { is_range: true,  is_inclusive: true  }
 ///   "Range..."          → { is_range: true,  is_inclusive: false }
 ///   other              → { is_range: false, is_inclusive: false }
 _check_range_type :: (fn(arg_type : TypeValue) -> _RangeCheck)(
-  match(arg_type,
+  match(
+    arg_type,
     .Struct(_, name, _, _, _, _, _) => {
       is_incl := name.starts_with(`RangeInclusive`);
-      is_rng  := (is_incl || name.starts_with(`Range`));
-      _RangeCheck(is_range: is_rng, is_inclusive: is_incl)
+      is_rng := (is_incl || name.starts_with(`Range`));
+      _RangeCheck(is_range : is_rng, is_inclusive : is_incl)
     },
-    _ => _RangeCheck(is_range: false, is_inclusive: false)
+    _ => _RangeCheck(is_range : false, is_inclusive : false)
   )
 );
-
 // ---------------------------------------------------------------------------
 // _extract_range_indices
 // ---------------------------------------------------------------------------
-
 /// Extract start/end indices from a Range StructVal.
 /// Returns None if the value is not a StructVal with numeric start/end.
-_extract_range_indices :: (fn(
-  range_ev     : EvalValue,
-  is_inclusive : bool
-) -> Option(_IdxRange))(
-  match(range_ev,
+_extract_range_indices :: (
+  fn(
+    range_ev : EvalValue,
+    is_inclusive : bool
+  ) -> Option(_IdxRange)
+)(
+  match(
+    range_ev,
     .StructVal(_, _, field_values) => {
-      start_field := match(field_values.get(usize(0)),
+      start_field := match(
+        field_values.get(usize(0)),
         .Some(v) => v,
-        .None    => { return(Option(_IdxRange).None); }
+        .None => {
+          return(Option(_IdxRange).None);
+        }
       );
-      end_field := match(field_values.get(usize(1)),
+      end_field := match(
+        field_values.get(usize(1)),
         .Some(v) => v,
-        .None    => { return(Option(_IdxRange).None); }
+        .None => {
+          return(Option(_IdxRange).None);
+        }
       );
-      if((!(is_int_lit(start_field)) || !(is_int_lit(end_field))), {
+      if(!(is_int_lit(start_field)) || !(is_int_lit(end_field)), {
         return(Option(_IdxRange).None);
       });
-      start_raw := match(start_field,
+      start_raw := match(
+        start_field,
         .IntLit(r) => r,
-        _          => { return(Option(_IdxRange).None); }
+        _ => {
+          return(Option(_IdxRange).None);
+        }
       );
-      end_raw := match(end_field,
+      end_raw := match(
+        end_field,
         .IntLit(r) => r,
-        _          => { return(Option(_IdxRange).None); }
+        _ => {
+          return(Option(_IdxRange).None);
+        }
       );
-      start_i64   := match(start_raw.parse_i64(),
+      start_i64 := match(
+        start_raw.parse_i64(),
         .Some(n) => n,
-        .None    => { return(Option(_IdxRange).None); }
+        .None => {
+          return(Option(_IdxRange).None);
+        }
       );
-      end_raw_i64 := match(end_raw.parse_i64(),
+      end_raw_i64 := match(
+        end_raw.parse_i64(),
         .Some(n) => n,
-        .None    => { return(Option(_IdxRange).None); }
+        .None => {
+          return(Option(_IdxRange).None);
+        }
       );
-      end_i64 := if(is_inclusive, (end_raw_i64 + i64(1)), end_raw_i64);
-      if((start_i64 < i64(0)), { return(Option(_IdxRange).None); });
-      if((end_i64 < i64(0)),   { return(Option(_IdxRange).None); });
-      Option(_IdxRange).Some(_IdxRange(
-        start_idx: usize(start_i64),
-        end_idx:   usize(end_i64)
-      ))
+      end_i64 := if(is_inclusive, end_raw_i64 + i64(1), end_raw_i64);
+      if(start_i64 < i64(0), {
+        return(Option(_IdxRange).None);
+      });
+      if(end_i64 < i64(0), {
+        return(Option(_IdxRange).None);
+      });
+      Option(_IdxRange).Some(
+        _IdxRange(
+          start_idx : usize(start_i64),
+          end_idx : usize(end_i64)
+        )
+      )
     },
     _ => Option(_IdxRange).None
   )
 );
-
 // ---------------------------------------------------------------------------
 // _find_all_index_methods
 // ---------------------------------------------------------------------------
-
 /// Find all `index` methods on a concrete type.
 ///
 /// Phase 3u simplification: only checks TraitT direct fields.
 /// No generic impl registry (not yet ported to yo-self).
-_find_all_index_methods :: (fn(
-  concrete_type : TypeValue
-) -> ArrayList(_IndexMethodEntry))({
+_find_all_index_methods :: (
+  fn(
+    concrete_type : TypeValue
+  ) -> ArrayList(_IndexMethodEntry)
+)({
   result := ArrayList(_IndexMethodEntry).new();
-  match(concrete_type,
+  match(
+    concrete_type,
     .TraitT(_, _, field_labels, field_types, _, _, _, _) => {
       n := field_labels.len();
       (i : usize) = usize(0);
-      while(runtime((i < n)), {
+      while(runtime(i < n), {
         lbl_opt := field_labels.get(i);
-        ty_opt  := field_types.get(i);
-        match(lbl_opt,
+        ty_opt := field_types.get(i);
+        match(
+          lbl_opt,
           .Some(lbl) => {
-            if((lbl.as_str() == "index"), {
-              match(ty_opt,
+            if(lbl.as_str() == "index", {
+              match(
+                ty_opt,
                 .Some(fty) => {
-                  if(match(fty, .Func(result: _) => true, _ => false), {
-                    result.push(_IndexMethodEntry(
-                      method_type:  fty,
-                      method_value: Option(EvalValue).None
-                    ));
+                  if(match(fty,.Func(result : _) => true, _ => false), {
+                    result.push(
+                      _IndexMethodEntry(
+                        method_type : fty,
+                        method_value : Option(EvalValue).None
+                      )
+                    );
                   });
                 },
                 .None => ()
@@ -182,38 +219,42 @@ _find_all_index_methods :: (fn(
   );
   result
 });
-
 // ---------------------------------------------------------------------------
 // _find_index_method
 // ---------------------------------------------------------------------------
-
 /// Find a single `index` method whose signature matches:
 ///   `(self: *(Self), idx: ArgType) -> *(Output)`
-_find_index_method :: (fn(
-  concrete_type : TypeValue,
-  arg_type      : TypeValue
-) -> Option(_IndexMethodEntry))({
+_find_index_method :: (
+  fn(
+    concrete_type : TypeValue,
+    arg_type : TypeValue
+  ) -> Option(_IndexMethodEntry)
+)({
   methods := _find_all_index_methods(concrete_type);
   n := methods.len();
   (i : usize) = usize(0);
   (found : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
-  while(runtime(((i < n) && found.is_none())), {
-    match(methods.get(i),
+  while(runtime((i < n) && found.is_none()), {
+    match(
+      methods.get(i),
       .Some(m) => {
-        match(m.method_type,
+        match(
+          m.method_type,
           .Func(_, _, _, param_types, _, _, _, _, result_box) => {
-            if((param_types.len() == usize(2)), {
+            if(param_types.len() == usize(2), {
               p0_opt := param_types.get(usize(0));
               p1_opt := param_types.get(usize(1));
-              match(p0_opt,
+              match(
+                p0_opt,
                 .Some(p0) => {
-                  match(p1_opt,
+                  match(
+                    p1_opt,
                     .Some(p1) => {
-                      ret_ty        := result_box.*;
-                      p0_is_ptr     := is_pointer_type(p0);
+                      ret_ty := result_box.*;
+                      p0_is_ptr := is_pointer_type(p0);
                       p1_compatible := are_types_compatible(p1, arg_type);
-                      ret_is_ptr    := is_pointer_type(ret_ty);
-                      if(((p0_is_ptr && p1_compatible) && ret_is_ptr), {
+                      ret_is_ptr := is_pointer_type(ret_ty);
+                      if((p0_is_ptr && p1_compatible) && ret_is_ptr, {
                         found = Option(_IndexMethodEntry).Some(m);
                       });
                     },
@@ -233,33 +274,35 @@ _find_index_method :: (fn(
   });
   found
 });
-
 // ---------------------------------------------------------------------------
 // _try_comptime_range_slicing
 // ---------------------------------------------------------------------------
-
 /// Try comptime range slicing for arrays and slices.
 /// Returns Some(IndexCallResult) on success, None to fall through to runtime.
-_try_comptime_range_slicing :: (fn(
-  arg_expr     : AstExpr,
-  arg_val      : Option(EvalValue),
-  is_inclusive : bool,
-  array_val    : Option(EvalValue),
-  slice_val    : Option(EvalValue),
-  value_type   : TypeValue,
-  caller_env   : Environment,
-  using(exn    : Exception)
-) -> Option(IndexCallResult))({
-  elem_ty  := match(value_type,
+_try_comptime_range_slicing :: (
+  fn(
+    arg_expr : AstExpr,
+    arg_val : Option(EvalValue),
+    is_inclusive : bool,
+    array_val : Option(EvalValue),
+    slice_val : Option(EvalValue),
+    value_type : TypeValue,
+    caller_env : Environment,
+    using(exn : Exception)
+  ) -> Option(IndexCallResult)
+)({
+  elem_ty := match(
+    value_type,
     .Array(et, _) => et.*,
-    .Slice(et)    => et.*,
-    _             => t_unit()
+    .Slice(et) => et.*,
+    _ => t_unit()
   );
   slice_ty := t_slice(elem_ty);
-
   // Must have a StructVal for the range
-  range_opt := match(arg_val,
-    .Some(v) => if(is_struct_val(v),
+  range_opt := match(
+    arg_val,
+    .Some(v) => if(
+      is_struct_val(v),
       Option(EvalValue).Some(v),
       Option(EvalValue).None
     ),
@@ -268,544 +311,717 @@ _try_comptime_range_slicing :: (fn(
   if(range_opt.is_none(), {
     return(Option(IndexCallResult).None);
   });
-
-  range_ev := match(range_opt,
+  range_ev := match(
+    range_opt,
     .Some(v) => v,
-    .None    => { return(Option(IndexCallResult).None); }
+    .None => {
+      return(Option(IndexCallResult).None);
+    }
   );
   indices := _extract_range_indices(range_ev, is_inclusive);
-  range_data := match(indices,
+  range_data := match(
+    indices,
     .Some(r) => r,
-    .None    => { return(Option(IndexCallResult).None); }
+    .None => {
+      return(Option(IndexCallResult).None);
+    }
   );
   start_usize := range_data.start_idx;
-  end_usize   := range_data.end_idx;
-
+  end_usize := range_data.end_idx;
   // Array branch
-  match(array_val,
+  match(
+    array_val,
     .Some(av) => {
-      match(av,
+      match(
+        av,
         .ArrayVal(elements) => {
           arr_len := elements.len();
-          if((start_usize > arr_len), {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(arg_expr),
-              `Slice start index out of bounds: ${start_usize}. Expected index in range [0, ${arr_len}].`,
-              false, .None
-            )));
+          if(start_usize > arr_len, {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(arg_expr),
+                  `Slice start index out of bounds: ${start_usize}. Expected index in range [0, ${arr_len}].`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
-          if(((end_usize < start_usize) || (end_usize > arr_len)), {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(arg_expr),
-              `Slice end index out of bounds: ${end_usize}. Expected index in range [${start_usize}, ${arr_len}].`,
-              false, .None
-            )));
+          if((end_usize < start_usize) || (end_usize > arr_len), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(arg_expr),
+                  `Slice end index out of bounds: ${end_usize}. Expected index in range [${start_usize}, ${arr_len}].`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
           new_slice := EvalValue.SliceVal(box(av), start_usize, end_usize);
-          return(Option(IndexCallResult).Some(IndexCallResult(
-            value:              Option(EvalValue).Some(new_slice),
-            ty:                 slice_ty,
-            ptr_type:           t_ptr(slice_ty),
-            index_method_type:  Option(TypeValue).None,
-            index_method_value: Option(EvalValue).None,
-            caller_env:         caller_env,
-            index:              Option(usize).None
-          )));
+          return(
+            Option(IndexCallResult).Some(
+              IndexCallResult(
+                value : Option(EvalValue).Some(new_slice),
+                ty : slice_ty,
+                ptr_type : t_ptr(slice_ty),
+                index_method_type : Option(TypeValue).None,
+                index_method_value : Option(EvalValue).None,
+                caller_env : caller_env,
+                index : Option(usize).None
+              )
+            )
+          );
         },
         _ => ()
       );
     },
     .None => ()
   );
-
   // Slice branch
-  match(slice_val,
+  match(
+    slice_val,
     .Some(sv) => {
-      match(sv,
+      match(
+        sv,
         .SliceVal(src_box, sl_start, sl_end) => {
           slice_len := (sl_end - sl_start);
-          if((start_usize > slice_len), {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(arg_expr),
-              `Slice start index out of bounds: ${start_usize}. Expected index in range [0, ${slice_len}].`,
-              false, .None
-            )));
+          if(start_usize > slice_len, {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(arg_expr),
+                  `Slice start index out of bounds: ${start_usize}. Expected index in range [0, ${slice_len}].`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
-          if(((end_usize < start_usize) || (end_usize > slice_len)), {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(arg_expr),
-              `Slice end index out of bounds: ${end_usize}. Expected index in range [${start_usize}, ${slice_len}].`,
-              false, .None
-            )));
+          if((end_usize < start_usize) || (end_usize > slice_len), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(arg_expr),
+                  `Slice end index out of bounds: ${end_usize}. Expected index in range [${start_usize}, ${slice_len}].`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
           abs_start := (sl_start + start_usize);
-          abs_end   := (sl_start + end_usize);
+          abs_end := (sl_start + end_usize);
           new_slice := EvalValue.SliceVal(src_box, abs_start, abs_end);
-          return(Option(IndexCallResult).Some(IndexCallResult(
-            value:              Option(EvalValue).Some(new_slice),
-            ty:                 slice_ty,
-            ptr_type:           t_ptr(slice_ty),
-            index_method_type:  Option(TypeValue).None,
-            index_method_value: Option(EvalValue).None,
-            caller_env:         caller_env,
-            index:              Option(usize).None
-          )));
+          return(
+            Option(IndexCallResult).Some(
+              IndexCallResult(
+                value : Option(EvalValue).Some(new_slice),
+                ty : slice_ty,
+                ptr_type : t_ptr(slice_ty),
+                index_method_type : Option(TypeValue).None,
+                index_method_value : Option(EvalValue).None,
+                caller_env : caller_env,
+                index : Option(usize).None
+              )
+            )
+          );
         },
         _ => ()
       );
     },
     .None => ()
   );
-
   Option(IndexCallResult).None
 });
-
 // ---------------------------------------------------------------------------
 // _try_comptime_element_access
 // ---------------------------------------------------------------------------
-
 /// Try comptime single element access for arrays and slices.
 /// Returns Some(IndexCallResult) or None to fall through.
-_try_comptime_element_access :: (fn(
-  arg_expr   : AstExpr,
-  arg_val    : Option(EvalValue),
-  array_val  : Option(EvalValue),
-  slice_val  : Option(EvalValue),
-  value_type : TypeValue,
-  caller_env : Environment,
-  using(exn  : Exception)
-) -> Option(IndexCallResult))({
-  elem_ty := match(value_type,
+_try_comptime_element_access :: (
+  fn(
+    arg_expr : AstExpr,
+    arg_val : Option(EvalValue),
+    array_val : Option(EvalValue),
+    slice_val : Option(EvalValue),
+    value_type : TypeValue,
+    caller_env : Environment,
+    using(exn : Exception)
+  ) -> Option(IndexCallResult)
+)({
+  elem_ty := match(
+    value_type,
     .Array(et, _) => et.*,
-    .Slice(et)    => et.*,
-    _             => t_unit()
+    .Slice(et) => et.*,
+    _ => t_unit()
   );
-
-  match(arg_val,
+  match(
+    arg_val,
     .Some(v) => if(is_int_lit(v), {
-        // Comptime integer index — direct element access
-        idx_raw := match(v, .IntLit(r) => r, _ => String.from("0"));
-        idx_i64 := match(idx_raw.parse_i64(),
-          .Some(n) => n,
-          .None    => {
-            exn.throw(dyn(format_error_message(
+      // Comptime integer index — direct element access
+      idx_raw := match(v,.IntLit(r) => r, _ => String.from("0"));
+      idx_i64 := match(
+        idx_raw.parse_i64(),
+        .Some(n) => n,
+        .None => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(arg_expr),
+                String.from("Invalid integer literal for array/slice index"),
+                false,
+                .None
+              )
+            )
+          );
+          i64(0)
+        }
+      );
+      if(idx_i64 < i64(0), {
+        exn.throw(
+          dyn(
+            format_error_message(
               ast_expr_token(arg_expr),
-              String.from("Invalid integer literal for array/slice index"),
-              false, .None
-            )));
-            i64(0)
-          }
+              `Array/slice index out of bounds: ${idx_raw}`,
+              false,
+              .None
+            )
+          )
         );
-        if((idx_i64 < i64(0)), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(arg_expr),
-            `Array/slice index out of bounds: ${idx_raw}`,
-            false, .None
-          )));
-        });
-        idx_usize := usize(idx_i64);
-
-        // Array branch
-        match(array_val,
-          .Some(av) => {
-            match(av,
-              .ArrayVal(elements) => {
-                arr_len := elements.len();
-                if((idx_usize >= arr_len), {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(arg_expr),
-                    `Array index out of bounds: ${idx_raw}. Expected index in range [0, ${(arr_len - usize(1))}].`,
-                    false, .None
-                  )));
-                });
-                elem_val := match(elements.get(idx_usize),
-                  .Some(ev) => ev,
-                  .None     => {
-                    exn.throw(dyn(format_error_message(
+      });
+      idx_usize := usize(idx_i64);
+      // Array branch
+      match(
+        array_val,
+        .Some(av) => {
+          match(
+            av,
+            .ArrayVal(elements) => {
+              arr_len := elements.len();
+              if(idx_usize >= arr_len, {
+                exn.throw(
+                  dyn(
+                    format_error_message(
                       ast_expr_token(arg_expr),
-                      String.from("Array index out of bounds"),
-                      false, .None
-                    )));
+                      `Array index out of bounds: ${idx_raw}. Expected index in range [0, ${(arr_len - usize(1))}].`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+              });
+              elem_val := match(
+                elements.get(idx_usize),
+                .Some(ev) => ev,
+                .None => {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(arg_expr),
+                        String.from("Array index out of bounds"),
+                        false,
+                        .None
+                      )
+                    )
+                  );
+                  EvalValue.UnitVal
+                }
+              );
+              return(
+                Option(IndexCallResult).Some(
+                  IndexCallResult(
+                    value : Option(EvalValue).Some(elem_val),
+                    ty : elem_ty,
+                    ptr_type : t_ptr(elem_ty),
+                    index_method_type : Option(TypeValue).None,
+                    index_method_value : Option(EvalValue).None,
+                    caller_env : caller_env,
+                    index : Option(usize).Some(idx_usize)
+                  )
+                )
+              );
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
+      // Slice branch
+      match(
+        slice_val,
+        .Some(sv) => {
+          match(
+            sv,
+            .SliceVal(src_box, sl_start, sl_end) => {
+              slice_len := (sl_end - sl_start);
+              if(idx_usize >= slice_len, {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(arg_expr),
+                      `Slice index out of bounds: ${idx_raw}. Expected index in range [0, ${(slice_len - usize(1))}].`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+              });
+              abs_idx := (sl_start + idx_usize);
+              src_arr := src_box.*;
+              elem_val := match(
+                src_arr,
+                .ArrayVal(src_elems) => match(
+                  src_elems.get(abs_idx),
+                  .Some(ev) => ev,
+                  .None => {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(arg_expr),
+                          String.from("Slice index out of bounds"),
+                          false,
+                          .None
+                        )
+                      )
+                    );
                     EvalValue.UnitVal
                   }
-                );
-                return(Option(IndexCallResult).Some(IndexCallResult(
-                  value:              Option(EvalValue).Some(elem_val),
-                  ty:                 elem_ty,
-                  ptr_type:           t_ptr(elem_ty),
-                  index_method_type:  Option(TypeValue).None,
-                  index_method_value: Option(EvalValue).None,
-                  caller_env:         caller_env,
-                  index:              Option(usize).Some(idx_usize)
-                )));
-              },
-              _ => ()
-            );
-          },
-          .None => ()
-        );
-
-        // Slice branch
-        match(slice_val,
-          .Some(sv) => {
-            match(sv,
-              .SliceVal(src_box, sl_start, sl_end) => {
-                slice_len := (sl_end - sl_start);
-                if((idx_usize >= slice_len), {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(arg_expr),
-                    `Slice index out of bounds: ${idx_raw}. Expected index in range [0, ${(slice_len - usize(1))}].`,
-                    false, .None
-                  )));
-                });
-                abs_idx := (sl_start + idx_usize);
-                src_arr := src_box.*;
-                elem_val := match(src_arr,
-                  .ArrayVal(src_elems) => match(src_elems.get(abs_idx),
-                    .Some(ev) => ev,
-                    .None     => {
-                      exn.throw(dyn(format_error_message(
-                        ast_expr_token(arg_expr),
-                        String.from("Slice index out of bounds"),
-                        false, .None
-                      )));
-                      EvalValue.UnitVal
-                    }
-                  ),
-                  _ => create_unknown_val(elem_ty)
-                );
-                return(Option(IndexCallResult).Some(IndexCallResult(
-                  value:              Option(EvalValue).Some(elem_val),
-                  ty:                 elem_ty,
-                  ptr_type:           t_ptr(elem_ty),
-                  index_method_type:  Option(TypeValue).None,
-                  index_method_value: Option(EvalValue).None,
-                  caller_env:         caller_env,
-                  index:              Option(usize).Some(abs_idx)
-                )));
-              },
-              _ => ()
-            );
-          },
-          .None => ()
-        );
-
-        // Int lit but no array/slice branch matched — return None
-        Option(IndexCallResult).None
-      }, {
-        // Non-integer comptime value (e.g. UnknownVal) — return unknown element
-        unk_val := create_unknown_val(elem_ty);
-        Option(IndexCallResult).Some(IndexCallResult(
-          value:              Option(EvalValue).Some(unk_val),
-          ty:                 elem_ty,
-          ptr_type:           t_ptr(elem_ty),
-          index_method_type:  Option(TypeValue).None,
-          index_method_value: Option(EvalValue).None,
-          caller_env:         caller_env,
-          index:              Option(usize).None
-        ))
+                ),
+                _ => create_unknown_val(elem_ty)
+              );
+              return(
+                Option(IndexCallResult).Some(
+                  IndexCallResult(
+                    value : Option(EvalValue).Some(elem_val),
+                    ty : elem_ty,
+                    ptr_type : t_ptr(elem_ty),
+                    index_method_type : Option(TypeValue).None,
+                    index_method_value : Option(EvalValue).None,
+                    caller_env : caller_env,
+                    index : Option(usize).Some(abs_idx)
+                  )
+                )
+              );
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
+      // Int lit but no array/slice branch matched — return None
+      Option(IndexCallResult).None
+    }, {
+      // Non-integer comptime value (e.g. UnknownVal) — return unknown element
+      unk_val := create_unknown_val(elem_ty);
+      Option(IndexCallResult).Some(
+        IndexCallResult(
+          value : Option(EvalValue).Some(unk_val),
+          ty : elem_ty,
+          ptr_type : t_ptr(elem_ty),
+          index_method_type : Option(TypeValue).None,
+          index_method_value : Option(EvalValue).None,
+          caller_env : caller_env,
+          index : Option(usize).None
+        )
+      )
     }),
     .None => {
       // Runtime index (no comptime value) — convert element type to runtime
       rt_elem_ty := convert_comptime_type_to_runtime_type(elem_ty, caller_env);
-      Option(IndexCallResult).Some(IndexCallResult(
-        value:              Option(EvalValue).None,
-        ty:                 rt_elem_ty,
-        ptr_type:           t_ptr(elem_ty),
-        index_method_type:  Option(TypeValue).None,
-        index_method_value: Option(EvalValue).None,
-        caller_env:         caller_env,
-        index:              Option(usize).None
-      ))
+      Option(IndexCallResult).Some(
+        IndexCallResult(
+          value : Option(EvalValue).None,
+          ty : rt_elem_ty,
+          ptr_type : t_ptr(elem_ty),
+          index_method_type : Option(TypeValue).None,
+          index_method_value : Option(EvalValue).None,
+          caller_env : caller_env,
+          index : Option(usize).None
+        )
+      )
     }
   )
 });
-
 // ---------------------------------------------------------------------------
 // _try_comptime_array_slice_index
 // ---------------------------------------------------------------------------
-
 /// Main comptime dispatch for array and slice indexing.
 /// Evaluates the arg, checks for range vs. element access, delegates.
-_try_comptime_array_slice_index :: (fn(
-  arg_expr   : AstExpr,
-  array_val  : Option(EvalValue),
-  slice_val  : Option(EvalValue),
-  value_type : TypeValue,
-  env        : Environment,
-  ctx        : *(EvalContext),
-  using(exn  : Exception)
-) -> Option(IndexCallResult))({
+_try_comptime_array_slice_index :: (
+  fn(
+    arg_expr : AstExpr,
+    array_val : Option(EvalValue),
+    slice_val : Option(EvalValue),
+    value_type : TypeValue,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> Option(IndexCallResult)
+)({
   evaluated := evaluate_expression(arg_expr, env, ctx);
-  info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  info := match(info_opt,
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        String.from("Failed to evaluate index argument"),
-        false, .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("Failed to evaluate index argument"),
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(env, t_unit())
     }
   );
   caller_env := info.env;
-  arg_type   := info.ty;
-  arg_val    := info.value;
-
+  arg_type := info.ty;
+  arg_val := info.value;
   rc := _check_range_type(arg_type);
   if(rc.is_range, {
-    return(_try_comptime_range_slicing(
-      arg_expr, arg_val, rc.is_inclusive,
-      array_val, slice_val, value_type, caller_env
-    ));
+    return(
+      _try_comptime_range_slicing(
+        arg_expr,
+        arg_val,
+        rc.is_inclusive,
+        array_val,
+        slice_val,
+        value_type,
+        caller_env
+      )
+    );
   });
-
   _try_comptime_element_access(
-    arg_expr, arg_val, array_val, slice_val, value_type, caller_env
+    arg_expr,
+    arg_val,
+    array_val,
+    slice_val,
+    value_type,
+    caller_env
   )
 });
-
 // ---------------------------------------------------------------------------
 // _compute_comptime_string_index
 // ---------------------------------------------------------------------------
-
 /// Compute the result of indexing a comptime string value.
-_compute_comptime_string_index :: (fn(
-  str_value    : String,
-  arg_value    : EvalValue,
-  arg_expr     : AstExpr,
-  is_range     : bool,
-  is_inclusive : bool,
-  using(exn    : Exception)
-) -> EvalValue)({
+_compute_comptime_string_index :: (
+  fn(
+    str_value : String,
+    arg_value : EvalValue,
+    arg_expr : AstExpr,
+    is_range : bool,
+    is_inclusive : bool,
+    using(exn : Exception)
+  ) -> EvalValue
+)({
   // During type-checking with UnknownVal, return a placeholder
   if(is_unknown_val(arg_value), {
     return(EvalValue.StrLit(_str_quote(String.from(""))));
   });
-
   if(!(is_range), {
     // Single character access
     if(!(is_int_lit(arg_value)), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        String.from("Expected comptime_int index for comptime string index"),
-        false, .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("Expected comptime_int index for comptime string index"),
+            false,
+            .None
+          )
+        )
+      );
     });
-    idx_raw := match(arg_value, .IntLit(r) => r, _ => String.from("0"));
-    idx_i64 := match(idx_raw.parse_i64(),
+    idx_raw := match(arg_value,.IntLit(r) => r, _ => String.from("0"));
+    idx_i64 := match(
+      idx_raw.parse_i64(),
       .Some(n) => n,
-      .None    => {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(arg_expr),
-          String.from("Invalid integer literal for string index"),
-          false, .None
-        )));
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg_expr),
+              String.from("Invalid integer literal for string index"),
+              false,
+              .None
+            )
+          )
+        );
         i64(0)
       }
     );
-    if((idx_i64 < i64(0)), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        `String index out of bounds: ${idx_raw}`,
-        false, .None
-      )));
+    if(idx_i64 < i64(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `String index out of bounds: ${idx_raw}`,
+            false,
+            .None
+          )
+        )
+      );
     });
     idx_usize := usize(idx_i64);
-    str_len   := str_value.len();
-    if((idx_usize >= str_len), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        `String index out of bounds: ${idx_raw}. Expected index in range [0, ${(str_len - usize(1))}].`,
-        false, .None
-      )));
+    str_len := str_value.len();
+    if(idx_usize >= str_len, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `String index out of bounds: ${idx_raw}. Expected index in range [0, ${(str_len - usize(1))}].`,
+            false,
+            .None
+          )
+        )
+      );
     });
-    char_str := str_value.substring(idx_usize, (idx_usize + usize(1)));
+    char_str := str_value.substring(idx_usize, idx_usize + usize(1));
     return(EvalValue.StrLit(_str_quote(char_str)));
   });
-
   // Range access
   if(!(is_struct_val(arg_value)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(arg_expr),
-      String.from("Expected comptime Range value for comptime string range index"),
-      false, .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          String.from("Expected comptime Range value for comptime string range index"),
+          false,
+          .None
+        )
+      )
+    );
   });
   indices_opt := _extract_range_indices(arg_value, is_inclusive);
-  range_data  := match(indices_opt,
+  range_data := match(
+    indices_opt,
     .Some(r) => r,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        String.from("Expected numeric start/end in Range for comptime string range index"),
-        false, .None
-      )));
-      _IdxRange(start_idx: usize(0), end_idx: usize(0))
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("Expected numeric start/end in Range for comptime string range index"),
+            false,
+            .None
+          )
+        )
+      );
+      _IdxRange(start_idx : usize(0), end_idx : usize(0))
     }
   );
   start_idx := range_data.start_idx;
-  end_idx   := range_data.end_idx;
-  str_len   := str_value.len();
-
-  if((start_idx > str_len), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(arg_expr),
-      `String slice start index out of bounds: ${start_idx}. Expected index in range [0, ${str_len}].`,
-      false, .None
-    )));
+  end_idx := range_data.end_idx;
+  str_len := str_value.len();
+  if(start_idx > str_len, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          `String slice start index out of bounds: ${start_idx}. Expected index in range [0, ${str_len}].`,
+          false,
+          .None
+        )
+      )
+    );
   });
-  if(((end_idx < start_idx) || (end_idx > str_len)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(arg_expr),
-      `String slice end index out of bounds: ${end_idx}. Expected index in range [${start_idx}, ${str_len}].`,
-      false, .None
-    )));
+  if((end_idx < start_idx) || (end_idx > str_len), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          `String slice end index out of bounds: ${end_idx}. Expected index in range [${start_idx}, ${str_len}].`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   sliced := str_value.substring(start_idx, end_idx);
   EvalValue.StrLit(_str_quote(sliced))
 });
-
 // ---------------------------------------------------------------------------
 // _try_comptime_string_index
 // ---------------------------------------------------------------------------
-
 /// Implement comptime_string indexing.
-_try_comptime_string_index :: (fn(
-  arg_expr   : AstExpr,
-  str_value  : String,
-  env        : Environment,
-  ctx        : *(EvalContext),
-  using(exn  : Exception)
-) -> IndexCallResult)({
+_try_comptime_string_index :: (
+  fn(
+    arg_expr : AstExpr,
+    str_value : String,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> IndexCallResult
+)({
   evaluated := evaluate_expression(arg_expr, env, ctx);
-  info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  info := match(info_opt,
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        String.from("Failed to evaluate index argument for comptime string indexing"),
-        false, .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("Failed to evaluate index argument for comptime string indexing"),
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(env, t_unit())
     }
   );
-  arg_val := match(info.value,
+  arg_val := match(
+    info.value,
     .Some(v) => v,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        String.from("Failed to evaluate index argument for comptime string indexing"),
-        false, .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("Failed to evaluate index argument for comptime string indexing"),
+            false,
+            .None
+          )
+        )
+      );
       EvalValue.UnitVal
     }
   );
   caller_env := info.env;
-  arg_type   := info.ty;
-  rc         := _check_range_type(arg_type);
-
-  result_val    := _compute_comptime_string_index(
-    str_value, arg_val, arg_expr, rc.is_range, rc.is_inclusive
+  arg_type := info.ty;
+  rc := _check_range_type(arg_type);
+  result_val := _compute_comptime_string_index(
+    str_value,
+    arg_val,
+    arg_expr,
+    rc.is_range,
+    rc.is_inclusive
   );
-  result_ty     := TypeValue.ComptimeString;
+  result_ty := TypeValue.ComptimeString;
   ptr_result_ty := t_ptr(result_ty);
-
   IndexCallResult(
-    value:              Option(EvalValue).Some(result_val),
-    ty:                 result_ty,
-    ptr_type:           ptr_result_ty,
-    index_method_type:  Option(TypeValue).None,
-    index_method_value: Option(EvalValue).None,
-    caller_env:         caller_env,
-    index:              Option(usize).None
+    value : Option(EvalValue).Some(result_val),
+    ty : result_ty,
+    ptr_type : ptr_result_ty,
+    index_method_type : Option(TypeValue).None,
+    index_method_value : Option(EvalValue).None,
+    caller_env : caller_env,
+    index : Option(usize).None
   )
 });
-
 // ---------------------------------------------------------------------------
 // try_to_call_with_index_trait
 // ---------------------------------------------------------------------------
-
 /// Dispatch `value(arg)` via the Index trait.
 ///
 /// Desugars: `value(arg)` → `Index(typeof(arg)).index(&(value), arg).*`
 ///
 /// Mirrors `tryToCallWithIndexTrait` in `src/evaluator/calls/index-trait.ts`.
-try_to_call_with_index_trait :: (fn(
-  expr        : AstExpr,
-  value_type  : TypeValue,
-  self_value  : Option(EvalValue),
-  arg_exprs   : ArrayList(AstExpr),
-  caller_env  : Environment,
-  ctx         : *(EvalContext),
-  using(exn   : Exception)
-) -> IndexCallResult)({
+try_to_call_with_index_trait :: (
+  fn(
+    expr : AstExpr,
+    value_type : TypeValue,
+    self_value : Option(EvalValue),
+    arg_exprs : ArrayList(AstExpr),
+    caller_env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> IndexCallResult
+)({
   // 1. Exactly 1 argument required
-  if((arg_exprs.len() != usize(1)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Index trait expects exactly 1 argument, got ${arg_exprs.len()}.`,
-      false, .None
-    )));
+  if(arg_exprs.len() != usize(1), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Index trait expects exactly 1 argument, got ${arg_exprs.len()}.`,
+          false,
+          .None
+        )
+      )
+    );
   });
-  arg_expr := match(arg_exprs.get(usize(0)),
+  arg_expr := match(
+    arg_exprs.get(usize(0)),
     .Some(e) => e,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        String.from("Index trait: missing argument"),
-        false, .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Index trait: missing argument"),
+            false,
+            .None
+          )
+        )
+      );
       make_err_expr()
     }
   );
-
   // 2. Extract comptime values from self
-  array_val := match(self_value,
-    .Some(v) => if(is_array_val(v),
+  array_val := match(
+    self_value,
+    .Some(v) => if(
+      is_array_val(v),
       Option(EvalValue).Some(v),
       Option(EvalValue).None
     ),
     .None => Option(EvalValue).None
   );
-  slice_val := match(self_value,
-    .Some(v) => if(is_slice_val(v),
+  slice_val := match(
+    self_value,
+    .Some(v) => if(
+      is_slice_val(v),
       Option(EvalValue).Some(v),
       Option(EvalValue).None
     ),
     .None => Option(EvalValue).None
   );
-  string_raw_opt := match(self_value,
-    .Some(v) => match(v,
+  string_raw_opt := match(
+    self_value,
+    .Some(v) => match(
+      v,
       .StrLit(r) => Option(String).Some(r),
-      _          => Option(String).None
+      _ => Option(String).None
     ),
     .None => Option(String).None
   );
-
   has_array_or_slice := (array_val.is_some() || slice_val.is_some());
   is_arr_or_slice_ty := (is_array_type(value_type) || is_slice_type(value_type));
-
   // 3. Comptime array/slice path
-  if((has_array_or_slice && is_arr_or_slice_ty), {
+  if(has_array_or_slice && is_arr_or_slice_ty, {
     ct_result := _try_comptime_array_slice_index(
-      arg_expr, array_val, slice_val, value_type, caller_env, ctx
+      arg_expr,
+      array_val,
+      slice_val,
+      value_type,
+      caller_env,
+      ctx
     );
-    match(ct_result,
-      .Some(r) => { return(r); },
-      .None    => ()
+    match(
+      ct_result,
+      .Some(r) => {
+        return(r);
+      },
+      .None => ()
     );
   });
-
   // 4. Comptime string path
-  match(string_raw_opt,
+  match(
+    string_raw_opt,
     .Some(raw) => {
-      rn           := raw.len();
-      str_unquoted := if((rn >= usize(2)),
-        raw.substring(usize(1), (rn - usize(1))),
+      rn := raw.len();
+      str_unquoted := if(
+        rn >= usize(2),
+        raw.substring(usize(1), rn - usize(1)),
         String.new()
       );
       result := _try_comptime_string_index(arg_expr, str_unquoted, caller_env, ctx);
@@ -813,114 +1029,124 @@ try_to_call_with_index_trait :: (fn(
     },
     .None => ()
   );
-
   // 5. Custom comptime type (ComptimeIndex): not yet implemented in Phase 3u.
   //    Fall through to runtime dispatch.
-
   // 6. Runtime path: evaluate arg to get its type
   evaluated_arg := evaluate_expression(arg_expr, caller_env, ctx);
-  arg_info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
-  arg_info := match(arg_info_opt,
+  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+  arg_info := match(
+    arg_info_opt,
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        String.from("Failed to evaluate index argument"),
-        false, .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("Failed to evaluate index argument"),
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(caller_env, t_unit())
     }
   );
   updated_env := arg_info.env;
-
   // For array/slice: derive element type directly from TypeValue (no method lookup needed)
   if(is_arr_or_slice_ty, {
-    elem_ty := match(value_type,
+    elem_ty := match(
+      value_type,
       .Array(et, _) => et.*,
-      .Slice(et)    => et.*,
-      _             => t_unit()
+      .Slice(et) => et.*,
+      _ => t_unit()
     );
     result_val := create_unknown_val(elem_ty);
-    return(IndexCallResult(
-      value:              Option(EvalValue).Some(result_val),
-      ty:                 elem_ty,
-      ptr_type:           t_ptr(elem_ty),
-      index_method_type:  Option(TypeValue).None,
-      index_method_value: Option(EvalValue).None,
-      caller_env:         updated_env,
-      index:              Option(usize).None
-    ));
+    return(
+      IndexCallResult(
+        value : Option(EvalValue).Some(result_val),
+        ty : elem_ty,
+        ptr_type : t_ptr(elem_ty),
+        index_method_type : Option(TypeValue).None,
+        index_method_value : Option(EvalValue).None,
+        caller_env : updated_env,
+        index : Option(usize).None
+      )
+    );
   });
-
   // For custom types: find the index method via trait lookup
-  arg_type   := arg_info.ty;
+  arg_type := arg_info.ty;
   method_opt := _find_index_method(value_type, arg_type);
-  method := match(method_opt,
+  method := match(
+    method_opt,
     .Some(m) => m,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        String.from("Type does not implement Index for the given argument type."),
-        false, .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Type does not implement Index for the given argument type."),
+            false,
+            .None
+          )
+        )
+      );
       _IndexMethodEntry(
-        method_type:  t_unit(),
-        method_value: Option(EvalValue).None
+        method_type : t_unit(),
+        method_value : Option(EvalValue).None
       )
     }
   );
-
   // Get the output type: index method returns *(Output), deref to get Output
-  ret_ty := match(method.method_type,
+  ret_ty := match(
+    method.method_type,
     .Func(_, _, _, _, _, _, _, _, result_box) => result_box.*,
-    _                                          => t_unit()
+    _ => t_unit()
   );
-  output_ty := match(ret_ty,
+  output_ty := match(
+    ret_ty,
     .Pointer(et) => et.*,
-    _            => ret_ty
+    _ => ret_ty
   );
-
   result_val := create_unknown_val(output_ty);
   IndexCallResult(
-    value:              Option(EvalValue).Some(result_val),
-    ty:                 output_ty,
-    ptr_type:           t_ptr(output_ty),
-    index_method_type:  Option(TypeValue).Some(method.method_type),
-    index_method_value: method.method_value,
-    caller_env:         updated_env,
-    index:              Option(usize).None
+    value : Option(EvalValue).Some(result_val),
+    ty : output_ty,
+    ptr_type : t_ptr(output_ty),
+    index_method_type : Option(TypeValue).Some(method.method_type),
+    index_method_value : method.method_value,
+    caller_env : updated_env,
+    index : Option(usize).None
   )
 });
-
 // ---------------------------------------------------------------------------
 // has_index_impl
 // ---------------------------------------------------------------------------
-
 /// Check if a type has any matching Index impl for a given set of argument expressions.
 ///
 /// Phase 3u: Returns true for Array/Slice (fast path). Returns false for custom
 /// types (no generic impl registry in yo-self yet).
 ///
 /// Mirrors `hasIndexImpl` in `src/evaluator/calls/index-trait.ts`.
-has_index_impl :: (fn(
-  concrete_type : TypeValue,
-  arg_exprs     : ArrayList(AstExpr),
-  caller_env    : Environment,
-  ctx           : *(EvalContext)
-) -> bool)({
+has_index_impl :: (
+  fn(
+    concrete_type : TypeValue,
+    arg_exprs : ArrayList(AstExpr),
+    caller_env : Environment,
+    ctx : *(EvalContext)
+  ) -> bool
+)({
   _ := caller_env;
   _ := ctx;
-  if((arg_exprs.len() != usize(1)), {
+  if(arg_exprs.len() != usize(1), {
     return(false);
   });
   // Fast path: Array and Slice always have Index impls
-  if((is_array_type(concrete_type) || is_slice_type(concrete_type)), {
+  if(is_array_type(concrete_type) || is_slice_type(concrete_type), {
     return(true);
   });
   // Check for trait-direct methods (Phase 3u: no generic impls)
   methods := _find_all_index_methods(concrete_type);
-  (methods.len() > usize(0))
+  methods.len() > usize(0)
 });
-
 export(try_to_call_with_index_trait);
 export(has_index_impl);

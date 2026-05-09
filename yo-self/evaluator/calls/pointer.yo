@@ -4,91 +4,107 @@
 //!
 //! `*(T)` creates a pointer type `Pointer(T)`.
 //! `*(val)` where val is not a type → error (use `&` to take the address of a value).
-
 open(import("std/string"));
 open(import("std/fmt"));
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  make_err_expr }                                          :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }               :: import("../../expr/expr_info.yo");
-{ Environment }                                            :: import("../../env/env.yo");
-{ EvalContext }                                            :: import("../context.yo");
-{ EvalValue, create_type_value, is_type_value }            :: import("../value.yo");
-{ TypeValue, t_ptr, t_i32 }                                :: import("../../types/type.yo");
-{ type_of_type }                                           :: import("../../types/hierarchy.yo");
-{ format_error_message }                                   :: import("../../error/error.yo");
-{ Exception }                                              :: import("std/error");
-{ evaluate_expression }                                    :: import("../exprs/expr.yo");
-
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  make_err_expr
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, create_type_value, is_type_value } :: import("../value.yo");
+{ TypeValue, t_ptr, t_i32 } :: import("../../types/type.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("../exprs/expr.yo");
 /// Evaluate a raw pointer call `*(T)` (pointer type) or `*(val)` (error).
 ///
 /// 1:1 port of `evaluateRawPointerCall` in `src/evaluator/calls/pointer.ts`.
-evaluate_raw_pointer_call :: (fn(
-  expr      : AstExpr,
-  env       : Environment,
-  ctx       : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_raw_pointer_call :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Get the single argument
-  arg_expr := match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),
+  arg_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
       .Some(a) => a,
-      .None    => make_err_expr()
+      .None => make_err_expr()
     ),
     .Atom(_, _) => make_err_expr()
   );
-
   // TypeScript: if expectedType is a pointer type, pass the inner type as expected.
   // Phase 2am: expectedType modification skipped — simplified port.
-
   // Evaluate the argument
   evaluated := evaluate_expression(arg_expr, env, ctx);
-
   // Read the expr info for the evaluated argument
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  match(info_opt,
+  match(
+    info_opt,
     .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        `Failed to evaluate the argument expression for pointer:\n${ast_expr_to_string(arg_expr)}`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `Failed to evaluate the argument expression for pointer:\n${ast_expr_to_string(arg_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
     },
     .Some(_) => ()
   );
-  arg_info := match(info_opt,
+  arg_info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => new_expr_info(env, t_i32())  // unreachable: guarded by throw above
+    .None => new_expr_info(env, t_i32()) // unreachable: guarded by throw above
   );
-
   // If the argument is a type value, create a pointer type; otherwise error.
   cond(
     is_type_value(arg_info.value) => {
-      inner_ty := match(arg_info.value,
-        .Some(v) => match(v, .TypeVal(inner) => inner.*, _ => t_i32()),
-        .None    => t_i32()  // unreachable
+      inner_ty := match(
+        arg_info.value,
+        .Some(v) => match(v,.TypeVal(inner) => inner.*, _ => t_i32()),
+        .None => t_i32() // unreachable
       );
-      ptr_ty   := t_ptr(inner_ty);
-      ptr_val  := create_type_value(ptr_ty);
-      meta_ty  := type_of_type(ptr_ty);
+      ptr_ty := t_ptr(inner_ty);
+      ptr_val := create_type_value(ptr_ty);
+      meta_ty := type_of_type(ptr_ty);
       next_env := arg_info.env;
       out_info := new_expr_info(next_env, meta_ty);
-      out_info.value = .Some(ptr_val);
+      out_info.value =.Some(ptr_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       expr
     },
     true => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        `Cannot create a pointer to a value. Use "&" to create a pointer to a value:\n${ast_expr_to_string(arg_expr)}`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `Cannot create a pointer to a value. Use "&" to create a pointer to a value:\n${ast_expr_to_string(arg_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
       make_err_expr()
     }
   )
 });
-
 export(evaluate_raw_pointer_call);

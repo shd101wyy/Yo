@@ -3,40 +3,45 @@
 //! Mirrors `src/types/tags.ts`. Each `TypeValue` variant has a corresponding
 //! `TypeTag`. Useful for compact dispatch tables, hashing, and debug printing
 //! when we don't want to carry the full payload.
-
 open(import("std/string"));
-
 TypeTag :: enum(
   // Primitive value types
   TUnit,
   TBool,
   TVoid,
-
   // Fixed-width signed integers
-  TI8, TI16, TI32, TI64,
+  TI8,
+  TI16,
+  TI32,
+  TI64,
   // Fixed-width unsigned integers
-  TU8, TU16, TU32, TU64,
+  TU8,
+  TU16,
+  TU32,
+  TU64,
   // Pointer-sized integers
-  TUsize, TIsize,
+  TUsize,
+  TIsize,
   // Floats
-  TF32, TF64,
-
+  TF32,
+  TF64,
   // Compile-time numeric / string types
   TComptimeInt,
   TComptimeFloat,
   TComptimeString,
-
   // C compatible types (platform-dependent size)
   TCChar,
-  TCShort, TCUShort,
-  TCInt,   TCUInt,
-  TCLong,  TCULong,
-  TCLongLong, TCULongLong,
+  TCShort,
+  TCUShort,
+  TCInt,
+  TCUInt,
+  TCLong,
+  TCULong,
+  TCLongLong,
+  TCULongLong,
   TCLongDouble,
-
   // Type universe (Type, Type(1), …)
   TType,
-
   // Compound types
   TArray,
   TSlice,
@@ -45,17 +50,13 @@ TypeTag :: enum(
   TEnum,
   TUnion,
   TFunction,
-
   // Pointer
   TPtr,
-
   // Trait + module
   TTrait,
   TModule,
-
   // Generic / unknown
   TSomeType,
-
   // Misc
   TExpr,
   TComptimeList,
@@ -65,59 +66,57 @@ TypeTag :: enum(
   TIso,
   TDyn
 );
-
 derive(TypeTag, Eq(TypeTag), Hash, Clone);
-
 /// Short string name for a tag, suitable for diagnostics.
 type_tag_name :: (fn(t : TypeTag) -> String)(
-  match(t,
-    .TUnit            => `unit`,
-    .TBool            => `bool`,
-    .TVoid            => `void`,
-    .TI8              => `i8`,
-    .TI16             => `i16`,
-    .TI32             => `i32`,
-    .TI64             => `i64`,
-    .TU8              => `u8`,
-    .TU16             => `u16`,
-    .TU32             => `u32`,
-    .TU64             => `u64`,
-    .TUsize           => `usize`,
-    .TIsize           => `isize`,
-    .TF32             => `f32`,
-    .TF64             => `f64`,
-    .TComptimeInt     => `comptime_int`,
-    .TComptimeFloat   => `comptime_float`,
-    .TComptimeString  => `comptime_string`,
-    .TCChar           => `char`,
-    .TCShort          => `short`,
-    .TCUShort         => `ushort`,
-    .TCInt            => `int`,
-    .TCUInt           => `uint`,
-    .TCLong           => `long`,
-    .TCULong          => `ulong`,
-    .TCLongLong       => `longlong`,
-    .TCULongLong      => `ulonglong`,
-    .TCLongDouble     => `longdouble`,
-    .TType            => `Type`,
-    .TArray           => `Array`,
-    .TSlice           => `Slice`,
-    .TTuple           => `Tuple`,
-    .TStruct          => `Struct`,
-    .TEnum            => `Enum`,
-    .TUnion           => `Union`,
-    .TFunction        => `Function`,
-    .TPtr             => `Ptr`,
-    .TTrait           => `Trait`,
-    .TModule          => `Module`,
-    .TSomeType        => `SomeType`,
-    .TExpr            => `Expr`,
-    .TComptimeList    => `ComptimeList`,
-    .TEffectsRow      => `EffectsRow`,
+  match(
+    t,
+    .TUnit => `unit`,
+    .TBool => `bool`,
+    .TVoid => `void`,
+    .TI8 => `i8`,
+    .TI16 => `i16`,
+    .TI32 => `i32`,
+    .TI64 => `i64`,
+    .TU8 => `u8`,
+    .TU16 => `u16`,
+    .TU32 => `u32`,
+    .TU64 => `u64`,
+    .TUsize => `usize`,
+    .TIsize => `isize`,
+    .TF32 => `f32`,
+    .TF64 => `f64`,
+    .TComptimeInt => `comptime_int`,
+    .TComptimeFloat => `comptime_float`,
+    .TComptimeString => `comptime_string`,
+    .TCChar => `char`,
+    .TCShort => `short`,
+    .TCUShort => `ushort`,
+    .TCInt => `int`,
+    .TCUInt => `uint`,
+    .TCLong => `long`,
+    .TCULong => `ulong`,
+    .TCLongLong => `longlong`,
+    .TCULongLong => `ulonglong`,
+    .TCLongDouble => `longdouble`,
+    .TType => `Type`,
+    .TArray => `Array`,
+    .TSlice => `Slice`,
+    .TTuple => `Tuple`,
+    .TStruct => `Struct`,
+    .TEnum => `Enum`,
+    .TUnion => `Union`,
+    .TFunction => `Function`,
+    .TPtr => `Ptr`,
+    .TTrait => `Trait`,
+    .TModule => `Module`,
+    .TSomeType => `SomeType`,
+    .TExpr => `Expr`,
+    .TComptimeList => `ComptimeList`,
+    .TEffectsRow => `EffectsRow`,
     .TTypeApplication => `TypeApplication`,
-    .TIso             => `Iso`,
-    .TDyn             => `Dyn`
+    .TIso => `Iso`,
+    .TDyn => `Dyn`
   )
 );
-
 export(TypeTag, type_tag_name);

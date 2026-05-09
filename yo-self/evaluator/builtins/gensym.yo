@@ -5,88 +5,109 @@
 //! `gensym()` or `gensym(prefix)` — generates a unique identifier symbol.
 //! The optional prefix is a comptime string prepended to the generated ID.
 //! Returns an ExprVal holding the new atom expression.
-
 open(import("std/string"));
-
-{ AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_to_string }                               :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                              :: import("../../expr/expr_info.yo");
-{ Environment }                                      :: import("../../env/env.yo");
-{ EvalContext }                                      :: import("../context.yo");
-{ EvalValue, is_str_lit }                            :: import("../value.yo");
-{ TypeValue, t_expr_t }                              :: import("../../types/type.yo");
-{ format_error_message }                             :: import("../../error/error.yo");
-{ evaluate_expression }                              :: import("../exprs/expr.yo");
-{ Exception }                                        :: import("std/error");
-{ TokenKind, Token }                                 :: import("../../lexer/token.yo");
-{ random_id }                                        :: import("../utils.yo");
-
-evaluate_gensym :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, is_str_lit } :: import("../value.yo");
+{ TypeValue, t_expr_t } :: import("../../types/type.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
+{ TokenKind, Token } :: import("../../lexer/token.yo");
+{ random_id } :: import("../utils.yo");
+evaluate_gensym :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Extract optional prefix argument.
-  (args_opt_0 : Option(AstExpr)) = match(expr,
+  (args_opt_0 : Option(AstExpr)) = match(
+    expr,
     .FnCall(_, _, args, _, _) => args.get(usize(0)),
-    _                         => Option(AstExpr).None
+    _ => Option(AstExpr).None
   );
-  (n_args : usize) = match(expr,
+  (n_args : usize) = match(
+    expr,
     .FnCall(_, _, args, _, _) => args.len(),
-    _                         => usize(0)
+    _ => usize(0)
   );
-
   (prefix : String) = String.new();
-
-  match(args_opt_0,
-    .None     => {},
+  match(
+    args_opt_0,
+    .None => {},
     .Some(prefix_arg) => {
       // More than 1 argument is an error.
-      if((n_args > usize(1)), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(expr),
-          `Expected "gensym" with 0 or 1 argument, got more`,
-          false,
-          .None
-        )));
+      if(n_args > usize(1), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `Expected "gensym" with 0 or 1 argument, got more`,
+              false,
+              .None
+            )
+          )
+        );
       });
-
       // Evaluate the prefix argument.
       evaluated_prefix := evaluate_expression(prefix_arg, env, ctx);
-      prefix_info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_prefix));
-
-      prefix_info := match(prefix_info_opt,
+      prefix_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_prefix));
+      prefix_info := match(
+        prefix_info_opt,
         .Some(pi) => pi,
-        .None     => {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(prefix_arg),
-            `Failed to evaluate the prefix argument for "gensym":\n${ast_expr_to_string(prefix_arg)}`,
-            false,
-            .None
-          )));
+        .None => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(prefix_arg),
+                `Failed to evaluate the prefix argument for "gensym":\n${ast_expr_to_string(prefix_arg)}`,
+                false,
+                .None
+              )
+            )
+          );
           return(expr);
         }
       );
-
       // Prefix must be a comptime string (StrLit).
-      match(prefix_info.value,
+      match(
+        prefix_info.value,
         .Some(pv) => {
           if(!(is_str_lit(pv)), {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(prefix_arg),
-              `Expected comptime_string for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`,
-              false,
-              .None
-            )));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(prefix_arg),
+                  `Expected comptime_string for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
           // Extract the unquoted prefix string from StrLit.raw.
-          match(pv,
+          match(
+            pv,
             .StrLit(raw) => {
               n := raw.len();
-              prefix = if((n >= usize(2)),
-                raw.substring(usize(1), (n - usize(1))),
+              prefix = if(
+                n >= usize(2),
+                raw.substring(usize(1), n - usize(1)),
                 String.new()
               );
             },
@@ -94,39 +115,41 @@ evaluate_gensym :: (fn(
           );
         },
         .None => {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(prefix_arg),
-            `Expected comptime_string for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`,
-            false,
-            .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(prefix_arg),
+                `Expected comptime_string for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`,
+                false,
+                .None
+              )
+            )
+          );
         }
       );
     }
   );
-
   // Generate a unique symbol: prefix + random_id(env.modulePath).
   symbol := (prefix + String.from(random_id(env.module_path).as_str()));
-
   // Build a new Atom expression representing the generated identifier.
   tok := ast_expr_token(expr);
-  atom_expr := AstExpr.Atom(usize(0), Token(
-    kind:        TokenKind.Identifier,
-    value:       symbol,
-    row:         tok.row,
-    column:      tok.column,
-    character:   tok.character,
-    module_path: String.from(tok.module_path.as_str()),
-    input:       String.from(tok.input.as_str())
-  ));
-
+  atom_expr := AstExpr.Atom(
+    usize(0),
+    Token(
+      kind : TokenKind.Identifier,
+      value : symbol,
+      row : tok.row,
+      column : tok.column,
+      character : tok.character,
+      module_path : String.from(tok.module_path.as_str()),
+      input : String.from(tok.input.as_str())
+    )
+  );
   // Wrap the atom as an ExprVal.
-  val  := EvalValue.ExprVal(box(atom_expr));
+  val := EvalValue.ExprVal(box(atom_expr));
   info := new_expr_info(env, t_expr_t());
-  info.value = .Some(val);
+  info.value =.Some(val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-
   expr
 });
-
 export(evaluate_gensym);

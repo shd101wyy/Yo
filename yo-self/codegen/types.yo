@@ -11,17 +11,14 @@
 //! Data enums compile to a forward-declared struct containing a tag enum and
 //! a data union.
 //! Structs compile to a forward-declared struct.
-
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../types/type.yo");
 { get_struct_fields } :: import("../evaluator/types/field.yo");
 { CodegenContext } :: import("./context.yo");
-
 // ---------------------------------------------------------------------------
 // C name helpers
 // ---------------------------------------------------------------------------
-
 /// Build `__yo_struct_{module_id}_id_{type_id}`.
 struct_c_name :: (fn(module_id : str, type_id : usize) -> String)({
   result := String.from("__yo_struct_");
@@ -30,7 +27,6 @@ struct_c_name :: (fn(module_id : str, type_id : usize) -> String)({
   result.push_string(type_id.to_string());
   result
 });
-
 /// Build `__yo_enum_{module_id}_id_{type_id}`.
 enum_c_name :: (fn(module_id : str, type_id : usize) -> String)({
   result := String.from("__yo_enum_");
@@ -39,7 +35,6 @@ enum_c_name :: (fn(module_id : str, type_id : usize) -> String)({
   result.push_string(type_id.to_string());
   result
 });
-
 /// Build the uppercase prefix used for enum variant tag constants:
 /// `__YO_ENUM_{MODULE_ID_UPPER}_ID_{TYPE_ID}`.
 enum_tag_prefix :: (fn(module_id : str, type_id : usize) -> String)({
@@ -50,52 +45,49 @@ enum_tag_prefix :: (fn(module_id : str, type_id : usize) -> String)({
   prefix.push_string(type_id.to_string());
   prefix
 });
-
 // ---------------------------------------------------------------------------
 // Field type mapping: TypeValue → C type string
 // ---------------------------------------------------------------------------
-
 /// Map a `TypeValue` to its C type string for use in struct/enum field
 /// declarations.  Handles primitives and common C types.
 ///
 /// Returns `None` for types that cannot be mapped without additional
 /// context (e.g., user-defined named types without C name info).
 type_value_to_c_field :: (fn(t : TypeValue) -> Option(String))(
-  match(t,
-    .Unit              => Option(String).Some(String.from("void")),
-    .BoolT             => Option(String).Some(String.from("bool")),
-    .Void              => Option(String).Some(String.from("void")),
+  match(
+    t,
+    .Unit => Option(String).Some(String.from("void")),
+    .BoolT => Option(String).Some(String.from("bool")),
+    .Void => Option(String).Some(String.from("void")),
     .Int(bits, signed) => cond(
-      (signed && (bits == u8(8)))    => Option(String).Some(String.from("int8_t")),
-      (signed && (bits == u8(16)))   => Option(String).Some(String.from("int16_t")),
-      (signed && (bits == u8(32)))   => Option(String).Some(String.from("int32_t")),
-      (signed && (bits == u8(64)))   => Option(String).Some(String.from("int64_t")),
+      (signed && (bits == u8(8))) => Option(String).Some(String.from("int8_t")),
+      (signed && (bits == u8(16))) => Option(String).Some(String.from("int16_t")),
+      (signed && (bits == u8(32))) => Option(String).Some(String.from("int32_t")),
+      (signed && (bits == u8(64))) => Option(String).Some(String.from("int64_t")),
       ((!(signed)) && (bits == u8(8))) => Option(String).Some(String.from("uint8_t")),
       ((!(signed)) && (bits == u8(16))) => Option(String).Some(String.from("uint16_t")),
       ((!(signed)) && (bits == u8(32))) => Option(String).Some(String.from("uint32_t")),
-      true                           => Option(String).Some(String.from("uint64_t"))
+      true => Option(String).Some(String.from("uint64_t"))
     ),
     .Float(bits) => cond(
       (bits == u8(32)) => Option(String).Some(String.from("float")),
-      true             => Option(String).Some(String.from("double"))
+      true => Option(String).Some(String.from("double"))
     ),
-    .Usize             => Option(String).Some(String.from("size_t")),
-    .Isize             => Option(String).Some(String.from("ptrdiff_t")),
-    .CChar             => Option(String).Some(String.from("char")),
-    .CInt              => Option(String).Some(String.from("int")),
-    .CLong             => Option(String).Some(String.from("long")),
-    .CLongLong         => Option(String).Some(String.from("long long")),
-    .CUInt             => Option(String).Some(String.from("unsigned int")),
-    .CULong            => Option(String).Some(String.from("unsigned long")),
-    .CULongLong        => Option(String).Some(String.from("unsigned long long")),
-    _                  => Option(String).None
+    .Usize => Option(String).Some(String.from("size_t")),
+    .Isize => Option(String).Some(String.from("ptrdiff_t")),
+    .CChar => Option(String).Some(String.from("char")),
+    .CInt => Option(String).Some(String.from("int")),
+    .CLong => Option(String).Some(String.from("long")),
+    .CLongLong => Option(String).Some(String.from("long long")),
+    .CUInt => Option(String).Some(String.from("unsigned int")),
+    .CULong => Option(String).Some(String.from("unsigned long")),
+    .CULongLong => Option(String).Some(String.from("unsigned long long")),
+    _ => Option(String).None
   )
 );
-
 // ---------------------------------------------------------------------------
 // Struct declaration
 // ---------------------------------------------------------------------------
-
 /// Emit a C struct type declaration into `ctx.emitter.declarations`.
 ///
 /// Emits:
@@ -109,18 +101,19 @@ type_value_to_c_field :: (fn(t : TypeValue) -> Option(String))(
 ///
 /// Fields whose types cannot be mapped are silently skipped.
 /// Returns the C name for the struct type (for use as a field type elsewhere).
-generate_struct_decl :: (fn(
-  struct_id    : String,
-  name         : String,
-  field_labels : ArrayList(String),
-  field_types  : ArrayList(TypeValue),
-  module_id    : str,
-  type_id      : usize,
-  ctx          : *(CodegenContext)
-) -> String)({
+generate_struct_decl :: (
+  fn(
+    struct_id : String,
+    name : String,
+    field_labels : ArrayList(String),
+    field_types : ArrayList(TypeValue),
+    module_id : str,
+    type_id : usize,
+    ctx : *(CodegenContext)
+  ) -> String
+)({
   c_name := struct_c_name(module_id, type_id);
   registered_fields := get_struct_fields(struct_id);
-
   // Forward declaration: typedef struct __yo_struct_..._struct __yo_struct_...;
   fwd := String.from("typedef struct ");
   fwd.push_string(c_name);
@@ -128,37 +121,40 @@ generate_struct_decl :: (fn(
   fwd.push_string(c_name);
   fwd.push_str("; // Forward declaration");
   ctx.*.emitter.emit_declaration_string_line(fwd);
-
   // Struct definition header
   def_hdr := String.from("struct ");
   def_hdr.push_string(c_name);
   def_hdr.push_str("_struct { // ");
   def_hdr.push_string(name);
   ctx.*.emitter.emit_declaration_string_line(def_hdr);
-
   // Fields
   n := cond(
     (field_labels.len() < field_types.len()) => field_labels.len(),
     true => field_types.len()
   );
   (i : usize) = usize(0);
-  while(runtime((i < n)), {
-    skip_field := match(registered_fields,
-      .Some(fields) => match(fields.get(i),
+  while(runtime(i < n), {
+    skip_field := match(
+      registered_fields,
+      .Some(fields) => match(
+        fields.get(i),
         .Some(field) => field.is_comptime,
         .None => false
       ),
       .None => false
     );
     label_opt := field_labels.get(i);
-    ty_opt    := field_types.get(i);
+    ty_opt := field_types.get(i);
     if(!(skip_field), {
-      match(label_opt,
+      match(
+        label_opt,
         .None => (),
-        .Some(label) => match(ty_opt,
+        .Some(label) => match(
+          ty_opt,
           .None => (),
-          .Some(ty) => match(type_value_to_c_field(ty),
-            .None     => (),
+          .Some(ty) => match(
+            type_value_to_c_field(ty),
+            .None => (),
             .Some(c_ty) => {
               field_line := String.from("  ");
               field_line.push_string(c_ty);
@@ -173,33 +169,31 @@ generate_struct_decl :: (fn(
     });
     i = (i + usize(1));
   });
-
   ctx.*.emitter.emit_declaration_line("};");
-
   c_name
 });
-
 // ---------------------------------------------------------------------------
 // Enum declaration: simple (unit variants only) vs data (has non-unit variants)
 // ---------------------------------------------------------------------------
-
 /// True iff every variant in the enum has zero fields (pure unit variant).
 all_unit_variants :: (fn(variant_fields : ArrayList(ArrayList(TypeValue))) -> bool)({
   n := variant_fields.len();
   (i : usize) = usize(0);
   (all_unit : bool) = true;
-  while(runtime(((i < n) && all_unit)), {
-    match(variant_fields.get(i),
+  while(runtime((i < n) && all_unit), {
+    match(
+      variant_fields.get(i),
       .None => (),
       .Some(fields) => {
-        if((fields.len() > usize(0)), { all_unit = false; });
+        if(fields.len() > usize(0), {
+          all_unit = false;
+        });
       }
     );
     i = (i + usize(1));
   });
   all_unit
 });
-
 /// Emit a simple enum (all unit variants) into `ctx.emitter.declarations`.
 ///
 /// ```c
@@ -208,33 +202,35 @@ all_unit_variants :: (fn(variant_fields : ArrayList(ArrayList(TypeValue))) -> bo
 ///   ...
 /// } __yo_enum_...;
 /// ```
-emit_simple_enum :: (fn(
-  name                  : String,
-  variant_names         : ArrayList(String),
-  variant_discriminants : ArrayList(i64),
-  module_id             : str,
-  type_id               : usize,
-  ctx                   : *(CodegenContext)
-) -> String)({
-  c_name     := enum_c_name(module_id, type_id);
+emit_simple_enum :: (
+  fn(
+    name : String,
+    variant_names : ArrayList(String),
+    variant_discriminants : ArrayList(i64),
+    module_id : str,
+    type_id : usize,
+    ctx : *(CodegenContext)
+  ) -> String
+)({
+  c_name := enum_c_name(module_id, type_id);
   tag_prefix := enum_tag_prefix(module_id, type_id);
-
   // Header: typedef enum { // Name (optimized as simple enum)
   hdr := String.from("typedef enum { // ");
   hdr.push_string(name);
   hdr.push_str(" (optimized as simple enum)");
   ctx.*.emitter.emit_declaration_string_line(hdr);
-
   // Variant entries: __YO_ENUM_..._VARIANTNAME = N,
   n := variant_names.len();
   (i : usize) = usize(0);
-  while(runtime((i < n)), {
-    match(variant_names.get(i),
+  while(runtime(i < n), {
+    match(
+      variant_names.get(i),
       .None => (),
       .Some(vname) => {
-        disc_val := match(variant_discriminants.get(i),
+        disc_val := match(
+          variant_discriminants.get(i),
           .Some(d) => d.to_string(),
-          .None    => i64(i).to_string()
+          .None => i64(i).to_string()
         );
         entry := String.from("  ");
         entry.push_string(tag_prefix);
@@ -243,22 +239,21 @@ emit_simple_enum :: (fn(
         entry.push_str(" = ");
         entry.push_string(disc_val);
         // Comma for all but last variant
-        if((i < (n - usize(1))), { entry.push_str(","); });
+        if(i < (n - usize(1)), {
+          entry.push_str(",");
+        });
         ctx.*.emitter.emit_declaration_string_line(entry);
       }
     );
     i = (i + usize(1));
   });
-
   // Closing: } __yo_enum_...;
   closing := String.from("} ");
   closing.push_string(c_name);
   closing.push_str(";");
   ctx.*.emitter.emit_declaration_string_line(closing);
-
   c_name
 });
-
 /// Emit a data enum (at least one variant has fields) into
 /// `ctx.emitter.declarations`.
 ///
@@ -273,18 +268,19 @@ emit_simple_enum :: (fn(
 ///   __yo_enum_..._data data;
 /// };
 /// ```
-emit_data_enum :: (fn(
-  name                  : String,
-  variant_names         : ArrayList(String),
-  variant_fields        : ArrayList(ArrayList(TypeValue)),
-  variant_discriminants : ArrayList(i64),
-  module_id             : str,
-  type_id               : usize,
-  ctx                   : *(CodegenContext)
-) -> String)({
-  c_name     := enum_c_name(module_id, type_id);
+emit_data_enum :: (
+  fn(
+    name : String,
+    variant_names : ArrayList(String),
+    variant_fields : ArrayList(ArrayList(TypeValue)),
+    variant_discriminants : ArrayList(i64),
+    module_id : str,
+    type_id : usize,
+    ctx : *(CodegenContext)
+  ) -> String
+)({
+  c_name := enum_c_name(module_id, type_id);
   tag_prefix := enum_tag_prefix(module_id, type_id);
-
   // Forward declaration
   fwd := String.from("typedef struct ");
   fwd.push_string(c_name);
@@ -292,14 +288,14 @@ emit_data_enum :: (fn(
   fwd.push_string(c_name);
   fwd.push_str("; // Forward declaration");
   ctx.*.emitter.emit_declaration_string_line(fwd);
-
   // Tag enum
   tag_hdr := String.from("typedef enum {");
   ctx.*.emitter.emit_declaration_string_line(tag_hdr);
   n := variant_names.len();
   (i : usize) = usize(0);
-  while(runtime((i < n)), {
-    match(variant_names.get(i),
+  while(runtime(i < n), {
+    match(
+      variant_names.get(i),
       .None => (),
       .Some(vname) => {
         entry := String.from("  ");
@@ -307,12 +303,15 @@ emit_data_enum :: (fn(
         entry.push_str("_");
         entry.push_string(vname.to_uppercase());
         entry.push_str(" = ");
-        disc_val_de := match(variant_discriminants.get(i),
+        disc_val_de := match(
+          variant_discriminants.get(i),
           .Some(d) => d.to_string(),
-          .None    => i64(i).to_string()
+          .None => i64(i).to_string()
         );
         entry.push_string(disc_val_de);
-        if((i < (n - usize(1))), { entry.push_str(","); });
+        if(i < (n - usize(1)), {
+          entry.push_str(",");
+        });
         ctx.*.emitter.emit_declaration_string_line(entry);
       }
     );
@@ -322,26 +321,29 @@ emit_data_enum :: (fn(
   tag_ty.push_string(c_name);
   tag_ty.push_str("_tag;");
   ctx.*.emitter.emit_declaration_string_line(tag_ty);
-
   // Data union
   ctx.*.emitter.emit_declaration_line("typedef union {");
   (j : usize) = usize(0);
-  while(runtime((j < n)), {
-    v_name_opt   := variant_names.get(j);
+  while(runtime(j < n), {
+    v_name_opt := variant_names.get(j);
     v_fields_opt := variant_fields.get(j);
-    match(v_name_opt,
+    match(
+      v_name_opt,
       .None => (),
       .Some(vname) => {
         ctx.*.emitter.emit_declaration_line("  struct {");
-        match(v_fields_opt,
+        match(
+          v_fields_opt,
           .None => (),
           .Some(fields) => {
             nf := fields.len();
             (fi : usize) = usize(0);
-            while(runtime((fi < nf)), {
-              match(fields.get(fi),
+            while(runtime(fi < nf), {
+              match(
+                fields.get(fi),
                 .None => (),
-                .Some(fty) => match(type_value_to_c_field(fty),
+                .Some(fty) => match(
+                  type_value_to_c_field(fty),
                   .None => (),
                   .Some(c_fty) => {
                     // Field name: _f0, _f1, ...  (anonymous positional fields)
@@ -370,33 +372,26 @@ emit_data_enum :: (fn(
   union_ty.push_string(c_name);
   union_ty.push_str("_data;");
   ctx.*.emitter.emit_declaration_string_line(union_ty);
-
   // Combined struct
   struct_hdr := String.from("struct ");
   struct_hdr.push_string(c_name);
   struct_hdr.push_str("_struct { // ");
   struct_hdr.push_string(name);
   ctx.*.emitter.emit_declaration_string_line(struct_hdr);
-
   tag_field := String.from("  ");
   tag_field.push_string(c_name);
   tag_field.push_str("_tag tag;");
   ctx.*.emitter.emit_declaration_string_line(tag_field);
-
   data_field := String.from("  ");
   data_field.push_string(c_name);
   data_field.push_str("_data data;");
   ctx.*.emitter.emit_declaration_string_line(data_field);
-
   ctx.*.emitter.emit_declaration_line("};");
-
   c_name
 });
-
 // ---------------------------------------------------------------------------
 // Top-level dispatcher
 // ---------------------------------------------------------------------------
-
 /// Generate a C type declaration for a `TypeValue`.
 ///
 /// Handles:
@@ -407,28 +402,34 @@ emit_data_enum :: (fn(
 /// Returns the C type name for the generated type (used when referencing this
 /// type as a field type in another declaration), or `None` for unsupported
 /// TypeValue variants.
-generate_type_decl :: (fn(
-  type_val  : TypeValue,
-  module_id : str,
-  type_id   : usize,
-  ctx       : *(CodegenContext)
-) -> Option(String))(
-  match(type_val,
+generate_type_decl :: (
+  fn(
+    type_val : TypeValue,
+    module_id : str,
+    type_id : usize,
+    ctx : *(CodegenContext)
+  ) -> Option(String)
+)(
+  match(
+    type_val,
     .Struct(id, name, field_labels, field_types, _, _, _) =>
       .Some(generate_struct_decl(id, name, field_labels, field_types, module_id, type_id, ctx)),
-
     .EnumT(_, name, variant_names, variant_fields, _, _, discs) => cond(
       all_unit_variants(variant_fields) =>
         .Some(emit_simple_enum(name, variant_names, discs, module_id, type_id, ctx)),
       true =>
         .Some(emit_data_enum(name, variant_names, variant_fields, discs, module_id, type_id, ctx))
     ),
-
     _ => Option(String).None
   )
 );
-
-export(type_value_to_c_field,
-  struct_c_name, enum_c_name, enum_tag_prefix,
-  generate_struct_decl, emit_simple_enum, emit_data_enum,
-  generate_type_decl);
+export(
+  type_value_to_c_field,
+  struct_c_name,
+  enum_c_name,
+  enum_tag_prefix,
+  generate_struct_decl,
+  emit_simple_enum,
+  emit_data_enum,
+  generate_type_decl
+);

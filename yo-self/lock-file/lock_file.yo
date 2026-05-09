@@ -11,149 +11,148 @@
 //! ```
 //!
 //! This mirrors `src/lock-file.ts`.
-
 open(import("std/string"));
-{ ArrayList }          :: import("std/collections/array_list");
-{ Path }               :: import("std/path");
+{ ArrayList } :: import("std/collections/array_list");
+{ Path } :: import("std/path");
 { AnyError, Exception } :: import("std/error");
 { exists, read_string, write_file } :: import("std/fs/file");
-
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
-
 /// One entry in the lock file — records the resolved state of a dependency.
 LockEntry :: object(
-  name   : String,
-  url    : String,
-  ref    : String,
+  name : String,
+  url : String,
+  ref : String,
   commit : String,
-  hash   : String
+  hash : String
 );
-
 /// In-memory representation of a `yo.lock` file.
 LockFile :: object(
   dependencies : ArrayList(LockEntry)
 );
-
-impl(LockFile,
+impl(
+  LockFile,
   /// An empty lock file (no dependencies).
   empty : (fn() -> Self)(
-    Self(dependencies: ArrayList(LockEntry).new())
+    Self(dependencies : ArrayList(LockEntry).new())
   )
 );
-
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
-
 /// Strip one layer of double-quote delimiters from `s`.
 /// `"hello"` → `hello`, `world` → `world`.
 _strip_quotes :: (fn(s : String) -> String)({
   n := s.len();
   cond(
-    (((n >= usize(2)) && s.starts_with(String.from("\""))) && s.ends_with(String.from("\""))) => s.substring(usize(1), (n - usize(1))),
+    (((n >= usize(2)) && s.starts_with(String.from("\""))) && s.ends_with(String.from("\""))) => s.substring(usize(1), n - usize(1)),
     true => s
   )
 });
-
 /// Build a `LockEntry` from mutable scratch fields, using empty-string
 /// defaults for any field that was not populated.
-_finalize_entry :: (fn(
-  name   : String,
-  url    : String,
-  ref_s  : String,
-  commit : String,
-  hash   : String
-) -> LockEntry)(
+_finalize_entry :: (
+  fn(
+    name : String,
+    url : String,
+    ref_s : String,
+    commit : String,
+    hash : String
+  ) -> LockEntry
+)(
   LockEntry(
-    name:   name,
-    url:    url,
-    ref:    cond((ref_s.len() == usize(0)) => String.from("HEAD"), true => ref_s),
-    commit: commit,
-    hash:   hash
+    name : name,
+    url : url,
+    ref : cond((ref_s.len() == usize(0)) => String.from("HEAD"), true => ref_s),
+    commit : commit,
+    hash : hash
   )
 );
-
 /// Parse a `yo.lock` file string into a `LockFile`.
 parse_lock_file :: (fn(content : String) -> LockFile)({
   deps := ArrayList(LockEntry).new();
-
   // Working fields for the entry currently being built.
   in_entry := false;
-  cur_name   := String.new();
-  cur_url    := String.new();
-  cur_ref    := String.new();
+  cur_name := String.new();
+  cur_url := String.new();
+  cur_ref := String.new();
   cur_commit := String.new();
-  cur_hash   := String.new();
-
+  cur_hash := String.new();
   lines := content.split(String.from("\n"));
   i := usize(0);
-  while(runtime((i < lines.len())), {
+  while(runtime(i < lines.len()), {
     raw_line_opt := lines.get(i);
-    line := match(raw_line_opt, .None => String.new(), .Some(l) => l.trim());
+    line := match(raw_line_opt,.None => String.new(),.Some(l) => l.trim());
     i = (i + usize(1));
-
     // Skip blank lines and comments
-    if((line.len() == usize(0)), { continue; });
-    if(line.starts_with(String.from("#")), { continue; });
-
+    if(line.len() == usize(0), {
+      continue;
+    });
+    if(line.starts_with(String.from("#")), {
+      continue;
+    });
     // New dependency section header
-    if((line.as_str() == "[[dependencies]]"), {
+    if(line.as_str() == "[[dependencies]]", {
       if(in_entry, {
         deps.push(_finalize_entry(cur_name, cur_url, cur_ref, cur_commit, cur_hash));
       });
-      cur_name   = String.new();
-      cur_url    = String.new();
-      cur_ref    = String.new();
+      cur_name = String.new();
+      cur_url = String.new();
+      cur_ref = String.new();
       cur_commit = String.new();
-      cur_hash   = String.new();
+      cur_hash = String.new();
       in_entry = true;
       continue;
     });
-
     // Key-value pair: key = "value"
     eq_opt := line.index_of(String.from("="));
-    match(eq_opt,
+    match(
+      eq_opt,
       .None => (),
       .Some(eq_pos) => {
-        key   := line.substring(usize(0), eq_pos).trim();
-        value := _strip_quotes(line.substring((eq_pos + usize(1)), line.len()).trim());
+        key := line.substring(usize(0), eq_pos).trim();
+        value := _strip_quotes(line.substring(eq_pos + usize(1), line.len()).trim());
         cond(
-          (key.as_str() == "name")   => { cur_name   = value; },
-          (key.as_str() == "url")    => { cur_url    = value; },
-          (key.as_str() == "ref")    => { cur_ref    = value; },
-          (key.as_str() == "commit") => { cur_commit = value; },
-          (key.as_str() == "hash")   => { cur_hash   = value; },
-          true                       => ()
+          (key.as_str() == "name") => {
+            cur_name = value;
+          },
+          (key.as_str() == "url") => {
+            cur_url = value;
+          },
+          (key.as_str() == "ref") => {
+            cur_ref = value;
+          },
+          (key.as_str() == "commit") => {
+            cur_commit = value;
+          },
+          (key.as_str() == "hash") => {
+            cur_hash = value;
+          },
+          true => ()
         );
       }
     );
   });
-
   // Push last entry
   if(in_entry, {
     deps.push(_finalize_entry(cur_name, cur_url, cur_ref, cur_commit, cur_hash));
   });
-
-  LockFile(dependencies: deps)
+  LockFile(dependencies : deps)
 });
-
 // ---------------------------------------------------------------------------
 // Serialisation
 // ---------------------------------------------------------------------------
-
 /// Serialise a `LockFile` to string.
 write_lock_file_content :: (fn(lock : LockFile) -> String)({
   result := String.new();
-
   // Header comment
   result.push_str("# This file is auto-generated by `yo fetch`. Do not edit manually.\n\n");
-
   i := usize(0);
-  while(runtime((i < lock.dependencies.len())), {
+  while(runtime(i < lock.dependencies.len()), {
     dep_opt := lock.dependencies.get(i);
-    match(dep_opt,
+    match(
+      dep_opt,
       .None => (),
       .Some(dep) => {
         result.push_str("[[dependencies]]\n");
@@ -167,20 +166,19 @@ write_lock_file_content :: (fn(lock : LockFile) -> String)({
     );
     i = (i + usize(1));
   });
-
   result
 });
-
 // ---------------------------------------------------------------------------
 // Disk I/O
 // ---------------------------------------------------------------------------
-
 /// Read and parse the `yo.lock` file from `project_dir`.
 /// Returns an empty `LockFile` if the file does not exist.
-read_lock_file :: (fn(
-  project_dir  : Path,
-  using(io     : IO, exn : Exception)
-) -> Impl(Future(LockFile, IO, Exception)))(
+read_lock_file :: (
+  fn(
+    project_dir : Path,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(LockFile, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));
     file_exists := io.await(exists(lock_path, using(io)));
@@ -193,35 +191,35 @@ read_lock_file :: (fn(
     )
   })
 );
-
 /// Write `lock` to `project_dir/yo.lock`.
-save_lock_file :: (fn(
-  project_dir : Path,
-  lock        : LockFile,
-  using(io    : IO, exn : Exception)
-) -> Impl(Future(unit, IO, Exception)))(
+save_lock_file :: (
+  fn(
+    project_dir : Path,
+    lock : LockFile,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(unit, IO, Exception))
+)(
   io.async((using(io, exn)) => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));
-    content   := write_lock_file_content(lock);
+    content := write_lock_file_content(lock);
     io.await(write_file(lock_path, content, using(io)));
   })
 );
-
 // ---------------------------------------------------------------------------
 // Queries and updates
 // ---------------------------------------------------------------------------
-
 /// Find the lock entry with the given `name`, or `.None`.
 find_lock_entry :: (fn(lock : LockFile, name : String) -> Option(LockEntry))({
   result := Option(LockEntry).None;
   i := usize(0);
-  while(runtime((i < lock.dependencies.len())), {
+  while(runtime(i < lock.dependencies.len()), {
     dep_opt := lock.dependencies.get(i);
-    match(dep_opt,
+    match(
+      dep_opt,
       .None => (),
       .Some(dep) => {
-        if((dep.name.as_str() == name.as_str()), {
-          result = .Some(dep);
+        if(dep.name.as_str() == name.as_str(), {
+          result =.Some(dep);
         });
       }
     );
@@ -229,16 +227,16 @@ find_lock_entry :: (fn(lock : LockFile, name : String) -> Option(LockEntry))({
   });
   result
 });
-
 /// Return a new `LockFile` with `entry` inserted (if its name is new) or
 /// replacing the existing entry with the same name.
 upsert_lock_entry :: (fn(lock : LockFile, entry : LockEntry) -> LockFile)({
-  new_deps    := ArrayList(LockEntry).new();
-  replaced    := false;
+  new_deps := ArrayList(LockEntry).new();
+  replaced := false;
   i := usize(0);
-  while(runtime((i < lock.dependencies.len())), {
+  while(runtime(i < lock.dependencies.len()), {
     dep_opt := lock.dependencies.get(i);
-    match(dep_opt,
+    match(
+      dep_opt,
       .None => (),
       .Some(dep) => {
         cond(
@@ -246,22 +244,26 @@ upsert_lock_entry :: (fn(lock : LockFile, entry : LockEntry) -> LockFile)({
             new_deps.push(entry);
             replaced = true;
           },
-          true => { new_deps.push(dep); }
+          true => {
+            new_deps.push(dep);
+          }
         );
       }
     );
     i = (i + usize(1));
   });
-  if((!(replaced)), {
+  if(!(replaced), {
     new_deps.push(entry);
   });
-  LockFile(dependencies: new_deps)
+  LockFile(dependencies : new_deps)
 });
-
-export(LockEntry, LockFile,
+export(
+  LockEntry,
+  LockFile,
   parse_lock_file,
   write_lock_file_content,
   read_lock_file,
   save_lock_file,
   find_lock_entry,
-  upsert_lock_entry);
+  upsert_lock_entry
+);

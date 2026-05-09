@@ -6,200 +6,244 @@
 //! Note: `Array(T, _)` (underscore length inference) is NOT supported in the
 //! self-hosted compiler because `t_array` requires a concrete `usize` length.
 //! Attempting to use `_` produces an explicit error.
-
 open(import("std/string"));
 open(import("std/fmt"));
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_fn_call_of, ast_expr_is_atom_of,
-  make_err_expr, BK_ARRAY }                              :: import("../../expr/expr.yo");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom_of,
+  make_err_expr,
+  BK_ARRAY
+} :: import("../../expr/expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
-{ Environment }                                          :: import("../../env/env.yo");
-{ EvalContext, ExpectedTypeCtx }                         :: import("../context.yo");
-{ EvalValue, create_type_value, is_type_value }          :: import("../value.yo");
-{ TypeValue, t_array, t_usize }                          :: import("../../types/type.yo");
-{ type_of_type }                                         :: import("../../types/hierarchy.yo");
-{ are_types_compatible }                                 :: import("../../types/compatibility.yo");
-{ format_error_message }                                 :: import("../../error/error.yo");
-{ Exception }                                            :: import("std/error");
-{ evaluate_expression }                                  :: import("../exprs/expr.yo");
-{ parse_raw_int }                                        :: import("../utils.yo");
-{ ArrayList }                                            :: import("std/collections/array_list");
-
-evaluate_array_type :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalValue, create_type_value, is_type_value } :: import("../value.yo");
+{ TypeValue, t_array, t_usize } :: import("../../types/type.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ parse_raw_int } :: import("../utils.yo");
+{ ArrayList } :: import("std/collections/array_list");
+evaluate_array_type :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Verify this is `Array(T, N)` with exactly 2 arguments.
   if(!(ast_expr_is_fn_call_of(expr, BK_ARRAY, Option(usize).Some(usize(2)))), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected "Array(comptime(Type), comptime(usize))" with 2 arguments, like "Array(i32, 10)"\nGot:\n${ast_expr_to_string(expr)}`,
-      false,
-      .None
-    )));
-  });
-
-  args := match(expr,
-    .FnCall(_, _, a, _, _) => a,
-    .Atom(_, _)            => ArrayList(AstExpr).new()
-  );
-
-  element_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  length_expr       := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-
-  // `Array(T, _)` underscore length inference is NOT supported in the self-hosted compiler.
-  if(ast_expr_is_atom_of(length_expr, "_"), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(length_expr),
-      `Array length inference with "_" is not supported in the self-hosted compiler. Please specify the length explicitly, e.g. Array(i32, 10)`,
-      false,
-      .None
-    )));
-  });
-
-  // Evaluate the element type expression.
-  evaluated_elem_type := evaluate_expression(element_type_expr, env, ctx);
-
-  elem_type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem_type));
-  if(elem_type_info_opt.is_none(), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(element_type_expr),
-      `Failed to evaluate the element type expression:\n${ast_expr_to_string(element_type_expr)}`,
-      false,
-      .None
-    )));
-  });
-  elem_type_info := match(elem_type_info_opt,
-    .Some(info) => info,
-    .None       => new_expr_info(env, t_usize())  // unreachable
-  );
-
-  if(!(is_type_value(elem_type_info.value)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(element_type_expr),
-      `Expected type for element type, got:\n${ast_expr_to_string(element_type_expr)}\n\nIf you are creating an array value with 1 element, please consider adding a "," in the end, like [1,]`,
-      false,
-      .None
-    )));
-  });
-
-  child_type := match(elem_type_info.value,
-    .Some(v) => match(v,
-      .TypeVal(inner) => inner.*,
-      _               => {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(element_type_expr),
-          `Expected TypeVal for element type`,
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected "Array(comptime(Type), comptime(usize))" with 2 arguments, like "Array(i32, 10)"\nGot:\n${ast_expr_to_string(expr)}`,
           false,
           .None
-        )));
-        t_usize()  // unreachable
+        )
+      )
+    );
+  });
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  element_type_expr := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+  length_expr := match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+  // `Array(T, _)` underscore length inference is NOT supported in the self-hosted compiler.
+  if(ast_expr_is_atom_of(length_expr, "_"), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(length_expr),
+          `Array length inference with "_" is not supported in the self-hosted compiler. Please specify the length explicitly, e.g. Array(i32, 10)`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  // Evaluate the element type expression.
+  evaluated_elem_type := evaluate_expression(element_type_expr, env, ctx);
+  elem_type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem_type));
+  if(elem_type_info_opt.is_none(), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(element_type_expr),
+          `Failed to evaluate the element type expression:\n${ast_expr_to_string(element_type_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  elem_type_info := match(
+    elem_type_info_opt,
+    .Some(info) => info,
+    .None => new_expr_info(env, t_usize()) // unreachable
+  );
+  if(!(is_type_value(elem_type_info.value)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(element_type_expr),
+          `Expected type for element type, got:\n${ast_expr_to_string(element_type_expr)}\n\nIf you are creating an array value with 1 element, please consider adding a "," in the end, like [1,]`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  child_type := match(
+    elem_type_info.value,
+    .Some(v) => match(
+      v,
+      .TypeVal(inner) => inner.*,
+      _ => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(element_type_expr),
+              `Expected TypeVal for element type`,
+              false,
+              .None
+            )
+          )
+        );
+        t_usize() // unreachable
       }
     ),
     .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(element_type_expr),
-        `Expected type value for element type`,
-        false,
-        .None
-      )));
-      t_usize()  // unreachable
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(element_type_expr),
+            `Expected type value for element type`,
+            false,
+            .None
+          )
+        )
+      );
+      t_usize() // unreachable
     }
   );
-
   env_after_elem := elem_type_info.env;
-
   // Evaluate the length expression with expected type usize.
   old_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty: t_usize(), env: env_after_elem));
+  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_usize(), env : env_after_elem));
   evaluated_length := evaluate_expression(length_expr, env_after_elem, ctx);
   ctx.expected_type = old_expected;
-
   len_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_length));
   if(len_info_opt.is_none(), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(length_expr),
-      `Failed to evaluate the length expression:\n${ast_expr_to_string(length_expr)}`,
-      false,
-      .None
-    )));
-  });
-  len_info := match(len_info_opt,
-    .Some(info) => info,
-    .None       => new_expr_info(env_after_elem, t_usize())  // unreachable
-  );
-
-  // Check length type is usize-compatible.
-  if(!(are_types_compatible(len_info.ty, t_usize())), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(length_expr),
-      `Expected usize for length, got:\n${ast_expr_to_string(length_expr)}`,
-      false,
-      .None
-    )));
-  });
-
-  // Length must be a compile-time known value.
-  if(len_info.value.is_none(), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(length_expr),
-      `Expected compile-time known value for length, got:\n${ast_expr_to_string(length_expr)}`,
-      false,
-      .None
-    )));
-  });
-
-  len_value := match(len_info.value,
-    .Some(v) => v,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(length_expr),
-        `Expected compile-time known value for length`,
-        false,
-        .None
-      )));
-      EvalValue.BoolVal(false)  // unreachable
-    }
-  );
-
-  // Extract the usize value from the IntLit.
-  len_usize := match(len_value,
-    .IntLit(raw) => match(parse_raw_int(raw),
-      .Some(n) => usize(n),
-      .None    => {
-        exn.throw(dyn(format_error_message(
+    exn.throw(
+      dyn(
+        format_error_message(
           ast_expr_token(length_expr),
-          `Failed to parse array length as integer`,
+          `Failed to evaluate the length expression:\n${ast_expr_to_string(length_expr)}`,
           false,
           .None
-        )));
-        usize(0)  // unreachable
+        )
+      )
+    );
+  });
+  len_info := match(
+    len_info_opt,
+    .Some(info) => info,
+    .None => new_expr_info(env_after_elem, t_usize()) // unreachable
+  );
+  // Check length type is usize-compatible.
+  if(!(are_types_compatible(len_info.ty, t_usize())), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(length_expr),
+          `Expected usize for length, got:\n${ast_expr_to_string(length_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  // Length must be a compile-time known value.
+  if(len_info.value.is_none(), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(length_expr),
+          `Expected compile-time known value for length, got:\n${ast_expr_to_string(length_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  len_value := match(
+    len_info.value,
+    .Some(v) => v,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(length_expr),
+            `Expected compile-time known value for length`,
+            false,
+            .None
+          )
+        )
+      );
+      EvalValue.BoolVal(false) // unreachable
+    }
+  );
+  // Extract the usize value from the IntLit.
+  len_usize := match(
+    len_value,
+    .IntLit(raw) => match(
+      parse_raw_int(raw),
+      .Some(n) => usize(n),
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(length_expr),
+              `Failed to parse array length as integer`,
+              false,
+              .None
+            )
+          )
+        );
+        usize(0) // unreachable
       }
     ),
     _ => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(length_expr),
-        `Expected integer literal for array length`,
-        false,
-        .None
-      )));
-      usize(0)  // unreachable
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(length_expr),
+            `Expected integer literal for array length`,
+            false,
+            .None
+          )
+        )
+      );
+      usize(0) // unreachable
     }
   );
-
-  array_type     := t_array(child_type, len_usize);
+  array_type := t_array(child_type, len_usize);
   array_type_val := create_type_value(array_type);
-  meta_ty        := type_of_type(array_type);
-
+  meta_ty := type_of_type(array_type);
   env_final := len_info.env;
-  out_info  := new_expr_info(env_final, meta_ty);
+  out_info := new_expr_info(env_final, meta_ty);
   out_info.value = Option(EvalValue).Some(array_type_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-
   expr
 });
-
 export(evaluate_array_type);

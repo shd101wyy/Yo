@@ -6,99 +6,94 @@
 //!   - Comptime while loop unrolling with runtime body (cloneExpr path) deferred to Phase 3
 //!
 //! Exported symbols: evaluate_while
-
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-
 {
   AstExpr,
-  ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_atom_of, ast_expr_is_fn_call_of,
-  make_err_expr, BK_COMPTIME
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_atom_of,
+  ast_expr_is_fn_call_of,
+  make_err_expr,
+  BK_COMPTIME
 } :: import("../../expr/expr.yo");
-
 {
-  ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set,
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set,
   ControlFlowFlags,
-  has_control_flow, has_any_control_flow,
+  has_control_flow,
+  has_any_control_flow,
   expr_contains_loop_terminator
 } :: import("../../expr/expr_info.yo");
-
 { Environment } :: import("../../env/env.yo");
-{ Variable }    :: import("../../env/env.yo");
-
+{ Variable } :: import("../../env/env.yo");
 { EvalContext, LoopBodyCtx, LoopKind } :: import("../context.yo");
-
 { EvalValue } :: import("../value.yo");
-
 { TypeValue, t_unit } :: import("../../types/type.yo");
-
 { is_bool_type, is_unit_type } :: import("../../types/guards.yo");
-
 { convert_comptime_type_to_runtime_type } :: import("../../types/utils.yo");
-
 { type_to_string } :: import("../../types/string.yo");
-
 { format_error_message } :: import("../../error/error.yo");
-
 { evaluate_begin_expression } :: import("./begin.yo");
-{ evaluate_expression }       :: import("./expr.yo");
-
+{ evaluate_expression } :: import("./expr.yo");
 { Exception } :: import("std/error");
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
 /// Maximum number of compile-time while loop iterations before bailing out.
 ///
 /// Phase 2 stub: fixed at 10000 (no YO_MAX_COMPTIME_LOOP_ITERATIONS env var).
 /// Mirrors the `MAX_COMPTIME_LOOP_ITERATIONS` IIFE in `src/evaluator/exprs/while.ts`.
 MAX_COMPTIME_LOOP_ITERATIONS :: usize(10000);
-
 // ---------------------------------------------------------------------------
 // Helper: _body_has_any_terminator_guaranteed / _body_has_any_terminator_possible
 // ---------------------------------------------------------------------------
-
 /// True when the body is GUARANTEED to terminate via break/return/escape
 /// control-flow flags (i.e. every execution path terminates).
 ///
 /// Mirrors the `guaranteed` field of `bodyHasAnyTerminator` in `while.ts`.
-_body_has_any_terminator_guaranteed :: (fn(
-  body_info_cf : Option(ControlFlowFlags)
-) -> bool)(
-  (has_control_flow(body_info_cf, .Break) ||
-   (has_control_flow(body_info_cf, .Return) ||
-    has_control_flow(body_info_cf, .Escape)))
+_body_has_any_terminator_guaranteed :: (
+  fn(
+    body_info_cf : Option(ControlFlowFlags)
+  ) -> bool
+)(
+  has_control_flow(body_info_cf,.Break) ||
+    (
+      has_control_flow(body_info_cf,.Return) ||
+        has_control_flow(body_info_cf,.Escape)
+    )
 );
-
 /// True when the body MIGHT terminate (either guaranteed or the AST contains
 /// any loop-terminator atom/call reachable through a conditional branch).
 ///
 /// Mirrors the `possible` field of `bodyHasAnyTerminator` in `while.ts`.
-_body_has_any_terminator_possible :: (fn(
-  body_expr    : AstExpr,
-  body_info_cf : Option(ControlFlowFlags)
-) -> bool)(
-  (_body_has_any_terminator_guaranteed(body_info_cf) ||
-   expr_contains_loop_terminator(body_expr))
+_body_has_any_terminator_possible :: (
+  fn(
+    body_expr : AstExpr,
+    body_info_cf : Option(ControlFlowFlags)
+  ) -> bool
+)(
+  _body_has_any_terminator_guaranteed(body_info_cf) ||
+    expr_contains_loop_terminator(body_expr)
 );
-
 // ---------------------------------------------------------------------------
 // Helper: _throw_max_iterations_error
 // ---------------------------------------------------------------------------
-
 /// Throw an appropriate error for a compile-time while loop that exceeded the
 /// maximum iteration count.
 ///
 /// Mirrors `throwMaxIterationsError` in `src/evaluator/exprs/while.ts`.
-_throw_max_iterations_error :: (fn(
-  expr         : AstExpr,
-  body_expr    : AstExpr,
-  body_info_cf : Option(ControlFlowFlags),
-  using(exn    : Exception)
-) -> AstExpr)({
+_throw_max_iterations_error :: (
+  fn(
+    expr : AstExpr,
+    body_expr : AstExpr,
+    body_info_cf : Option(ControlFlowFlags),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   possible := _body_has_any_terminator_possible(body_expr, body_info_cf);
   // Store in local variable to avoid taking address of rvalue literal in C codegen.
   limit := MAX_COMPTIME_LOOP_ITERATIONS;
@@ -108,14 +103,12 @@ _throw_max_iterations_error :: (fn(
     true =>
       `Infinite compile-time while loop detected. The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`escape\` to terminate it.\nIf you need an infinite runtime loop, use \`while true, { ... }\` without the comptime modifier.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`
   );
-  exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, false, .None)));
+  exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, false,.None)));
   make_err_expr()
 });
-
 // ---------------------------------------------------------------------------
 // evaluate_while — main function
 // ---------------------------------------------------------------------------
-
 /// Evaluate a `while(...)` or `while comptime(...), ...` loop expression.
 ///
 /// Supports both the 2-argument form (`while condition, body`) and the
@@ -128,265 +121,294 @@ _throw_max_iterations_error :: (fn(
 ///   - `comptime_iteration_count`  Recursion depth for compile-time unrolling.
 ///
 /// Mirrors `evaluateWhile` in `src/evaluator/exprs/while.ts`.
-evaluate_while :: (fn(
-  expr                     : AstExpr,
-  env_in                   : Environment,
-  ctx                      : *(EvalContext),
-  comptime_iteration_count : usize,
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_while :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    comptime_iteration_count : usize,
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   (env : Environment) = env_in;
-
   // Support both 2-argument (while condition, body) and
   // 3-argument (while condition, step, body) forms.
   // Follow cond.yo pattern: extract args list once, then derive length.
-  all_args := match(expr,
+  all_args := match(
+    expr,
     .FnCall(_, _, args, _, _) => args,
-    .Atom(_, _)               => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
   n_args := all_args.len();
-
-  if(((n_args != usize(2)) && (n_args != usize(3))), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected 2 or 3 arguments for while loop, got ${n_args.to_string()}`,
-      false,
-      .None
-    )));
+  if((n_args != usize(2)) && (n_args != usize(3)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected 2 or 3 arguments for while loop, got ${n_args.to_string()}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Extract body and optional step expressions.
-  body_idx  := cond((n_args == usize(3)) => usize(2), true => usize(1));
-  body_expr := match(all_args.get(body_idx), .Some(e) => e, .None => make_err_expr());
-
+  body_idx := cond((n_args == usize(3)) => usize(2), true => usize(1));
+  body_expr := match(all_args.get(body_idx),.Some(e) => e,.None => make_err_expr());
   (step_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
-  if((n_args == usize(3)), {
-    step_opt_inner := match(all_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
-    step_expr_opt  = Option(AstExpr).Some(step_opt_inner);
+  if(n_args == usize(3), {
+    step_opt_inner := match(all_args.get(usize(1)),.Some(e) => e,.None => make_err_expr());
+    step_expr_opt = Option(AstExpr).Some(step_opt_inner);
   });
-
   // Detect comptime() modifier on the condition.
   // Re-detected on each recursive call so the AST stays clean across evaluations.
-  raw_cond_expr        := match(all_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
-  is_comptime_modifier := ast_expr_is_fn_call_of(raw_cond_expr, BK_COMPTIME, .Some(usize(1)));
-  inner_cond_expr      := cond(
-    is_comptime_modifier => match(raw_cond_expr,
-      .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(e) => e, .None => make_err_expr()),
-      .Atom(_, _)                => make_err_expr()
+  raw_cond_expr := match(all_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+  is_comptime_modifier := ast_expr_is_fn_call_of(raw_cond_expr, BK_COMPTIME,.Some(usize(1)));
+  inner_cond_expr := cond(
+    is_comptime_modifier => match(
+      raw_cond_expr,
+      .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)),.Some(e) => e,.None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
     ),
     true => raw_cond_expr
   );
-
   // NOTE: Use evaluateBeginExpression here so RC values in the condition are
   // properly managed by the begin-block frame.
   // Evaluate the inner condition expression (without the comptime() wrapper).
   evaluated_cond_expr := evaluate_begin_expression(
-    inner_cond_expr, env, ctx, ArrayList(Variable).new(), false
+    inner_cond_expr,
+    env,
+    ctx,
+    ArrayList(Variable).new(),
+    false
   );
-
   // Require ExprInfo for the condition.
   cond_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_cond_expr));
   if(cond_info_opt.is_none(), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(inner_cond_expr),
-      `Failed to evaluate the condition expression: ${ast_expr_to_string(inner_cond_expr)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(inner_cond_expr),
+          `Failed to evaluate the condition expression: ${ast_expr_to_string(inner_cond_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-  cond_info := match(cond_info_opt, .Some(ci) => ci, .None => { return(expr); });
-
+  cond_info := match(
+    cond_info_opt,
+    .Some(ci) => ci,
+    .None => {
+      return(expr);
+    }
+  );
   // Require bool type for the condition.
   if(!(is_bool_type(cond_info.ty)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(inner_cond_expr),
-      `Expected bool type for condition expression, got: ${ast_expr_to_string(inner_cond_expr)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(inner_cond_expr),
+          `Expected bool type for condition expression, got: ${ast_expr_to_string(inner_cond_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Snapshot the condition value before any potential mutation below.
   condition_value := cond_info.value;
-
   // Enforce comptime() modifier semantics:
   // With comptime(): condition MUST be compile-time known; error if runtime.
-  if((is_comptime_modifier && condition_value.is_none()), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(inner_cond_expr),
-      `"while comptime(...)" requires a compile-time known condition, but the condition evaluates to a runtime value.\nRemove the "comptime" modifier to use a runtime while loop: \`while cond, body\`.`,
-      false,
-      .None
-    )));
+  if(is_comptime_modifier && condition_value.is_none(), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(inner_cond_expr),
+          `"while comptime(...)" requires a compile-time known condition, but the condition evaluates to a runtime value.\nRemove the "comptime" modifier to use a runtime while loop: \`while cond, body\`.`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Without comptime(): if condition happens to be compile-time known, it must
   // be a literal `true`/`false` atom (not a comptime-only variable that can
   // never change inside a runtime loop).
-  if((!(is_comptime_modifier) && condition_value.is_some()), {
+  if(!(is_comptime_modifier) && condition_value.is_some(), {
     (is_literal_bool : bool) = false;
-    if((ast_expr_is_atom_of(inner_cond_expr, "true") || ast_expr_is_atom_of(inner_cond_expr, "false")), {
+    if(ast_expr_is_atom_of(inner_cond_expr, "true") || ast_expr_is_atom_of(inner_cond_expr, "false"), {
       is_literal_bool = true;
     }, {
       // begin-wrapped literal: begin(true) / begin(false)
-      if(ast_expr_is_fn_call_of(inner_cond_expr, "begin", .None), {
-        inner_args_lb := match(inner_cond_expr,
+      if(ast_expr_is_fn_call_of(inner_cond_expr, "begin",.None), {
+        inner_args_lb := match(
+          inner_cond_expr,
           .FnCall(_, _, a, _, _) => a,
-          .Atom(_, _)            => ArrayList(AstExpr).new()
+          .Atom(_, _) => ArrayList(AstExpr).new()
         );
-        if((inner_args_lb.len() == usize(1)), {
-          first_lb := match(inner_args_lb.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-          if((ast_expr_is_atom_of(first_lb, "true") || ast_expr_is_atom_of(first_lb, "false")), {
+        if(inner_args_lb.len() == usize(1), {
+          first_lb := match(inner_args_lb.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+          if(ast_expr_is_atom_of(first_lb, "true") || ast_expr_is_atom_of(first_lb, "false"), {
             is_literal_bool = true;
           });
         });
       });
     });
-
     if(!(is_literal_bool), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(inner_cond_expr),
-        `while loop condition is compile-time known but the \`comptime\` modifier is missing.\nThe condition depends on comptime-only variable(s) that cannot change inside a runtime loop, which will cause an infinite loop.\nUse \`while comptime(cond), body\` to unroll the loop at compile time.`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(inner_cond_expr),
+            `while loop condition is compile-time known but the \`comptime\` modifier is missing.\nThe condition depends on comptime-only variable(s) that cannot change inside a runtime loop, which will cause an infinite loop.\nUse \`while comptime(cond), body\` to unroll the loop at compile time.`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
     // Literal `true`/`false`: convert to runtime type so this is treated as a
     // runtime loop (e.g. `while true` for infinite loops).
-    runtime_type    := convert_comptime_type_to_runtime_type(cond_info.ty, cond_info.env);
-    cond_info.ty    = runtime_type;
+    runtime_type := convert_comptime_type_to_runtime_type(cond_info.ty, cond_info.env);
+    cond_info.ty = runtime_type;
     cond_info.value = Option(EvalValue).None;
   });
-
   // Effective condition value: only comptime when the modifier is present.
   effective_condition_value := cond(
     is_comptime_modifier => condition_value,
-    true                 => Option(EvalValue).None
+    true => Option(EvalValue).None
   );
   is_compile_time := effective_condition_value.is_some();
-
   // If the effective condition is compile-time false, stop evaluation.
-  eff_cond_is_false := match(effective_condition_value,
-    .None    => false,
-    .Some(v) => match(v, .BoolVal(b) => !(b), _ => false)
+  eff_cond_is_false := match(
+    effective_condition_value,
+    .None => false,
+    .Some(v) => match(v,.BoolVal(b) => !(b), _ => false)
   );
   if(eff_cond_is_false, {
     out_info := new_expr_info(env, t_unit());
     out_info.value = cond(
       is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
-      true            => Option(EvalValue).None
+      true => Option(EvalValue).None
     );
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
-
   // Evaluate the body with the loop-body context set so that break/continue
   // inside the body know they are inside a while loop.
   old_loop_body := ctx.is_evaluating_loop_body;
-  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind: LoopKind.While, env: env));
+  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : env));
   evaluated_body := evaluate_begin_expression(body_expr, env, ctx, ArrayList(Variable).new(), false);
   ctx.is_evaluating_loop_body = old_loop_body;
-
   // Require ExprInfo for the body.
   body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
   if(body_info_opt.is_none(), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(body_expr),
-      `Failed to evaluate the body expression: ${ast_expr_to_string(body_expr)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(body_expr),
+          `Failed to evaluate the body expression: ${ast_expr_to_string(body_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-  body_info := match(body_info_opt, .Some(bi) => bi, .None => { return(expr); });
-
+  body_info := match(
+    body_info_opt,
+    .Some(bi) => bi,
+    .None => {
+      return(expr);
+    }
+  );
   // Handle control flow produced by the body.
   if(has_any_control_flow(body_info.control_flow), {
-
     // --- return / escape ---
-    if((has_control_flow(body_info.control_flow, .Return) || has_control_flow(body_info.control_flow, .Escape)), {
-      eff_cond_is_true_re := match(effective_condition_value,
-        .None    => false,
-        .Some(v) => match(v, .BoolVal(b) => b, _ => false)
+    if(has_control_flow(body_info.control_flow,.Return) || has_control_flow(body_info.control_flow,.Escape), {
+      eff_cond_is_true_re := match(
+        effective_condition_value,
+        .None => false,
+        .Some(v) => match(v,.BoolVal(b) => b, _ => false)
       );
       if(eff_cond_is_true_re, {
         // Condition is compile-time true: propagate return/escape, clear break/continue.
-        cf_ret   := has_control_flow(body_info.control_flow, .Return);
-        cf_esc   := has_control_flow(body_info.control_flow, .Escape);
-        prop_cf  := ControlFlowFlags(return_flag: cf_ret, escape_flag: cf_esc, break_flag: false, continue_flag: false);
+        cf_ret := has_control_flow(body_info.control_flow,.Return);
+        cf_esc := has_control_flow(body_info.control_flow,.Escape);
+        prop_cf := ControlFlowFlags(return_flag : cf_ret, escape_flag : cf_esc, break_flag : false, continue_flag : false);
         out_info := new_expr_info(body_info.env, body_info.ty);
-        out_info.value           = body_info.value;
+        out_info.value = body_info.value;
         out_info.path_collection = body_info.path_collection;
-        out_info.control_flow    = Option(ControlFlowFlags).Some(prop_cf);
+        out_info.control_flow = Option(ControlFlowFlags).Some(prop_cf);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       }, {
         // We might not even enter the loop body — return unit.
         out_info := new_expr_info(env, t_unit());
         out_info.value = cond(
           is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
-          true            => Option(EvalValue).None
+          true => Option(EvalValue).None
         );
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       });
       return(expr);
     });
-
     // --- break ---
-    if(has_control_flow(body_info.control_flow, .Break), {
+    if(has_control_flow(body_info.control_flow,.Break), {
       // Break exits the loop — result is unit.
       out_info := new_expr_info(body_info.env, t_unit());
       out_info.value = cond(
         is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
-        true            => Option(EvalValue).None
+        true => Option(EvalValue).None
       );
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       return(expr);
     });
-
     // --- continue ---
-    if(has_control_flow(body_info.control_flow, .Continue), {
+    if(has_control_flow(body_info.control_flow,.Continue), {
       // Execute the step expression (if any) before re-evaluating the loop.
       (updated_env_cont : Environment) = body_info.env;
-      match(step_expr_opt,
+      match(
+        step_expr_opt,
         .None => (),
         .Some(step_expr_cont) => {
           eval_step_cont := evaluate_expression(step_expr_cont, updated_env_cont, ctx);
           step_info_cont_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_cont));
           if(step_info_cont_opt.is_none(), {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(step_expr_cont),
-              `Failed to evaluate the step expression: ${ast_expr_to_string(step_expr_cont)}`,
-              false,
-              .None
-            )));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(step_expr_cont),
+                  `Failed to evaluate the step expression: ${ast_expr_to_string(step_expr_cont)}`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
-          updated_env_cont = match(step_info_cont_opt, .Some(si) => si.env, .None => updated_env_cont);
+          updated_env_cont = match(step_info_cont_opt,.Some(si) => si.env,.None => updated_env_cont);
         }
       );
-
       // If the condition is compile-time known, re-evaluate the loop.
-      eff_is_bool_cont := match(effective_condition_value,
-        .None    => false,
-        .Some(v) => match(v, .BoolVal(_) => true, _ => false)
+      eff_is_bool_cont := match(
+        effective_condition_value,
+        .None => false,
+        .Some(v) => match(v,.BoolVal(_) => true, _ => false)
       );
       if(eff_is_bool_cont, {
-        return(recur(expr, updated_env_cont, ctx, (comptime_iteration_count + usize(1))));
+        return(recur(expr, updated_env_cont, ctx, comptime_iteration_count + usize(1)));
       }, {
         // Runtime condition: treat continue as returning unit for this evaluation.
         out_info := new_expr_info(updated_env_cont, t_unit());
         out_info.value = cond(
           is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
-          true            => Option(EvalValue).None
+          true => Option(EvalValue).None
         );
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       });
       return(expr);
     });
-
     // Fallthrough: some other combination of flags — return the expression.
     return(expr);
   });
-
   // --- Static analysis for infinite compile-time `while true` loops ---
   //
   // Only applies when the condition is a LITERAL `true` atom (not an expression
@@ -400,9 +422,10 @@ evaluate_while :: (fn(
   // `control_flow.break_flag` won't be set on the cond expression.
   (is_cond_literal_true : bool) = false;
   {
-    eff_cond_is_true_lt := match(effective_condition_value,
-      .None    => false,
-      .Some(v) => match(v, .BoolVal(b) => b, _ => false)
+    eff_cond_is_true_lt := match(
+      effective_condition_value,
+      .None => false,
+      .Some(v) => match(v,.BoolVal(b) => b, _ => false)
     );
     if(eff_cond_is_true_lt, {
       // Direct atom: `true`
@@ -410,13 +433,14 @@ evaluate_while :: (fn(
         is_cond_literal_true = true;
       }, {
         // Wrapped in begin: `begin(true)` — check first arg.
-        if(ast_expr_is_fn_call_of(inner_cond_expr, "begin", .None), {
-          inner_args_lt := match(inner_cond_expr,
+        if(ast_expr_is_fn_call_of(inner_cond_expr, "begin",.None), {
+          inner_args_lt := match(
+            inner_cond_expr,
             .FnCall(_, _, a, _, _) => a,
-            .Atom(_, _)            => ArrayList(AstExpr).new()
+            .Atom(_, _) => ArrayList(AstExpr).new()
           );
-          if((inner_args_lt.len() == usize(1)), {
-            first_lt := match(inner_args_lt.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+          if(inner_args_lt.len() == usize(1), {
+            first_lt := match(inner_args_lt.get(usize(0)),.Some(a) => a,.None => make_err_expr());
             if(ast_expr_is_atom_of(first_lt, "true"), {
               is_cond_literal_true = true;
             });
@@ -425,17 +449,14 @@ evaluate_while :: (fn(
       });
     });
   };
-
   if(is_cond_literal_true, {
     guaranteed := _body_has_any_terminator_guaranteed(body_info.control_flow);
-    possible   := _body_has_any_terminator_possible(body_expr, body_info.control_flow);
-
-    if((!(guaranteed) && !(possible)), {
+    possible := _body_has_any_terminator_possible(body_expr, body_info.control_flow);
+    if(!(guaranteed) && !(possible), {
       // No terminator anywhere — this loop can never end.
       _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow);
     });
-
-    if((!(guaranteed) && possible), {
+    if(!(guaranteed) && possible, {
       // Conditional terminator exists — emit as a runtime loop.
       out_info := new_expr_info(body_info.env, t_unit());
       out_info.value = Option(EvalValue).None;
@@ -443,51 +464,56 @@ evaluate_while :: (fn(
       return(expr);
     });
   });
-
   // The while loop body must return unit.
   if(!(is_unit_type(body_info.ty)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(body_expr),
-      `Expected the while(loop body to return(unit, but got: ${type_to_string(body_info.ty)}))`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(body_expr),
+          `Expected the while(loop body to return(unit, but got: ${type_to_string(body_info.ty)}))`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Update the environment with the body's post-evaluation state.
   env = body_info.env;
-
   // Execute the step expression if provided (3-argument form).
-  match(step_expr_opt,
+  match(
+    step_expr_opt,
     .None => (),
     .Some(step_expr_s) => {
       eval_step_s := evaluate_expression(step_expr_s, env, ctx);
       step_info_s_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_s));
       if(step_info_s_opt.is_none(), {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(step_expr_s),
-          `Failed to evaluate the step expression: ${ast_expr_to_string(step_expr_s)}`,
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(step_expr_s),
+              `Failed to evaluate the step expression: ${ast_expr_to_string(step_expr_s)}`,
+              false,
+              .None
+            )
+          )
+        );
       });
-      env = match(step_info_s_opt, .Some(si) => si.env, .None => env);
+      env = match(step_info_s_opt,.Some(si) => si.env,.None => env);
     }
   );
-
   // Phase 2 stub: comptime while loop unrolling with runtime body is deferred to Phase 3.
   // TypeScript's evaluateWhile (lines 449-547) deep-clones and re-evaluates the loop body
   // multiple times when the condition is compile-time true but the body has runtime values.
   // Without clone_expr, we fall through to the iteration counter check below.
-
   // If the effective condition is compile-time true, recurse to evaluate the next iteration.
-  eff_cond_is_true_main := match(effective_condition_value,
-    .None    => false,
-    .Some(v) => match(v, .BoolVal(b) => b, _ => false)
+  eff_cond_is_true_main := match(
+    effective_condition_value,
+    .None => false,
+    .Some(v) => match(v,.BoolVal(b) => b, _ => false)
   );
   if(eff_cond_is_true_main, {
     next_count := (comptime_iteration_count + usize(1));
-    if((next_count >= MAX_COMPTIME_LOOP_ITERATIONS), {
+    if(next_count >= MAX_COMPTIME_LOOP_ITERATIONS, {
       _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow);
     });
     return(recur(expr, env, ctx, next_count));
@@ -496,13 +522,11 @@ evaluate_while :: (fn(
     out_info := new_expr_info(env, t_unit());
     out_info.value = cond(
       is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
-      true            => Option(EvalValue).None
+      true => Option(EvalValue).None
     );
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
-
   expr
 });
-
 export(evaluate_while);

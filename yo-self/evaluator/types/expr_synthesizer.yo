@@ -9,44 +9,39 @@
 //!
 //! Mirrors `synthesizeExprAndType` in
 //! `src/evaluator/types/expr-synthesizer.ts`.
-
 open(import("std/string"));
-
-{ AstExpr }               :: import("../../expr/expr.yo");
-{ Environment }           :: import("../../env/env.yo");
-{ EvalContext }           :: import("../context.yo");
-{ TypeValue }             :: import("../../types/type.yo");
-
+{ AstExpr } :: import("../../expr/expr.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ TypeValue } :: import("../../types/type.yo");
 // ---------------------------------------------------------------------------
 // Return type
 // ---------------------------------------------------------------------------
-
 /// Holds the (possibly updated) expr, resolved type, and environment after
 /// synthesis.  Mirrors the anonymous return type of `synthesizeExprAndType`
 /// in TypeScript.
 SynthesizeResult :: object(
   expr : AstExpr,
-  ty   : TypeValue,
-  env  : Environment
+  ty : TypeValue,
+  env : Environment
 );
-
 // ---------------------------------------------------------------------------
 // synthesize_expr_and_type
 // ---------------------------------------------------------------------------
-
 /// Attempt to infer a concrete type for `expr` given the expected type `ty`.
 ///
 /// Phase 2w stub: returns `expr`, `ty`, and `env` unchanged.
 ///
 /// Mirrors `synthesizeExprAndType` in
 /// `src/evaluator/types/expr-synthesizer.ts`.
-synthesize_expr_and_type :: (fn(
-  expr : AstExpr,
-  ty   : TypeValue,
-  env  : Environment,
-  _ctx : *(EvalContext)
-) -> SynthesizeResult)(
-  SynthesizeResult(expr: expr, ty: ty, env: env)
+synthesize_expr_and_type :: (
+  fn(
+    expr : AstExpr,
+    ty : TypeValue,
+    env : Environment,
+    _ctx : *(EvalContext)
+  ) -> SynthesizeResult
+)(
+  SynthesizeResult(expr : expr, ty : ty, env : env)
 );
-
 export(SynthesizeResult, synthesize_expr_and_type);

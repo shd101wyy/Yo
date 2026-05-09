@@ -10,20 +10,16 @@
 //!
 //! Mirrors the `definitionSiteEnclosingFunctionType` field on `FunctionValue`
 //! in `src/function-value.ts`.
-
 open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, t_unit } :: import("../../types/type.yo");
-
 // ---------------------------------------------------------------------------
 // Global registry
 // ---------------------------------------------------------------------------
-
 /// Global map from `func_id` → return type of the enclosing function at the
 /// definition site.
 (g_definition_site_return_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
-
 /// Register the enclosing function's return type at a function's definition site.
 ///
 /// Called when creating a FuncVal (in `anonymous_function.yo`) if the function
@@ -34,7 +30,6 @@ open(import("std/string"));
 register_definition_site_return :: (fn(func_id : String, return_ty : TypeValue) -> unit)({
   ___ := g_definition_site_return_registry.set((&(func_id)).clone(), return_ty);
 });
-
 /// Get the enclosing function's return type at a function's definition site.
 /// Returns `None` if the function was not defined inside another function body
 /// (e.g., top-level definitions, handlers defined in test blocks).
@@ -42,10 +37,10 @@ register_definition_site_return :: (fn(func_id : String, return_ty : TypeValue) 
 /// Returns `t_unit()` as fallback to mirror:
 ///   `originalFunction.definitionSiteEnclosingFunctionType?.return.type ?? createUnitType()`
 get_definition_site_return :: (fn(func_id : str) -> TypeValue)(
-  match(g_definition_site_return_registry.get(String.from(func_id)),
+  match(
+    g_definition_site_return_registry.get(String.from(func_id)),
     .Some(ty) => ty,
-    .None     => t_unit()
+    .None => t_unit()
   )
 );
-
 export(register_definition_site_return, get_definition_site_return);

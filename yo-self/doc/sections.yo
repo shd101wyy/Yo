@@ -4,86 +4,105 @@
 //
 // Splits doc comment markdown by ## headings to extract structured sections
 // (Returns, Errors, Panics, Examples, Safety, Deprecated).
-
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-
 /// Parsed doc comment with summary, description, and named sections.
 ParsedDocComment :: struct(
   /// First paragraph — used as summary in search results and completions.
-  summary:     String,
+  summary : String,
   /// Full description (everything before the first ## heading).
-  description: String,
+  description : String,
   /// Named sections keyed by lowercase heading (e.g., "returns", "examples").
-  sections:    HashMap(String, String)
+  sections : HashMap(String, String)
 );
-
 // Returns true if `line` matches /^##\s+(.+)$/ — a ## section heading.
 is_section_heading_ :: (fn(line : String) -> bool)(
   cond(
-    (line.len() < usize(4))      => false,
+    (line.len() < usize(4)) => false,
     (!(line.starts_with(`## `))) => false,
-    true                         => true
+    true => true
   )
 );
-
 // Returns the heading text after `## ` (trimmed).
 get_section_heading_ :: (fn(line : String) -> String)(
   line.substring(usize(3), line.len()).trim()
 );
-
 // Trim leading/trailing blank lines from section content; join with \n.
 trim_section_content_ :: (fn(lines : ArrayList(String)) -> String)({
   count := lines.len();
-
   // Find start: skip leading blank lines
   start := usize(0);
-  while(runtime((start < count)), {
-    line := match(lines.get(start), .Some(l) => l, .None => { break; });
-    if((!(line.trim() == ``)), { break; });
+  while(runtime(start < count), {
+    line := match(
+      lines.get(start),
+      .Some(l) => l,
+      .None => {
+        break;
+      }
+    );
+    if(!(line.trim() == ``), {
+      break;
+    });
     start = (start + usize(1));
   });
-
   // Find end: skip trailing blank lines
   end := count;
-  while(runtime((end > start)), {
+  while(runtime(end > start), {
     prev := (end - usize(1));
-    line := match(lines.get(prev), .Some(l) => l, .None => { break; });
-    if((!(line.trim() == ``)), { break; });
+    line := match(
+      lines.get(prev),
+      .Some(l) => l,
+      .None => {
+        break;
+      }
+    );
+    if(!(line.trim() == ``), {
+      break;
+    });
     end = prev;
   });
-
   // Collect lines[start..end] and join
   result := ArrayList(String).new();
-  i      := start;
-  while(runtime((i < end)), {
-    line := match(lines.get(i), .Some(l) => l, .None => { break; });
+  i := start;
+  while(runtime(i < end), {
+    line := match(
+      lines.get(i),
+      .Some(l) => l,
+      .None => {
+        break;
+      }
+    );
     result.push(line);
     i = (i + usize(1));
   });
-
   `\n`.join(result)
 });
-
 // Extract the first paragraph (up to first blank line) as the summary.
 extract_summary_ :: (fn(description : String) -> String)({
-  if((description == ``), { return(``); });
-
-  lines         := description.split(`\n`);
+  if(description == ``, {
+    return(``);
+  });
+  lines := description.split(`\n`);
   summary_lines := ArrayList(String).new();
-  count         := lines.len();
-  i             := usize(0);
-  while(runtime((i < count)), {
-    line := match(lines.get(i), .Some(l) => l, .None => { break; });
-    if((line.trim() == ``), { break; });
+  count := lines.len();
+  i := usize(0);
+  while(runtime(i < count), {
+    line := match(
+      lines.get(i),
+      .Some(l) => l,
+      .None => {
+        break;
+      }
+    );
+    if(line.trim() == ``, {
+      break;
+    });
     summary_lines.push(line);
     i = (i + usize(1));
   });
-
   `\n`.join(summary_lines)
 });
-
 /// Parse a doc comment into structured sections.
 ///
 /// - Everything before the first `## ` heading is the description.
@@ -92,67 +111,75 @@ extract_summary_ :: (fn(description : String) -> String)({
 /// - Unknown headings are kept as-is (key = lowercase heading text).
 /// - Section content continues until the next `## ` heading or end of text.
 parse_doc_comment :: (fn(text : String) -> ParsedDocComment)({
-  if((text.trim() == ``), {
-    return(ParsedDocComment(
-      summary:     ``,
-      description: ``,
-      sections:    HashMap(String, String).new()
-    ));
+  if(text.trim() == ``, {
+    return(
+      ParsedDocComment(
+        summary : ``,
+        description : ``,
+        sections : HashMap(String, String).new()
+      )
+    );
   });
-
-  lines    := text.split(`\n`);
+  lines := text.split(`\n`);
   sections := HashMap(String, String).new();
-
-  description_lines    := ArrayList(String).new();
-  current_section_name  := Option(String).None;
+  description_lines := ArrayList(String).new();
+  current_section_name := Option(String).None;
   current_section_lines := ArrayList(String).new();
-
   count := lines.len();
-  i     := usize(0);
-  while(runtime((i < count)), {
-    line := match(lines.get(i), .Some(l) => l, .None => { break; });
-
+  i := usize(0);
+  while(runtime(i < count), {
+    line := match(
+      lines.get(i),
+      .Some(l) => l,
+      .None => {
+        break;
+      }
+    );
     if(is_section_heading_(line), {
-      match(current_section_name,
+      match(
+        current_section_name,
         .Some(name) => {
           sections.set(name, trim_section_content_(current_section_lines));
           current_section_lines = ArrayList(String).new();
         },
-        .None => ());
+        .None => ()
+      );
       current_section_name = Option(String).Some(get_section_heading_(line).to_lowercase());
     }, {
-      match(current_section_name,
-        .Some(_) => { current_section_lines.push(line); },
-        .None    => { description_lines.push(line); });
+      match(
+        current_section_name,
+        .Some(_) => {
+          current_section_lines.push(line);
+        },
+        .None => {
+          description_lines.push(line);
+        }
+      );
     });
-
     i = (i + usize(1));
   });
-
-  match(current_section_name,
+  match(
+    current_section_name,
     .Some(name) => {
       sections.set(name, trim_section_content_(current_section_lines));
     },
-    .None => ());
-
+    .None => ()
+  );
   description := trim_section_content_(description_lines);
-  summary     := extract_summary_(description);
-
-  ParsedDocComment(summary: summary, description: description, sections: sections)
+  summary := extract_summary_(description);
+  ParsedDocComment(summary : summary, description : description, sections : sections)
 });
-
 /// Check if a section name is a well-known section heading.
 is_known_section :: (fn(name : String) -> bool)({
   lower := name.to_lowercase();
   cond(
-    (lower == `returns`)    => true,
-    (lower == `errors`)     => true,
-    (lower == `panics`)     => true,
-    (lower == `examples`)   => true,
-    (lower == `safety`)     => true,
+    (lower == `returns`) => true,
+    (lower == `errors`) => true,
+    (lower == `panics`) => true,
+    (lower == `examples`) => true,
+    (lower == `safety`) => true,
     (lower == `deprecated`) => true,
-    true                    => false
+    true => false
   )
 });
-
 export(parse_doc_comment, is_known_section);

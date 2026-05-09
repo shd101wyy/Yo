@@ -16,112 +16,150 @@
 //!   * `_get_variables_needing_drop` — simplified (type_contains_rc_type is stub)
 //!   * `generate_deferred_drop_expressions` — generates ___drop calls for RC vars
 //!   * `validate_function_return_type` — checks return type SomeTs are resolvable
-
 open(import("std/string"));
-{ ArrayList }                                 :: import("std/collections/array_list");
-
-{ AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_is_fn_call_of, ast_expr_is_atom_of,
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom_of,
   make_err_expr,
-  evaluated_body_contains_escape }             :: import("../../expr/expr.yo");
-{ Environment,
+  evaluated_body_contains_escape
+} :: import("../../expr/expr.yo");
+{
+  Environment,
   Variable,
   get_variables_from_env,
   get_all_variables_from_env,
   add_variable_to_env,
   update_existing_variable,
   synthetic_token,
-  clone_env }                                 :: import("../../env/env.yo");
-{ TypeValue, t_unit }                         :: import("../../types/type.yo");
-{ type_to_string }                            :: import("../../types/string.yo");
-{ get_all_some_types,
-  type_contains_some_type }                   :: import("../../types/utils.yo");
-{ is_some_type }                              :: import("../../types/guards.yo");
-{ type_implements_future,
-  type_implements_fn }                        :: import("../trait_checking.yo");
-{ EvalValue, eval_value_eq,
-  value_to_string, create_type_value }         :: import("../value.yo");
-{ EvalContext,
+  clone_env
+} :: import("../../env/env.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{
+  get_all_some_types,
+  type_contains_some_type
+} :: import("../../types/utils.yo");
+{ is_some_type } :: import("../../types/guards.yo");
+{
+  type_implements_future,
+  type_implements_fn
+} :: import("../trait_checking.yo");
+{
+  EvalValue,
+  eval_value_eq,
+  value_to_string,
+  create_type_value
+} :: import("../value.yo");
+{
+  EvalContext,
   FuncCallResult,
-  FuncOrAsyncBlockCtx, FuncOrAsyncBlockKind,
+  FuncOrAsyncBlockCtx,
+  FuncOrAsyncBlockKind,
   ImplConcreteTypeInfo,
-  ArgValues, ArgEntry, VarArgEntry,
+  ArgValues,
+  ArgEntry,
+  VarArgEntry,
   ExpectedTypeCtx,
   SpecializingFunctionInfo,
   SpecializedFunctionCache,
-  SpecializedFunctionCacheEntry }             :: import("../context.yo");
-{ PathCollection, path_collection_new,
-  ExprInfo, new_expr_info,
-  expr_info_table_get }                       :: import("../../expr/expr_info.yo");
-{ evaluate_expression }                       :: import("../exprs/expr.yo");
-{ SynthesizeResult, SynthesizeOptions,
-  TypePair, synthesize_types }                :: import("../types/synthesizer.yo");
-{ are_types_compatible,
-  are_types_compatible_exact }               :: import("../../types/compatibility.yo");
-{ evaluate_function_parameter_type_again,
-  evaluate_function_return_type_again }       :: import("../types/function.yo");
-{ evaluate_begin_expression }                 :: import("../exprs/begin.yo");
-{ generate_expr_from_code }                   :: import("../../parser/parser.yo");
-{ format_error_message }                      :: import("../../error/error.yo");
-{ mark_as_control_fn, is_control_fn }         :: import("../types/control_fn_registry.yo");
-{ get_definition_site_return }               :: import("../types/definition_site_registry.yo");
-{ Exception }                                 :: import("std/error");
-
+  SpecializedFunctionCacheEntry
+} :: import("../context.yo");
+{
+  PathCollection,
+  path_collection_new,
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{
+  SynthesizeResult,
+  SynthesizeOptions,
+  TypePair,
+  synthesize_types
+} :: import("../types/synthesizer.yo");
+{
+  are_types_compatible,
+  are_types_compatible_exact
+} :: import("../../types/compatibility.yo");
+{
+  evaluate_function_parameter_type_again,
+  evaluate_function_return_type_again
+} :: import("../types/function.yo");
+{ evaluate_begin_expression } :: import("../exprs/begin.yo");
+{ generate_expr_from_code } :: import("../../parser/parser.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ mark_as_control_fn, is_control_fn } :: import("../types/control_fn_registry.yo");
+{ get_definition_site_return } :: import("../types/definition_site_registry.yo");
+{ Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // extract_function_value
 // ---------------------------------------------------------------------------
-
 /// Extract a FuncVal from an optional EvalValue.
 /// Closures are runtime-only and have no FuncVal at compile time.
 ///
 /// Mirrors `extractFunctionValue` in `src/evaluator/calls/helper.ts`.
 extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
-  match(value,
-    .None    => Option(EvalValue).None,
-    .Some(v) => match(v,
+  match(
+    value,
+    .None => Option(EvalValue).None,
+    .Some(v) => match(
+      v,
       .FuncVal(_, _, _, _, _, _, _, _, _) => Option(EvalValue).Some(v),
-      _                                   => Option(EvalValue).None
+      _ => Option(EvalValue).None
     )
   )
 );
-
 // ---------------------------------------------------------------------------
 // _module_type_contains_ctl_field
 // ---------------------------------------------------------------------------
-
 /// Return true if any field of `module_type` is a "control function"
 /// (one that uses `escape` to control the continuation).
 ///
 /// Mirrors `moduleTypeContainsCtlField` in `src/evaluator/calls/helper.ts`.
 /// Uses the global control-function registry since FuncVal has no isControlFunction flag.
-_module_type_contains_ctl_field :: (fn(
-  module_type : TypeValue,
-  module_val  : Option(EvalValue)
-) -> bool)(
-  match(module_type,
+_module_type_contains_ctl_field :: (
+  fn(
+    module_type : TypeValue,
+    module_val : Option(EvalValue)
+  ) -> bool
+)(
+  match(
+    module_type,
     .ModuleT(_, _, field_labels, field_types) => {
       n := field_types.len();
       (fi : usize) = usize(0);
       (found : bool) = false;
-      while(runtime(((fi < n) && (!(found)))), {
-        field_ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-        (field_val_opt : Option(EvalValue)) = match(module_val,
+      while(runtime((fi < n) && (!(found))), {
+        field_ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+        (field_val_opt : Option(EvalValue)) = match(
+          module_val,
           .None => Option(EvalValue).None,
-          .Some(mv) => match(mv,
-            .ModuleVal(_, vals) => match(vals.get(fi),
+          .Some(mv) => match(
+            mv,
+            .ModuleVal(_, vals) => match(
+              vals.get(fi),
               .Some(v) => Option(EvalValue).Some(v),
-              .None    => Option(EvalValue).None
+              .None => Option(EvalValue).None
             ),
             _ => Option(EvalValue).None
           )
         );
         // Check if field is a Func type and value is a control function
-        is_func_field := match(field_ty, .Func(_, _, _, _, _, _, _, _, _) => true, _ => false);
+        is_func_field := match(field_ty,.Func(_, _, _, _, _, _, _, _, _) => true, _ => false);
         if(is_func_field, {
-          match(field_val_opt,
-            .Some(fv) => match(fv,
+          match(
+            field_val_opt,
+            .Some(fv) => match(
+              fv,
               .FuncVal(_, _, _, _, _, _, _, _, fid) => {
-                if(is_control_fn(fid.as_str()), { found = true; });
+                if(is_control_fn(fid.as_str()), {
+                  found = true;
+                });
               },
               _ => ()
             ),
@@ -129,16 +167,20 @@ _module_type_contains_ctl_field :: (fn(
           );
         });
         // Recurse into nested module fields
-        is_module_field := match(field_ty, .ModuleT(_, _, _, _) => true, _ => false);
-        if((is_module_field && (!(found))), {
-          (inner_module_val_opt : Option(EvalValue)) = match(field_val_opt,
+        is_module_field := match(field_ty,.ModuleT(_, _, _, _) => true, _ => false);
+        if(is_module_field && (!(found)), {
+          (inner_module_val_opt : Option(EvalValue)) = match(
+            field_val_opt,
             .None => Option(EvalValue).None,
-            .Some(fv) => match(fv,
+            .Some(fv) => match(
+              fv,
               .ModuleVal(_, _) => Option(EvalValue).Some(fv),
-              _                => Option(EvalValue).None
+              _ => Option(EvalValue).None
             )
           );
-          if(recur(field_ty, inner_module_val_opt), { found = true; });
+          if(recur(field_ty, inner_module_val_opt), {
+            found = true;
+          });
         });
         fi = (fi + usize(1));
       });
@@ -147,11 +189,9 @@ _module_type_contains_ctl_field :: (fn(
     _ => false
   )
 );
-
 // ---------------------------------------------------------------------------
 // _get_variables_needing_drop
 // ---------------------------------------------------------------------------
-
 /// Return variables from the top env frame that need RC drop calls.
 ///
 /// Phase 3 simplification: `type_contains_rc_type` is a stub that always
@@ -161,16 +201,20 @@ _module_type_contains_ctl_field :: (fn(
 _get_variables_needing_drop :: (fn(env : Environment) -> ArrayList(Variable))({
   result := ArrayList(Variable).new();
   n := env.frames.len();
-  if((n == usize(0)), { return(result); });
-  match(env.frames.get((n - usize(1))),
+  if(n == usize(0), {
+    return(result);
+  });
+  match(
+    env.frames.get(n - usize(1)),
     .None => (),
     .Some(top_frame) => {
       m := top_frame.variables.len();
       (i : usize) = usize(0);
-      while(runtime((i < m)), {
-        match(top_frame.variables.get(i),
+      while(runtime(i < m), {
+        match(
+          top_frame.variables.get(i),
           .Some(v) => {
-            if(((!(v.consumed_at_token.is_some())) && v.is_owning_the_rc_value), {
+            if((!(v.consumed_at_token.is_some())) && v.is_owning_the_rc_value, {
               // Phase 3: type_contains_rc_type is stub (always false),
               // so no variable qualifies for dropping yet.
               // Full implementation: also check type_contains_rc_type(v.ty).
@@ -185,31 +229,33 @@ _get_variables_needing_drop :: (fn(env : Environment) -> ArrayList(Variable))({
   );
   result
 });
-
 // ---------------------------------------------------------------------------
 // generate_deferred_drop_expressions
 // ---------------------------------------------------------------------------
-
 /// Generate `___drop(varName)` expressions for variables that need RC cleanup.
 ///
 /// Phase 3: returns `None` (no variables qualify with the current stub for
 /// `type_contains_rc_type`).
 ///
 /// Mirrors `generateDeferredDropExpressions` in `src/evaluator/calls/helper.ts`.
-generate_deferred_drop_expressions :: (fn(
-  variables_to_drop : ArrayList(Variable),
-  env               : Environment,
-  ctx               : *(EvalContext),
-  using(exn         : Exception)
-) -> Option(ArrayList(AstExpr)))({
+generate_deferred_drop_expressions :: (
+  fn(
+    variables_to_drop : ArrayList(Variable),
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> Option(ArrayList(AstExpr))
+)({
   n := variables_to_drop.len();
-  if((n == usize(0)), { return(Option(ArrayList(AstExpr)).None); });
-
+  if(n == usize(0), {
+    return(Option(ArrayList(AstExpr)).None);
+  });
   deferred := ArrayList(AstExpr).new();
   (cur_env : Environment) = env;
   (i : usize) = usize(0);
-  while(runtime((i < n)), {
-    match(variables_to_drop.get(i),
+  while(runtime(i < n), {
+    match(
+      variables_to_drop.get(i),
       .Some(variable) => {
         // Build the drop expression: ___drop(varName)
         drop_code := `___drop(${variable.name})`;
@@ -223,17 +269,15 @@ generate_deferred_drop_expressions :: (fn(
     );
     i = (i + usize(1));
   });
-
-  if((deferred.len() == usize(0)),
+  if(
+    deferred.len() == usize(0),
     Option(ArrayList(AstExpr)).None,
     Option(ArrayList(AstExpr)).Some(deferred)
   )
 });
-
 // ---------------------------------------------------------------------------
 // validate_function_return_type
 // ---------------------------------------------------------------------------
-
 /// Validate that the return type does not contain unresolved SomeType variables
 /// that cannot be inferred from the caller's environment.
 ///
@@ -241,56 +285,70 @@ generate_deferred_drop_expressions :: (fn(
 /// corresponding variable in the env AND is not a Future/Fn impl type.
 ///
 /// Mirrors `validateFunctionReturnType` in `src/evaluator/calls/helper.ts`.
-validate_function_return_type :: (fn(
-  return_type : TypeValue,
-  expr        : AstExpr,
-  env         : Environment,
-  ctx         : *(EvalContext),
-  using(exn   : Exception)
-) -> unit)({
+validate_function_return_type :: (
+  fn(
+    return_type : TypeValue,
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> unit
+)({
   // Skip validation if inside function-type evaluation or when expected type is set.
-  if((ctx.is_evaluating_function_type), { return(()); });
-  if((ctx.expected_type.is_some()), { return(()); });
-
+  if(ctx.is_evaluating_function_type, {
+    return(());
+  });
+  if(ctx.expected_type.is_some(), {
+    return(());
+  });
   some_types := get_all_some_types(return_type);
   n := some_types.len();
   (i : usize) = usize(0);
-  while(runtime((i < n)), {
-    match(some_types.get(i),
-      .None    => (),
+  while(runtime(i < n), {
+    match(
+      some_types.get(i),
+      .None => (),
       .Some(st) =>
-        match(st,
+        match(
+          st,
           .SomeT(_, name, _, _, required_trait_types, _, _, _, _) => {
             // Determine whether this SomeT should be skipped.
             should_skip := (
               type_implements_future(st) ||
-              type_implements_fn(st) ||
-              (required_trait_types.len() > usize(0))
+                type_implements_fn(st) ||
+                  (required_trait_types.len() > usize(0))
             );
             if(!(should_skip), {
               // Check if name is directly in the env.
               vars := get_variables_from_env(env, name);
-              if((vars.len() == usize(0)), {
+              if(vars.len() == usize(0), {
                 // Check transitively via all variables' TypeVal values.
                 all_vars := get_all_variables_from_env(env);
                 (found_transitively : bool) = false;
                 (j : usize) = usize(0);
                 nv := all_vars.len();
-                while(runtime(((j < nv) && !(found_transitively))), {
-                  match(all_vars.get(j),
+                while(runtime((j < nv) && !(found_transitively)), {
+                  match(
+                    all_vars.get(j),
                     .Some(var) => {
-                      match(var.value,
+                      match(
+                        var.value,
                         .Some(ev) => {
-                          match(ev,
+                          match(
+                            ev,
                             .TypeVal(ty_box) => {
                               transitive := get_all_some_types(ty_box.*);
                               (k : usize) = usize(0);
-                              while(runtime(((k < transitive.len()) && !(found_transitively))), {
-                                match(transitive.get(k),
+                              while(runtime((k < transitive.len()) && !(found_transitively)), {
+                                match(
+                                  transitive.get(k),
                                   .Some(tst) => {
-                                    match(tst,
+                                    match(
+                                      tst,
                                       .SomeT(_, tname, _, _, _, _, _, _, _) => {
-                                        if((tname == name), { found_transitively = true; });
+                                        if(tname == name, {
+                                          found_transitively = true;
+                                        });
                                       },
                                       _ => ()
                                     );
@@ -312,12 +370,16 @@ validate_function_return_type :: (fn(
                 });
                 // Not found even transitively — throw error.
                 if(!(found_transitively), {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(expr),
-                    String.from("Failed to infer the function call return(type.\nPlease consider providing the expected type.)"),
-                    false,
-                    .None
-                  )));
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        String.from("Failed to infer the function call return(type.\nPlease consider providing the expected type.)"),
+                        false,
+                        .None
+                      )
+                    )
+                  );
                 });
               });
             });
@@ -328,113 +390,115 @@ validate_function_return_type :: (fn(
     i = (i + usize(1));
   });
 });
-
 // ---------------------------------------------------------------------------
 // Local helper: extract the args ArrayList from a FnCall AstExpr.
 // ---------------------------------------------------------------------------
-
 _h_get_fn_call_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
-  match(e,
+  match(
+    e,
     .FnCall(_, _, args, _, _) => args,
-    .Atom(_, _)               => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
-
 // ---------------------------------------------------------------------------
 // CheckParamResult — result of check_if_function_parameter_matches_argument
 // ---------------------------------------------------------------------------
-
 CheckParamResult :: object(
-  callee_env          : Environment,
-  caller_env          : Environment,
-  arg_value           : Option(EvalValue),
-  arg_type            : TypeValue,
+  callee_env : Environment,
+  caller_env : Environment,
+  arg_value : Option(EvalValue),
+  arg_type : TypeValue,
   resolved_param_type : TypeValue
 );
-
 // ---------------------------------------------------------------------------
 // check_if_function_parameter_matches_argument
 // Phase 3 port of checkIfFunctionParameterMatchesArgument (helper.ts).
 // ---------------------------------------------------------------------------
-
 /// Check that one function parameter matches its argument expression.
 /// Evaluates the arg, synthesizes type bindings into callee_env, and adds
 /// the parameter variable to callee_env.
-check_if_function_parameter_matches_argument :: (fn(
-  param_label                : String,
-  param_type                 : TypeValue,
-  is_ct_only                 : bool,
-  arg_expr_raw               : AstExpr,
-  callee_env                 : Environment,
-  caller_env                 : Environment,
-  ctx                        : *(EvalContext),
-  runtime_arg_exprs_in_order : ArrayList(AstExpr),
-  using(exn                  : Exception)
-) -> CheckParamResult)({
+check_if_function_parameter_matches_argument :: (
+  fn(
+    param_label : String,
+    param_type : TypeValue,
+    is_ct_only : bool,
+    arg_expr_raw : AstExpr,
+    callee_env : Environment,
+    caller_env : Environment,
+    ctx : *(EvalContext),
+    runtime_arg_exprs_in_order : ArrayList(AstExpr),
+    using(exn : Exception)
+  ) -> CheckParamResult
+)({
   // Step 1: Strip "label: value" colon-label wrapper from arg if present.
   (actual_arg : AstExpr) = arg_expr_raw;
-  if(ast_expr_is_fn_call_of(arg_expr_raw, ":", .Some(usize(2))), {
+  if(ast_expr_is_fn_call_of(arg_expr_raw, ":",.Some(usize(2))), {
     colon_args := _h_get_fn_call_args(arg_expr_raw);
-    actual_arg = match(colon_args.get(usize(1)),
+    actual_arg = match(
+      colon_args.get(usize(1)),
       .Some(a) => a,
-      .None    => arg_expr_raw
+      .None => arg_expr_raw
     );
   });
-
   // Step 2: Evaluate param type in callee_env.
   (callee_env_r : Environment) = callee_env;
   resolved_pt := evaluate_function_parameter_type_again(param_type, callee_env_r, ctx);
-
   // Step 3: Evaluate arg with param type as expected-type hint.
   saved_exp := ctx.expected_type;
-  ctx.expected_type = .Some(ExpectedTypeCtx(ty: resolved_pt, env: callee_env_r));
+  ctx.expected_type =.Some(ExpectedTypeCtx(ty : resolved_pt, env : callee_env_r));
   evaled_arg := evaluate_expression(actual_arg, caller_env, ctx);
   ctx.expected_type = saved_exp;
-
   // Extract ExprInfo for the evaluated arg.
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
-  arg_info := match(arg_info_opt,
+  arg_info := match(
+    arg_info_opt,
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(actual_arg),
-        String.from("check_if_function_parameter_matches_argument: arg has no ExprInfo"),
-        false,
-        .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(actual_arg),
+            String.from("check_if_function_parameter_matches_argument: arg has no ExprInfo"),
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(caller_env, t_unit())
     }
   );
-
   (caller_env_r : Environment) = arg_info.env;
-  arg_type  := arg_info.ty;
+  arg_type := arg_info.ty;
   arg_value := arg_info.value;
-
   // Step 4: Append to runtime arg list if not comptime-only.
   if(!(is_ct_only), {
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
-
   // Step 5: Comptime check — runtime arg cannot fill a comptime parameter.
   if(is_ct_only, {
-    is_rt := match(arg_value,
-      .None    => true,
-      .Some(v) => match(v,
+    is_rt := match(
+      arg_value,
+      .None => true,
+      .Some(v) => match(
+        v,
         .UnknownVal(_) => true,
-        .VarRef(_)     => true,
-        _              => false
+        .VarRef(_) => true,
+        _ => false
       )
     );
     if(is_rt, {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(actual_arg),
-        `Cannot assign runtime argument to compile-time parameter "${param_label}"`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(actual_arg),
+            `Cannot assign runtime argument to compile-time parameter "${param_label}"`,
+            false,
+            .None
+          )
+        )
+      );
     });
   });
-
   // Step 6: Synthesize forall bindings from arg type into callee_env.
   checked := ArrayList(TypePair).new();
   // Note: opts is a local variable (not comptime .None) to ensure the
@@ -442,52 +506,57 @@ check_if_function_parameter_matches_argument :: (fn(
   // See issues/synthesizer-unspecialized-wrapper.md
   (synth_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
   synth := synthesize_types(
-    resolved_pt,  callee_env_r,
-    arg_type,     caller_env_r,
+    resolved_pt,
+    callee_env_r,
+    arg_type,
+    caller_env_r,
     &(checked),
     synth_opts,
     using(exn)
   );
   callee_env_r = synth.expected_env;
-
   // Step 7: Re-evaluate param type with the updated callee_env.
   final_pt := evaluate_function_parameter_type_again(resolved_pt, callee_env_r, ctx);
-
   // Step 8: Type-compatibility check.
   if(!(are_types_compatible(final_pt, arg_type)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(actual_arg),
-      `Type mismatch for parameter "${param_label}"`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(actual_arg),
+          `Type mismatch for parameter "${param_label}"`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Step 9: Bind param variable in callee_env.
   param_tok := synthetic_token(param_label, callee_env_r.module_path);
   _ := add_variable_to_env(
     &(callee_env_r),
-    param_label, final_pt, arg_value,
+    param_label,
+    final_pt,
+    arg_value,
     is_ct_only,
-    false,  // is_reassignable
-    false,  // is_owning_the_rc_value
-    false,  // is_implicit
+    false,
+    // is_reassignable
+    false,
+    // is_owning_the_rc_value
+    false,
+    // is_implicit
     param_tok
   );
-
   CheckParamResult(
-    callee_env:          callee_env_r,
-    caller_env:          caller_env_r,
-    arg_value:           arg_value,
-    arg_type:            arg_type,
-    resolved_param_type: final_pt
+    callee_env : callee_env_r,
+    caller_env : caller_env_r,
+    arg_value : arg_value,
+    arg_type : arg_type,
+    resolved_param_type : final_pt
   )
 });
-
 // ---------------------------------------------------------------------------
 // sanitize_for_sig
 // ---------------------------------------------------------------------------
-
 /// Replace all non-alphanumeric bytes in `s` with underscores.
 ///
 /// Used to make compile-time signature strings safe as C identifier suffixes.
@@ -495,16 +564,16 @@ check_if_function_parameter_matches_argument :: (fn(
 /// handles the character-replacement aspect (no C keyword avoidance needed
 /// here since the signature is a suffix appended to a valid func_id).
 sanitize_for_sig :: (fn(s : String) -> String)({
-  bytes  := s.as_bytes();
-  n      := bytes.len();
+  bytes := s.as_bytes();
+  n := bytes.len();
   result := String.new();
   (i : usize) = usize(0);
-  while(runtime((i < n)), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+  while(runtime(i < n), {
+    b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
     is_alnum := (
-      ((b >= u8(97)) && (b <= u8(122))) ||   // a-z
-      ((b >= u8(65)) && (b <= u8(90)))  ||   // A-Z
-      ((b >= u8(48)) && (b <= u8(57)))        // 0-9
+      ((b >= u8(97)) && (b <= u8(122))) || // a-z
+      ((b >= u8(65)) && (b <= u8(90))) || // A-Z
+      ((b >= u8(48)) && (b <= u8(57))) // 0-9
     );
     if(is_alnum, {
       result.push_byte(b);
@@ -515,11 +584,9 @@ sanitize_for_sig :: (fn(s : String) -> String)({
   });
   result
 });
-
 // ---------------------------------------------------------------------------
 // value_to_signature_string
 // ---------------------------------------------------------------------------
-
 /// Convert a value to a deterministic string for use in specialization cache keys.
 ///
 /// For type values, returns the type string.
@@ -528,17 +595,16 @@ sanitize_for_sig :: (fn(s : String) -> String)({
 ///
 /// Mirrors `valueToSignatureString` in `src/evaluator/calls/helper.ts`.
 value_to_signature_string :: (fn(value : EvalValue) -> String)(
-  match(value,
-    .TypeVal(t)                           => type_to_string(t.*),
+  match(
+    value,
+    .TypeVal(t) => type_to_string(t.*),
     .FuncVal(_, _, _, _, _, _, _, _, fid) => `fn_${fid}`,
-    _                                     => value_to_string(value)
+    _ => value_to_string(value)
   )
 );
-
 // ---------------------------------------------------------------------------
 // compute_compile_time_signature
 // ---------------------------------------------------------------------------
-
 /// Build a deterministic signature string for a generic function specialization.
 ///
 /// The signature encodes:
@@ -550,45 +616,52 @@ value_to_signature_string :: (fn(value : EvalValue) -> String)(
 /// Used as the suffix for `specializedFuncId = funcId + "_" + signature`.
 ///
 /// Mirrors `computeCompileTimeSignature` in `src/evaluator/calls/helper.ts`.
-compute_compile_time_signature :: (fn(
-  func_type          : TypeValue,
-  arg_values         : ArgValues,
-  callee_env         : Environment,
-  runtime_param_tys  : ArrayList(TypeValue),
-  using(exn          : Exception)
-) -> String)({
+compute_compile_time_signature :: (
+  fn(
+    func_type : TypeValue,
+    arg_values : ArgValues,
+    callee_env : Environment,
+    runtime_param_tys : ArrayList(TypeValue),
+    using(exn : Exception)
+  ) -> String
+)({
   parts := ArrayList(String).new();
-
   // Forall type arguments — extract from forall_labels vs arg_values.forall_args
-  match(func_type,
+  match(
+    func_type,
     .Func(fl, _, _, _, _, _, _, _, _) => {
       n_fl := fl.len();
       n_fa := arg_values.forall_args.len();
       (fpi : usize) = usize(0);
-      while(runtime((fpi < n_fl)), {
-        val_opt := if((fpi < n_fa),
-          match(arg_values.forall_args.get(fpi),
+      while(runtime(fpi < n_fl), {
+        val_opt := if(
+          fpi < n_fa,
+          match(
+            arg_values.forall_args.get(fpi),
             .Some(ae) => ae.value,
-            .None     => Option(EvalValue).None
+            .None => Option(EvalValue).None
           ),
           Option(EvalValue).None
         );
-        sig_str := match(val_opt,
+        sig_str := match(
+          val_opt,
           .Some(v) => sanitize_for_sig(value_to_signature_string(v)),
-          .None    => {
+          .None => {
             // Look up the forall label in callee_env
-            label := match(fl.get(fpi), .Some(s) => s, .None => String.new());
-            vars  := get_variables_from_env(callee_env, label);
-            n_v   := vars.len();
+            label := match(fl.get(fpi),.Some(s) => s,.None => String.new());
+            vars := get_variables_from_env(callee_env, label);
+            n_v := vars.len();
             cond(
               (n_v > usize(0)) => {
-                env_val := match(vars.get((n_v - usize(1))),
+                env_val := match(
+                  vars.get(n_v - usize(1)),
                   .Some(vr) => vr.value,
-                  .None     => Option(EvalValue).None
+                  .None => Option(EvalValue).None
                 );
-                match(env_val,
+                match(
+                  env_val,
                   .Some(ev) => sanitize_for_sig(value_to_signature_string(ev)),
-                  .None     => String.from("unknown")
+                  .None => String.from("unknown")
                 )
               },
               true => String.from("unknown")
@@ -601,17 +674,19 @@ compute_compile_time_signature :: (fn(
     },
     _ => ()
   );
-
   // Implicit argument values (given/using handlers — always compile-time)
-  match(arg_values.implicit_args,
+  match(
+    arg_values.implicit_args,
     .Some(impl_args) => {
       n_ia := impl_args.len();
       (iai : usize) = usize(0);
-      while(runtime((iai < n_ia)), {
-        sig_str := match(impl_args.get(iai),
-          .Some(ae) => match(ae.value,
+      while(runtime(iai < n_ia), {
+        sig_str := match(
+          impl_args.get(iai),
+          .Some(ae) => match(
+            ae.value,
             .Some(v) => sanitize_for_sig(value_to_signature_string(v)),
-            .None    => String.from("unknown")
+            .None => String.from("unknown")
           ),
           .None => String.from("unknown")
         );
@@ -621,65 +696,66 @@ compute_compile_time_signature :: (fn(
     },
     .None => ()
   );
-
   // Runtime parameter types that contain SomeType — disambiguates specializations
   // with the same compile-time args but different concrete closure capture types.
   n_rt := runtime_param_tys.len();
   (rti : usize) = usize(0);
-  while(runtime((rti < n_rt)), {
-    ptype := match(runtime_param_tys.get(rti), .Some(t) => t, .None => t_unit());
+  while(runtime(rti < n_rt), {
+    ptype := match(runtime_param_tys.get(rti),.Some(t) => t,.None => t_unit());
     if(type_contains_some_type(ptype), {
       seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_to_string(ptype))}`;
       parts.push(seg);
     });
     rti = (rti + usize(1));
   });
-
   // Join parts into a single string
-  result    := String.new();
-  n_parts   := parts.len();
+  result := String.new();
+  n_parts := parts.len();
   (pi : usize) = usize(0);
-  while(runtime((pi < n_parts)), {
-    if((pi > usize(0)), {
+  while(runtime(pi < n_parts), {
+    if(pi > usize(0), {
       result.push_str("_");
     });
-    match(parts.get(pi),
+    match(
+      parts.get(pi),
       .Some(p) => result.push_string(p),
-      .None    => ()
+      .None => ()
     );
     pi = (pi + usize(1));
   });
   result
 });
-
 // ---------------------------------------------------------------------------
 // Specialization cache helpers
 // ---------------------------------------------------------------------------
-
 /// Look up a cached specialization by `func_id` and compile-time args.
 ///
 /// Returns `Some(specialized_func_val)` if a matching cache entry is found,
 /// or `None` if no entry exists.
-_find_specialization_cache :: (fn(
-  ctx                     : *(EvalContext),
-  func_id                 : str,
-  compile_time_arg_values : ArrayList(EvalValue),
-  runtime_parameter_types : ArrayList(TypeValue),
-  caller_env              : Environment
-) -> Option(EvalValue))({
+_find_specialization_cache :: (
+  fn(
+    ctx : *(EvalContext),
+    func_id : str,
+    compile_time_arg_values : ArrayList(EvalValue),
+    runtime_parameter_types : ArrayList(TypeValue),
+    caller_env : Environment
+  ) -> Option(EvalValue)
+)({
   n_entries := ctx.specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (result : Option(EvalValue)) = Option(EvalValue).None;
-  while(runtime(((ei < n_entries) && result.is_none())), {
+  while(runtime((ei < n_entries) && result.is_none()), {
     entry_opt := ctx.specialized_fn_caches.get(ei);
-    match(entry_opt,
+    match(
+      entry_opt,
       .Some(entry) => {
-        if((entry.func_id.as_str() == func_id), {
+        if(entry.func_id.as_str() == func_id, {
           n_caches := entry.caches.len();
           (ci : usize) = usize(0);
-          while(runtime(((ci < n_caches) && result.is_none())), {
+          while(runtime((ci < n_caches) && result.is_none()), {
             cache_opt := entry.caches.get(ci);
-            match(cache_opt,
+            match(
+              cache_opt,
               .Some(cache) => {
                 // Check compile-time arg values match
                 n_ct := cache.compile_time_arg_values.len();
@@ -687,9 +763,9 @@ _find_specialization_cache :: (fn(
                 ct_match := (n_ct == n_cur_ct);
                 if(ct_match, {
                   (cti : usize) = usize(0);
-                  while(runtime(((cti < n_ct) && ct_match)), {
-                    cached_v  := match(cache.compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
-                    current_v := match(compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
+                  while(runtime((cti < n_ct) && ct_match), {
+                    cached_v := match(cache.compile_time_arg_values.get(cti),.Some(v) => v,.None => EvalValue.UnitVal);
+                    current_v := match(compile_time_arg_values.get(cti),.Some(v) => v,.None => EvalValue.UnitVal);
                     if(!(eval_value_eq(cached_v, current_v)), {
                       ct_match = false;
                     });
@@ -704,9 +780,9 @@ _find_specialization_cache :: (fn(
                   if(rt_match, {
                     _ := caller_env;
                     (rti : usize) = usize(0);
-                    while(runtime(((rti < n_rt) && rt_match)), {
-                      cached_ty  := match(cache.runtime_parameter_types.get(rti), .Some(t) => t, .None => t_unit());
-                      current_ty := match(runtime_parameter_types.get(rti), .Some(t) => t, .None => t_unit());
+                    while(runtime((rti < n_rt) && rt_match), {
+                      cached_ty := match(cache.runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
+                      current_ty := match(runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
                       if(!(are_types_compatible_exact(cached_ty, current_ty)), {
                         rt_match = false;
                       });
@@ -730,32 +806,33 @@ _find_specialization_cache :: (fn(
   });
   result
 });
-
 /// Store a specialization in the cache.
-_store_specialization_cache :: (fn(
-  ctx                     : *(EvalContext),
-  func_id                 : String,
-  compile_time_arg_values : ArrayList(EvalValue),
-  runtime_parameter_types : ArrayList(TypeValue),
-  specialized_func_val    : EvalValue,
-  env                     : Environment
-) -> unit)({
+_store_specialization_cache :: (
+  fn(
+    ctx : *(EvalContext),
+    func_id : String,
+    compile_time_arg_values : ArrayList(EvalValue),
+    runtime_parameter_types : ArrayList(TypeValue),
+    specialized_func_val : EvalValue,
+    env : Environment
+  ) -> unit
+)({
   new_cache := SpecializedFunctionCache(
-    compile_time_arg_values: compile_time_arg_values,
-    runtime_parameter_types: runtime_parameter_types,
-    specialized_func_value:  specialized_func_val,
-    env:                     env
+    compile_time_arg_values : compile_time_arg_values,
+    runtime_parameter_types : runtime_parameter_types,
+    specialized_func_value : specialized_func_val,
+    env : env
   );
-
   // Find existing entry for this func_id
   n_entries := ctx.specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (found : bool) = false;
-  while(runtime(((ei < n_entries) && !(found))), {
+  while(runtime((ei < n_entries) && !(found)), {
     entry_opt := ctx.specialized_fn_caches.get(ei);
-    match(entry_opt,
+    match(
+      entry_opt,
       .Some(entry) => {
-        if((entry.func_id.as_str() == func_id.as_str()), {
+        if(entry.func_id.as_str() == func_id.as_str(), {
           found = true;
           // Push into existing entry's caches
           entry.caches.push(new_cache);
@@ -765,22 +842,21 @@ _store_specialization_cache :: (fn(
     );
     ei = (ei + usize(1));
   });
-
   if(!(found), {
     // Create new entry
     new_caches := ArrayList(SpecializedFunctionCache).new();
     new_caches.push(new_cache);
-    ctx.specialized_fn_caches.push(SpecializedFunctionCacheEntry(
-      func_id: func_id,
-      caches:  new_caches
-    ));
+    ctx.specialized_fn_caches.push(
+      SpecializedFunctionCacheEntry(
+        func_id : func_id,
+        caches : new_caches
+      )
+    );
   });
 });
-
 // ---------------------------------------------------------------------------
 // create_specialized_function_inline
 // ---------------------------------------------------------------------------
-
 /// Create (or retrieve from cache) a specialized version of a generic function
 /// with compile-time arguments bound.
 ///
@@ -798,48 +874,57 @@ _store_specialization_cache :: (fn(
 ///
 /// Mirrors the core (pre-effects) of `createSpecializedFunctionInline` in
 /// `src/evaluator/calls/helper.ts`.
-create_specialized_function_inline :: (fn(
-  original_func_val  : EvalValue,
-  func_type          : TypeValue,
-  arg_values         : ArgValues,
-  callee_env         : Environment,
-  caller_env         : Environment,
-  ctx                : *(EvalContext),
-  using(exn          : Exception)
-) -> EvalValue)({
-  result := match(original_func_val,
+create_specialized_function_inline :: (
+  fn(
+    original_func_val : EvalValue,
+    func_type : TypeValue,
+    arg_values : ArgValues,
+    callee_env : Environment,
+    caller_env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> EvalValue
+)({
+  result := match(
+    original_func_val,
     .FuncVal(forall_names, params, param_type_names, evidence_params, body, cap_names, cap_tys, cap_vals, func_id) => {
-
       // ------------------------------------------------------------------
       // Collect compile-time arg values and runtime parameter types
       // ------------------------------------------------------------------
       compile_time_args := ArrayList(EvalValue).new();
       runtime_param_tys := ArrayList(TypeValue).new();
-
       // Add forall type arguments (always compile-time)
       (fai : usize) = usize(0);
       n_fa := arg_values.forall_args.len();
-      while(runtime((fai < n_fa)), {
-        match(arg_values.forall_args.get(fai),
-          .Some(ae) => match(ae.value,
-            .Some(v) => { compile_time_args.push(v); },
-            .None    => ()
+      while(runtime(fai < n_fa), {
+        match(
+          arg_values.forall_args.get(fai),
+          .Some(ae) => match(
+            ae.value,
+            .Some(v) => {
+              compile_time_args.push(v);
+            },
+            .None => ()
           ),
           .None => ()
         );
         fai = (fai + usize(1));
       });
-
       // Add implicit arguments (always compile-time)
-      match(arg_values.implicit_args,
+      match(
+        arg_values.implicit_args,
         .Some(impl_args) => {
           (iai : usize) = usize(0);
           n_ia := impl_args.len();
-          while(runtime((iai < n_ia)), {
-            match(impl_args.get(iai),
-              .Some(ae) => match(ae.value,
-                .Some(v) => { compile_time_args.push(v); },
-                .None    => ()
+          while(runtime(iai < n_ia), {
+            match(
+              impl_args.get(iai),
+              .Some(ae) => match(
+                ae.value,
+                .Some(v) => {
+                  compile_time_args.push(v);
+                },
+                .None => ()
               ),
               .None => ()
             );
@@ -848,20 +933,21 @@ create_specialized_function_inline :: (fn(
         },
         .None => ()
       );
-
       // Build runtime parameter types from regular args
       // Phase 3 simplification: all regular params are treated as runtime.
       // This means we track all regular arg types for cache differentiation.
       (ai : usize) = usize(0);
       n_a := arg_values.args.len();
-      while(runtime((ai < n_a)), {
-        match(arg_values.args.get(ai),
-          .Some(ae) => { runtime_param_tys.push(ae.arg_type); },
-          .None     => ()
+      while(runtime(ai < n_a), {
+        match(
+          arg_values.args.get(ai),
+          .Some(ae) => {
+            runtime_param_tys.push(ae.arg_type);
+          },
+          .None => ()
         );
         ai = (ai + usize(1));
       });
-
       // ------------------------------------------------------------------
       // Cache lookup
       // ------------------------------------------------------------------
@@ -872,36 +958,35 @@ create_specialized_function_inline :: (fn(
         runtime_param_tys,
         caller_env
       );
-      match(cached,
+      match(
+        cached,
         .Some(spec_val) => spec_val,
         .None => {
           // ------------------------------------------------------------------
           // Cache miss: create the specialization
           // ------------------------------------------------------------------
-
           // Compute specialized func_id
           sig := compute_compile_time_signature(func_type, arg_values, callee_env, runtime_param_tys, using(exn));
-          specialized_func_id := if((sig.len() > usize(0)),
+          specialized_func_id := if(
+            sig.len() > usize(0),
             `${func_id}_${sig}`,
             func_id
           );
-
           // Register recursive self-reference in context so recursive calls
           // inside the body can find the specialized func_id.
           prev_spec := ctx.currently_specializing_function;
           ctx.currently_specializing_function = Option(SpecializingFunctionInfo).Some(
             SpecializingFunctionInfo(
-              original_func_id:        func_id,
-              specialized_func_id:     specialized_func_id,
-              specialized_return_type: evaluate_function_return_type_again(
-                match(func_type, .Func(result: r) => r.*, _ => t_unit()),
+              original_func_id : func_id,
+              specialized_func_id : specialized_func_id,
+              specialized_return_type : evaluate_function_return_type_again(
+                match(func_type,.Func(result : r) => r.*, _ => t_unit()),
                 callee_env,
                 ctx
               ),
-              original_func_value: original_func_val
+              original_func_value : original_func_val
             )
           );
-
           // Evaluate the function body in the specialized environment.
           // Uses the already-built callee_env (which has all type params and
           // regular params bound from try_to_call_function_with_arguments steps 4–11).
@@ -913,45 +998,47 @@ create_specialized_function_inline :: (fn(
             true,
             using(exn)
           );
-
           // Restore context
           ctx.currently_specializing_function = prev_spec;
-
           // Build updated captures from the specialized callee_env.
           // This ensures the specialized function "closes over" the bound
           // compile-time values (forall type params, given handlers, etc.)
           // so codegen can inline them without extra lookups.
           new_cap_names := ArrayList(String).new();
-          new_cap_tys   := ArrayList(TypeValue).new();
-          new_cap_vals  := ArrayList(EvalValue).new();
-
+          new_cap_tys := ArrayList(TypeValue).new();
+          new_cap_vals := ArrayList(EvalValue).new();
           // Re-use existing captures from original function
           (oci : usize) = usize(0);
           n_oc := cap_names.len();
-          while(runtime((oci < n_oc)), {
-            cn := match(cap_names.get(oci), .Some(s) => s, .None => String.new());
-            ct := match(cap_tys.get(oci), .Some(t) => t, .None => t_unit());
-            cv := match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal);
+          while(runtime(oci < n_oc), {
+            cn := match(cap_names.get(oci),.Some(s) => s,.None => String.new());
+            ct := match(cap_tys.get(oci),.Some(t) => t,.None => t_unit());
+            cv := match(cap_vals.get(oci),.Some(v) => v,.None => EvalValue.UnitVal);
             new_cap_names.push(cn);
             new_cap_tys.push(ct);
             new_cap_vals.push(cv);
             oci = (oci + usize(1));
           });
-
           // Add compile-time args as additional captures (forall type bindings)
           (fai2 : usize) = usize(0);
-          n_fl := match(func_type, .Func(fl, _, _, _, _, _, _, _, _) => fl.len(), _ => usize(0));
-          while(runtime((fai2 < n_fl)), {
-            label := match(func_type, .Func(fl, _, _, _, _, _, _, _, _) => {
-              r := match(fl.get(fai2), .Some(s) => s, .None => String.new());
-              r
-            }, _ => String.new());
+          n_fl := match(func_type,.Func(fl, _, _, _, _, _, _, _, _) => fl.len(), _ => usize(0));
+          while(runtime(fai2 < n_fl), {
+            label := match(
+              func_type,
+              .Func(fl, _, _, _, _, _, _, _, _) => {
+                r := match(fl.get(fai2),.Some(s) => s,.None => String.new());
+                r
+              },
+              _ => String.new()
+            );
             env_vars := get_variables_from_env(callee_env, label);
             n_ev := env_vars.len();
-            if((n_ev > usize(0)), {
-              match(env_vars.get((n_ev - usize(1))),
+            if(n_ev > usize(0), {
+              match(
+                env_vars.get(n_ev - usize(1)),
                 .Some(ev) => {
-                  match(ev.value,
+                  match(
+                    ev.value,
                     .Some(v) => {
                       new_cap_names.push(label);
                       new_cap_tys.push(ev.ty);
@@ -965,10 +1052,8 @@ create_specialized_function_inline :: (fn(
             });
             fai2 = (fai2 + usize(1));
           });
-
           // Evaluate the specialized body to get its return type
           _ := specialized_body;
-
           // Create the specialized function value
           specialized_func_val := EvalValue.FuncVal(
             forall_names,
@@ -981,17 +1066,15 @@ create_specialized_function_inline :: (fn(
             new_cap_vals,
             specialized_func_id
           );
-
           // Detect isControlFunction: set if the original was already a control
           // function OR if the specialized body contains escape.
           // Mirrors the `isControlFunction: originalFunction.isControlFunction ||
           //   evaluatedBodyContainsEscape(specializedBody)` logic in TypeScript.
           parent_is_ctl := is_control_fn(func_id.as_str());
           body_has_escape := evaluated_body_contains_escape(specialized_body);
-          if((parent_is_ctl || body_has_escape), {
+          if(parent_is_ctl || body_has_escape, {
             mark_as_control_fn((&(specialized_func_id)).clone());
           });
-
           // Store in cache
           _store_specialization_cache(
             ctx,
@@ -1001,7 +1084,6 @@ create_specialized_function_inline :: (fn(
             specialized_func_val,
             callee_env
           );
-
           specialized_func_val
         }
       )
@@ -1013,7 +1095,6 @@ create_specialized_function_inline :: (fn(
 // ---------------------------------------------------------------------------
 // evaluate_ctl_function_body_inline
 // ---------------------------------------------------------------------------
-
 /// Inline-evaluate a control function body to produce a specialized version
 /// with the forall type parameter bound to the concrete call-site type.
 ///
@@ -1024,25 +1105,26 @@ create_specialized_function_inline :: (fn(
 ///
 /// Mirrors `evaluateCtlFunctionBodyInline` in `src/evaluator/calls/helper.ts`
 /// (lines 3616–3790).
-evaluate_ctl_function_body_inline :: (fn(
-  original_func_val : EvalValue,
-  func_type         : TypeValue,
-  callee_env        : Environment,
-  caller_env        : Environment,
-  ctx               : *(EvalContext),
-  using(exn         : Exception)
-) -> EvalValue)({
+evaluate_ctl_function_body_inline :: (
+  fn(
+    original_func_val : EvalValue,
+    func_type : TypeValue,
+    callee_env : Environment,
+    caller_env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> EvalValue
+)({
   // Extract FuncVal fields individually to avoid tuple destructuring.
-  orig_forall_labels := match(original_func_val, .FuncVal(fl, _, _, _, _, _, _, _, _) => fl, _ => ArrayList(String).new());
-  orig_params        := match(original_func_val, .FuncVal(_, p,  _, _, _, _, _, _, _) => p,  _ => ArrayList(String).new());
-  orig_param_type_names := match(original_func_val, .FuncVal(_, _, ptn, _, _, _, _, _, _) => ptn, _ => ArrayList(String).new());
-  orig_evidence_params := match(original_func_val, .FuncVal(_, _, _, ep, _, _, _, _, _) => ep, _ => ArrayList(String).new());
-  orig_body          := match(original_func_val, .FuncVal(_, _, _, _, b,  _, _, _, _) => b,  _ => Box(AstExpr)(make_err_expr()));
-  orig_cap_names     := match(original_func_val, .FuncVal(_, _, _, _, _, cn, _, _, _) => cn, _ => ArrayList(String).new());
-  orig_cap_tys       := match(original_func_val, .FuncVal(_, _, _, _, _, _, ct, _, _) => ct, _ => ArrayList(TypeValue).new());
-  orig_cap_vals      := match(original_func_val, .FuncVal(_, _, _, _, _, _, _, cv, _) => cv, _ => ArrayList(EvalValue).new());
-  orig_func_id       := match(original_func_val, .FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from("__err_ctl"));
-
+  orig_forall_labels := match(original_func_val,.FuncVal(fl, _, _, _, _, _, _, _, _) => fl, _ => ArrayList(String).new());
+  orig_params := match(original_func_val,.FuncVal(_, p, _, _, _, _, _, _, _) => p, _ => ArrayList(String).new());
+  orig_param_type_names := match(original_func_val,.FuncVal(_, _, ptn, _, _, _, _, _, _) => ptn, _ => ArrayList(String).new());
+  orig_evidence_params := match(original_func_val,.FuncVal(_, _, _, ep, _, _, _, _, _) => ep, _ => ArrayList(String).new());
+  orig_body := match(original_func_val,.FuncVal(_, _, _, _, b, _, _, _, _) => b, _ => Box(AstExpr)(make_err_expr()));
+  orig_cap_names := match(original_func_val,.FuncVal(_, _, _, _, _, cn, _, _, _) => cn, _ => ArrayList(String).new());
+  orig_cap_tys := match(original_func_val,.FuncVal(_, _, _, _, _, _, ct, _, _) => ct, _ => ArrayList(TypeValue).new());
+  orig_cap_vals := match(original_func_val,.FuncVal(_, _, _, _, _, _, _, cv, _) => cv, _ => ArrayList(EvalValue).new());
+  orig_func_id := match(original_func_val,.FuncVal(_, _, _, _, _, _, _, _, fid) => fid, _ => String.from("__err_ctl"));
   // -------------------------------------------------------------------------
   // Determine concreteTypeForForall from context.
   // For function-body contexts, it's the enclosing function's return type.
@@ -1051,27 +1133,29 @@ evaluate_ctl_function_body_inline :: (fn(
   //     ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
   //     : functionType.return.type
   // -------------------------------------------------------------------------
-  (concrete_type_for_forall : TypeValue) = match(ctx.is_evaluating_function_body_or_async_block,
-    .Some(fb_ctx) => match(fb_ctx.kind,
-      .FunctionBody => match(fb_ctx.func_type,
-        .Some(enclosing_ty) => match(enclosing_ty,
+  (concrete_type_for_forall : TypeValue) = match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb_ctx) => match(
+      fb_ctx.kind,
+      .FunctionBody => match(
+        fb_ctx.func_type,
+        .Some(enclosing_ty) => match(
+          enclosing_ty,
           .Func(_, _, _, _, _, _, _, _, rb) => rb.*,
-          _ => match(func_type, .Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+          _ => match(func_type,.Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
         ),
-        .None => match(func_type, .Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+        .None => match(func_type,.Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
       ),
-      _ => match(func_type, .Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+      _ => match(func_type,.Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
     ),
-    .None => match(func_type, .Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
+    .None => match(func_type,.Func(_, _, _, _, _, _, _, _, rb) => rb.*, _ => TypeValue.Unit)
   );
-
   // -------------------------------------------------------------------------
   // Determine enclosing return type from definition-site registry.
   // Mirrors:
   //   originalFunction.definitionSiteEnclosingFunctionType?.return.type ?? createUnitType()
   // -------------------------------------------------------------------------
   enclosing_return_ty := get_definition_site_return(orig_func_id.as_str());
-
   // -------------------------------------------------------------------------
   // Build cache key: <original_func_id>_ctl_<sanitized_type_string>.
   // Mirrors:
@@ -1081,7 +1165,6 @@ evaluate_ctl_function_body_inline :: (fn(
   ctl_sig_raw := type_to_string(concrete_type_for_forall);
   ctl_sig_san := sanitize_for_sig(ctl_sig_raw);
   ctl_func_id := `${orig_func_id}_ctl_${ctl_sig_san}`;
-
   // -------------------------------------------------------------------------
   // Check cache: if we already have a specialization with this _ctl_ func_id,
   // return it immediately.
@@ -1098,22 +1181,23 @@ evaluate_ctl_function_body_inline :: (fn(
   );
   (found_cached : bool) = false;
   (cached_val : EvalValue) = EvalValue.UnitVal;
-  match(cached_result,
+  match(
+    cached_result,
     .Some(cv2) => {
       found_cached = true;
       cached_val = cv2;
     },
     .None => ()
   );
-  if(found_cached, { return(cached_val); });
-
+  if(found_cached, {
+    return(cached_val);
+  });
   // -------------------------------------------------------------------------
   // Build specialized env: clone callee_env and push a new frame.
   // Mirrors: let specializedEnv = pushEnvFrame(calleeEnv);
   // -------------------------------------------------------------------------
   specialized_env := clone_env(callee_env);
   _push_frame_res := specialized_env.push_frame(false);
-
   // -------------------------------------------------------------------------
   // Add compile-time bindings from caller's scope that are missing from
   // specializedEnv (types, modules, traits — not plain function values).
@@ -1121,36 +1205,39 @@ evaluate_ctl_function_body_inline :: (fn(
   // -------------------------------------------------------------------------
   n_caller_frames := caller_env.frames.len();
   (cfi : usize) = usize(0);
-  while(runtime((cfi < n_caller_frames)), {
-    match(caller_env.frames.get(cfi),
+  while(runtime(cfi < n_caller_frames), {
+    match(
+      caller_env.frames.get(cfi),
       .Some(caller_frame) => {
         n_vars := caller_frame.variables.len();
         (vi : usize) = usize(0);
-        while(runtime((vi < n_vars)), {
-          match(caller_frame.variables.get(vi),
+        while(runtime(vi < n_vars), {
+          match(
+            caller_frame.variables.get(vi),
             .Some(caller_var) => {
               if(caller_var.is_compile_time_only, {
                 // Skip plain function values (only types, modules, traits need to cross).
-                is_fn_val := match(caller_var.value,
-                  .Some(cv3) => match(cv3, .FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false),
+                is_fn_val := match(
+                  caller_var.value,
+                  .Some(cv3) => match(cv3,.FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false),
                   .None => false
                 );
-                  if(!(is_fn_val), {
-                    existing := get_variables_from_env(specialized_env, caller_var.name);
-                    if((existing.len() == usize(0)), {
-                      _add_caller_var_res := add_variable_to_env(
-                        &(specialized_env),
-                        (&(caller_var.name)).clone(),
-                        caller_var.ty,
-                        caller_var.value,
-                        true,
-                        false,
-                        false,
-                        caller_var.is_implicit,
-                        caller_var.token
-                      );
-                    });
+                if(!(is_fn_val), {
+                  existing := get_variables_from_env(specialized_env, caller_var.name);
+                  if(existing.len() == usize(0), {
+                    _add_caller_var_res := add_variable_to_env(
+                      &(specialized_env),
+                      (&(caller_var.name)).clone(),
+                      caller_var.ty,
+                      caller_var.value,
+                      true,
+                      false,
+                      false,
+                      caller_var.is_implicit,
+                      caller_var.token
+                    );
                   });
+                });
               });
             },
             .None => ()
@@ -1162,25 +1249,26 @@ evaluate_ctl_function_body_inline :: (fn(
     );
     cfi = (cfi + usize(1));
   });
-
   // -------------------------------------------------------------------------
   // Bind each forall parameter to concreteTypeForForall.
   // Mirrors the forallParam loop in evaluateCtlFunctionBodyInline.
   // -------------------------------------------------------------------------
-  forall_labels := match(func_type,
+  forall_labels := match(
+    func_type,
     .Func(fl, _, _, _, _, _, _, _, _) => fl,
     _ => ArrayList(String).new()
   );
-  forall_types_list := match(func_type,
+  forall_types_list := match(
+    func_type,
     .Func(_, ft, _, _, _, _, _, _, _) => ft,
     _ => ArrayList(TypeValue).new()
   );
   n_forall := forall_labels.len();
   (fi2 : usize) = usize(0);
-  while(runtime((fi2 < n_forall)), {
-    fl_label := match(forall_labels.get(fi2), .Some(s) => s, .None => String.from(""));
-    fl_ty    := match(forall_types_list.get(fi2), .Some(t) => t, .None => TypeValue.Unit);
-    ctl_tok  := synthetic_token((&(fl_label)).clone(), specialized_env.module_path);
+  while(runtime(fi2 < n_forall), {
+    fl_label := match(forall_labels.get(fi2),.Some(s) => s,.None => String.from(""));
+    fl_ty := match(forall_types_list.get(fi2),.Some(t) => t,.None => TypeValue.Unit);
+    ctl_tok := synthetic_token((&(fl_label)).clone(), specialized_env.module_path);
     _add_forall_var_res := add_variable_to_env(
       &(specialized_env),
       (&(fl_label)).clone(),
@@ -1194,7 +1282,6 @@ evaluate_ctl_function_body_inline :: (fn(
     );
     fi2 = (fi2 + usize(1));
   });
-
   // -------------------------------------------------------------------------
   // Build a handler context with modified enclosingFunctionReturnType.
   // Mirrors:
@@ -1207,22 +1294,19 @@ evaluate_ctl_function_body_inline :: (fn(
   //   };
   // -------------------------------------------------------------------------
   handler_fb_ctx := FuncOrAsyncBlockCtx(
-    kind:       FuncOrAsyncBlockKind.FunctionBody,
-    func_type:  Option(TypeValue).Some(func_type),
-    func_value: Option(EvalValue).Some(original_func_val),
-    eval_env:   specialized_env
+    kind : FuncOrAsyncBlockKind.FunctionBody,
+    func_type : Option(TypeValue).Some(func_type),
+    func_value : Option(EvalValue).Some(original_func_val),
+    eval_env : specialized_env
   );
-
-  prev_expected_type  := ctx.expected_type;
-  prev_is_eval_fb     := ctx.is_evaluating_function_body_or_async_block;
-  prev_enclosing_ret  := ctx.enclosing_function_return_type;
-  prev_impl_concrete  := ctx.function_return_impl_concrete_type;
-
-  ctx.expected_type                          = Option(ExpectedTypeCtx).None;
+  prev_expected_type := ctx.expected_type;
+  prev_is_eval_fb := ctx.is_evaluating_function_body_or_async_block;
+  prev_enclosing_ret := ctx.enclosing_function_return_type;
+  prev_impl_concrete := ctx.function_return_impl_concrete_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(handler_fb_ctx);
-  ctx.enclosing_function_return_type        = Option(TypeValue).Some(enclosing_return_ty);
-  ctx.function_return_impl_concrete_type    = Option(ArrayList(ImplConcreteTypeInfo)).Some(ArrayList(ImplConcreteTypeInfo).new());
-
+  ctx.enclosing_function_return_type = Option(TypeValue).Some(enclosing_return_ty);
+  ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(ArrayList(ImplConcreteTypeInfo).new());
   // -------------------------------------------------------------------------
   // Evaluate the body.
   // -------------------------------------------------------------------------
@@ -1234,48 +1318,42 @@ evaluate_ctl_function_body_inline :: (fn(
     true,
     using(exn)
   );
-
   // Restore context fields.
-  ctx.expected_type                          = prev_expected_type;
+  ctx.expected_type = prev_expected_type;
   ctx.is_evaluating_function_body_or_async_block = prev_is_eval_fb;
-  ctx.enclosing_function_return_type        = prev_enclosing_ret;
-  ctx.function_return_impl_concrete_type    = prev_impl_concrete;
-
+  ctx.enclosing_function_return_type = prev_enclosing_ret;
+  ctx.function_return_impl_concrete_type = prev_impl_concrete;
   // -------------------------------------------------------------------------
   // Build the specialized FuncVal.
   // Mirrors: funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`
   // -------------------------------------------------------------------------
   ctl_parent_is_ctl := is_control_fn(orig_func_id.as_str());
   ctl_body_has_escape := evaluated_body_contains_escape(ctl_body);
-  if((ctl_parent_is_ctl || ctl_body_has_escape), {
+  if(ctl_parent_is_ctl || ctl_body_has_escape, {
     mark_as_control_fn((&(ctl_func_id)).clone());
   });
-
   // Rebuild captures (same as original + forall type bindings).
   ctl_cap_names := ArrayList(String).new();
-  ctl_cap_tys   := ArrayList(TypeValue).new();
-  ctl_cap_vals  := ArrayList(EvalValue).new();
-
+  ctl_cap_tys := ArrayList(TypeValue).new();
+  ctl_cap_vals := ArrayList(EvalValue).new();
   (oci : usize) = usize(0);
   n_oc := orig_cap_names.len();
-  while(runtime((oci < n_oc)), {
-    ctl_cap_names.push(match(orig_cap_names.get(oci), .Some(s) => s, .None => String.new()));
-    ctl_cap_tys.push(match(orig_cap_tys.get(oci), .Some(t) => t, .None => TypeValue.Unit));
-    ctl_cap_vals.push(match(orig_cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
+  while(runtime(oci < n_oc), {
+    ctl_cap_names.push(match(orig_cap_names.get(oci),.Some(s) => s,.None => String.new()));
+    ctl_cap_tys.push(match(orig_cap_tys.get(oci),.Some(t) => t,.None => TypeValue.Unit));
+    ctl_cap_vals.push(match(orig_cap_vals.get(oci),.Some(v) => v,.None => EvalValue.UnitVal));
     oci = (oci + usize(1));
   });
-
   // Add forall type bindings as extra captures.
   (fi3 : usize) = usize(0);
-  while(runtime((fi3 < n_forall)), {
-    fl3 := match(forall_labels.get(fi3), .Some(s) => s, .None => String.new());
-    ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => TypeValue.Unit);
+  while(runtime(fi3 < n_forall), {
+    fl3 := match(forall_labels.get(fi3),.Some(s) => s,.None => String.new());
+    ft3 := match(forall_types_list.get(fi3),.Some(t) => t,.None => TypeValue.Unit);
     ctl_cap_names.push((&(fl3)).clone());
     ctl_cap_tys.push(ft3);
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
     fi3 = (fi3 + usize(1));
   });
-
   ctl_func_val := EvalValue.FuncVal(
     orig_forall_labels,
     orig_params,
@@ -1287,7 +1365,6 @@ evaluate_ctl_function_body_inline :: (fn(
     ctl_cap_vals,
     (&(ctl_func_id)).clone()
   );
-
   // -------------------------------------------------------------------------
   // Cache the result.
   // -------------------------------------------------------------------------
@@ -1302,14 +1379,11 @@ evaluate_ctl_function_body_inline :: (fn(
     ctl_func_val,
     specialized_env
   );
-
   ctl_func_val
 });
-
 // ---------------------------------------------------------------------------
 // try_to_call_function_with_arguments
 // ---------------------------------------------------------------------------
-
 /// Type-check the arguments of a function call against `func_type` and
 /// (optionally) execute CTFE. Returns a `FuncCallResult` with the resolved
 /// return type, runtime arg expressions, updated caller env, and deferred
@@ -1325,110 +1399,119 @@ evaluate_ctl_function_body_inline :: (fn(
 ///   * RC ownership / deferred drop expressions are skipped.
 ///   * Quote parameters are not supported (throw on encounter).
 ///   * Where-clause constraints are skipped (TypeValue has no AstExpr forms).
-try_to_call_function_with_arguments :: (fn(
-  func_val            : Option(EvalValue),
-  func_type           : TypeValue,
-  expr                : AstExpr,
-  callee_expr         : AstExpr,
-  arg_exprs           : ArrayList(AstExpr),
-  caller_env          : Environment,
-  ctx                 : *(EvalContext),
-  is_method_call      : bool,
-  skip_specialization : bool,
-  skip_ctfe_execution : bool,
-  using(exn           : Exception)
-) -> FuncCallResult)({
+try_to_call_function_with_arguments :: (
+  fn(
+    func_val : Option(EvalValue),
+    func_type : TypeValue,
+    expr : AstExpr,
+    callee_expr : AstExpr,
+    arg_exprs : ArrayList(AstExpr),
+    caller_env : Environment,
+    ctx : *(EvalContext),
+    is_method_call : bool,
+    skip_specialization : bool,
+    skip_ctfe_execution : bool,
+    using(exn : Exception)
+  ) -> FuncCallResult
+)({
   _ := callee_expr;
   _ := skip_ctfe_execution;
   tok := ast_expr_token(expr);
-
-  match(func_type,
+  match(
+    func_type,
     .Func(fl, ft, pl, pt, il, it, ispr, wt, ret_b) => {
       _ := ispr;
       _ := wt;
-
       // ----------------------------------------------------------------
       // Step 1: Detect explicit forall(…) argument.
       // ----------------------------------------------------------------
       (forall_args_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
-      (regular_start   : usize) = usize(0);
-
-      has_f0 := match(arg_exprs.get(usize(0)),
+      (regular_start : usize) = usize(0);
+      has_f0 := match(
+        arg_exprs.get(usize(0)),
         .Some(a) => ast_expr_is_fn_call_of(a, "forall", Option(usize).None),
-        .None    => false
+        .None => false
       );
       if(has_f0, {
-        fa0 := match(arg_exprs.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-        forall_args_opt = .Some(_h_get_fn_call_args(fa0));
+        fa0 := match(arg_exprs.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+        forall_args_opt =.Some(_h_get_fn_call_args(fa0));
         regular_start = usize(1);
       });
-
       // For method calls, forall may appear at index 1 (self is at 0).
-      if(((!(has_f0)) && (is_method_call && (arg_exprs.len() > usize(1)))), {
-        has_f1 := match(arg_exprs.get(usize(1)),
+      if((!(has_f0)) && (is_method_call && (arg_exprs.len() > usize(1))), {
+        has_f1 := match(
+          arg_exprs.get(usize(1)),
           .Some(a) => ast_expr_is_fn_call_of(a, "forall", Option(usize).None),
-          .None    => false
+          .None => false
         );
         if(has_f1, {
-          fa1 := match(arg_exprs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-          forall_args_opt = .Some(_h_get_fn_call_args(fa1));
+          fa1 := match(arg_exprs.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+          forall_args_opt =.Some(_h_get_fn_call_args(fa1));
           // Phase 3: no arg reordering needed; self is still at adjusted_args[0].
         });
       });
-
       // ----------------------------------------------------------------
       // Step 2: Split using(…) arg out; collect regular args.
       // ----------------------------------------------------------------
       (using_args_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
-      adjusted_args   := ArrayList(AstExpr).new();
-
+      adjusted_args := ArrayList(AstExpr).new();
       n_total := arg_exprs.len();
       (ai : usize) = regular_start;
-      while(runtime((ai < n_total)), {
-        a := match(arg_exprs.get(ai), .Some(x) => x, .None => make_err_expr());
+      while(runtime(ai < n_total), {
+        a := match(arg_exprs.get(ai),.Some(x) => x,.None => make_err_expr());
         if(ast_expr_is_fn_call_of(a, "using", Option(usize).None), {
-          using_args_opt = .Some(_h_get_fn_call_args(a));
+          using_args_opt =.Some(_h_get_fn_call_args(a));
         }, {
           adjusted_args.push(a);
         });
         ai = (ai + usize(1));
       });
-
       // ----------------------------------------------------------------
       // Step 3: Argument count check.
       // ----------------------------------------------------------------
       n_params := pl.len();
-      n_args   := adjusted_args.len();
-      if((n_args != n_params), {
-        exn.throw(dyn(format_error_message(
-          tok,
-          `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`,
-          false,
-          .None
-        )));
+      n_args := adjusted_args.len();
+      if(n_args != n_params, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              tok,
+              `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`,
+              false,
+              .None
+            )
+          )
+        );
       });
-
       // ----------------------------------------------------------------
       // Step 4: Build callee_env from FuncVal captures (or empty).
       // ----------------------------------------------------------------
-      (callee_env : Environment) = match(func_val,
-        .Some(fv) => match(fv,
+      (callee_env : Environment) = match(
+        func_val,
+        .Some(fv) => match(
+          fv,
           .FuncVal(_, _, _, _, _, cn, ct, cv, _) => {
             fenv := Environment.new(caller_env.module_path);
             (ci : usize) = usize(0);
             n_cap := cn.len();
-            while(runtime((ci < n_cap)), {
-              cname := match(cn.get(ci), .Some(s) => s, .None => String.from(""));
-              cty   := match(ct.get(ci), .Some(t) => t, .None => t_unit());
-              cval  := match(cv.get(ci),
+            while(runtime(ci < n_cap), {
+              cname := match(cn.get(ci),.Some(s) => s,.None => String.from(""));
+              cty := match(ct.get(ci),.Some(t) => t,.None => t_unit());
+              cval := match(
+                cv.get(ci),
                 .Some(v) => Option(EvalValue).Some(v),
-                .None    => Option(EvalValue).None
+                .None => Option(EvalValue).None
               );
-              is_ct_cap := match(cval, .Some(_) => true, .None => false);
+              is_ct_cap := match(cval,.Some(_) => true,.None => false);
               _ := add_variable_to_env(
                 &(fenv),
-                cname, cty, cval, is_ct_cap,
-                false, false, false,
+                cname,
+                cty,
+                cval,
+                is_ct_cap,
+                false,
+                false,
+                false,
                 synthetic_token(cname, fenv.module_path)
               );
               ci = (ci + usize(1));
@@ -1439,35 +1522,38 @@ try_to_call_function_with_arguments :: (fn(
         ),
         .None => Environment.new(caller_env.module_path)
       );
-
       // Step 5: Push a new frame on callee_env for parameter bindings.
       _ := callee_env.push_frame(false);
-
       // ----------------------------------------------------------------
       // Step 6: Add forall params as UnknownVal placeholders (or resolve
       //         them from an explicit forall(…) argument).
       // ----------------------------------------------------------------
       n_forall := fl.len();
       (fpi : usize) = usize(0);
-      while(runtime((fpi < n_forall)), {
-        flabel      := match(fl.get(fpi), .Some(l) => l, .None => String.from(""));
-        ftype       := match(ft.get(fpi), .Some(t) => t, .None => t_unit());
-        ftype_inner := match(ft.get(fpi), .Some(t) => t, .None => t_unit());
+      while(runtime(fpi < n_forall), {
+        flabel := match(fl.get(fpi),.Some(l) => l,.None => String.from(""));
+        ftype := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
+        ftype_inner := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         (forall_val : EvalValue) = EvalValue.UnknownVal(box(ftype_inner));
-
         // If caller supplied explicit forall(…) args, try to resolve.
-        match(forall_args_opt,
+        match(
+          forall_args_opt,
           .Some(fas) => {
-            match(fas.get(fpi),
+            match(
+              fas.get(fpi),
               .Some(fa) => {
                 if(!(ast_expr_is_atom_of(fa, "_")), {
                   evaled_fa := evaluate_expression(fa, caller_env, ctx);
                   fa_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_fa));
-                  match(fa_info_opt,
+                  match(
+                    fa_info_opt,
                     .Some(fa_info) => {
-                      match(fa_info.value,
-                        .Some(v) => { forall_val = v; },
-                        .None    => ()
+                      match(
+                        fa_info.value,
+                        .Some(v) => {
+                          forall_val = v;
+                        },
+                        .None => ()
                       );
                     },
                     .None => ()
@@ -1479,71 +1565,80 @@ try_to_call_function_with_arguments :: (fn(
           },
           .None => ()
         );
-
         _ := add_variable_to_env(
           &(callee_env),
-          flabel, ftype,
+          flabel,
+          ftype,
           Option(EvalValue).Some(forall_val),
-          true,   // is_compile_time_only
-          false, false, false,
+          true,
+          // is_compile_time_only
+          false,
+          false,
+          false,
           synthetic_token(flabel, callee_env.module_path)
         );
         fpi = (fpi + usize(1));
       });
-
       // ----------------------------------------------------------------
       // Step 7: Process regular parameters.
       // ----------------------------------------------------------------
       forall_arg_vals := ArrayList(ArgEntry).new();
-      arg_vals        := ArrayList(ArgEntry).new();
-      rt_args         := ArrayList(AstExpr).new();
+      arg_vals := ArrayList(ArgEntry).new();
+      rt_args := ArrayList(AstExpr).new();
       (callee_env_m : Environment) = callee_env;
       (caller_env_m : Environment) = caller_env;
-
       (pi : usize) = usize(0);
-      while(runtime((pi < n_params)), {
-        plabel := match(pl.get(pi), .Some(l) => l, .None => String.from(""));
-        ptype  := match(pt.get(pi), .Some(t) => t, .None => t_unit());
-        parg   := match(adjusted_args.get(pi), .Some(a) => a, .None => make_err_expr());
-
+      while(runtime(pi < n_params), {
+        plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
+        ptype := match(pt.get(pi),.Some(t) => t,.None => t_unit());
+        parg := match(adjusted_args.get(pi),.Some(a) => a,.None => make_err_expr());
         pr := check_if_function_parameter_matches_argument(
-          plabel, ptype,
-          false,  // is_ct_only: Phase 3 treats all regular params as runtime
+          plabel,
+          ptype,
+          false,
+          // is_ct_only: Phase 3 treats all regular params as runtime
           parg,
-          callee_env_m, caller_env_m,
-          ctx, rt_args, using(exn)
+          callee_env_m,
+          caller_env_m,
+          ctx,
+          rt_args,
+          using(exn)
         );
-
         callee_env_m = pr.callee_env;
         caller_env_m = pr.caller_env;
-        arg_vals.push(ArgEntry(
-          value:          pr.arg_value,
-          parameter_type: pr.resolved_param_type,
-          arg_type:       pr.arg_type
-        ));
+        arg_vals.push(
+          ArgEntry(
+            value : pr.arg_value,
+            parameter_type : pr.resolved_param_type,
+            arg_type : pr.arg_type
+          )
+        );
         pi = (pi + usize(1));
       });
-
       // ----------------------------------------------------------------
       // Step 8: Extract resolved forall values from callee_env.
       // ----------------------------------------------------------------
       (fpi2 : usize) = usize(0);
-      while(runtime((fpi2 < n_forall)), {
-        flabel2 := match(fl.get(fpi2), .Some(l) => l, .None => String.from(""));
-        ftype2  := match(ft.get(fpi2), .Some(t) => t, .None => t_unit());
-        vars2   := get_variables_from_env(callee_env_m, flabel2);
+      while(runtime(fpi2 < n_forall), {
+        flabel2 := match(fl.get(fpi2),.Some(l) => l,.None => String.from(""));
+        ftype2 := match(ft.get(fpi2),.Some(t) => t,.None => t_unit());
+        vars2 := get_variables_from_env(callee_env_m, flabel2);
         n_vars2 := vars2.len();
-        if((n_vars2 > usize(0)), {
-          last_v_opt := vars2.get((n_vars2 - usize(1)));
-          match(last_v_opt,
+        if(n_vars2 > usize(0), {
+          last_v_opt := vars2.get(n_vars2 - usize(1));
+          match(
+            last_v_opt,
             .Some(last_v) => {
-              match(last_v.value,
+              match(
+                last_v.value,
                 .Some(v) => {
-                  forall_arg_vals.push(ArgEntry(
-                    value:          .Some(v),
-                    parameter_type: ftype2,
-                    arg_type:       last_v.ty
-                  ));
+                  forall_arg_vals.push(
+                    ArgEntry(
+                      value :.Some(v),
+                      parameter_type : ftype2,
+                      arg_type : last_v.ty
+                    )
+                  );
                 },
                 .None => ()
               );
@@ -1553,79 +1648,92 @@ try_to_call_function_with_arguments :: (fn(
         });
         fpi2 = (fpi2 + usize(1));
       });
-
       // ----------------------------------------------------------------
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
       (return_type : TypeValue) = evaluate_function_return_type_again(ret_b.*, callee_env_m, ctx);
-
       // Step 10: Synthesize return type against the caller's expected type.
       if(ctx.expected_type.is_some(), {
-        match(ctx.expected_type,
+        match(
+          ctx.expected_type,
           .Some(et) => {
             checked_ret := ArrayList(TypePair).new();
             (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
             synth_ret := synthesize_types(
-              return_type, callee_env_m,
-              et.ty,        et.env,
+              return_type,
+              callee_env_m,
+              et.ty,
+              et.env,
               &(checked_ret),
               synth_ret_opts,
               using(exn)
             );
             callee_env_m = synth_ret.expected_env;
-            return_type  = evaluate_function_return_type_again(ret_b.*, callee_env_m, ctx);
+            return_type = evaluate_function_return_type_again(ret_b.*, callee_env_m, ctx);
           },
           .None => ()
         );
       });
-
       // ----------------------------------------------------------------
       // Step 11: Process implicit parameters.
       // ----------------------------------------------------------------
       implicit_arg_vals := ArrayList(ArgEntry).new();
       n_impl := il.len();
       (impl_i : usize) = usize(0);
-      while(runtime((impl_i < n_impl)), {
-        impl_label := match(il.get(impl_i), .Some(l) => l, .None => String.from(""));
-        impl_type  := match(it.get(impl_i), .Some(t) => t, .None => t_unit());
+      while(runtime(impl_i < n_impl), {
+        impl_label := match(il.get(impl_i),.Some(l) => l,.None => String.from(""));
+        impl_type := match(it.get(impl_i),.Some(t) => t,.None => t_unit());
         resolved_impl_type := evaluate_function_parameter_type_again(impl_type, callee_env_m, ctx);
         (resolved : bool) = false;
-
         // Check for an explicit using(…) arg at position impl_i.
-        match(using_args_opt,
+        match(
+          using_args_opt,
           .Some(uas) => {
-            match(uas.get(impl_i),
+            match(
+              uas.get(impl_i),
               .Some(ua_expr) => {
                 evaled_ua := evaluate_expression(ua_expr, caller_env_m, ctx);
                 ua_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_ua));
-                match(ua_info_opt,
+                match(
+                  ua_info_opt,
                   .Some(ua_info) => {
                     caller_env_m = ua_info.env;
-                    match(ua_info.value,
+                    match(
+                      ua_info.value,
                       .Some(ua_val) => {
                         if(!(are_types_compatible(resolved_impl_type, ua_info.ty)), {
-                          exn.throw(dyn(format_error_message(
-                            ast_expr_token(ua_expr),
-                            `Incompatible type for implicit parameter "${impl_label}"`,
-                            false,
-                            .None
-                          )));
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(ua_expr),
+                                `Incompatible type for implicit parameter "${impl_label}"`,
+                                false,
+                                .None
+                              )
+                            )
+                          );
                         });
                         impl_tok := synthetic_token(impl_label, callee_env_m.module_path);
                         _ := add_variable_to_env(
                           &(callee_env_m),
-                          impl_label, resolved_impl_type,
+                          impl_label,
+                          resolved_impl_type,
                           .Some(ua_val),
-                          true,   // is_compile_time_only
-                          false, false,
-                          true,   // is_implicit
+                          true,
+                          // is_compile_time_only
+                          false,
+                          false,
+                          true,
+                          // is_implicit
                           impl_tok
                         );
-                        implicit_arg_vals.push(ArgEntry(
-                          value:          .Some(ua_val),
-                          parameter_type: resolved_impl_type,
-                          arg_type:       ua_info.ty
-                        ));
+                        implicit_arg_vals.push(
+                          ArgEntry(
+                            value :.Some(ua_val),
+                            parameter_type : resolved_impl_type,
+                            arg_type : ua_info.ty
+                          )
+                        );
                         resolved = true;
                       },
                       .None => ()
@@ -1639,96 +1747,112 @@ try_to_call_function_with_arguments :: (fn(
           },
           .None => ()
         );
-
         // Fall back: search caller_env for a matching given variable.
         if(!(resolved), {
           all_cenv_vars := get_all_variables_from_env(caller_env_m);
-          n_cenv        := all_cenv_vars.len();
+          n_cenv := all_cenv_vars.len();
           (found_given : bool) = false;
-          (given_val   : Option(EvalValue)) = Option(EvalValue).None;
-          (given_ty    : TypeValue) = t_unit();
-          (given_name  : String) = String.from("");
-
+          (given_val : Option(EvalValue)) = Option(EvalValue).None;
+          (given_ty : TypeValue) = t_unit();
+          (given_name : String) = String.from("");
           (vi : usize) = usize(0);
-          while(runtime(((vi < n_cenv) && !(found_given))), {
+          while(runtime((vi < n_cenv) && !(found_given)), {
             gv_opt := all_cenv_vars.get(vi);
-            match(gv_opt,
+            match(
+              gv_opt,
               .Some(gv) => {
-                if(((gv.is_implicit && (gv.is_compile_time_only &&
-                    ((!(gv.is_from_effect_spread)) &&
-                    are_types_compatible(resolved_impl_type, gv.ty))))), {
+                if(gv.is_implicit && (
+                  gv.is_compile_time_only &&
+                    (
+                      (!(gv.is_from_effect_spread)) &&
+                        are_types_compatible(resolved_impl_type, gv.ty)
+                    )
+                ), {
                   found_given = true;
-                  given_val   = gv.value;
-                  given_ty    = gv.ty;
-                  given_name  = gv.name;
+                  given_val = gv.value;
+                  given_ty = gv.ty;
+                  given_name = gv.name;
                 });
               },
               .None => ()
             );
             vi = (vi + usize(1));
           });
-
           if(!(found_given), {
-            exn.throw(dyn(format_error_message(
-              tok,
-              `No "given" variable found for implicit parameter "${impl_label}"`,
-              false,
-              .None
-            )));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  tok,
+                  `No "given" variable found for implicit parameter "${impl_label}"`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
-
-          match(given_val,
+          match(
+            given_val,
             .Some(gv_val) => {
               impl_tok2 := synthetic_token(impl_label, callee_env_m.module_path);
               _ := add_variable_to_env(
                 &(callee_env_m),
-                impl_label, resolved_impl_type,
+                impl_label,
+                resolved_impl_type,
                 .Some(gv_val),
-                true,   // is_compile_time_only
-                false, false,
-                true,   // is_implicit
+                true,
+                // is_compile_time_only
+                false,
+                false,
+                true,
+                // is_implicit
                 impl_tok2
               );
-              implicit_arg_vals.push(ArgEntry(
-                value:          .Some(gv_val),
-                parameter_type: resolved_impl_type,
-                arg_type:       given_ty
-              ));
+              implicit_arg_vals.push(
+                ArgEntry(
+                  value :.Some(gv_val),
+                  parameter_type : resolved_impl_type,
+                  arg_type : given_ty
+                )
+              );
             },
             .None => {
-              exn.throw(dyn(format_error_message(
-                tok,
-                `The "given" variable "${given_name}" has no compile-time value`,
-                false,
-                .None
-              )));
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    tok,
+                    `The "given" variable "${given_name}" has no compile-time value`,
+                    false,
+                    .None
+                  )
+                )
+              );
             }
           );
         });
-
         impl_i = (impl_i + usize(1));
       });
-
       // ----------------------------------------------------------------
       // Step 12: Validate return type and build FuncCallResult.
       // ----------------------------------------------------------------
       validate_function_return_type(return_type, expr, callee_env_m, ctx, using(exn));
-
-      implicit_args_result := if((implicit_arg_vals.len() > usize(0)),
+      implicit_args_result := if(
+        implicit_arg_vals.len() > usize(0),
         Option(ArrayList(ArgEntry)).Some(implicit_arg_vals),
         Option(ArrayList(ArgEntry)).None
       );
-
       // ----------------------------------------------------------------
       // Step 12b: Create specialized function value if needed.
       // Simplified port of the specialization guard in helper.ts.
       // ----------------------------------------------------------------
       is_func_generic := ((fl.len() > usize(0)) || (il.len() > usize(0)));
       (spec_func_val : Option(EvalValue)) = Option(EvalValue).None;
-      if((!(skip_specialization) && is_func_generic), {
-        is_recursive_spec := match(ctx.currently_specializing_function,
-          .Some(spec_info) => match(func_val,
-            .Some(fv) => match(fv,
+      if(!(skip_specialization) && is_func_generic, {
+        is_recursive_spec := match(
+          ctx.currently_specializing_function,
+          .Some(spec_info) => match(
+            func_val,
+            .Some(fv) => match(
+              fv,
               .FuncVal(_, _, _, _, _, _, _, _, fid) =>
                 (spec_info.original_func_id.as_str() == fid.as_str()),
               _ => false
@@ -1737,95 +1861,107 @@ try_to_call_function_with_arguments :: (fn(
           ),
           .None => false
         );
-        is_concrete_fv := match(func_val,
-          .Some(fv) => match(fv, .FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false),
-          .None     => false
+        is_concrete_fv := match(
+          func_val,
+          .Some(fv) => match(fv,.FuncVal(_, _, _, _, _, _, _, _, _) => true, _ => false),
+          .None => false
         );
-        if((!(is_recursive_spec) && is_concrete_fv), {
-          fv2      := match(func_val, .Some(v) => v, .None => EvalValue.UnitVal);
-
+        if(!(is_recursive_spec) && is_concrete_fv, {
+          fv2 := match(func_val,.Some(v) => v,.None => EvalValue.UnitVal);
           // ----------------------------------------------------------------
           // Ctl function path: isControlFunction + has forall params.
           // Must come before regular specialization to override it.
           // Mirrors the `isControlFunction` branch in helper.ts step 12b.
           // ----------------------------------------------------------------
-          fv2_func_id := match(fv2,
+          fv2_func_id := match(
+            fv2,
             .FuncVal(_, _, _, _, _, _, _, _, fid2) => fid2,
             _ => String.from("")
           );
           is_ctl := is_control_fn(fv2_func_id.as_str());
           has_forall := (fl.len() > usize(0));
-          if((is_ctl && has_forall), {
+          if(is_ctl && has_forall, {
             spec_func_val = Option(EvalValue).Some(
               evaluate_ctl_function_body_inline(
-                fv2, func_type, callee_env_m, caller_env_m, ctx, using(exn)
+                fv2,
+                func_type,
+                callee_env_m,
+                caller_env_m,
+                ctx,
+                using(exn)
               )
             );
           });
-
           // Regular specialization if ctl path did not produce a result.
           if(spec_func_val.is_none(), {
-            spec_av  := ArgValues(
-              forall_args:   forall_arg_vals,
-              args:          arg_vals,
-              implicit_args: implicit_args_result,
-              variadic_args: ArrayList(VarArgEntry).new()
+            spec_av := ArgValues(
+              forall_args : forall_arg_vals,
+              args : arg_vals,
+              implicit_args : implicit_args_result,
+              variadic_args : ArrayList(VarArgEntry).new()
             );
             spec_func_val = Option(EvalValue).Some(
               create_specialized_function_inline(
-                fv2, func_type, spec_av, callee_env_m, caller_env_m, ctx, using(exn)
+                fv2,
+                func_type,
+                spec_av,
+                callee_env_m,
+                caller_env_m,
+                ctx,
+                using(exn)
               )
             );
           });
         });
       });
-
       FuncCallResult(
-        callee_env:                 callee_env_m,
-        caller_env:                 caller_env_m,
-        path_collection:            path_collection_new(),
-        return_type:                return_type,
-        return_value:               Option(EvalValue).None,
-        arg_values:                 ArgValues(
-          forall_args:   forall_arg_vals,
-          args:          arg_vals,
-          implicit_args: implicit_args_result,
-          variadic_args: ArrayList(VarArgEntry).new()
+        callee_env : callee_env_m,
+        caller_env : caller_env_m,
+        path_collection : path_collection_new(),
+        return_type : return_type,
+        return_value : Option(EvalValue).None,
+        arg_values : ArgValues(
+          forall_args : forall_arg_vals,
+          args : arg_vals,
+          implicit_args : implicit_args_result,
+          variadic_args : ArrayList(VarArgEntry).new()
         ),
-        runtime_arg_exprs_in_order: rt_args,
-        specialized_function_value: spec_func_val,
-        deferred_drop_expressions:  Option(ArrayList(AstExpr)).None
+        runtime_arg_exprs_in_order : rt_args,
+        specialized_function_value : spec_func_val,
+        deferred_drop_expressions : Option(ArrayList(AstExpr)).None
       )
     },
     _ => {
-      exn.throw(dyn(format_error_message(
-        tok,
-        String.from("try_to_call_function_with_arguments: func_type is not a Func type"),
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            String.from("try_to_call_function_with_arguments: func_type is not a Func type"),
+            false,
+            .None
+          )
+        )
+      );
       // Unreachable placeholder.
       FuncCallResult(
-        callee_env:                 caller_env,
-        caller_env:                 caller_env,
-        path_collection:            path_collection_new(),
-        return_type:                t_unit(),
-        return_value:               Option(EvalValue).None,
-        arg_values:                 ArgValues(
-          forall_args:   ArrayList(ArgEntry).new(),
-          args:          ArrayList(ArgEntry).new(),
-          implicit_args: Option(ArrayList(ArgEntry)).None,
-          variadic_args: ArrayList(VarArgEntry).new()
+        callee_env : caller_env,
+        caller_env : caller_env,
+        path_collection : path_collection_new(),
+        return_type : t_unit(),
+        return_value : Option(EvalValue).None,
+        arg_values : ArgValues(
+          forall_args : ArrayList(ArgEntry).new(),
+          args : ArrayList(ArgEntry).new(),
+          implicit_args : Option(ArrayList(ArgEntry)).None,
+          variadic_args : ArrayList(VarArgEntry).new()
         ),
-        runtime_arg_exprs_in_order: ArrayList(AstExpr).new(),
-        specialized_function_value: Option(EvalValue).None,
-        deferred_drop_expressions:  Option(ArrayList(AstExpr)).None
+        runtime_arg_exprs_in_order : ArrayList(AstExpr).new(),
+        specialized_function_value : Option(EvalValue).None,
+        deferred_drop_expressions : Option(ArrayList(AstExpr)).None
       )
     }
   )
 });
-
-
 export(try_to_call_function_with_arguments);
 export(check_if_function_parameter_matches_argument);
 export(extract_function_value);

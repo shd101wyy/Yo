@@ -1,17 +1,17 @@
 open(import("std/string"));
 { AstExpr, ast_expr_token, make_err_expr } :: import("../../expr/expr.yo");
-{ Environment }                            :: import("../../env/env.yo");
-{ EvalContext }                            :: import("../context.yo");
-{ Exception }                              :: import("std/error");
-{ evaluate_function_type }                 :: import("./function.yo");
-
-evaluate_closure_type :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)(
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ Exception } :: import("std/error");
+{ evaluate_function_type } :: import("./function.yo");
+evaluate_closure_type :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)(
   evaluate_function_type(expr, env, ctx, using(exn))
 );
-
 export(evaluate_closure_type);

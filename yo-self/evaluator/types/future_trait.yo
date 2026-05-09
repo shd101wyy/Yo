@@ -8,88 +8,114 @@
 //!   Future(T, ...(E))                  — future with effect row spread
 //!   Future(T, Raise)                   — future with individual effect
 //!   Future(T, Raise, ...(E))           — mixed
-
 open(import("std/string"));
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of,
-  make_err_expr, BK_FUTURE }
-  :: import("../../expr/expr.yo");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  make_err_expr,
+  BK_FUTURE
+}
+:: import("../../expr/expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
-{ Environment, get_variables_from_env }     :: import("../../env/env.yo");
-{ EvalContext }                             :: import("../context.yo");
+{ Environment, get_variables_from_env } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value, is_unknown_val } :: import("../value.yo");
 { TypeValue, t_future_trait, generate_some_type_id }
-  :: import("../../types/type.yo");
-{ type_of_type }                            :: import("../../types/hierarchy.yo");
-{ format_error_message }                    :: import("../../error/error.yo");
-{ Exception }                               :: import("std/error");
-{ evaluate_expression }                     :: import("../exprs/expr.yo");
-{ ArrayList }                               :: import("std/collections/array_list");
-
+:: import("../../types/type.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ ArrayList } :: import("std/collections/array_list");
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
-
 _future_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
-  match(e,
+  match(
+    e,
     .FnCall(_, _, args, _, _) => args,
-    .Atom(_, _)               => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
-
 /// Derive a label name for an individual effect type.
 /// Mirrors `getEffectLabel` from future-trait.ts.
 _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> String)(
-  match(effect_type,
-    .ModuleT(_, name, _, _)             => name,
-    .SomeT(_, name, _, _, _, _, _, _, _)   => name,
-    _                                   => ast_expr_to_string(effect_expr)
+  match(
+    effect_type,
+    .ModuleT(_, name, _, _) => name,
+    .SomeT(_, name, _, _, _, _, _, _, _) => name,
+    _ => ast_expr_to_string(effect_expr)
   )
 );
-
 /// Resolve a spread effect row `...(E)`.
 /// Pushes the resolved label/type/spread into the output lists.
 /// Mirrors `resolveEffectRowSpread` from future-trait.ts.
-_resolve_effect_row_spread :: (fn(
-  effect_expr    : AstExpr,
-  env            : Environment,
-  out_labels     : ArrayList(String),
-  out_types      : ArrayList(TypeValue),
-  out_spreads    : ArrayList(bool),
-  using(exn : Exception)
-) -> unit)({
+_resolve_effect_row_spread :: (
+  fn(
+    effect_expr : AstExpr,
+    env : Environment,
+    out_labels : ArrayList(String),
+    out_types : ArrayList(TypeValue),
+    out_spreads : ArrayList(bool),
+    using(exn : Exception)
+  ) -> unit
+)({
   // effect_expr is `...(E)` — extract the row var name
-  spread_args      := _future_args(effect_expr);
-  row_arg          := match(spread_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  spread_args := _future_args(effect_expr);
+  row_arg := match(spread_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   row_var_name_str := ast_expr_token(row_arg).value;
-  row_var_name     := row_var_name_str;
-
+  row_var_name := row_var_name_str;
   // Look up E in the environment
   row_vars := get_variables_from_env(env, row_var_name);
-  if((row_vars.len() == usize(0)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(effect_expr),
-      `Effect row variable "${row_var_name}" not found in scope. Declare it with forall(..., ...(${row_var_name}))`,
-      false,
-      .None
-    )));
+  if(row_vars.len() == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(effect_expr),
+          `Effect row variable "${row_var_name}" not found in scope. Declare it with forall(..., ...(${row_var_name}))`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  match(row_vars.get((row_vars.len() - usize(1))),
+  match(
+    row_vars.get(row_vars.len() - usize(1)),
     .Some(row_var) => {
-      match(row_var.value,
+      match(
+        row_var.value,
         .Some(e_value) => {
-          match(e_value,
+          match(
+            e_value,
             // Case 1/2: TypeVal — check if EffectsRowT (expand) or SomeT (spread marker)
             .TypeVal(type_box) => {
-              match(type_box.*,
+              match(
+                type_box.*,
                 .EffectsRowT(row_labels, row_types) => {
                   // Case 1: Concrete EffectsRowT — expand into non-spread params
                   (ri : usize) = usize(0);
-                  while(runtime((ri < row_labels.len())), {
-                    lbl := match(row_labels.get(ri), .Some(l) => l, .None => { ri = row_labels.len(); break; });
-                    ty  := match(row_types.get(ri),  .Some(t) => t, .None => { ri = row_labels.len(); break; });
+                  while(runtime(ri < row_labels.len()), {
+                    lbl := match(
+                      row_labels.get(ri),
+                      .Some(l) => l,
+                      .None => {
+                        ri = row_labels.len();
+                        break;
+                      }
+                    );
+                    ty := match(
+                      row_types.get(ri),
+                      .Some(t) => t,
+                      .None => {
+                        ri = row_labels.len();
+                        break;
+                      }
+                    );
                     out_labels.push(lbl);
                     out_types.push(ty);
                     out_spreads.push(false);
@@ -103,24 +129,43 @@ _resolve_effect_row_spread :: (fn(
                   out_spreads.push(true);
                 },
                 _ => {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(effect_expr),
-                    `"...(${row_var_name})" requires "${row_var_name}" to be a forall-declared effect row variable, but it resolves to a concrete type. Use individual effect types directly instead of spreading them, e.g. Future(T, ${row_var_name}) instead of Future(T, ...(${row_var_name}))`,
-                    false,
-                    .None
-                  )));
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(effect_expr),
+                        `"...(${row_var_name})" requires "${row_var_name}" to be a forall-declared effect row variable, but it resolves to a concrete type. Use individual effect types directly instead of spreading them, e.g. Future(T, ${row_var_name}) instead of Future(T, ...(${row_var_name}))`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
                 }
               );
             },
             // Case 3/4/5: UnknownVal — check the contained type
             .UnknownVal(type_box) => {
-              match(type_box.*,
+              match(
+                type_box.*,
                 .EffectsRowT(row_labels, row_types) => {
                   // Case 3: UnknownVal with EffectsRowT — expand into concrete non-spread params
                   (ri : usize) = usize(0);
-                  while(runtime((ri < row_labels.len())), {
-                    lbl := match(row_labels.get(ri), .Some(l) => l, .None => { ri = row_labels.len(); break; });
-                    ty  := match(row_types.get(ri),  .Some(t) => t, .None => { ri = row_labels.len(); break; });
+                  while(runtime(ri < row_labels.len()), {
+                    lbl := match(
+                      row_labels.get(ri),
+                      .Some(l) => l,
+                      .None => {
+                        ri = row_labels.len();
+                        break;
+                      }
+                    );
+                    ty := match(
+                      row_types.get(ri),
+                      .Some(t) => t,
+                      .None => {
+                        ri = row_labels.len();
+                        break;
+                      }
+                    );
                     out_labels.push(lbl);
                     out_types.push(ty);
                     out_spreads.push(false);
@@ -140,10 +185,14 @@ _resolve_effect_row_spread :: (fn(
                     true => usize(0)
                   );
                   new_some_t := TypeValue.SomeT(
-                    generate_some_type_id(), row_var_name, frame_level,
+                    generate_some_type_id(),
+                    row_var_name,
+                    frame_level,
                     Box(TypeValue)(TypeValue.TypeUni(usize(1))),
-                    ArrayList(TypeValue).new(), ArrayList(usize).new(),
-                    ArrayList(TypeValue).new(), ArrayList(usize).new(),
+                    ArrayList(TypeValue).new(),
+                    ArrayList(usize).new(),
+                    ArrayList(TypeValue).new(),
+                    ArrayList(usize).new(),
                     true
                   );
                   out_labels.push(row_var_name);
@@ -153,55 +202,67 @@ _resolve_effect_row_spread :: (fn(
               );
             },
             _ => {
-              exn.throw(dyn(format_error_message(
-                ast_expr_token(effect_expr),
-                `Effect row variable "${row_var_name}" has invalid value. Expected a type.`,
-                false,
-                .None
-              )));
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(effect_expr),
+                    `Effect row variable "${row_var_name}" has invalid value. Expected a type.`,
+                    false,
+                    .None
+                  )
+                )
+              );
             }
           );
         },
         .None => {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(effect_expr),
-            `Effect row variable "${row_var_name}" has invalid value. Expected a type.`,
-            false,
-            .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(effect_expr),
+                `Effect row variable "${row_var_name}" has invalid value. Expected a type.`,
+                false,
+                .None
+              )
+            )
+          );
         }
       );
     },
     .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(effect_expr),
-        `Effect row variable "${row_var_name}" not found in scope.`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(effect_expr),
+            `Effect row variable "${row_var_name}" not found in scope.`,
+            false,
+            .None
+          )
+        )
+      );
     }
   );
 });
-
 /// Resolve a single effect argument (either `...(E)` spread or individual effect type).
 /// Pushes the result into out_labels/out_types/out_spreads and returns updated env.
 /// Mirrors `resolveEffectArg` from future-trait.ts.
-_resolve_effect_arg :: (fn(
-  effect_expr  : AstExpr,
-  env          : Environment,
-  ctx          : *(EvalContext),
-  out_labels   : ArrayList(String),
-  out_types    : ArrayList(TypeValue),
-  out_spreads  : ArrayList(bool),
-  using(exn : Exception)
-) -> Environment)({
+_resolve_effect_arg :: (
+  fn(
+    effect_expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    out_labels : ArrayList(String),
+    out_types : ArrayList(TypeValue),
+    out_spreads : ArrayList(bool),
+    using(exn : Exception)
+  ) -> Environment
+)({
   // Check if this is a spread expression ...(E) with one atom arg
   is_spread := (
     ast_expr_is_fn_call(effect_expr) &&
-    ast_expr_is_fn_call_of(effect_expr, "...", .Some(usize(1))) &&
-    match(_future_args(effect_expr).get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false)
+      ast_expr_is_fn_call_of(effect_expr, "...",.Some(usize(1))) &&
+        match(_future_args(effect_expr).get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false)
   );
-
   cond(
     is_spread => {
       _resolve_effect_row_spread(effect_expr, env, out_labels, out_types, out_spreads, using(exn));
@@ -211,19 +272,25 @@ _resolve_effect_arg :: (fn(
       // Individual effect type — evaluate it
       evaluated_expr := evaluate_expression(effect_expr, env, ctx);
       info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_expr));
-      match(info_opt,
+      match(
+        info_opt,
         .Some(info) => {
           if(!(is_type_value(info.value)), {
-            exn.throw(dyn(format_error_message(
-              ast_expr_token(effect_expr),
-              `Future effect argument must be an effect type or ...(E) spread, but got:\n${ast_expr_to_string(effect_expr)}`,
-              false,
-              .None
-            )));
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(effect_expr),
+                  `Future effect argument must be an effect type or ...(E) spread, but got:\n${ast_expr_to_string(effect_expr)}`,
+                  false,
+                  .None
+                )
+              )
+            );
           });
-          effect_type := match(info.value,
-            .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit),
-            .None    => TypeValue.Unit
+          effect_type := match(
+            info.value,
+            .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+            .None => TypeValue.Unit
           );
           label := _effect_label_for(effect_type, effect_expr);
           out_labels.push(label);
@@ -232,98 +299,112 @@ _resolve_effect_arg :: (fn(
           info.env
         },
         .None => {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(effect_expr),
-            `Future effect argument must be an effect type or ...(E) spread, but got:\n${ast_expr_to_string(effect_expr)}`,
-            false,
-            .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(effect_expr),
+                `Future effect argument must be an effect type or ...(E) spread, but got:\n${ast_expr_to_string(effect_expr)}`,
+                false,
+                .None
+              )
+            )
+          );
           env
         }
       )
     }
   )
 });
-
 // ---------------------------------------------------------------------------
 // evaluate_future_type
 // ---------------------------------------------------------------------------
-
 /// Evaluates the `Future(T, ...)` syntax.
 /// Creates a FutureTraitT type with output type and optional effect row effects.
 ///
 /// Mirrors `evaluateFutureType` from future-trait.ts.
-evaluate_future_type :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_future_type :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   expr_args := _future_args(expr);
-
-  if((expr_args.len() < usize(1)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      String.from("Future type constructor expects at least 1 argument (output type). Usage: Future(T), Future(T, ...(E)), Future(T, Raise, ...(E))"),
-      false,
-      .None
-    )));
+  if(expr_args.len() < usize(1), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("Future type constructor expects at least 1 argument (output type). Usage: Future(T), Future(T, ...(E)), Future(T, Raise, ...(E))"),
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Evaluate output type (first arg)
-  element_type_expr   := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  element_type_expr := match(expr_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   evaluated_elem_expr := evaluate_expression(element_type_expr, env, ctx);
-
   elem_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem_expr));
-  elem_info     := match(elem_info_opt,
+  elem_info := match(
+    elem_info_opt,
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(element_type_expr),
-        `Failed to evaluate the element type expression for Future:\n${ast_expr_to_string(element_type_expr)}`,
-        false,
-        .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(element_type_expr),
+            `Failed to evaluate the element type expression for Future:\n${ast_expr_to_string(element_type_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(env, TypeValue.Unit)
     }
   );
   (env_mut : Environment) = elem_info.env;
-
   if(!(is_type_value(elem_info.value)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(element_type_expr),
-      `Future type constructor expects a type as its first argument, but got:\n${ast_expr_to_string(element_type_expr)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(element_type_expr),
+          `Future type constructor expects a type as its first argument, but got:\n${ast_expr_to_string(element_type_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  output_type := match(elem_info.value,
-    .Some(v) => match(v, .TypeVal(b) => b.*, _ => TypeValue.Unit),
-    .None    => TypeValue.Unit
+  output_type := match(
+    elem_info.value,
+    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .None => TypeValue.Unit
   );
-
   // Process effect arguments (args 1..N)
-  effect_labels  := ArrayList(String).new();
-  effect_types   := ArrayList(TypeValue).new();
+  effect_labels := ArrayList(String).new();
+  effect_types := ArrayList(TypeValue).new();
   effect_spreads := ArrayList(bool).new();
-
   (ei : usize) = usize(1);
-  while(runtime((ei < expr_args.len())), {
-    effect_expr := match(expr_args.get(ei), .Some(a) => a, .None => { ei = expr_args.len(); break; });
+  while(runtime(ei < expr_args.len()), {
+    effect_expr := match(
+      expr_args.get(ei),
+      .Some(a) => a,
+      .None => {
+        ei = expr_args.len();
+        break;
+      }
+    );
     env_mut = _resolve_effect_arg(effect_expr, env_mut, ctx, effect_labels, effect_types, effect_spreads, using(exn));
     ei = (ei + usize(1));
   });
-
   // Build the FutureTraitT
   future_type := t_future_trait(String.from(BK_FUTURE), output_type, effect_labels, effect_types, effect_spreads);
-
   // Set expr info
   out_info := new_expr_info(env_mut, type_of_type(future_type));
-  out_info.value = .Some(create_type_value(future_type));
+  out_info.value =.Some(create_type_value(future_type));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-
   expr
 });
-
 export(evaluate_future_type);

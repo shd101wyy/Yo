@@ -9,111 +9,122 @@
 //!   - Fails with an explicit error when the empty array `[]` is written.
 //!   - Stores `ExprInfo` in the ExprInfoTable; if all elements have compile-time
 //!     values, the array value is also stored.
-
 open(import("std/string"));
 open(import("std/fmt"));
-
-{ ArrayList }                                             :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr }  :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }              :: import("../../expr/expr_info.yo");
-{ Environment }                                          :: import("../../env/env.yo");
-{ EvalContext, ExpectedTypeCtx }                         :: import("../context.yo");
-{ EvalValue }                                            :: import("../value.yo");
-{ TypeValue, t_array, t_usize, is_array_type }           :: import("../../types/type.yo");
-{ are_types_compatible }                                 :: import("../../types/compatibility.yo");
-{ convert_comptime_type_to_runtime_type }                :: import("../../types/utils.yo");
-{ type_to_string }                                       :: import("../../types/string.yo");
-{ format_error_message }                                 :: import("../../error/error.yo");
-{ Exception }                                            :: import("std/error");
-{ evaluate_expression }                                  :: import("../exprs/expr.yo");
-{ set_expr_as_needs_to_call_dup,
-  attach_temp_variable_to_expr }                         :: import("../utils.yo");
-
-evaluate_array_value :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalValue } :: import("../value.yo");
+{ TypeValue, t_array, t_usize, is_array_type } :: import("../../types/type.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/utils.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{
+  set_expr_as_needs_to_call_dup,
+  attach_temp_variable_to_expr
+} :: import("../utils.yo");
+evaluate_array_value :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Extract args from the FnCall node.
-  args := match(expr,
+  args := match(
+    expr,
     .FnCall(_, _, a, _, _) => a,
-    .Atom(_, _)            => ArrayList(AstExpr).new()
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
-
   // Disallow empty arrays.
   array_len := args.len();
-  if((array_len == usize(0)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected at least one element in array, got ${array_len}`,
-      false,
-      .None
-    )));
+  if(array_len == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected at least one element in array, got ${array_len}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // If the context expects an array type, use its element type as a hint.
-  expected_elem_type_opt := match(ctx.expected_type,
+  expected_elem_type_opt := match(
+    ctx.expected_type,
     .Some(et) => cond(
-      is_array_type(et.ty) => match(et.ty,
+      is_array_type(et.ty) => match(
+        et.ty,
         .Array(box_elem, _) => Option(TypeValue).Some(box_elem.*),
-        _                   => Option(TypeValue).None
+        _ => Option(TypeValue).None
       ),
       true => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
   );
-
   // Per-element accumulators.
-  (env_loop             : Environment)               = env;
-  (array_elem_type_opt  : Option(TypeValue))         = Option(TypeValue).None;
-  (element_values       : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
-  (runtime_arg_exprs    : ArrayList(AstExpr))        = ArrayList(AstExpr).new();
-
+  (env_loop : Environment) = env;
+  (array_elem_type_opt : Option(TypeValue)) = Option(TypeValue).None;
+  (element_values : ArrayList(Option(EvalValue))) = ArrayList(Option(EvalValue)).new();
+  (runtime_arg_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   (i : usize) = usize(0);
-  while(runtime((i < array_len)), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
-
+  while(runtime(i < array_len), {
+    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     // Save/restore expected_type around element evaluation.
     old_expected := ctx.expected_type;
-    ctx.expected_type = match(expected_elem_type_opt,
-      .Some(et) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty: et, env: env_loop)),
-      .None      => Option(ExpectedTypeCtx).None
+    ctx.expected_type = match(
+      expected_elem_type_opt,
+      .Some(et) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : et, env : env_loop)),
+      .None => Option(ExpectedTypeCtx).None
     );
-
     evaluated_elem := evaluate_expression(arg, env_loop, ctx);
     ctx.expected_type = old_expected;
-
     set_expr_as_needs_to_call_dup(evaluated_elem, ctx);
-
     elem_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem));
     if(elem_info_opt.is_none(), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg),
-        `Failed to evaluate array element`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            `Failed to evaluate array element`,
+            false,
+            .None
+          )
+        )
+      );
     });
-    elem_info := match(elem_info_opt,
+    elem_info := match(
+      elem_info_opt,
       .Some(info) => info,
-      .None       => new_expr_info(env_loop, t_usize())  // unreachable
+      .None => new_expr_info(env_loop, t_usize()) // unreachable
     );
-
     env_loop = elem_info.env;
     element_values.push(elem_info.value);
     runtime_arg_exprs.push(evaluated_elem);
-
     elem_ty := elem_info.ty;
-
     // Determine or type-check the running array element type.
-    array_elem_type_opt = match(array_elem_type_opt,
+    array_elem_type_opt = match(
+      array_elem_type_opt,
       // First element: adopt expected hint or inferred type.
-      .None => Option(TypeValue).Some(match(expected_elem_type_opt,
-        .Some(et) => et,
-        .None      => elem_ty
-      )),
+      .None => Option(TypeValue).Some(
+        match(
+          expected_elem_type_opt,
+          .Some(et) => et,
+          .None => elem_ty
+        )
+      ),
       // Subsequent elements: check compatibility.
       .Some(inferred_ty) => {
         compat := are_types_compatible(elem_ty, inferred_ty);
@@ -125,76 +136,82 @@ evaluate_array_value :: (fn(
             compat2 := are_types_compatible(elem_ty, converted);
             cond(
               compat2 => Option(TypeValue).Some(elem_ty),
-              true    => {
+              true => {
                 inferred_str := type_to_string(inferred_ty);
-                elem_str     := type_to_string(elem_ty);
-                exn.throw(dyn(format_error_message(
-                  ast_expr_token(arg),
-                  `Array element type mismatch:\nExpected type: ${inferred_str}\nGiven type: ${elem_str}`,
-                  false,
-                  .None
-                )));
-                Option(TypeValue).Some(inferred_ty)  // unreachable
+                elem_str := type_to_string(elem_ty);
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(arg),
+                      `Array element type mismatch:\nExpected type: ${inferred_str}\nGiven type: ${elem_str}`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+                Option(TypeValue).Some(inferred_ty) // unreachable
               }
             )
           }
         )
       }
     );
-
     i = (i + usize(1));
   });
-
   // Unwrap the final element type (always set after the loop since array_len > 0).
-  array_elem_type := match(array_elem_type_opt,
+  array_elem_type := match(
+    array_elem_type_opt,
     .Some(ty) => ty,
-    .None     => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        `Failed to infer array element type`,
-        false,
-        .None
-      )));
-      t_usize()  // unreachable
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Failed to infer array element type`,
+            false,
+            .None
+          )
+        )
+      );
+      t_usize() // unreachable
     }
   );
-
   array_type := t_array(array_elem_type, array_len);
-
   // Build a compile-time ArrayVal if every element has a compile-time value.
   (all_have_values : bool) = true;
   (check_i : usize) = usize(0);
-  while(runtime(((check_i < element_values.len()) && all_have_values)), {
-    opt_v := match(element_values.get(check_i), .Some(x) => x, .None => Option(EvalValue).None);
+  while(runtime((check_i < element_values.len()) && all_have_values), {
+    opt_v := match(element_values.get(check_i),.Some(x) => x,.None => Option(EvalValue).None);
     if(opt_v.is_none(), {
       all_have_values = false;
     });
     check_i = (check_i + usize(1));
   });
-
   (array_value_opt : Option(EvalValue)) = cond(
     all_have_values => {
       (elems : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
       (build_i : usize) = usize(0);
-      while(runtime((build_i < element_values.len())), {
-        opt_v := match(element_values.get(build_i), .Some(x) => x, .None => Option(EvalValue).None);
-        match(opt_v, .Some(v) => { elems.push(v); }, .None => ());
+      while(runtime(build_i < element_values.len()), {
+        opt_v := match(element_values.get(build_i),.Some(x) => x,.None => Option(EvalValue).None);
+        match(
+          opt_v,
+          .Some(v) => {
+            elems.push(v);
+          },
+          .None => ()
+        );
         build_i = (build_i + usize(1));
       });
       Option(EvalValue).Some(EvalValue.ArrayVal(elems))
     },
     true => Option(EvalValue).None
   );
-
   // Write ExprInfo into the table.
   info := new_expr_info(env_loop, array_type);
   info.value = array_value_opt;
   info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-
   attach_temp_variable_to_expr(expr, true, ctx);
-
   expr
 });
-
 export(evaluate_array_value);

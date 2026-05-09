@@ -15,99 +15,122 @@
 //! Phase 3 stubs preserved as no-ops:
 //!   * `set_expr_as_needs_to_call_dup` — RC tracking is not yet ported.
 //!   * `attach_temp_variable_to_expr` — temp-variable assignment is not yet ported.
-
 open(import("std/string"));
 open(import("std/fmt"));
-
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr,
-  BK_TUPLE } :: import("../../expr/expr.yo");
-{ new_expr_info, expr_info_table_set,
-  expr_info_table_get } :: import("../../expr/expr_info.yo");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  make_err_expr,
+  BK_TUPLE
+} :: import("../../expr/expr.yo");
+{
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
 { Environment } :: import("../../env/env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_type_value } :: import("../value.yo");
 { TypeValue } :: import("../../types/type.yo");
-{ is_tuple_type, is_comptime_int_type, is_comptime_float_type,
-  is_comptime_string_type, is_comptime_list_type } :: import("../../types/guards.yo");
+{
+  is_tuple_type,
+  is_comptime_int_type,
+  is_comptime_float_type,
+  is_comptime_string_type,
+  is_comptime_list_type
+} :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error/error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("../exprs/expr.yo");
-
 // Pragmatic stand-in for the TS `isComptimeOnlyType` while the full
 // `typeImplementsComptime` / `typeImplementsRuntime` infrastructure is
 // not yet ported.  Covers the same primitive cases the evaluator actually
 // hits for tuple element types today.
 is_comptime_only_type_local :: (fn(t : TypeValue) -> bool)(
   cond(
-    is_comptime_int_type(t)    => true,
-    is_comptime_float_type(t)  => true,
+    is_comptime_int_type(t) => true,
+    is_comptime_float_type(t) => true,
     is_comptime_string_type(t) => true,
-    is_comptime_list_type(t)   => true,
-    true                       => false
+    is_comptime_list_type(t) => true,
+    true => false
   )
 );
-
 // Result struct returned by `evaluate_tuple_elements_value`.
 EvalTupleElementsValueResult :: struct(
-  field_labels                 : ArrayList(String),
-  field_types                  : ArrayList(TypeValue),
-  values                       : ArrayList(Option(EvalValue)),
-  env                          : Environment,
-  runtime_arg_exprs_in_order   : ArrayList(AstExpr)
+  field_labels : ArrayList(String),
+  field_types : ArrayList(TypeValue),
+  values : ArrayList(Option(EvalValue)),
+  env : Environment,
+  runtime_arg_exprs_in_order : ArrayList(AstExpr)
 );
-
 // Evaluate a single tuple element expression and append its evaluated form
 // onto `runtime_arg_exprs_in_order`.
 //
 // Mirrors `evaluateTupleElementValue` in the TS source.
 EvalTupleElementResult :: struct(
-  ty    : TypeValue,
+  ty : TypeValue,
   value : Option(EvalValue),
-  env   : Environment
+  env : Environment
 );
-
-evaluate_tuple_element_value :: (fn(
-  expr                       : AstExpr,
-  tuple_field_index          : usize,
-  env_in                     : Environment,
-  ctx                        : *(EvalContext),
-  runtime_arg_exprs_in_order : ArrayList(AstExpr),
-  using(exn : Exception)
-) -> EvalTupleElementResult)({
+evaluate_tuple_element_value :: (
+  fn(
+    expr : AstExpr,
+    tuple_field_index : usize,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    runtime_arg_exprs_in_order : ArrayList(AstExpr),
+    using(exn : Exception)
+  ) -> EvalTupleElementResult
+)({
   (env : Environment) = env_in;
-
   // Reject labelled fields: `x: rhs`.
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
-    args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
-    lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => expr);
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(lhs_expr),
-      String.from("Labelled field is not allowed in tuple value."),
-      false,
-      .None
-    )));
+    args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+    lhs_expr := match(args.get(usize(0)),.Some(a) => a,.None => expr);
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(lhs_expr),
+          String.from("Labelled field is not allowed in tuple value."),
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Compute the expected element type from the tuple-shaped expected_type, if any.
   (expected_field_type_opt : Option(TypeValue)) = Option(TypeValue).None;
-  match(ctx.expected_type,
+  match(
+    ctx.expected_type,
     .Some(et) => cond(
       is_tuple_type(et.ty) => {
-        match(et.ty,
+        match(
+          et.ty,
           .Tuple(_, types) => {
-            match(types.get(tuple_field_index),
-              .Some(t) => { expected_field_type_opt = Option(TypeValue).Some(t); (); },
-              .None    => {
-                exn.throw(dyn(format_error_message(
-                  ast_expr_token(expr),
-                  `Failed to get the tuple field at index ${tuple_field_index}`,
-                  false,
-                  .None
-                )));
+            match(
+              types.get(tuple_field_index),
+              .Some(t) => {
+                expected_field_type_opt = Option(TypeValue).Some(t);
+                ();
+              },
+              .None => {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(expr),
+                      `Failed to get the tuple field at index ${tuple_field_index}`,
+                      false,
+                      .None
+                    )
+                  )
+                );
               }
             );
             ();
@@ -118,170 +141,188 @@ evaluate_tuple_element_value :: (fn(
       },
       true => {
         ty_str := type_to_string(et.ty);
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(expr),
-          `(2) Failed to evaluate the tuple fields. Expected type to be:\n${ty_str}`,
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `(2) Failed to evaluate the tuple fields. Expected type to be:\n${ty_str}`,
+              false,
+              .None
+            )
+          )
+        );
       }
     ),
     .None => ()
   );
-
   // Evaluate the rhs expression with `expected_type` updated for this field.
   saved_expected := ctx.expected_type;
-  ctx.expected_type = match(expected_field_type_opt,
-    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty: t, env: env)),
-    .None    => Option(ExpectedTypeCtx).None
+  ctx.expected_type = match(
+    expected_field_type_opt,
+    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : env)),
+    .None => Option(ExpectedTypeCtx).None
   );
   evaluated_rhs := evaluate_expression(expr, env, ctx);
   ctx.expected_type = saved_expected;
-
   // setExprAsNeedsToCallDup — Phase 3 stub.
   // (No-op; preserved as a comment to mirror the TS call site.)
-
   // Look up the resulting ExprInfo for the rhs.
   rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
-  rhs_info := match(rhs_info_opt,
+  rhs_info := match(
+    rhs_info_opt,
     .Some(info) => info,
-    .None       => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        `Failed to evaluate the tuple field: ${ast_expr_to_string(expr)}`,
-        false,
-        .None
-      )));
-      new_expr_info(env, TypeValue.Unit)  // unreachable
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Failed to evaluate the tuple field: ${ast_expr_to_string(expr)}`,
+            false,
+            .None
+          )
+        )
+      );
+      new_expr_info(env, TypeValue.Unit) // unreachable
     }
   );
   env = rhs_info.env;
-
   // Reject `type` values stored as tuple elements.
   if(is_type_value(rhs_info.value), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Cannot store a type value in tuple, please use module instead:\n  ${ast_expr_to_string(expr)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Cannot store a type value in tuple, please use module instead:\n  ${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Convert to runtime type unless the expected field type is comptime-only.
-  child_type := match(expected_field_type_opt,
+  child_type := match(
+    expected_field_type_opt,
     .Some(et) => cond(
       is_comptime_only_type_local(et) => rhs_info.ty,
-      true                            => convert_comptime_type_to_runtime_type(rhs_info.ty, env)
+      true => convert_comptime_type_to_runtime_type(rhs_info.ty, env)
     ),
     .None => convert_comptime_type_to_runtime_type(rhs_info.ty, env)
   );
-
   runtime_arg_exprs_in_order.push(evaluated_rhs);
-
   EvalTupleElementResult(
-    ty:    child_type,
-    value: rhs_info.value,
-    env:   env
+    ty : child_type,
+    value : rhs_info.value,
+    env : env
   )
 });
-
 // Evaluate every element of a tuple value, returning parallel
 // labels/types/values plus the threaded environment.
 //
 // Mirrors `evaluateTupleElementsValue` in the TS source.
-evaluate_tuple_elements_value :: (fn(
-  args   : ArrayList(AstExpr),
-  env_in : Environment,
-  ctx    : *(EvalContext),
-  using(exn : Exception)
-) -> EvalTupleElementsValueResult)({
+evaluate_tuple_elements_value :: (
+  fn(
+    args : ArrayList(AstExpr),
+    env_in : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> EvalTupleElementsValueResult
+)({
   (env : Environment) = env_in;
-
-  field_labels               := ArrayList(String).new();
-  field_types                := ArrayList(TypeValue).new();
-  values                     := ArrayList(Option(EvalValue)).new();
+  field_labels := ArrayList(String).new();
+  field_types := ArrayList(TypeValue).new();
+  values := ArrayList(Option(EvalValue)).new();
   runtime_arg_exprs_in_order := ArrayList(AstExpr).new();
-
   (i : usize) = usize(0);
-  while(runtime((i < args.len())), {
-    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
-
+  while(runtime(i < args.len()), {
+    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     result := evaluate_tuple_element_value(
-      arg, i, env, ctx, runtime_arg_exprs_in_order, using(exn)
+      arg,
+      i,
+      env,
+      ctx,
+      runtime_arg_exprs_in_order,
+      using(exn)
     );
-
     field_labels.push(i.to_string());
     field_types.push(result.ty);
     values.push(result.value);
     env = result.env;
-
     i = (i + usize(1));
   });
-
   EvalTupleElementsValueResult(
-    field_labels:               field_labels,
-    field_types:                field_types,
-    values:                     values,
-    env:                        env,
-    runtime_arg_exprs_in_order: runtime_arg_exprs_in_order
+    field_labels : field_labels,
+    field_types : field_types,
+    values : values,
+    env : env,
+    runtime_arg_exprs_in_order : runtime_arg_exprs_in_order
   )
 });
-
 // Evaluate a `tuple(...)` call expression.
 //
 // Mirrors `evaluateTupleValue` in the TS source.
-evaluate_tuple_value :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_tuple_value :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   if(!(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      String.from("Expected tuple, got non-tuple expression"),
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("Expected tuple, got non-tuple expression"),
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
-
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
   // Empty tuple → unit value.
-  if((args.len() == usize(0)), {
+  if(args.len() == usize(0), {
     info := new_expr_info(env, TypeValue.Unit);
     info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });
-
   result := evaluate_tuple_elements_value(args, env, ctx, using(exn));
-
   // Build the resulting tuple type and (if all elements known) tuple value.
   tuple_ty := TypeValue.Tuple(result.field_labels, result.field_types);
-
   (all_known : bool) = true;
   (k : usize) = usize(0);
-  while(runtime(((k < result.values.len()) && all_known)), {
-    match(result.values.get(k),
-      .Some(opt) => match(opt,
+  while(runtime((k < result.values.len()) && all_known), {
+    match(
+      result.values.get(k),
+      .Some(opt) => match(
+        opt,
         .Some(_) => (),
-        .None    => { all_known = false; }
+        .None => {
+          all_known = false;
+        }
       ),
-      .None => { all_known = false; }
+      .None => {
+        all_known = false;
+      }
     );
     k = (k + usize(1));
   });
-
   (tuple_value_opt : Option(EvalValue)) = Option(EvalValue).None;
   if(all_known, {
     val_list := ArrayList(EvalValue).new();
     (m : usize) = usize(0);
-    while(runtime((m < result.values.len())), {
-      match(result.values.get(m),
-        .Some(opt) => match(opt,
-          .Some(v) => { val_list.push(v); (); },
-          .None    => ()
+    while(runtime(m < result.values.len()), {
+      match(
+        result.values.get(m),
+        .Some(opt) => match(
+          opt,
+          .Some(v) => {
+            val_list.push(v);
+            ();
+          },
+          .None => ()
         ),
         .None => ()
       );
@@ -289,16 +330,17 @@ evaluate_tuple_value :: (fn(
     });
     tuple_value_opt = Option(EvalValue).Some(EvalValue.TupleVal(val_list));
   });
-
   info := new_expr_info(result.env, tuple_ty);
   info.value = tuple_value_opt;
   info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-
   // attachTempVariableToExpr — Phase 3 stub (no-op).
-
   expr
 });
-
-export(evaluate_tuple_value, evaluate_tuple_elements_value, evaluate_tuple_element_value,
-       EvalTupleElementsValueResult, EvalTupleElementResult);
+export(
+  evaluate_tuple_value,
+  evaluate_tuple_elements_value,
+  evaluate_tuple_element_value,
+  EvalTupleElementsValueResult,
+  EvalTupleElementResult
+);

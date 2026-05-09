@@ -4,121 +4,155 @@
 //!
 //! `evaluate_as` handles the `as(value, TargetType)` builtin, which casts
 //! a value to the target type if they are compatible.
-
 open(import("std/string"));
-
-{ AstExpr, ast_expr_token, ast_expr_id }          :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }       :: import("../../expr/expr_info.yo");
-{ Environment }                                    :: import("../../env/env.yo");
-{ TypeValue, t_unit }                              :: import("../../types/type.yo");
-{ EvalContext }                                    :: import("../context.yo");
-{ EvalValue }                                      :: import("../value.yo");
-{ is_type_value }                                  :: import("../value.yo");
-{ are_types_compatible }                           :: import("../../types/compatibility.yo");
-{ type_to_string }                                 :: import("../../types/string.yo");
-{ evaluate_expression }                            :: import("../exprs/expr.yo");
-{ format_error_message }                           :: import("../../error/error.yo");
-{ Exception }                                      :: import("std/error");
-
+{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../value.yo");
+{ is_type_value } :: import("../value.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
 /// Type-cast builtin `as(value, TargetType)`.
 /// Takes two arguments: value and target type.
 /// Returns the value cast to the target type if compatible.
 ///
 /// Mirrors `evaluateAs` in `src/evaluator/builtins/as.ts`.
-evaluate_as :: (fn(
-  expr       : AstExpr,
-  env        : Environment,
-  ctx        : *(EvalContext),
-  using(exn  : Exception)
-) -> AstExpr)({
-  tok  := ast_expr_token(expr);
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => {
-    exn.throw(dyn(format_error_message(tok, String.from("as: expected FnCall"), false, .None)));
-    return(expr);
-  });
-
-  if((args.len() != usize(2)), {
-    exn.throw(dyn(format_error_message(
-      tok,
-      `"as" function expects exactly 2 arguments, got ${args.len()}`,
-      false,
-      .None
-    )));
-  });
-
-  val_arg_expr  := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
-  type_arg_expr := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
-
-  // Evaluate the value argument.
-  eval_val_expr  := evaluate_expression(val_arg_expr, env, ctx);
-  val_info_opt   := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val_expr));
-  val_info := match(val_info_opt,
-    .Some(i) => i,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(val_arg_expr),
-        `Failed to evaluate value argument for "as"`,
-        false,
-        .None
-      )));
+evaluate_as :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  tok := ast_expr_token(expr);
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      exn.throw(dyn(format_error_message(tok, String.from("as: expected FnCall"), false,.None)));
       return(expr);
     }
   );
-
+  if(args.len() != usize(2), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `"as" function expects exactly 2 arguments, got ${args.len()}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  val_arg_expr := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
+  type_arg_expr := match(
+    args.get(usize(1)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
+  // Evaluate the value argument.
+  eval_val_expr := evaluate_expression(val_arg_expr, env, ctx);
+  val_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val_expr));
+  val_info := match(
+    val_info_opt,
+    .Some(i) => i,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(val_arg_expr),
+            `Failed to evaluate value argument for "as"`,
+            false,
+            .None
+          )
+        )
+      );
+      return(expr);
+    }
+  );
   // Evaluate the type argument using the updated env from the value evaluation.
   eval_type_expr := evaluate_expression(type_arg_expr, val_info.env, ctx);
-  type_info_opt  := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type_expr));
-  type_info := match(type_info_opt,
+  type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type_expr));
+  type_info := match(
+    type_info_opt,
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(type_arg_expr),
-        `Failed to evaluate type argument for "as"`,
-        false,
-        .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(type_arg_expr),
+            `Failed to evaluate type argument for "as"`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     }
   );
-
   // Check that the second argument is a type.
-  if((!(is_type_value(type_info.value))), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(type_arg_expr),
-      `Second argument to "as" must be a type`,
-      false,
-      .None
-    )));
+  if(!(is_type_value(type_info.value)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(type_arg_expr),
+          `Second argument to "as" must be a type`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Extract the TypeValue from the TypeVal.
-  target_type := match(type_info.value,
-    .Some(v) => match(v,
+  target_type := match(
+    type_info.value,
+    .Some(v) => match(
+      v,
       .TypeVal(ty_box) => ty_box.*,
-      _                => t_unit()
+      _ => t_unit()
     ),
     .None => t_unit()
   );
   source_type := val_info.ty;
   updated_env := type_info.env;
-
   // Check if types are compatible for casting.
-  if((!(are_types_compatible(target_type, source_type))), {
-    exn.throw(dyn(format_error_message(
-      tok,
-      `Cannot cast from type "${type_to_string(source_type)}" to type "${type_to_string(target_type)}" - types are not compatible`,
-      false,
-      .None
-    )));
+  if(!(are_types_compatible(target_type, source_type)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `Cannot cast from type "${type_to_string(source_type)}" to type "${type_to_string(target_type)}" - types are not compatible`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Return the value with the new type.
   out := new_expr_info(updated_env, target_type);
-  out.value           = val_info.value;
+  out.value = val_info.value;
   out.path_collection = val_info.path_collection;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-
 export(evaluate_as);

@@ -4,41 +4,59 @@
 //
 // The I/O entry point (`render_doc_markdown`) returns a HashMap of path→content
 // so callers can write files however they choose (file I/O is not in scope here).
-
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
-  DocParam, DocField, DocVariant, DocAssociatedType,
-  DocImplAssocType, DocImpl, DocFunction, DocType, DocTrait,
-  DocConstant, DocModule, DocModel,
-  doc_item_kind_to_string, doc_trait_kind_to_string
+  DocParam,
+  DocField,
+  DocVariant,
+  DocAssociatedType,
+  DocImplAssocType,
+  DocImpl,
+  DocFunction,
+  DocType,
+  DocTrait,
+  DocConstant,
+  DocModule,
+  DocModel,
+  doc_item_kind_to_string,
+  doc_trait_kind_to_string
 } :: import("./model.yo");
-
 // ── Private helpers ───────────────────────────────────────────────────────────
-
 // Find a DocFunction by name in an ArrayList; returns None if not found.
 find_method_by_name_ :: (fn(methods : ArrayList(DocFunction), name : String) -> Option(DocFunction))({
   i := usize(0);
   n := methods.len();
-  while(runtime((i < n)), {
-    m := match(methods.get(i), .Some(x) => x, .None => { break; });
-    if((m.name == name), {
+  while(runtime(i < n), {
+    m := match(
+      methods.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    if(m.name == name, {
       return(Option(DocFunction).Some(m));
     });
     i = (i + usize(1));
   });
   Option(DocFunction).None
 });
-
 // Check whether a name appears in a claimed-names list.
 is_in_list_ :: (fn(list : ArrayList(String), name : String) -> bool)({
   i := usize(0);
   n := list.len();
   result := false;
-  while(runtime((i < n)), {
-    item := match(list.get(i), .Some(x) => x, .None => { break; });
-    if((item == name), {
+  while(runtime(i < n), {
+    item := match(
+      list.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    if(item == name, {
       result = true;
       break;
     });
@@ -46,11 +64,11 @@ is_in_list_ :: (fn(list : ArrayList(String), name : String) -> bool)({
   });
   result
 });
-
 // Format type parameters as "(A, B, C)" or "" when absent/empty.
 format_type_params_ :: (fn(params : Option(ArrayList(DocParam))) -> String)(
-  match(params,
-    .None    => ``,
+  match(
+    params,
+    .None => ``,
     .Some(p) =>
       cond(
         (p.len() == usize(0)) => ``,
@@ -58,8 +76,14 @@ format_type_params_ :: (fn(params : Option(ArrayList(DocParam))) -> String)(
           names := ArrayList(String).new();
           i := usize(0);
           n := p.len();
-          while(runtime((i < n)), {
-            param := match(p.get(i), .Some(x) => x, .None => { break; });
+          while(runtime(i < n), {
+            param := match(
+              p.get(i),
+              .Some(x) => x,
+              .None => {
+                break;
+              }
+            );
             names.push(param.name);
             i = (i + usize(1));
           });
@@ -69,7 +93,6 @@ format_type_params_ :: (fn(params : Option(ArrayList(DocParam))) -> String)(
       )
   )
 );
-
 // Render a list of DocField as "**Fields:**\n\n- `name` : `type`...".
 render_fields_ :: (fn(fields : ArrayList(DocField)) -> String)({
   lines := ArrayList(String).new();
@@ -77,17 +100,22 @@ render_fields_ :: (fn(fields : ArrayList(DocField)) -> String)({
   lines.push(``);
   i := usize(0);
   n := fields.len();
-  while(runtime((i < n)), {
-    f := match(fields.get(i), .Some(x) => x, .None => { break; });
-    dflt := match(f.default_value, .None => ``, .Some(d) => ` = \`${d}\``);
-    doc  := match(f.doc,           .None => ``, .Some(d) => ` — ${d}`);
+  while(runtime(i < n), {
+    f := match(
+      fields.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    dflt := match(f.default_value,.None => ``,.Some(d) => ` = \`${d}\``);
+    doc := match(f.doc,.None => ``,.Some(d) => ` — ${d}`);
     lines.push(`- \`${f.name}\` : \`${f.type_}\`${dflt}${doc}`);
     i = (i + usize(1));
   });
   lines.push(``);
   `\n`.join(lines)
 });
-
 // Render a list of DocVariant as "**Variants:**\n\n- `Name`...".
 render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
   lines := ArrayList(String).new();
@@ -95,20 +123,33 @@ render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
   lines.push(``);
   i := usize(0);
   n := variants.len();
-  while(runtime((i < n)), {
-    v := match(variants.get(i), .Some(x) => x, .None => { break; });
-    disc := match(v.discriminant, .None => ``, .Some(d) => ` = ${d}`);
-    doc  := match(v.doc,          .None => ``, .Some(d) => ` — ${d}`);
-    has_fields := match(v.fields, .None => false, .Some(fs) => (fs.len() > usize(0)));
+  while(runtime(i < n), {
+    v := match(
+      variants.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    disc := match(v.discriminant,.None => ``,.Some(d) => ` = ${d}`);
+    doc := match(v.doc,.None => ``,.Some(d) => ` — ${d}`);
+    has_fields := match(v.fields,.None => false,.Some(fs) => (fs.len() > usize(0)));
     if(has_fields, {
-      field_parts := match(v.fields,
-        .None     => ``,
+      field_parts := match(
+        v.fields,
+        .None => ``,
         .Some(fs) => {
           parts := ArrayList(String).new();
           fi := usize(0);
           fn_ := fs.len();
-          while(runtime((fi < fn_)), {
-            f := match(fs.get(fi), .Some(x) => x, .None => { break; });
+          while(runtime(fi < fn_), {
+            f := match(
+              fs.get(fi),
+              .Some(x) => x,
+              .None => {
+                break;
+              }
+            );
             parts.push(`${f.name}: ${f.type_}`);
             fi = (fi + usize(1));
           });
@@ -124,7 +165,6 @@ render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
   lines.push(``);
   `\n`.join(lines)
 });
-
 // Render a list of DocAssociatedType as "**Associated Types:**\n\n- ...".
 render_associated_types_ :: (fn(types : ArrayList(DocAssociatedType)) -> String)({
   lines := ArrayList(String).new();
@@ -132,49 +172,67 @@ render_associated_types_ :: (fn(types : ArrayList(DocAssociatedType)) -> String)
   lines.push(``);
   i := usize(0);
   n := types.len();
-  while(runtime((i < n)), {
-    t := match(types.get(i), .Some(x) => x, .None => { break; });
-    constraint := match(t.constraint, .None => ``, .Some(c) => ` : ${c}`);
-    doc        := match(t.doc,        .None => ``, .Some(d) => ` — ${d}`);
+  while(runtime(i < n), {
+    t := match(
+      types.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    constraint := match(t.constraint,.None => ``,.Some(c) => ` : ${c}`);
+    doc := match(t.doc,.None => ``,.Some(d) => ` — ${d}`);
     lines.push(`- \`${t.name}\`${constraint}${doc}`);
     i = (i + usize(1));
   });
   lines.push(``);
   `\n`.join(lines)
 });
-
 // ── Public renderers ──────────────────────────────────────────────────────────
-
 /// Render a single DocFunction as Markdown (### heading + signature + docs).
 render_function_md :: (fn(fn_ : DocFunction) -> String)({
   lines := ArrayList(String).new();
-  self_type_str := match(fn_.self_type, .Some(s) => s, .None => ``);
+  self_type_str := match(fn_.self_type,.Some(s) => s,.None => ``);
   anchor := cond(fn_.is_method => `${self_type_str}.${fn_.name}`, true => fn_.name);
   lines.push(`### \`${anchor}\``);
   lines.push(``);
-  match(fn_.deprecated, .None => (), .Some(d) => {
-    lines.push(`> ⚠️ **Deprecated**: ${d}`);
-    lines.push(``);
-  });
+  match(
+    fn_.deprecated,
+    .None => (),
+    .Some(d) => {
+      lines.push(`> ⚠️ **Deprecated**: ${d}`);
+      lines.push(``);
+    }
+  );
   lines.push(`\`\`\`rust`);
   lines.push(fn_.signature);
   lines.push(`\`\`\``);
   lines.push(``);
-  match(fn_.doc, .None => (), .Some(d) => {
-    lines.push(d);
-    lines.push(``);
-  });
-  if((fn_.parameters.len() > usize(0)), {
+  match(
+    fn_.doc,
+    .None => (),
+    .Some(d) => {
+      lines.push(d);
+      lines.push(``);
+    }
+  );
+  if(fn_.parameters.len() > usize(0), {
     lines.push(`**Parameters:**`);
     lines.push(``);
     i := usize(0);
     n := fn_.parameters.len();
-    while(runtime((i < n)), {
-      p := match(fn_.parameters.get(i), .Some(x) => x, .None => { break; });
+    while(runtime(i < n), {
+      p := match(
+        fn_.parameters.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
       comptime := cond(p.is_comptime => ` *(comptime)*`, true => ``);
       implicit := cond(p.is_implicit => ` *(implicit)*`, true => ``);
-      dflt     := match(p.default_value, .None => ``, .Some(d) => ` = \`${d}\``);
-      doc      := match(p.doc,           .None => ``, .Some(d) => ` — ${d}`);
+      dflt := match(p.default_value,.None => ``,.Some(d) => ` = \`${d}\``);
+      doc := match(p.doc,.None => ``,.Some(d) => ` — ${d}`);
       lines.push(`- \`${p.name}\` : \`${p.type_}\`${comptime}${implicit}${dflt}${doc}`);
       i = (i + usize(1));
     });
@@ -182,61 +240,94 @@ render_function_md :: (fn(fn_ : DocFunction) -> String)({
   });
   lines.push(`**Returns:** \`${fn_.return_type}\``);
   lines.push(``);
-  match(fn_.returns, .None => (), .Some(r) => {
-    lines.push(r);
-    lines.push(``);
-  });
-  match(fn_.errors, .None => (), .Some(e) => {
-    lines.push(`**Errors:**`);
-    lines.push(``);
-    lines.push(e);
-    lines.push(``);
-  });
-  match(fn_.examples, .None => (), .Some(ex) => {
-    lines.push(`**Examples:**`);
-    lines.push(``);
-    lines.push(ex);
-    lines.push(``);
-  });
+  match(
+    fn_.returns,
+    .None => (),
+    .Some(r) => {
+      lines.push(r);
+      lines.push(``);
+    }
+  );
+  match(
+    fn_.errors,
+    .None => (),
+    .Some(e) => {
+      lines.push(`**Errors:**`);
+      lines.push(``);
+      lines.push(e);
+      lines.push(``);
+    }
+  );
+  match(
+    fn_.examples,
+    .None => (),
+    .Some(ex) => {
+      lines.push(`**Examples:**`);
+      lines.push(``);
+      lines.push(ex);
+      lines.push(``);
+    }
+  );
   `\n`.join(lines)
 });
-
 /// Render a single DocType as Markdown (### heading + signature + fields/variants + methods).
 render_type_md :: (fn(t : DocType) -> String)({
   lines := ArrayList(String).new();
   tp := format_type_params_(t.type_params);
   lines.push(`### \`${t.name}${tp}\``);
   lines.push(``);
-  match(t.deprecated, .None => (), .Some(d) => {
-    lines.push(`> ⚠️ **Deprecated**: ${d}`);
-    lines.push(``);
-  });
+  match(
+    t.deprecated,
+    .None => (),
+    .Some(d) => {
+      lines.push(`> ⚠️ **Deprecated**: ${d}`);
+      lines.push(``);
+    }
+  );
   lines.push(`*${doc_item_kind_to_string(t.kind)}*`);
   lines.push(``);
   lines.push(`\`\`\`rust`);
   lines.push(t.signature);
   lines.push(`\`\`\``);
   lines.push(``);
-  match(t.doc, .None => (), .Some(d) => {
-    lines.push(d);
-    lines.push(``);
-  });
-  match(t.fields, .None => (), .Some(fields) => {
-    if((fields.len() > usize(0)), {
-      lines.push(render_fields_(fields));
-    });
-  });
-  match(t.variants, .None => (), .Some(variants) => {
-    if((variants.len() > usize(0)), {
-      lines.push(render_variants_(variants));
-    });
-  });
-  if((t.trait_impls.len() > usize(0)), {
+  match(
+    t.doc,
+    .None => (),
+    .Some(d) => {
+      lines.push(d);
+      lines.push(``);
+    }
+  );
+  match(
+    t.fields,
+    .None => (),
+    .Some(fields) => {
+      if(fields.len() > usize(0), {
+        lines.push(render_fields_(fields));
+      });
+    }
+  );
+  match(
+    t.variants,
+    .None => (),
+    .Some(variants) => {
+      if(variants.len() > usize(0), {
+        lines.push(render_variants_(variants));
+      });
+    }
+  );
+  if(t.trait_impls.len() > usize(0), {
     impl_names := ArrayList(String).new();
     ti := usize(0);
     tn := t.trait_impls.len();
-    while(runtime((ti < tn)), {
-      name := match(t.trait_impls.get(ti), .Some(x) => x, .None => { break; });
+    while(runtime(ti < tn), {
+      name := match(
+        t.trait_impls.get(ti),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
       impl_names.push(`\`${name}\``);
       ti = (ti + usize(1));
     });
@@ -244,136 +335,218 @@ render_type_md :: (fn(t : DocType) -> String)({
     lines.push(`**Implements:** ${sep.join(impl_names)}`);
     lines.push(``);
   });
-  has_impls   := match(t.impls, .None => false, .Some(impls) => (impls.len() > usize(0)));
+  has_impls := match(t.impls,.None => false,.Some(impls) => (impls.len() > usize(0)));
   has_methods := (t.methods.len() > usize(0));
-  if(((has_impls) || (has_methods)), {
+  if((has_impls) || (has_methods), {
     claimed := ArrayList(String).new();
-    match(t.impls, .None => (), .Some(impls) => {
-      ii := usize(0);
-      ni := impls.len();
-      while(runtime((ii < ni)), {
-        impl := match(impls.get(ii), .Some(x) => x, .None => { break; });
-        lines.push(`#### \`${impl.signature}\``);
-        lines.push(``);
-        match(impl.associated_types, .None => (), .Some(assoc_types) => {
-          if((assoc_types.len() > usize(0)), {
-            ai := usize(0);
-            na := assoc_types.len();
-            while(runtime((ai < na)), {
-              at := match(assoc_types.get(ai), .Some(x) => x, .None => { break; });
-              lines.push(`- \`${at.name}\` : \`${at.type_}\``);
-              ai = (ai + usize(1));
+    match(
+      t.impls,
+      .None => (),
+      .Some(impls) => {
+        ii := usize(0);
+        ni := impls.len();
+        while(runtime(ii < ni), {
+          impl := match(
+            impls.get(ii),
+            .Some(x) => x,
+            .None => {
+              break;
+            }
+          );
+          lines.push(`#### \`${impl.signature}\``);
+          lines.push(``);
+          match(
+            impl.associated_types,
+            .None => (),
+            .Some(assoc_types) => {
+              if(assoc_types.len() > usize(0), {
+                ai := usize(0);
+                na := assoc_types.len();
+                while(runtime(ai < na), {
+                  at := match(
+                    assoc_types.get(ai),
+                    .Some(x) => x,
+                    .None => {
+                      break;
+                    }
+                  );
+                  lines.push(`- \`${at.name}\` : \`${at.type_}\``);
+                  ai = (ai + usize(1));
+                });
+                lines.push(``);
+              });
+            }
+          );
+          mi := usize(0);
+          nm := impl.method_names.len();
+          while(runtime(mi < nm), {
+            method_name := match(
+              impl.method_names.get(mi),
+              .Some(x) => x,
+              .None => {
+                break;
+              }
+            );
+            claimed.push(method_name);
+            mi = (mi + usize(1));
+          });
+          unresolved := ArrayList(String).new();
+          mi2 := usize(0);
+          nm2 := impl.method_names.len();
+          while(runtime(mi2 < nm2), {
+            method_name := match(
+              impl.method_names.get(mi2),
+              .Some(x) => x,
+              .None => {
+                break;
+              }
+            );
+            match(
+              find_method_by_name_(t.methods, method_name),
+              .None => {
+                unresolved.push(method_name);
+              },
+              .Some(m) => {
+                lines.push(render_function_md(m));
+              }
+            );
+            mi2 = (mi2 + usize(1));
+          });
+          if(unresolved.len() > usize(0), {
+            unresolved_quoted := ArrayList(String).new();
+            ui := usize(0);
+            nu := unresolved.len();
+            while(runtime(ui < nu), {
+              uname := match(
+                unresolved.get(ui),
+                .Some(x) => x,
+                .None => {
+                  break;
+                }
+              );
+              unresolved_quoted.push(`\`${uname}\``);
+              ui = (ui + usize(1));
             });
+            sep2 := `, `;
+            lines.push(`Methods: ${sep2.join(unresolved_quoted)}`);
             lines.push(``);
           });
+          ii = (ii + usize(1));
         });
-        mi := usize(0);
-        nm := impl.method_names.len();
-        while(runtime((mi < nm)), {
-          method_name := match(impl.method_names.get(mi), .Some(x) => x, .None => { break; });
-          claimed.push(method_name);
-          mi = (mi + usize(1));
-        });
-        unresolved := ArrayList(String).new();
-        mi2 := usize(0);
-        nm2 := impl.method_names.len();
-        while(runtime((mi2 < nm2)), {
-          method_name := match(impl.method_names.get(mi2), .Some(x) => x, .None => { break; });
-          match(find_method_by_name_(t.methods, method_name),
-            .None    => { unresolved.push(method_name); },
-            .Some(m) => { lines.push(render_function_md(m)); }
-          );
-          mi2 = (mi2 + usize(1));
-        });
-        if((unresolved.len() > usize(0)), {
-          unresolved_quoted := ArrayList(String).new();
-          ui := usize(0);
-          nu := unresolved.len();
-          while(runtime((ui < nu)), {
-            uname := match(unresolved.get(ui), .Some(x) => x, .None => { break; });
-            unresolved_quoted.push(`\`${uname}\``);
-            ui = (ui + usize(1));
-          });
-          sep2 := `, `;
-          lines.push(`Methods: ${sep2.join(unresolved_quoted)}`);
-          lines.push(``);
-        });
-        ii = (ii + usize(1));
-      });
-    });
+      }
+    );
     unclaimed_methods := ArrayList(DocFunction).new();
     umi := usize(0);
     unm := t.methods.len();
-    while(runtime((umi < unm)), {
-      m := match(t.methods.get(umi), .Some(x) => x, .None => { break; });
-      if((!(is_in_list_(claimed, m.name))), {
+    while(runtime(umi < unm), {
+      m := match(
+        t.methods.get(umi),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      if(!(is_in_list_(claimed, m.name)), {
         unclaimed_methods.push(m);
       });
       umi = (umi + usize(1));
     });
-    if((unclaimed_methods.len() > usize(0)), {
+    if(unclaimed_methods.len() > usize(0), {
       lines.push(`**Methods:**`);
       lines.push(``);
       mui := usize(0);
       mun := unclaimed_methods.len();
-      while(runtime((mui < mun)), {
-        m := match(unclaimed_methods.get(mui), .Some(x) => x, .None => { break; });
+      while(runtime(mui < mun), {
+        m := match(
+          unclaimed_methods.get(mui),
+          .Some(x) => x,
+          .None => {
+            break;
+          }
+        );
         lines.push(render_function_md(m));
         mui = (mui + usize(1));
       });
     });
   });
-  match(t.examples, .None => (), .Some(ex) => {
-    lines.push(`**Examples:**`);
-    lines.push(``);
-    lines.push(ex);
-    lines.push(``);
-  });
+  match(
+    t.examples,
+    .None => (),
+    .Some(ex) => {
+      lines.push(`**Examples:**`);
+      lines.push(``);
+      lines.push(ex);
+      lines.push(``);
+    }
+  );
   `\n`.join(lines)
 });
-
 /// Render a single DocTrait as Markdown.
 render_trait_md :: (fn(t : DocTrait) -> String)({
   lines := ArrayList(String).new();
   tp := format_type_params_(t.type_params);
   lines.push(`### \`${t.name}${tp}\``);
   lines.push(``);
-  match(t.deprecated, .None => (), .Some(d) => {
-    lines.push(`> ⚠️ **Deprecated**: ${d}`);
-    lines.push(``);
-  });
+  match(
+    t.deprecated,
+    .None => (),
+    .Some(d) => {
+      lines.push(`> ⚠️ **Deprecated**: ${d}`);
+      lines.push(``);
+    }
+  );
   lines.push(`*${doc_trait_kind_to_string(t.kind)}*`);
   lines.push(``);
   lines.push(`\`\`\`rust`);
   lines.push(t.signature);
   lines.push(`\`\`\``);
   lines.push(``);
-  match(t.doc, .None => (), .Some(d) => {
-    lines.push(d);
-    lines.push(``);
-  });
-  match(t.associated_types, .None => (), .Some(assoc_types) => {
-    if((assoc_types.len() > usize(0)), {
-      lines.push(render_associated_types_(assoc_types));
-    });
-  });
-  if((t.methods.len() > usize(0)), {
+  match(
+    t.doc,
+    .None => (),
+    .Some(d) => {
+      lines.push(d);
+      lines.push(``);
+    }
+  );
+  match(
+    t.associated_types,
+    .None => (),
+    .Some(assoc_types) => {
+      if(assoc_types.len() > usize(0), {
+        lines.push(render_associated_types_(assoc_types));
+      });
+    }
+  );
+  if(t.methods.len() > usize(0), {
     lines.push(`**Required Methods:**`);
     lines.push(``);
     i := usize(0);
     n := t.methods.len();
-    while(runtime((i < n)), {
-      m := match(t.methods.get(i), .Some(x) => x, .None => { break; });
+    while(runtime(i < n), {
+      m := match(
+        t.methods.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
       lines.push(render_function_md(m));
       i = (i + usize(1));
     });
   });
-  if((t.implementors.len() > usize(0)), {
+  if(t.implementors.len() > usize(0), {
     impl_quoted := ArrayList(String).new();
     i := usize(0);
     n := t.implementors.len();
-    while(runtime((i < n)), {
-      name := match(t.implementors.get(i), .Some(x) => x, .None => { break; });
+    while(runtime(i < n), {
+      name := match(
+        t.implementors.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
       impl_quoted.push(`\`${name}\``);
       i = (i + usize(1));
     });
@@ -381,34 +554,44 @@ render_trait_md :: (fn(t : DocTrait) -> String)({
     lines.push(`**Implementors:** ${sep.join(impl_quoted)}`);
     lines.push(``);
   });
-  match(t.examples, .None => (), .Some(ex) => {
-    lines.push(`**Examples:**`);
-    lines.push(``);
-    lines.push(ex);
-    lines.push(``);
-  });
+  match(
+    t.examples,
+    .None => (),
+    .Some(ex) => {
+      lines.push(`**Examples:**`);
+      lines.push(``);
+      lines.push(ex);
+      lines.push(``);
+    }
+  );
   `\n`.join(lines)
 });
-
 /// Render a single DocConstant as Markdown.
 render_constant_md :: (fn(c : DocConstant) -> String)({
   lines := ArrayList(String).new();
-  val := match(c.value, .None => ``, .Some(v) => ` = ${v}`);
+  val := match(c.value,.None => ``,.Some(v) => ` = ${v}`);
   lines.push(`### \`${c.name}\``);
   lines.push(``);
-  match(c.deprecated, .None => (), .Some(d) => {
-    lines.push(`> ⚠️ **Deprecated**: ${d}`);
-    lines.push(``);
-  });
+  match(
+    c.deprecated,
+    .None => (),
+    .Some(d) => {
+      lines.push(`> ⚠️ **Deprecated**: ${d}`);
+      lines.push(``);
+    }
+  );
   lines.push(`\`${c.type_}${val}\``);
   lines.push(``);
-  match(c.doc, .None => (), .Some(d) => {
-    lines.push(d);
-    lines.push(``);
-  });
+  match(
+    c.doc,
+    .None => (),
+    .Some(d) => {
+      lines.push(d);
+      lines.push(``);
+    }
+  );
   `\n`.join(lines)
 });
-
 /// Render a single DocModule as a Markdown page.
 render_module_md :: (fn(mod : DocModule) -> String)({
   lines := ArrayList(String).new();
@@ -416,114 +599,165 @@ render_module_md :: (fn(mod : DocModule) -> String)({
   lines.push(``);
   lines.push(`> Module path: \`${mod.path}\``);
   lines.push(``);
-  match(mod.doc, .None => (), .Some(d) => {
-    lines.push(d);
-    lines.push(``);
-  });
+  match(
+    mod.doc,
+    .None => (),
+    .Some(d) => {
+      lines.push(d);
+      lines.push(``);
+    }
+  );
   has_content := (((mod.functions.len() > usize(0)) || (mod.types.len() > usize(0))) || ((mod.traits.len() > usize(0)) || (mod.constants.len() > usize(0))));
   if(has_content, {
     lines.push(`## Contents`);
     lines.push(``);
-    if((mod.types.len() > usize(0)), {
+    if(mod.types.len() > usize(0), {
       lines.push(`**Types:**`);
       i := usize(0);
       n := mod.types.len();
-      while(runtime((i < n)), {
-        t := match(mod.types.get(i), .Some(x) => x, .None => { break; });
+      while(runtime(i < n), {
+        t := match(
+          mod.types.get(i),
+          .Some(x) => x,
+          .None => {
+            break;
+          }
+        );
         lines.push(`- [\`${t.name}\`](#${t.name.to_lowercase()})`);
         i = (i + usize(1));
       });
       lines.push(``);
     });
-    if((mod.traits.len() > usize(0)), {
+    if(mod.traits.len() > usize(0), {
       lines.push(`**Traits:**`);
       i := usize(0);
       n := mod.traits.len();
-      while(runtime((i < n)), {
-        t := match(mod.traits.get(i), .Some(x) => x, .None => { break; });
+      while(runtime(i < n), {
+        t := match(
+          mod.traits.get(i),
+          .Some(x) => x,
+          .None => {
+            break;
+          }
+        );
         lines.push(`- [\`${t.name}\`](#${t.name.to_lowercase()})`);
         i = (i + usize(1));
       });
       lines.push(``);
     });
-    if((mod.functions.len() > usize(0)), {
+    if(mod.functions.len() > usize(0), {
       lines.push(`**Functions:**`);
       i := usize(0);
       n := mod.functions.len();
-      while(runtime((i < n)), {
-        f := match(mod.functions.get(i), .Some(x) => x, .None => { break; });
+      while(runtime(i < n), {
+        f := match(
+          mod.functions.get(i),
+          .Some(x) => x,
+          .None => {
+            break;
+          }
+        );
         lines.push(`- [\`${f.name}\`](#${f.name.to_lowercase()})`);
         i = (i + usize(1));
       });
       lines.push(``);
     });
-    if((mod.constants.len() > usize(0)), {
+    if(mod.constants.len() > usize(0), {
       lines.push(`**Constants:**`);
       i := usize(0);
       n := mod.constants.len();
-      while(runtime((i < n)), {
-        c := match(mod.constants.get(i), .Some(x) => x, .None => { break; });
+      while(runtime(i < n), {
+        c := match(
+          mod.constants.get(i),
+          .Some(x) => x,
+          .None => {
+            break;
+          }
+        );
         lines.push(`- [\`${c.name}\`](#${c.name.to_lowercase()})`);
         i = (i + usize(1));
       });
       lines.push(``);
     });
   });
-  if((mod.types.len() > usize(0)), {
+  if(mod.types.len() > usize(0), {
     lines.push(`---`);
     lines.push(``);
     lines.push(`## Types`);
     lines.push(``);
     i := usize(0);
     n := mod.types.len();
-    while(runtime((i < n)), {
-      t := match(mod.types.get(i), .Some(x) => x, .None => { break; });
+    while(runtime(i < n), {
+      t := match(
+        mod.types.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
       lines.push(render_type_md(t));
       i = (i + usize(1));
     });
   });
-  if((mod.traits.len() > usize(0)), {
+  if(mod.traits.len() > usize(0), {
     lines.push(`---`);
     lines.push(``);
     lines.push(`## Traits`);
     lines.push(``);
     i := usize(0);
     n := mod.traits.len();
-    while(runtime((i < n)), {
-      t := match(mod.traits.get(i), .Some(x) => x, .None => { break; });
+    while(runtime(i < n), {
+      t := match(
+        mod.traits.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
       lines.push(render_trait_md(t));
       i = (i + usize(1));
     });
   });
-  if((mod.functions.len() > usize(0)), {
+  if(mod.functions.len() > usize(0), {
     lines.push(`---`);
     lines.push(``);
     lines.push(`## Functions`);
     lines.push(``);
     i := usize(0);
     n := mod.functions.len();
-    while(runtime((i < n)), {
-      f := match(mod.functions.get(i), .Some(x) => x, .None => { break; });
+    while(runtime(i < n), {
+      f := match(
+        mod.functions.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
       lines.push(render_function_md(f));
       i = (i + usize(1));
     });
   });
-  if((mod.constants.len() > usize(0)), {
+  if(mod.constants.len() > usize(0), {
     lines.push(`---`);
     lines.push(``);
     lines.push(`## Constants`);
     lines.push(``);
     i := usize(0);
     n := mod.constants.len();
-    while(runtime((i < n)), {
-      c := match(mod.constants.get(i), .Some(x) => x, .None => { break; });
+    while(runtime(i < n), {
+      c := match(
+        mod.constants.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
       lines.push(render_constant_md(c));
       i = (i + usize(1));
     });
   });
   `\n`.join(lines)
 });
-
 /// Render the index page listing all modules in a DocModel.
 render_index_md :: (fn(model : DocModel) -> String)({
   lines := ArrayList(String).new();
@@ -533,13 +767,20 @@ render_index_md :: (fn(model : DocModel) -> String)({
   lines.push(``);
   i := usize(0);
   n := model.modules.len();
-  while(runtime((i < n)), {
-    mod := match(model.modules.get(i), .Some(x) => x, .None => { break; });
+  while(runtime(i < n), {
+    mod := match(
+      model.modules.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
     item_count := (((mod.functions.len() + mod.types.len()) + mod.traits.len()) + mod.constants.len());
-    summary := match(mod.doc,
-      .None    => ``,
+    summary := match(
+      mod.doc,
+      .None => ``,
       .Some(d) => {
-        first_line := match(d.split(`\n`).get(usize(0)), .Some(l) => l, .None => d);
+        first_line := match(d.split(`\n`).get(usize(0)),.Some(l) => l,.None => d);
         ` — ${first_line}`
       }
     );
@@ -549,6 +790,11 @@ render_index_md :: (fn(model : DocModel) -> String)({
   lines.push(``);
   `\n`.join(lines)
 });
-
-export(render_function_md, render_type_md, render_trait_md,
-  render_constant_md, render_module_md, render_index_md);
+export(
+  render_function_md,
+  render_type_md,
+  render_trait_md,
+  render_constant_md,
+  render_module_md,
+  render_index_md
+);

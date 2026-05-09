@@ -28,42 +28,49 @@
 //! * `dyn(closure)` captures outer variables by reference (C pointer), so
 //!   `get_info` can be both captured in `detect_fn` and passed separately to
 //!   `analyze_suspension_points` without any ownership conflict.
-
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ HashMap }   :: import("std/collections/hash_map");
+{ HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../lexer/token.yo");
 { AstExpr, ast_expr_token } :: import("../../expr/expr.yo");
 { ExprInfo } :: import("../../expr/expr_info.yo");
 { TypeValue } :: import("../../types/type.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env/env.yo");
-{ SuspensionPoint, SuspensionCapturedVariable, SuspensionAnalysisResult
+{
+  SuspensionPoint,
+  SuspensionCapturedVariable,
+  SuspensionAnalysisResult
 } :: import("../shared/suspension_analysis_types.yo");
-{ SuspensionPointDetector, extract_target_variable_id, analyze_suspension_points
+{
+  SuspensionPointDetector,
+  extract_target_variable_id,
+  analyze_suspension_points
 } :: import("../shared/suspension_analysis.yo");
-{ CapturedVariableKind, AwaitPoint, CapturedVariable, AwaitAnalysisResult,
+{
+  CapturedVariableKind,
+  AwaitPoint,
+  CapturedVariable,
+  AwaitAnalysisResult,
   await_analysis_result_empty
 } :: import("./await_analysis_types.yo");
-{ extract_future_trait_from_type, type_implements_future
+{
+  extract_future_trait_from_type,
+  type_implements_future
 } :: import("../trait_checking.yo");
-
 // ---------------------------------------------------------------------------
 // AwaitPointExtra — typed side-channel for async-specific fields
 // ---------------------------------------------------------------------------
-
 /// Async-specific fields for a single await expression.
 /// Stored in a side-channel HashMap keyed by `expr.token.character`
 /// because `SuspensionPointDetector` only accepts base `SuspensionPoint` objects.
 AwaitPointExtra :: object(
-  result_type        : TypeValue,
-  future_type        : Option(TypeValue),
+  result_type : TypeValue,
+  future_type : Option(TypeValue),
   future_variable_id : Option(String)
 );
-
 // ---------------------------------------------------------------------------
 // _is_dot_access — structural AST check for `obj.method(...)` calls
 // ---------------------------------------------------------------------------
-
 /// Returns true if `expr` is a call of the form `obj_name.method_name(...)`.
 ///
 /// IO builtin calls like `io.await(task)` parse as:
@@ -73,32 +80,39 @@ AwaitPointExtra :: object(
 /// This replaces the TypeScript `expr.func.$?.type?.ioBuiltin` marker which
 /// is not available in the Yo self-hosted type system.
 _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool)(
-  match(expr,
+  match(
+    expr,
     .Atom(_, _) => false,
-    .FnCall(_, outer_func_box, _, _, _) => match(outer_func_box.*,
+    .FnCall(_, outer_func_box, _, _, _) => match(
+      outer_func_box.*,
       .Atom(_, _) => false,
       .FnCall(_, dot_func_box, dot_args, is_infix, _) => cond(
         (is_infix == false) => false,
         (dot_args.len() != usize(2)) => false,
-        true => match(dot_func_box.*,
+        true => match(
+          dot_func_box.*,
           .FnCall(_, _, _, _, _) => false,
           .Atom(_, dot_tok) => cond(
             (dot_tok.kind != TokenKind.Dot) => false,
             true => {
-              obj_ok := match(dot_args.get(usize(0)),
-                .None    => false,
-                .Some(oe) => match(oe,
+              obj_ok := match(
+                dot_args.get(usize(0)),
+                .None => false,
+                .Some(oe) => match(
+                  oe,
                   .FnCall(_, _, _, _, _) => false,
-                  .Atom(_, tok)          => (tok.value.as_str() == obj_name)
+                  .Atom(_, tok) => (tok.value.as_str() == obj_name)
                 )
               );
               cond(
                 (obj_ok == false) => false,
-                true => match(dot_args.get(usize(1)),
-                  .None    => false,
-                  .Some(me) => match(me,
+                true => match(
+                  dot_args.get(usize(1)),
+                  .None => false,
+                  .Some(me) => match(
+                    me,
                     .FnCall(_, _, _, _, _) => false,
-                    .Atom(_, tok)          => (tok.value.as_str() == method_name)
+                    .Atom(_, tok) => (tok.value.as_str() == method_name)
                   )
                 )
               )
@@ -109,61 +123,60 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
     )
   )
 );
-
 // ---------------------------------------------------------------------------
 // IO builtin structural checks
 // ---------------------------------------------------------------------------
-
 /// Checks if an expression is an io.async(closure) call.
 ///
 /// Mirrors `isIoAsyncCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_async_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "async")
 );
-
 /// Checks if an expression is an io.await(future) call.
 ///
 /// Mirrors `isIoAwaitCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_await_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "await")
 );
-
 /// Checks if an expression is an io.state(future) call.
 ///
 /// Mirrors `isIoStateCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_state_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "state")
 );
-
 /// Checks if an expression is an io.spawn(future) call.
 ///
 /// Mirrors `isIoSpawnCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_spawn_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "spawn")
 );
-
 /// Checks if an expression is a JoinHandle.await(using(io)) call.
 /// Structurally: any `x.await(...)` where x is NOT "io".
 ///
 /// Mirrors `isJoinHandleAwaitCall` in `src/evaluator/async/await-analysis.ts`.
 is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
   // Check if this is any X.await(...) method call
-  is_method_await := match((&(expr)).clone(),
+  is_method_await := match(
+    (&(expr)).clone(),
     .Atom(_, _) => false,
-    .FnCall(_, outer_func_box, _, _, _) => match(outer_func_box.*,
+    .FnCall(_, outer_func_box, _, _, _) => match(
+      outer_func_box.*,
       .Atom(_, _) => false,
       .FnCall(_, dot_func_box, dot_args, is_infix, _) => cond(
         (is_infix == false) => false,
         (dot_args.len() != usize(2)) => false,
-        true => match(dot_func_box.*,
+        true => match(
+          dot_func_box.*,
           .FnCall(_, _, _, _, _) => false,
           .Atom(_, dot_tok) => cond(
             (dot_tok.kind != TokenKind.Dot) => false,
-            true => match(dot_args.get(usize(1)),
-              .None    => false,
-              .Some(me) => match(me,
+            true => match(
+              dot_args.get(usize(1)),
+              .None => false,
+              .Some(me) => match(
+                me,
                 .FnCall(_, _, _, _, _) => false,
-                .Atom(_, tok)          => (tok.value.as_str() == "await")
+                .Atom(_, tok) => (tok.value.as_str() == "await")
               )
             )
           )
@@ -171,205 +184,244 @@ is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
       )
     )
   );
-  if(!(is_method_await), { return(false); });
+  if(!(is_method_await), {
+    return(false);
+  });
   // Exclude io.await (that's handled by is_io_await_call)
   !(is_io_await_call(expr))
 });
-
 // ---------------------------------------------------------------------------
 // get_future_variable_id_ — extract the future variable ID from an await arg
 // ---------------------------------------------------------------------------
-
 /// If `await_arg` is an identifier that refers to a named future variable,
 /// returns the variable ID (or its RC-owner's ID). Otherwise returns None.
 ///
 /// Mirrors the inline variable-lookup logic inside `detect` in the TypeScript.
-get_future_variable_id_ :: (fn(
-  await_arg : AstExpr,
-  get_info  : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
-) -> Option(String))({
+get_future_variable_id_ :: (
+  fn(
+    await_arg : AstExpr,
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+  ) -> Option(String)
+)({
   // Extract the token from the await_arg; must be an Identifier Atom
-  await_tok := match((&(await_arg)).clone(),
-    .FnCall(_, _, _, _, _) => { return(Option(String).None); },
-    .Atom(_, tok)          => tok
+  await_tok := match(
+    (&(await_arg)).clone(),
+    .FnCall(_, _, _, _, _) => {
+      return(Option(String).None);
+    },
+    .Atom(_, tok) => tok
   );
-  if((await_tok.kind != TokenKind.Identifier), { return(Option(String).None); });
+  if(await_tok.kind != TokenKind.Identifier, {
+    return(Option(String).None);
+  });
   await_var_name := (&(await_tok.value)).clone();
-
   // Get the expression info to access the environment
-  info := match(get_info(await_arg),
-    .None    => { return(Option(String).None); },
+  info := match(
+    get_info(await_arg),
+    .None => {
+      return(Option(String).None);
+    },
     .Some(i) => i
   );
   vars := get_variables_from_env(info.env, (&(await_var_name)).clone());
   n := vars.len();
-  if((n == usize(0)), { return(Option(String).None); });
-  last_var := match(vars.get((n - usize(1))),
-    .None    => { return(Option(String).None); },
+  if(n == usize(0), {
+    return(Option(String).None);
+  });
+  last_var := match(
+    vars.get(n - usize(1)),
+    .None => {
+      return(Option(String).None);
+    },
     .Some(v) => v
   );
   // If the variable shares RC with an owner, return the owner's ID
-  match(last_var.is_owning_the_same_rc_value_as,
+  match(
+    last_var.is_owning_the_same_rc_value_as,
     .Some(owner_box) => Option(String).Some((&(owner_box.*.id)).clone()),
-    .None            => Option(String).Some((&(last_var.id)).clone())
+    .None => Option(String).Some((&(last_var.id)).clone())
   )
 });
-
 // ---------------------------------------------------------------------------
 // detect_await_expr_ — core detection logic for a single await expression
 // ---------------------------------------------------------------------------
-
 /// Processes one expression to detect if it is an await point and, if so,
 /// pushes a base SuspensionPoint to `points` and stores typed extras in
 /// `await_extras` keyed by `expr.token.character.to_string()`.
 ///
 /// Called from the `detect_fn` dyn closure inside `analyze_await_points`.
-detect_await_expr_ :: (fn(
-  expr         : AstExpr,
-  parent_expr  : Option(AstExpr),
-  points       : ArrayList(SuspensionPoint),
-  await_extras : HashMap(String, AwaitPointExtra),
-  get_info     : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
-) -> unit)({
-  if(!(is_io_await_call((&(expr)).clone())), { return(()); });
+detect_await_expr_ :: (
+  fn(
+    expr : AstExpr,
+    parent_expr : Option(AstExpr),
+    points : ArrayList(SuspensionPoint),
+    await_extras : HashMap(String, AwaitPointExtra),
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+  ) -> unit
+)({
+  if(!(is_io_await_call((&(expr)).clone())), {
+    return(());
+  });
   // Pre-clone expr for the SuspensionPoint before the consuming match below
   expr_for_sp := (&(expr)).clone();
-
-  match(expr,
-    .Atom(_, _) => (),  // unreachable: is_io_await_call already confirmed FnCall
+  match(
+    expr,
+    .Atom(_, _) => (),
+    // unreachable: is_io_await_call already confirmed FnCall
     .FnCall(_, _, args, _, tok) => {
       // Get the first argument (the future being awaited)
-      await_arg := match(args.get(usize(0)),
-        .None    => { return(()); },
+      await_arg := match(
+        args.get(usize(0)),
+        .None => {
+          return(());
+        },
         .Some(a) => a
       );
       // Get expression info for the await argument to read its type
-      await_info := match(get_info((&(await_arg)).clone()),
-        .None    => { return(()); },
+      await_info := match(
+        get_info((&(await_arg)).clone()),
+        .None => {
+          return(());
+        },
         .Some(i) => i
       );
       // The argument's type must implement the Future trait
       future_type_val := (&(await_info.ty)).clone();
-      if(!(type_implements_future((&(future_type_val)).clone())), { return(()); });
+      if(!(type_implements_future((&(future_type_val)).clone())), {
+        return(());
+      });
       // Extract the concrete FutureTrait type from the bound
-      future_module_type := match(extract_future_trait_from_type((&(future_type_val)).clone()),
-        .None    => { return(()); },
+      future_module_type := match(
+        extract_future_trait_from_type((&(future_type_val)).clone()),
+        .None => {
+          return(());
+        },
         .Some(t) => t
       );
       // Extract the result type T from FutureTraitT(output: Box(T))
-      result_type := match((&(future_module_type)).clone(),
-        .FutureTraitT(output: output_box) => output_box.*,
-        _ => { return(()); }  // unreachable: we just verified FutureTraitT
+      result_type := match(
+        (&(future_module_type)).clone(),
+        .FutureTraitT(output : output_box) => output_box.*,
+        _ => {
+          return(());
+        } // unreachable: we just verified FutureTraitT
       );
       // Get the variable ID of the future being awaited (for state machine fields)
       future_variable_id := get_future_variable_id_((&(await_arg)).clone(), get_info);
       // Get the target variable ID from the parent := assignment, if any
       target_variable_id := extract_target_variable_id((&(parent_expr)).clone(), get_info);
-
       // Store async-specific extras in the side-channel, keyed by token position
       expr_char_key := tok.character.to_string();
-      await_extras.set((&(expr_char_key)).clone(), AwaitPointExtra(
-        result_type:        (&(result_type)).clone(),
-        future_type:        Option(TypeValue).Some(future_module_type),
-        future_variable_id: future_variable_id
-      ));
-
+      await_extras.set(
+        (&(expr_char_key)).clone(),
+        AwaitPointExtra(
+          result_type : (&(result_type)).clone(),
+          future_type : Option(TypeValue).Some(future_module_type),
+          future_variable_id : future_variable_id
+        )
+      );
       // Push the base suspension point (walk_expr_ will fill in structural fields)
       sp := SuspensionPoint(
-        index:                       points.len(),
-        expr:                        expr_for_sp,
-        target_variable_id:          target_variable_id,
-        is_inside_cond:              Option(bool).None,
-        is_inside_while:             Option(bool).None,
-        while_nesting_depth:         Option(usize).None,
-        cond_branch_source_index:    Option(usize).None,
-        needs_own_cond_branch_field: Option(bool).None,
-        enclosing_while_expr:        Option(AstExpr).None
+        index : points.len(),
+        expr : expr_for_sp,
+        target_variable_id : target_variable_id,
+        is_inside_cond : Option(bool).None,
+        is_inside_while : Option(bool).None,
+        while_nesting_depth : Option(usize).None,
+        cond_branch_source_index : Option(usize).None,
+        needs_own_cond_branch_field : Option(bool).None,
+        enclosing_while_expr : Option(AstExpr).None
       );
       points.push(sp);
     }
   );
 });
-
 // ---------------------------------------------------------------------------
 // analyze_await_points
 // ---------------------------------------------------------------------------
-
 /// Analyzes an async function body to find all await expressions.
 ///
 /// Mirrors `analyzeAwaitPoints` in `src/evaluator/async/await-analysis.ts`.
 ///
 /// The extra `get_info` parameter provides per-expression type/env information
 /// (Yo's equivalent of TypeScript's `expr.$`).
-analyze_await_points :: (fn(
-  body     : AstExpr,
-  get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
-) -> AwaitAnalysisResult)({
+analyze_await_points :: (
+  fn(
+    body : AstExpr,
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+  ) -> AwaitAnalysisResult
+)({
   // Side-channel: stores async-specific fields for each await suspension point
   await_extras := HashMap(String, AwaitPointExtra).new();
-
-  result := analyze_suspension_points((&(body)).clone(), get_info, SuspensionPointDetector(
-    detect: dyn((expr, parent_expr, points) => {
-      detect_await_expr_(expr, parent_expr, points, await_extras, get_info);
-    }),
-    should_skip_body: dyn((expr) => is_io_async_call(expr))
-  ));
-
+  result := analyze_suspension_points(
+    (&(body)).clone(),
+    get_info,
+    SuspensionPointDetector(
+      detect : dyn((expr, parent_expr, points) => {
+        detect_await_expr_(expr, parent_expr, points, await_extras, get_info);
+      }),
+      should_skip_body : dyn((expr) => is_io_async_call(expr))
+    )
+  );
   // Reconstruct typed AwaitPoint list from base suspension points + side-channel extras
   await_points := ArrayList(AwaitPoint).new();
   n_pts := result.suspension_points.len();
   (pi : usize) = usize(0);
-  while(runtime((pi < n_pts)), {
-    sp := match(result.suspension_points.get(pi),
-      .None    => { break; },
+  while(runtime(pi < n_pts), {
+    sp := match(
+      result.suspension_points.get(pi),
+      .None => {
+        break;
+      },
       .Some(p) => p
     );
     expr_char_key := ast_expr_token((&(sp.expr)).clone()).character.to_string();
-    match(await_extras.get((&(expr_char_key)).clone()),
-      .None        => (),  // should not happen: every SP was registered via detect_await_expr_
+    match(
+      await_extras.get((&(expr_char_key)).clone()),
+      .None => (),
+      // should not happen: every SP was registered via detect_await_expr_
       .Some(extra) => {
         ap := AwaitPoint(
-          base:               sp,
-          result_type:        extra.result_type,
-          future_type:        extra.future_type,
-          future_variable_id: extra.future_variable_id
+          base : sp,
+          result_type : extra.result_type,
+          future_type : extra.future_type,
+          future_variable_id : extra.future_variable_id
         );
         await_points.push(ap);
       }
     );
     pi = (pi + usize(1));
   });
-
   // Map shared captured variables to CapturedVariable (adding kind: Local)
   captured_variables := ArrayList(CapturedVariable).new();
   n_cv := result.captured_variables.len();
   (ci : usize) = usize(0);
-  while(runtime((ci < n_cv)), {
-    sv := match(result.captured_variables.get(ci),
-      .None    => { break; },
+  while(runtime(ci < n_cv), {
+    sv := match(
+      result.captured_variables.get(ci),
+      .None => {
+        break;
+      },
       .Some(v) => v
     );
     cv := CapturedVariable(
-      base:                           sv,
-      kind:                           CapturedVariableKind.Local,
-      is_owning_the_same_rc_value_as: Option(Box(CapturedVariable)).None
+      base : sv,
+      kind : CapturedVariableKind.Local,
+      is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
     );
     captured_variables.push(cv);
     ci = (ci + usize(1));
   });
-
   AwaitAnalysisResult(
-    await_points:          await_points,
-    captured_variables:    captured_variables,
-    has_awaits:            result.has_suspensions,
-    variable_id_remapping: result.variable_id_remapping
+    await_points : await_points,
+    captured_variables : captured_variables,
+    has_awaits : result.has_suspensions,
+    variable_id_remapping : result.variable_id_remapping
   )
 });
-
 // ---------------------------------------------------------------------------
 // collect_variable_bindings_ — recursive variable declaration collector
 // ---------------------------------------------------------------------------
-
 /// Recursively collects variable binding declarations from an expression.
 /// Used by `get_local_variables_from_body` to discover all locals for
 /// async state machine generation.
@@ -378,71 +430,80 @@ analyze_await_points :: (fn(
 ///
 /// Note: does NOT use early `return` for the binding check — control must
 /// always reach the recursive calls at the bottom of the FnCall arm.
-collect_variable_bindings_ :: (fn(
-  expr      : AstExpr,
-  variables : ArrayList(CapturedVariable),
-  seen      : HashMap(String, bool),
-  get_info  : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
-) -> unit)(
-  match(expr,
+collect_variable_bindings_ :: (
+  fn(
+    expr : AstExpr,
+    variables : ArrayList(CapturedVariable),
+    seen : HashMap(String, bool),
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+  ) -> unit
+)(
+  match(
+    expr,
     .Atom(_, _) => (),
     .FnCall(_, func_box, args, _, _) => {
       // Check if this is a "let" or ":=" binding declaration
-      func_is_binding := match(func_box.*,
+      func_is_binding := match(
+        func_box.*,
         .FnCall(_, _, _, _, _) => false,
-        .Atom(_, ftok)         => (
+        .Atom(_, ftok) => (
           (ftok.value.as_str() == "let") || (ftok.value.as_str() == ":=")
         )
       );
-
-      if((func_is_binding && (args.len() >= usize(2))), {
+      if(func_is_binding && (args.len() >= usize(2)), {
         name_arg_opt := args.get(usize(0));
-        match(name_arg_opt,
+        match(
+          name_arg_opt,
           .None => (),
           .Some(name_arg) => {
             // name_arg must be an Identifier Atom with expression info
-            match((&(name_arg)).clone(),
+            match(
+              (&(name_arg)).clone(),
               .FnCall(_, _, _, _, _) => (),
               .Atom(_, name_tok) => {
-                if((name_tok.kind == TokenKind.Identifier), {
+                if(name_tok.kind == TokenKind.Identifier, {
                   var_name := (&(name_tok.value)).clone();
                   // Get the type from the second argument (the value being bound)
-                  match(args.get(usize(1)),
+                  match(
+                    args.get(usize(1)),
                     .None => (),
                     .Some(val_arg) => {
-                      match(get_info((&(val_arg)).clone()),
+                      match(
+                        get_info((&(val_arg)).clone()),
                         .None => (),
                         .Some(val_info) => {
                           var_type := (&(val_info.ty)).clone();
                           // Look up the variable in the name_arg's environment
-                          match(get_info(name_arg),
+                          match(
+                            get_info(name_arg),
                             .None => (),
                             .Some(name_info) => {
                               vars := get_variables_from_env(
-                                name_info.env, (&(var_name)).clone()
+                                name_info.env,
+                                (&(var_name)).clone()
                               );
                               n_vars := vars.len();
-                              if((n_vars > usize(0)), {
-                                match(vars.get((n_vars - usize(1))),
+                              if(n_vars > usize(0), {
+                                match(
+                                  vars.get(n_vars - usize(1)),
                                   .None => (),
                                   .Some(variable) => {
-                                    match(variable.is_owning_the_same_rc_value_as,
+                                    match(
+                                      variable.is_owning_the_same_rc_value_as,
                                       .Some(_) => (),
                                       .None => {
-                                        if((
-                                          !(variable.is_compile_time_only) &&
-                                          !(seen.contains_key((&(variable.id)).clone()))
-                                        ), {
+                                        if(!(variable.is_compile_time_only) &&
+                                          !(seen.contains_key((&(variable.id)).clone())), {
                                           cv := CapturedVariable(
-                                            base: SuspensionCapturedVariable(
-                                              id:   (&(variable.id)).clone(),
-                                              name: (&(var_name)).clone(),
-                                              ty:   (&(var_type)).clone(),
-                                              is_owning_the_same_rc_value_as:
+                                            base : SuspensionCapturedVariable(
+                                              id : (&(variable.id)).clone(),
+                                              name : (&(var_name)).clone(),
+                                              ty : (&(var_type)).clone(),
+                                              is_owning_the_same_rc_value_as :
                                                 Option(Box(SuspensionCapturedVariable)).None
                                             ),
-                                            kind: CapturedVariableKind.Local,
-                                            is_owning_the_same_rc_value_as:
+                                            kind : CapturedVariableKind.Local,
+                                            is_owning_the_same_rc_value_as :
                                               Option(Box(CapturedVariable)).None
                                           );
                                           variables.push(cv);
@@ -465,15 +526,17 @@ collect_variable_bindings_ :: (fn(
           }
         );
       });
-
       // Always recurse into the function expression
       recur(func_box.*, variables, seen, get_info);
       // Always recurse into each argument
       n_args := args.len();
       (ai : usize) = usize(0);
-      while(runtime((ai < n_args)), {
-        arg := match(args.get(ai),
-          .None    => { break; },
+      while(runtime(ai < n_args), {
+        arg := match(
+          args.get(ai),
+          .None => {
+            break;
+          },
           .Some(a) => a
         );
         recur(arg, variables, seen, get_info);
@@ -482,30 +545,29 @@ collect_variable_bindings_ :: (fn(
     }
   )
 );
-
 // ---------------------------------------------------------------------------
 // get_local_variables_from_body
 // ---------------------------------------------------------------------------
-
 /// Gets the local variable declarations from a function body.
 /// Used by async codegen to determine which variables need state-machine fields.
 ///
 /// Mirrors `getLocalVariablesFromBody` in `src/evaluator/async/await-analysis.ts`.
-get_local_variables_from_body :: (fn(
-  body     : AstExpr,
-  get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
-) -> ArrayList(CapturedVariable))({
+get_local_variables_from_body :: (
+  fn(
+    body : AstExpr,
+    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+  ) -> ArrayList(CapturedVariable)
+)({
   variables := ArrayList(CapturedVariable).new();
-  seen      := HashMap(String, bool).new();
+  seen := HashMap(String, bool).new();
   collect_variable_bindings_(body, variables, seen, get_info);
   variables
 });
-
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
-
-export(// Types (re-exported for convenience — canonical home is await_analysis_types.yo)
+export(
+  // Types (re-exported for convenience — canonical home is await_analysis_types.yo)
   AwaitPointExtra,
   // Future-trait helpers
   extract_future_trait_from_type,
@@ -518,4 +580,5 @@ export(// Types (re-exported for convenience — canonical home is await_analysi
   is_join_handle_await_call,
   // Main analysis entry points
   analyze_await_points,
-  get_local_variables_from_body);
+  get_local_variables_from_body
+);

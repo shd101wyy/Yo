@@ -7,112 +7,149 @@
 //! with the expected type set, and checks type compatibility.
 //!
 //! Note: `synthesizeExprAndType` is a stub in Phase 2; synthesis is skipped.
-
 open(import("std/string"));
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                     :: import("../../expr/expr_info.yo");
-{ Environment }                             :: import("../../env/env.yo");
-{ EvalContext, ExpectedTypeCtx }            :: import("../context.yo");
-{ EvalValue, is_type_val }                  :: import("../value.yo");
-{ TypeValue, t_unit }                       :: import("../../types/type.yo");
-{ are_types_compatible }                    :: import("../../types/compatibility.yo");
-{ type_to_string }                          :: import("../../types/string.yo");
-{ format_error_message }                    :: import("../../error/error.yo");
-{ evaluate_expression }                     :: import("../exprs/expr.yo");
-{ Exception }                               :: import("std/error");
-
-evaluate_the :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  args       := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
-  type_arg   := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
-  value_arg  := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
-
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalValue, is_type_val } :: import("../value.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
+evaluate_the :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(expr);
+    }
+  );
+  type_arg := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
+  value_arg := match(
+    args.get(usize(1)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
   // Evaluate the type expression.
-  eval_type  := evaluate_expression(type_arg, env, ctx);
-  type_info  := match(
+  eval_type := evaluate_expression(type_arg, env, ctx);
+  type_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(type_arg),
-        String.from("the: failed to evaluate type expression"),
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(type_arg),
+            String.from("the: failed to evaluate type expression"),
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(env, t_unit())
     }
   );
   cur_env := type_info.env;
-
   // First argument must be a TypeVal.
-  expected_type := match(type_info.value,
-    .Some(v) => match(v,
+  expected_type := match(
+    type_info.value,
+    .Some(v) => match(
+      v,
       .TypeVal(tv) => tv.*,
       _ => {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(type_arg),
-          String.from("the: first argument must be a type"),
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(type_arg),
+              String.from("the: first argument must be a type"),
+              false,
+              .None
+            )
+          )
+        );
         TypeValue.Unit
       }
     ),
     .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(type_arg),
-        String.from("the: first argument must be a compile-time type"),
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(type_arg),
+            String.from("the: first argument must be a compile-time type"),
+            false,
+            .None
+          )
+        )
+      );
       TypeValue.Unit
     }
   );
-
   // Evaluate the value expression with the expected type.
   saved_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(
-    ExpectedTypeCtx(ty: expected_type, env: cur_env)
+    ExpectedTypeCtx(ty : expected_type, env : cur_env)
   );
   eval_val := evaluate_expression(value_arg, cur_env, ctx);
   ctx.expected_type = saved_expected;
-
   val_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val)),
     .Some(i) => i,
     .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(value_arg),
-        String.from("the: failed to evaluate value expression"),
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(value_arg),
+            String.from("the: failed to evaluate value expression"),
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(cur_env, t_unit())
     }
   );
   cur_env = val_info.env;
-
   // Check type compatibility (actual = val_info.ty, expected = expected_type).
   if(!(are_types_compatible(val_info.ty, expected_type)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(value_arg),
-      `the: type mismatch: expected '${type_to_string(expected_type)}', got '${type_to_string(val_info.ty)}'`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(value_arg),
+          `the: type mismatch: expected '${type_to_string(expected_type)}', got '${type_to_string(val_info.ty)}'`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Return ExprInfo with the explicitly specified type.
   out_info := new_expr_info(cur_env, expected_type);
-  out_info.value             = val_info.value;
-  out_info.path_collection   = val_info.path_collection;
+  out_info.value = val_info.value;
+  out_info.path_collection = val_info.path_collection;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-
 export(evaluate_the);

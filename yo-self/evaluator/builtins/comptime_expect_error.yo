@@ -12,53 +12,82 @@
 //! cannot access outer function parameters.  The `comptime_expect_error` builtin
 //! therefore currently panics when the inner expression evaluates without error.
 //! Restoring full semantics requires a codegen fix for closure capture of outer params.
-
 open(import("std/string"));
-{ Exception }                                    :: import("std/error");
-{ AstExpr, ast_expr_token, ast_expr_to_string,
-  ast_expr_id, make_err_expr }                   :: import("../../expr/expr.yo");
-{ Environment }                                  :: import("../../env/env.yo");
-{ EvalContext }                                  :: import("../context.yo");
-{ format_error_message }                         :: import("../../error/error.yo");
-{ EvalValue, value_to_string }                   :: import("../value.yo");
-{ expr_info_table_get }                          :: import("../../expr/expr_info.yo");
-{ evaluate_expression }                          :: import("../exprs/expr.yo");
-
-evaluate_comptime_expect_error :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  args     := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
-  arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
-
+{ Exception } :: import("std/error");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_to_string,
+  ast_expr_id,
+  make_err_expr
+} :: import("../../expr/expr.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ EvalValue, value_to_string } :: import("../value.yo");
+{ expr_info_table_get } :: import("../../expr/expr_info.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+evaluate_comptime_expect_error :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(expr);
+    }
+  );
+  arg_expr := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
   // Try to evaluate arg_expr; if a compile error is thrown that's expected — set unit and return.
   // Phase 3 TODO: restore inner exception handler when codegen supports closure capture of outer params.
   // For now, use evaluate_expression (panic on error) — comptime_expect_error is limited to panicking
   // on unexpected success only. The error-detection path requires the inner_exn pattern.
   evaluate_expression(arg_expr, env, ctx);
-
   // No error was thrown — evaluate optional message argument for a better diagnostic.
-  match(args.get(usize(1)), .Some(msg_expr) => {
-    eval_msg     := evaluate_expression(msg_expr, env, ctx);
-    msg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_msg));
-    match(msg_info_opt, .Some(msg_info) => {
-      match(msg_info.value, .Some(v) => {
-        err_msg := match(v, .StrLit(raw) => raw, _ => value_to_string(v));
-        exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, false, .None)));
-      }, .None => ());
-    }, .None => ());
-  }, .None => ());
-
-  exn.throw(dyn(format_error_message(
-    ast_expr_token(expr),
-    (String.from("Expected compile error, but the expression was evaluated successfully:\n") +
-      ast_expr_to_string(arg_expr)),
-    false,
-    .None
-  )));
+  match(
+    args.get(usize(1)),
+    .Some(msg_expr) => {
+      eval_msg := evaluate_expression(msg_expr, env, ctx);
+      msg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_msg));
+      match(
+        msg_info_opt,
+        .Some(msg_info) => {
+          match(
+            msg_info.value,
+            .Some(v) => {
+              err_msg := match(v,.StrLit(raw) => raw, _ => value_to_string(v));
+              exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, false,.None)));
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  exn.throw(
+    dyn(
+      format_error_message(
+        ast_expr_token(expr),
+        String.from("Expected compile error, but the expression was evaluated successfully:\n") +
+          ast_expr_to_string(arg_expr),
+        false,
+        .None
+      )
+    )
+  );
   make_err_expr()
 });
-
 export(evaluate_comptime_expect_error);

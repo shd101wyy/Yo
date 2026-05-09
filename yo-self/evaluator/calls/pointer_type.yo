@@ -4,25 +4,33 @@
 //!
 //! `*(T)(val)` pointer cast: handles comptime_string → *(u8) / *(char)
 //! and runtime pointer → pointer via `__yo_as`.
-
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, make_err_expr,
-  BF_YO_AS, ExprId }                                            :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }                    :: import("../../expr/expr_info.yo");
-{ Environment }                                                 :: import("../../env/env.yo");
-{ TypeValue, is_pointer_type }                                  :: import("../../types/type.yo");
-{ is_comptime_string_type, is_u8_type, is_char_type }           :: import("../../types/guards.yo");
-{ convert_comptime_type_to_runtime_type }                       :: import("../../types/utils.yo");
-{ type_to_string }                                              :: import("../../types/string.yo");
-{ EvalContext }                                                  :: import("../context.yo");
-{ evaluate_expression }                                         :: import("../exprs/expr.yo");
-{ format_error_message }                                        :: import("../../error/error.yo");
-{ Token, TokenKind }                                            :: import("../../lexer/token.yo");
-{ Exception }                                                   :: import("std/error");
-
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  make_err_expr,
+  BF_YO_AS,
+  ExprId
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ TypeValue, is_pointer_type } :: import("../../types/type.yo");
+{ is_comptime_string_type, is_u8_type, is_char_type } :: import("../../types/guards.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/utils.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ EvalContext } :: import("../context.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Token, TokenKind } :: import("../../lexer/token.yo");
+{ Exception } :: import("std/error");
 /// Attempt to cast `arg_expr` to `target_type` as a pointer-type conversion.
 /// Returns `.None` if `target_type` is not a pointer type.
 ///
@@ -31,86 +39,92 @@ open(import("std/string"));
 ///   2. Any pointer → pointer: emits a `__yo_as(arg, TargetType)` runtime cast.
 ///
 /// Mirrors `tryToConvertToPointerType` in `src/evaluator/calls/pointer-type.ts`.
-try_to_convert_to_pointer_type :: (fn(
-  target_type : TypeValue,
-  arg_expr    : AstExpr,
-  expr        : AstExpr,
-  caller_env  : Environment,
-  ctx         : *(EvalContext),
-  using(exn   : Exception)
-) -> Option(AstExpr))({
+try_to_convert_to_pointer_type :: (
+  fn(
+    target_type : TypeValue,
+    arg_expr : AstExpr,
+    expr : AstExpr,
+    caller_env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> Option(AstExpr)
+)({
   if(!(is_pointer_type(target_type)), {
     return(Option(AstExpr).None);
   });
-
   // Evaluate the argument with no expectedType.
   saved_expected := ctx.expected_type;
-  ctx.expected_type = .None;
+  ctx.expected_type =.None;
   evaluated := evaluate_expression(arg_expr, caller_env, ctx);
   ctx.expected_type = saved_expected;
-
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   if(info_opt.is_none(), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(arg_expr),
-      `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-  arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
-
-  env      := arg_info.env;
+  arg_info := match(info_opt,.Some(i) => i,.None => new_expr_info(caller_env, target_type));
+  env := arg_info.env;
   arg_type := arg_info.ty;
-
   // -----------------------------------------------------------------------
   // Case 1: comptime_string → *(u8) or *(char)
   // -----------------------------------------------------------------------
-  is_ptr_u8_or_char := match(target_type,
+  is_ptr_u8_or_char := match(
+    target_type,
     .Pointer(inner) => cond(
-      is_u8_type(inner.*)   => true,
+      is_u8_type(inner.*) => true,
       is_char_type(inner.*) => true,
       true => false
     ),
     _ => false
   );
-  if((is_comptime_string_type(arg_type) && is_ptr_u8_or_char), {
+  if(is_comptime_string_type(arg_type) && is_ptr_u8_or_char, {
     converted_ty := convert_comptime_type_to_runtime_type(arg_type, env);
     out_info := new_expr_info(env, converted_ty);
     out_info.value = arg_info.value;
-    out_info.converted_runtime_type = .Some(converted_ty);
+    out_info.converted_runtime_type =.Some(converted_ty);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(.Some(evaluated));
   });
-
   // -----------------------------------------------------------------------
   // Case 2: pointer → pointer via __yo_as
   // -----------------------------------------------------------------------
   if(!(is_pointer_type(arg_type)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(arg_expr),
-      `Cannot cast ${type_to_string(arg_type)} to ${type_to_string(target_type)}. Expected a pointer type or comptime_string.`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          `Cannot cast ${type_to_string(arg_type)} to ${type_to_string(target_type)}. Expected a pointer type or comptime_string.`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   orig_tok := ast_expr_token(expr);
-  orig_id  := ast_expr_id(expr);
-  type_expr := match(expr,
+  orig_id := ast_expr_id(expr);
+  type_expr := match(
+    expr,
     .FnCall(_, func_box, _, _, _) => func_box.*,
     .Atom(_, _) => make_err_expr()
   );
   func_atom := AstExpr.Atom(
     orig_id,
     Token(
-      kind:        TokenKind.Identifier,
-      value:       String.from(BF_YO_AS),
-      row:         orig_tok.row,
-      column:      orig_tok.column,
-      character:   orig_tok.character,
-      module_path: String.from(orig_tok.module_path.as_str()),
-      input:       String.from(orig_tok.input.as_str())
+      kind : TokenKind.Identifier,
+      value : String.from(BF_YO_AS),
+      row : orig_tok.row,
+      column : orig_tok.column,
+      character : orig_tok.character,
+      module_path : String.from(orig_tok.module_path.as_str()),
+      input : String.from(orig_tok.input.as_str())
     )
   );
   call_args := ArrayList(AstExpr).new();
@@ -118,13 +132,12 @@ try_to_convert_to_pointer_type :: (fn(
   call_args.push(type_expr);
   yo_as_node := AstExpr.FnCall(orig_id, box(func_atom), call_args, false, orig_tok);
   out_info := new_expr_info(env, target_type);
-  out_info.value = .None;
+  out_info.value =.None;
   // runtimeArgExprsInOrder: only the value arg (not the type) — mirrors TS
   rt_args := ArrayList(AstExpr).new();
   rt_args.push(evaluated);
-  out_info.runtime_arg_exprs_in_order = .Some(rt_args);
+  out_info.runtime_arg_exprs_in_order =.Some(rt_args);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), out_info);
   .Some(yo_as_node)
 });
-
 export(try_to_convert_to_pointer_type);

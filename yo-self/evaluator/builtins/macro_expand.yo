@@ -1,143 +1,198 @@
 //! evaluator/builtins/macro_expand — implements evaluate_macro_expand.
 //!
 //! 1:1 port of `src/evaluator/builtins/macro_expand.ts`.
-
 open(import("std/string"));
-{ ArrayList }  :: import("std/collections/array_list");
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call,
-  ast_expr_to_string }                              :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }        :: import("../../expr/expr_info.yo");
-{ Environment }                                    :: import("../../env/env.yo");
-{ TypeValue, t_unit }                              :: import("../../types/type.yo");
-{ t_expr_t }                                       :: import("../../types/type.yo");
-{ EvalContext }                                    :: import("../context.yo");
-{ EvalValue }                                      :: import("../value.yo");
-{ is_int_lit, is_expr_val }                        :: import("../value.yo");
-{ is_expr_type }                                   :: import("../../types/guards.yo");
-{ is_comptime_int_type }                           :: import("../../types/guards.yo");
-{ type_to_string }                                 :: import("../../types/string.yo");
-{ evaluate_expression }                            :: import("../exprs/expr.yo");
-{ evaluate_function_call }                         :: import("../calls/function.yo");
-{ process_unquotes_in_expr }                       :: import("./quote.yo");
-{ format_error_message }                           :: import("../../error/error.yo");
-{ Exception }                                      :: import("std/error");
-
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_fn_call,
+  ast_expr_to_string
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ t_expr_t } :: import("../../types/type.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../value.yo");
+{ is_int_lit, is_expr_val } :: import("../value.yo");
+{ is_expr_type } :: import("../../types/guards.yo");
+{ is_comptime_int_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_function_call } :: import("../calls/function.yo");
+{ process_unquotes_in_expr } :: import("./quote.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
 /// Expands a quoted macro expression.
 ///
 /// `macro_expand(quote(expr))` — expand until no more expansion possible.
 /// `macro_expand(quote(expr), n)` — expand only `n` levels.
 ///
 /// Mirrors `evaluateMacroExpand` in `src/evaluator/builtins/macro_expand.ts`.
-evaluate_macro_expand :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  tok  := ast_expr_token(expr);
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => {
-    exn.throw(dyn(format_error_message(tok, String.from("macro_expand: expected FnCall"), false, .None)));
-    return(expr);
-  });
+evaluate_macro_expand :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  tok := ast_expr_token(expr);
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      exn.throw(dyn(format_error_message(tok, String.from("macro_expand: expected FnCall"), false,.None)));
+      return(expr);
+    }
+  );
   n := args.len();
-
   // Accept 1 or 2 arguments.
-  if(((n != usize(1)) && (n != usize(2))), {
-    exn.throw(dyn(format_error_message(
-      tok,
-      `"macro_expand" expects 1 or 2 arguments, but got ${n}`,
-      false,
-      .None
-    )));
+  if((n != usize(1)) && (n != usize(2)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `"macro_expand" expects 1 or 2 arguments, but got ${n}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
-  eval_arg  := evaluate_expression(arg_expr, env, ctx);
-  arg_info  := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+  arg_expr := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
+  eval_arg := evaluate_expression(arg_expr, env, ctx);
+  arg_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        `Failed to evaluate the argument expression for "macro_expand"`,
-        false, .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `Failed to evaluate the argument expression for "macro_expand"`,
+            false,
+            .None
+          )
+        )
+      );
       return(expr);
     }
   );
   cur_env := arg_info.env;
-
   if(!(is_expr_type(arg_info.ty)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(arg_expr),
-      `The argument expression for "macro_expand" must be an Expr value, but got: ${type_to_string(arg_info.ty)}`,
-      false, .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          `The argument expression for "macro_expand" must be an Expr value, but got: ${type_to_string(arg_info.ty)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Optional second argument: expansion level cap.
   (max_expansion_level : Option(i64)) = Option(i64).None;
-  if((n == usize(2)), {
-    level_arg := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
-    eval_level := evaluate_expression(level_arg, cur_env, ctx);
-    level_info := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_level)),
-      .Some(i) => i,
-      .None    => {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(level_arg),
-          `Failed to evaluate the level argument expression for "macro_expand"`,
-          false, .None
-        )));
+  if(n == usize(2), {
+    level_arg := match(
+      args.get(usize(1)),
+      .Some(a) => a,
+      .None => {
         return(expr);
       }
     );
-
+    eval_level := evaluate_expression(level_arg, cur_env, ctx);
+    level_info := match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_level)),
+      .Some(i) => i,
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(level_arg),
+              `Failed to evaluate the level argument expression for "macro_expand"`,
+              false,
+              .None
+            )
+          )
+        );
+        return(expr);
+      }
+    );
     if(!(is_comptime_int_type(level_info.ty)), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(level_arg),
-        `The level argument for "macro_expand" must be a comptime_int value, but got: ${type_to_string(level_info.ty)}`,
-        false, .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(level_arg),
+            `The level argument for "macro_expand" must be a comptime_int value, but got: ${type_to_string(level_info.ty)}`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
     // Extract the integer value from IntLit.
     lv_opt := level_info.value;
-    if(!(is_int_lit(match(lv_opt, .Some(v) => v, .None => EvalValue.UnitVal))), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(level_arg),
-        `The level argument for "macro_expand" must be a comptime_int value`,
-        false, .None
-      )));
+    if(!(is_int_lit(match(lv_opt,.Some(v) => v,.None => EvalValue.UnitVal))), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(level_arg),
+            `The level argument for "macro_expand" must be a comptime_int value`,
+            false,
+            .None
+          )
+        )
+      );
     });
-
-    lv_raw := match(lv_opt,
-      .Some(v) => match(v, .IntLit(raw) => raw.as_str(), _ => "0"),
-      .None    => "0"
+    lv_raw := match(
+      lv_opt,
+      .Some(v) => match(v,.IntLit(raw) => raw.as_str(), _ => "0"),
+      .None => "0"
     );
     // Parse the comptime_int to i64.
-    lv_parsed := match(String.from(lv_raw).parse_i64(),
+    lv_parsed := match(
+      String.from(lv_raw).parse_i64(),
       .Some(v) => v,
       .None => i64(0)
     );
-    if((lv_parsed < i64(0)), {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(level_arg),
-        `The level argument for "macro_expand" must be non-negative, but got: ${lv_parsed}`,
-        false, .None
-      )));
+    if(lv_parsed < i64(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(level_arg),
+            `The level argument for "macro_expand" must be non-negative, but got: ${lv_parsed}`,
+            false,
+            .None
+          )
+        )
+      );
     });
     max_expansion_level = Option(i64).Some(lv_parsed);
   });
-
   // If the argument has an ExprVal, expand it.
-  match(arg_info.value,
-    .Some(v) => match(v,
+  match(
+    arg_info.value,
+    .Some(v) => match(
+      v,
       .ExprVal(expr_box) => {
         (current_expr : AstExpr) = expr_box.*;
-        (current_env  : Environment) = cur_env;
+        (current_env : Environment) = cur_env;
         (expansion_count : i64) = i64(0);
-
         // Expand while it's a function call and we haven't hit the cap.
         (should_continue : bool) = true;
         while(runtime(should_continue), {
@@ -147,9 +202,10 @@ evaluate_macro_expand :: (fn(
           });
           if(should_continue, {
             // Check expansion cap.
-            at_cap := match(max_expansion_level,
+            at_cap := match(
+              max_expansion_level,
               .Some(max) => (expansion_count >= max),
-              .None      => false
+              .None => false
             );
             if(at_cap, {
               should_continue = false;
@@ -162,16 +218,25 @@ evaluate_macro_expand :: (fn(
             (expanded_ok : bool) = false;
             (expanded_expr : AstExpr) = current_expr;
             expanded_expr = evaluate_function_call(
-              current_expr, current_env, t_unit(),
-              Option(EvalValue).None, ctx, using(exn)
+              current_expr,
+              current_env,
+              t_unit(),
+              Option(EvalValue).None,
+              ctx,
+              using(exn)
             );
             expanded_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expanded_expr));
-            match(expanded_info_opt,
-              .None => { should_continue = false; },
+            match(
+              expanded_info_opt,
+              .None => {
+                should_continue = false;
+              },
               .Some(ei) => {
                 current_env = ei.env;
-                match(ei.value,
-                  .Some(ev) => match(ev,
+                match(
+                  ei.value,
+                  .Some(ev) => match(
+                    ev,
                     .ExprVal(new_expr_box) => {
                       new_expr := new_expr_box.*;
                       // If no change, stop to avoid infinite loop.
@@ -185,19 +250,21 @@ evaluate_macro_expand :: (fn(
                         expanded_ok = true;
                       });
                     },
-                    _ => { should_continue = false; }
+                    _ => {
+                      should_continue = false;
+                    }
                   ),
-                  .None => { should_continue = false; }
+                  .None => {
+                    should_continue = false;
+                  }
                 );
               }
             );
             _ := expanded_ok;
           });
         });
-
         // Process unquotes in the final expression.
         final_expr := process_unquotes_in_expr(current_expr, current_env, ctx, using(exn));
-
         out := new_expr_info(current_env, t_expr_t());
         out.value = Option(EvalValue).Some(EvalValue.ExprVal(box(final_expr)));
         out.path_collection = arg_info.path_collection;
@@ -206,7 +273,7 @@ evaluate_macro_expand :: (fn(
       _ => {
         // Unknown value: pass through with original type/value.
         out := new_expr_info(cur_env, arg_info.ty);
-        out.value           = arg_info.value;
+        out.value = arg_info.value;
         out.path_collection = arg_info.path_collection;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
       }
@@ -214,13 +281,11 @@ evaluate_macro_expand :: (fn(
     .None => {
       // No compile-time value: pass through.
       out := new_expr_info(cur_env, arg_info.ty);
-      out.value           = arg_info.value;
+      out.value = arg_info.value;
       out.path_collection = arg_info.path_collection;
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
     }
   );
-
   expr
 });
-
 export(evaluate_macro_expand);

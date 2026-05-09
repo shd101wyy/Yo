@@ -9,95 +9,108 @@
 //!
 //! During CTFE-capability analysis (`ctx.is_analyzing_ctfe_capability`), this
 //! handler always throws to mark the enclosing function as not CTFE-capable.
-
 open(import("std/string"));
 open(import("std/fmt"));
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_fn_call_of, BF_RUNTIME, make_err_expr } :: import("../../expr/expr.yo");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  BF_RUNTIME,
+  make_err_expr
+} :: import("../../expr/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
-  :: import("../../expr/expr_info.yo");
+:: import("../../expr/expr_info.yo");
 { Environment } :: import("../../env/env.yo");
 { EvalContext } :: import("../context.yo");
-{ TypeValue, t_i32 }   :: import("../../types/type.yo");
+{ TypeValue, t_i32 } :: import("../../types/type.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/utils.yo");
 { format_error_message, YoError } :: import("../../error/error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
-
 /// Evaluate `runtime(expr)`. Side-effects only: writes an `ExprInfo` for the
 /// outer call into `ctx.expr_info_table` with `value = .None` (runtime value)
 /// and `ty = convert_comptime_type_to_runtime_type(arg.ty, env)`.
 /// Returns `expr` unchanged.
-evaluate_runtime :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_runtime :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // Validate shape: `runtime` with exactly 1 argument.
-  if(!(ast_expr_is_fn_call_of(expr, BF_RUNTIME, .Some(usize(1)))), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected runtime(expr), got:\n${ast_expr_to_string(expr)}`,
-      false,
-      .None
-    )));
+  if(!(ast_expr_is_fn_call_of(expr, BF_RUNTIME,.Some(usize(1)))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected runtime(expr), got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // During CTFE analysis, `runtime` always fails the analysis.
   if(ctx.is_analyzing_ctfe_capability, {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      String.from("Cannot use \"runtime\" during compile-time function evaluation analysis. The \"runtime\" keyword forces runtime evaluation and prevents CTFE."),
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("Cannot use \"runtime\" during compile-time function evaluation analysis. The \"runtime\" keyword forces runtime evaluation and prevents CTFE."),
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // Pull arg out of the FnCall.
-  arg_expr := match(expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),
+  arg_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
       .Some(a) => a,
-      .None    => make_err_expr()
+      .None => make_err_expr()
     ),
     .Atom(_, _) => make_err_expr()
   );
-
   // Recursively evaluate the argument.
   evaluated := evaluate_expression(arg_expr, env, ctx);
-
   // Read the evaluated arg's info.
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-  match(info_opt,
+  match(
+    info_opt,
     .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(evaluated),
-        `Failed to evaluate runtime argument:\n${ast_expr_to_string(evaluated)}`,
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(evaluated),
+            `Failed to evaluate runtime argument:\n${ast_expr_to_string(evaluated)}`,
+            false,
+            .None
+          )
+        )
+      );
     },
     .Some(_) => ()
   );
-  arg_info := match(info_opt,
+  arg_info := match(
+    info_opt,
     .Some(i) => i,
-    .None    => new_expr_info(env, t_i32())
+    .None => new_expr_info(env, t_i32())
   );
-
   // Convert comptime type to runtime type and emit a runtime ExprInfo.
-  next_env     := arg_info.env;
+  next_env := arg_info.env;
   runtime_type := convert_comptime_type_to_runtime_type(arg_info.ty, next_env);
-
   out_info := new_expr_info(next_env, runtime_type);
   // value stays .None — `runtime(_)` always yields a runtime value.
-
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-
 // Unused fallback used to satisfy the type system for the impossible
 // `.None` arm above. The match is guarded by the preceding `if`-throw,
 // so this branch is unreachable.
-
 export(evaluate_runtime);

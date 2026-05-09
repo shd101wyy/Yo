@@ -5,279 +5,314 @@
 //! compile-time arithmetic, comparison, bitwise, and unary operations on
 //! all numeric types: comptime_int, comptime_float, i8/u8, i16/u16,
 //! i32/u32, i64/u64, isize/usize, f32/f64.
-
 open(import("std/string"));
-
-{ AstExpr, ast_expr_token, ast_expr_id,
-  ast_expr_to_string }                        :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set,
-  expr_info_table_get }                       :: import("../../expr/expr_info.yo");
-{ Environment }                               :: import("../../env/env.yo");
-{ EvalContext }                               :: import("../context.yo");
-{ EvalValue, create_unknown_val }             :: import("../value.yo");
-{ TypeValue,
-  t_bool, t_comptime_int, t_comptime_string }  :: import("../../types/type.yo");
-{ is_unsigned_integer_type, is_c_compatible_type,
-  is_float_type }                             :: import("../../types/guards.yo");
-{ format_error_message }                      :: import("../../error/error.yo");
-{ evaluate_expression }                       :: import("../exprs/expr.yo");
-{ parse_raw_int, parse_raw_float }            :: import("../utils.yo");
-{ Exception }                                 :: import("std/error");
-
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, create_unknown_val } :: import("../value.yo");
+{
+  TypeValue,
+  t_bool,
+  t_comptime_int,
+  t_comptime_string
+} :: import("../../types/type.yo");
+{
+  is_unsigned_integer_type,
+  is_c_compatible_type,
+  is_float_type
+} :: import("../../types/guards.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ parse_raw_int, parse_raw_float } :: import("../utils.yo");
+{ Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // str_lit_quote: wrap an unquoted string with double-quote chars.
 // ---------------------------------------------------------------------------
-
 str_lit_quote :: (fn(s : String) -> String)(
   (String.from("\"") + s) + String.from("\"")
 );
-
 // ---------------------------------------------------------------------------
 // apply_bounds: clamp i64 to the representable range of type `ty`.
 // Mirrors TypeScript `applyNumericBounds`.
 // ---------------------------------------------------------------------------
-
 apply_bounds :: (fn(n : i64, ty : TypeValue) -> i64)(
-  match(ty,
+  match(
+    ty,
     .Int(bits, signed) => cond(
       ((bits == u8(8)) && !(signed)) => {
-        abs_n := if((n >= i64(0)), n, (i64(0) - n));
-        (abs_n % i64(256))
+        abs_n := if(n >= i64(0), n, i64(0) - n);
+        abs_n % i64(256)
       },
       ((bits == u8(8)) && signed) =>
-        if((n > i64(127)), i64(127), if((n < i64(-(128))), i64(-(128)), n)),
+        if(n > i64(127), i64(127), if(n < i64(-(128)), i64(-(128)), n)),
       ((bits == u8(16)) && !(signed)) => {
-        abs_n := if((n >= i64(0)), n, (i64(0) - n));
-        (abs_n % i64(65536))
+        abs_n := if(n >= i64(0), n, i64(0) - n);
+        abs_n % i64(65536)
       },
       ((bits == u8(16)) && signed) =>
-        if((n > i64(32767)), i64(32767), if((n < i64(-(32768))), i64(-(32768)), n)),
+        if(n > i64(32767), i64(32767), if(n < i64(-(32768)), i64(-(32768)), n)),
       ((bits == u8(32)) && !(signed)) => {
-        abs_n := if((n >= i64(0)), n, (i64(0) - n));
-        (abs_n % i64(4294967296))
+        abs_n := if(n >= i64(0), n, i64(0) - n);
+        abs_n % i64(4294967296)
       },
       ((bits == u8(32)) && signed) =>
-        if((n > i64(2147483647)), i64(2147483647),
-           if((n < i64(-(2147483648))), i64(-(2147483648)), n)),
+        if(
+          n > i64(2147483647),
+          i64(2147483647),
+          if(n < i64(-(2147483648)), i64(-(2147483648)), n)
+        ),
       true => n
     ),
     _ => n
   )
 );
-
 // ---------------------------------------------------------------------------
 // bit_not_int: bitwise NOT for integer types.
 // For types narrower than 64 bits, XOR with the type mask and sign-extend.
 // For 64-bit and comptime_int, uses the identity ~n = -(n+1).
 // ---------------------------------------------------------------------------
-
 bit_not_int :: (fn(n : i64, ty : TypeValue) -> i64)(
-  match(ty,
+  match(
+    ty,
     .ComptimeInt => ((i64(0) - n) - i64(1)),
-    .Usize       => ((i64(0) - n) - i64(1)),
-    .Isize       => ((i64(0) - n) - i64(1)),
+    .Usize => ((i64(0) - n) - i64(1)),
+    .Isize => ((i64(0) - n) - i64(1)),
     .Int(bits, signed) => cond(
       (bits == u8(8)) => {
-        n_lower  := (n & i64(255));
+        n_lower := (n & i64(255));
         result_u := (n_lower ^ i64(255));
-        if((signed && (result_u >= i64(128))),
-           (result_u - i64(256)),
-           result_u)
+        if(
+          signed && (result_u >= i64(128)),
+          result_u - i64(256),
+          result_u
+        )
       },
       (bits == u8(16)) => {
-        n_lower  := (n & i64(65535));
+        n_lower := (n & i64(65535));
         result_u := (n_lower ^ i64(65535));
-        if((signed && (result_u >= i64(32768))),
-           (result_u - i64(65536)),
-           result_u)
+        if(
+          signed && (result_u >= i64(32768)),
+          result_u - i64(65536),
+          result_u
+        )
       },
       (bits == u8(32)) => {
-        n_lower  := (n & i64(4294967295));
+        n_lower := (n & i64(4294967295));
         result_u := (n_lower ^ i64(4294967295));
-        if((signed && (result_u >= i64(2147483648))),
-           (result_u - i64(4294967296)),
-           result_u)
+        if(
+          signed && (result_u >= i64(2147483648)),
+          result_u - i64(4294967296),
+          result_u
+        )
       },
       true => ((i64(0) - n) - i64(1))
     ),
     _ => ((i64(0) - n) - i64(1))
   )
 );
-
 // ---------------------------------------------------------------------------
 // make_int_val: create IntLit after applying bounds, or UnknownVal for
 // C-compatible types.
 // ---------------------------------------------------------------------------
-
 make_int_val :: (fn(n : i64, ty : TypeValue) -> EvalValue)(
-  if(is_c_compatible_type(ty),
+  if(
+    is_c_compatible_type(ty),
     create_unknown_val(ty),
     EvalValue.IntLit(apply_bounds(n, ty).to_string())
   )
 );
-
 // ---------------------------------------------------------------------------
 // make_float_val: create FloatLit, or UnknownVal for C-compatible types.
 // ---------------------------------------------------------------------------
-
 make_float_val :: (fn(v : f64, ty : TypeValue) -> EvalValue)(
-  if(is_c_compatible_type(ty),
+  if(
+    is_c_compatible_type(ty),
     create_unknown_val(ty),
     EvalValue.FloatLit(v.to_string())
   )
 );
-
 // ---------------------------------------------------------------------------
 // eval_numeric_arg: evaluate one argument expression and return its ExprInfo.
 // ---------------------------------------------------------------------------
-
-eval_numeric_arg :: (fn(
-  arg : AstExpr,
-  env : Environment,
-  ctx : *(EvalContext),
-  using(exn : Exception)
-) -> ExprInfo)({
+eval_numeric_arg :: (
+  fn(
+    arg : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> ExprInfo
+)({
   evaluated := evaluate_expression(arg, env, ctx);
-  match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(i) => i,
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg),
-        `Expected numeric value for comptime numeric argument, got:\n${ast_expr_to_string(arg)}`,
-        false,
-        .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            `Expected numeric value for comptime numeric argument, got:\n${ast_expr_to_string(arg)}`,
+            false,
+            .None
+          )
+        )
+      );
       new_expr_info(env, t_comptime_int())
     }
   )
 });
-
 // ---------------------------------------------------------------------------
 // evaluate_yo_comptime_numeric_functions — main entry point.
 // ---------------------------------------------------------------------------
-
-evaluate_yo_comptime_numeric_functions :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_yo_comptime_numeric_functions :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // ---- 1. Extract the function name. -------------------------------------
-  fn_name := match(expr,
-    .FnCall(_, func_box, _, _, _) => match(func_box.*,
+  fn_name := match(
+    expr,
+    .FnCall(_, func_box, _, _, _) => match(
+      func_box.*,
       .Atom(_, ftok) => ftok.value,
-      _              => String.new()
+      _ => String.new()
     ),
     _ => String.new()
   );
-
   // ---- 2. Determine the numeric type and prefix length. ------------------
   (numeric_type : TypeValue) = TypeValue.ComptimeInt;
-  (prefix_len   : usize)     = usize(0);
+  (prefix_len : usize) = usize(0);
   cond(
     (fn_name.starts_with(`__yo_comptime_usize_`)) => {
       numeric_type = TypeValue.Usize;
-      prefix_len   = usize(20);
+      prefix_len = usize(20);
     },
     (fn_name.starts_with(`__yo_comptime_isize_`)) => {
       numeric_type = TypeValue.Isize;
-      prefix_len   = usize(20);
+      prefix_len = usize(20);
     },
     (fn_name.starts_with(`__yo_comptime_float_`)) => {
       numeric_type = TypeValue.ComptimeFloat;
-      prefix_len   = usize(20);
+      prefix_len = usize(20);
     },
     (fn_name.starts_with(`__yo_comptime_u16_`)) => {
       numeric_type = TypeValue.Int(u8(16), false);
-      prefix_len   = usize(18);
+      prefix_len = usize(18);
     },
     (fn_name.starts_with(`__yo_comptime_i16_`)) => {
       numeric_type = TypeValue.Int(u8(16), true);
-      prefix_len   = usize(18);
+      prefix_len = usize(18);
     },
     (fn_name.starts_with(`__yo_comptime_u32_`)) => {
       numeric_type = TypeValue.Int(u8(32), false);
-      prefix_len   = usize(18);
+      prefix_len = usize(18);
     },
     (fn_name.starts_with(`__yo_comptime_i32_`)) => {
       numeric_type = TypeValue.Int(u8(32), true);
-      prefix_len   = usize(18);
+      prefix_len = usize(18);
     },
     (fn_name.starts_with(`__yo_comptime_u64_`)) => {
       numeric_type = TypeValue.Int(u8(64), false);
-      prefix_len   = usize(18);
+      prefix_len = usize(18);
     },
     (fn_name.starts_with(`__yo_comptime_i64_`)) => {
       numeric_type = TypeValue.Int(u8(64), true);
-      prefix_len   = usize(18);
+      prefix_len = usize(18);
     },
     (fn_name.starts_with(`__yo_comptime_int_`)) => {
       numeric_type = TypeValue.ComptimeInt;
-      prefix_len   = usize(18);
+      prefix_len = usize(18);
     },
     (fn_name.starts_with(`__yo_comptime_f32_`)) => {
       numeric_type = TypeValue.Float(u8(32));
-      prefix_len   = usize(18);
+      prefix_len = usize(18);
     },
     (fn_name.starts_with(`__yo_comptime_f64_`)) => {
       numeric_type = TypeValue.Float(u8(64));
-      prefix_len   = usize(18);
+      prefix_len = usize(18);
     },
     (fn_name.starts_with(`__yo_comptime_u8_`)) => {
       numeric_type = TypeValue.Int(u8(8), false);
-      prefix_len   = usize(17);
+      prefix_len = usize(17);
     },
     (fn_name.starts_with(`__yo_comptime_i8_`)) => {
       numeric_type = TypeValue.Int(u8(8), true);
-      prefix_len   = usize(17);
+      prefix_len = usize(17);
     },
     true => ()
   );
-
   // ---- 3. Extract operation name. ----------------------------------------
-  op   := fn_name.substring(prefix_len, fn_name.len());
+  op := fn_name.substring(prefix_len, fn_name.len());
   op_s := op.as_str();
-
   // ---- 4. Extract args. --------------------------------------------------
-  args := match(expr,
+  args := match(
+    expr,
     .FnCall(_, _, a, _, _) => a,
-    _                      => { return(expr); }
+    _ => {
+      return(expr);
+    }
   );
-
   // ---- 5. Unary operations (neg, bit_not, to_comptime_string). -----------
   is_unary := (((op_s == "neg") || (op_s == "bit_not")) || (op_s == "to_comptime_string"));
-
   if(is_unary, {
-    arg0     := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
+    arg0 := match(
+      args.get(usize(0)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    );
     lhs_info := eval_numeric_arg(arg0, env, ctx);
-    lhs_val  := lhs_info.value;
-    (cur_env    : Environment) = lhs_info.env;
-    (result_val : EvalValue)   = EvalValue.UnitVal;
-    (result_ty  : TypeValue)   = numeric_type;
-
+    lhs_val := lhs_info.value;
+    (cur_env : Environment) = lhs_info.env;
+    (result_val : EvalValue) = EvalValue.UnitVal;
+    (result_ty : TypeValue) = numeric_type;
     cond(
       (op_s == "neg") => {
         if(is_unsigned_integer_type(numeric_type), {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `Cannot apply negation to unsigned type: ${fn_name}`,
-            false,
-            .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `Cannot apply negation to unsigned type: ${fn_name}`,
+                false,
+                .None
+              )
+            )
+          );
         }, {
-          result_val = match(lhs_val,
+          result_val = match(
+            lhs_val,
             .Some(av) => cond(
-              (is_float_type(numeric_type)) => match(av,
-                .FloatLit(raw) => match(parse_raw_float(raw),
-                  .Some(v) => make_float_val((f64(0.0) - v), numeric_type),
-                  .None    => create_unknown_val(numeric_type)
+              (is_float_type(numeric_type)) => match(
+                av,
+                .FloatLit(raw) => match(
+                  parse_raw_float(raw),
+                  .Some(v) => make_float_val(f64(0.0) - v, numeric_type),
+                  .None => create_unknown_val(numeric_type)
                 ),
                 _ => create_unknown_val(numeric_type)
               ),
-              true => match(av,
-                .IntLit(raw) => match(parse_raw_int(raw),
-                  .Some(n) => make_int_val((i64(0) - n), numeric_type),
-                  .None    => create_unknown_val(numeric_type)
+              true => match(
+                av,
+                .IntLit(raw) => match(
+                  parse_raw_int(raw),
+                  .Some(n) => make_int_val(i64(0) - n, numeric_type),
+                  .None => create_unknown_val(numeric_type)
                 ),
                 _ => create_unknown_val(numeric_type)
               )
@@ -287,11 +322,14 @@ evaluate_yo_comptime_numeric_functions :: (fn(
         });
       },
       (op_s == "bit_not") => {
-        result_val = match(lhs_val,
-          .Some(av) => match(av,
-            .IntLit(raw) => match(parse_raw_int(raw),
+        result_val = match(
+          lhs_val,
+          .Some(av) => match(
+            av,
+            .IntLit(raw) => match(
+              parse_raw_int(raw),
               .Some(n) => make_int_val(bit_not_int(n, numeric_type), numeric_type),
-              .None    => create_unknown_val(numeric_type)
+              .None => create_unknown_val(numeric_type)
             ),
             _ => create_unknown_val(numeric_type)
           ),
@@ -299,263 +337,358 @@ evaluate_yo_comptime_numeric_functions :: (fn(
         );
       },
       (op_s == "to_comptime_string") => {
-        result_ty  = t_comptime_string();
-        result_val = match(lhs_val,
-          .Some(av) => match(av,
-            .IntLit(raw)   => EvalValue.StrLit(str_lit_quote(raw)),
+        result_ty = t_comptime_string();
+        result_val = match(
+          lhs_val,
+          .Some(av) => match(
+            av,
+            .IntLit(raw) => EvalValue.StrLit(str_lit_quote(raw)),
             .FloatLit(raw) => EvalValue.StrLit(str_lit_quote(raw)),
-            _              => create_unknown_val(t_comptime_string())
+            _ => create_unknown_val(t_comptime_string())
           ),
           .None => create_unknown_val(t_comptime_string())
         );
       },
       true => {
-        exn.throw(dyn(format_error_message(
-          ast_expr_token(expr),
-          `Unexpected unary comptime numeric operation: ${op}`,
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `Unexpected unary comptime numeric operation: ${op}`,
+              false,
+              .None
+            )
+          )
+        );
       }
     );
-
     out_info := new_expr_info(cur_env, result_ty);
-    out_info.value = .Some(result_val);
+    out_info.value =.Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // ---- 6. Binary operations. -------------------------------------------
-    arg0     := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
-    arg1     := match(args.get(usize(1)), .Some(a) => a, .None => { return(expr); });
+    arg0 := match(
+      args.get(usize(0)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    );
+    arg1 := match(
+      args.get(usize(1)),
+      .Some(a) => a,
+      .None => {
+        return(expr);
+      }
+    );
     lhs_info := eval_numeric_arg(arg0, env, ctx);
     rhs_info := eval_numeric_arg(arg1, lhs_info.env, ctx);
-    lhs_val  := lhs_info.value;
-    rhs_val  := rhs_info.value;
-    (cur_env    : Environment) = rhs_info.env;
-    (result_val : EvalValue)   = EvalValue.UnitVal;
-    (result_ty  : TypeValue)   = numeric_type;
-
+    lhs_val := lhs_info.value;
+    rhs_val := rhs_info.value;
+    (cur_env : Environment) = rhs_info.env;
+    (result_val : EvalValue) = EvalValue.UnitVal;
+    (result_ty : TypeValue) = numeric_type;
     if(is_float_type(numeric_type), {
       // ---- Float binary path. --------------------------------------------
-      lhs_f := match(lhs_val,
-        .Some(av) => match(av,
+      lhs_f := match(
+        lhs_val,
+        .Some(av) => match(
+          av,
           .FloatLit(raw) => parse_raw_float(raw),
-          _              => Option(f64).None
+          _ => Option(f64).None
         ),
         .None => Option(f64).None
       );
-      rhs_f := match(rhs_val,
-        .Some(av) => match(av,
+      rhs_f := match(
+        rhs_val,
+        .Some(av) => match(
+          av,
           .FloatLit(raw) => parse_raw_float(raw),
-          _              => Option(f64).None
+          _ => Option(f64).None
         ),
         .None => Option(f64).None
       );
-
       cond(
         (((op_s == "add") || (op_s == "sub")) || ((op_s == "mul") || (op_s == "div"))) => {
-          match(lhs_f,
-            .Some(a) => match(rhs_f,
+          match(
+            lhs_f,
+            .Some(a) => match(
+              rhs_f,
               .Some(b) => {
-                if(((op_s == "div") && (b == f64(0.0))), {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(arg1),
-                    `Division by zero in comptime float operation: ${fn_name}`,
-                    false,
-                    .None
-                  )));
+                if((op_s == "div") && (b == f64(0.0)), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(arg1),
+                        `Division by zero in comptime float operation: ${fn_name}`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
                 });
                 f_result := cond(
                   (op_s == "add") => (a + b),
                   (op_s == "sub") => (a - b),
                   (op_s == "mul") => (a * b),
-                  true            => (a / b)
+                  true => (a / b)
                 );
                 result_val = make_float_val(f_result, numeric_type);
               },
-              .None => { result_val = create_unknown_val(numeric_type); }
+              .None => {
+                result_val = create_unknown_val(numeric_type);
+              }
             ),
-            .None => { result_val = create_unknown_val(numeric_type); }
+            .None => {
+              result_val = create_unknown_val(numeric_type);
+            }
           );
         },
-        (((op_s == "eq") || (op_s == "neq")) ||
-         (((op_s == "lt") || (op_s == "lte")) || ((op_s == "gt") || (op_s == "gte")))) => {
+        (
+          ((op_s == "eq") || (op_s == "neq")) ||
+            (((op_s == "lt") || (op_s == "lte")) || ((op_s == "gt") || (op_s == "gte")))
+        ) => {
           result_ty = t_bool();
-          match(lhs_f,
-            .Some(a) => match(rhs_f,
+          match(
+            lhs_f,
+            .Some(a) => match(
+              rhs_f,
               .Some(b) => {
                 b_result := cond(
-                  (op_s == "eq")  => (a == b),
+                  (op_s == "eq") => (a == b),
                   (op_s == "neq") => !(a == b),
-                  (op_s == "lt")  => (a < b),
+                  (op_s == "lt") => (a < b),
                   (op_s == "lte") => (a <= b),
-                  (op_s == "gt")  => (a > b),
-                  true            => (a >= b)
+                  (op_s == "gt") => (a > b),
+                  true => (a >= b)
                 );
                 result_val = EvalValue.BoolVal(b_result);
               },
-              .None => { result_val = create_unknown_val(t_bool()); }
+              .None => {
+                result_val = create_unknown_val(t_bool());
+              }
             ),
-            .None => { result_val = create_unknown_val(t_bool()); }
+            .None => {
+              result_val = create_unknown_val(t_bool());
+            }
           );
         },
         (op_s == "mod") => {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `Modulo operation not supported for floating point types: ${fn_name}`,
-            false,
-            .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `Modulo operation not supported for floating point types: ${fn_name}`,
+                false,
+                .None
+              )
+            )
+          );
         },
         true => {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `Unexpected binary comptime float operation: ${op}`,
-            false,
-            .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `Unexpected binary comptime float operation: ${op}`,
+                false,
+                .None
+              )
+            )
+          );
         }
       );
     }, {
       // ---- Integer binary path. ------------------------------------------
-      lhs_n := match(lhs_val,
-        .Some(av) => match(av,
+      lhs_n := match(
+        lhs_val,
+        .Some(av) => match(
+          av,
           .IntLit(raw) => parse_raw_int(raw),
-          _            => Option(i64).None
+          _ => Option(i64).None
         ),
         .None => Option(i64).None
       );
-      rhs_n := match(rhs_val,
-        .Some(av) => match(av,
+      rhs_n := match(
+        rhs_val,
+        .Some(av) => match(
+          av,
           .IntLit(raw) => parse_raw_int(raw),
-          _            => Option(i64).None
+          _ => Option(i64).None
         ),
         .None => Option(i64).None
       );
-
       cond(
         (((op_s == "add") || (op_s == "sub")) || (op_s == "mul")) => {
-          match(lhs_n,
-            .Some(a) => match(rhs_n,
+          match(
+            lhs_n,
+            .Some(a) => match(
+              rhs_n,
               .Some(b) => {
                 n_result := cond(
                   (op_s == "add") => (a + b),
                   (op_s == "sub") => (a - b),
-                  true            => (a * b)
+                  true => (a * b)
                 );
                 result_val = make_int_val(n_result, numeric_type);
               },
-              .None => { result_val = create_unknown_val(numeric_type); }
+              .None => {
+                result_val = create_unknown_val(numeric_type);
+              }
             ),
-            .None => { result_val = create_unknown_val(numeric_type); }
+            .None => {
+              result_val = create_unknown_val(numeric_type);
+            }
           );
         },
         (op_s == "div") => {
-          match(lhs_n,
-            .Some(a) => match(rhs_n,
+          match(
+            lhs_n,
+            .Some(a) => match(
+              rhs_n,
               .Some(b) => {
-                if((b == i64(0)), {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(arg1),
-                    `Division by zero in comptime integer operation: ${fn_name}`,
-                    false,
-                    .None
-                  )));
+                if(b == i64(0), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(arg1),
+                        `Division by zero in comptime integer operation: ${fn_name}`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
                 });
-                result_val = make_int_val((a / b), numeric_type);
+                result_val = make_int_val(a / b, numeric_type);
               },
-              .None => { result_val = create_unknown_val(numeric_type); }
+              .None => {
+                result_val = create_unknown_val(numeric_type);
+              }
             ),
-            .None => { result_val = create_unknown_val(numeric_type); }
+            .None => {
+              result_val = create_unknown_val(numeric_type);
+            }
           );
         },
         (op_s == "mod") => {
-          match(lhs_n,
-            .Some(a) => match(rhs_n,
+          match(
+            lhs_n,
+            .Some(a) => match(
+              rhs_n,
               .Some(b) => {
-                if((b == i64(0)), {
-                  exn.throw(dyn(format_error_message(
-                    ast_expr_token(arg1),
-                    `Modulo by zero in comptime integer operation: ${fn_name}`,
-                    false,
-                    .None
-                  )));
+                if(b == i64(0), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(arg1),
+                        `Modulo by zero in comptime integer operation: ${fn_name}`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
                 });
-                result_val = make_int_val((a % b), numeric_type);
+                result_val = make_int_val(a % b, numeric_type);
               },
-              .None => { result_val = create_unknown_val(numeric_type); }
+              .None => {
+                result_val = create_unknown_val(numeric_type);
+              }
             ),
-            .None => { result_val = create_unknown_val(numeric_type); }
+            .None => {
+              result_val = create_unknown_val(numeric_type);
+            }
           );
         },
-        (((op_s == "eq") || (op_s == "neq")) ||
-         (((op_s == "lt") || (op_s == "lte")) || ((op_s == "gt") || (op_s == "gte")))) => {
+        (
+          ((op_s == "eq") || (op_s == "neq")) ||
+            (((op_s == "lt") || (op_s == "lte")) || ((op_s == "gt") || (op_s == "gte")))
+        ) => {
           result_ty = t_bool();
-          match(lhs_n,
-            .Some(a) => match(rhs_n,
+          match(
+            lhs_n,
+            .Some(a) => match(
+              rhs_n,
               .Some(b) => {
                 b_result := cond(
-                  (op_s == "eq")  => (a == b),
+                  (op_s == "eq") => (a == b),
                   (op_s == "neq") => !(a == b),
-                  (op_s == "lt")  => (a < b),
+                  (op_s == "lt") => (a < b),
                   (op_s == "lte") => (a <= b),
-                  (op_s == "gt")  => (a > b),
-                  true            => (a >= b)
+                  (op_s == "gt") => (a > b),
+                  true => (a >= b)
                 );
                 result_val = EvalValue.BoolVal(b_result);
               },
-              .None => { result_val = create_unknown_val(t_bool()); }
+              .None => {
+                result_val = create_unknown_val(t_bool());
+              }
             ),
-            .None => { result_val = create_unknown_val(t_bool()); }
+            .None => {
+              result_val = create_unknown_val(t_bool());
+            }
           );
         },
         (((op_s == "bit_and") || (op_s == "bit_or")) || (op_s == "bit_xor")) => {
-          match(lhs_n,
-            .Some(a) => match(rhs_n,
+          match(
+            lhs_n,
+            .Some(a) => match(
+              rhs_n,
               .Some(b) => {
                 n_result := cond(
                   (op_s == "bit_and") => (a & b),
-                  (op_s == "bit_or")  => (a | b),
-                  true                => (a ^ b)
+                  (op_s == "bit_or") => (a | b),
+                  true => (a ^ b)
                 );
                 result_val = make_int_val(n_result, numeric_type);
               },
-              .None => { result_val = create_unknown_val(numeric_type); }
+              .None => {
+                result_val = create_unknown_val(numeric_type);
+              }
             ),
-            .None => { result_val = create_unknown_val(numeric_type); }
+            .None => {
+              result_val = create_unknown_val(numeric_type);
+            }
           );
         },
         ((op_s == "shl") || (op_s == "shr")) => {
-          match(lhs_n,
-            .Some(a) => match(rhs_n,
+          match(
+            lhs_n,
+            .Some(a) => match(
+              rhs_n,
               .Some(b) => {
                 n_result := cond(
                   (op_s == "shl") => (a << b),
-                  true            => (a >> b)
+                  true => (a >> b)
                 );
                 result_val = make_int_val(n_result, numeric_type);
               },
-              .None => { result_val = create_unknown_val(numeric_type); }
+              .None => {
+                result_val = create_unknown_val(numeric_type);
+              }
             ),
-            .None => { result_val = create_unknown_val(numeric_type); }
+            .None => {
+              result_val = create_unknown_val(numeric_type);
+            }
           );
         },
         true => {
-          exn.throw(dyn(format_error_message(
-            ast_expr_token(expr),
-            `Unexpected binary comptime integer operation: ${op}`,
-            false,
-            .None
-          )));
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `Unexpected binary comptime integer operation: ${op}`,
+                false,
+                .None
+              )
+            )
+          );
         }
       );
     });
-
     out_info := new_expr_info(cur_env, result_ty);
-    out_info.value = .Some(result_val);
+    out_info.value =.Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   });
-
   expr
 });
-
 export(evaluate_yo_comptime_numeric_functions);

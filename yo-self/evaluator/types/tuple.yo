@@ -7,24 +7,29 @@
 //!   * Tuple fields are not allowed to have default values.
 //!
 //! Stubs (Phase 3): autoDeriveTraitsAndAddRcFunctionsForTupleType is not ported.
-
 open(import("std/string"));
 open(import("std/fmt"));
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call,
-  make_err_expr }                                  :: import("../../expr/expr.yo");
-{ new_expr_info, expr_info_table_set }             :: import("../../expr/expr_info.yo");
-{ Environment }                                    :: import("../../env/env.yo");
-{ EvalContext }                                    :: import("../context.yo");
-{ EvalValue, create_type_value }                   :: import("../value.yo");
-{ TypeValue }                                      :: import("../../types/type.yo");
-{ type_of_type }                                   :: import("../../types/hierarchy.yo");
-{ format_error_message }                           :: import("../../error/error.yo");
-{ Exception }                                      :: import("std/error");
-{ TypeField, EvalTypeFieldResult,
-  evaluate_type_field }                            :: import("./field.yo");
-{ ArrayList }                                      :: import("std/collections/array_list");
-
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_is_fn_call,
+  make_err_expr
+} :: import("../../expr/expr.yo");
+{ new_expr_info, expr_info_table_set } :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, create_type_value } :: import("../value.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{
+  TypeField,
+  EvalTypeFieldResult,
+  evaluate_type_field
+} :: import("./field.yo");
+{ ArrayList } :: import("std/collections/array_list");
 /// Evaluate the elements of a tuple-shaped type expression. Used by tuple types
 /// directly as well as by callers needing tuple-like field parsing (e.g.
 /// struct/enum/union variants when applicable).
@@ -33,131 +38,134 @@ open(import("std/fmt"));
 /// that need richer metadata (full TypeField objects) still have access.
 EvalTupleElementsResult :: struct(
   field_labels : ArrayList(String),
-  field_types  : ArrayList(TypeValue),
-  fields       : ArrayList(TypeField),
-  env          : Environment
+  field_types : ArrayList(TypeValue),
+  fields : ArrayList(TypeField),
+  env : Environment
 );
-
-evaluate_tuple_elements_type :: (fn(
-  args     : ArrayList(AstExpr),
-  env_in   : Environment,
-  ctx      : *(EvalContext),
-  for_type : str,
-  using(exn : Exception)
-) -> EvalTupleElementsResult)({
+evaluate_tuple_elements_type :: (
+  fn(
+    args : ArrayList(AstExpr),
+    env_in : Environment,
+    ctx : *(EvalContext),
+    for_type : str,
+    using(exn : Exception)
+  ) -> EvalTupleElementsResult
+)({
   (env : Environment) = env_in;
-
   field_labels := ArrayList(String).new();
-  field_types  := ArrayList(TypeValue).new();
-  fields       := ArrayList(TypeField).new();
-
+  field_types := ArrayList(TypeValue).new();
+  fields := ArrayList(TypeField).new();
   (i : usize) = usize(0);
-  while(runtime((i < args.len())), {
-    arg    := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+  while(runtime(i < args.len()), {
+    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
     result := evaluate_type_field(arg, i, env, ctx, for_type, using(exn));
-    field  := result.field;
-
+    field := result.field;
     // Check for duplicate labels (only when the field has an explicit label).
-    if((field.label.len() > usize(0)), {
+    if(field.label.len() > usize(0), {
       (dup_idx : usize) = usize(0);
-      (has_dup : bool)  = false;
-      while(runtime(((dup_idx < field_labels.len()) && !(has_dup))), {
-        existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
-        if((existing == field.label), { has_dup = true; });
+      (has_dup : bool) = false;
+      while(runtime((dup_idx < field_labels.len()) && !(has_dup)), {
+        existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
+        if(existing == field.label, {
+          has_dup = true;
+        });
         dup_idx = (dup_idx + usize(1));
       });
       if(has_dup, {
-        arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
-        err_tok := if(ast_expr_is_fn_call(arg),
-          match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(fe), .None => ast_expr_token(arg)),
+        arg_args := match(arg,.FnCall(_, _, a2, _, _) => a2,.Atom(_, _) => ArrayList(AstExpr).new());
+        err_tok := if(
+          ast_expr_is_fn_call(arg),
+          match(arg_args.get(usize(0)),.Some(fe) => ast_expr_token(fe),.None => ast_expr_token(arg)),
           ast_expr_token(arg)
         );
-        exn.throw(dyn(format_error_message(
-          err_tok,
-          `Duplicate label "${field.label}" in tuple`,
-          false,
-          .None
-        )));
+        exn.throw(
+          dyn(
+            format_error_message(
+              err_tok,
+              `Duplicate label "${field.label}" in tuple`,
+              false,
+              .None
+            )
+          )
+        );
       });
     });
-
     field_labels.push(String.from(field.label.as_str()));
     field_types.push(field.ty);
     fields.push(field);
     env = result.env;
     i = (i + usize(1));
   });
-
   EvalTupleElementsResult(
-    field_labels: field_labels,
-    field_types:  field_types,
-    fields:       fields,
-    env:          env
+    field_labels : field_labels,
+    field_types : field_types,
+    fields : fields,
+    env : env
   )
 });
-
-evaluate_tuple_type :: (fn(
-  expr   : AstExpr,
-  env_in : Environment,
-  ctx    : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
+evaluate_tuple_type :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   (env : Environment) = env_in;
-
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
-
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
   // Empty tuple → unit type.
-  if((args.len() == usize(0)), {
+  if(args.len() == usize(0), {
     unit_val := create_type_value(TypeValue.Unit);
-    meta_ty  := type_of_type(TypeValue.Unit);
+    meta_ty := type_of_type(TypeValue.Unit);
     out_info := new_expr_info(env, meta_ty);
     out_info.value = Option(EvalValue).Some(unit_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-    callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box.*, .Atom(_, _) => expr);
+    callee_expr := match(expr,.FnCall(_, f_box, _, _, _) => f_box.*,.Atom(_, _) => expr);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
     return(expr);
   });
-
   // Evaluate each tuple element.
   result := evaluate_tuple_elements_type(args, env, ctx, "tuple", using(exn));
   env = result.env;
-
   // Reject default values: tuples may not have `field : T = default`.
   (j : usize) = usize(0);
-  while(runtime((j < result.fields.len())), {
-    field := match(result.fields.get(j), .Some(f) => f, .None => TypeField(
-      label: String.from(""),
-      ty: TypeValue.Unit,
-      is_comptime: false,
-      default_value: Option(EvalValue).None,
-      assigned_value: Option(EvalValue).None,
-      doc_comment: Option(String).None
-    ));
+  while(runtime(j < result.fields.len()), {
+    field := match(
+      result.fields.get(j),
+      .Some(f) => f,
+      .None => TypeField(
+        label : String.from(""),
+        ty : TypeValue.Unit,
+        is_comptime : false,
+        default_value : Option(EvalValue).None,
+        assigned_value : Option(EvalValue).None,
+        doc_comment : Option(String).None
+      )
+    );
     if(field.default_value.is_some(), {
-      arg := match(args.get(j), .Some(a) => a, .None => make_err_expr());
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg),
-        String.from("Tuple type cannot have default value."),
-        false,
-        .None
-      )));
+      arg := match(args.get(j),.Some(a) => a,.None => make_err_expr());
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            String.from("Tuple type cannot have default value."),
+            false,
+            .None
+          )
+        )
+      );
     });
     j = (j + usize(1));
   });
-
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForTupleType stub — no-op for now.
-
-  tuple_ty  := TypeValue.Tuple(result.field_labels, result.field_types);
+  tuple_ty := TypeValue.Tuple(result.field_labels, result.field_types);
   tuple_val := create_type_value(tuple_ty);
-  meta_ty   := type_of_type(tuple_ty);
-  out_info  := new_expr_info(env, meta_ty);
+  meta_ty := type_of_type(tuple_ty);
+  out_info := new_expr_info(env, meta_ty);
   out_info.value = Option(EvalValue).Some(tuple_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-
-  callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box.*, .Atom(_, _) => expr);
+  callee_expr := match(expr,.FnCall(_, f_box, _, _, _) => f_box.*,.Atom(_, _) => expr);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
-
   expr
 });
-
 export(EvalTupleElementsResult, evaluate_tuple_elements_type, evaluate_tuple_type);

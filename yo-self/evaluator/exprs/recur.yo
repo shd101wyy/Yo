@@ -18,100 +18,123 @@
 //!     `recur(...)` results (see issues/recur-runtime-result-not-marked-runtime-only.md).
 //!   - `try_to_call_function_with_arguments` is a throwing stub (Phase 3).
 //!   - `attach_temp_variable_to_expr` is a no-op stub (Phase 3).
-
 open(import("std/string"));
 open(import("std/fmt"));
-
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string,
-  ast_expr_is_fn_call_of, BF_RECUR, make_err_expr }            :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info,
-  expr_info_table_get, expr_info_table_set }                    :: import("../../expr/expr_info.yo");
-{ Environment }                                                 :: import("../../env/env.yo");
-{ EvalContext,
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_fn_call_of,
+  BF_RECUR,
+  make_err_expr
+} :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set
+} :: import("../../expr/expr_info.yo");
+{ Environment } :: import("../../env/env.yo");
+{
+  EvalContext,
   FuncOrAsyncBlockKind,
-  FuncOrAsyncBlockCtx }                                         :: import("../context.yo");
-{ TypeValue, t_unit }                                           :: import("../../types/type.yo");
-{ EvalValue, create_unknown_val, is_func_val, is_unknown_val }  :: import("../value.yo");
-{ random_id, attach_temp_variable_to_expr }                     :: import("../utils.yo");
-{ format_error_message }                                        :: import("../../error/error.yo");
-{ Exception }                                                   :: import("std/error");
-{ evaluate_function_call }                                      :: import("../calls/function.yo");
-{ try_to_call_function_with_arguments }                         :: import("../calls/helper.yo");
-{ ArrayList }                                                   :: import("std/collections/array_list");
-
+  FuncOrAsyncBlockCtx
+} :: import("../context.yo");
+{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ EvalValue, create_unknown_val, is_func_val, is_unknown_val } :: import("../value.yo");
+{ random_id, attach_temp_variable_to_expr } :: import("../utils.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ Exception } :: import("std/error");
+{ evaluate_function_call } :: import("../calls/function.yo");
+{ try_to_call_function_with_arguments } :: import("../calls/helper.yo");
+{ ArrayList } :: import("std/collections/array_list");
 /// Evaluate a `recur(...)` tail-recursive self-call expression.
 ///
 /// Mirrors `evaluateRecur` in `src/evaluator/exprs/recur.ts`.
-evaluate_recur :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-
+evaluate_recur :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
   // ------------------------------------------------------------------
   // Guard 1: must be inside a function body.
   // ------------------------------------------------------------------
   block_ctx_opt := ctx.is_evaluating_function_body_or_async_block;
-  is_function_body := match(block_ctx_opt,
-    .None     => false,
-    .Some(bc) => match(bc.kind, .FunctionBody => true, _ => false)
+  is_function_body := match(
+    block_ctx_opt,
+    .None => false,
+    .Some(bc) => match(bc.kind,.FunctionBody => true, _ => false)
   );
   if(!(is_function_body), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected a function type for recur, got:\n${ast_expr_to_string(expr)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected a function type for recur, got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-  func_body_ctx := match(block_ctx_opt,
+  func_body_ctx := match(
+    block_ctx_opt,
     .Some(bc) => bc,
-    .None     => FuncOrAsyncBlockCtx(
-      kind:       FuncOrAsyncBlockKind.FunctionBody,
-      func_type:  Option(TypeValue).None,
-      func_value: Option(EvalValue).None,
-      eval_env:   env
+    .None => FuncOrAsyncBlockCtx(
+      kind : FuncOrAsyncBlockKind.FunctionBody,
+      func_type : Option(TypeValue).None,
+      func_value : Option(EvalValue).None,
+      eval_env : env
     )
   );
-
   // ------------------------------------------------------------------
   // Guard 2: must be a recur(...) call.
   // ------------------------------------------------------------------
   if(!(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None)), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(expr),
-      `Expected recur, got:\n${ast_expr_to_string(expr)}`,
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected recur, got:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
   });
-
   // ------------------------------------------------------------------
   // Guard 3: func_type must be present.
   // ------------------------------------------------------------------
-  match(func_body_ctx.func_type,
+  match(
+    func_body_ctx.func_type,
     .None => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(expr),
-        String.from("recur: missing function type in context"),
-        false,
-        .None
-      )));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("recur: missing function type in context"),
+            false,
+            .None
+          )
+        )
+      );
     },
     .Some(_) => ()
   );
-  is_evaluating_function_body_of_type := match(func_body_ctx.func_type,
+  is_evaluating_function_body_of_type := match(
+    func_body_ctx.func_type,
     .Some(ft) => ft,
-    .None     => t_unit()
+    .None => t_unit()
   );
-
   // ------------------------------------------------------------------
   // Short-circuit path: CTFE capability analysis or function-definition
   // validation.  Avoids infinite recursion by skipping actual execution.
   // ------------------------------------------------------------------
-  if(((ctx.is_analyzing_ctfe_capability) || (ctx.is_validating_function_definition)), {
-
+  if((ctx.is_analyzing_ctfe_capability) || (ctx.is_validating_function_definition), {
     // Type-check arguments without executing.
     //
     // Phase 2x stub: `try_to_call_function_with_arguments` is not yet
@@ -119,21 +142,22 @@ evaluate_recur :: (fn(
     // functional in Phase 3.
     //
     // When `functionValue` is a function value, pass it; otherwise pass None.
-    function_val_opt := match(func_body_ctx.func_value,
+    function_val_opt := match(
+      func_body_ctx.func_value,
       .Some(fv) => if(is_func_val(fv), Option(EvalValue).Some(fv), Option(EvalValue).None),
-      .None     => Option(EvalValue).None
+      .None => Option(EvalValue).None
     );
-
     // Extract callee and args from the recur(...) FnCall node.
-    callee_expr := match(expr,
+    callee_expr := match(
+      expr,
       .FnCall(_, func_box, _, _, _) => func_box.*,
-      _                             => make_err_expr()
+      _ => make_err_expr()
     );
-    arg_exprs := match(expr,
+    arg_exprs := match(
+      expr,
       .FnCall(_, _, args, _, _) => args,
-      _                         => ArrayList(AstExpr).new()
+      _ => ArrayList(AstExpr).new()
     );
-
     call_result := try_to_call_function_with_arguments(
       function_val_opt,
       is_evaluating_function_body_of_type,
@@ -142,16 +166,17 @@ evaluate_recur :: (fn(
       arg_exprs,
       env,
       ctx,
-      false, // isMethodCall
-      true,  // skipSpecialization
-      true,  // skipCtfeExecution
+      false,
+      // isMethodCall
+      true,
+      // skipSpecialization
+      true,
+      // skipCtfeExecution
       using(exn)
     );
-
     // Pop the frame that tryToCallFunctionWithArguments pushed.
     caller_env := call_result.caller_env;
     caller_env.pop_frame();
-
     // Build an UnknownVal for the return type.
     //
     // TODO (Phase 3): extend UnknownVal with `variable_name` and `is_runtime_only`
@@ -159,26 +184,21 @@ evaluate_recur :: (fn(
     // `recurUnknown.isRuntimeOnly = true` flag that prevents comptime overload
     // selection on `recur(...)` results.
     // See issues/recur-runtime-result-not-marked-runtime-only.md.
-    return_type  := call_result.return_type;
+    return_type := call_result.return_type;
     recur_unknown := create_unknown_val(return_type);
     _ := random_id(caller_env.module_path); // mirrors: randomId(env.modulePath)
-
     // Write ExprInfo for this recur expression.
     out_info := new_expr_info(caller_env, return_type);
-    out_info.value                    = Option(EvalValue).Some(recur_unknown);
+    out_info.value = Option(EvalValue).Some(recur_unknown);
     out_info.runtime_arg_exprs_in_order =
       Option(ArrayList(AstExpr)).Some(call_result.runtime_arg_exprs_in_order);
-    out_info.deferred_drop_expressions  = call_result.deferred_drop_expressions;
-
+    out_info.deferred_drop_expressions = call_result.deferred_drop_expressions;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-
     // Attach a temp variable for RC drop tracking.
     // Phase 2x stub: no-op; full implementation in Phase 3.
     attach_temp_variable_to_expr(expr, true, ctx);
-
     return(expr);
   });
-
   // ------------------------------------------------------------------
   // Normal path: delegate to evaluate_function_call.
   // ------------------------------------------------------------------
@@ -191,5 +211,4 @@ evaluate_recur :: (fn(
     using(exn)
   )
 });
-
 export(evaluate_recur);

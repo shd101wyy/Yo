@@ -4,37 +4,58 @@
 //!
 //! Handles the `&(expr)` address-of operator. Creates a pointer type and,
 //! when the target is compile-time known, a PtrVal.
-
 open(import("std/string"));
-{ ArrayList }                                    :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id }         :: import("../../expr/expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info,
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr/expr.yo");
+{
+  ExprInfo,
+  ComptimeRef,
+  new_expr_info,
   expr_info_table_set,
-  expr_info_table_get }                          :: import("../../expr/expr_info.yo");
-{ Variable, Environment }                        :: import("../../env/env.yo");
-{ EvalContext, ExpectedTypeCtx }                 :: import("../context.yo");
-{ EvalValue, is_unknown_val, create_unknown_val,
-  is_type_value }                                :: import("../value.yo");
-{ TypeValue, t_ptr }                             :: import("../../types/type.yo");
-{ format_error_message }                         :: import("../../error/error.yo");
-{ attach_temp_variable_to_expr }                 :: import("../utils.yo");
-{ evaluate_expression }                          :: import("../exprs/expr.yo");
-{ Exception }                                    :: import("std/error");
-
-evaluate_address_call :: (fn(
-  expr : AstExpr,
-  env  : Environment,
-  ctx  : *(EvalContext),
-  using(exn : Exception)
-) -> AstExpr)({
-  args    := match(expr, .FnCall(_, _, a, _, _) => a, _ => { return(expr); });
-  arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => { return(expr); });
-
+  expr_info_table_get
+} :: import("../../expr/expr_info.yo");
+{ Variable, Environment } :: import("../../env/env.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{
+  EvalValue,
+  is_unknown_val,
+  create_unknown_val,
+  is_type_value
+} :: import("../value.yo");
+{ TypeValue, t_ptr } :: import("../../types/type.yo");
+{ format_error_message } :: import("../../error/error.yo");
+{ attach_temp_variable_to_expr } :: import("../utils.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
+evaluate_address_call :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> AstExpr
+)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(expr);
+    }
+  );
+  arg_expr := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      return(expr);
+    }
+  );
   // Adjust expected type: if expected is a pointer, use the pointee type.
   old_expected := ctx.expected_type;
-  match(ctx.expected_type,
+  match(
+    ctx.expected_type,
     .Some(ectx) => {
-      match(ectx.ty,
+      match(
+        ectx.ty,
         .Pointer(pointee_box) => {
           (new_ectx : ExpectedTypeCtx) = ectx;
           new_ectx.ty = pointee_box.*;
@@ -45,86 +66,101 @@ evaluate_address_call :: (fn(
     },
     .None => ()
   );
-
-  eval_arg     := evaluate_expression(arg_expr, env, ctx);
+  eval_arg := evaluate_expression(arg_expr, env, ctx);
   ctx.expected_type = old_expected;
-
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
-
-  match(arg_info_opt,
+  match(
+    arg_info_opt,
     .Some(_) => (),
-    .None    => {
-      exn.throw(dyn(format_error_message(
-        ast_expr_token(arg_expr),
-        String.from("&: failed to evaluate the argument expression for reference."),
-        false,
-        .None
-      )));
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            String.from("&: failed to evaluate the argument expression for reference."),
+            false,
+            .None
+          )
+        )
+      );
     }
   );
-
-  arg_info     := match(arg_info_opt, .Some(i) => i, .None => { return(expr); });
+  arg_info := match(
+    arg_info_opt,
+    .Some(i) => i,
+    .None => {
+      return(expr);
+    }
+  );
   (cur_env : Environment) = arg_info.env;
-
   // Error if the argument is a type value — use * for pointer-to-type.
   if(is_type_value(arg_info.value), {
-    exn.throw(dyn(format_error_message(
-      ast_expr_token(arg_expr),
-      String.from("Cannot create a pointer to a type. Did you mean to use \"*\"?"),
-      false,
-      .None
-    )));
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          String.from("Cannot create a pointer to a type. Did you mean to use \"*\"?"),
+          false,
+          .None
+        )
+      )
+    );
   });
-
-  arg_type     := arg_info.ty;
+  arg_type := arg_info.ty;
   pointer_type := t_ptr(arg_type);
-
   // Determine compile-time pointer value from comptimeRef.
   comptime_ref_opt := arg_info.comptime_ref;
-
-  ptr_val_from_comptime_ref := match(comptime_ref_opt,
-    .Some(cref) => Option(EvalValue).Some(match(cref,
-      .ArrayRef(elements, index) =>
-        EvalValue.PtrVal(box(EvalValue.ArrayVal(elements)), index),
-      .ComptimeListRef(elements, index) =>
-        EvalValue.PtrVal(box(EvalValue.ComptimeListVal(elements)), index),
-      .StructRef(field_values, field_index) =>
-        // Treat field_values as an array to enable indexed access.
-        EvalValue.PtrVal(box(EvalValue.ArrayVal(field_values)), field_index),
-      .TupleRef(fields, field_index) =>
-        EvalValue.PtrVal(box(EvalValue.ArrayVal(fields)), field_index)
-    )),
+  ptr_val_from_comptime_ref := match(
+    comptime_ref_opt,
+    .Some(cref) => Option(EvalValue).Some(
+      match(
+        cref,
+        .ArrayRef(elements, index) =>
+          EvalValue.PtrVal(box(EvalValue.ArrayVal(elements)), index),
+        .ComptimeListRef(elements, index) =>
+          EvalValue.PtrVal(box(EvalValue.ComptimeListVal(elements)), index),
+        .StructRef(field_values, field_index) =>
+          // Treat field_values as an array to enable indexed access.
+          EvalValue.PtrVal(box(EvalValue.ArrayVal(field_values)), field_index),
+        .TupleRef(fields, field_index) =>
+          EvalValue.PtrVal(box(EvalValue.ArrayVal(fields)), field_index)
+      )
+    ),
     .None => Option(EvalValue).None
   );
-
   // If no comptimeRef, check source_variable or unknown val.
-  ptr_val_opt := match(ptr_val_from_comptime_ref,
+  ptr_val_opt := match(
+    ptr_val_from_comptime_ref,
     .Some(_) => ptr_val_from_comptime_ref,
-    .None    => {
-      src_val := match(arg_info.source_variable,
-        .Some(src_var) => match(src_var.value,
+    .None => {
+      src_val := match(
+        arg_info.source_variable,
+        .Some(src_var) => match(
+          src_var.value,
           .Some(sv) => Option(EvalValue).Some(EvalValue.PtrVal(box(sv), usize(0))),
-          .None     => Option(EvalValue).None
+          .None => Option(EvalValue).None
         ),
         .None => Option(EvalValue).None
       );
-      match(src_val,
+      match(
+        src_val,
         .Some(_) => src_val,
-        .None    => match(arg_info.value,
-          .Some(v) => if(is_unknown_val(v),
+        .None => match(
+          arg_info.value,
+          .Some(v) => if(
+            is_unknown_val(v),
             Option(EvalValue).Some(create_unknown_val(pointer_type)),
             Option(EvalValue).None
           ),
-          .None    => Option(EvalValue).None
+          .None => Option(EvalValue).None
         )
       )
     }
   );
-
   out_info := new_expr_info(cur_env, pointer_type);
-
   // Handle index_trait_ptr_type: &(value(i)) skips auto-deref.
-  match(arg_info.index_trait_ptr_type,
+  match(
+    arg_info.index_trait_ptr_type,
     .Some(itp_ty) => {
       // Use the Index-trait pointer type; value is runtime only.
       out_info.ty = itp_ty;
@@ -135,19 +171,13 @@ evaluate_address_call :: (fn(
       out_info.value = ptr_val_opt;
     }
   );
-
   // Propagate path_collection from arg.
   out_info.path_collection = arg_info.path_collection;
-
   // Propagate comptime_ref so callers can mutate through the pointer.
   out_info.comptime_ref = comptime_ref_opt;
-
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-
   // Attach a temp variable name (for ownership tracking / codegen).
   attach_temp_variable_to_expr(expr, false, ctx);
-
   expr
 });
-
 export(evaluate_address_call);
