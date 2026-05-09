@@ -183,7 +183,7 @@ _fixup :: (
 )({
   (node : RBNode(K, V)) = h;
   // Right-leaning red link → rotate left
-  if(_is_red(K, V, node._right) &&!(_is_red(K, V, node._left)), {
+  if(_is_red(K, V, node._right) && !(_is_red(K, V, node._left)), {
     node = _rotate_left(K, V, node);
   });
   // Two consecutive red left links → rotate right
@@ -365,7 +365,7 @@ _delete_min :: (
     .None =>.None,
     .Some(l) => {
       (node : RBNode(K, V)) = h;
-      if(!(_is_red(K, V,.Some(l))) &&!(_is_red(K, V, l._left)), {
+      if(!(_is_red(K, V,.Some(l))) && !(_is_red(K, V, l._left)), {
         node = _move_red_left(K, V, node);
       });
       new_left := match(
@@ -408,7 +408,7 @@ _node_remove :: (
         .Some(l) => _is_red(K, V, l._left),
         .None => false
       );
-      if(!(left_red) &&!(left_left_red), {
+      if(!(left_red) && !(left_left_red), {
         node = _move_red_left(K, V, node);
       });
       new_left := match(
@@ -431,7 +431,7 @@ _node_remove :: (
       .Some(_) => true,
       .None => false
     );
-    if(is_eq &&!(has_right), {
+    if(is_eq && !(has_right), {
       return(.None);
     });
     // Ensure right child is not a 2-node
@@ -442,7 +442,7 @@ _node_remove :: (
         .Some(r) => _is_red(K, V, r._left),
         .None => false
       );
-      if(!(right_red) &&!(right_left_red), {
+      if(!(right_red) && !(right_left_red), {
         node = _move_red_right(K, V, node);
       });
     });

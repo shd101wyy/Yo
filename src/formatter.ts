@@ -30,19 +30,6 @@ const ATOM_LIKE_TOKEN_TYPES = new Set<TokenType>([
   TokenType.TemplateString,
 ]);
 
-const PREFIX_OPERATOR_VALUES = new Set<string>([
-  "!",
-  "&",
-  "-",
-  "~",
-  "*",
-  "^",
-  "...",
-  "#",
-  "?*",
-  "<:!",
-]);
-
 const IGNORED_FORMAT_DIRS = new Set<string>([
   ".git",
   ".yo-cache",
@@ -1242,12 +1229,22 @@ function isTightlyBoundOperator(
   previous: Token | undefined,
   next: Token | undefined
 ): boolean {
+  // After a dot, always tight (e.g. ptr.*(x), ptr.&(x))
   if (previous?.type === TokenType.Dot) {
     return true;
   }
-  return (
-    PREFIX_OPERATOR_VALUES.has(token.value) && next?.type === TokenType.LParen
-  );
+  // An operator followed by '(' is a prefix op (tight) unless the previous
+  // token is an rvalue-end — in that case the operator is infix, not prefix.
+  if (next?.type !== TokenType.LParen) {
+    return false;
+  }
+  const prevIsRvalueEnd =
+    previous !== undefined &&
+    (ATOM_LIKE_TOKEN_TYPES.has(previous.type) ||
+      previous.type === TokenType.RParen ||
+      previous.type === TokenType.RBracket ||
+      previous.type === TokenType.RCurlyBracket);
+  return !prevIsRvalueEnd;
 }
 
 function prefixOperatorNeedsLeadingSpace(
@@ -1256,7 +1253,6 @@ function prefixOperatorNeedsLeadingSpace(
 ): boolean {
   return (
     previous?.type === TokenType.Comma ||
-    (token.value === "<:!" && previous !== undefined) ||
     // Any infix operator (e.g. ||, &&, +) before a prefix op needs a space so
     // they don't merge into a single lexer token (e.g. "||!" or "+!").
     // The dot operator is excluded because it binds tightly (e.g. ptr.*(x)).

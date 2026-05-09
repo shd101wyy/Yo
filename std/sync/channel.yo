@@ -89,7 +89,7 @@ impl(
   /// Receive a value from the channel.
   /// Blocks if the channel is empty until a value is available.
   /// Returns .Some(value) on success, .None if the channel is closed and empty.
-  recv : (fn(self : Self) -> ? (T))({
+  recv : (fn(self : Self) -> ?(T))({
     self._mutex.lock();
     // Wait while buffer is empty and channel is not closed
     while(runtime((self._len == usize(0)) && (!(self._closed))), {
@@ -132,7 +132,7 @@ impl(
   }),
   /// Try to receive a value without blocking.
   /// Returns .Some(value) if available, .None if empty.
-  try_recv : (fn(self : Self) -> ? (T))({
+  try_recv : (fn(self : Self) -> ?(T))({
     self._mutex.lock();
     cond(
       (self._len == usize(0)) => {

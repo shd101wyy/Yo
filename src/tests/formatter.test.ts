@@ -402,6 +402,17 @@ expr := quote(self.(#(field.name.to_expr())).my_eq(other.#(field.name.to_expr())
     expect(formatYoSource(once)).toBe(once);
   });
 
+  test("keeps optional type syntax tight", () => {
+    // ? is a prefix type operator: ?(V) means Option(V)
+    const source = `get :: (fn(self : Self, k : K) -> ?(V))({});`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`get :: (fn(self : Self, k : K) -> ?(V))({});
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
   test("keeps optional pointer type syntax tight", () => {
     const source = `main::(fn()->unit)({
 argv_uninit := MaybeUninit(Array(?*(u8), usize(5))).new();
@@ -420,13 +431,13 @@ argv := *(?*(u8))(argv_uninit.as_ptr());
 
   test("keeps negated trait constraint syntax stable", () => {
     const source = `main::(fn()->unit)({
-fn2 :: (fn(comptime(T) : Type, where(T <:!(Runtime))) -> unit)({});
+fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit)({});
 });`;
 
     const once = formatYoSource(source);
 
     expect(once).toBe(`main :: (fn() -> unit)({
-  fn2 :: (fn(comptime(T) : Type, where(T <:!(Runtime))) -> unit)({});
+  fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit)({});
 });
 `);
     expect(formatYoSource(once)).toBe(once);
