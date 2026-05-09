@@ -1,0 +1,538 @@
+// @skip_wasm32-emscripten — split file (~5min Yo compile alone, C output ~6 MB)
+// @skip_wasm32-wasi        — split file (~5min Yo compile alone, C output ~6 MB)
+/// Tests for the evaluator — Phase 5s series: str.replace_all, str.trim,
+/// str.to_uppercase, str.to_lowercase, arr.enumerate(), arr.zip().
+///
+/// Phases covered:
+///   5sa — str.replace_all(from, to)
+///   5sb — str.trim(), str.to_uppercase(), str.to_lowercase()
+///   5sc — arr.enumerate() via source strings
+///   5sd — arr.zip(other) via source strings
+///   5se — combos
+
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+// ---------------------------------------------------------------------------
+// Phase 5sa — str.replace_all(from, to)
+// ---------------------------------------------------------------------------
+test("Phase 5sa: replace_all l with x in hello", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello\"; result := s.replace_all(\"l\", \"x\"); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"hexxo\"", "hexxo"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sa: replace_all o with 0 in foo", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"foo\"; result := s.replace_all(\"o\", \"0\"); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"f00\"", "f00"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sa: replace_all l with L in hello world", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello world\"; result := s.replace_all(\"l\", \"L\"); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"heLLo worLd\"", "heLLo worLd"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sa: replace_all an with AN in banana", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"banana\"; result := s.replace_all(\"an\", \"AN\"); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"bANANa\"", "bANANa"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sa: replace_all no match leaves string unchanged", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello\"; result := s.replace_all(\"z\", \"x\"); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"hello\"", "hello"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sa: replace_all ab with X in ababab gives XXX", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"ababab\"; result := s.replace_all(\"ab\", \"X\"); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"XXX\"", "XXX"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sa: replace_all space with dash in hello world", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello world\"; result := s.replace_all(\" \", \"-\"); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"hello-world\"", "hello-world"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sa: replace_all hello with hi in multi-occurrence string", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hi there hi\"; result := s.replace_all(\"hi\", \"yo\"); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"yo there yo\"", "yo there yo"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sa: replace_all x with xx in xxx gives xxxxxx", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"xxx\"; result := s.replace_all(\"x\", \"xx\"); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"xxxxxx\"", "xxxxxx"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sa: replace_all then len", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello\"; r := s.replace_all(\"l\", \"x\"); export(r.len());";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "5", "len=5"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5sb — str.trim(), str.to_uppercase(), str.to_lowercase()
+// ---------------------------------------------------------------------------
+test("Phase 5sb: trim leading and trailing spaces", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"  hello  \"; result := s.trim(); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"hello\"", "hello"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sb: trim many spaces", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"   spaces   \"; result := s.trim(); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"spaces\"", "spaces"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sb: trim no spaces — unchanged", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello\"; result := s.trim(); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"hello\"", "hello"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sb: trim then len", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \" hi \"; result := s.trim(); export(result.len());";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "2", "len=2"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sb: to_uppercase hello gives HELLO", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello\"; result := s.to_uppercase(); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"HELLO\"", "HELLO"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sb: to_uppercase world gives WORLD", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"world\"; result := s.to_uppercase(); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"WORLD\"", "WORLD"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sb: to_lowercase HELLO gives hello", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"HELLO\"; result := s.to_lowercase(); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"hello\"", "hello"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sb: to_lowercase MiXeD gives mixed", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"MiXeD\"; result := s.to_lowercase(); export(result);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"mixed\"", "mixed"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sb: to_uppercase then len", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello\"; result := s.to_uppercase(); export(result.len());";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "5", "len=5"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sb: to_lowercase then starts_with", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"HELLO\"; r := s.to_lowercase(); export(r.starts_with(\"h\"));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "starts_with h"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5sc — arr.enumerate() via source strings
+// ---------------------------------------------------------------------------
+test("Phase 5sc: enumerate len of 3-element array is 3", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(1), i32(2), i32(3)];\nenumerated := arr.enumerate();\nexport(enumerated.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "len=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sc: enumerate on empty array gives len 0", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [];\nenumerated := arr.enumerate();\nexport(enumerated.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "0", "len=0"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sc: enumerate sum of indices via fold", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(10), i32(20), i32(30)];\nenumerated := arr.enumerate();\ntotal := enumerated.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ (acc + pair.0) }));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "sum_idx=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sc: enumerate sum of elements via fold on .1 field", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(10), i32(20), i32(30)];\nenumerated := arr.enumerate();\ntotal := enumerated.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ (acc + pair.1) }));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "60", "sum_elem=60"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sc: enumerate first tuple index is 0", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(42),];\ne := arr.enumerate();\nt := e.get(usize(0)).unwrap();\nexport(t.0);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "0", "idx=0"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sc: enumerate first tuple element is the original value", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(99),];\ne := arr.enumerate();\nt := e.get(usize(0)).unwrap();\nexport(t.1);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "99", "elem=99"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sc: enumerate second tuple index is 1", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(5), i32(10)];\ne := arr.enumerate();\nt := e.get(usize(1)).unwrap();\nexport(t.0);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "1", "idx=1"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sc: enumerate count tuples where index is even", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(1), i32(2), i32(3), i32(4)];\ne := arr.enumerate();\ncount := e.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ cond(((pair.0 % i32(2)) == i32(0)) => (acc + i32(1)), true => acc) }));\nexport(count);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "2", "count=2"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sc: enumerate sum index plus element via fold", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(10), i32(10), i32(10)];\ne := arr.enumerate();\ntotal := e.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ ((acc + pair.0) + pair.1) }));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "33", "total=33"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sc: enumerate on single element — idx=0 elem=7", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(7),];\ne := arr.enumerate();\nt := e.get(usize(0)).unwrap();\nidx := t.0;\nelem := t.1;\nexport(idx);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "0", "idx=0"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5sd — arr.zip(other) via source strings
+// ---------------------------------------------------------------------------
+test("Phase 5sd: zip len of two 3-element arrays is 3", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(1), i32(2), i32(3)];\nb := [i32(10), i32(20), i32(30)];\nzipped := a.zip(b);\nexport(zipped.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "len=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sd: zip takes min length — 2 from 3", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(1), i32(2)];\nb := [i32(10), i32(20), i32(30)];\nzipped := a.zip(b);\nexport(zipped.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "2", "len=2"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sd: zip empty array gives len 0", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [];\nb := [i32(1), i32(2), i32(3)];\nzipped := a.zip(b);\nexport(zipped.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "0", "len=0"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sd: zip sum of first elements via fold on .0", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(1), i32(2), i32(3)];\nb := [i32(10), i32(20), i32(30)];\nzipped := a.zip(b);\ntotal := zipped.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ (acc + pair.0) }));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "6", "sum_lhs=6"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sd: zip sum of second elements via fold on .1", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(1), i32(2), i32(3)];\nb := [i32(10), i32(20), i32(30)];\nzipped := a.zip(b);\ntotal := zipped.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ (acc + pair.1) }));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "60", "sum_rhs=60"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sd: zip sum of both elements via fold", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(1), i32(2), i32(3)];\nb := [i32(10), i32(20), i32(30)];\nzipped := a.zip(b);\ntotal := zipped.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ ((acc + pair.0) + pair.1) }));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "66", "sum_all=66"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sd: zip first pair lhs element", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(5), i32(6)];\nb := [i32(50), i32(60)];\nzipped := a.zip(b);\nt := zipped.get(usize(0)).unwrap();\nexport(t.0);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "5", "lhs=5"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sd: zip first pair rhs element", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(5), i32(6)];\nb := [i32(50), i32(60)];\nzipped := a.zip(b);\nt := zipped.get(usize(0)).unwrap();\nexport(t.1);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "50", "rhs=50"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sd: zip dot-product via fold", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(2), i32(3)];\nb := [i32(10), i32(20)];\nzipped := a.zip(b);\ndot := zipped.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ (acc + (pair.0 * pair.1)) }));\nexport(dot);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "80", "dot=80"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5sd: zip of same array gives pairs with equal elements", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(1), i32(2), i32(3)];\nzipped := a.zip(a);\ntotal := zipped.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ (acc + (pair.0 + pair.1)) }));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "12", "total=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5se — combos
+// ---------------------------------------------------------------------------
+test("Phase 5se: replace_all then to_uppercase", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello\"; r := s.replace_all(\"l\", \"x\"); u := r.to_uppercase(); export(u);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"HEXXO\"", "HEXXO"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5se: trim then replace_all", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"  hello  \"; t := s.trim(); r := t.replace_all(\"l\", \"L\"); export(r);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"heLLo\"", "heLLo"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5se: to_lowercase then replace_all", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"HELLO\"; l := s.to_lowercase(); r := l.replace_all(\"h\", \"y\"); export(r);";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StrLit(s) => assert(s.as_str() == "\"yello\"", "yello"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5se: enumerate then any index gt 1", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(1), i32(2), i32(3)];\ne := arr.enumerate();\nfound := e.any((fn(pair : i32) -> bool)({ (pair.0 > i32(1)) }));\nexport(found);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "found"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5se: zip then any pair sum gt 20", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(1), i32(5), i32(15)];\nb := [i32(1), i32(5), i32(10)];\nz := a.zip(b);\nfound := z.any((fn(pair : i32) -> bool)({ ((pair.0 + pair.1) > i32(20)) }));\nexport(found);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "found"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5se: enumerate all indices lt 3 for 3-elem arr", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(10), i32(20), i32(30)];\ne := arr.enumerate();\nall_lt_3 := e.all((fn(pair : i32) -> bool)({ (pair.0 < i32(3)) }));\nexport(all_lt_3);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "all_lt_3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5se: replace_all then contains", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \"hello world\"; r := s.replace_all(\"world\", \"yo\"); export(r.contains(\"yo\"));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "contains yo"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5se: zip count pairs where both gt 5", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := [i32(3), i32(6), i32(8)];\nb := [i32(1), i32(7), i32(9)];\nz := a.zip(b);\ncount := z.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ cond(((pair.0 > i32(5)) && (pair.1 > i32(5))) => (acc + i32(1)), true => acc) }));\nexport(count);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "2", "count=2"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5se: enumerate max element via fold", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(3), i32(8), i32(5)];\ne := arr.enumerate();\nmax_elem := e.fold(i32(0), (fn(acc : i32, pair : i32) -> i32)({ cond((pair.1 > acc) => pair.1, true => acc) }));\nexport(max_elem);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "8", "max=8"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5se: trim then to_uppercase then ends_with", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "s := \" hello \"; t := s.trim(); u := t.to_uppercase(); export(u.ends_with(\"O\"));";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "ends_with O"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
