@@ -482,7 +482,10 @@ export async function runInstall(options: InstallOptions): Promise<void> {
 function buildFileImportsDeps(buildFilePath: string): boolean {
   if (!fs.existsSync(buildFilePath)) return false;
   const content = fs.readFileSync(buildFilePath, "utf-8");
-  return content.includes('import "./deps.yo"');
+  return (
+    content.includes('import("./deps.yo")') ||
+    content.includes('import "./deps.yo"')
+  );
 }
 
 function printAddImportGuidance(
@@ -493,7 +496,7 @@ function printAddImportGuidance(
 
   if (!buildFileImportsDeps(buildFilePath)) {
     console.log("Add the following to your build.yo:");
-    console.log('  { imports } :: import "./deps.yo";');
+    console.log('  { imports } :: import("./deps.yo");');
     console.log("  exe.add_import_list(imports);");
   } else {
     console.log(
