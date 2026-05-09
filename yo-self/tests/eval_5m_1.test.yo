@@ -1,0 +1,564 @@
+// @skip_wasm32-emscripten — split file (~5min Yo compile alone, C output ~6 MB)
+// @skip_wasm32-wasi        — split file (~5min Yo compile alone, C output ~6 MB)
+/// Tests for the evaluator — Phase 5m series: field mutation, multi-trait, extra-arg methods.
+///
+/// Phases covered:
+///   5ma — struct field mutation on local variables (Phase 3aq patterns)
+///   5mb — multiple trait impls on the same struct
+///   5mc — impl methods with additional arguments beyond the receiver
+///   5md — impl methods that return StructVal (checking returned struct fields)
+///   5me — complex combinations and new patterns
+
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+// ---------------------------------------------------------------------------
+// Phase 5ma — struct field mutation on local variables
+// ---------------------------------------------------------------------------
+test("Phase 5ma: simple field set then read", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "P :: struct(x : i32);\np := P(x: i32(3));\np.x = i32(10);\nexport(p.x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "set to 10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ma: two-field struct, mutate one and read both", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "P :: struct(x : i32, y : i32);\np := P(x: i32(3), y: i32(7));\np.x = i32(99);\nexport(p.x);\nexport(p.y);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "99", "x=99"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(y) => match(y, .IntLit(n) => assert(n.as_str() == "7", "y unchanged"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ma: increment field via mutation (x = x + 1 twice)", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "C :: struct(n : i32);\nc := C(n: i32(5));\nc.n = (c.n + i32(1));\nc.n = (c.n + i32(1));\nexport(c.n);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "7", "5+1+1=7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ma: mutation in while loop — accumulate in struct field", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "Acc :: struct(sum : i32);\nacc := Acc(sum: i32(0));\n(i : i32) = i32(1);\nwhile(runtime((i <= i32(4))), {\n  acc.sum = (acc.sum + i);\n  i = (i + i32(1));\n});\nexport(acc.sum);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "1+2+3+4=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ma: mutation in cond branch — set to different value based on bool", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(v : i32);\ns := S(v: i32(0));\nflag := true;\ncond(flag => { s.v = i32(42); }, true => { s.v = i32(99); });\nexport(s.v);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "42", "flag true => 42"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ma: mutation then cond uses new value", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(v : i32);\ns := S(v: i32(5));\ns.v = i32(20);\nresult := cond((s.v > i32(10)) => i32(1), true => i32(0));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "1", "20>10=>1"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ma: two structs, copy field from one to the other", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(v : i32);\na := S(v: i32(7));\nb := S(v: i32(0));\nb.v = a.v;\nexport(b.v);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "7", "b.v = a.v = 7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ma: mutation to bool field then read", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(ok : bool);\ns := S(ok: false);\ns.ok = true;\nexport(s.ok);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "ok set to true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ma: field mutation then call impl method using mutated value", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  double : (fn(n : N) -> i32)({ (n.v * i32(2)) })\n));\ns := N(v: i32(3));\ns.v = i32(10);\nexport(s.double());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "20", "10*2=20"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ma: mutate field in method body, return mutated value", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  incremented : (fn(n : N) -> i32)({\n    n.v = (n.v + i32(1));\n    n.v\n  })\n));\ns := N(v: i32(9));\nexport(s.incremented());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "9+1=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5mb — multiple trait impls on the same struct
+// ---------------------------------------------------------------------------
+test("Phase 5mb: two traits (Math + Logic) on same struct", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  double : (fn(n : N) -> i32)({ (n.v * i32(2)) })\n));\nimpl(N, Logic(\n  is_pos : (fn(n : N) -> bool)({ (n.v > i32(0)) })\n));\nx := N(v: i32(5));\nexport(x.double());\nexport(x.is_pos());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "double=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(y) => match(y, .BoolVal(b) => assert(b, "pos=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mb: three traits on same struct", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, A(\n  f1 : (fn(n : N) -> i32)({ (n.v + i32(1)) })\n));\nimpl(N, B(\n  f2 : (fn(n : N) -> i32)({ (n.v + i32(2)) })\n));\nimpl(N, C(\n  f3 : (fn(n : N) -> i32)({ (n.v + i32(3)) })\n));\nx := N(v: i32(10));\nexport(x.f1());\nexport(x.f2());\nexport(x.f3());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "11", "10+1=11"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "12", "10+2=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(c) => match(c, .IntLit(n) => assert(n.as_str() == "13", "10+3=13"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mb: one trait with two methods, another with one", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  double : (fn(n : N) -> i32)({ (n.v * i32(2)) }),\n  triple : (fn(n : N) -> i32)({ (n.v * i32(3)) })\n));\nimpl(N, Logic(\n  is_even : (fn(n : N) -> bool)({ ((n.v % i32(2)) == i32(0)) })\n));\nx := N(v: i32(4));\nexport(x.double());\nexport(x.triple());\nexport(x.is_even());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "8", "4*2=8"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "12", "4*3=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(c) => match(c, .BoolVal(b) => assert(b, "4 is even"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mb: two different struct types each implementing same trait name", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "A :: struct(v : i32);\nB :: struct(v : i32);\nimpl(A, Math(\n  double : (fn(x : A) -> i32)({ (x.v * i32(2)) })\n));\nimpl(B, Math(\n  double : (fn(x : B) -> i32)({ (x.v * i32(3)) })\n));\na := A(v: i32(5));\nb := B(v: i32(5));\nexport(a.double());\nexport(b.double());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "10", "A.double=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "15", "B.double=15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mb: method in one trait calls method registered in another trait", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Base(\n  get_v : (fn(n : N) -> i32)({ n.v })\n));\nimpl(N, Derived(\n  quad : (fn(n : N) -> i32)({ (n.get_v() * i32(4)) })\n));\nx := N(v: i32(3));\nexport(x.quad());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "12", "3*4=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mb: four traits on same struct, all called", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, T1(\n  m1 : (fn(n : N) -> i32)({ (n.v + i32(1)) })\n));\nimpl(N, T2(\n  m2 : (fn(n : N) -> i32)({ (n.v + i32(2)) })\n));\nimpl(N, T3(\n  m3 : (fn(n : N) -> i32)({ (n.v + i32(3)) })\n));\nimpl(N, T4(\n  m4 : (fn(n : N) -> i32)({ (n.v + i32(4)) })\n));\nx := N(v: i32(0));\nexport((((x.m1() + x.m2()) + x.m3()) + x.m4()));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "1+2+3+4=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mb: multi-trait used with field mutation — mutate then call both traits", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  double : (fn(n : N) -> i32)({ (n.v * i32(2)) })\n));\nimpl(N, Logic(\n  is_pos : (fn(n : N) -> bool)({ (n.v > i32(0)) })\n));\nx := N(v: i32(-(1)));\nx.v = i32(5);\nexport(x.double());\nexport(x.is_pos());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "10", "double=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .BoolVal(bv) => assert(bv, "is_pos=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mb: multi-trait: negate via Math, abs via Check", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  negate : (fn(n : N) -> i32)({ (i32(0) - n.v) })\n));\nimpl(N, Check(\n  is_negative : (fn(n : N) -> bool)({ (n.v < i32(0)) })\n));\nx := N(v: i32(7));\nexport(x.negate());\nexport(x.is_negative());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "-7", "negate=-(7)"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .BoolVal(bv) => assert(!(bv), "7 not negative"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mb: struct with string field, two traits: len-check and prefix-check", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(label : str);\nimpl(S, Len(\n  nonempty : (fn(s : S) -> bool)({ !(s.label.is_empty()) })\n));\nimpl(S, Prefix(\n  starts_hi : (fn(s : S) -> bool)({ s.label.starts_with(\"hi\") })\n));\nx := S(label: \"hi world\");\nexport(x.nonempty());\nexport(x.starts_hi());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .BoolVal(bv) => assert(bv, "nonempty"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .BoolVal(bv) => assert(bv, "starts_hi"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mb: bool field, two traits using it differently", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(enabled : bool);\nimpl(S, State(\n  active : (fn(s : S) -> bool)({ s.enabled })\n));\nimpl(S, Op(\n  run_if : (fn(s : S) -> i32)({ cond(s.enabled => i32(1), true => i32(0)) })\n));\nx := S(enabled: true);\nexport(x.active());\nexport(x.run_if());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .BoolVal(bv) => assert(bv, "active=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "1", "run_if=1"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5mc — impl methods with additional arguments beyond the receiver
+// ---------------------------------------------------------------------------
+test("Phase 5mc: method with extra i32 arg — n.add(5)", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  add : (fn(n : N, m : i32) -> i32)({ (n.v + m) })\n));\nx := N(v: i32(3));\nexport(x.add(i32(5)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "8", "3+5=8"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mc: method with extra bool arg — conditional computation", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  cond_double : (fn(n : N, flag : bool) -> i32)({ cond(flag => (n.v * i32(2)), true => n.v) })\n));\nx := N(v: i32(6));\nexport(x.cond_double(true));\nexport(x.cond_double(false));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "12", "flag=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "6", "no_flag=6"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mc: method taking same struct as arg — pt1.dot(pt2)", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "V :: struct(x : i32, y : i32);\nimpl(V, Math(\n  dot : (fn(a : V, b : V) -> i32)({ ((a.x * b.x) + (a.y * b.y)) })\n));\np1 := V(x: i32(2), y: i32(3));\np2 := V(x: i32(4), y: i32(5));\nexport(p1.dot(p2));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "23", "2*4+3*5=23"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mc: method taking different struct as arg — scaler.scale_x(vec)", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "Vec2 :: struct(x : i32, y : i32);\nScaler :: struct(factor : i32);\nimpl(Scaler, Math(\n  scale_x : (fn(s : Scaler, v : Vec2) -> i32)({ (s.factor * v.x) })\n));\nsc := Scaler(factor: i32(3));\nvec := Vec2(x: i32(7), y: i32(2));\nexport(sc.scale_x(vec));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "21", "3*7=21"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mc: method with two extra i32 args — clamp(min, max)", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  clamp : (fn(n : N, lo : i32, hi : i32) -> i32)({\n    cond((n.v < lo) => lo, (n.v > hi) => hi, true => n.v)\n  })\n));\nx := N(v: i32(15));\nexport(x.clamp(i32(0), i32(10)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "clamp(15,0,10)=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mc: method with extra arg from struct field: a.multiply(b.factor)", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  multiply : (fn(n : N, m : i32) -> i32)({ (n.v * m) })\n));\na := N(v: i32(6));\nb := N(v: i32(7));\nexport(a.multiply(b.v));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "42", "6*7=42"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mc: arg computed by another method call — a.add(b.double())", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  double : (fn(n : N) -> i32)({ (n.v * i32(2)) }),\n  add : (fn(n : N, m : i32) -> i32)({ (n.v + m) })\n));\na := N(v: i32(3));\nb := N(v: i32(4));\nexport(a.add(b.double()));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "11", "3+4*2=11"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mc: extra arg: check n.above_threshold(t) false then true", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  above_threshold : (fn(n : N, t : i32) -> bool)({ (n.v > t) })\n));\nx := N(v: i32(5));\nexport(x.above_threshold(i32(10)));\nexport(x.above_threshold(i32(2)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .BoolVal(bv) => assert(!(bv), "5>10=false"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .BoolVal(bv) => assert(bv, "5>2=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mc: method with extra arg from cond result", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  add : (fn(n : N, m : i32) -> i32)({ (n.v + m) })\n));\nx := N(v: i32(10));\nextra := cond(true => i32(5), true => i32(0));\nexport(x.add(extra));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "15", "10+5=15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5mc: two methods with different extra arg types on same struct", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  scale : (fn(n : N, f : i32) -> i32)({ (n.v * f) }),\n  pick : (fn(n : N, use_double : bool) -> i32)({ cond(use_double => (n.v * i32(2)), true => n.v) })\n));\nx := N(v: i32(7));\nexport(x.scale(i32(3)));\nexport(x.pick(false));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "21", "7*3=21"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "7", "pick=7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5md — impl methods returning StructVal, accessing returned fields
+// ---------------------------------------------------------------------------
+test("Phase 5md: method returns same struct type, check returned field", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "V :: struct(x : i32, y : i32);\nimpl(V, Math(\n  scale : (fn(v : V, f : i32) -> V)({ V(x: (v.x * f), y: (v.y * f)) })\n));\np := V(x: i32(2), y: i32(3));\nresult := p.scale(i32(4));\nexport(result.x);\nexport(result.y);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "8", "2*4=8"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "12", "3*4=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5md: method returns different struct type, check field", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "A :: struct(v : i32);\nB :: struct(w : i32);\nimpl(A, Conv(\n  to_b : (fn(a : A) -> B)({ B(w: (a.v * i32(10))) })\n));\nx := A(v: i32(5));\nresult := x.to_b();\nexport(result.w);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "50", "5*10=50"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5md: chain method calls on returned struct — p.scale(2).x", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "V :: struct(x : i32, y : i32);\nimpl(V, Math(\n  scale : (fn(v : V, f : i32) -> V)({ V(x: (v.x * f), y: (v.y * f)) }),\n  sum : (fn(v : V) -> i32)({ (v.x + v.y) })\n));\np := V(x: i32(3), y: i32(4));\nresult := p.scale(i32(2));\nexport(result.sum());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "14", "(3+4)*2=14"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5md: method returns struct with bool field, check bool", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "Res :: struct(ok : bool, val : i32);\nN :: struct(v : i32);\nimpl(N, Op(\n  check : (fn(n : N, limit : i32) -> Res)({\n    Res(ok: (n.v < limit), val: n.v)\n  })\n));\nx := N(v: i32(3));\nr := x.check(i32(10));\nexport(r.ok);\nexport(r.val);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .BoolVal(bv) => assert(bv, "3<10=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "3", "val=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5md: method identity (returns copy) — check field unchanged", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Identity(\n  copy : (fn(n : N) -> N)({ N(v: n.v) })\n));\nx := N(v: i32(42));\nc := x.copy();\nexport(c.v);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "42", "identity=42"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5md: method returns struct, then mutate returned field", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Op(\n  copy : (fn(n : N) -> N)({ N(v: n.v) })\n));\nx := N(v: i32(5));\ny := x.copy();\ny.v = i32(99);\nexport(y.v);\nexport(x.v);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "99", "y.v=99"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "5", "x.v unchanged=5"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5md: method returns nested struct, access inner field", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "Inner :: struct(w : i32);\nOuter :: struct(inner : Inner, extra : i32);\nimpl(Outer, Op(\n  transform : (fn(o : Outer) -> Outer)({\n    Outer(inner: Inner(w: (o.inner.w * i32(2))), extra: (o.extra + i32(1)))\n  })\n));\nx := Outer(inner: Inner(w: i32(3)), extra: i32(10));\nr := x.transform();\nexport(r.inner.w);\nexport(r.extra);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "6", "3*2=6"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "11", "10+1=11"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5md: two methods each returning struct, compare their fields", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "V :: struct(x : i32);\nimpl(V, Math(\n  inc : (fn(v : V) -> V)({ V(x: (v.x + i32(1))) }),\n  dec : (fn(v : V) -> V)({ V(x: (v.x - i32(1))) })\n));\np := V(x: i32(5));\nhi := p.inc();\nlo := p.dec();\nexport(hi.x);\nexport(lo.x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "6", "hi=6"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "4", "lo=4"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5md: returned struct used as arg to another method", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "V :: struct(x : i32, y : i32);\nimpl(V, Math(\n  scale : (fn(v : V, f : i32) -> V)({ V(x: (v.x * f), y: (v.y * f)) }),\n  dot : (fn(a : V, b : V) -> i32)({ ((a.x * b.x) + (a.y * b.y)) })\n));\np := V(x: i32(1), y: i32(2));\nscaled := p.scale(i32(3));\nexport(p.dot(scaled));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "15", "dot(1,2)*(3,6)=15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5md: multiple transform steps, check final state", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Op(\n  add1 : (fn(n : N) -> N)({ N(v: (n.v + i32(1))) }),\n  mul2 : (fn(n : N) -> N)({ N(v: (n.v * i32(2))) })\n));\nx := N(v: i32(3));\na := x.add1();\nb := a.mul2();\nc := b.add1();\nexport(c.v);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "9", "(3+1)*2+1=9"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5me — complex combinations and new patterns
+// ---------------------------------------------------------------------------
+test("Phase 5me: field mutation + multi-trait + method returning struct", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  add1 : (fn(n : N) -> N)({ N(v: (n.v + i32(1))) })\n));\nimpl(N, Logic(\n  is_big : (fn(n : N) -> bool)({ (n.v > i32(10)) })\n));\nx := N(v: i32(5));\nx.v = i32(15);\nr := x.add1();\nexport(r.v);\nexport(r.is_big());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "16", "15+1=16"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .BoolVal(bv) => assert(bv, "16>10=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5me: while loop with returning-struct method — accumulate into field", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  add : (fn(n : N, m : i32) -> N)({ N(v: (n.v + m)) })\n));\nx := N(v: i32(0));\n(i : i32) = i32(1);\nwhile(runtime((i <= i32(5))), {\n  x = x.add(i);\n  i = (i + i32(1));\n});\nexport(x.v);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "15", "sum1..5=15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5me: recursive method in impl via recur", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  sum_down : (fn(n : N) -> i32)({\n    cond((n.v <= i32(0)) => i32(0), true => (n.v + recur(N(v: (n.v - i32(1))))))\n  })\n));\nx := N(v: i32(4));\nexport(x.sum_down());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "4+3+2+1=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5me: method with extra arg + returning struct — combined pattern", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "V :: struct(x : i32, y : i32);\nimpl(V, Math(\n  translate : (fn(v : V, dx : i32, dy : i32) -> V)({\n    V(x: (v.x + dx), y: (v.y + dy))\n  })\n));\np := V(x: i32(1), y: i32(2));\nq := p.translate(i32(10), i32(20));\nexport(q.x);\nexport(q.y);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "11", "1+10=11"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "22", "2+20=22"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5me: two structs cross-compute via extra-arg methods", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "A :: struct(x : i32);\nB :: struct(y : i32);\nimpl(A, Math(\n  combine : (fn(a : A, b : B) -> i32)({ (a.x + b.y) })\n));\nimpl(B, Math(\n  combine : (fn(b : B, a : A) -> i32)({ (b.y * a.x) })\n));\na := A(x: i32(3));\nb := B(y: i32(4));\nexport(a.combine(b));\nexport(b.combine(a));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "7", "3+4=7"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "12", "4*3=12"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5me: field mutation + extra-arg method across multiple structs", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  add : (fn(n : N, m : i32) -> i32)({ (n.v + m) })\n));\na := N(v: i32(5));\nb := N(v: i32(10));\na.v = i32(20);\nexport(a.add(b.v));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "30", "20+10=30"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5me: multi-trait + extra-arg + struct return — full combo", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "V :: struct(x : i32, y : i32);\nimpl(V, Math(\n  add_scalar : (fn(v : V, s : i32) -> V)({ V(x: (v.x + s), y: (v.y + s)) })\n));\nimpl(V, Logic(\n  both_positive : (fn(v : V) -> bool)({ ((v.x > i32(0)) && (v.y > i32(0))) })\n));\np := V(x: i32(-(2)), y: i32(3));\nr := p.add_scalar(i32(5));\nexport(r.x);\nexport(r.y);\nexport(r.both_positive());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "3", "-2+5=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "8", "3+5=8"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(c) => match(c, .BoolVal(bv) => assert(bv, "3>0 && 8>0"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5me: while loop counting with multi-field struct mutation", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "S :: struct(count : i32, total : i32);\ns := S(count: i32(0), total: i32(0));\n(i : i32) = i32(1);\nwhile(runtime((i <= i32(3))), {\n  s.count = (s.count + i32(1));\n  s.total = (s.total + i);\n  i = (i + i32(1));\n});\nexport(s.count);\nexport(s.total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "3", "count=3"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "6", "total=1+2+3=6"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5me: method with extra arg on struct with multiple trait impls", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "N :: struct(v : i32);\nimpl(N, Math(\n  add : (fn(n : N, m : i32) -> i32)({ (n.v + m) }),\n  mul : (fn(n : N, m : i32) -> i32)({ (n.v * m) })\n));\nimpl(N, Logic(\n  exceeds : (fn(n : N, limit : i32) -> bool)({ (n.v > limit) })\n));\nx := N(v: i32(6));\nexport(x.add(i32(4)));\nexport(x.mul(i32(3)));\nexport(x.exceeds(i32(5)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(a) => match(a, .IntLit(n) => assert(n.as_str() == "10", "6+4=10"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(1)), .Some(b) => match(b, .IntLit(n) => assert(n.as_str() == "18", "6*3=18"), _ => assert(false, "t")), .None => assert(false, "v"));
+    match(v.get(usize(2)), .Some(c) => match(c, .BoolVal(bv) => assert(bv, "6>5=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5me: nested method call results — method returns struct, call method on it with extra arg", {
+  env := empty_env();
+  given(exn) := Exception(throw : ((err) -> { assert(false, "e"); escape(()); }));
+  src := "V :: struct(x : i32);\nimpl(V, Math(\n  inc : (fn(v : V) -> V)({ V(x: (v.x + i32(1))) }),\n  add : (fn(v : V, m : i32) -> i32)({ (v.x + m) })\n));\np := V(x: i32(7));\nr := p.inc();\nexport(r.add(i32(100)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "108", "8+100=108"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});

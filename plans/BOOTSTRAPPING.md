@@ -383,6 +383,7 @@ yo-self/
     eval_5j_1.test.yo       -- Phase 5j proto-evaluator tests: trait impl via trait constructor syntax (50 tests)
     eval_5k_1.test.yo       -- Phase 5k proto-evaluator tests: helper fns, enum fields, bool logic, array accum, while/recur (50 tests)
     eval_5l_1.test.yo       -- Phase 5l proto-evaluator tests: nested struct, str fields, method-calls-method, multi-export, combos (50 tests)
+    eval_5m_1.test.yo       -- Phase 5m proto-evaluator tests: struct field mutation, multi-trait, extra-arg methods, struct-returning methods, combos (50 tests)
     eval_basics.test.yo     -- basic proto-evaluator tests
     eval_tail_1.test.yo     -- tail call proto-evaluator tests (part 1)
     eval_tail_2.test.yo     -- tail call proto-evaluator tests (part 2)
@@ -2838,6 +2839,28 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 - Phase 5le: complex combinations — nested struct + while + helper, string field + method chain + `is_src_not_test`, nested struct + enum field + match, method-calls-method + nested field, helper + multi-export + nested + bool, while + method chain + enum match, bool+string+active user access, recur + method-calls-method (double_sigma), two nested structs + unit_cost via method chain + two exports, string keyword filter via nested method chain
 
 **Test results**: 3177/3177 yo-self tests passing ✅ (including all 100 new Phase 5k/5l tests and 3077 prior tests).
+
+---
+
+### Phase 6p — Phase 5m eval tests (50 more tests, 3227 total) ✅ Done
+
+**Goal**: Add 50 more proto-evaluator integration tests covering new patterns not yet tested in 5j–5l:
+
+- struct field mutation via Phase 3aq (`s.field = rhs` on local variables and inside method bodies)
+- multiple trait impls registered on the same struct (all dispatch from same type)
+- impl methods with additional arguments beyond the receiver (clamp, dot product, scale by arg)
+- impl methods that return StructVal (transform, copy, convert to other struct) with field access on result
+- complex combos: mutation + multi-trait + extra-arg + struct-return
+
+**`yo-self/tests/eval_5m_1.test.yo`** — 50 tests:
+
+- Phase 5ma (10): struct field mutation — set/read, multi-field, increment in loop, mutation in cond, copy across structs, bool field, mutation then method call, mutation in method body
+- Phase 5mb (10): multiple trait impls — two traits, three traits, one-trait-two-methods + one-trait-one-method, two struct types same method name, cross-trait sibling call, four traits, mutation + multi-trait, negate+check, string field + two traits, bool field + two traits
+- Phase 5mc (10): extra-arg methods — i32 arg, bool arg, same-struct arg (dot product), different-struct arg (scale_x), two i32 args (clamp), arg from field, arg from method call result, true/false check, arg from cond, two methods different arg types
+- Phase 5md (10): struct-returning methods — scale returning same type, convert to different type, chain (scale then sum), struct with bool field, identity copy, copy then mutate, nested struct transform, inc+dec, returned struct as arg, multi-step transform pipeline
+- Phase 5me (10): complex combos — mutation+multi-trait+return, while loop with add-returning method, recursive method via recur, translate(dx,dy) returning V, cross-struct combine, mutation+extra-arg, multi-trait+extra-arg+struct-return, while with two-field mutation, extra-arg on multi-trait struct, returned struct used with extra-arg method
+
+**Test results**: 3227/3227 yo-self tests passing ✅ (including all 50 new Phase 5m tests and 3177 prior tests).
 
 ---
 
