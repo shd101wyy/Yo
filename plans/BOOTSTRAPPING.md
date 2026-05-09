@@ -386,6 +386,7 @@ yo-self/
     eval_5m_1.test.yo       -- Phase 5m proto-evaluator tests: struct field mutation, multi-trait, extra-arg methods, struct-returning methods, combos (50 tests)
     eval_5n_1.test.yo       -- Phase 5n proto-evaluator tests: for-loops in impl, helper fns, deep nesting, combos (50 tests)
     eval_5o_1.test.yo       -- Phase 5o proto-evaluator tests: break/continue in while-loops, impl methods, for-loops, combos (50 tests)
+    eval_5p_1.test.yo       -- Phase 5p proto-evaluator tests: ArrayList HOFs: map, filter, fold, any, all, concat, reverse, first, last, slice, contains (50 tests)
     eval_basics.test.yo     -- basic proto-evaluator tests
     eval_tail_1.test.yo     -- tail call proto-evaluator tests (part 1)
     eval_tail_2.test.yo     -- tail call proto-evaluator tests (part 2)
