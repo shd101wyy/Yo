@@ -236,6 +236,29 @@ assert((ptr &+ 1).* == 84);
     expect(formatYoSource(once)).toBe(once);
   });
 
+  test("expands multiline inline curly to one element per line", () => {
+    const source = `{ FileType,
+create_dir_all, read_dir, remove_dir } :: import("std/fs/dir");`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`{
+  FileType,
+  create_dir_all,
+  read_dir,
+  remove_dir
+} :: import("std/fs/dir");
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
+  test("keeps compact inline curly on one line", () => {
+    const source = `{ x : 1, y : 2 } :: foo();`;
+    const once = formatYoSource(source);
+    expect(once).toBe(`{ x : 1, y : 2 } :: foo();\n`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
   test("canonicalizes parenthesized dot dereference sugar", () => {
     const source = `main::(fn()->unit)({
 assert(a.(*) == 99);

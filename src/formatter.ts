@@ -85,6 +85,10 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
   );
   const multilineBracketIndices =
     findMultilineBracketIndices(significantTokens);
+  const multilineInlineCurlyIndices = findMultilineInlineCurlyIndices(
+    significantTokens,
+    inlineCurlyIndices
+  );
   const rawValues = significantTokens.map((token, index) =>
     rawTokenValue(input, significantTokens, index)
   );
@@ -99,6 +103,7 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
   let previousToken: Token | undefined;
   const parenStack: Array<{ index: number; multiline: boolean }> = [];
   const bracketStack: Array<{ multiline: boolean }> = [];
+  const curlyStack: Array<{ inline: boolean; multiline: boolean }> = [];
   const continuationStack: Array<{
     parenDepth: number;
     bracketDepth: number;
@@ -213,13 +218,24 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
     switch (token.type) {
       case TokenType.LCurlyBracket: {
         if (inlineCurlyIndices.has(index)) {
-          write("{");
+          const isMultiline = multilineInlineCurlyIndices.has(index);
+          curlyStack.push({ inline: true, multiline: isMultiline });
           curlyDepth++;
           inlineCurlyDepth++;
-          if (next && next.type !== TokenType.RCurlyBracket) {
-            ensureSpace();
+          if (isMultiline) {
+            write("{");
+            indentLevel++;
+            if (next && next.type !== TokenType.RCurlyBracket) {
+              newline();
+            }
+          } else {
+            write("{");
+            if (next && next.type !== TokenType.RCurlyBracket) {
+              ensureSpace();
+            }
           }
         } else {
+          curlyStack.push({ inline: false, multiline: false });
           write("{");
           curlyDepth++;
           indentLevel++;
@@ -228,13 +244,22 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         break;
       }
       case TokenType.RCurlyBracket: {
-        if (inlineCurlyIndices.has(index)) {
+        const curlyFrame = curlyStack.pop();
+        if (curlyFrame?.inline) {
           inlineCurlyDepth = Math.max(0, inlineCurlyDepth - 1);
-          trimTrailingHorizontalWhitespace();
-          if (previous && previous.type !== TokenType.LCurlyBracket) {
-            ensureSpace();
+          if (curlyFrame.multiline) {
+            if (!atLineStart) {
+              newline();
+            }
+            indentLevel = Math.max(0, indentLevel - 1);
+            write("}");
+          } else {
+            trimTrailingHorizontalWhitespace();
+            if (previous && previous.type !== TokenType.LCurlyBracket) {
+              ensureSpace();
+            }
+            write("}");
           }
-          write("}");
         } else {
           if (!atLineStart) {
             newline();
@@ -319,9 +344,15 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           next.type !== TokenType.RCurlyBracket
         ) {
           const currentBracket = bracketStack[bracketStack.length - 1];
+          const currentCurly = curlyStack[curlyStack.length - 1];
           if (currentBracket?.multiline) {
             newline();
-          } else if (currentBracket !== undefined || inlineCurlyDepth > 0) {
+          } else if (currentCurly?.inline && currentCurly.multiline) {
+            newline();
+          } else if (
+            currentBracket !== undefined ||
+            (currentCurly?.inline && !currentCurly.multiline)
+          ) {
             ensureSpace();
           } else if (parenStack[parenStack.length - 1]?.multiline === true) {
             newline();
@@ -651,6 +682,33 @@ function findMultilineBracketIndices(tokens: Token[]): Set<number> {
           multilineIndices.add(leftIndex);
           multilineIndices.add(index);
         }
+      }
+    }
+  }
+
+  return multilineIndices;
+}
+
+function findMultilineInlineCurlyIndices(
+  tokens: Token[],
+  inlineCurlyIndices: Set<number>
+): Set<number> {
+  const multilineIndices = new Set<number>();
+  const stack: number[] = [];
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!;
+    if (token.type === TokenType.LCurlyBracket) {
+      stack.push(index);
+    } else if (token.type === TokenType.RCurlyBracket) {
+      const leftIndex = stack.pop();
+      if (
+        leftIndex !== undefined &&
+        inlineCurlyIndices.has(leftIndex) &&
+        token.position.row > tokens[leftIndex]!.position.row
+      ) {
+        multilineIndices.add(leftIndex);
+        multilineIndices.add(index);
       }
     }
   }
