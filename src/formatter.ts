@@ -401,11 +401,20 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
           }
           write(token.value);
         } else {
-          trimTrailingHorizontalWhitespace();
-          if (previous && token.position.row > previous.position.row) {
-            newline();
-          } else {
-            ensureSpace();
+          // When the operator immediately follows an opening bracket, there is no
+          // left operand — preserve any spacing the bracket already established
+          // and don't add a new leading space (e.g. quote(&&), { ... }).
+          const prevIsOpenBracket =
+            previous?.type === TokenType.LParen ||
+            previous?.type === TokenType.LBracket ||
+            previous?.type === TokenType.LCurlyBracket;
+          if (!prevIsOpenBracket) {
+            trimTrailingHorizontalWhitespace();
+            if (previous && token.position.row > previous.position.row) {
+              newline();
+            } else {
+              ensureSpace();
+            }
           }
           write(token.value);
           if (next && next.position.row > token.position.row) {

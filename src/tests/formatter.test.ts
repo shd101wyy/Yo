@@ -402,6 +402,23 @@ expr := quote(self.(#(field.name.to_expr())).my_eq(other.#(field.name.to_expr())
     expect(formatYoSource(once)).toBe(once);
   });
 
+  test("keeps operator arguments tight inside call parens", () => {
+    // quote(&&) passes '&&' as an operator value — no space before it
+    const source = `main::(fn()->unit)({
+x := quote(&&);
+y := quote(=>);
+});`;
+
+    const once = formatYoSource(source);
+
+    expect(once).toBe(`main :: (fn() -> unit)({
+  x := quote(&&);
+  y := quote(=>);
+});
+`);
+    expect(formatYoSource(once)).toBe(once);
+  });
+
   test("treats operator with space before '(' as infix", () => {
     // sum.* = (...) — '=' has space before '(' so it's infix assignment,
     // not a prefix operator on a parenthesized expression.

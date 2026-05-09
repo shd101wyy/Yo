@@ -698,7 +698,7 @@ __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList)
       rest :: entries.cdr();
       __ :: comptime_assert(first.is_fn_call(), "hash_map entries must use 'k => v'");
       callee :: first.get_callee();
-      __1 :: comptime_assert(callee.is_atom() && (callee == quote( =>)), "hash_map entries must use 'k => v'");
+      __1 :: comptime_assert(callee.is_atom() && (callee == quote(=>)), "hash_map entries must use 'k => v'");
       pair :: first.get_args();
       __2 :: comptime_assert(pair.len() == usize(2), "hash_map entries must use 'k => v'");
       key :: pair.car();
@@ -725,7 +725,7 @@ hash_map :: (fn(...(quote(entries))) -> unquote(Expr))({
   first :: entries.car();
   __1 :: comptime_assert(first.is_fn_call(), "hash_map entries must use 'k => v'");
   callee :: first.get_callee();
-  __2 :: comptime_assert(callee.is_atom() && (callee == quote( =>)), "hash_map entries must use 'k => v'");
+  __2 :: comptime_assert(callee.is_atom() && (callee == quote(=>)), "hash_map entries must use 'k => v'");
   pair :: first.get_args();
   __3 :: comptime_assert(pair.len() == usize(2), "hash_map entries must use 'k => v'");
   first_key :: pair.car();
