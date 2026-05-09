@@ -174,6 +174,8 @@ match(c,
 - Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
 - Control-flow keywords follow the same rule: `return(value)`, `return()`, `escape(value)`, `escape()`.
 - Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`, `~(bits)`.
+- Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
+- Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 
 This avoids ambiguous parses such as `&x, y`:
 

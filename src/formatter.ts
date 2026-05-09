@@ -997,6 +997,9 @@ function isRedundantGroupingParen(
     leftIndex,
     rightIndex
   );
+  if (previous?.type === TokenType.Dot && !parenthesizedDotDeref) {
+    return false;
+  }
   if (
     (next?.type === TokenType.Operator && !parenthesizedDotDeref) ||
     (next?.type === TokenType.Dot && !parenthesizedDotDeref) ||
@@ -1271,6 +1274,13 @@ function prefixOperatorNeedsLeadingSpace(
   token: Token,
   previous: Token | undefined
 ): boolean {
+  if (
+    previous?.type === TokenType.Operator &&
+    previous.value === "..." &&
+    token.value === "#"
+  ) {
+    return false;
+  }
   return (
     previous?.type === TokenType.Comma ||
     // Any infix operator (e.g. ||, &&, +) before a prefix op needs a space so

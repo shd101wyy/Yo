@@ -114,6 +114,8 @@ masked := ((A | B) | C);
 - When an operator ends a line, indent its RHS one level as a continuation: `(given(x) : T) =\n  (v) -> { ... }`
 - Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
 - Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <: !(Runtime)`
+- Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
+- Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`

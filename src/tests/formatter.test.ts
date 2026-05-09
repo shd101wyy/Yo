@@ -390,13 +390,15 @@ value := (
 
   test("keeps macro splice calls tight", () => {
     const source = `main::(fn()->unit)({
-expr := quote(self.(#(field.name.to_expr())).my_eq(other.#(field.name.to_expr())));
+expr := quote((lhs.(#(field.name.to_expr())) == rhs.(#(field.name.to_expr()))));
+impl_expr := quote(Eq(...#(trait_params))((==) : ((lhs, rhs) -> #(eq_body))));
 });`;
 
     const once = formatYoSource(source);
 
     expect(once).toBe(`main :: (fn() -> unit)({
-  expr := quote(self.(#(field.name.to_expr())).my_eq(other.#(field.name.to_expr())));
+  expr := quote(lhs.(#(field.name.to_expr())) == rhs.(#(field.name.to_expr())));
+  impl_expr := quote(Eq(...#(trait_params))((==) : ((lhs, rhs) -> #(eq_body))));
 });
 `);
     expect(formatYoSource(once)).toBe(once);
