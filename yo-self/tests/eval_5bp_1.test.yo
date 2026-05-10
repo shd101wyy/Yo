@@ -1,0 +1,629 @@
+// @skip_wasm32-emscripten
+// @skip_wasm32-wasi
+open(import("std/fmt"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+
+// ---------------------------------------------------------------------------
+// Phase 5bpa — char arrays, vowel counting, GCD, LCM
+// ---------------------------------------------------------------------------
+test("Phase 5bpa: sum of ASCII values of [97,98,99] (a,b,c)", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 97+98+99=294
+  src := "chars := [i32(97),i32(98),i32(99)];\ntotal := chars.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "294", "294"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpa: count vowels in [97,101,105,111,117,98,99]", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // vowels a=97,e=101,i=105,o=111,u=117 → count=5
+  src := "chars := [i32(97),i32(101),i32(105),i32(111),i32(117),i32(98),i32(99)];\ncnt := chars.filter((fn(c : i32) -> bool)(cond((c == i32(97)) => true, (c == i32(101)) => true, (c == i32(105)) => true, (c == i32(111)) => true, (c == i32(117)) => true, true => false))).fold(i32(0), (fn(acc : i32, c_unused : i32) -> i32)((acc + i32(1))));\nexport(cnt);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "5"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpa: GCD(48, 36) via Euclidean algorithm", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // GCD(48,36)=12
+  src := "ga := i32(48);\ngb := i32(36);\nwhile((gb != i32(0)), {\ngt := gb;\ngb = (ga % gb);\nga = gt;\n});\nexport(ga);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "12", "12"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpa: LCM(12, 18) via GCD", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // GCD(12,18)=6; LCM=12*18/6=36
+  src := "la := i32(12);\nlb := i32(18);\nlga := i32(12);\nlgb := i32(18);\nwhile((lgb != i32(0)), {\nlt := lgb;\nlgb = (lga % lgb);\nlga = lt;\n});\nlcm := ((la * lb) / lga);\nexport(lcm);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "36", "36"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bpb — Collatz steps, digit sums/products
+// ---------------------------------------------------------------------------
+test("Phase 5bpb: Collatz sequence steps from 6 to 1", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 6→3→10→5→16→8→4→2→1 = 8 steps
+  src := "cn := i32(6);\ncsteps := i32(0);\nwhile((cn != i32(1)), {\ncn = cond(((cn % i32(2)) == i32(0)) => (cn / i32(2)), true => ((i32(3) * cn) + i32(1)));\ncsteps = (csteps + i32(1));\n});\nexport(csteps);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "8", "8"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpb: sum of digits of 12345", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 1+2+3+4+5=15
+  src := "digits := [i32(1),i32(2),i32(3),i32(4),i32(5)];\ntotal := digits.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "15"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpb: product of digits of 2346", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 2*3*4*6=144
+  src := "digits := [i32(2),i32(3),i32(4),i32(6)];\nprod := digits.fold(i32(1), (fn(acc : i32, x : i32) -> i32)((acc * x)));\nexport(prod);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "144", "144"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpb: count digits > 3 in [1,3,5,7,9]", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 5,7,9 are >3 → count=3
+  src := "digits := [i32(1),i32(3),i32(5),i32(7),i32(9)];\ncnt := digits.filter((fn(d : i32) -> bool)((d > i32(3)))).fold(i32(0), (fn(acc : i32, d_unused : i32) -> i32)((acc + i32(1))));\nexport(cnt);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bpc — Fibonacci sequences and triangular numbers
+// ---------------------------------------------------------------------------
+test("Phase 5bpc: Fibonacci F(10) = 55", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // F(0)=0,F(1)=1,...,F(10)=55
+  src := "fa := i32(0);\nfb := i32(1);\nfi := i32(0);\nwhile((fi < i32(10)), {\nft := fb;\nfb = (fa + fb);\nfa = ft;\nfi = (fi + i32(1));\n});\nexport(fa);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "55", "55"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpc: sum of Fibonacci numbers F(0)..F(7)", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 0+1+1+2+3+5+8+13=33
+  src := "sa := i32(0);\nsb := i32(1);\nss := i32(0);\nsi := i32(0);\nss = (ss + sa);\nwhile((si < i32(7)), {\nst := sb;\nsb = (sa + sb);\nsa = st;\nss = (ss + sa);\nsi = (si + i32(1));\n});\nexport(ss);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "33", "33"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpc: count Fibonacci numbers less than 50", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // F(0..9)=0,1,1,2,3,5,8,13,21,34 all <50; F(10)=55 → count=10
+  src := "ca := i32(0);\ncb := i32(1);\nfcnt := i32(0);\nwhile((ca < i32(50)), {\nfcnt = (fcnt + i32(1));\nct := cb;\ncb = (ca + cb);\nca = ct;\n});\nexport(fcnt);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "10"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpc: T(8) — 8th triangular number", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 1+2+3+4+5+6+7+8=36
+  src := "ts := i32(0);\nti := i32(1);\nwhile((ti <= i32(8)), {\nts = (ts + ti);\nti = (ti + i32(1));\n});\nexport(ts);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "36", "36"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bpd — grand combo tests
+// ---------------------------------------------------------------------------
+test("Phase 5bpd: char-sum + GCD(48,36) + F(10) grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 294+12+55=361
+  src := "chars := [i32(97),i32(98),i32(99)];\nchar_sum := chars.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nga := i32(48);\ngb := i32(36);\nwhile((gb != i32(0)), {\ngt := gb;\ngb = (ga % gb);\nga = gt;\n});\nfa := i32(0);\nfb := i32(1);\nfi := i32(0);\nwhile((fi < i32(10)), {\nft := fb;\nfb = (fa + fb);\nfa = ft;\nfi = (fi + i32(1));\n});\ntotal := ((char_sum + ga) + fa);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "361", "361"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpd: count-vowels + Collatz(6) + sum-digits(12345) grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 5+8+15=28
+  src := "vchars := [i32(97),i32(101),i32(105),i32(111),i32(117),i32(98),i32(99)];\nvowel_cnt := vchars.filter((fn(c : i32) -> bool)(cond((c == i32(97)) => true, (c == i32(101)) => true, (c == i32(105)) => true, (c == i32(111)) => true, (c == i32(117)) => true, true => false))).fold(i32(0), (fn(acc : i32, c_unused : i32) -> i32)((acc + i32(1))));\ncn := i32(6);\ncsteps := i32(0);\nwhile((cn != i32(1)), {\ncn = cond(((cn % i32(2)) == i32(0)) => (cn / i32(2)), true => ((i32(3) * cn) + i32(1)));\ncsteps = (csteps + i32(1));\n});\ndigits := [i32(1),i32(2),i32(3),i32(4),i32(5)];\ndsum := digits.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\ntotal := ((vowel_cnt + csteps) + dsum);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "28", "28"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpd: LCM(12,18) + product-digits(2346) + T(8) grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 36+144+36=216
+  src := "la := i32(12);\nlb := i32(18);\nlga := i32(12);\nlgb := i32(18);\nwhile((lgb != i32(0)), {\nlt := lgb;\nlgb = (lga % lgb);\nlga = lt;\n});\nlcm := ((la * lb) / lga);\ndigits := [i32(2),i32(3),i32(4),i32(6)];\ndprod := digits.fold(i32(1), (fn(acc : i32, x : i32) -> i32)((acc * x)));\nts := i32(0);\nti := i32(1);\nwhile((ti <= i32(8)), {\nts = (ts + ti);\nti = (ti + i32(1));\n});\ntotal := ((lcm + dprod) + ts);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "216", "216"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpd: sum-fib(0..7) + count-digits-gt3 + count-fib-lt50 grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 33+3+10=46
+  src := "sa := i32(0);\nsb := i32(1);\nss := i32(0);\nsi := i32(0);\nss = (ss + sa);\nwhile((si < i32(7)), {\nst := sb;\nsb = (sa + sb);\nsa = st;\nss = (ss + sa);\nsi = (si + i32(1));\n});\ndigs := [i32(1),i32(3),i32(5),i32(7),i32(9)];\ndcnt := digs.filter((fn(d : i32) -> bool)((d > i32(3)))).fold(i32(0), (fn(acc : i32, d_unused : i32) -> i32)((acc + i32(1))));\nca := i32(0);\ncb := i32(1);\nfcnt := i32(0);\nwhile((ca < i32(50)), {\nfcnt = (fcnt + i32(1));\nct := cb;\ncb = (ca + cb);\nca = ct;\n});\ntotal := ((ss + dcnt) + fcnt);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "46", "46"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bpe — grand combo tests
+// ---------------------------------------------------------------------------
+test("Phase 5bpe: GCD(48,36) + sum-digits(12345) + sum-fib(0..7) grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 12+15+33=60
+  src := "ga := i32(48);\ngb := i32(36);\nwhile((gb != i32(0)), {\ngt := gb;\ngb = (ga % gb);\nga = gt;\n});\ndigs := [i32(1),i32(2),i32(3),i32(4),i32(5)];\ndsum := digs.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nsa := i32(0);\nsb := i32(1);\nss := i32(0);\nsi := i32(0);\nss = (ss + sa);\nwhile((si < i32(7)), {\nst := sb;\nsb = (sa + sb);\nsa = st;\nss = (ss + sa);\nsi = (si + i32(1));\n});\ntotal := ((ga + dsum) + ss);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "60", "60"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpe: Collatz(6) + LCM(12,18) + T(8) grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 8+36+36=80
+  src := "cn := i32(6);\ncsteps := i32(0);\nwhile((cn != i32(1)), {\ncn = cond(((cn % i32(2)) == i32(0)) => (cn / i32(2)), true => ((i32(3) * cn) + i32(1)));\ncsteps = (csteps + i32(1));\n});\nla := i32(12);\nlb := i32(18);\nlga := i32(12);\nlgb := i32(18);\nwhile((lgb != i32(0)), {\nlt := lgb;\nlgb = (lga % lgb);\nlga = lt;\n});\nlcm := ((la * lb) / lga);\nts := i32(0);\nti := i32(1);\nwhile((ti <= i32(8)), {\nts = (ts + ti);\nti = (ti + i32(1));\n});\ntotal := ((csteps + lcm) + ts);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "80", "80"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpe: char-sum + count-vowels + product-digits(2346) grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 294+5+144=443
+  src := "chars := [i32(97),i32(98),i32(99)];\ncsum := chars.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nvchars := [i32(97),i32(101),i32(105),i32(111),i32(117),i32(98),i32(99)];\nvcnt := vchars.filter((fn(c : i32) -> bool)(cond((c == i32(97)) => true, (c == i32(101)) => true, (c == i32(105)) => true, (c == i32(111)) => true, (c == i32(117)) => true, true => false))).fold(i32(0), (fn(acc : i32, c_unused : i32) -> i32)((acc + i32(1))));\ndigs := [i32(2),i32(3),i32(4),i32(6)];\ndprod := digs.fold(i32(1), (fn(acc : i32, x : i32) -> i32)((acc * x)));\ntotal := ((csum + vcnt) + dprod);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "443", "443"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bpe: F(10) + count-fib-lt50 + count-digits-gt3 mega combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 55+10+3=68
+  src := "fa := i32(0);\nfb := i32(1);\nfi := i32(0);\nwhile((fi < i32(10)), {\nft := fb;\nfb = (fa + fb);\nfa = ft;\nfi = (fi + i32(1));\n});\nfib10 := fa;\nca := i32(0);\ncb := i32(1);\nfcnt := i32(0);\nwhile((ca < i32(50)), {\nfcnt = (fcnt + i32(1));\nct := cb;\ncb = (ca + cb);\nca = ct;\n});\ndigs := [i32(1),i32(3),i32(5),i32(7),i32(9)];\ndcnt := digs.filter((fn(d : i32) -> bool)((d > i32(3)))).fold(i32(0), (fn(acc : i32, d_unused : i32) -> i32)((acc + i32(1))));\ntotal := ((fib10 + fcnt) + dcnt);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "68", "68"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});

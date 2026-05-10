@@ -3329,6 +3329,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ak — Phase 5bp eval tests: GCD/LCM, vowels, Collatz, digit ops, Fibonacci, triangular, grand combos (20 more tests, 4687 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bp_1.test.yo` — 20 tests covering:
+
+- **5bpa** (4 tests): sum of ASCII [97,98,99]=294; count vowels in [a,e,i,o,u,b,c]=5; GCD(48,36)=12; LCM(12,18)=36
+- **5bpb** (4 tests): Collatz steps from 6=8; sum digits 12345=15; product digits 2346=144; count digits>3 in [1,3,5,7,9]=3
+- **5bpc** (4 tests): Fibonacci F(10)=55; sum F(0..7)=33; count Fibonacci<50=10; T(8)=36
+- **5bpd** (4 tests): char-sum+GCD+F(10)=361; count-vowels+Collatz+sum-digits=28; LCM+product-digits+T(8)=216; sum-fib+count-digits-gt3+count-fib-lt50=46
+- **5bpe** (4 tests): GCD+sum-digits+sum-fib=60; Collatz+LCM+T(8)=80; char-sum+count-vowels+product-digits=443; F(10)+count-fib-lt50+count-digits-gt3=68
+
+**Test results**: 4687/4687 yo-self tests passing ✅ (20 new + 4667 prior).
+
 ### Phase 7aj — Phase 5bo eval tests: min/max/product via while, divisibility filters, sum formulas, grand combos (20 more tests, 4667 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bo_1.test.yo` — 20 tests covering:
