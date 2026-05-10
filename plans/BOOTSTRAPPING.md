@@ -3343,6 +3343,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4847/4847 yo-self tests passing ✅ (20 new + 4827 prior).
 
+### Phase 7at — Phase 5by eval tests: cumulative sums, mirror patterns, modular arithmetic (20 more tests, 4867 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5by_1.test.yo` — 20 tests covering:
+
+- **5bya** (4 tests): sum of cumulative sums of [3,1,4,1,5,9,2,6,5]=153; max cumsum=36; count where cumsum>2×value=7; sum of v²-v=162
+- **5byb** (4 tests): count where arr[i]>arr[8-i]=4; sum of |arr[i]-arr[8-i]|=31; max minus min=8; dot-product with mirror=101
+- **5byc** (4 tests): sum n in 1..20 not divisible by 3 or 7=126; count n in 1..30 divisible by 7 or 11=6; sum of squares of odd n in 1..8=84; count n in 1..20 where (n%3)==(n%5)=5
+- **5byd** (4 tests): 153+36+7=196; 162+4+31=197; 8+101+126=235; 6+84+5=95
+- **5bye** (4 tests): 153+162+126=441; 36+31+6=73; 7+101+84=192; 4+8+5=17
+
+**New patterns**: cumulative sum accumulation (separate `cs` variable updated each iteration); mirror access via `arr.get(i32(8)-i).unwrap()`; absolute difference via `cond((a>b) => (a-b), true => (b-a))`; AND/OR modular conditions via flag multiplication and addition. **Bug fixed**: source strings must use `while((cond), {\n...\n});\n` syntax and `export(var);\n` (not `while (cond) {\n...\n}\n` or `export var;\n`).
+
+**Test results**: 4867/4867 yo-self tests passing ✅ (20 new + 4847 prior).
+
 ### Phase 7ar — Phase 5bw eval tests: alternating sums, running max/min, divisor sums, CRT filtering (20 more tests, 4827 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bw_1.test.yo` — 20 tests covering:
