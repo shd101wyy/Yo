@@ -3958,3 +3958,15 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - **5cbe** (4 tests): 46+43+30=119; 44+27+2=73; 8+4+20=32; 239+35+3=277
 
 **Test results**: 4927/4927 yo-self tests passing ✅ (20 new + 4907 prior).
+
+### Phase 7ax — Phase 5cc eval tests: descending-start array [9,1,2,3,6,8,4,5,7] (20 more tests, 4947 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5cc_1.test.yo` — 20 tests:
+
+- **5cc** (4 tests): prefix max sum=81; suffix min sum=31; count new maximums=1 (9 is first so no new max ever found); sum i×arr[i]=193
+- **5ccb** (4 tests): 3-window max sum=49; 3-window min sum=19; count windows>15=4; middle sum=29
+- **5ccc** (4 tests): sum>5=30; count sym pairs>10=5; sum |arr[i]-5|=20; count multiples of 6=3
+- **5ccd** (4 tests): 81+31+1=113; 193+49+19=261; 4+29+30=63; 5+20+3=28
+- **5cce** (4 tests): 81+49+30=160; 31+19+5=55; 1+4+20=25; 193+29+3=225
+
+**Test results**: 4947/4947 yo-self tests passing ✅ (20 new + 4927 prior).
