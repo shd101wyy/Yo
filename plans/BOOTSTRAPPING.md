@@ -3287,6 +3287,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4207/4207 yo-self tests passing ✅ (20 new + 4187 prior).
 
+### Phase 7n — Phase 5as eval tests: while/for loops, recur, string methods, mixed (20 more tests, 4227 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5as_1.test.yo` — 20 tests covering:
+
+- **5asa** (4 tests): While loops — counter to 3; sum 1+2+3=6; break at 5; countdown steps=5
+- **5asb** (4 tests): For loops — sum [1,2,3]=6; count 4 elements; find max=7; two arrays sum=10
+- **5asc** (4 tests): Recursive via recur — factorial(3)=6; sumN(3)=6; pow(2,3)=8; fib(4)=3
+- **5asd** (4 tests): String methods — `starts_with` true; `ends_with` true; `contains` true; `trim` strips spaces (StrLit includes quotes, compare `"\"hello\""`)
+- **5ase** (4 tests): Mixed — contains false; for-find-min=2; for+named-fn sum=12; starts_with+cond branch
+
+**Key discovery**: StrLit values stored with surrounding quote chars — check `raw.as_str() == "\"hello\""` not `"hello"`.
+
+**Test results**: 4227/4227 yo-self tests passing ✅ (20 new + 4207 prior).
+
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
 - **Parser port** — `yo-self/parser/` complete; 43 tests pass.
 - **AST + ExprInfo + side-table evaluation results** — Phase 2k done.
