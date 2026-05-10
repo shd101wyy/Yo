@@ -79,6 +79,12 @@ jobs:
       - name: Run unit tests
         run: bun test --timeout 60000
 
+      - name: Check the formatted code
+        run: |
+          node ./out/cjs/yo-cli.cjs fmt --check ./std
+          node ./out/cjs/yo-cli.cjs fmt --check ./tests
+          node ./out/cjs/yo-cli.cjs fmt --check ./yo-self
+
       - name: Build system smoke test
         run: |
           node ./out/cjs/yo-cli.cjs init ./tmp/hello-world --name hello-world
