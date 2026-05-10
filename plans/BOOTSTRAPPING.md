@@ -3343,6 +3343,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4387/4387 yo-self tests passing ✅ (20 new + 4367 prior).
 
+### Phase 7w — Phase 5bb eval tests: tuples, composed functions, array slicing, complex while, grand combos (20 more tests, 4407 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bb_1.test.yo` — 20 tests covering:
+
+- **5bba** (4 tests): struct field access; array index; let-chain binding; boolean AND pattern
+- **5bbb** (4 tests): composed fn via let bindings; multi-step fn chains; lambda captures; cond in fn body
+- **5bbc** (4 tests): slice(0,3) sum; count elements in slice via fold; slice map-square fold-sum; chained slice operations
+- **5bbd** (4 tests): running sum stopping when over threshold; GCD via Euclidean algorithm; alternating add/multiply; count iterations until product exceeds 100
+- **5bbe** (4 tests): map-squares→filter→fold sum; while builds array of squares then fold sum; `Option.and_then` with composed function; zip→map pair-sum→fold grand total
+
+**Pitfalls discovered**: `Option.and_then(fn: T->T)` returns the raw value (not wrapped in Option), so calling `.unwrap_or()` on the result crashes. Export the result directly and match on `IntLit`. Chained `and_then` calls also crash; use a single `and_then` with a composed function instead.
+
+**Test results**: 4407/4407 yo-self tests passing ✅ (20 new + 4387 prior).
+
 ### Phase 7s — Phase 5ax eval tests: multi-arg functions, nested cond, Option chains, while accumulation, flat_map/zip combos (20 more tests, 4327 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5ax_1.test.yo` — 20 tests covering:
