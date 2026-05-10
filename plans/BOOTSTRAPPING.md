@@ -4745,3 +4745,26 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_5ve_1.test.yo` — [1,2,7,3,8,5,6,9,4]
 
 **Test results**: 14867/14867 yo-self tests passing ✅.
+
+### Phases 7vx-7wl: eval_5vf-5vt — 300 tests → 15167 total
+
+**Permutation indices**: 2962–2976
+**Arrays covered**:
+
+- `eval_5vf_1.test.yo` — [1,2,7,3,8,5,9,4,6]
+- `eval_5vg_1.test.yo` — [1,2,7,3,8,5,9,6,4]
+- `eval_5vh_1.test.yo` — [1,2,7,3,8,6,4,5,9]
+- `eval_5vi_1.test.yo` — [1,2,7,3,8,6,4,9,5]
+- `eval_5vj_1.test.yo` — [1,2,7,3,8,6,5,4,9]
+- `eval_5vk_1.test.yo` — [1,2,7,3,8,6,5,9,4]
+- `eval_5vl_1.test.yo` — [1,2,7,3,8,6,9,4,5]
+- `eval_5vm_1.test.yo` — [1,2,7,3,8,6,9,5,4]
+- `eval_5vn_1.test.yo` — [1,2,7,3,8,9,4,5,6]
+- `eval_5vo_1.test.yo` — [1,2,7,3,8,9,4,6,5]
+- `eval_5vp_1.test.yo` — [1,2,7,3,8,9,5,4,6]
+- `eval_5vq_1.test.yo` — [1,2,7,3,8,9,5,6,4]
+- `eval_5vr_1.test.yo` — [1,2,7,3,8,9,6,4,5]
+- `eval_5vs_1.test.yo` — [1,2,7,3,8,9,6,5,4]
+- `eval_5vt_1.test.yo` — [1,2,7,3,9,4,5,6,8]
+
+**Test results**: 15167/15167 yo-self tests passing ✅.
