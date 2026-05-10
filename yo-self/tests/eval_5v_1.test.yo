@@ -1,0 +1,466 @@
+// @skip_wasm32-emscripten — split file (~5min Yo compile alone, C output ~6 MB)
+// @skip_wasm32-wasi        — split file (~5min Yo compile alone, C output ~6 MB)
+/// Tests for the evaluator — Phase 5v series: FnMut closures, tuples, integer conversions, String.
+///
+/// Phases covered:
+///   5va — FnMut closures (x) =>> body in source strings (same as => for proto-eval)
+///   5vb — Tuple expressions (a, b, c) → StructVal with numeric fields
+///   5vc — Integer conversion methods: .to_usize() / .to_i64() / .to_i32() / .abs() / .min() / .max()
+///   5vd — String type constructor, String.from (as TypeVal), clone() passthrough
+///   5ve — Combos: FnMut in HOF, tuple destructuring, negation + conversion chains
+
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+// ---------------------------------------------------------------------------
+// Phase 5va — FnMut closures (=>> operator) in source strings
+// ---------------------------------------------------------------------------
+test("Phase 5va: FnMut closure (x) =>> x produces FuncVal", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "f := ((x) =>> x);\nexport(f);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .FuncVal(_, _, _, _, _, _, _, _, _) => (), _ => assert(false, "not FuncVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5va: FnMut closure call (x) =>> (x + i32(1)) with arg 5 → 6", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "f := ((x) =>> (x + i32(1)));\nexport(f(i32(5)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "6", "6"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5va: FnMut closure with two params (x, y) =>> (x + y)", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "f := ((x, y) =>> (x + y));\nexport(f(i32(3), i32(4)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "7", "7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5va: FnMut closure captures outer variable", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "base := i32(10);\nf := ((x) =>> (x + base));\nexport(f(i32(5)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "15", "15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5va: FnMut closure returning bool", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "pred := ((x) =>> (x == i32(0)));\nexport(pred(i32(0)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "pred(0)=true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5va: FnMut closure with block body", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "f := ((x) =>> { y := (x + i32(1)); (y * i32(2)) });\nexport(f(i32(3)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "8", "8"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5va: FnMut closure used as map callback", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(1), i32(2), i32(3),];\ndouble := ((x) =>> (x * i32(2)));\nresult := arr.map(double);\nexport(result.get(usize(1)).unwrap());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "4", "4"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5va: FnMut closure used as filter callback", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(1), i32(2), i32(3), i32(4),];\neven := ((x) =>> ((x % i32(2)) == i32(0)));\nevens := arr.filter(even);\nexport(evens.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "2", "2"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5va: FnMut closure chained: double then add one", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "f := ((x) =>> (x * i32(2)));\ng := ((x) =>> (f(x) + i32(1)));\nexport(g(i32(5)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "11", "11"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5va: FnMut and Fn closures interchangeable in proto-eval", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "fn_closure := ((x) => (x + i32(10)));\nfn_mut_closure := ((x) =>> (x + i32(10)));\nexport((fn_closure(i32(5)) == fn_mut_closure(i32(5))));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "same"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5vb — Tuple expressions (a, b, c) → StructVal with numeric fields
+// ---------------------------------------------------------------------------
+test("Phase 5vb: (i32(1), i32(2)) — 2-tuple is StructVal with two fields", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "t := (i32(1), i32(2));\nexport(t);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StructVal(_, fnames, fvals) => {
+      assert(fnames.len() == usize(2), "2 fields");
+      assert(fvals.len() == usize(2), "2 vals");
+    }, _ => assert(false, "not StructVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vb: tuple field 0 has correct value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "t := (i32(7), i32(42));\nexport(t);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StructVal(_, _, fvals) => {
+      match(fvals.get(usize(0)), .Some(v0) => match(v0, .IntLit(n) => assert(n.as_str() == "7", "7"), _ => assert(false, "t")), .None => assert(false, "no f0"));
+    }, _ => assert(false, "not StructVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vb: tuple field 1 has correct value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "t := (i32(7), i32(42));\nexport(t);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StructVal(_, _, fvals) => {
+      match(fvals.get(usize(1)), .Some(v1) => match(v1, .IntLit(n) => assert(n.as_str() == "42", "42"), _ => assert(false, "t")), .None => assert(false, "no f1"));
+    }, _ => assert(false, "not StructVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vb: 3-tuple has 3 fields", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "t := (i32(1), i32(2), i32(3));\nexport(t);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StructVal(_, fnames, _) => {
+      assert(fnames.len() == usize(3), "3 fields");
+    }, _ => assert(false, "not StructVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vb: tuple field names are numeric strings 0,1,2", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "t := (i32(10), i32(20), i32(30));\nexport(t);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StructVal(_, fnames, _) => {
+      match(fnames.get(usize(0)), .Some(n0) => assert(n0.as_str() == "0", "f0=0"), .None => assert(false, "no f0"));
+      match(fnames.get(usize(1)), .Some(n1) => assert(n1.as_str() == "1", "f1=1"), .None => assert(false, "no f1"));
+      match(fnames.get(usize(2)), .Some(n2) => assert(n2.as_str() == "2", "f2=2"), .None => assert(false, "no f2"));
+    }, _ => assert(false, "not StructVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vb: tuple with mixed types (i32, bool)", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "t := (i32(5), bool(true));\nexport(t);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StructVal(_, _, fvals) => {
+      match(fvals.get(usize(0)), .Some(v0) => match(v0, .IntLit(n) => assert(n.as_str() == "5", "5"), _ => assert(false, "t")), .None => assert(false, "f0"));
+      match(fvals.get(usize(1)), .Some(v1) => match(v1, .BoolVal(b) => assert(b, "true"), _ => assert(false, "t")), .None => assert(false, "f1"));
+    }, _ => assert(false, "not StructVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vb: empty tuple () produces UnitVal", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "t := ();\nexport(t);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .UnitVal => (), _ => assert(false, "not UnitVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vb: function returning tuple", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "make_pair :: (fn(a : i32, b : i32) -> (i32, i32))({ (a, b) });\nexport(make_pair(i32(3), i32(9)));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .StructVal(_, _, fvals) => {
+      match(fvals.get(usize(0)), .Some(v0) => match(v0, .IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")), .None => assert(false, "f0"));
+      match(fvals.get(usize(1)), .Some(v1) => match(v1, .IntLit(n) => assert(n.as_str() == "9", "9"), _ => assert(false, "t")), .None => assert(false, "f1"));
+    }, _ => assert(false, "not StructVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vb: tuple element via .0 field access", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "t := (i32(11), i32(22));\nexport(t.0);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "11", "11"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vb: tuple second element via .1 field access", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "t := (i32(11), i32(22));\nexport(t.1);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "22", "22"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5vc — Integer conversion methods: to_usize/to_i64/to_i32/abs/min/max
+// ---------------------------------------------------------------------------
+test("Phase 5vc: i32(42).to_usize() returns same IntLit", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(42).to_usize();\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "42", "42"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vc: i32(99).to_i64() returns same IntLit", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(99).to_i64();\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "99", "99"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vc: i32(7).to_i32() returns same IntLit", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(7).to_i32();\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "7", "7"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vc: i32(5).abs() on positive returns same", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(5).abs();\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "5", "5"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vc: i32(3).min(i32(7)) = 3", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(3).min(i32(7));\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vc: i32(10).max(i32(4)) = 10", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(10).max(i32(4));\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vc: i32(2).min(i32(1)) = 1", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(2).min(i32(1));\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "1", "1"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vc: i32(8).max(i32(15)) = 15", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(8).max(i32(15));\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "15", "15"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vc: chain min and max: i32(5).max(i32(2)).min(i32(4)) = 4", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(5).max(i32(2)).min(i32(4));\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "4", "4"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vc: to_usize used in array index", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(10), i32(20), i32(30),];\nidx := i32(1).to_usize();\nexport(arr.get(idx).unwrap());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "20", "20"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5vd — String type constructor, String.from, clone() passthrough
+// ---------------------------------------------------------------------------
+test("Phase 5vd: String type constructor returns TypeVal", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "export(String(()));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .TypeVal(_) => (), _ => assert(false, "not TypeVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vd: i32(42).clone() returns same IntLit value", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := i32(42).clone();\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "42", "42"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vd: bool(true).clone() returns same BoolVal", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "x := bool(true).clone();\nexport(x);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "true"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vd: ArrayList(i32) produces TypeVal", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "export(ArrayList(i32));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .TypeVal(_) => (), _ => assert(false, "not TypeVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vd: IO type constructor returns TypeVal", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "export(IO(()));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .TypeVal(_) => (), _ => assert(false, "not TypeVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5vd: FnMut type constructor returns TypeVal", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "export(FnMut(i32));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .TypeVal(_) => (), _ => assert(false, "not TypeVal")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+// ---------------------------------------------------------------------------
+// Phase 5ve — Combos: FnMut in fold, tuple used as accumulator, chains
+// ---------------------------------------------------------------------------
+test("Phase 5ve: FnMut closure used in fold for sum", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(1), i32(2), i32(3), i32(4),];\nsum := arr.fold(i32(0), (acc, x) =>> (acc + x));\nexport(sum);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ve: FnMut used as any/all predicate with NOT", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(1), i32(3), i32(5),];\nall_odd := arr.all((x) =>> !((x % i32(2)) == i32(0)));\nexport(all_odd);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "all odd"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ve: min of array elements via fold with FnMut", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "arr := [i32(5), i32(2), i32(8), i32(1),];\nmin_val := arr.fold(i32(999), (acc, x) =>> acc.min(x));\nexport(min_val);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "1", "1"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ve: tuple field access + arithmetic", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "pair := (i32(3), i32(7));\nsum := (pair.0 + pair.1);\nexport(sum);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "10", "10"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
+test("Phase 5ve: clone then mutate - cloned value is independent", {
+  env := empty_env();
+  given(exn) := Exception(throw: ((err) -> { assert(false, "e"); escape(()); }));
+  src := "a := i32(5);\nb := a.clone();\nexport((a == b));\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(result, .None => assert(false, "N"), .Some(m) => match(m, .ModuleVal(_, v) => {
+    match(v.get(usize(0)), .Some(x) => match(x, .BoolVal(b) => assert(b, "a==b"), _ => assert(false, "t")), .None => assert(false, "v"));
+  }, _ => assert(false, "m")));
+});
