@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ao — Phase 5bt eval tests: triangle numbers, odd squares, array index/value patterns, abs-diff, running averages (20 more tests, 4767 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bt_1.test.yo` — 20 tests covering:
+
+- **5bta** (4 tests): sum tri(k) k=1..6=56; sum squares first 5 odd=165; count perfect squares ≤30=5; sum max(n,11-n) n=1..10=80
+- **5btb** (4 tests): sum elements where both index and value even=6; sum 1-based positions where value>5=14; product of elements at positions divisible by 3=36; sum of consecutive pair products=91
+- **5btc** (4 tests): sum elements where val≤1-indexed pos=15; count coprime with 6=3; sum absolute first differences=27; sum running floor-averages=20
+- **5btd** (4 tests): 56+165+5=226; 80+6+14=100; 36+91+15=142; 3+27+20=50
+- **5bte** (4 tests): 56+6+15=77; 165+14+3=182; 5+36+27=68; 80+91+20=191
+
+**New patterns**: triangle number generation via integer div k\*(k+1)/2; squares of odd numbers via 2k+1; counting perfect squares via nested square tracking; index-filtered products with cond; running floor-average accumulation.
+
+**Test results**: 4767/4767 yo-self tests passing ✅ (20 new + 4747 prior).
+
 ### Phase 7an — Phase 5bs eval tests: sequence formulas, array index patterns, running accumulation, grand combos (20 more tests, 4747 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bs_1.test.yo` — 20 tests covering:
