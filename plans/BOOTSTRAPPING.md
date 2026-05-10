@@ -3092,6 +3092,28 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 ---
 
+### Phase 7a — Phase 5af eval tests: get/set/remove, as_bytes, min/max, complex patterns (22 more tests, 3964 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5af_1.test.yo` — 22 tests covering:
+
+- **5afa** (5 tests): `ArrayVal.get(idx)` returns Option — `Some(first)`, out-of-bounds `None`, while-loop accumulation, get last, `unwrap_or` default
+- **5afb** (5 tests): `ArrayVal.set(idx, val)` functional update — replace at index 1, replace at last index, `remove(0)` removes first, `remove(1)` removes middle, set does not mutate original
+- **5afc** (4 tests): `StrLit.as_bytes()` byte array length, ASCII codes for "ABC" (65/66/67), `IntLit.min(other)` smaller, `IntLit.max(other)` larger
+- **5afd** (4 tests): `min` via `fold + IntLit.min`, `max` via `fold + IntLit.max`, `as_bytes` + fold sum of bytes, `as_bytes` + filter count of uppercase ASCII (65–90)
+- **5afe** (4 tests): Swap two elements via double `set`, remove first two elements, sequential set operations on multiple indices, min/max of absolute differences between adjacent elements
+
+**Key facts confirmed**:
+
+- `get(idx)` on ArrayVal returns `EnumVal(".Some", [elem])` or `EnumVal(".None", [])` — use `.unwrap()` or `.unwrap_or(default)`.
+- `set(idx, val)` and `remove(idx)` are purely functional — original array is unchanged.
+- `as_bytes()` on StrLit returns `ArrayVal` of `IntLit` ASCII values; "ABC" → [65, 66, 67].
+- `min(other)` / `max(other)` on IntLit compare pairwise — useful as fold accumulator.
+- `(a - b).abs()` where `a` and `b` are IntLit from `get().unwrap()` works correctly.
+
+**Test results**: 3964/3964 yo-self tests passing ✅ (22 new + 3942 prior).
+
+---
+
 ### What works today
 
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.

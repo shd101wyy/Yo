@@ -1,0 +1,723 @@
+// @skip_wasm32-emscripten — split file (~5min Yo compile alone, C output ~6 MB)
+// @skip_wasm32-wasi        — split file (~5min Yo compile alone, C output ~6 MB)
+/// Tests for the evaluator — Phase 5af series: ArrayVal.get/set/remove,
+/// StrLit.as_bytes(), IntLit.min/max, and complex pipeline combinations.
+///
+/// Phases covered:
+///   5afa — ArrayVal.get(idx) returns Option
+///   5afb — ArrayVal.set(idx, val) and ArrayVal.remove(idx)
+///   5afc — StrLit.as_bytes() and IntLit.min/max
+///   5afd — min/max via fold, get in loops
+///   5afe — Complex state-mutation patterns using set/remove
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+// ---------------------------------------------------------------------------
+// Phase 5afa — ArrayVal.get(idx) returns Option in source code
+// ---------------------------------------------------------------------------
+test("Phase 5afa: get(0) on non-empty array returns Some(first)", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(20), i32(30)];\nresult := arr.get(usize(0)).unwrap();\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "get0=10"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afa: get(idx) out of bounds returns None", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(20), i32(30)];\nis_n := arr.get(usize(10)).is_none();\nexport(is_n);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "oob=None"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afa: get(idx) in while loop to accumulate sum", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5)];\n(sum : i32) = i32(0);\n(idx : usize) = usize(0);\nwhile(runtime(idx < usize(5)), {\n  match(arr.get(idx), .Some(v) => { sum = (sum + v); }, .None => ());\n  idx = (idx + usize(1));\n});\nexport(sum);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "sum=15"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afa: get(last_idx) returns last element", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(20), i32(30), i32(40)];\nlast := arr.get(usize(3)).unwrap();\nexport(last);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "40", "last=40"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afa: get with unwrap_or provides default for None", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(5), i32(10)];\nv0 := arr.get(usize(0)).unwrap_or(i32(0));\nv5 := arr.get(usize(5)).unwrap_or(i32(0));\nexport(v0);\nexport(v5);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "v0=5"), _ => assert(false, "t0")),
+          .None => assert(false, "v0")
+        );
+        match(
+          v.get(usize(1)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "0", "v5=0"), _ => assert(false, "t1")),
+          .None => assert(false, "v1")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+// ---------------------------------------------------------------------------
+// Phase 5afb — ArrayVal.set(idx, val) and ArrayVal.remove(idx)
+// ---------------------------------------------------------------------------
+test("Phase 5afb: set(1, 99) returns new array with replaced element", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3)];\narr2 := arr.set(usize(1), i32(99));\nexport(arr2.len());\nexport(arr2.get(usize(1)).unwrap());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "len=3"), _ => assert(false, "t0")),
+          .None => assert(false, "v0")
+        );
+        match(
+          v.get(usize(1)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "99", "set=99"), _ => assert(false, "t1")),
+          .None => assert(false, "v1")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afb: set at last index replaces last element", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(20), i32(30)];\narr2 := arr.set(usize(2), i32(300));\nexport(arr2.get(usize(2)).unwrap());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "300", "last=300"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afb: remove(0) removes first element — check len and new first", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(20), i32(30)];\narr2 := arr.remove(usize(0));\nexport(arr2.len());\nexport(arr2.get(usize(0)).unwrap());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "len=2"), _ => assert(false, "t0")),
+          .None => assert(false, "v0")
+        );
+        match(
+          v.get(usize(1)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "20", "new_first=20"), _ => assert(false, "t1")),
+          .None => assert(false, "v1")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afb: remove(1) removes middle element — fold sum of remaining", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5)];\narr2 := arr.remove(usize(1));\nsum := arr2.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(sum);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        // arr2 = [1,3,4,5], sum = 13
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "13", "sum=13"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afb: set does not mutate original — original unchanged after set", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3)];\n_ := arr.set(usize(0), i32(99));\nexport(arr.get(usize(0)).unwrap());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        // original arr[0] should still be 1
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "orig=1"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+// ---------------------------------------------------------------------------
+// Phase 5afc — StrLit.as_bytes() and IntLit.min/max
+// ---------------------------------------------------------------------------
+test("Phase 5afc: as_bytes() returns byte array of correct length", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "s := \"hello\";\nbytes := s.as_bytes();\nexport(bytes.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "len=5"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afc: as_bytes() of \"ABC\" returns ASCII codes 65 66 67", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "s := \"ABC\";\nbytes := s.as_bytes();\nexport(bytes.get(usize(0)).unwrap());\nexport(bytes.get(usize(1)).unwrap());\nexport(bytes.get(usize(2)).unwrap());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "65", "A=65"), _ => assert(false, "t0")),
+          .None => assert(false, "v0")
+        );
+        match(
+          v.get(usize(1)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "66", "B=66"), _ => assert(false, "t1")),
+          .None => assert(false, "v1")
+        );
+        match(
+          v.get(usize(2)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "67", "C=67"), _ => assert(false, "t2")),
+          .None => assert(false, "v2")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afc: IntLit.min(other) returns the smaller value", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "a := i32(10);\nb := i32(3);\nsmaller := a.min(b);\nexport(smaller);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "min=3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afc: IntLit.max(other) returns the larger value", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "a := i32(5);\nb := i32(12);\nlarger := a.max(b);\nexport(larger);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "12", "max=12"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+// ---------------------------------------------------------------------------
+// Phase 5afd — min/max via fold, as_bytes sum, get in while
+// ---------------------------------------------------------------------------
+test("Phase 5afd: min via fold with IntLit.min — find minimum in array", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(5), i32(3), i32(8), i32(1), i32(7)];\nmin_val := arr.fold(i32(9999), (fn(acc : i32, x : i32) -> i32)(acc.min(x)));\nexport(min_val);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "min=1"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afd: max via fold with IntLit.max — find maximum in array", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(5), i32(3), i32(8), i32(1), i32(7)];\nmax_val := arr.fold(i32(0), (fn(acc : i32, x : i32) -> i32)(acc.max(x)));\nexport(max_val);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "8", "max=8"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afd: as_bytes then fold sum of byte values", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "s := \"ABC\";\nbytes := s.as_bytes();\ntotal := bytes.fold(i32(0), (fn(acc : i32, b : i32) -> i32)((acc + b)));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        // A=65, B=66, C=67, sum = 198
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "198", "sum=198"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afd: as_bytes then count bytes in range 65-90 (uppercase ASCII)", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "s := \"Hello World\";\nbytes := s.as_bytes();\nuppercase_count := bytes.filter((fn(b : i32) -> bool)(((b >= i32(65)) && (b <= i32(90))))).len();\nexport(uppercase_count);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        // H=72, W=87 — 2 uppercase letters
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "upper=2"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+// ---------------------------------------------------------------------------
+// Phase 5afe — Complex state-mutation patterns using set/remove
+// ---------------------------------------------------------------------------
+test("Phase 5afe: swap two elements using set twice", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3), i32(4)];\na := arr.get(usize(0)).unwrap();\nb := arr.get(usize(3)).unwrap();\narr2 := arr.set(usize(0), b);\narr3 := arr2.set(usize(3), a);\nexport(arr3.get(usize(0)).unwrap());\nexport(arr3.get(usize(3)).unwrap());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        // swap arr[0]=1 and arr[3]=4 → arr3[0]=4, arr3[3]=1
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "swapped0=4"), _ => assert(false, "t0")),
+          .None => assert(false, "v0")
+        );
+        match(
+          v.get(usize(1)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "swapped3=1"), _ => assert(false, "t1")),
+          .None => assert(false, "v1")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afe: remove first two elements — check remaining", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(20), i32(30), i32(40), i32(50)];\narr2 := arr.remove(usize(0));\narr3 := arr2.remove(usize(0));\nexport(arr3.len());\nexport(arr3.get(usize(0)).unwrap());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        // arr3 = [30, 40, 50]
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "len=3"), _ => assert(false, "t0")),
+          .None => assert(false, "v0")
+        );
+        match(
+          v.get(usize(1)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "30", "first=30"), _ => assert(false, "t1")),
+          .None => assert(false, "v1")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afe: sequential set operations — update multiple indices", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(0), i32(0), i32(0)];\narr2 := arr.set(usize(0), i32(10));\narr3 := arr2.set(usize(1), i32(20));\narr4 := arr3.set(usize(2), i32(30));\nsum := arr4.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(sum);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        // arr4 = [10, 20, 30], sum = 60
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "60", "sum=60"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5afe: min and max of absolute differences between adjacent elements", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(3), i32(7), i32(2), i32(9), i32(5)];\n(min_diff : i32) = i32(9999);\n(max_diff : i32) = i32(0);\n(i : usize) = usize(0);\nwhile(runtime(i < usize(4)), {\n  a := arr.get(i).unwrap();\n  b := arr.get((i + usize(1))).unwrap();\n  diff := (a - b).abs();\n  min_diff = min_diff.min(diff);\n  max_diff = max_diff.max(diff);\n  i = (i + usize(1));\n});\nexport(min_diff);\nexport(max_diff);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        // diffs: |3-7|=4, |7-2|=5, |2-9|=7, |9-5|=4 → min=4, max=7
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "min_diff=4"), _ => assert(false, "t0")),
+          .None => assert(false, "v0")
+        );
+        match(
+          v.get(usize(1)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "7", "max_diff=7"), _ => assert(false, "t1")),
+          .None => assert(false, "v1")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
