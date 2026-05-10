@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7an — Phase 5bs eval tests: sequence formulas, array index patterns, running accumulation, grand combos (20 more tests, 4747 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bs_1.test.yo` — 20 tests covering:
+
+- **5bsa** (4 tests): sum n² 1..10=385; sum n*(n+1) 1..5=70; count n*(n+1) div by 6 in 1..20=13; sum (n%3+n%5) 1..10=30
+- **5bsb** (4 tests): sum even-idx elements [3,1,4,1,5,9,2,6]=14; sum odd-idx=17; sum max(consecutive pairs)=40; sum min(consecutive pairs)=13
+- **5bsc** (4 tests): sum cumulative max=46; sum cumulative min=10; count increases=4; sum increase diffs=15
+- **5bsd** (4 tests): sum_n2+sum_nn1+count_div6=468; sum_mods+sum_even+sum_odd=61; sum_maxpairs+sum_minpairs+count_increase=57; cum_max+cum_min+sum_diffs=71
+- **5bse** (4 tests): sum_n2+sum_even+cum_max=445; sum_nn1+sum_maxpairs+cum_max=156; count_div6+sum_minpairs+cum_min=36; sum_mods+count_increase+sum_diffs=49
+
+**New patterns**: n² in source strings; index-based filtering (even/odd index); consecutive max/min pairs; cumulative max/min accumulation; increase count and diff sum.
+
+**Test results**: 4747/4747 yo-self tests passing ✅ (20 new + 4727 prior).
+
 ### Phase 7am — Phase 5br eval tests: multi-condition filtering, array stats, bit ops, divisor sums, grand combos (20 more tests, 4727 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5br_1.test.yo` — 20 tests covering:
