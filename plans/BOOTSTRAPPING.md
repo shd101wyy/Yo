@@ -3149,6 +3149,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 ---
 
+### Phase 7d — Phase 5ai eval tests: to_string, trim, substring, repeat, char_at, replace_all, index_of (20 more tests, 4027 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ai_1.test.yo` — 20 tests covering:
+
+- **5aia** (4 tests): `to_string()` on `IntLit`, `BoolVal(true)`, `BoolVal(false)`, `StrLit` — verifies quoted string output
+- **5aib** (4 tests): `StrLit.trim()` — leading/trailing whitespace, no-op on clean string; `StrLit.substring(start, end)` — mid-range and 2-char slice
+- **5aic** (4 tests): `StrLit.repeat(n)` — 3× and 0×; `StrLit.char_at(n)` — first and last character
+- **5aid** (4 tests): `StrLit.replace_all(from, to)` — char replacement and word replacement; `StrLit.index_of(needle)` — found returns Some with index, not found returns None
+- **5aie** (4 tests): `ArrayVal.index_of(needle)` — integer found/not-found, string found by equality; trim+substring+replace_all pipeline
+
+**Test results**: 4027/4027 yo-self tests passing ✅ (20 new + 4007 prior).
+
+---
+
 ### What works today
 
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
