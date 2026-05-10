@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ac — Phase 5bh eval tests: string processing, integer patterns, conditional accumulation, nested pipelines, grand combos (20 more tests, 4527 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bh_1.test.yo` — 20 tests covering:
+
+- **5bha** (4 tests): fold total char count across strings=15; filter strings shorter than 4=4; fold max string length=13; fold sum of short string lengths=8
+- **5bhb** (4 tests): while digit sum of 9834=24; while Collatz(6) steps=9; fold sum mod 7=3; fold count 2-digit numbers with digit sum>10=2
+- **5bhc** (4 tests): filter odd+fold=19; sum array minus first+last=20; cond tax bracket on income=20; map to codes+fold=14
+- **5bhd** (4 tests): flat_map duplicate each element+fold=20; map→flat_map→filter even→fold=12; zip products filter>10 fold=62; separate lane sums diff=54
+- **5bhe** (4 tests): string-len + while sum grand combo=19; multi-stage evens→squares→zip→products→fold=144; while digit sum filter grand combo=115; filter odds + grand combo=24
+
+**Key pitfalls discovered**: `fold` with `_` parameter and mutable captures causes SIGABRT; `.Some(x) := arr.get(i)` in cond inside while causes exception; array literals `[x, x]` in cond branches inside flat_map callbacks cause parse error → replaced with algebraically-equivalent filter+fold patterns.
+
+**Test results**: 4527/4527 yo-self tests passing ✅ (20 new + 4507 prior).
+
 ### Phase 7ab — Phase 5bg eval tests: recursive fold, while+accumulator, multi-array, mixed arithmetic, grand combos (20 more tests, 4507 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bg_1.test.yo` — 20 tests covering:
