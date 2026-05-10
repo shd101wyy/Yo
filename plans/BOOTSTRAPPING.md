@@ -3982,3 +3982,33 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - **5cde** (4 tests): 48+45+30=123; 39+28+6=73; 8+4+20=32; 234+38+3=275
 
 **Test results**: 4967/4967 yo-self tests passing ✅ (20 new + 4947 prior).
+
+### Phase 7az — Phase 5ce eval tests: ascending-with-swap [1,2,3,4,5,8,6,7,9] (20 more tests, 4987 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ce_1.test.yo` — 20 tests with T1=48, T2=43, T3=7, T4=237, T5=45, T6=27, T7=4, T8=35, T9=30, T10=2, T11=20, T12=3.
+
+**Test results**: 4987/4987 yo-self tests passing ✅.
+
+### Phase 7ba — Phase 5cf eval tests: [1,2,3,4,5,8,7,6,9] (20 more tests, 5007 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5cf_1.test.yo` — 20 tests with T1=48, T2=42, T3=7, T4=236.
+
+**Test results**: 5007/5007 yo-self tests passing ✅.
+
+### Phase 7bb — Phase 5cg eval tests: [1,2,3,4,6,7,5,9,8] (20 more tests, 5027 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5cg_1.test.yo` — 20 tests with T1=48, T2=41, T3=7, T10=5.
+
+**Test results**: 5027/5027 yo-self tests passing ✅.
+
+### Phase 7bc — Phase 5ch eval tests: [1,2,3,4,6,7,8,5,9] (20 more tests, 5047 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ch_1.test.yo` — 20 tests with T1=48, T2=39, T3=8, T4=234.
+
+**Test results**: 5047/5047 yo-self tests passing ✅.
+
+### Phase 7bd — Phase 5ci eval tests: [1,2,3,4,6,7,9,5,8] (20 more tests, 5067 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ci_1.test.yo` — 20 tests with T1=50, T2=38, T3=7, T4=232.
+
+**Test results**: 5067/5067 yo-self tests passing ✅.
