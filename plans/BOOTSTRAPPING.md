@@ -3301,6 +3301,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4227/4227 yo-self tests passing ✅ (20 new + 4207 prior).
 
+### Phase 7t — Phase 5ay eval tests: named functions, zip/enumerate, string predicates, index_of/find, grand combos (20 more tests, 4347 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ay_1.test.yo` — 20 tests covering:
+
+- **5aya** (4 tests): Named recursive `fib(6)=8`; named recursive `pow(2,10)=1024`; named recursive `sum(10)=55`; two named functions composed
+- **5ayb** (4 tests): `zip`+map to first elements; `zip`+map to second elements (sum=600); `enumerate`+filter late indices (len=3); `enumerate`+map values sum=6
+- **5ayc** (4 tests): `starts_with("h")` filter → 3 words; `ends_with("o")` filter → 3 words; `contains("ell")` in all; `trim()`+`starts_with`
+- **5ayd** (4 tests): `index_of` returns `is_some` true; `index_of` returns `is_none` for missing; `find(>4)` is_some true; `find(>10)` is_none true
+- **5aye** (4 tests): Sum of squares 1–5=55; `split`+`starts_with("h")` filter count=3; sum of squares 1–5 via while loop; `parse_i64().unwrap_or(i32(0))` map+fold=100
+
+**Pitfalls discovered**: Calling a named recursive function from inside a map lambda produces incorrect results; avoid this pattern and compute directly in the lambda instead.
+
+**Test results**: 4347/4347 yo-self tests passing ✅ (20 new + 4327 prior).
+
 ### Phase 7s — Phase 5ax eval tests: multi-arg functions, nested cond, Option chains, while accumulation, flat_map/zip combos (20 more tests, 4327 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5ax_1.test.yo` — 20 tests covering:
