@@ -3301,6 +3301,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4227/4227 yo-self tests passing ✅ (20 new + 4207 prior).
 
+### Phase 7r — Phase 5aw eval tests: numeric algorithms, string pipelines, struct HOF, higher-order composition, grand combos (20 more tests, 4307 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5aw_1.test.yo` — 20 tests covering:
+
+- **5awa** (4 tests): GCD via Euclidean while loop; 2^8 via repeated doubling; digit sum of 1234; 10th triangular number via while accumulation
+- **5awb** (4 tests): word count via split+len; uppercase all + join with dash; filter empty strings after split; replace_all then split gives parts
+- **5awc** (4 tests): struct field arithmetic (distance squared); struct array map to field sum; filter int array by odd values; any on string array checking length
+- **5awd** (4 tests): compose double+add-one; map with clamping then fold (1+2+3+3+3=12); lambda stored in variable called twice; map then all positive
+- **5awe** (4 tests): concat two arrays filter evens sum=20; map words to lengths sum=13; recursive sum_to(5)=15; fold to find max
+
+**Test results**: 4307/4307 yo-self tests passing ✅ (20 new + 4287 prior).
+
 ### Phase 7q — Phase 5av eval tests: any/all, join, substring, parse_i64, replace_all, enumerate/zip, mixed (20 more tests, 4287 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5av_1.test.yo` — 20 tests covering:
