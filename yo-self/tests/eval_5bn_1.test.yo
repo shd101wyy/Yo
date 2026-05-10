@@ -1,0 +1,630 @@
+// @skip_wasm32-emscripten
+// @skip_wasm32-wasi
+open(import("std/fmt"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+
+// ---------------------------------------------------------------------------
+// Phase 5bna — matrix-like / dot product patterns
+// ---------------------------------------------------------------------------
+test("Phase 5bna: 2x2 matrix multiply trace (via parallel arrays)", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // A=[[1,2],[3,4]], B=[[5,6],[7,8]]
+  // C[0][0]=1*5+2*7=19, C[1][1]=3*6+4*8=50, trace=69
+  src := "a0 := [i32(1), i32(2)];\na1 := [i32(3), i32(4)];\nb0 := [i32(5), i32(7)];\nb1 := [i32(6), i32(8)];\nc00 := ((a0.get(usize(0)).unwrap() * b0.get(usize(0)).unwrap()) + (a0.get(usize(1)).unwrap() * b0.get(usize(1)).unwrap()));\nc11 := ((a1.get(usize(0)).unwrap() * b1.get(usize(0)).unwrap()) + (a1.get(usize(1)).unwrap() * b1.get(usize(1)).unwrap()));\ntrace := (c00 + c11);\nexport(trace);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "69", "69"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bna: 2x2 matrix determinant A=[[4,3],[2,1]]", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // det = 4*1 - 3*2 = -2; abs = 2
+  src := "det := ((i32(4) * i32(1)) - (i32(3) * i32(2)));\nabs_det := cond((det < i32(0)) => (i32(0) - det), true => det);\nexport(abs_det);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bna: dot product [1,3,5] · [2,4,6]", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 1*2+3*4+5*6=2+12+30=44
+  src := "a := [i32(1),i32(3),i32(5)];\nb := [i32(2),i32(4),i32(6)];\nab := a.zip(b);\ndot := ab.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)((acc + (p.0 * p.1))));\nexport(dot);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "44", "44"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bna: sum of squares of differences [5,3,7] - [2,1,4]", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // diffs: 3,2,3; squares: 9,4,9; sum=22
+  src := "a := [i32(5),i32(3),i32(7)];\nb := [i32(2),i32(1),i32(4)];\nab := a.zip(b);\nresult := ab.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)((acc + ((p.0 - p.1) * (p.0 - p.1)))));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "22", "22"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bnb — number-theory / digit patterns
+// ---------------------------------------------------------------------------
+test("Phase 5bnb: sum of array lengths that are prime", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // lengths [2,3,5,3,4,6]; primes: 2,3,5,3; sum=13
+  src := "lens := [i32(2),i32(3),i32(5),i32(3),i32(4),i32(6)];\nresult := lens.filter((fn(n : i32) -> bool)(cond((n == i32(2)) => true, (n == i32(3)) => true, (n == i32(5)) => true, (n == i32(7)) => true, true => false))).fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "13", "13"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bnb: sum of two-digit numbers with odd digit sum", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // nums [12,13,21,31,42]; digit sums 3,4,3,4,6; odd: 12,21; sum=33
+  src := "nums := [i32(12),i32(13),i32(21),i32(31),i32(42)];\nresult := nums.filter((fn(n : i32) -> bool)(((((n / i32(10)) + (n % i32(10))) % i32(2)) == i32(1)))).fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "33", "33"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bnb: while — first n where n! exceeds 1000", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // product updates before n increments; after p=5040>1000, n=8
+  src := "n := i32(1);\np := i32(1);\nwhile((p <= i32(1000)), {\np = (p * n);\nn = (n + i32(1));\n});\nexport(n);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "8", "8"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bnb: count k in 1..20 where k^2+1 divisible by 5", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // k=2,3,7,8,12,13,17,18 → count=8
+  src := "ks := [i32(1),i32(2),i32(3),i32(4),i32(5),i32(6),i32(7),i32(8),i32(9),i32(10),i32(11),i32(12),i32(13),i32(14),i32(15),i32(16),i32(17),i32(18),i32(19),i32(20)];\nresult := ks.filter((fn(k : i32) -> bool)((((k * k) + i32(1)) % i32(5)) == i32(0))).fold(i32(0), (fn(acc : i32, k_unused : i32) -> i32)((acc + i32(1))));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "8", "8"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bnc — cumulative / running computations (using while loops)
+// ---------------------------------------------------------------------------
+test("Phase 5bnc: sum of cumulative products [1,2,3,4,5]", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // cum prods: 1,2,6,24,120; sum=153
+  src := "nn := i32(1);\np := i32(1);\nresult := i32(0);\nwhile((nn <= i32(5)), {\np = (p * nn);\nresult = (result + p);\nnn = (nn + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "153", "153"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bnc: count even cumulative products of [1,2,3,4,5]", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // cum prods: 1(odd),2(even),6(even),24(even),120(even) → count=4
+  src := "nn := i32(1);\np := i32(1);\nresult := i32(0);\nwhile((nn <= i32(5)), {\np = (p * nn);\nresult = (result + cond(((p % i32(2)) == i32(0)) => i32(1), true => i32(0)));\nnn = (nn + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "4"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bnc: alternating-sign sum [1..6] abs value", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 1-2+3-4+5-6 = -3; abs = 3
+  src := "sign := i32(1);\nresult := i32(0);\nii := i32(1);\nwhile((ii <= i32(6)), {\nresult = (result + (sign * ii));\nsign = (i32(0) - sign);\nii = (ii + i32(1));\n});\nabs_result := cond((result < i32(0)) => (i32(0) - result), true => result);\nexport(abs_result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bnc: sum of elements at indices divisible by 3", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // elements [10,20,...,90]; indices 0,3,6 → vals 10,40,70 → sum=120
+  src := "ii := i32(0);\nresult := i32(0);\nwhile((ii < i32(9)), {\nval := ((ii + i32(1)) * i32(10));\nresult = (result + cond(((ii % i32(3)) == i32(0)) => val, true => i32(0)));\nii = (ii + i32(1));\n});\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "120", "120"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bnd — grand combo tests
+// ---------------------------------------------------------------------------
+test("Phase 5bnd: abs(det) + proper-divs(6) + 2^3 grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // abs(det([[4,3],[2,1]]))=2, proper-divs(6)=1+2+3=6, 2^3=8; total=16
+  src := "det := ((i32(4) * i32(1)) - (i32(3) * i32(2)));\nabs_det := cond((det < i32(0)) => (i32(0) - det), true => det);\npdiv_sum := i32(0);\nd := i32(1);\nwhile((d < i32(6)), {\npdiv_sum = (pdiv_sum + cond(((i32(6) % d) == i32(0)) => d, true => i32(0)));\nd = (d + i32(1));\n});\npow := i32(1);\nnn := i32(0);\nwhile((nn < i32(3)), {\npow = (pow * i32(2));\nnn = (nn + i32(1));\n});\ntotal := ((abs_det + pdiv_sum) + pow);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "16", "16"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bnd: dot product + count-k-where-k^2+1-div5 + factorial grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // dot [1,2,3]·[4,5,6]=32; count k in 1..5 where k^2+1 div 5: k=2,3 → count=2; 4!=24; total=58
+  src := "a := [i32(1),i32(2),i32(3)];\nb := [i32(4),i32(5),i32(6)];\nab := a.zip(b);\ndot := ab.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)((acc + (p.0 * p.1))));\nks := [i32(1),i32(2),i32(3),i32(4),i32(5)];\nkcount := ks.filter((fn(k : i32) -> bool)((((k * k) + i32(1)) % i32(5)) == i32(0))).fold(i32(0), (fn(acc : i32, k_unused : i32) -> i32)((acc + i32(1))));\nfact := i32(1);\nii := i32(1);\nwhile((ii <= i32(4)), {\nfact = (fact * ii);\nii = (ii + i32(1));\n});\ntotal := ((dot + kcount) + fact);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "58", "58"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bnd: cumulative products sum + prime-filter-sum grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // cum prods [1..5]: 153; prime filter of [2,4,6,7,9,11]: 2+7+11=20; total=173
+  src := "pp := i32(1);\nii := i32(1);\ncum_sum := i32(0);\nwhile((ii <= i32(5)), {\npp = (pp * ii);\ncum_sum = (cum_sum + pp);\nii = (ii + i32(1));\n});\nmixed := [i32(2),i32(4),i32(6),i32(7),i32(9),i32(11)];\nprime_sum := mixed.filter((fn(nv : i32) -> bool)(cond((nv == i32(2)) => true, (nv == i32(3)) => true, (nv == i32(5)) => true, (nv == i32(7)) => true, (nv == i32(11)) => true, true => false))).fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\ntotal := (cum_sum + prime_sum);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "173", "173"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bnd: alternating-sum abs + index-mod-3-sum grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // alt sum [1..6] abs=3; index-mod-3 sum of elems [10..90]=120; total=123
+  src := "sign := i32(1);\nalt_result := i32(0);\nii := i32(1);\nwhile((ii <= i32(6)), {\nalt_result = (alt_result + (sign * ii));\nsign = (i32(0) - sign);\nii = (ii + i32(1));\n});\nabs_alt := cond((alt_result < i32(0)) => (i32(0) - alt_result), true => alt_result);\njj := i32(0);\nidx_sum := i32(0);\nwhile((jj < i32(9)), {\nval := ((jj + i32(1)) * i32(10));\nidx_sum = (idx_sum + cond(((jj % i32(3)) == i32(0)) => val, true => i32(0)));\njj = (jj + i32(1));\n});\ntotal := (abs_alt + idx_sum);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "123", "123"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bne — grand combo finale tests
+// ---------------------------------------------------------------------------
+test("Phase 5bne: matrix trace + dot product + while-power grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // trace(2x2 identity×2) = 2+2=4; dot [1,2]·[3,4]=11; 2^5=32; total=47
+  src := "c00 := ((i32(1) * i32(2)) + (i32(0) * i32(0)));\nc11 := ((i32(0) * i32(0)) + (i32(1) * i32(2)));\ntrace := (c00 + c11);\na := [i32(1),i32(2)];\nb := [i32(3),i32(4)];\nab := a.zip(b);\ndot := ab.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)((acc + (p.0 * p.1))));\npow := i32(1);\nnn := i32(0);\nwhile((nn < i32(5)), {\npow = (pow * i32(2));\nnn = (nn + i32(1));\n});\ntotal := ((trace + dot) + pow);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "47", "47"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bne: filter-odds-count + cumulative-products-of-odds grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // odds [1,3,5,7] count=4; cum prods 1,3,15,105 sum=124; total=128
+  src := "ns := [i32(1),i32(2),i32(3),i32(4),i32(5),i32(6),i32(7),i32(8)];\nodds := ns.filter((fn(x : i32) -> bool)(((x % i32(2)) == i32(1))));\nodds_count := odds.fold(i32(0), (fn(acc : i32, x_unused : i32) -> i32)((acc + i32(1))));\ncur := i32(1);\npp := i32(1);\ncum_sum := i32(0);\nwhile((cur <= i32(7)), {\npp = (pp * cur);\ncum_sum = (cum_sum + pp);\ncur = (cur + i32(2));\n});\ntotal := (odds_count + cum_sum);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "128", "128"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bne: digit-sum-filter + while-sum + zip-dot grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // filter nums with odd digit-sum: [12,21]→sum=33; while 1..7=28; dot [1,2,3]·[4,5,6]=32; total=93
+  src := "nums := [i32(12),i32(13),i32(21),i32(31),i32(42)];\nodd_ds_sum := nums.filter((fn(n : i32) -> bool)(((((n / i32(10)) + (n % i32(10))) % i32(2)) == i32(1)))).fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nw := i32(0);\nii := i32(1);\nwhile((ii <= i32(7)), {\nw = (w + ii);\nii = (ii + i32(1));\n});\na := [i32(1),i32(2),i32(3)];\nb := [i32(4),i32(5),i32(6)];\nab := a.zip(b);\nzdot := ab.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)((acc + (p.0 * p.1))));\ntotal := ((odd_ds_sum + w) + zdot);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "93", "93"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bne: mega grand combo — matrix-trace + prime-filter + factorial + dot", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // trace=69; prime sum of [2,3,4,5,6]=10; 3!=6; dot [1,1,1]·[7,8,9]=24; total=109
+  src := "a0 := [i32(1),i32(2)];\na1 := [i32(3),i32(4)];\nb0 := [i32(5),i32(7)];\nb1 := [i32(6),i32(8)];\nc00 := ((a0.get(usize(0)).unwrap() * b0.get(usize(0)).unwrap()) + (a0.get(usize(1)).unwrap() * b0.get(usize(1)).unwrap()));\nc11 := ((a1.get(usize(0)).unwrap() * b1.get(usize(0)).unwrap()) + (a1.get(usize(1)).unwrap() * b1.get(usize(1)).unwrap()));\ntrace := (c00 + c11);\nmixed := [i32(2),i32(3),i32(4),i32(5),i32(6)];\nprime_sum := mixed.filter((fn(nv : i32) -> bool)(cond((nv == i32(2)) => true, (nv == i32(3)) => true, (nv == i32(5)) => true, true => false))).fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nfact := i32(1);\nii := i32(1);\nwhile((ii <= i32(3)), {\nfact = (fact * ii);\nii = (ii + i32(1));\n});\nu := [i32(1),i32(1),i32(1)];\nv := [i32(7),i32(8),i32(9)];\nuv := u.zip(v);\ndot := uv.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)((acc + (p.0 * p.1))));\ntotal := (((trace + prime_sum) + fact) + dot);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "109", "109"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});

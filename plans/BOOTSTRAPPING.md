@@ -3329,6 +3329,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ai — Phase 5bn eval tests: matrix trace/det, zip-dot, prime filter, while-factorial, cumulative products, alternating sums, grand combos (20 more tests, 4647 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bn_1.test.yo` — 20 tests covering:
+
+- **5bna** (4 tests): 2×2 matrix multiply trace via parallel arrays=69; abs(det([[4,3],[2,1]]))=2; dot [1,3,5]·[2,4,6]=44; sum of squared diffs [5,3,7]-[2,1,4]=22
+- **5bnb** (4 tests): sum of lengths of prime arrays=13; sum of 2-digit numbers with odd digit sum=33; while — first n where n! exceeds 1000=8; count k in 1..20 where k²+1 divisible by 5=8
+- **5bnc** (4 tests): sum of cumulative products [1..5]=153; count even cumulative products=4; alternating-sign sum [1..6] abs=3; sum elements at indices divisible by 3=120
+- **5bnd** (4 tests): abs(det)+proper-divs(6)+2³ grand combo=16; dot+k-count+4! grand combo=58; cum-products-sum+prime-filter-sum grand combo=173; alt-sum-abs+index-mod3-sum grand combo=123
+- **5bne** (4 tests): matrix-trace+dot+while-power grand combo=47; filter-odds-count+cum-prods-of-odds grand combo=128; digit-sum-filter+while-sum+zip-dot grand combo=93; mega combo trace+prime-filter+factorial+dot=109
+
+**Test results**: 4647/4647 yo-self tests passing ✅ (20 new + 4627 prior).
+
 ### Phase 7ah — Phase 5bm eval tests: digit-square sum, proper divisors, LCM, dot product, power, grand combos (20 more tests, 4627 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bm_1.test.yo` — 20 tests covering:
