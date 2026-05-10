@@ -3329,6 +3329,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7af — Phase 5bk eval tests: Fibonacci-like sequences, HOF string filter, alternating ops, grand combos (20 more tests, 4587 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bk_1.test.yo` — 20 tests covering:
+
+- **5bka** (4 tests): Fibonacci from a=1,b=1 iterate 8 times=55; Lucas a=2,b=1 iterate 7 times=47; Tribonacci iterate 8 times=81; power series 2^0+…+2^8=511
+- **5bkb** (4 tests): filter strings len>3 sum lens=17; double array then sum=54; product of odd-indexed elements [10,3,8,5,6,7]=105; count strings len>4=3
+- **5bkc** (4 tests): alternating add/sub fold from 10=14; Collatz steps from 6=8; sum squares of [1,3,5,7,9]=165; zip multiply then sum=44
+- **5bkd** (4 tests): sum of sums of three arrays [1..3],[4..6],[7..9]=45; count positives×10=40; sum odd numbers 1..9=25; grand combo zip products÷count=15
+- **5bke** (4 tests): GCD(48,36)=12; map+1 filter>5 sum=30; zip count both>3=1; two-var while 5 iters=21
+
+**Test results**: 4587/4587 yo-self tests passing ✅ (20 new + 4567 prior).
+
 ### Phase 7ae — Phase 5bj eval tests: boolean aggregation, cond with let, sequence comparisons, string+HOF grand combos (20 more tests, 4567 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bj_1.test.yo` — 20 tests covering:
