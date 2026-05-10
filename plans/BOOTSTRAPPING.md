@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7z — Phase 5be eval tests: let-chains, while patterns, nested HOF, string+arithmetic, grand combos (20 more tests, 4467 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5be_1.test.yo` — 20 tests covering:
+
+- **5bea** (4 tests): let-chain sum+product+difference from same array=15; let-chain mean via sum/count=3; multi-step arithmetic pipeline=6; let-chain boolean results (filter>30 count=2)
+- **5beb** (4 tests): while to count multiples of 7 from 1–50=7; while sum multiples of 3 from 1–30=165; while integer square root of 49=7; while with two parallel counters — even+odd
+- **5bec** (4 tests): map→map pipeline squares+1 sum=55; filter→map even squares sum=120; flat_map→filter doubles>10 len=3; zip→fold with tuple accumulator sum=35
+- **5bed** (4 tests): count strings by length≥4=2; sum of word lengths=18; max word length via fold=9; filter strings then map to lengths then sum=9
+- **5bee** (4 tests): let-chain+recursive fn+fold grand combo=12; while+map+zip grand combo=35; string-filter+len-map+sum+recursive fn=17; all-pipeline grand combo zip+filter+fold=35
+
+**Pitfalls discovered**: `&&` operator inside `cond` condition in while body crashes — split into start-at-1 to avoid needing the `&& (i > 0)` guard.
+
+**Test results**: 4467/4467 yo-self tests passing ✅ (20 new + 4447 prior).
+
 ### Phase 7y — Phase 5bd eval tests: zip/pair ops, multi-fn composition, boolean logic, nested cond, grand combos (20 more tests, 4447 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bd_1.test.yo` — 20 tests covering:
