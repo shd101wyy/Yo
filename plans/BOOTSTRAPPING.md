@@ -3932,3 +3932,17 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 4. ✅ Install scripts work on fresh machines (Linux, macOS, Windows).
 5. ✅ All existing tests pass with the Yo-written compiler.
 6. ✅ TypeScript source can be archived/removed.
+
+### Phase 7av — Phase 5ca eval tests: prefix maxes, suffix mins, sliding windows, abs deviation on [6,1,9,2,8,3,7,4,5] (20 more tests, 4907 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ca_1.test.yo` — 20 tests covering:
+
+- **5ca** (4 tests): sum of prefix maxes=75; sum of suffix mins=25; count new maximums=2; sum of i×arr[i]=182 on [6,1,9,2,8,3,7,4,5]
+- **5cab** (4 tests): sum 3-window max=57; sum 3-window min=16; count windows sum>15=4; sum middle elements=34
+- **5cac** (4 tests): sum elements>5=30; count i where arr[i]+arr[8-i]>10=5; sum |arr[i]-5|=20; count multiples of 6 in 1..20=3
+- **5cad** (4 tests): 75+25+2=102; 182+57+16=255; 4+34+30=68; 5+20+3=28
+- **5cae** (4 tests): 75+57+30=162; 25+16+5=46; 2+4+20=26; 182+34+3=219
+
+**Key fix discovered**: Source strings must use `.unwrap()` on `arr.get(i)` (it returns `Option<T>`), and all index variables must be `i32` (not `usize`). Wrong `usize` indices cause wrong-type assertion failure ("t"). This pattern comes from working 5bz tests.
+
+**Test results**: 4907/4907 yo-self tests passing ✅ (20 new + 4887 prior).
