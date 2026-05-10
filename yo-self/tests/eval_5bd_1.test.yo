@@ -1,0 +1,649 @@
+// @skip_wasm32-emscripten — split file (~5min Yo compile alone, C output ~6 MB)
+// @skip_wasm32-wasi        — split file (~5min Yo compile alone, C output ~6 MB)
+/// Tests for the evaluator — Phase 5bd series: zip/enumerate combos, multi-fn composition,
+/// boolean logic trees, nested cond patterns, and grand combos.
+open(import("std/fmt"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+// ---------------------------------------------------------------------------
+// Phase 5bda — zip and pair operations
+// ---------------------------------------------------------------------------
+test("Phase 5bda: zip two arrays and sum pairs", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // zip [1,2,3] [10,20,30] => [(1,10),(2,20),(3,30)], sum pairs = [11,22,33], fold = 66
+  src := "a := [i32(1), i32(2), i32(3)];\nb := [i32(10), i32(20), i32(30)];\npairs := a.zip(b);\nsums := pairs.map((fn(p : (i32, i32)) -> i32)((p.0 + p.1)));\nresult := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "66", "66"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bda: zip dot product of [2,3,4] and [5,6,7]", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 2*5 + 3*6 + 4*7 = 10+18+28 = 56
+  src := "a := [i32(2), i32(3), i32(4)];\nb := [i32(5), i32(6), i32(7)];\npairs := a.zip(b);\nproducts := pairs.map((fn(p : (i32, i32)) -> i32)((p.0 * p.1)));\nresult := products.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "56", "56"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bda: zip then filter pairs where first > second", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // zip [5,1,8,2,6] [3,4,7,9,1]: pairs where p.0>p.1: (5,3),(8,7),(6,1) = 3 pairs
+  src := "a := [i32(5), i32(1), i32(8), i32(2), i32(6)];\nb := [i32(3), i32(4), i32(7), i32(9), i32(1)];\npairs := a.zip(b);\ngreater := pairs.filter((fn(p : (i32, i32)) -> bool)((p.0 > p.1)));\nexport(greater.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bda: zip max-of-pair then fold sum", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // max of each pair: (1,4)→4, (3,2)→3, (5,5)→5, sum=12
+  src := "a := [i32(1), i32(3), i32(5)];\nb := [i32(4), i32(2), i32(5)];\npairs := a.zip(b);\nmaxes := pairs.map((fn(p : (i32, i32)) -> i32)(cond((p.0 > p.1) => p.0, true => p.1)));\nresult := maxes.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "12", "12"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bdb — multi-function composition
+// ---------------------------------------------------------------------------
+test("Phase 5bdb: compose double then add-one via named fns", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // double(7)=14, add1(14)=15
+  src := "double := (fn(x : i32) -> i32)((x * i32(2)));\nadd1 := (fn(x : i32) -> i32)((x + i32(1)));\nresult := add1(double(i32(7)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "15"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bdb: map with double then filter positives then fold", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // map [1,2,3,4,5] with x*2-5: [-3,-1,1,3,5], filter >0: [1,3,5], sum=9
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5)];\ntransformed := arr.map((fn(x : i32) -> i32)(((x * i32(2)) - i32(5))));\npositive := transformed.filter((fn(x : i32) -> bool)((x > i32(0))));\nresult := positive.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "9", "9"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bdb: three-stage pipeline map-filter-fold", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // [1..8] → map x^2 → [1,4,9,16,25,36,49,64] → filter >15 → [16,25,36,49,64] → sum=190
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5), i32(6), i32(7), i32(8)];\nsquares := arr.map((fn(x : i32) -> i32)((x * x)));\nlarge := squares.filter((fn(x : i32) -> bool)((x > i32(15))));\nresult := large.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "190", "190"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bdb: apply two-arg fn to compute range sum via fold", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // clamp(x,lo,hi): clamp each [0,5,10,15,20] to [2,12] → [2,5,10,12,12], sum=41
+  src := "arr := [i32(0), i32(5), i32(10), i32(15), i32(20)];\nclamp_lo := i32(2);\nclamp_hi := i32(12);\nclamped := arr.map((fn(x : i32) -> i32)(cond((x < clamp_lo) => clamp_lo, (x > clamp_hi) => clamp_hi, true => x)));\nresult := clamped.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "41", "41"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bdc — boolean logic trees
+// ---------------------------------------------------------------------------
+test("Phase 5bdc: all elements satisfy predicate via fold", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // all [2,4,6,8] are even → true
+  src := "arr := [i32(2), i32(4), i32(6), i32(8)];\nresult := arr.fold(true, (fn(acc : bool, x : i32) -> bool)((acc && ((x % i32(2)) == i32(0)))));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "true"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bdc: any element satisfies predicate via any", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // any [1,3,5,7,8] is even → true (8 is even)
+  src := "arr := [i32(1), i32(3), i32(5), i32(7), i32(8)];\nresult := arr.any((fn(x : i32) -> bool)(((x % i32(2)) == i32(0))));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "true"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bdc: count elements satisfying both conditions via filter", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // [1..10] both even AND divisible by 3: 6 → count=1
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5), i32(6), i32(7), i32(8), i32(9), i32(10)];\nresult := arr.filter((fn(x : i32) -> bool)(((x % i32(2)) == i32(0)) && ((x % i32(3)) == i32(0))));\nexport(result.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "1"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bdc: negate bool map then count true", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // [true,false,true,false,true] → map not → [false,true,false,true,false], count true=2
+  src := "arr := [true, false, true, false, true];\nnegated := arr.map((fn(x : bool) -> bool)(!(x)));\nresult := negated.filter((fn(x : bool) -> bool)(x));\nexport(result.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bdd — nested cond patterns
+// ---------------------------------------------------------------------------
+test("Phase 5bdd: classify numbers into buckets via nested cond", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // classify [1,5,10,50,100] as 0=tiny(<5), 1=small(<20), 2=large; sum codes = 0+0+1+2+2 = 5
+  src := "arr := [i32(1), i32(5), i32(10), i32(50), i32(100)];\ncodes := arr.map((fn(x : i32) -> i32)(cond((x < i32(5)) => i32(0), (x < i32(20)) => i32(1), true => i32(2))));\nresult := codes.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "6", "6"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bdd: while with cond to compute absolute difference sum", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // abs of each: [3,1,4,1,5,9,2,6] already positive, sum=31
+  src := "arr := [i32(3), i32(1), i32(4), i32(1), i32(5), i32(9), i32(2), i32(6)];\nresult := arr.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "31", "31"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bdd: cond multi-branch FizzBuzz code for 15", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // FizzBuzz code: divisible by 15 → 3, by 3 → 1, by 5 → 2, else → 0; for n=15 → 3
+  src := "n := i32(15);\nresult := cond(((n % i32(15)) == i32(0)) => i32(3), ((n % i32(3)) == i32(0)) => i32(1), ((n % i32(5)) == i32(0)) => i32(2), true => i32(0));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bdd: recursive cond-based sign function", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // sign(-3)=-1, sign(0)=0, sign(5)=1; sum = -1+0+1 = 0 ... use abs instead
+  // abs_val([3,1,4]) via fold = 8
+  src := "abs_val := (fn(x : i32) -> i32)(cond((x < i32(0)) => (i32(0) - x), true => x));\narr := [i32(3), i32(1), i32(4)];\nresult := arr.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + abs_val(x))));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "8", "8"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bde — grand combos
+// ---------------------------------------------------------------------------
+test("Phase 5bde: zip + cond map + fold grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // zip [1,2,3,4] [4,3,2,1], take max of each pair: [4,3,3,4], sum=14
+  src := "a := [i32(1), i32(2), i32(3), i32(4)];\nb := [i32(4), i32(3), i32(2), i32(1)];\npairs := a.zip(b);\nmaxes := pairs.map((fn(p : (i32, i32)) -> i32)(cond((p.0 > p.1) => p.0, true => p.1)));\nresult := maxes.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "14", "14"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bde: recursive pow + map + fold grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // pow(2,1)=2, pow(2,2)=4, pow(2,3)=8, pow(2,4)=16; sum = 30
+  src := "pow :: (fn(base : i32, exp : i32) -> i32)(cond((exp <= i32(0)) => i32(1), true => (base * recur(base, (exp - i32(1))))));\nexps := [i32(1), i32(2), i32(3), i32(4)];\nvalues := exps.map((fn(e : i32) -> i32)(pow(i32(2), e)));\nresult := values.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "30", "30"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bde: string filter + zip + fold grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // words with 'e': "apple","cherry","lemon" (3); weights [10,20,30]; zip → sum weighted = 10+20+30=60
+  src := "words := [\"apple\", \"banana\", \"cherry\", \"mango\", \"lemon\"];\nhas_e := words.filter((fn(w : str) -> bool)(w.contains(\"e\")));\nweights := [i32(10), i32(20), i32(30)];\npairs := has_e.zip(weights);\nresult := pairs.fold(i32(0), (fn(acc : i32, p : (str, i32)) -> i32)((acc + p.1)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "60", "60"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5bde: while squares + cond classify + fold grand combo", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // squares of [1,2,3,4,5] = [1,4,9,16,25], classify ≥10→1 else 0: [0,0,0,1,1], sum=2
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5)];\nsquares := arr.map((fn(x : i32) -> i32)((x * x)));\ncodes := squares.map((fn(x : i32) -> i32)(cond((x >= i32(10)) => i32(1), true => i32(0))));\nresult := codes.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});

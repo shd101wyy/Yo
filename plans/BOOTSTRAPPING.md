@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7y — Phase 5bd eval tests: zip/pair ops, multi-fn composition, boolean logic, nested cond, grand combos (20 more tests, 4447 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bd_1.test.yo` — 20 tests covering:
+
+- **5bda** (4 tests): zip+map pair sums=66; dot product [2,3,4]·[5,6,7]=56; filter pairs where p.0>p.1 (3 pairs); zip max-of-pair fold=12
+- **5bdb** (4 tests): compose double+add1 → 15; map(x\*2-5)+filter>0+fold=9; three-stage map-filter-fold (squares>15, sum=190); clamp pipeline sum=41
+- **5bdc** (4 tests): all-even fold=true; any-even via any=true; filter even AND div-3 len=1; negate bool map then count true=2
+- **5bdd** (4 tests): classify into buckets sum=6; fold sum of positive array=31; FizzBuzz code for 15=3; abs_val fold via closure=8
+- **5bde** (4 tests): zip+cond-max+fold=14; recursive pow+map+fold sum=30; string-filter+zip+fold=60; squares+cond-classify+fold=2
+
+**Pitfalls discovered**: Multi-branch cond in classify: boundary `x<5` means x=5 falls into `x<20` branch (code 1), not code 0. Chaining multiple function calls with `+` (`f(a) + f(b) + f(c)`) throws an exception in source strings — use fold over an array instead.
+
+**Test results**: 4447/4447 yo-self tests passing ✅ (20 new + 4427 prior).
+
 ### Phase 7x — Phase 5bc eval tests: flat_map, string ops, multi-var while, recursive fns (20 more tests, 4427 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bc_1.test.yo` — 20 tests covering:
