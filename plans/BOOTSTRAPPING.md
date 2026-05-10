@@ -4389,3 +4389,25 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_5ly_1.test.yo` — [1,2,6,8,7,4,5,9,3] T1=59
 
 **Test results**: 10067/10067 yo-self tests passing ✅.
+
+### Phases 7kt-7lh — Phase 5lz–5mn eval tests: 15 more arrays (300 more tests, 10367 total) ✅ Done
+
+**New test files**:
+
+- `eval_5lz_1.test.yo` — [1,2,6,8,7,4,9,3,5] T1=60
+- `eval_5ma_1.test.yo` — [1,2,6,8,7,4,9,5,3] T1=60
+- `eval_5mb_1.test.yo` — [1,2,6,8,7,5,3,4,9] T1=58
+- `eval_5mc_1.test.yo` — [1,2,6,8,7,5,3,9,4] T1=59
+- `eval_5md_1.test.yo` — [1,2,6,8,7,5,4,3,9] T1=58
+- `eval_5me_1.test.yo` — [1,2,6,8,7,5,4,9,3] T1=59
+- `eval_5mf_1.test.yo` — [1,2,6,8,7,5,9,3,4] T1=60
+- `eval_5mg_1.test.yo` — [1,2,6,8,7,5,9,4,3] T1=60
+- `eval_5mh_1.test.yo` — [1,2,6,8,7,9,3,4,5] T1=61
+- `eval_5mi_1.test.yo` — [1,2,6,8,7,9,3,5,4] T1=61
+- `eval_5mj_1.test.yo` — [1,2,6,8,7,9,4,3,5] T1=61
+- `eval_5mk_1.test.yo` — [1,2,6,8,7,9,4,5,3] T1=61
+- `eval_5ml_1.test.yo` — [1,2,6,8,7,9,5,3,4] T1=61
+- `eval_5mm_1.test.yo` — [1,2,6,8,7,9,5,4,3] T1=61
+- `eval_5mn_1.test.yo` — [1,2,6,8,9,3,4,5,7] T1=62
+
+**Test results**: 10367/10367 yo-self tests passing ✅.
