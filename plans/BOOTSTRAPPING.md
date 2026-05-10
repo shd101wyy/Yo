@@ -4012,3 +4012,13 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 **New test file**: `yo-self/tests/eval_5ci_1.test.yo` — 20 tests with T1=50, T2=38, T3=7, T4=232.
 
 **Test results**: 5067/5067 yo-self tests passing ✅.
+
+### Phase 7be — Phase 5cj eval tests: [1,2,3,4,6,8,5,9,7] (20 more tests, 5087 total) ✅ Done
+
+### Phase 7bf — Phase 5ck eval tests: [1,2,3,4,7,5,6,8,9] (20 more tests, 5107 total) ✅ Done
+
+### Phase 7bg — Phase 5cl eval tests: [1,2,3,4,7,6,5,8,9] (20 more tests, 5127 total) ✅ Done
+
+### Phase 7bh — Phase 5cm eval tests: [1,2,3,4,7,6,8,9,5] (20 more tests, 5147 total) ✅ Done
+
+### Phase 7bi — Phase 5cn eval tests: [1,2,3,4,7,8,5,9,6] (20 more tests, 5167 total) ✅ Done
