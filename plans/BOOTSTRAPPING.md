@@ -3343,6 +3343,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4847/4847 yo-self tests passing ✅ (20 new + 4827 prior).
 
+### Phase 7au — Phase 5bz eval tests: prefix maxes, suffix mins, sliding windows, absolute deviation (20 more tests, 4887 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bz_1.test.yo` — 20 tests covering:
+
+- **5bza** (4 tests): sum of prefix maxes of [7,2,8,3,6,1,9,4,5]=73; sum of suffix mins=19; count new maximums=3; sum of i×arr[i]=178
+- **5bzb** (4 tests): sum of max of each 3-window=57; sum of min of each 3-window=14; count windows with sum>15=4; sum of middle elements=33
+- **5bzc** (4 tests): sum of elements>5=30; count i where arr[i]+arr[8-i]>10=5; sum of |arr[i]-5|=20; count n in 1..20 where n%2==1 AND n%3==1=4
+- **5bzd** (4 tests): 73+19+3=95; 178+57+14=249; 4+33+30=67; 5+20+4=29
+- **5bze** (4 tests): 73+57+30=160; 19+14+5=38; 3+4+20=27; 178+33+4=215
+
+**New patterns**: suffix min via decrement loop (`i from 8 to 0`); 3-element sliding window with local variables `a/b/c` + `mx := cond; mx = cond` reassignment; absolute deviation via `cond((v>5) => (v-i32(5)), true => (i32(5)-v))`; symmetric pair sum check `arr[i]+arr[8-i]`. **Key fix**: generator must use `"\\n".join(lines)` to produce literal `\n` escape sequences inside Yo string literals (not actual newlines which cause parse errors).
+
+**Test results**: 4887/4887 yo-self tests passing ✅ (20 new + 4867 prior).
+
 ### Phase 7at — Phase 5by eval tests: cumulative sums, mirror patterns, modular arithmetic (20 more tests, 4867 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5by_1.test.yo` — 20 tests covering:
