@@ -395,6 +395,7 @@ yo-self/
     eval_5v_1.test.yo       -- Phase 5v proto-evaluator tests: FnMut closures (=>>/lambda assign), tuple construction/access, integer conversions (.to_i32/.to_u64/.to_usize), String.from/String.len/String.clone, combos (41 tests)
     eval_5w_1.test.yo       -- Phase 5w proto-evaluator tests: bitwise ops (| & ^ << >>), extern/c_include/where/forall (all UnitVal), String.from, ArrayVal.is_empty()/StrLit.is_empty(), combos (43 tests)
     eval_5x_1.test.yo       -- Phase 5x proto-evaluator tests: ArrayVal.concat, ArrayVal.reverse, ArrayVal.slice, StrLit.replace/index_of, StrLit.as_bytes/to_cstr, ArrayVal.find, combos (43 tests)
+    eval_5y_1.test.yo       -- Phase 5y proto-evaluator tests: f64 arithmetic (FloatLit), usize/u64 ops, escape/return in functions, box(val) (PtrVal), HashMap TypeVal, combos (34 tests)
     eval_basics.test.yo     -- basic proto-evaluator tests
     eval_tail_1.test.yo     -- tail call proto-evaluator tests (part 1)
     eval_tail_2.test.yo     -- tail call proto-evaluator tests (part 2)
@@ -2936,6 +2937,27 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 3. Single-element arrays without trailing comma parse as `Slice` type — always use `[i32(1),]` form
 
 **Test results**: 3754/3754 yo-self tests passing ✅ (43 new + 3711 prior).
+
+---
+
+### Phase 6t — Phase 5y eval tests: f64 arithmetic, usize/u64 ops, escape/return in functions, box, HashMap (34 more tests, 3788 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5y_1.test.yo` — 34 tests covering previously-untested areas:
+
+- **5ya (7)**: f64 arithmetic with FloatLit result matching — addition, division, subtraction, comparisons, multi-export combo
+- **5yb (5)**: usize operations — `usize(n)` arithmetic, `arr.len()` returning IntLit, usize comparisons, `.to_usize()` for array indexing
+- **5yc (4)**: u64 operations — addition, division, equality, modulo
+- **5yd (4)**: escape(val)/return(val) inside function bodies — early exit with value, nested if return, while-loop return, escape with threshold
+- **5ye (3)**: `box(val)` constructor — confirms it produces a `PtrVal` for i32, bool, str
+- **5yf (3)**: `HashMap(K, V)` type constructor — confirms it produces a `TypeVal` (placeholder, no operations)
+- **5yg (8)**: Combo tests — f64 with early return, usize arithmetic for mid-point, escape+array, u64 loop, f64 comparison chain, box+usize, usize div, u64 multi-compare
+
+**Key pitfalls discovered:**
+
+1. `arr.get(computed_usize_val)` fails when the computed value comes from arithmetic — use `arr.get(usize(n))` with literal indices or avoid using division results as array indices directly
+2. f64 comparison results give BoolVal; string matching for FloatLit is safest with known-non-integer results (4.5, 2.5) from the existing eval_5b.test.yo patterns
+
+**Test results**: 3788/3788 yo-self tests passing ✅ (34 new + 3754 prior).
 
 ---
 
