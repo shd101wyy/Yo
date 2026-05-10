@@ -3235,6 +3235,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4127/4127 yo-self tests passing ✅ (20 new + 4107 prior).
 
+### Phase 7j — Phase 5ao eval tests: join pipelines, any/all predicates, find+unwrap_or, enumerate, zip/or_else/flat_map (20 more tests, 4147 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ao_1.test.yo` — 20 tests covering:
+
+- **5aoa** (4 tests): `join` pipelines — `split+join` with different separator; string array `join` with space; `join+contains`; `split+join+len`
+- **5aob** (4 tests): `any`/`all` predicates — true/false outcomes for both; satisfaction checks with comparison lambdas
+- **5aoc** (4 tests): `find` + `is_some`/`is_none` + `unwrap_or` — found and not-found cases; default fallback value
+- **5aod** (4 tests): `enumerate` length checks — preserves array length; first element `is_some`; two-element array; five elements
+- **5aoe** (4 tests): `zip` equal-length arrays gives same length; `or_else` on None/Some; `flat_map` flattens and counts
+
+**Fixes applied**: `!b` → `!(b)` (paren-less operator not allowed); single-element `[i32(5)]` → two-element `[i32(5), i32(6)]` (single-element typed arrays cause SIGABRT).
+
+**Test results**: 4147/4147 yo-self tests passing ✅ (20 new + 4127 prior).
+
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
 - **Parser port** — `yo-self/parser/` complete; 43 tests pass.
 - **AST + ExprInfo + side-table evaluation results** — Phase 2k done.
