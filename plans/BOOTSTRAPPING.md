@@ -3329,6 +3329,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ae — Phase 5bj eval tests: boolean aggregation, cond with let, sequence comparisons, string+HOF grand combos (20 more tests, 4567 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bj_1.test.yo` — 20 tests covering:
+
+- **5bja** (4 tests): all positive count=5; any divisible by 7=1; both-even pair count=3; count equals index-squared=6
+- **5bjb** (4 tests): max of three (17,42,29)=42; clamp [-5,3,15,7,12,0] to [0,10] sum=30; bucket distribution [10,25,40,55,70] sum=13; running max [3,7,2,9,5,8,1]=9
+- **5bjc** (3 tests): filter a≥3 sum=12; count a[i]<b[i]=3; sum pairwise maxima=33
+- **5bjd** (4 tests): filter len>2 string lens=12; while+filter-even grand combo=25; zip sums>40 count=4; negate odds/double evens sum=15
+- **5bje** (5 tests): product of evens [1..6]=48; fold min [7,3,9,1,5,8,2]=1; while 2^7−100=28; zip abs-diff sum=12; string len+zip max+while grand combo=30
+
+**Test results**: 4567/4567 yo-self tests passing ✅ (20 new + 4547 prior).
+
 ### Phase 7ad — Phase 5bi eval tests: range-based computations, multi-var while, HOF composition, grand combos (20 more tests, 4547 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bi_1.test.yo` — 20 tests covering:
