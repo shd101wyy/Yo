@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ar — Phase 5bw eval tests: alternating sums, running max/min, divisor sums, CRT filtering (20 more tests, 4827 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bw_1.test.yo` — 20 tests covering:
+
+- **5bwa** (4 tests): alternating sum [5,3,8,1,9,2,7,4]=19; running max sum=62; running min sum=16; consecutive pair max sum=53
+- **5bwb** (4 tests): sum of proper divisors of 12=16; proper divisors of 20=22; all divisors of 12=28; all divisors of 20=42
+- **5bwc** (4 tests): count n in 1..50 where n%3==1 AND n%4==2=4; sum=112; count multiples of 6 in 1..30=5; sum=90
+- **5bwd** (4 tests): 19+62+16=97; 53+16+22=91; 28+42+4=74; 112+5+90=207
+- **5bwe** (4 tests): 19+16+28=63; 62+22+4=88; 53+42+5=100; 16+112+90=218
+
+**New patterns**: alternating sign via `cond(((i%i32(2))==i32(0)) => i32(1), true => (i32(0)-i32(1)))`; running max/min accumulation; consecutive pair max; divisor-sum loop (iterate d from 1 to n-1, multiply by `is_div` flag); CRT double-condition via product of two flags. **Key fix discovered**: must use array literal `[i32(5), ...]` syntax (not `Array[i32](N); arr.set(...)`) and unique variable names across sequential while-loop bodies in the same source string.
+
+**Test results**: 4827/4827 yo-self tests passing ✅ (20 new + 4807 prior).
+
 ### Phase 7aq — Phase 5bv eval tests: Collatz sequences, OR conditions, array min/max/mean patterns (20 more tests, 4807 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bv_1.test.yo` — 20 tests covering:
