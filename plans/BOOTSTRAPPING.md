@@ -3301,6 +3301,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4227/4227 yo-self tests passing ✅ (20 new + 4207 prior).
 
+### Phase 7p — Phase 5au eval tests: array concat/reverse/slice/remove, first/last, unwrap/unwrap_or, mixed (20 more tests, 4267 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5au_1.test.yo` — 20 tests covering:
+
+- **5aua** (4 tests): `concat` two arrays → length 4; `concat`+`get(2)` → Some(3); `reverse` first element = last original; `reverse`+`fold` sum
+- **5aub** (4 tests): `slice(1,3)` length=2; `slice(0,3)` first=10; `remove(1)` length=2; `remove(0)` first=20
+- **5auc** (4 tests): `first()` Some(42); `last()` Some(99); `first().unwrap()` = 7; `find(>10).unwrap_or(99)` = 99
+- **5aud** (4 tests): `find(>4).unwrap_or(0)` = 5; `first().is_some()` = true; `last().unwrap()+5` = 15; `slice(2,4).first().unwrap()` = 30
+- **5aue** (4 tests): `concat`+`filter`+`fold` evens sum=12; `reverse`+`map`+`last().unwrap()` = 2; `remove(1)`+`fold` sum=40; `slice`+`concat` length=5
+
+**Test results**: 4267/4267 yo-self tests passing ✅ (20 new + 4247 prior).
+
 ### Phase 7o — Phase 5at eval tests: more string methods, array index_of, split pipelines, mixed (20 more tests, 4247 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5at_1.test.yo` — 20 tests covering:
