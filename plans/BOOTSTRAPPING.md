@@ -2985,6 +2985,28 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 ---
 
+### Phase 6v — Phase 5aa eval tests: complex pipelines, HOF combos, structs, accumulator patterns (27 more tests, 3852 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5aa_1.test.yo` — 27 tests covering:
+
+- **5aaa** (5 tests): `StrLit.split` + pipeline processing (join, find, contains, all)
+- **5aab** (3 tests): `IntLit.min()` / `IntLit.max()` in complex arithmetic (fold, clamp, map+fold)
+- **5aac** (3 tests): `StrLit.substring()` with various ranges (prefix, suffix, then contains)
+- **5aad** (5 tests): Multi-level Option/Result chain combos (map→and_then→unwrap_or, ok(), err(), or_else, find→map)
+- **5aae** (3 tests): Accumulator patterns (while + HOF mixed: concat, fold, any/all)
+- **5aaf** (3 tests): Complex struct + impl method combos (multi-field HOF, filter by field, impl method in HOF)
+- **5aag** (5 tests): Grand combo tests (split+filter+map+join pipeline, i64 min/max via fold, Result+escape, zip+fold dot product, enumerate+filter)
+
+**Key pitfalls discovered**:
+
+- `StrLit(raw)` stores the RAW string WITH surrounding quotes. When pattern-matching `.StrLit(s)`, `s.as_str()` returns the raw value including quotes. Test comparisons must use `"\"hello\""` (with escaped quotes), not `"hello"`.
+- `StrLit.parse_i64()` returns `Option(i64)` (an EnumVal), not a raw `i64`. Use i64 literals directly in tests, or call `.unwrap()` on the parse result.
+- `ArrayList.to_array()` does not exist in the proto-evaluator. Use `(arr : [T]) = []; arr = arr.concat([item,]);` patterns instead.
+
+**Test results**: 3852/3852 yo-self tests passing ✅ (27 new + 3825 prior).
+
+---
+
 ## Current Bootstrap State
 
 ### What works today
