@@ -392,6 +392,8 @@ yo-self/
     eval_5s_1.test.yo       -- Phase 5s proto-evaluator tests: str.replace_all, str.trim, str.to_upper/lower, arr.enumerate(), arr.zip() (50 tests)
     eval_5t_1.test.yo       -- Phase 5t proto-evaluator tests: Option/Result chaining: TypeVal.Some/None/Ok/Err constructors, Option.map/and_then/unwrap_or/or_else, Result.is_ok/is_err/map/map_err/unwrap_or/ok/err (50 tests)
     eval_5u_1.test.yo       -- Phase 5u proto-evaluator tests: assert/comptime_assert, logical NOT !(expr), unary negation -(expr), runtime/dyn/comptime pass-throughs, type constructors (Option/Result/Box/Pointer/Slice/Future/Array/HashMap/Impl/Fn), type_of/size_of/align_of, println/print/unreachable/panic/todo/derive (50 tests)
+    eval_5v_1.test.yo       -- Phase 5v proto-evaluator tests: FnMut closures (=>>/lambda assign), tuple construction/access, integer conversions (.to_i32/.to_u64/.to_usize), String.from/String.len/String.clone, combos (41 tests)
+    eval_5w_1.test.yo       -- Phase 5w proto-evaluator tests: bitwise ops (| & ^ << >>), extern/c_include/where/forall (all UnitVal), String.from, ArrayVal.is_empty()/StrLit.is_empty(), combos (43 tests)
     eval_basics.test.yo     -- basic proto-evaluator tests
     eval_tail_1.test.yo     -- tail call proto-evaluator tests (part 1)
     eval_tail_2.test.yo     -- tail call proto-evaluator tests (part 2)
@@ -2869,6 +2871,48 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 - Phase 5me (10): complex combos — mutation+multi-trait+return, while loop with add-returning method, recursive method via recur, translate(dx,dy) returning V, cross-struct combine, mutation+extra-arg, multi-trait+extra-arg+struct-return, while with two-field mutation, extra-arg on multi-trait struct, returned struct used with extra-arg method
 
 **Test results**: 3227/3227 yo-self tests passing ✅ (including all 50 new Phase 5m tests and 3177 prior tests).
+
+---
+
+### Phase 6q — Phase 5n–5v eval tests + fmt CI rule (441 more tests, 3668 total) ✅ Done
+
+**Goal**: Add 441 more proto-evaluator integration tests in nine dedicated files covering new features implemented since Phase 5m, plus mandatory `./yo-cli fmt` rule and CI fmt check.
+
+**New test files** (`yo-self/tests/`):
+
+- **`eval_5n_1.test.yo`** — 50 tests — for-loops inside impl methods, helper functions called from impl, 3-level deep nesting, combos (for+while+impl+helper+struct)
+- **`eval_5o_1.test.yo`** — 50 tests — `break`/`continue` in `while` loops, `break`/`continue` in `for` loops, interaction with impl methods, early-exit patterns, combos
+- **`eval_5p_1.test.yo`** — 50 tests — ArrayList HOFs: `map`, `filter`, `fold`, `any`, `all`, `concat`, `reverse`, `first`, `last`, `slice`, `contains` with various element types
+- **`eval_5q_1.test.yo`** — 50 tests — string methods (`len`, `starts_with`, `ends_with`, `contains`, `substring`, `replace`, `split`), `Option.is_some`/`is_none`/`unwrap`, `arr.index_of`
+- **`eval_5r_1.test.yo`** — 50 tests — `flat_map`, `char_at`/`repeat`, `as_bytes`/`str.index_of`, `arr.remove`/`arr.set`/`arr.find`, self-recursive closures via `recur`
+- **`eval_5s_1.test.yo`** — 50 tests — `str.replace_all`, `str.trim`, `str.to_upper`/`to_lower`, `arr.enumerate()` (index+value tuples), `arr.zip()` (pair tuples)
+- **`eval_5t_1.test.yo`** — 50 tests — Option/Result chaining: `TypeVal.Some`/`None`/`Ok`/`Err` constructors, `Option.map`/`and_then`/`unwrap_or`/`or_else`, `Result.is_ok`/`is_err`/`map`/`map_err`/`unwrap_or`/`ok`/`err`
+- **`eval_5u_1.test.yo`** — 50 tests — `assert`/`comptime_assert`, logical `!expr`, unary `-expr`, `runtime()`/`dyn()`/`comptime()` pass-throughs, type constructors (`Option`/`Result`/`Box`/`Pointer`/`Slice`/`Future`/`Array`/`HashMap`/`Impl`/`Fn`), `type_of`/`size_of`/`align_of`, `println`/`print`/`unreachable`/`panic`/`todo`/`derive`
+- **`eval_5v_1.test.yo`** — 41 tests — FnMut closures (`=>>` lambda assign pattern), tuple construction/access, integer conversions (`.to_i32`/`.to_u64`/`.to_usize`), `String.from`/`String.len`/`String.clone`, combos
+
+**Also in this phase**:
+
+- `ci: Enable fmt check for yo code` — added `node ./out/cjs/yo-cli.cjs fmt --check ./yo-self` to CI
+- `docs: add ./yo-cli fmt rule` — mandatory `./yo-cli fmt <file.yo>` before committing added to `AGENTS.md` and `.github/instructions/testing.instructions.md`
+- All newly created test files formatted with `./yo-cli fmt`
+
+**Test results**: 3668/3668 yo-self tests passing ✅ (including all 441 new Phase 5n–5v tests and 3227 prior tests).
+
+---
+
+### Phase 6r — Phase 5w eval tests: bitwise ops, extern/c_include/where/forall, String.from, is_empty (43 more tests, 3711 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5w_1.test.yo` — 43 tests covering features that were only exercised inside `eval_tail_1.test.yo` but had no dedicated file:
+
+- **5wa** (10 tests): Bitwise operators `|` `&` `^` `<<` `>>` on `i32` values with various operands
+- **5wb** (10 tests): `extern(...)` / `c_include(...)` / `where(...)` / `forall(T)` — all return `UnitVal` and evaluation continues
+- **5wc** (5 tests): `String.from(str)` type constructor, `String(())` pass-through, multiple calls
+- **5wd** (8 tests): `ArrayVal.is_empty()` and `StrLit.is_empty()` — empty/non-empty, cond branches, push then check
+- **5we** (10 tests): Combo tests — bitwise in functions, bitwise in while loops, `extern` + arithmetic, `is_empty` in guards
+
+**Bug discovered**: `[i32(1)]` (single-element array literal without trailing comma) is parsed as `Slice(i32(1))` by the self-hosted parser, not as `ArrayVal`. This is by design — `[T]` is the Slice type syntax. Workaround: use trailing comma `[i32(1),]`. Tests use 2+ element arrays or trailing commas to avoid this. `arr.pop()` is also not in the proto-evaluator; tests use `push` and the 2-argument `while` form for mutation.
+
+**Test results**: 3711/3711 yo-self tests passing ✅ (43 new + 3668 prior).
 
 ---
 
