@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7am — Phase 5br eval tests: multi-condition filtering, array stats, bit ops, divisor sums, grand combos (20 more tests, 4727 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5br_1.test.yo` — 20 tests covering:
+
+- **5bra** (4 tests): count multiples of 6 in 1..30=5; sum n in 1..15 not div by 3=75; product odd 1..9=945; count coprime-to-6 in 1..30=10
+- **5brb** (4 tests): sum [3,1,4,1,5,9,2,6]=31 via fold; max-min range=8; count elements>4=3 via fold; count even=3 via fold
+- **5brc** (4 tests): count set bits in 42=3; sum proper divisors of 12=16; sum proper divisors of 28=28 (perfect); sum popcount 1..8=13 via precomputed array fold
+- **5brd** (4 tests): mult6_count+prod_odd+bits_42=953; sum_no3+arr_range+count_gt4=86; prod_odd+sum_divs_12+count_even=964; coprime6+sum_bits_1to8+sum_divs_28=51
+- **5bre** (4 tests): arr_sum+sum_no3+mult6_count=111; arr_range+sum_divs_12+count_even=27; count_gt4+coprime6+bits_42=16; prod_odd+sum_divs_28+sum_bits_1to8=986
+
+**New patterns**: AND via multiplication trick (nd2\*nd3==1); count set bits with division loop; sum of divisors with single loop; precomputed popcount array fold.
+
+**Test results**: 4727/4727 yo-self tests passing ✅ (20 new + 4707 prior).
+
 ### Phase 7al — Phase 5bq eval tests: binomial coefficients, powers, abs-diffs, prefix sums, local maxima, second max, grand combos (20 more tests, 4707 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bq_1.test.yo` — 20 tests covering:
