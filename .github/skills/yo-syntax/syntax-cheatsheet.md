@@ -1125,6 +1125,19 @@ result := arr.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + abs_val(x))));
 
 **Fibonacci without tmp variable**: `b = (a + b); a = (b - a)` computes fib correctly without a temp variable. After N iterations, `a` holds fib(N) and `b` holds fib(N+1).
 
+**3-term multiplication in source strings**: `(x * x * x)` causes an exception in evaluated source strings. Break it into a block:
+
+```
+// ❌ WRONG — causes exception
+cubes := arr.map((fn(x : i32) -> i32)((x * x * x)));
+
+// ✅ CORRECT — use a block with a local binding
+cubes := arr.map((fn(x : i32) -> i32)({
+  sq := (x * x);
+  (sq * x)
+}));
+```
+
 **3-term sum in fold on tuples**: `(acc + p.0 + p.1)` inside a fold lambda on tuple pairs crashes. Always map pairs to scalars first, then fold:
 
 ```
