@@ -3329,6 +3329,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ag — Phase 5bl eval tests: number theory, string/array patterns, accumulator combos, grand combos (20 more tests, 4607 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bl_1.test.yo` — 20 tests covering:
+
+- **5bla** (4 tests): digit sum of 12345=15; count divisors of 36=9; count odds 1..20=10; sum multiples of 3 or 5 up to 15=60
+- **5blb** (4 tests): count even-length strings=3; count same-length pairs=4; while sum evens up to 20=110; max string length in array=5
+- **5blc** (4 tests): running sum 1..5=15; count elements with square>30=2; pairwise sum count above 8=4; while absolute differences sum=13
+- **5bld** (4 tests): zip products where sum>7=124; three-array element-wise max sum=22; filter-map-zip grand combo=60; digit-sum+divisors+fold grand combo=18
+- **5ble** (4 tests): count cubes<500=7; while sum until exceeds 30=36; filter-map-fold squared evens=56; Fibonacci+divisors+filter grand combo=45
+
+**Test results**: 4607/4607 yo-self tests passing ✅ (20 new + 4587 prior).
+
 ### Phase 7af — Phase 5bk eval tests: Fibonacci-like sequences, HOF string filter, alternating ops, grand combos (20 more tests, 4587 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bk_1.test.yo` — 20 tests covering:
