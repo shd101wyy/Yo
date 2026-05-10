@@ -3275,6 +3275,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4187/4187 yo-self tests passing ✅ (20 new + 4167 prior).
 
+### Phase 7m — Phase 5ar eval tests: enums, modulo, enum+map+fold, struct+filter (20 more tests, 4207 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ar_1.test.yo` — 20 tests covering:
+
+- **5ara** (4 tests): Simple enum variants + match dispatch — Green→2, Red→1, wildcard default, 4-variant enum Left→3
+- **5arb** (4 tests): Enum with data — `None` tag/fields; `Some(i32(42))` inner field; match extracts inner; two-field destructure sum
+- **5arc** (4 tests): Modulo operator — `10%3=1`; `8%4=0`; filter evens len=2; filter evens then double len=2
+- **5ard** (4 tests): Enum array mapping — map to ints length=3; first element `is_some`; match `None` returns default; enum array length=3
+- **5are** (4 tests): Mixed programs — enum+map+fold sum=6; odd filter+fold sum=9; struct filter by field; squares sum equality
+
+**Test results**: 4207/4207 yo-self tests passing ✅ (20 new + 4187 prior).
+
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
 - **Parser port** — `yo-self/parser/` complete; 43 tests pass.
 - **AST + ExprInfo + side-table evaluation results** — Phase 2k done.

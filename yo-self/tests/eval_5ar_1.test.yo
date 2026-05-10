@@ -1,0 +1,655 @@
+// @skip_wasm32-emscripten — split file (~5min Yo compile alone, C output ~6 MB)
+// @skip_wasm32-wasi        — split file (~5min Yo compile alone, C output ~6 MB)
+/// Tests for the evaluator — Phase 5ar series: enum definitions, enum+match dispatch,
+/// modulo operator, and complex mixed programs.
+///
+/// Phases covered:
+///   5ara — Simple enum variants and match dispatch to integers
+///   5arb — Enum with data (None/Some/Both) and destructuring match
+///   5arc — Modulo operator and even/odd filtering
+///   5ard — Enum array mapping and folding
+///   5are — Mixed: enum+fold, modulo+fold, struct+filter, equality check
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+// ---------------------------------------------------------------------------
+// Phase 5ara — Simple enum variants and match dispatch
+// ---------------------------------------------------------------------------
+test("Phase 5ara: enum match dispatches Green to integer two", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Color :: enum(Red, Green, Blue);\nto_num := (fn(c : Color) -> i32)(match(c, .Red => i32(1), .Green => i32(2), .Blue => i32(3)));\nresult := to_num(Color.Green);\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5ara: enum match dispatches Red to integer one", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Color :: enum(Red, Green, Blue);\nto_num := (fn(c : Color) -> i32)(match(c, .Red => i32(1), .Green => i32(2), .Blue => i32(3)));\nresult := to_num(Color.Red);\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "1"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5ara: enum match with wildcard arm returns default", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Color :: enum(Red, Green, Blue);\nval := (fn(c : Color) -> i32)(match(c, .Red => i32(1), _ => i32(99)));\nr := val(Color.Green);\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "99", "99"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5ara: four-variant enum dispatches Left to three", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Dir :: enum(Up, Down, Left, Right);\nmove := (fn(d : Dir) -> i32)(match(d, .Up => i32(1), .Down => i32(2), .Left => i32(3), .Right => i32(4)));\nr := move(Dir.Left);\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5arb — Enum with data and destructuring match
+// ---------------------------------------------------------------------------
+test("Phase 5arb: enum None variant has empty fields tag is None", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "MyOpt :: enum(None, Some(i32));\nval := MyOpt.None;\nexport(val);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(
+            x,
+            .EnumVal(tag, fields) => {
+              assert(tag.as_str() == ".None", "None");
+              assert(fields.len() == usize(0), "empty");
+            },
+            _ => assert(false, "EnumVal")
+          ),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5arb: enum Some variant holds inner value 42", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "MyOpt :: enum(None, Some(i32));\nval := MyOpt.Some(i32(42));\nexport(val);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(
+            x,
+            .EnumVal(tag, fields) => {
+              assert(tag.as_str() == ".Some", ".Some");
+              assert(fields.len() == usize(1), "1 field");
+              match(
+                fields.get(usize(0)),
+                .Some(inner) => match(inner,.IntLit(n) => assert(n.as_str() == "42", "42"), _ => assert(false, "inner")),
+                .None => assert(false, "fields")
+              );
+            },
+            _ => assert(false, "EnumVal")
+          ),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5arb: match Some variant extracts inner value", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "MyOpt :: enum(None, Some(i32));\nval := MyOpt.Some(i32(10));\nresult := match(val, .Some(n) => n, .None => i32(0));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "10"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5arb: enum with two fields match destructures and sums", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Pair :: enum(Empty, Both(a: i32, b: i32));\np := Pair.Both(i32(3), i32(7));\nresult := match(p, .Both(a, b) => (a + b), .Empty => i32(0));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "10"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5arc — Modulo operator and even/odd filtering
+// ---------------------------------------------------------------------------
+test("Phase 5arc: modulo 10 mod 3 equals 1", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "result := (i32(10) % i32(3));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "1"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5arc: modulo 8 mod 4 equals 0", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "result := (i32(8) % i32(4));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "0", "0"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5arc: filter even numbers from one to five gives length two", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "nums := [i32(1), i32(2), i32(3), i32(4), i32(5)];\nevens := nums.filter((fn(x : i32) -> bool)(((x % i32(2)) == i32(0))));\nexport(evens.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5arc: filter evens then double gives length two", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "nums := [i32(1), i32(2), i32(3), i32(4), i32(5)];\nevens := nums.filter((fn(x : i32) -> bool)(((x % i32(2)) == i32(0))));\ndoubled := evens.map((fn(x : i32) -> i32)((x * i32(2))));\nexport(doubled.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5ard — Enum array mapping and folding
+// ---------------------------------------------------------------------------
+test("Phase 5ard: map enum array to integers gives length three", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Color :: enum(Red, Green, Blue);\ncolors := [Color.Red, Color.Green, Color.Blue];\nnums := colors.map((fn(c : Color) -> i32)(match(c, .Red => i32(1), .Green => i32(2), .Blue => i32(3))));\nexport(nums.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5ard: map enum array first element is Red equals one", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Color :: enum(Red, Green, Blue);\ncolors := [Color.Red, Color.Green, Color.Blue];\nnums := colors.map((fn(c : Color) -> i32)(match(c, .Red => i32(1), .Green => i32(2), .Blue => i32(3))));\nfirst := nums.first();\nexport(first.is_some());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "is_some"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5ard: match None variant returns default value", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "MyOpt :: enum(None, Some(i32));\nval := MyOpt.None;\nresult := match(val, .Some(n) => n, .None => i32(99));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "99", "99"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5ard: enum array length is three", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Color :: enum(Red, Green, Blue);\ncolors := [Color.Red, Color.Green, Color.Blue];\nexport(colors.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5are — Mixed programs: enum+fold, modulo+fold, struct+filter, equality
+// ---------------------------------------------------------------------------
+test("Phase 5are: enum map then fold sum of all variants", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Color :: enum(Red, Green, Blue);\ncolors := [Color.Red, Color.Green, Color.Blue];\nnums := colors.map((fn(c : Color) -> i32)(match(c, .Red => i32(1), .Green => i32(2), .Blue => i32(3))));\ntotal := nums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "6", "6"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5are: filter odd numbers then fold sum equals nine", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "nums := [i32(1), i32(2), i32(3), i32(4), i32(5), i32(6)];\nodds := nums.filter((fn(x : i32) -> bool)(((x % i32(2)) == i32(1))));\ntotal := odds.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "9", "9"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5are: struct filter by field value gives length one", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "Point :: struct(x: i32, y: i32);\npts := [Point(x: i32(3), y: i32(4)), Point(x: i32(1), y: i32(2))];\nbig := pts.filter((fn(p : Point) -> bool)((p.x > i32(2))));\nexport(big.len());\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "1"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 5are: sum of squares equality check true", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "sq := (fn(x : i32) -> i32)((x * x));\narr := [i32(2), i32(3), i32(4)];\nsquares := arr.map(sq);\ntotal := squares.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));\nresult := (total == i32(29));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "4+9+16=29"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
