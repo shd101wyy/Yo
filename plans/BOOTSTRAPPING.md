@@ -394,6 +394,7 @@ yo-self/
     eval_5u_1.test.yo       -- Phase 5u proto-evaluator tests: assert/comptime_assert, logical NOT !(expr), unary negation -(expr), runtime/dyn/comptime pass-throughs, type constructors (Option/Result/Box/Pointer/Slice/Future/Array/HashMap/Impl/Fn), type_of/size_of/align_of, println/print/unreachable/panic/todo/derive (50 tests)
     eval_5v_1.test.yo       -- Phase 5v proto-evaluator tests: FnMut closures (=>>/lambda assign), tuple construction/access, integer conversions (.to_i32/.to_u64/.to_usize), String.from/String.len/String.clone, combos (41 tests)
     eval_5w_1.test.yo       -- Phase 5w proto-evaluator tests: bitwise ops (| & ^ << >>), extern/c_include/where/forall (all UnitVal), String.from, ArrayVal.is_empty()/StrLit.is_empty(), combos (43 tests)
+    eval_5x_1.test.yo       -- Phase 5x proto-evaluator tests: ArrayVal.concat, ArrayVal.reverse, ArrayVal.slice, StrLit.replace/index_of, StrLit.as_bytes/to_cstr, ArrayVal.find, combos (43 tests)
     eval_basics.test.yo     -- basic proto-evaluator tests
     eval_tail_1.test.yo     -- tail call proto-evaluator tests (part 1)
     eval_tail_2.test.yo     -- tail call proto-evaluator tests (part 2)
@@ -2913,6 +2914,28 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 **Bug discovered**: `[i32(1)]` (single-element array literal without trailing comma) is parsed as `Slice(i32(1))` by the self-hosted parser, not as `ArrayVal`. This is by design — `[T]` is the Slice type syntax. Workaround: use trailing comma `[i32(1),]`. Tests use 2+ element arrays or trailing commas to avoid this. `arr.pop()` is also not in the proto-evaluator; tests use `push` and the 2-argument `while` form for mutation.
 
 **Test results**: 3711/3711 yo-self tests passing ✅ (43 new + 3668 prior).
+
+---
+
+### Phase 6s — Phase 5x eval tests: concat, reverse, slice, replace, index_of, as_bytes, to_cstr, find (43 more tests, 3754 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5x_1.test.yo` — 43 tests covering array and string methods that were only exercised inside `eval_tail_1.test.yo` but had no dedicated file:
+
+- **5xa** (7 tests): `ArrayVal.concat(other)` — non-empty+non-empty, empty edge cases, length check, immutability
+- **5xb** (6 tests): `ArrayVal.reverse()` — first/last element checks, empty array, double-reverse, immutability
+- **5xc** (6 tests): `ArrayVal.slice(start, end)` — full, middle, first-only, empty, tail, out-of-bounds clamping
+- **5xd** (6 tests): `StrLit.replace(old, new)` and `StrLit.index_of(needle)` — replace with/without match, index_of found/not-found/at-start
+- **5xe** (5 tests): `StrLit.as_bytes()` (empty/non-empty, first byte value) and `StrLit.to_cstr()` (len check)
+- **5xf** (4 tests): `ArrayVal.find(fn)` — first match, no match, odd predicate, empty array
+- **5xg** (9 tests): Combo tests — concat+reverse, slice+find, replace+index_of, as_bytes+find, concat+slice+middle, reverse+slice
+
+**Key pitfalls discovered during test authoring**:
+
+1. `match(found, .Some(x) => x, .None => i32(-1))` inside `export(...)` in source strings causes parse errors — use `.unwrap()` or `.is_none()` / `.is_some()` instead
+2. `StrLit` values are stored with embedded quotes (`"\"hello\""`) — cannot compare `.StrLit(s)` with `s.as_str() == "hello"` in outer test; use boolean predicates (`.contains(...)`, `.len()`, `.is_some()`) instead
+3. Single-element arrays without trailing comma parse as `Slice` type — always use `[i32(1),]` form
+
+**Test results**: 3754/3754 yo-self tests passing ✅ (43 new + 3711 prior).
 
 ---
 
