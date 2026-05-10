@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7v — Phase 5ba eval tests: Option patterns, while loops, fold reductions, cond selection, HOF pipelines (20 more tests, 4387 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ba_1.test.yo` — 20 tests covering:
+
+- **5baa** (4 tests): `Option(i32).Some` is_some=true; `Option(i32).None` is_some=false; unwrap_or on Some=7; unwrap_or on None=99
+- **5bab** (4 tests): count multiples of 7 below 50 (=7); digit sum of 1234 (=10); 2^7=128 via while; Collatz steps from 6 to 1 (=8)
+- **5bac** (4 tests): fold booleans with OR; fold to find running max (=9); fold to count elements >5 (=2); fold to compute product (=120)
+- **5bad** (4 tests): filter elements ≥10 from [1,5,10,50,100] (=3); sign sum via fold (=3); max-of-two function sum (=22); filter by 4≤x≤6 (=3)
+- **5bae** (4 tests): double-then-square pipeline sum (=56); filter-evens-square sum (=20); zip dot product [1,2,3]·[4,5,6]=32; pre-computed lengths sum (=13)
+
+**Pitfalls discovered**: `Result.Ok`/`Result.Err` not available in source-string evaluation (not in empty_env scope); use `Option(T).Some`/`Option(T).None` instead. `Option.Some` (without type param) also fails; must write `Option(i32).Some(...)`. `Option(T).None` with type annotation crashes; use `r := Option(i32).None` without annotation. `.is_none()` not supported; use `!(r.is_some())` instead. `str.concat(str)` chained in fold lambda crashes; use arithmetic fold patterns instead. `usize.as_i32()` / `i32.as_usize()` not supported in source strings.
+
+**Test results**: 4387/4387 yo-self tests passing ✅ (20 new + 4367 prior).
+
 ### Phase 7s — Phase 5ax eval tests: multi-arg functions, nested cond, Option chains, while accumulation, flat_map/zip combos (20 more tests, 4327 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5ax_1.test.yo` — 20 tests covering:
