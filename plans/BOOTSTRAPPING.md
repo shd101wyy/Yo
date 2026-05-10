@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7aq — Phase 5bv eval tests: Collatz sequences, OR conditions, array min/max/mean patterns (20 more tests, 4807 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bv_1.test.yo` — 20 tests covering:
+
+- **5bva** (4 tests): Collatz steps from 6=8; Collatz steps from 11=14; sum n in 1..20 divisible by both 2&3=36; count n in 1..100 divisible by 4 OR 6=33
+- **5bvb** (4 tests): max of [5,3,8,1,9,2,7,4]=9; sum elements above min=38; count elements above mean=4; sum excluding min and max=29
+- **5bvc** (4 tests): sum odd non-multiples of 3 in 1..15=37; count n in 1..30 where n%2==0 OR n%5==0=18; count adjacent pairs summing>10=3; max-min=8
+- **5bvd** (4 tests): 8+14+36=58; 33+9+38=80; 4+29+37=70; 18+3+8=29
+- **5bve** (4 tests): 8+9+37=54; 14+38+18=70; 36+4+3=43; 33+29+8=70
+
+**New patterns**: Collatz (3n+1) termination counting via conditional update in while; OR of two conditions using `(m1+m2) > 0` trick; two-pass array min/max; mean-comparison without division (multiply count by sum instead); min/max exclusion via != checks.
+
+**Test results**: 4807/4807 yo-self tests passing ✅ (20 new + 4787 prior).
+
 ### Phase 7ap — Phase 5bu eval tests: geometric series, modular arithmetic, Fibonacci/Lucas/Tribonacci (20 more tests, 4787 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bu_1.test.yo` — 20 tests covering:
