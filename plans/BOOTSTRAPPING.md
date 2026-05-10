@@ -3329,6 +3329,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ab — Phase 5bg eval tests: recursive fold, while+accumulator, multi-array, mixed arithmetic, grand combos (20 more tests, 4507 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bg_1.test.yo` — 20 tests covering:
+
+- **5bga** (4 tests): fold triangle sum T10=55; fold find max=9; fold find min=1; fold count occurrences of value=3
+- **5bgb** (4 tests): while 2^8=256; while sum of evens up to 20=110; while GCD(48,18)=6; while count digits in 12345=5
+- **5bgc** (4 tests): zip asq+bhalf maps sum=80; concat two map sums=57; dot product [1,2,3]·[4,5,6]=32; filter two arrays compare counts sum=8
+- **5bgd** (4 tests): sum of squares of evens=120; alternating-sign sum=3; sum of multiples of 3 or 5 below 20=78; product of odd numbers 1..9=945
+- **5bge** (4 tests): while+array-pipeline grand combo=29; zip max-of-pair+fold=35; multi-filter+fold+while=40; all-operations grand combo=40
+
+**Test results**: 4507/4507 yo-self tests passing ✅ (20 new + 4487 prior).
+
 ### Phase 7aa — Phase 5bf eval tests: zip combos, multi-fn pipelines, cond trees, string classification, grand combos (20 more tests, 4487 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bf_1.test.yo` — 20 tests covering:
