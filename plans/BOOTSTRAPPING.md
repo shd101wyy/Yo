@@ -3301,6 +3301,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4227/4227 yo-self tests passing ✅ (20 new + 4207 prior).
 
+### Phase 7q — Phase 5av eval tests: any/all, join, substring, parse_i64, replace_all, enumerate/zip, mixed (20 more tests, 4287 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5av_1.test.yo` — 20 tests covering:
+
+- **5ava** (4 tests): `any(x>4)` true; `any(x>10)` false; `all(even)` true; `all(even)` false (mixed)
+- **5avb** (4 tests): `join(",")` two strings; `join(" ")` three strings; `substring(1,3)` → "el"; `substring(0,5)` → full
+- **5avc** (4 tests): `parse_i64("42")` → Some(42); `parse_i64("abc")` → None; `replace_all("a","b")` → "bbb"; `replace_all("z","x")` → unchanged
+- **5avd** (4 tests): `enumerate().len()` = 3; `zip` same-length = 3; `zip` different-length → min=2; `parse_i64().is_some()` = true
+- **5ave** (4 tests): `any` after `filter`; `all` after `map`; `replace_all`+`contains`; `substring`+`join` pipeline
+
+**Test results**: 4287/4287 yo-self tests passing ✅ (20 new + 4267 prior).
+
 ### Phase 7p — Phase 5au eval tests: array concat/reverse/slice/remove, first/last, unwrap/unwrap_or, mixed (20 more tests, 4267 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5au_1.test.yo` — 20 tests covering:
