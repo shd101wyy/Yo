@@ -3946,3 +3946,15 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 **Key fix discovered**: Source strings must use `.unwrap()` on `arr.get(i)` (it returns `Option<T>`), and all index variables must be `i32` (not `usize`). Wrong `usize` indices cause wrong-type assertion failure ("t"). This pattern comes from working 5bz tests.
 
 **Test results**: 4907/4907 yo-self tests passing ✅ (20 new + 4887 prior).
+
+### Phase 7aw — Phase 5cb eval tests: ascending-heavy array [1,2,3,4,5,7,6,8,9] (20 more tests, 4927 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5cb_1.test.yo` — 20 tests:
+
+- **5cb** (4 tests): prefix max sum=46; suffix min sum=44; count new maximums=8; sum i×arr[i]=239
+- **5cbb** (4 tests): 3-window max sum=43; 3-window min sum=27; count windows>15=4; middle sum=35
+- **5cbc** (4 tests): sum>5=30; count sym pairs>10=2; sum |arr[i]-5|=20; count multiples of 6=3
+- **5cbd** (4 tests): 46+44+8=98; 239+43+27=309; 4+35+30=69; 2+20+3=25
+- **5cbe** (4 tests): 46+43+30=119; 44+27+2=73; 8+4+20=32; 239+35+3=277
+
+**Test results**: 4927/4927 yo-self tests passing ✅ (20 new + 4907 prior).
