@@ -1089,3 +1089,53 @@ result := quote(foo(i64(1))).get_callee().is_fn_call(); // false: callee "foo" i
 ```
 
 Similarly, calling `get_callee()` on an Atom causes the overall evaluation to fail — do not test the Atom case via `get_callee()` in source strings.
+
+### Source-string evaluation pitfalls (proto-evaluator tests)
+
+When writing source strings passed to `evaluate_module_body` in proto-evaluator tests:
+
+**`cond` form**: Always use the `cond(condition => value, true => fallback)` form, NOT `cond(condition, value, fallback)`. The 3-arg form does NOT work inside lambdas or recursive functions in source strings.
+
+```
+// ❌ WRONG — crashes inside lambdas and recursive functions
+cond((n <= i32(1)), i32(1), (n * recur((n - i32(1)))))
+
+// ✅ CORRECT
+cond((n <= i32(1)) => i32(1), true => (n * recur((n - i32(1)))))
+```
+
+**Recursive functions**: Use `recur(...)` for self-recursion inside named `::` functions. Never call the function by name from inside its own body.
+
+**Chaining function calls with operators**: `f(a) + f(b) + f(c)` throws an exception. Use fold over an array instead:
+
+```
+// ❌ WRONG — exception in source strings
+result := abs_val(i32(3)) + abs_val(i32(1)) + abs_val(i32(4));
+
+// ✅ CORRECT
+arr := [i32(3), i32(1), i32(4)];
+result := arr.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + abs_val(x))));
+```
+
+**Empty array `[]` in cond branches**: `cond(condition => [x], true => [])` crashes because the empty array type is unknown. Avoid empty array literals in conditional branches inside `flat_map` lambdas.
+
+**Option types**: Must use `Option(T).Some(val)` not `Option.Some(val)`. `Option(T).None` with a type annotation crashes — use `r := Option(i32).None` without annotation. `.is_none()` is not supported; use `!(r.is_some())`. `and_then(f)` returns the raw value (not wrapped in Option), so calling `.unwrap_or()` on the result crashes.
+
+**Number literals**: `i32(-3)` crashes — use `(i32(0) - i32(3))`. `i32.as_usize()` / `usize.as_i32()` not supported.
+
+**Fibonacci without tmp variable**: `b = (a + b); a = (b - a)` computes fib correctly without a temp variable. After N iterations, `a` holds fib(N) and `b` holds fib(N+1).
+
+**3-term sum in fold on tuples**: `(acc + p.0 + p.1)` inside a fold lambda on tuple pairs crashes. Always map pairs to scalars first, then fold:
+
+```
+// ❌ WRONG — crashes in fold on (i32, i32) tuples
+total := pairs.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)((acc + p.0 + p.1)));
+
+// ✅ CORRECT — map to scalars first, then fold
+sums := pairs.map((fn(p : (i32, i32)) -> i32)((p.0 + p.1)));
+total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));
+```
+
+**`&&` in `cond` conditions inside `while` body**: Crashes. Avoid by restructuring (e.g., start loop at 1 instead of 0 to eliminate the `&& (i > 0)` guard).
+
+**Test API format**: Use `evaluate_module_body(exprs, &(env))` (reference syntax, returns `Option`). Match with function-style `match(result, .None => ..., .Some(m) => ...)`. Do NOT use block-style `match(result) { ... }` — it causes a parse error ("Paren-less function and operator calls are not supported").
