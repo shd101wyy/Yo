@@ -1053,3 +1053,39 @@ match(outer_val,
   .None => { fallback() } // ← outer .None arm
 )                          // ← closes outer match
 ```
+
+### Nested enum patterns in match are NOT supported
+
+Yo does **not** support nested enum patterns inside a single match arm.
+You cannot write `.Some(.IntLit(n))` — this is a parser error.
+
+```rust
+// ❌ WRONG — nested enum pattern, parser error:
+match(v.get(usize(0)),
+  .Some(.IntLit(n)) => assert(n.as_str() == "3", "ok"),
+  _ => assert(false, "err")
+)
+
+// ✅ CORRECT — two-level match:
+match(v.get(usize(0)),
+  .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "ok"), _ => assert(false, "err")),
+  .None => assert(false, "err")
+)
+```
+
+This applies to ALL nested enum patterns: `.Some(.BoolVal(b))`, `.Some(.ArrayVal(arr))`, etc. — always use a two-level match.
+
+### `get_callee()` returns ExprVal directly, not an Option-wrapped EnumVal
+
+In the proto-evaluator source strings (`evaluate_module_body`), `ExprVal.get_callee()` on a FnCall returns the callee `ExprVal` directly — NOT wrapped in an `Option` EnumVal. Chaining `.is_some()` fails with SIGABRT because `is_some()` requires an `EnumVal` receiver.
+
+```rust
+// ❌ SIGABRT — get_callee() returns ExprVal, not Option(EnumVal)
+result := quote(foo(i64(1))).get_callee().is_some();
+
+// ✅ Chain .is_atom() or .is_fn_call() on the returned ExprVal
+result := quote(foo(i64(1))).get_callee().is_atom();   // true: callee "foo" is an atom
+result := quote(foo(i64(1))).get_callee().is_fn_call(); // false: callee "foo" is not a fn call
+```
+
+Similarly, calling `get_callee()` on an Atom causes the overall evaluation to fail — do not test the Atom case via `get_callee()` in source strings.

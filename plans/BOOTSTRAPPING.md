@@ -3221,6 +3221,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4107/4107 yo-self tests passing ✅ (20 new + 4087 prior).
 
+---
+
+### Phase 7i — Phase 5an eval tests: chained method pipelines (parse_i64+Option, string pipelines, array reverse+get, Result chains, multi-var programs) (20 more tests, 4127 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5an_1.test.yo` — 20 tests covering:
+
+- **5ana** (4 tests): `parse_i64` chained with Option methods — is_some/is_none on valid/invalid strings; `unwrap_or` returning inner value or fallback
+- **5anb** (4 tests): String method pipelines — `trim().len()`; `to_uppercase().ends_with()`; `to_lowercase().starts_with()`; `substring().len()`
+- **5anc** (4 tests): ArrayVal reverse+first/last combos; `get().is_some()` in-bounds; `get().is_none()` out-of-bounds
+- **5and** (4 tests): Result chains — `Ok.ok().is_some()`; `Err.ok().is_none()`; `Ok.unwrap()` returns inner; `Err.err().is_some()`
+- **5ane** (4 tests): Multi-variable programs — `max` via bound variables; uppercase pipeline via variable; filter+len via variable; split+len via variable
+
+**Test results**: 4127/4127 yo-self tests passing ✅ (20 new + 4107 prior).
+
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
 - **Parser port** — `yo-self/parser/` complete; 43 tests pass.
 - **AST + ExprInfo + side-table evaluation results** — Phase 2k done.
