@@ -1,0 +1,618 @@
+// @skip_wasm32-emscripten
+// @skip_wasm32-wasi
+open(import("std/fmt"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+
+// ---------------------------------------------------------------------------
+// Phase 5bqa — binomial coefficients, Pascal's triangle, Catalan numbers
+// ---------------------------------------------------------------------------
+test("Phase 5bqa: C(5,2) = 10 via direct formula", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // C(5,2) = 5*4 / 2*1 = 10
+  src := "c52 := ((i32(5) * i32(4)) / (i32(2) * i32(1)));\nexport(c52);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "10", "10"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqa: sum of Pascal row 4 = 16 via power-of-two", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // 2^4 = 16
+  src := "p := i32(1);\ni := i32(0);\nwhile((i < i32(4)), {\np = (p * i32(2));\ni = (i + i32(1));\n});\nexport(p);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "16", "16"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqa: Catalan(3) = 5 via C(6,3)/4", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // C(6,3) = 6*5*4 / 3*2*1 = 20; Catalan(3) = 20/4 = 5
+  src := "c63 := (((i32(6) * i32(5)) * i32(4)) / ((i32(3) * i32(2)) * i32(1)));\ncat3 := (c63 / i32(4));\nexport(cat3);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "5"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqa: C(6,2) = 15 via direct formula", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // C(6,2) = 6*5 / 2*1 = 15
+  src := "c62 := ((i32(6) * i32(5)) / (i32(2) * i32(1)));\nexport(c62);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "15"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bqb — power patterns: modular power, repeated multiplication
+// ---------------------------------------------------------------------------
+test("Phase 5bqb: 2^10 mod 1000 = 24 via while loop", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "p := i32(1);\ni := i32(0);\nwhile((i < i32(10)), {\np = ((p * i32(2)) % i32(1000));\ni = (i + i32(1));\n});\nexport(p);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "24", "24"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqb: 3^5 = 243 via while loop", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "p := i32(1);\ni := i32(0);\nwhile((i < i32(5)), {\np = (p * i32(3));\ni = (i + i32(1));\n});\nexport(p);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "243", "243"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqb: sum of 2^0+2^1+...+2^7 = 255 via while loop", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "s := i32(0);\np := i32(1);\ni := i32(0);\nwhile((i < i32(8)), {\ns = (s + p);\np = (p * i32(2));\ni = (i + i32(1));\n});\nexport(s);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "255", "255"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqb: 5^4 = 625 via while loop", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "p := i32(1);\ni := i32(0);\nwhile((i < i32(4)), {\np = (p * i32(5));\ni = (i + i32(1));\n});\nexport(p);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "625", "625"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bqc — array operations: abs-diffs, prefix sums, local maxima, second max
+// ---------------------------------------------------------------------------
+test("Phase 5bqc: sum of abs diffs of consecutive elements in [1,3,6,2,8,4] = 19", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // |3-1|+|6-3|+|2-6|+|8-2|+|4-8| = 2+3+4+6+4 = 19
+  src := "arr := [i32(1),i32(3),i32(6),i32(2),i32(8),i32(4)];\ns := i32(0);\ni := i32(0);\nwhile((i < i32(5)), {\na := arr.get(i).unwrap();\nb := arr.get((i + i32(1))).unwrap();\nd := cond((a > b) => (a - b), true => (b - a));\ns = (s + d);\ni = (i + i32(1));\n});\nexport(s);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "19", "19"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqc: sum of prefix sums of [1,2,3,4,5] = 35", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // prefix sums: 1,3,6,10,15; sum=35
+  src := "arr := [i32(1),i32(2),i32(3),i32(4),i32(5)];\ncum := i32(0);\ntotal := i32(0);\ni := i32(0);\nwhile((i < i32(5)), {\nv := arr.get(i).unwrap();\ncum = (cum + v);\ntotal = (total + cum);\ni = (i + i32(1));\n});\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "35", "35"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqc: count local maxima in [1,3,2,5,4,7,6] = 3", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // local maxima at indices 1(3>1,3>2), 3(5>2,5>4), 5(7>4,7>6) => count=3
+  src := "arr := [i32(1),i32(3),i32(2),i32(5),i32(4),i32(7),i32(6)];\ncnt := i32(0);\ni := i32(1);\nwhile((i < i32(6)), {\nprev := arr.get((i - i32(1))).unwrap();\ncurr := arr.get(i).unwrap();\nnxt := arr.get((i + i32(1))).unwrap();\ngt_p := cond((curr > prev) => i32(1), true => i32(0));\ngt_n := cond((curr > nxt) => i32(1), true => i32(0));\ncnt = cond(((gt_p * gt_n) == i32(1)) => (cnt + i32(1)), true => cnt);\ni = (i + i32(1));\n});\nexport(cnt);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqc: second maximum of [3,1,4,1,5,9,2,6] = 6", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // max=9, second max=6
+  src := "arr := [i32(3),i32(1),i32(4),i32(1),i32(5),i32(9),i32(2),i32(6)];\nm1 := i32(0);\ni := i32(0);\nwhile((i < i32(8)), {\nv := arr.get(i).unwrap();\nm1 = cond((v > m1) => v, true => m1);\ni = (i + i32(1));\n});\nm2 := i32(0);\nj := i32(0);\nwhile((j < i32(8)), {\nv := arr.get(j).unwrap();\ngt_m2 := cond((v > m2) => i32(1), true => i32(0));\nlt_m1 := cond((v < m1) => i32(1), true => i32(0));\nm2 = cond(((gt_m2 * lt_m1) == i32(1)) => v, true => m2);\nj = (j + i32(1));\n});\nexport(m2);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "6", "6"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bqd — grand combos I
+// ---------------------------------------------------------------------------
+test("Phase 5bqd: C(5,2) + 3^5 + 2^10_mod_1000 = 10+243+24 = 277", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "c52 := ((i32(5) * i32(4)) / (i32(2) * i32(1)));\npow3 := i32(1);\ni := i32(0);\nwhile((i < i32(5)), {\npow3 = (pow3 * i32(3));\ni = (i + i32(1));\n});\npow2m := i32(1);\nj := i32(0);\nwhile((j < i32(10)), {\npow2m = ((pow2m * i32(2)) % i32(1000));\nj = (j + i32(1));\n});\ntotal := ((c52 + pow3) + pow2m);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "277", "277"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqd: pascal_row4 + 5^4 + abs_diff_consec = 16+625+19 = 660", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "pp := i32(1);\npi := i32(0);\nwhile((pi < i32(4)), {\npp = (pp * i32(2));\npi = (pi + i32(1));\n});\npw5 := i32(1);\np5i := i32(0);\nwhile((p5i < i32(4)), {\npw5 = (pw5 * i32(5));\np5i = (p5i + i32(1));\n});\narr := [i32(1),i32(3),i32(6),i32(2),i32(8),i32(4)];\nads := i32(0);\nai := i32(0);\nwhile((ai < i32(5)), {\na := arr.get(ai).unwrap();\nb := arr.get((ai + i32(1))).unwrap();\nd := cond((a > b) => (a - b), true => (b - a));\nads = (ads + d);\nai = (ai + i32(1));\n});\ntotal := ((pp + pw5) + ads);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "660", "660"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqd: prefix_sum_sum + local_maxima + second_max = 35+3+6 = 44", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr1 := [i32(1),i32(2),i32(3),i32(4),i32(5)];\ncum := i32(0);\npss := i32(0);\npi := i32(0);\nwhile((pi < i32(5)), {\nv := arr1.get(pi).unwrap();\ncum = (cum + v);\npss = (pss + cum);\npi = (pi + i32(1));\n});\narr2 := [i32(1),i32(3),i32(2),i32(5),i32(4),i32(7),i32(6)];\nlmc := i32(0);\nli := i32(1);\nwhile((li < i32(6)), {\nprev := arr2.get((li - i32(1))).unwrap();\ncurr := arr2.get(li).unwrap();\nnxt := arr2.get((li + i32(1))).unwrap();\ngt_p := cond((curr > prev) => i32(1), true => i32(0));\ngt_n := cond((curr > nxt) => i32(1), true => i32(0));\nlmc = cond(((gt_p * gt_n) == i32(1)) => (lmc + i32(1)), true => lmc);\nli = (li + i32(1));\n});\narr3 := [i32(3),i32(1),i32(4),i32(1),i32(5),i32(9),i32(2),i32(6)];\nsm1 := i32(0);\nsi := i32(0);\nwhile((si < i32(8)), {\nsv := arr3.get(si).unwrap();\nsm1 = cond((sv > sm1) => sv, true => sm1);\nsi = (si + i32(1));\n});\nsm2 := i32(0);\nsj := i32(0);\nwhile((sj < i32(8)), {\nsv := arr3.get(sj).unwrap();\nggt := cond((sv > sm2) => i32(1), true => i32(0));\nllt := cond((sv < sm1) => i32(1), true => i32(0));\nsm2 = cond(((ggt * llt) == i32(1)) => sv, true => sm2);\nsj = (sj + i32(1));\n});\ntotal := ((pss + lmc) + sm2);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "44", "44"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqd: C(6,2) + sum_pow2_0to7 + Catalan3 = 15+255+5 = 275", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "c62 := ((i32(6) * i32(5)) / (i32(2) * i32(1)));\nsp := i32(0);\npp := i32(1);\npi := i32(0);\nwhile((pi < i32(8)), {\nsp = (sp + pp);\npp = (pp * i32(2));\npi = (pi + i32(1));\n});\nc63 := (((i32(6) * i32(5)) * i32(4)) / ((i32(3) * i32(2)) * i32(1)));\ncat3 := (c63 / i32(4));\ntotal := ((c62 + sp) + cat3);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "275", "275"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5bqe — grand combos II
+// ---------------------------------------------------------------------------
+test("Phase 5bqe: C(5,2) + pascal_row4 + 5^4 = 10+16+625 = 651", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "c52 := ((i32(5) * i32(4)) / (i32(2) * i32(1)));\npp := i32(1);\npi := i32(0);\nwhile((pi < i32(4)), {\npp = (pp * i32(2));\npi = (pi + i32(1));\n});\npw5 := i32(1);\np5i := i32(0);\nwhile((p5i < i32(4)), {\npw5 = (pw5 * i32(5));\np5i = (p5i + i32(1));\n});\ntotal := ((c52 + pp) + pw5);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "651", "651"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqe: 3^5 + prefix_sum_sum + C(6,2) = 243+35+15 = 293", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "pow3 := i32(1);\ni := i32(0);\nwhile((i < i32(5)), {\npow3 = (pow3 * i32(3));\ni = (i + i32(1));\n});\narr := [i32(1),i32(2),i32(3),i32(4),i32(5)];\ncum := i32(0);\npss := i32(0);\nj := i32(0);\nwhile((j < i32(5)), {\nv := arr.get(j).unwrap();\ncum = (cum + v);\npss = (pss + cum);\nj = (j + i32(1));\n});\nc62 := ((i32(6) * i32(5)) / (i32(2) * i32(1)));\ntotal := ((pow3 + pss) + c62);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "293", "293"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqe: abs_diff_consec + local_maxima + second_max = 19+3+6 = 28", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr1 := [i32(1),i32(3),i32(6),i32(2),i32(8),i32(4)];\nads := i32(0);\nai := i32(0);\nwhile((ai < i32(5)), {\na := arr1.get(ai).unwrap();\nb := arr1.get((ai + i32(1))).unwrap();\nd := cond((a > b) => (a - b), true => (b - a));\nads = (ads + d);\nai = (ai + i32(1));\n});\narr2 := [i32(1),i32(3),i32(2),i32(5),i32(4),i32(7),i32(6)];\nlmc := i32(0);\nli := i32(1);\nwhile((li < i32(6)), {\nprev := arr2.get((li - i32(1))).unwrap();\ncurr := arr2.get(li).unwrap();\nnxt := arr2.get((li + i32(1))).unwrap();\ngt_p := cond((curr > prev) => i32(1), true => i32(0));\ngt_n := cond((curr > nxt) => i32(1), true => i32(0));\nlmc = cond(((gt_p * gt_n) == i32(1)) => (lmc + i32(1)), true => lmc);\nli = (li + i32(1));\n});\narr3 := [i32(3),i32(1),i32(4),i32(1),i32(5),i32(9),i32(2),i32(6)];\nsm1 := i32(0);\nsi := i32(0);\nwhile((si < i32(8)), {\nsv := arr3.get(si).unwrap();\nsm1 = cond((sv > sm1) => sv, true => sm1);\nsi = (si + i32(1));\n});\nsm2 := i32(0);\nsj := i32(0);\nwhile((sj < i32(8)), {\nsv := arr3.get(sj).unwrap();\nggt := cond((sv > sm2) => i32(1), true => i32(0));\nllt := cond((sv < sm1) => i32(1), true => i32(0));\nsm2 = cond(((ggt * llt) == i32(1)) => sv, true => sm2);\nsj = (sj + i32(1));\n});\ntotal := ((ads + lmc) + sm2);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "28", "28"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5bqe: Catalan3 + 2^7 + sum_pow2_0to7 = 5+128+255 = 388", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  // Catalan(3)=5, 2^7=128, sum 2^0..7=255
+  src := "c63 := (((i32(6) * i32(5)) * i32(4)) / ((i32(3) * i32(2)) * i32(1)));\ncat3 := (c63 / i32(4));\npw7 := i32(1);\npi := i32(0);\nwhile((pi < i32(7)), {\npw7 = (pw7 * i32(2));\npi = (pi + i32(1));\n});\nsp := i32(0);\npp := i32(1);\nsi := i32(0);\nwhile((si < i32(8)), {\nsp = (sp + pp);\npp = (pp * i32(2));\nsi = (si + i32(1));\n});\ntotal := ((cat3 + pw7) + sp);\nexport(total);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "388", "388"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});

@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7al — Phase 5bq eval tests: binomial coefficients, powers, abs-diffs, prefix sums, local maxima, second max, grand combos (20 more tests, 4707 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bq_1.test.yo` — 20 tests covering:
+
+- **5bqa** (4 tests): C(5,2)=10; sum Pascal row 4=16; Catalan(3)=5; C(6,2)=15
+- **5bqb** (4 tests): 2^10 mod 1000=24; 3^5=243; sum 2^0..2^7=255; 5^4=625
+- **5bqc** (4 tests): abs-diffs consecutive [1,3,6,2,8,4]=19; sum prefix-sums [1..5]=35; count local maxima [1,3,2,5,4,7,6]=3; second max [3,1,4,1,5,9,2,6]=6
+- **5bqd** (4 tests): C(5,2)+3^5+2^10_mod_1000=277; pascal_row4+5^4+abs_diff=660; prefix_sum_sum+local_maxima+second_max=44; C(6,2)+sum_pow2_0to7+Catalan3=275
+- **5bqe** (4 tests): C(5,2)+pascal_row4+5^4=651; 3^5+prefix_sum_sum+C(6,2)=293; abs_diff+local_maxima+second_max=28; Catalan3+2^7+sum_pow2_0to7=388
+
+**New patterns**: local maxima detection using multiplication trick (gt_p \* gt_n == 1 as AND); second max via two-pass while; abs-diff using cond.
+
+**Test results**: 4707/4707 yo-self tests passing ✅ (20 new + 4687 prior).
+
 ### Phase 7ak — Phase 5bp eval tests: GCD/LCM, vowels, Collatz, digit ops, Fibonacci, triangular, grand combos (20 more tests, 4687 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bp_1.test.yo` — 20 tests covering:
