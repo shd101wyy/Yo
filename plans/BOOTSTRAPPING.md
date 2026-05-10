@@ -4042,3 +4042,20 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 ### Phase 7br — Phase 5cw eval tests: [1,2,3,5,6,8,4,9,7] (20 more tests, 5347 total) ✅ Done
 
 ### Phase 7bs — Phase 5cx eval tests: [1,2,3,5,6,8,9,4,7] (20 more tests, 5367 total) ✅ Done
+
+### Phases 7bt-7cc — Phase 5cy–5dh eval tests: 10 more arrays (200 more tests, 5567 total) ✅ Done
+
+**New test files**:
+
+- `eval_5cy_1.test.yo` — [1,2,3,5,7,4,8,9,6] T1=51
+- `eval_5cz_1.test.yo` — [1,2,3,5,7,8,4,9,6] T1=52
+- `eval_5da_1.test.yo` — [1,2,3,5,7,8,9,4,6] T1=53
+- `eval_5db_1.test.yo` — [1,2,3,6,4,7,5,8,9] T1=49
+- `eval_5dc_1.test.yo` — [1,2,3,6,4,7,8,9,5] T1=51
+- `eval_5dd_1.test.yo` — [1,2,3,6,4,9,5,7,8] T1=54
+- `eval_5de_1.test.yo` — [1,2,3,6,4,9,5,8,7] T1=54
+- `eval_5df_1.test.yo` — [1,2,3,6,4,9,7,5,8] T1=54
+- `eval_5dg_1.test.yo` — [1,2,3,6,4,9,7,8,5] T1=54
+- `eval_5dh_1.test.yo` — [1,2,3,6,5,7,4,8,9] T1=49
+
+**Test results**: 5567/5567 yo-self tests passing ✅.
