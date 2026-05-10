@@ -2741,7 +2741,7 @@ handle_method_dispatch :: (
                 ((attag.as_str() == ".None") || (attag.as_str() == ".Err")) => {
                   return(Option(EvalResult).Some(eval_result(recv_val, t_unit())));
                 },
-                ((atfields.len() > usize(0)) && (attag.as_str() == ".Some")) =>
+                ((atfields.len() > usize(0)) && ((attag.as_str() == ".Some") || (attag.as_str() == ".Ok"))) =>
                   match(
                     method_call_args.get(usize(0)),
                     .None => {
@@ -2805,23 +2805,23 @@ handle_method_dispatch :: (
                       return(Option(EvalResult).None);
                     }
                   ),
-                true =>  // .None or .Err: evaluate and return default
-                  match(
-                    method_call_args.get(usize(0)),
-                    .None => {
-                      return(Option(EvalResult).None);
-                    },
-                    .Some(def_expr) =>
-                      match(
-                        match(g_eval_fn,.Some(efuo) => efuo(def_expr, env),.None => Option(EvalResult).None),
-                        .None => {
-                          return(Option(EvalResult).None);
-                        },
-                        .Some(def_res) => {
-                          return(Option(EvalResult).Some(def_res));
-                        }
-                      )
-                  )
+                true => // .None or .Err: evaluate and return default
+                match(
+                  method_call_args.get(usize(0)),
+                  .None => {
+                    return(Option(EvalResult).None);
+                  },
+                  .Some(def_expr) =>
+                    match(
+                      match(g_eval_fn,.Some(efuo) => efuo(def_expr, env),.None => Option(EvalResult).None),
+                      .None => {
+                        return(Option(EvalResult).None);
+                      },
+                      .Some(def_res) => {
+                        return(Option(EvalResult).Some(def_res));
+                      }
+                    )
+                )
               ),
             _ => {
               return(Option(EvalResult).None);
