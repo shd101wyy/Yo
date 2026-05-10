@@ -4032,3 +4032,13 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 ### Phase 7bm — Phase 5cr eval tests: [1,2,3,5,4,9,6,7,8] (20 more tests, 5247 total) ✅ Done
 
 ### Phase 7bn — Phase 5cs eval tests: [1,2,3,5,4,9,6,8,7] (20 more tests, 5267 total) ✅ Done
+
+### Phase 7bo — Phase 5ct eval tests: [1,2,3,5,4,9,7,6,8] (20 more tests, 5287 total) ✅ Done
+
+### Phase 7bp — Phase 5cu eval tests: [1,2,3,5,6,7,4,9,8] (20 more tests, 5307 total) ✅ Done
+
+### Phase 7bq — Phase 5cv eval tests: [1,2,3,5,6,7,9,4,8] (20 more tests, 5327 total) ✅ Done
+
+### Phase 7br — Phase 5cw eval tests: [1,2,3,5,6,8,4,9,7] (20 more tests, 5347 total) ✅ Done
+
+### Phase 7bs — Phase 5cx eval tests: [1,2,3,5,6,8,9,4,7] (20 more tests, 5367 total) ✅ Done
