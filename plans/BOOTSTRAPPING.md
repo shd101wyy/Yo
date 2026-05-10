@@ -3315,6 +3315,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4347/4347 yo-self tests passing ✅ (20 new + 4327 prior).
 
+### Phase 7u — Phase 5az eval tests: boolean ops, let chains, multiple exports, conditional assignment, grand combos (20 more tests, 4367 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5az_1.test.yo` — 20 tests covering:
+
+- **5aza** (4 tests): `&&` of two trues; `||` of false/true; negation of false; complex boolean expression
+- **5azb** (4 tests): let-binding arithmetic chain; string transformation chain; array chain (filter, reverse, first); deep arithmetic chain
+- **5azc** (4 tests): export two values and access first/second; export three values (len=3); export computed values independently
+- **5azd** (4 tests): conditional assignment (grade from score); count even numbers 1–10 via while (=5); filter array by `x%3==1` (=4); abs via cond
+- **5aze** (4 tests): `all` predicate on bool array; slice+min via fold; concat+filter+count via fold; uppercase+join with separator
+
+**Pitfalls discovered**: `&&`/`||` compound expressions inside while loop with `&&` and `||` may crash (SIGABRT) — use simple arithmetic `%` conditions instead. Filter count math: always verify manually per-element.
+
+**Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
+
 ### Phase 7s — Phase 5ax eval tests: multi-arg functions, nested cond, Option chains, while accumulation, flat_map/zip combos (20 more tests, 4327 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5ax_1.test.yo` — 20 tests covering:
