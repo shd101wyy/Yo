@@ -3249,6 +3249,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4147/4147 yo-self tests passing ✅ (20 new + 4127 prior).
 
+### Phase 7k — Phase 5ap eval tests: fold, multi-export, and_then, map+filter, filter-map-fold pipelines (20 more tests, 4167 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ap_1.test.yo` — 20 tests covering:
+
+- **5apa** (4 tests): `fold` — sum of 4 ints; product of 3 ints; map-to-doubled then fold sum; filter-then-fold sum of remaining
+- **5apb** (4 tests): Multi-export programs — two int exports; two bool exports from comparisons; original + computed; three exports at indices 0/1/2
+- **5apc** (4 tests): `and_then` arithmetic lambdas — `*3` on valid parse; `+5` on valid parse; None passthrough; via bound variable `*2`
+- **5apd** (4 tests): `map` + `filter` combos — map-double then filter-above-4 len; filter-then-map len; map-then-filter first `is_some`; map-offset length unchanged
+- **5ape** (4 tests): Complex pipelines — fold sum of 5-element array; string `trim+len`; filter-map-fold (3+4+5→double→sum=24); `parse_i64+is_some`
+
+**Test results**: 4167/4167 yo-self tests passing ✅ (20 new + 4147 prior).
+
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
 - **Parser port** — `yo-self/parser/` complete; 43 tests pass.
 - **AST + ExprInfo + side-table evaluation results** — Phase 2k done.
