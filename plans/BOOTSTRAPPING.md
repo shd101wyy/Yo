@@ -3261,6 +3261,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4167/4167 yo-self tests passing ✅ (20 new + 4147 prior).
 
+### Phase 7l — Phase 5aq eval tests: structs, lambda variables, boolean logic, mixed struct+fold (20 more tests, 4187 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5aq_1.test.yo` — 20 tests covering:
+
+- **5aqa** (4 tests): Named struct definition and field access — `.x`/`.y` field; sum of two fields; 3-field struct third field
+- **5aqb** (4 tests): Lambda variables — single-arg call; composed calls (`add1(double(5))`); predicate lambda; square lambda
+- **5aqc** (4 tests): Struct + array — map extracts field, length; first element `is_some`; filter by field value; struct array length
+- **5aqd** (4 tests): Boolean/arithmetic logic — arithmetic equality; boolean equality of different comparisons; two-arg predicate lambda; two-arg add lambda
+- **5aqe** (4 tests): Mixed programs — struct+map+fold sum of fields; lambda variable passed to `map` then `fold`; lambda predicate to `filter`; double lambda+map+fold
+
+**Key finding**: Lambda variables can be passed directly to `map`/`filter` (e.g., `arr.map(sq)` where `sq` is a defined lambda) — this works correctly in the proto-evaluator.
+
+**Test results**: 4187/4187 yo-self tests passing ✅ (20 new + 4167 prior).
+
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
 - **Parser port** — `yo-self/parser/` complete; 43 tests pass.
 - **AST + ExprInfo + side-table evaluation results** — Phase 2k done.
