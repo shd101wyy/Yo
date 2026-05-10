@@ -3205,6 +3205,22 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4087/4087 yo-self tests passing ✅ (20 new + 4067 prior).
 
+---
+
+### Phase 7h — Phase 5am eval tests: ExprVal methods via quote (is_atom, is_fn_call, get_callee, get_args, ComptimeListVal.len) (20 more tests, 4107 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5am_1.test.yo` — 20 tests covering:
+
+- **5ama** (4 tests): `ExprVal.is_atom()` via `quote` — atom reports true, fn call reports false; `is_fn_call()` on atom returns false
+- **5amb** (4 tests): `ExprVal.is_fn_call()` via `quote` — fn call with 1/2 args reports true; atom reports false; fn call's is_atom false (complement)
+- **5amc** (4 tests): `ExprVal.get_callee()` — callee of `quote(foo(i64(1)))` is an atom (is_atom=true); callee is not fn_call; two-arg fn call callee is atom; via intermediate variable
+- **5amd** (4 tests): `ExprVal.get_args().len()` — 2-arg call yields 2, 1-arg yields 1, 3-arg yields 3, 4-arg via intermediate variable yields 4
+- **5ame** (4 tests): Combos via intermediate variables — is_fn_call, is_atom, get_args.len for various call arities
+
+**Pitfall discovered**: `get_callee()` returns the callee `ExprVal` directly (not wrapped in an `Option` EnumVal). Chaining `.is_some()` on it fails with SIGABRT because `is_some()` expects an `EnumVal` receiver. Use `.is_atom()` or `.is_fn_call()` on the returned ExprVal instead.
+
+**Test results**: 4107/4107 yo-self tests passing ✅ (20 new + 4087 prior).
+
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
 - **Parser port** — `yo-self/parser/` complete; 43 tests pass.
 - **AST + ExprInfo + side-table evaluation results** — Phase 2k done.
