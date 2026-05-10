@@ -3028,6 +3028,47 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 ---
 
+### Phase 6x — Phase 5ac eval tests: mutable structs, chained transforms, zip, nested loops, Result/Option pipelines (23 more tests, 3902 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ac_1.test.yo` — 23 tests covering:
+
+- **5aca** (5 tests): Mutable struct fields — increment field in loop, accumulate into struct field, swap two struct fields, conditional update, nested struct with mutable inner
+- **5acb** (4 tests): Chained string transforms — title-case via split+map+join, filter+join words, multi-step chain (split→filter→map→join), count words via split
+- **5acc** (4 tests): Zip and cartesian operations — zip two arrays (`.0`/`.1` pair access), zip then map pairs, zip then filter by sum predicate, zip then fold sum of products
+- **5acd** (5 tests): Nested loops and matrix patterns — multiplication table fold, nested fold for max in 2D, triangle number via nested while, count valid pairs (i < j, i+j > 5)
+- **5ace** (5 tests): Multi-stage Result/Option pipelines — parse+map+unwrap_or, chain of and_then Result ops, Option map+filter+unwrap_or, zip arrays then check, multi-Result sequencing with fold
+
+**Key pitfalls discovered**:
+
+- `a.zip(b)` creates pairs as `StructVal` with field names `"0"` and `"1"`. Access as `p.0` and `p.1` (NOT `.first`/`.second`).
+- Wrong assertion count: `zip then filter by sum predicate` — pairs (1+9)=10, (5+2)=7, (3+6)=9, (7+1)=8 — only 2 pairs > 8 (must carefully verify expected values with manual calculation).
+- `mixed string+number summary` — "the quick brown fox" word lengths: 3+5+5+3 = 16 (not 15).
+
+**Test results**: 3902/3902 yo-self tests passing ✅ (23 new + 3879 prior).
+
+---
+
+### Phase 6y — Phase 5ad eval tests: cond branching, multi-var while, HOF chains, classic algorithms (17 more tests, 3919 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ad_1.test.yo` — 17 tests covering:
+
+- **5ada** (3 tests): FizzBuzz count via while, cond chain grade classification, nested cond in map (sign function)
+- **5adb** (3 tests): Two-pointer complement pairs, while with two independent counters, while with max/min tracking
+- **5adc** (4 tests): Triple HOF chain (filter→map→fold), map→filter→len chain, four HOF chain (filter→map→filter→count), enumerate+filter by index parity
+- **5add** (4 tests): Linear search via enumerate+find, run-length encoding, prefix sum array, palindrome check via split+reverse+join
+- **5ade** (3 tests): Slice then fold, concat two arrays then fold, contains check via any
+
+**Key pitfalls discovered**:
+
+- `i32(-1)` literal in cond arms and filter lambdas causes `SIGABRT` (evaluator exception). Use `(i32(0) - i32(1))` for negative i32 literals throughout — both in the value being produced AND in equality comparisons.
+- `i32(usize_value)` cast fails — use `enumerate().find()` pattern to get the index as a value instead.
+- `palindrome check` requires `split("") → reverse() → join("")` pattern because `.chars()` is not implemented in the proto-evaluator.
+- HOF chain math must be verified carefully: `filter(x > 3)` on [1..10] → [4,5,6,7,8,9,10]; `map(x * 2)` → [8,10,12,14,16,18,20]; `filter(x < 16)` → [8,10,12,14] → count = 4.
+
+**Test results**: 3919/3919 yo-self tests passing ✅ (17 new + 3902 prior).
+
+---
+
 ### What works today
 
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
