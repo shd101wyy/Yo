@@ -553,6 +553,23 @@ Variable :: object(name : String, type : TypeValue);
 Variable :: object(name : String, ty : TypeValue);
 ```
 
+### 1-element array literals require a trailing comma
+
+`[expr]` without a trailing comma is **parsed as a Slice type** `Slice(expr)`, not an array literal. To create a 1-element array value, add a trailing comma:
+
+```rust
+// WRONG — parsed as Slice type, not array literal:
+arr := [i32(42)];
+
+// CORRECT — trailing comma makes it an array literal:
+arr := [i32(42),];
+
+// Multi-element arrays work fine (comma separator detected):
+arr2 := [i32(1), i32(2), i32(3)];  // ✓
+```
+
+This also applies inside source strings in proto-evaluator tests.
+
 ### ArrayList indexing uses call syntax
 
 ```rust

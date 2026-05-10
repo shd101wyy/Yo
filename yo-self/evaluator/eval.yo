@@ -1483,6 +1483,83 @@ handle_method_dispatch :: (
             }
           ),
         // ---------------------------------------------------------------
+        // Phase 5t: TypeVal.Some(arg) — construct Option.Some value.
+        // Option(T).Some(val) → EnumVal(".Some", [val])
+        // ---------------------------------------------------------------
+        ((mname == "Some") && (match(recv_val,.TypeVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(
+            method_call_args.get(usize(0)),
+            .None => {
+              return(Option(EvalResult).None);
+            },
+            .Some(some_arg_expr) =>
+              match(
+                match(g_eval_fn,.Some(ef_tv) => ef_tv(some_arg_expr, env),.None => Option(EvalResult).None),
+                .None => {
+                  return(Option(EvalResult).None);
+                },
+                .Some(some_arg_res) => {
+                  some_flds := ArrayList(EvalValue).new();
+                  some_flds.push(some_arg_res.value);
+                  return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), some_flds), t_unit())));
+                }
+              )
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: TypeVal.None — construct Option.None value.
+        // Option(T).None → EnumVal(".None", [])
+        // ---------------------------------------------------------------
+        ((mname == "None") && (match(recv_val,.TypeVal(_) => true, _ => false) && (method_call_args.len() == usize(0)))) => {
+          none_flds := ArrayList(EvalValue).new();
+          return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_flds), t_unit())));
+        },
+        // ---------------------------------------------------------------
+        // Phase 5t: TypeVal.Ok(arg) — construct Result.Ok value.
+        // Result(T,E).Ok(val) → EnumVal(".Ok", [val])
+        // ---------------------------------------------------------------
+        ((mname == "Ok") && (match(recv_val,.TypeVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(
+            method_call_args.get(usize(0)),
+            .None => {
+              return(Option(EvalResult).None);
+            },
+            .Some(ok_arg_expr) =>
+              match(
+                match(g_eval_fn,.Some(ef_ok) => ef_ok(ok_arg_expr, env),.None => Option(EvalResult).None),
+                .None => {
+                  return(Option(EvalResult).None);
+                },
+                .Some(ok_arg_res) => {
+                  ok_flds := ArrayList(EvalValue).new();
+                  ok_flds.push(ok_arg_res.value);
+                  return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Ok"), ok_flds), t_unit())));
+                }
+              )
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: TypeVal.Err(arg) — construct Result.Err value.
+        // Result(T,E).Err(val) → EnumVal(".Err", [val])
+        // ---------------------------------------------------------------
+        ((mname == "Err") && (match(recv_val,.TypeVal(_) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(
+            method_call_args.get(usize(0)),
+            .None => {
+              return(Option(EvalResult).None);
+            },
+            .Some(err_arg_expr) =>
+              match(
+                match(g_eval_fn,.Some(ef_err) => ef_err(err_arg_expr, env),.None => Option(EvalResult).None),
+                .None => {
+                  return(Option(EvalResult).None);
+                },
+                .Some(err_arg_res) => {
+                  err_flds := ArrayList(EvalValue).new();
+                  err_flds.push(err_arg_res.value);
+                  return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Err"), err_flds), t_unit())));
+                }
+              )
+          ),
+        // ---------------------------------------------------------------
         // Phase 3ak: StrLit instance method shims — .as_str(), .len()
         // These intercept common string operations on StrLit values before
         // falling through to env lookup (which would fail for runtime stubs).
@@ -2564,14 +2641,15 @@ handle_method_dispatch :: (
             }
           ),
         // ---------------------------------------------------------------
-        // Phase 5aj: EnumVal.unwrap() — extract .Some(val) inner value
+        // Phase 5aj: EnumVal.unwrap() — extract .Some(val) or .Ok(val) inner value.
+        // Phase 5t: also handles .Ok(val) for Result.unwrap().
         // ---------------------------------------------------------------
         ((mname == "unwrap") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
           match(
             recv_val,
             .EnumVal(tag_uw, fields_uw) =>
               cond(
-                ((tag_uw.as_str() == ".Some") && (fields_uw.len() > usize(0))) =>
+                (((tag_uw.as_str() == ".Some") || (tag_uw.as_str() == ".Ok")) && (fields_uw.len() > usize(0))) =>
                   match(
                     fields_uw.get(usize(0)),
                     .Some(inner_uw) => {
@@ -2583,6 +2661,362 @@ handle_method_dispatch :: (
                   ),
                 true => {
                   return(Option(EvalResult).None);
+                }
+              ),
+            _ => {
+              return(Option(EvalResult).None);
+            }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: EnumVal.map(fn) — Option.map and Result.map.
+        //   .Some(v).map(f) → .Some(f(v))
+        //   .None.map(f)   → .None
+        //   .Ok(v).map(f)  → .Ok(f(v))
+        //   .Err(e).map(f) → .Err(e)   (pass through)
+        // ---------------------------------------------------------------
+        ((mname == "map") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(
+            recv_val,
+            .EnumVal(maptag, mapfields) =>
+              cond(
+                // .None or .Err: pass through (map doesn't transform them)
+                ((maptag.as_str() == ".None") || (maptag.as_str() == ".Err")) => {
+                  return(Option(EvalResult).Some(eval_result(recv_val, t_unit())));
+                },
+                // .Some(v) or .Ok(v): apply fn to inner value
+                ((mapfields.len() > usize(0)) && ((maptag.as_str() == ".Some") || (maptag.as_str() == ".Ok"))) =>
+                  match(
+                    method_call_args.get(usize(0)),
+                    .None => {
+                      return(Option(EvalResult).None);
+                    },
+                    .Some(mapfn_expr) =>
+                      match(
+                        match(g_eval_fn,.Some(efm) => efm(mapfn_expr, env),.None => Option(EvalResult).None),
+                        .None => {
+                          return(Option(EvalResult).None);
+                        },
+                        .Some(mapfn_res) =>
+                          match(
+                            mapfields.get(usize(0)),
+                            .None => {
+                              return(Option(EvalResult).None);
+                            },
+                            .Some(inner_mv) => {
+                              cargs_map := ArrayList(EvalResult).new();
+                              cargs_map.push(eval_result(inner_mv, type_of_eval_value(inner_mv)));
+                              match(
+                                call_funcval_with_args(mapfn_res.value, cargs_map),
+                                .None => {
+                                  return(Option(EvalResult).None);
+                                },
+                                .Some(mres) => {
+                                  mflds := ArrayList(EvalValue).new();
+                                  mflds.push(mres.value);
+                                  return(Option(EvalResult).Some(eval_result(.EnumVal(maptag, mflds), t_unit())));
+                                }
+                              )
+                            }
+                          )
+                      )
+                  ),
+                true => {
+                  return(Option(EvalResult).None);
+                }
+              ),
+            _ => {
+              return(Option(EvalResult).None);
+            }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: EnumVal.and_then(fn) — Option.and_then (flatMap).
+        //   .Some(v).and_then(f) → f(v)  (f returns Option)
+        //   .None.and_then(f)   → .None
+        // ---------------------------------------------------------------
+        ((mname == "and_then") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(
+            recv_val,
+            .EnumVal(attag, atfields) =>
+              cond(
+                ((attag.as_str() == ".None") || (attag.as_str() == ".Err")) => {
+                  return(Option(EvalResult).Some(eval_result(recv_val, t_unit())));
+                },
+                ((atfields.len() > usize(0)) && (attag.as_str() == ".Some")) =>
+                  match(
+                    method_call_args.get(usize(0)),
+                    .None => {
+                      return(Option(EvalResult).None);
+                    },
+                    .Some(atfn_expr) =>
+                      match(
+                        match(g_eval_fn,.Some(efat) => efat(atfn_expr, env),.None => Option(EvalResult).None),
+                        .None => {
+                          return(Option(EvalResult).None);
+                        },
+                        .Some(atfn_res) =>
+                          match(
+                            atfields.get(usize(0)),
+                            .None => {
+                              return(Option(EvalResult).None);
+                            },
+                            .Some(inner_at) => {
+                              cargs_at := ArrayList(EvalResult).new();
+                              cargs_at.push(eval_result(inner_at, type_of_eval_value(inner_at)));
+                              match(
+                                call_funcval_with_args(atfn_res.value, cargs_at),
+                                .None => {
+                                  return(Option(EvalResult).None);
+                                },
+                                .Some(atres) => {
+                                  return(Option(EvalResult).Some(atres));
+                                }
+                              )
+                            }
+                          )
+                      )
+                  ),
+                true => {
+                  return(Option(EvalResult).None);
+                }
+              ),
+            _ => {
+              return(Option(EvalResult).None);
+            }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: EnumVal.unwrap_or(default) — Option.unwrap_or / Result.unwrap_or.
+        //   .Some(v).unwrap_or(d) → v
+        //   .None.unwrap_or(d)   → d   (evaluate d)
+        //   .Ok(v).unwrap_or(d)  → v
+        //   .Err(_).unwrap_or(d) → d   (evaluate d)
+        // ---------------------------------------------------------------
+        ((mname == "unwrap_or") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(
+            recv_val,
+            .EnumVal(uotag, uofields) =>
+              cond(
+                (((uotag.as_str() == ".Some") || (uotag.as_str() == ".Ok")) && (uofields.len() > usize(0))) =>
+                  match(
+                    uofields.get(usize(0)),
+                    .Some(inner_uo) => {
+                      return(Option(EvalResult).Some(eval_result(inner_uo, type_of_eval_value(inner_uo))));
+                    },
+                    .None => {
+                      return(Option(EvalResult).None);
+                    }
+                  ),
+                true =>  // .None or .Err: evaluate and return default
+                  match(
+                    method_call_args.get(usize(0)),
+                    .None => {
+                      return(Option(EvalResult).None);
+                    },
+                    .Some(def_expr) =>
+                      match(
+                        match(g_eval_fn,.Some(efuo) => efuo(def_expr, env),.None => Option(EvalResult).None),
+                        .None => {
+                          return(Option(EvalResult).None);
+                        },
+                        .Some(def_res) => {
+                          return(Option(EvalResult).Some(def_res));
+                        }
+                      )
+                  )
+              ),
+            _ => {
+              return(Option(EvalResult).None);
+            }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: EnumVal.or_else(fn) — Option.or_else.
+        //   .Some(v).or_else(f) → .Some(v)   (unchanged)
+        //   .None.or_else(f)   → f()          (f takes no args, returns Option)
+        // ---------------------------------------------------------------
+        ((mname == "or_else") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(
+            recv_val,
+            .EnumVal(oetag, _) =>
+              cond(
+                (oetag.as_str() == ".Some") => {
+                  return(Option(EvalResult).Some(eval_result(recv_val, t_unit())));
+                },
+                (oetag.as_str() == ".None") =>
+                  match(
+                    method_call_args.get(usize(0)),
+                    .None => {
+                      return(Option(EvalResult).None);
+                    },
+                    .Some(oefn_expr) =>
+                      match(
+                        match(g_eval_fn,.Some(efoe) => efoe(oefn_expr, env),.None => Option(EvalResult).None),
+                        .None => {
+                          return(Option(EvalResult).None);
+                        },
+                        .Some(oefn_res) => {
+                          cargs_oe := ArrayList(EvalResult).new();
+                          match(
+                            call_funcval_with_args(oefn_res.value, cargs_oe),
+                            .None => {
+                              return(Option(EvalResult).None);
+                            },
+                            .Some(oe_res) => {
+                              return(Option(EvalResult).Some(oe_res));
+                            }
+                          )
+                        }
+                      )
+                  ),
+                true => {
+                  return(Option(EvalResult).None);
+                }
+              ),
+            _ => {
+              return(Option(EvalResult).None);
+            }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: EnumVal.is_ok() — Result.is_ok().
+        //   .Ok(_).is_ok()  → true
+        //   .Err(_).is_ok() → false
+        // ---------------------------------------------------------------
+        ((mname == "is_ok") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(
+            recv_val,
+            .EnumVal(iok_tag, _) => {
+              return(Option(EvalResult).Some(eval_result(.BoolVal(iok_tag.as_str() == ".Ok"), t_bool())));
+            },
+            _ => {
+              return(Option(EvalResult).None);
+            }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: EnumVal.is_err() — Result.is_err().
+        //   .Err(_).is_err() → true
+        //   .Ok(_).is_err()  → false
+        // ---------------------------------------------------------------
+        ((mname == "is_err") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(
+            recv_val,
+            .EnumVal(ierr_tag, _) => {
+              return(Option(EvalResult).Some(eval_result(.BoolVal(ierr_tag.as_str() == ".Err"), t_bool())));
+            },
+            _ => {
+              return(Option(EvalResult).None);
+            }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: EnumVal.map_err(fn) — Result.map_err.
+        //   .Err(e).map_err(f) → .Err(f(e))
+        //   .Ok(v).map_err(f)  → .Ok(v)  (pass through)
+        // ---------------------------------------------------------------
+        ((mname == "map_err") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(1)))) =>
+          match(
+            recv_val,
+            .EnumVal(metag, mefields) =>
+              cond(
+                (metag.as_str() == ".Ok") => {
+                  return(Option(EvalResult).Some(eval_result(recv_val, t_unit())));
+                },
+                ((metag.as_str() == ".Err") && (mefields.len() > usize(0))) =>
+                  match(
+                    method_call_args.get(usize(0)),
+                    .None => {
+                      return(Option(EvalResult).None);
+                    },
+                    .Some(mefn_expr) =>
+                      match(
+                        match(g_eval_fn,.Some(efme) => efme(mefn_expr, env),.None => Option(EvalResult).None),
+                        .None => {
+                          return(Option(EvalResult).None);
+                        },
+                        .Some(mefn_res) =>
+                          match(
+                            mefields.get(usize(0)),
+                            .None => {
+                              return(Option(EvalResult).None);
+                            },
+                            .Some(inner_me) => {
+                              cargs_me := ArrayList(EvalResult).new();
+                              cargs_me.push(eval_result(inner_me, type_of_eval_value(inner_me)));
+                              match(
+                                call_funcval_with_args(mefn_res.value, cargs_me),
+                                .None => {
+                                  return(Option(EvalResult).None);
+                                },
+                                .Some(me_res) => {
+                                  eflds := ArrayList(EvalValue).new();
+                                  eflds.push(me_res.value);
+                                  return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Err"), eflds), t_unit())));
+                                }
+                              )
+                            }
+                          )
+                      )
+                  ),
+                true => {
+                  return(Option(EvalResult).None);
+                }
+              ),
+            _ => {
+              return(Option(EvalResult).None);
+            }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: EnumVal.ok() — Result.ok(), converts Result to Option.
+        //   .Ok(v).ok()  → .Some(v)
+        //   .Err(_).ok() → .None
+        // ---------------------------------------------------------------
+        ((mname == "ok") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(
+            recv_val,
+            .EnumVal(okcv_tag, okcv_fields) =>
+              cond(
+                ((okcv_tag.as_str() == ".Ok") && (okcv_fields.len() > usize(0))) =>
+                  match(
+                    okcv_fields.get(usize(0)),
+                    .Some(inner_okc) => {
+                      sflds := ArrayList(EvalValue).new();
+                      sflds.push(inner_okc);
+                      return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), sflds), t_unit())));
+                    },
+                    .None => {
+                      return(Option(EvalResult).None);
+                    }
+                  ),
+                true => {
+                  nflds := ArrayList(EvalValue).new();
+                  return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), nflds), t_unit())));
+                }
+              ),
+            _ => {
+              return(Option(EvalResult).None);
+            }
+          ),
+        // ---------------------------------------------------------------
+        // Phase 5t: EnumVal.err() — Result.err(), converts Result to Option.
+        //   .Err(e).err() → .Some(e)
+        //   .Ok(_).err()  → .None
+        // ---------------------------------------------------------------
+        ((mname == "err") && (match(recv_val,.EnumVal(_, _) => true, _ => false) && (method_call_args.len() == usize(0)))) =>
+          match(
+            recv_val,
+            .EnumVal(errcv_tag, errcv_fields) =>
+              cond(
+                ((errcv_tag.as_str() == ".Err") && (errcv_fields.len() > usize(0))) =>
+                  match(
+                    errcv_fields.get(usize(0)),
+                    .Some(inner_errc) => {
+                      sflds2 := ArrayList(EvalValue).new();
+                      sflds2.push(inner_errc);
+                      return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".Some"), sflds2), t_unit())));
+                    },
+                    .None => {
+                      return(Option(EvalResult).None);
+                    }
+                  ),
+                true => {
+                  nflds2 := ArrayList(EvalValue).new();
+                  return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), nflds2), t_unit())));
                 }
               ),
             _ => {
@@ -6166,18 +6600,18 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                 _ => Option(EvalResult).None
                               ),
                             true =>
-                              // Phase 5ap: TypeVal.VariantName — fieldless enum variant construction
+                              // Phase 5ap: TypeVal.VariantName — fieldless enum variant construction.
+                              // Handles both:
+                              //   - TypeVal(EnumT(...)): user-defined enum variants
+                              //   - TypeVal(non-EnumT): built-in generic types like Option(T).None,
+                              //     Result(T,E).None — these have no EnumT but still produce variants.
                               match(
                                 recv_res.value,
-                                .TypeVal(tv_box_fa) => match(
-                                  tv_box_fa.*,
-                                  .EnumT(_, _, _, _, _, _, _) => {
-                                    variant_str_tv := `.${deref_tok.value}`;
-                                    ev_fields_tv := ArrayList(EvalValue).new();
-                                    .Some(eval_result(.EnumVal(variant_str_tv, ev_fields_tv), t_unit()))
-                                  },
-                                  _ => Option(EvalResult).None
-                                ),
+                                .TypeVal(_) => {
+                                  variant_str_tv := `.${deref_tok.value}`;
+                                  ev_fields_tv := ArrayList(EvalValue).new();
+                                  .Some(eval_result(.EnumVal(variant_str_tv, ev_fields_tv), t_unit()))
+                                },
                                 _ => Option(EvalResult).None
                               )
                           ),

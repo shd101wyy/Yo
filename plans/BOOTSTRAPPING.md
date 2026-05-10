@@ -389,6 +389,8 @@ yo-self/
     eval_5p_1.test.yo       -- Phase 5p proto-evaluator tests: ArrayList HOFs: map, filter, fold, any, all, concat, reverse, first, last, slice, contains (50 tests)
     eval_5q_1.test.yo       -- Phase 5q proto-evaluator tests: str methods (len/starts_with/ends_with/contains/substring/replace/split) + Option.is_some/is_none/unwrap + arr.index_of (50 tests)
     eval_5r_1.test.yo       -- Phase 5r proto-evaluator tests: flat_map, char_at/repeat, as_bytes/str.index_of, arr.remove/set/find, self-recursive via recur (50 tests)
+    eval_5s_1.test.yo       -- Phase 5s proto-evaluator tests: str.replace_all, str.trim, str.to_upper/lower, arr.enumerate(), arr.zip() (50 tests)
+    eval_5t_1.test.yo       -- Phase 5t proto-evaluator tests: Option/Result chaining: TypeVal.Some/None/Ok/Err constructors, Option.map/and_then/unwrap_or/or_else, Result.is_ok/is_err/map/map_err/unwrap_or/ok/err (50 tests)
     eval_basics.test.yo     -- basic proto-evaluator tests
     eval_tail_1.test.yo     -- tail call proto-evaluator tests (part 1)
     eval_tail_2.test.yo     -- tail call proto-evaluator tests (part 2)
