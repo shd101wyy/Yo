@@ -3069,6 +3069,29 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 ---
 
+### Phase 6z — Phase 5ae eval tests: first/last, flat_map, string ops, abs, complex pipelines (23 more tests, 3942 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ae_1.test.yo` — 23 tests covering:
+
+- **5aea** (5 tests): `ArrayVal.first()` and `ArrayVal.last()` — returns `Option` (`.Some(elem)` or `.None`); first on empty, first after filter, last after map
+- **5aeb** (5 tests): `ArrayVal.flat_map(fn)` — duplicate elements, expand+fold sum, split strings into chars, flat_map+filter count, flat_map+reverse+first
+- **5aec** (5 tests): String operations — `trim()` strips whitespace, `substring(start, end)` extracts prefix, `char_at(i)` first/last char, `repeat(n)` repeats string
+- **5aed** (4 tests): `replace_all(from, to)` all occurrences, `index_of(str)` byte offset in string, `index_of(val)` element index in array, `abs()` on negative/positive/zero
+- **5aee** (4 tests): Complex combos — flat_map squares+fold, first+last both checked, index_of+substring extraction, trim+split+join pipeline
+
+**Key facts confirmed**:
+
+- `first()` / `last()` return `EnumVal(".Some", [elem])` or `EnumVal(".None", [])` — unwrap with `.unwrap()`.
+- `flat_map(fn)` — the fn must return an ArrayVal (array literal `[...]` in source); elements are flattened into result.
+- `char_at(i)` and `substring(start, end)` accept `usize(n)` as index (evaluates to IntLit which gets parsed).
+- `abs()` on `i32` works since i32 produces IntLit; use `(i32(0) - i32(n))` for negative values (never `i32(-n)`).
+- `index_of(str)` on string returns `.Some(IntLit(byteOffset))` — "world" at position 6 in "hello world".
+- Multi-element string arrays like `["ab", "cd"]` work fine; only single-element `["str"]` arrays have issues.
+
+**Test results**: 3942/3942 yo-self tests passing ✅ (23 new + 3919 prior).
+
+---
+
 ### What works today
 
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
