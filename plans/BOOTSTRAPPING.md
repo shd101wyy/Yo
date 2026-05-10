@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7as — Phase 5bx eval tests: index-based filtering, square/cube sums, pairwise ops (20 more tests, 4847 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bx_1.test.yo` — 20 tests covering:
+
+- **5bxa** (4 tests): sum elements at even indices of [2,7,4,9,1,6,3,8,5]=15; sum at odd indices=30; sum elements where value>index=36; count where value>index=6
+- **5bxb** (4 tests): sum of squares of even numbers in 1..10=220; sum of cubes of odd numbers in 1..7=496; count n in 1..20 where n²<3n+10=4; sum n in 1..20 where n²>5n=195
+- **5bxc** (4 tests): sum of absolute differences of consecutive pairs=37; count descending consecutive pairs=4; sum of products of consecutive pairs=175; sum n in 1..12 coprime to 6 (not div by 2 or 3)=24
+- **5bxd** (4 tests): 15+30+36=81; 6+220+496=722; 4+195+37=236; 4+175+24=203
+- **5bxe** (4 tests): 15+496+4=515; 30+220+37=287; 36+4+175=215; 195+6+24=225
+
+**New patterns**: index-based array filtering (even/odd index, value vs index comparisons); square/cube accumulation with arithmetic conditions; consecutive pair operations (abs diff, descending detection, product sum); coprimality test via AND of two divisibility flags.
+
+**Test results**: 4847/4847 yo-self tests passing ✅ (20 new + 4827 prior).
+
 ### Phase 7ar — Phase 5bw eval tests: alternating sums, running max/min, divisor sums, CRT filtering (20 more tests, 4827 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bw_1.test.yo` — 20 tests covering:
