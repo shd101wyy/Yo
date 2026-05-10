@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7aa — Phase 5bf eval tests: zip combos, multi-fn pipelines, cond trees, string classification, grand combos (20 more tests, 4487 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bf_1.test.yo` — 20 tests covering:
+
+- **5bfa** (4 tests): zip fold min-of-pair=6; zip map+fold pair-sums=21; zip filter first>second count=2; zip abs-diff fold=16
+- **5bfb** (4 tests): map-triple+add10+fold=48; map-square+filter-odd+fold=35; filter-positive+halve+fold=10; map-double+filter-div3+count=2
+- **5bfc** (4 tests): sign-code map+fold=0; filter scores≥70 count=3; fizzbuzz code map+fold=6; clamp[0,10]+fold=21
+- **5bfd** (4 tests): count vowel-start words=3; total chars in long words=20; count containing "hel"=4; sum lengths ending with vowel=13
+- **5bfe** (4 tests): zip+filter+fold weighted sum=29; let+map+zip sum=72; flat_map+filter+fold=33; map+zip+filter+fold=36
+
+**Pitfalls discovered**: `(acc + p.0 + p.1)` 3-term sum in a fold on tuple pairs crashes — must first map pairs to scalar sums, then fold separately. Also confirmed: `match(result) {` block syntax does NOT work (use the function-style `match(result, .Pattern => ...)` instead).
+
+**Test results**: 4487/4487 yo-self tests passing ✅ (20 new + 4467 prior).
+
 ### Phase 7z — Phase 5be eval tests: let-chains, while patterns, nested HOF, string+arithmetic, grand combos (20 more tests, 4467 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5be_1.test.yo` — 20 tests covering:
