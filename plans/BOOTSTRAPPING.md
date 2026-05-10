@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ap — Phase 5bu eval tests: geometric series, modular arithmetic, Fibonacci/Lucas/Tribonacci (20 more tests, 4787 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bu_1.test.yo` — 20 tests covering:
+
+- **5bua** (4 tests): sum powers-of-2 k=0..9=1023; sum powers-of-3 k=0..5=364; sum (2^k%100) k=0..9=223; count k where 2^k≥10=6
+- **5bub** (4 tests): sum n%7 n=1..20=63; count n in 1..50 divisible by both 5 and 7=1; sum n in 1..30 where n%3=1 AND n%4=2=32; sum squares of non-multiples-of-3 in 1..10=259
+- **5buc** (4 tests): sum first 8 Fibonacci=54; sum first 7 Lucas=46; sum first 8 Tribonacci=28; sum Fibonacci at 1-indexed positions divisible by 3=44
+- **5bud** (4 tests): 1023+364+223=1610; 6+63+1=70; 32+259+54=345; 46+28+44=118
+- **5bue** (4 tests): 1023+63+54=1140; 364+1+46=411; 223+32+28=283; 6+259+44=309
+
+**New patterns**: geometric series with running power variable; CRT filtering with two simultaneous modular conditions; three recurrence sequence types (Fibonacci, Lucas, Tribonacci); selective Fibonacci sum at stride-3 positions.
+
+**Test results**: 4787/4787 yo-self tests passing ✅ (20 new + 4767 prior).
+
 ### Phase 7ao — Phase 5bt eval tests: triangle numbers, odd squares, array index/value patterns, abs-diff, running averages (20 more tests, 4767 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bt_1.test.yo` — 20 tests covering:
