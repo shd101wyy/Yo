@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ad — Phase 5bi eval tests: range-based computations, multi-var while, HOF composition, grand combos (20 more tests, 4547 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bi_1.test.yo` — 20 tests covering:
+
+- **5bia** (4 tests): fold triangular numbers T1..T5=35; count perfect squares (via map)=5; alternating sum 1-2+3-4+5-6+7-8=-4; fold sum of cubes 1..4=100 (fixed 3-term `x*x*x` → block)
+- **5bib** (4 tests): while count multiples of 3 in [3..30]=10; while add squares until ≥50=55; while Fibonacci 8 iterations=34; while LCM(12,8)=24
+- **5bic** (4 tests): double→filter %3==0→sum=18; sq+cube map→zip products sum=276; filter div by 2 or 5→square→sum=245; two sequential maps sum=162
+- **5bid** (4 tests): count long words × num-sum=30; while sum + HOF sum of squares=110; zip count a>b=2; fold grade scores=7
+- **5bie** (4 tests): product of odd numbers 1..10=945; zip-diff count positives=3; while+array-fold grand combo=55; count where square > 2x=3
+
+**Key pitfalls discovered**: `x * x * x` (3-term multiplication in source string) causes exception — must break into `sq := (x * x); (sq * x)` in a block.
+
+**Test results**: 4547/4547 yo-self tests passing ✅ (20 new + 4527 prior).
+
 ### Phase 7ac — Phase 5bh eval tests: string processing, integer patterns, conditional accumulation, nested pipelines, grand combos (20 more tests, 4527 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bh_1.test.yo` — 20 tests covering:
