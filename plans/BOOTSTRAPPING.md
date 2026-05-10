@@ -3970,3 +3970,15 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - **5cce** (4 tests): 81+49+30=160; 31+19+5=55; 1+4+20=25; 193+29+3=225
 
 **Test results**: 4947/4947 yo-self tests passing ✅ (20 new + 4927 prior).
+
+### Phase 7ay — Phase 5cd eval tests: mostly-ascending array [1,2,3,4,5,7,8,9,6] (20 more tests, 4967 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5cd_1.test.yo` — 20 tests:
+
+- **5cd** (4 tests): prefix max sum=48; suffix min sum=39; count new maximums=8; sum i×arr[i]=234
+- **5cdb** (4 tests): 3-window max sum=45; 3-window min sum=28; count windows>15=4; middle sum=38
+- **5cdc** (4 tests): sum>5=30; count sym pairs>10=6; sum |arr[i]-5|=20; count multiples of 6=3
+- **5cdd** (4 tests): 48+39+8=95; 234+45+28=307; 4+38+30=72; 6+20+3=29
+- **5cde** (4 tests): 48+45+30=123; 39+28+6=73; 8+4+20=32; 234+38+3=275
+
+**Test results**: 4967/4967 yo-self tests passing ✅ (20 new + 4947 prior).
