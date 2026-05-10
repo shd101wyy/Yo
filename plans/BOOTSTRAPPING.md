@@ -3301,6 +3301,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4227/4227 yo-self tests passing ✅ (20 new + 4207 prior).
 
+### Phase 7o — Phase 5at eval tests: more string methods, array index_of, split pipelines, mixed (20 more tests, 4247 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5at_1.test.yo` — 20 tests covering:
+
+- **5ata** (4 tests): `to_uppercase`; `to_lowercase`; `split` length=3; `replace` word substitution
+- **5atb** (4 tests): `repeat` x3; `char_at` index 0; string `index_of` found→Some(1); not found→None
+- **5atc** (4 tests): Array `index_of` found→Some(1); `split`+for loop count=3; `char_at` index 4; array `index_of` absent→None
+- **5atd** (4 tests): `replace`+`contains` chain; `to_uppercase`+`starts_with`; `repeat`+`ends_with`; `recur` doubleN(4)=8
+- **5ate** (4 tests): `split`+`map` to_uppercase length=2; `char_at`+`contains`; `split`(" ")+for count=4; `recur` countdown→0
+
+**Test results**: 4247/4247 yo-self tests passing ✅ (20 new + 4227 prior).
+
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
 - **Parser port** — `yo-self/parser/` complete; 43 tests pass.
 - **AST + ExprInfo + side-table evaluation results** — Phase 2k done.
