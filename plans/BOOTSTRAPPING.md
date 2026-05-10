@@ -396,6 +396,7 @@ yo-self/
     eval_5w_1.test.yo       -- Phase 5w proto-evaluator tests: bitwise ops (| & ^ << >>), extern/c_include/where/forall (all UnitVal), String.from, ArrayVal.is_empty()/StrLit.is_empty(), combos (43 tests)
     eval_5x_1.test.yo       -- Phase 5x proto-evaluator tests: ArrayVal.concat, ArrayVal.reverse, ArrayVal.slice, StrLit.replace/index_of, StrLit.as_bytes/to_cstr, ArrayVal.find, combos (43 tests)
     eval_5y_1.test.yo       -- Phase 5y proto-evaluator tests: f64 arithmetic (FloatLit), usize/u64 ops, escape/return in functions, box(val) (PtrVal), HashMap TypeVal, combos (34 tests)
+    eval_5z_1.test.yo       -- Phase 5z proto-evaluator tests: Result methods (is_ok/is_err/unwrap/unwrap_or/map/and_then/map_err), i64 arithmetic, integer conversion chains, contains(), HOF combos (37 tests)
     eval_basics.test.yo     -- basic proto-evaluator tests
     eval_tail_1.test.yo     -- tail call proto-evaluator tests (part 1)
     eval_tail_2.test.yo     -- tail call proto-evaluator tests (part 2)
@@ -2958,6 +2959,29 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 2. f64 comparison results give BoolVal; string matching for FloatLit is safest with known-non-integer results (4.5, 2.5) from the existing eval_5b.test.yo patterns
 
 **Test results**: 3788/3788 yo-self tests passing ✅ (34 new + 3754 prior).
+
+---
+
+### Phase 6u — Phase 5z eval tests: Result methods, i64, conversions, contains, HOF combos (37 more tests, 3825 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5z_1.test.yo` — 37 tests covering:
+
+- **5za** (6 tests): `Result.is_ok()`, `is_err()`, `unwrap()`, `unwrap_or()`
+- **5zb** (5 tests): i64 arithmetic (`+`, `-`, `*`, `/`, `abs()`)
+- **5zc** (5 tests): Integer conversion chains (`.to_i64()`, `.to_i32()`, `.to_usize()`, `.to_u64()`, `.to_f64()`)
+- **5zd** (5 tests): `StrLit.contains()`, `ArrayVal.contains()`
+- **5ze** (5 tests): `Result.map()`, `Result.and_then()`, `Result.map_err()`
+- **5zf** (4 tests): HOF combos — `map+filter+fold`, `any+all`, `flat_map+fold`, `map→str+contains`
+- **5zg** (7 tests): Combo tests mixing Result, i64, contains, HOF, escape
+
+**Bug fixed in proto-evaluator** (`eval.yo`): `Result.Ok.and_then()` was crashing because the `and_then` implementation only matched `.Some` variants, not `.Ok`. Fixed by extending the condition to `(attag.as_str() == ".Some") || (attag.as_str() == ".Ok")`.
+
+**Key pitfall discovered**: Inline lambda in source strings must use `fn` keyword:
+
+- WRONG: `((x : T) -> R)(body)` — parser sees `(x : T) -> R` as a type, not a function
+- CORRECT: `(fn(x : T) -> R)(body)` — `fn` keyword makes it a function literal
+
+**Test results**: 3825/3825 yo-self tests passing ✅ (37 new + 3788 prior).
 
 ---
 
