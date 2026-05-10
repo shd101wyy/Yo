@@ -3329,6 +3329,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7aj — Phase 5bo eval tests: min/max/product via while, divisibility filters, sum formulas, grand combos (20 more tests, 4667 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bo_1.test.yo` — 20 tests covering:
+
+- **5boa** (4 tests): max of [3,1,4,1,5,9,2,6]=9; min=1; product [1..5]=120; sum of running maximums of [2,4,1,6,3,8]=30
+- **5bob** (4 tests): count n in 1..30 divisible by 7=4; count n in 1..20 divisible by 3 or 5=9; sum multiples of 4 in 1..24=84; count n in 1..50 where n²mod7=0=7
+- **5boc** (4 tests): sum of squares 1..7=140; sum of triangular numbers T(n) n=1..5=35; sum of cubes 1..4=100; sum n\*(n+1) n=1..6=112
+- **5bod** (4 tests): max+sum_mult4+product grand combo=213; min+count_div7+sum_squares grand combo=145; count_div3or5+sum_triangular+sum_cubes grand combo=144; sum_n(n+1)+count_sq_mod7+running_max_sum grand combo=149
+- **5boe** (4 tests): product+sum_squares+count_div7 grand combo=264; sum_cubes+count_div3or5+max grand combo=118; min+sum_n(n+1)+count_sq_mod7 grand combo=120; sum_squares+sum_cubes+product mega combo=360
+
+**Test results**: 4667/4667 yo-self tests passing ✅ (20 new + 4647 prior).
+
 ### Phase 7ai — Phase 5bn eval tests: matrix trace/det, zip-dot, prime filter, while-factorial, cumulative products, alternating sums, grand combos (20 more tests, 4647 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bn_1.test.yo` — 20 tests covering:
