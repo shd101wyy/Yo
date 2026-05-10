@@ -391,6 +391,7 @@ yo-self/
     eval_5r_1.test.yo       -- Phase 5r proto-evaluator tests: flat_map, char_at/repeat, as_bytes/str.index_of, arr.remove/set/find, self-recursive via recur (50 tests)
     eval_5s_1.test.yo       -- Phase 5s proto-evaluator tests: str.replace_all, str.trim, str.to_upper/lower, arr.enumerate(), arr.zip() (50 tests)
     eval_5t_1.test.yo       -- Phase 5t proto-evaluator tests: Option/Result chaining: TypeVal.Some/None/Ok/Err constructors, Option.map/and_then/unwrap_or/or_else, Result.is_ok/is_err/map/map_err/unwrap_or/ok/err (50 tests)
+    eval_5u_1.test.yo       -- Phase 5u proto-evaluator tests: assert/comptime_assert, logical NOT !(expr), unary negation -(expr), runtime/dyn/comptime pass-throughs, type constructors (Option/Result/Box/Pointer/Slice/Future/Array/HashMap/Impl/Fn), type_of/size_of/align_of, println/print/unreachable/panic/todo/derive (50 tests)
     eval_basics.test.yo     -- basic proto-evaluator tests
     eval_tail_1.test.yo     -- tail call proto-evaluator tests (part 1)
     eval_tail_2.test.yo     -- tail call proto-evaluator tests (part 2)
