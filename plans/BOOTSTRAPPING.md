@@ -3329,6 +3329,18 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7ah — Phase 5bm eval tests: digit-square sum, proper divisors, LCM, dot product, power, grand combos (20 more tests, 4627 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bm_1.test.yo` — 20 tests covering:
+
+- **5bma** (4 tests): sum squares of digits 12345=55; proper divisors of 28=28 (perfect); sum squares of divisors of 6=50; LCM(12,8)=24 via GCD
+- **5bmb** (4 tests): dot product [1,2,3,4]·[4,3,2,1]=20; two-halves sum diff=25; count evens via map 0/1=4; filter-zip-sum=22
+- **5bmc** (4 tests): 3^6=729; alternating +1/-1 20 terms=0; halve/double alternating 5 iters=5; floor(100/i) sum i=1..5=228
+- **5bmd** (4 tests): digit-sum(9999)+filter-sum=101; index-based ×2/×3=54; dot+proper-divs grand combo=18; power+filter+while grand combo=82
+- **5bme** (4 tests): first perfect square>50=64; consecutive abs diffs sum=28; count multiples of 7 up to 50=7; sq-sum+divisors+power grand combo=50
+
+**Test results**: 4627/4627 yo-self tests passing ✅ (20 new + 4607 prior).
+
 ### Phase 7ag — Phase 5bl eval tests: number theory, string/array patterns, accumulator combos, grand combos (20 more tests, 4607 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5bl_1.test.yo` — 20 tests covering:
