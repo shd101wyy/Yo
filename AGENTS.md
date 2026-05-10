@@ -186,6 +186,7 @@ Always save verbose output to a file to avoid terminal truncation:
 - Never skip bugs discovered during implementation.
 - After fixing a bug, verify uncommitted changes for leftover or unused code.
 - Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
+- **Always run `./yo-cli fmt <file.yo>` on every `.yo` file you create or modify, before committing.** Use `./yo-cli fmt --check` to verify. Do not commit unformatted `.yo` files.
 - Always check if there is need to create/update existing instructions & rules & skill files, design/plan docs after implementing a change.
 - **Whenever you learn something new about Yo syntax, semantics, or common pitfalls — especially from trial and error — immediately update the relevant skill files** (`.github/skills/yo-syntax/syntax-cheatsheet.md`, `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`, etc.) **and instruction files** (`.github/instructions/yo-syntax.instructions.md`, `.github/instructions/yo-design.instructions.md`). This keeps the institutional knowledge accurate for future sessions.
 - Always put design/plan documents in `plans/` directory (e.g., `plans/FEATURE_NAME.md`).

@@ -200,6 +200,10 @@ Partial application tests live in `tests/fn.test.yo`. Key facts:
 - Lint: `bun run lint`
 - Format check: `bun run format`
 - Fix lint/format issues before committing.
+- **Always run `./yo-cli fmt <files>` on any `.yo` files you create or modify before committing.**
+  - To check: `./yo-cli fmt --check path/to/file.yo`
+  - To fix: `./yo-cli fmt path/to/file.yo`
+  - Example: `./yo-cli fmt yo-self/tests/eval_5v_1.test.yo`
 
 ## Slow test files
 
