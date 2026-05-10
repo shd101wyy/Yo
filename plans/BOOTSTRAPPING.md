@@ -3191,6 +3191,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4067/4067 yo-self tests passing ✅ (20 new + 4047 prior).
 
+---
+
+### Phase 7g — Phase 5al eval tests: ArrayVal.remove, ArrayVal.set, ArrayVal.get, to_cstr/to_f64/to_usize/to_i32, combos (20 more tests, 4087 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5al_1.test.yo` — 20 tests covering:
+
+- **5ala** (4 tests): `ArrayVal.remove(idx)` — remove at index 0 yields 2 elements starting at former index 1; remove at last index; remove at middle; remove + len combo
+- **5alb** (4 tests): `ArrayVal.set(idx, val)` — set first element; set last element preserving others; set middle; set preserves length
+- **5alc** (4 tests): `ArrayVal.get(idx)` as exported EnumVal — get(0) returns Some with first; get(2) returns Some with third; out-of-bounds returns None; get(0).is_some() = true
+- **5ald** (4 tests): `to_cstr()` on StrLit passthrough; `to_f64()` on IntLit passthrough; `to_usize()` on IntLit passthrough; `to_i32()` on IntLit passthrough
+- **5ale** (4 tests): Combos — remove(0)+first() returns former second; set(0,9)+get(0) returns Some(9); remove(2)+len()=2; set(2,88)+last() returns Some(88)
+
+**Test results**: 4087/4087 yo-self tests passing ✅ (20 new + 4067 prior).
+
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
 - **Parser port** — `yo-self/parser/` complete; 43 tests pass.
 - **AST + ExprInfo + side-table evaluation results** — Phase 2k done.
