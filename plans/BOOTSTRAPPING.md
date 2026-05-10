@@ -3007,7 +3007,26 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 ---
 
-## Current Bootstrap State
+### Phase 6w — Phase 5ab eval tests: is_empty, struct HOF, numeric algorithms, string xform, Option/Result (27 more tests, 3879 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ab_1.test.yo` — 27 tests covering:
+
+- **5aba** (5 tests): `ArrayVal.is_empty()` and `StrLit.is_empty()` including guard pattern (empty → default)
+- **5abb** (5 tests): Array of structs with HOF field access (fold on field sum, filter by field, map to field, any predicate, find by field)
+- **5abc** (5 tests): Numeric algorithms via while loop (GCD Euclidean, sum of digits, integer power 2^8=256, count digits, Collatz steps)
+- **5abd** (5 tests): String building and transformation (fold+concat to build phrase, count char occurrences via split, case-insensitive prefix, extract long words+join, replace+uppercase)
+- **5abe** (5 tests): Nested Option/Result patterns (Option.and_then with condition, array of Options count/sum, Result.ok().map(), Result chain map+and_then+unwrap_or)
+- **5abf** (2 tests): Edge cases (fold on empty array returns init, single-element join via split)
+
+**Key pitfalls discovered**:
+
+- `!b` unary negation requires parens in Yo: use `(b == false)` instead of `!b` in test assertions, or wrap as `(!b)` — but `(b == false)` is clearer.
+- Array literal `["hello"]` in source strings causes `evaluate_module_body` to return `None` (unknown issue). Use `s.split(" ")` to create single-element arrays from strings instead.
+- `replace()` only replaces the FIRST occurrence — `"hello_world".replace("_", "-")` → `"hello-world"` (correct). If there were two underscores, only the first would be replaced.
+
+**Test results**: 3879/3879 yo-self tests passing ✅ (27 new + 3852 prior).
+
+---
 
 ### What works today
 
