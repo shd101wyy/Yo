@@ -1,0 +1,754 @@
+// @skip_wasm32-emscripten — split file (~5min Yo compile alone, C output ~6 MB)
+// @skip_wasm32-wasi        — split file (~5min Yo compile alone, C output ~6 MB)
+/// Tests for the evaluator — Phase 5ag series: find, any/all combos, zip,
+/// enumerate, starts_with/ends_with pipelines, contains combos.
+///
+/// Phases covered:
+///   5aga — ArrayVal.find(fn) returns Option (Some/None)
+///   5agb — ArrayVal.any(fn) / ArrayVal.all(fn) with complex predicates
+///   5agc — ArrayVal.zip(other) and enumerate pipelines
+///   5agd — StrLit.starts_with / ends_with / contains combos
+///   5age — Complex multi-method pipelines
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+// ---------------------------------------------------------------------------
+// Phase 5aga — ArrayVal.find(fn) returns Option (Some/None)
+// ---------------------------------------------------------------------------
+test("Phase 5aga: find returns Some(first element satisfying predicate)", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3), i32(4)];\nresult := arr.find((fn(x : i32) -> bool)(x > i32(2)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(
+            x,
+            .EnumVal(tag, fields) => {
+              assert(tag.as_str() == ".Some", "tag=Some");
+              match(
+                fields.get(usize(0)),
+                .Some(inner) => match(inner,.IntLit(n) => assert(n.as_str() == "3", "first>2 is 3"), _ => assert(false, "inner")),
+                .None => assert(false, "inner")
+              );
+            },
+            _ => assert(false, "t")
+          ),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5aga: find returns None when no element satisfies predicate", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3)];\nresult := arr.find((fn(x : i32) -> bool)(x > i32(10)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(
+            x,
+            .EnumVal(tag, _) => assert(tag.as_str() == ".None", "tag=None"),
+            _ => assert(false, "t")
+          ),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5aga: find on empty array returns None", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [];\nresult := arr.find((fn(x : i32) -> bool)(x > i32(0)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(
+            x,
+            .EnumVal(tag, _) => assert(tag.as_str() == ".None", "tag=None"),
+            _ => assert(false, "t")
+          ),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5aga: find then unwrap gives correct value", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(5), i32(10), i32(15), i32(20)];\nresult := arr.find((fn(x : i32) -> bool)(x > i32(12))).unwrap();\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "find>12 is 15"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5aga: find first even element after odd prefix", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(3), i32(5), i32(4), i32(6)];\nresult := arr.find((fn(x : i32) -> bool)((x % i32(2)) == i32(0))).unwrap();\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "first even is 4"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+// ---------------------------------------------------------------------------
+// Phase 5agb — ArrayVal.any / ArrayVal.all with complex predicates
+// ---------------------------------------------------------------------------
+test("Phase 5agb: any returns true if at least one element satisfies", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3)];\nresult := arr.any((fn(x : i32) -> bool)(x > i32(2)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "any>2 true"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agb: any returns false when none satisfy", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3)];\nresult := arr.any((fn(x : i32) -> bool)(x > i32(10)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(!(b), "any>10 false"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agb: all returns true when all elements satisfy", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(2), i32(4), i32(6)];\nresult := arr.all((fn(x : i32) -> bool)((x % i32(2)) == i32(0)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "all even true"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agb: all returns false when some elements fail", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(2), i32(3), i32(6)];\nresult := arr.all((fn(x : i32) -> bool)((x % i32(2)) == i32(0)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(!(b), "all even false"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agb: filter then any — check if any filtered result satisfies extra condition", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(2), i32(3), i32(4), i32(5)];\nevens := arr.filter((fn(x : i32) -> bool)((x % i32(2)) == i32(0)));\nresult := evens.any((fn(x : i32) -> bool)(x > i32(3)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "any even>3 true"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+// ---------------------------------------------------------------------------
+// Phase 5agc — ArrayVal.zip and enumerate pipelines
+// ---------------------------------------------------------------------------
+test("Phase 5agc: zip two arrays and map to sum of pairs", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "a := [i32(1), i32(2), i32(3)];\nb := [i32(10), i32(20), i32(30)];\npairs := a.zip(b);\nresult := pairs.map((fn(t : (i32, i32)) -> i32)(t.0 + t.1));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(
+            x,
+            .ArrayVal(arr) => {
+              assert(arr.len() == usize(3), "len=3");
+              match(arr.get(usize(0)),.Some(e) => match(e,.IntLit(n) => assert(n.as_str() == "11", "sum0=11"), _ => assert(false, "0")),.None => assert(false, "0"));
+              match(arr.get(usize(1)),.Some(e) => match(e,.IntLit(n) => assert(n.as_str() == "22", "sum1=22"), _ => assert(false, "1")),.None => assert(false, "1"));
+              match(arr.get(usize(2)),.Some(e) => match(e,.IntLit(n) => assert(n.as_str() == "33", "sum2=33"), _ => assert(false, "2")),.None => assert(false, "2"));
+            },
+            _ => assert(false, "t")
+          ),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agc: zip then fold to compute dot product", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "a := [i32(1), i32(2), i32(3)];\nb := [i32(4), i32(5), i32(6)];\npairs := a.zip(b);\nresult := pairs.fold(i32(0), (fn(acc : i32, t : (i32, i32)) -> i32)(acc + (t.0 * t.1)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "32", "dot=1*4+2*5+3*6=32"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agc: enumerate then map to extract indices only", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(20), i32(30)];\nenum_arr := arr.enumerate();\nindices := enum_arr.map((fn(t : (usize, i32)) -> usize)(t.0));\nexport(indices);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(
+            x,
+            .ArrayVal(arr) => {
+              assert(arr.len() == usize(3), "len=3");
+              match(arr.get(usize(0)),.Some(e) => match(e,.IntLit(n) => assert(n.as_str() == "0", "idx0=0"), _ => assert(false, "0")),.None => assert(false, "0"));
+              match(arr.get(usize(1)),.Some(e) => match(e,.IntLit(n) => assert(n.as_str() == "1", "idx1=1"), _ => assert(false, "1")),.None => assert(false, "1"));
+              match(arr.get(usize(2)),.Some(e) => match(e,.IntLit(n) => assert(n.as_str() == "2", "idx2=2"), _ => assert(false, "2")),.None => assert(false, "2"));
+            },
+            _ => assert(false, "t")
+          ),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agc: enumerate then filter to keep elements at even indices", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(20), i32(30), i32(40), i32(50)];\nenum_arr := arr.enumerate();\neven_idx := enum_arr.filter((fn(t : (usize, i32)) -> bool)((t.0 % usize(2)) == usize(0)));\nresult := even_idx.map((fn(t : (usize, i32)) -> i32)(t.1));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(
+            x,
+            .ArrayVal(arr) => {
+              assert(arr.len() == usize(3), "len=3 (indices 0,2,4)");
+              match(arr.get(usize(0)),.Some(e) => match(e,.IntLit(n) => assert(n.as_str() == "10", "idx0=10"), _ => assert(false, "0")),.None => assert(false, "0"));
+              match(arr.get(usize(1)),.Some(e) => match(e,.IntLit(n) => assert(n.as_str() == "30", "idx2=30"), _ => assert(false, "1")),.None => assert(false, "1"));
+              match(arr.get(usize(2)),.Some(e) => match(e,.IntLit(n) => assert(n.as_str() == "50", "idx4=50"), _ => assert(false, "2")),.None => assert(false, "2"));
+            },
+            _ => assert(false, "t")
+          ),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+// ---------------------------------------------------------------------------
+// Phase 5agd — StrLit.starts_with / ends_with / contains pipelines
+// ---------------------------------------------------------------------------
+test("Phase 5agd: starts_with on matching string returns true", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "s := \"hello world\";\nresult := s.starts_with(\"hello\");\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "starts_with hello"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agd: ends_with on matching suffix returns true", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "s := \"hello world\";\nresult := s.ends_with(\"world\");\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "ends_with world"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agd: contains on string with substring returns true", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "s := \"the quick brown fox\";\nresult := s.contains(\"quick\");\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "contains quick"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5agd: filter array of strings by starts_with prefix — count matching", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "words := \"apple banana apricot cherry avocado\".split(\" \");\nmatches := words.filter((fn(w : str) -> bool)(w.starts_with(\"a\")));\nresult := matches.fold(i32(0), (fn(acc : i32, _ : str) -> i32)(acc + i32(1)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3 words start with a"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+// ---------------------------------------------------------------------------
+// Phase 5age — Complex multi-method pipelines
+// ---------------------------------------------------------------------------
+test("Phase 5age: find then check contains — substring of found string", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "words := \"cat dog elephant fish\".split(\" \");\nlong_word := words.find((fn(w : str) -> bool)(w.len() > usize(4))).unwrap();\nresult := long_word.contains(\"phant\");\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "elephant contains phant"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5age: zip then filter to keep pairs where both are positive", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "a := [i32(1), (i32(0) - i32(2)), i32(3), (i32(0) - i32(4))];\nb := [i32(5), i32(6), (i32(0) - i32(7)), i32(8)];\npairs := a.zip(b);\nresult := pairs.filter((fn(t : (i32, i32)) -> bool)((t.0 > i32(0)) && (t.1 > i32(0))));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(
+            x,
+            .ArrayVal(arr) => assert(arr.len() == usize(1), "1 pair both positive"),
+            _ => assert(false, "t")
+          ),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5age: enumerate + all — check all values are greater than zero", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(5), i32(10), i32(15)];\npairs := arr.enumerate();\nresult := pairs.all((fn(t : (usize, i32)) -> bool)(t.1 > i32(0)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "all vals > 0"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5age: filter by ends_with then count", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "words := \"running jumping sitting standing walking\".split(\" \");\ning_words := words.filter((fn(w : str) -> bool)(w.ends_with(\"ing\")));\nresult := ing_words.fold(i32(0), (fn(acc : i32, _ : str) -> i32)(acc + i32(1)));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "5", "all 5 words end with ing"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+test("Phase 5age: zip + any — check if any pair has equal values", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "a := [i32(1), i32(5), i32(3)];\nb := [i32(2), i32(5), i32(4)];\npairs := a.zip(b);\nresult := pairs.any((fn(t : (i32, i32)) -> bool)(t.0 == t.1));\nexport(result);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.BoolVal(b) => assert(b, "pair (5,5) equal"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});

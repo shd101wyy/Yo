@@ -3114,6 +3114,22 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 ---
 
+### Phase 7b — Phase 5ag eval tests: find, any/all combos, zip, enumerate, string pipelines (23 more tests, 3987 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ag_1.test.yo` — 23 tests covering:
+
+- **5aga** (5 tests): `ArrayVal.find(fn)` — returns `Some(first match)`, `None` when no match, `None` on empty, `find().unwrap()`, find first even
+- **5agb** (5 tests): `ArrayVal.any(fn)` / `ArrayVal.all(fn)` — any true/false, all true/false, filter-then-any pipeline
+- **5agc** (4 tests): `ArrayVal.zip(other)` + `enumerate()` — zip-map to sum pairs, zip-fold for dot product, enumerate-map for indices, enumerate-filter even indices
+- **5agd** (4 tests): `starts_with`, `ends_with`, `contains` — basic true checks, filter-count with `starts_with`
+- **5age** (5 tests): Complex combos — find+contains substring, zip+filter both positive, enumerate+all, filter ends_with+count, zip+any equal pair
+
+**Key pitfall fixed**: `.Some(.IntLit(n))` in match arms is NOT valid Yo syntax — must use `.Some(x) => match(x, .IntLit(n) => ..., _ => ...)` two-level match.
+
+**Test results**: 3987/3987 yo-self tests passing ✅ (23 new + 3964 prior).
+
+---
+
 ### What works today
 
 - **Lexer port** — `yo-self/lexer/` complete; 33 tests pass.
