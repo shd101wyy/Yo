@@ -3329,6 +3329,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4367/4367 yo-self tests passing ✅ (20 new + 4347 prior).
 
+### Phase 7x — Phase 5bc eval tests: flat_map, string ops, multi-var while, recursive fns (20 more tests, 4427 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5bc_1.test.yo` — 20 tests covering:
+
+- **5bca** (4 tests): flat_map duplicate elements (len=6); flat_map+fold sum=18; flat_map+filter+len=4; flat_map double-and-triple sum=50
+- **5bcb** (4 tests): filter strings containing "a" (=3); filter strings starting with "c" (=2); any ending with "ry" (=true); filter by substring (=2)
+- **5bcc** (4 tests): sum of squares 1–5=55 via while; fold min of [3,1,4,1,5,9]=1; Fibonacci(8)=21 via `b=a+b; a=b-a`; count digits of 12345=5
+- **5bcd** (4 tests): recursive `fact` via `recur` → 5!=120; `sum_to(4)`=10; `pow(2,6)`=64; `depth(5)`=5
+- **5bce** (4 tests): flat_map+fold sum=15; map-squares+fold=91; string-filter+recursive-depth combo=3; flat_map+fold=20
+
+**Pitfalls discovered**: `cond(condition, trueBranch, falseBranch)` does NOT work in source strings inside lambdas or recursive functions. Must use `cond(condition => trueBranch, true => falseBranch)` form. Recursive self-calls must use `recur(...)` not the function's own name. Empty array `[]` in `cond` branches crashes (empty array type is unknown). Fibonacci via while using `b=a+b; a=b-a` avoids tmp variable — after N iterations, `a` holds fib(N).
+
+**Test results**: 4427/4427 yo-self tests passing ✅ (20 new + 4407 prior).
+
 ### Phase 7v — Phase 5ba eval tests: Option patterns, while loops, fold reductions, cond selection, HOF pipelines (20 more tests, 4387 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5ba_1.test.yo` — 20 tests covering:
