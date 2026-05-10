@@ -3301,6 +3301,20 @@ Added 100 proto-evaluator integration tests across two new test files, exercisin
 
 **Test results**: 4227/4227 yo-self tests passing ✅ (20 new + 4207 prior).
 
+### Phase 7s — Phase 5ax eval tests: multi-arg functions, nested cond, Option chains, while accumulation, flat_map/zip combos (20 more tests, 4327 total) ✅ Done
+
+**New test file**: `yo-self/tests/eval_5ax_1.test.yo` — 20 tests covering:
+
+- **5axa** (4 tests): two-arg add/multiply functions; three-arg max3 via nested cond; two-arg string concat
+- **5axb** (4 tests): FizzBuzz cond for 15 and 9; classify negative/zero/positive (negative via `i32(0)-i32(3)`); nested cond min3
+- **5axc** (4 tests): `and_then` doubles value; `or_else` returns fallback on None; `unwrap_or` on None; `is_some` on Some
+- **5axd** (4 tests): count multiples of 3 up to 30; product 1–6 = 720; GCD(48,18)=6; digit count of 100000=6
+- **5axe** (4 tests): `flat_map` duplicates each element (len=6); `flat_map`+filter+fold combo (sum=62); zip then map to pair sums (total=66); recursive factorial(5)=120
+
+**Pitfalls discovered**: `i32(-3)` fails in source strings; use `(i32(0) - i32(3))` for negative literals.
+
+**Test results**: 4327/4327 yo-self tests passing ✅ (20 new + 4307 prior).
+
 ### Phase 7r — Phase 5aw eval tests: numeric algorithms, string pipelines, struct HOF, higher-order composition, grand combos (20 more tests, 4307 total) ✅ Done
 
 **New test file**: `yo-self/tests/eval_5aw_1.test.yo` — 20 tests covering:
