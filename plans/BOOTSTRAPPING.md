@@ -6215,3 +6215,43 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_7kc_1.test.yo` — [1, 2, 8, 6, 5, 9, 3, 4, 7]
 
 **Test results**: 36147/36147 yo-self tests passing ✅.
+
+### Batch 80 (Phases 9sv-9ti) — eval_7kd..7kr — 300 tests
+
+- `eval_7kd_1.test.yo` — [1, 2, 8, 6, 5, 9, 3, 7, 4]
+- `eval_7ke_1.test.yo` — [1, 2, 8, 6, 5, 9, 4, 3, 7]
+- `eval_7kf_1.test.yo` — [1, 2, 8, 6, 5, 9, 4, 7, 3]
+- `eval_7kg_1.test.yo` — [1, 2, 8, 6, 5, 9, 7, 3, 4]
+- `eval_7kh_1.test.yo` — [1, 2, 8, 6, 5, 9, 7, 4, 3]
+- `eval_7ki_1.test.yo` — [1, 2, 8, 6, 7, 3, 4, 5, 9]
+- `eval_7kj_1.test.yo` — [1, 2, 8, 6, 7, 3, 4, 9, 5]
+- `eval_7kk_1.test.yo` — [1, 2, 8, 6, 7, 3, 5, 4, 9]
+- `eval_7kl_1.test.yo` — [1, 2, 8, 6, 7, 3, 5, 9, 4]
+- `eval_7km_1.test.yo` — [1, 2, 8, 6, 7, 3, 9, 4, 5]
+- `eval_7kn_1.test.yo` — [1, 2, 8, 6, 7, 3, 9, 5, 4]
+- `eval_7ko_1.test.yo` — [1, 2, 8, 6, 7, 4, 3, 5, 9]
+- `eval_7kp_1.test.yo` — [1, 2, 8, 6, 7, 4, 3, 9, 5]
+- `eval_7kq_1.test.yo` — [1, 2, 8, 6, 7, 4, 5, 3, 9]
+- `eval_7kr_1.test.yo` — [1, 2, 8, 6, 7, 4, 5, 9, 3]
+
+**Test results**: 36447/36447 yo-self tests passing ✅.
+
+### Batch 81 (Phases 9tj-9uw) — eval_7ks..7lg — 300 tests
+
+- `eval_7ks_1.test.yo` — [1, 2, 8, 6, 7, 4, 9, 3, 5]
+- `eval_7kt_1.test.yo` — [1, 2, 8, 6, 7, 4, 9, 5, 3]
+- `eval_7ku_1.test.yo` — [1, 2, 8, 6, 7, 5, 3, 4, 9]
+- `eval_7kv_1.test.yo` — [1, 2, 8, 6, 7, 5, 3, 9, 4]
+- `eval_7kw_1.test.yo` — [1, 2, 8, 6, 7, 5, 4, 3, 9]
+- `eval_7kx_1.test.yo` — [1, 2, 8, 6, 7, 5, 4, 9, 3]
+- `eval_7ky_1.test.yo` — [1, 2, 8, 6, 7, 5, 9, 3, 4]
+- `eval_7kz_1.test.yo` — [1, 2, 8, 6, 7, 5, 9, 4, 3]
+- `eval_7la_1.test.yo` — [1, 2, 8, 6, 7, 9, 3, 4, 5]
+- `eval_7lb_1.test.yo` — [1, 2, 8, 6, 7, 9, 3, 5, 4]
+- `eval_7lc_1.test.yo` — [1, 2, 8, 6, 7, 9, 4, 3, 5]
+- `eval_7ld_1.test.yo` — [1, 2, 8, 6, 7, 9, 4, 5, 3]
+- `eval_7le_1.test.yo` — [1, 2, 8, 6, 7, 9, 5, 3, 4]
+- `eval_7lf_1.test.yo` — [1, 2, 8, 6, 7, 9, 5, 4, 3]
+- `eval_7lg_1.test.yo` — [1, 2, 8, 6, 9, 3, 4, 5, 7]
+
+**Test results**: 36747/36747 yo-self tests passing ✅.
