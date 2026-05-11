@@ -1,0 +1,609 @@
+// @skip_wasm32-emscripten
+// @skip_wasm32-wasi
+open(import("std/fmt"));
+open(import("std/error"));
+{ Environment } :: import("../env/env.yo");
+{ EvalValue, EvalResult } :: import("../evaluator/value.yo");
+{ evaluate_module_body } :: import("../evaluator/eval.yo");
+{ generate_exprs_from_code } :: import("../parser/parser.yo");
+empty_env :: (fn() -> Environment)(Environment.new(`test`));
+
+test("Phase 12ng/10ar: T1 running_max_sum of [2,1,9,15,4,7,15,11,6] = 103", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(2), i32(1), i32(9), i32(15), i32(4), i32(7), i32(15), i32(11), i32(6)];\ns := i32(0); mx := i32(0); i := i32(0);\nwhile((i < i32(9)), {\nv := arr.get(i).unwrap(); mx = cond((v > mx) => v, true => mx); s = (s + mx); i = (i + i32(1));\n});\npms := s;\nr := pms;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "103", "103"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T2 running_min_sum_rev of [13,11,3,10,11] = 30", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(13), i32(11), i32(3), i32(10), i32(11)];\ns := i32(0); mn := i32(9999); i := i32(4);\nwhile((i >= i32(0)), {\nv := arr.get(i).unwrap(); mn = cond((v < mn) => v, true => mn); s = (s + mn); i = (i - i32(1));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "30", "30"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T3 new_max_count of [6,8,4,7,12] = 3", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(6), i32(8), i32(4), i32(7), i32(12)];\ncnt := i32(0); mx := i32(0); i := i32(0);\nwhile((i < i32(5)), {\nv := arr.get(i).unwrap(); is_new := (v > mx); mx = cond(is_new => v, true => mx); cnt = cond(is_new => (cnt + i32(1)), true => cnt); i = (i + i32(1));\n});\nr := cnt;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "3", "3"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T4 weighted_sum of [5,6,13,8,8,3,13,3] = 202", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(5), i32(6), i32(13), i32(8), i32(8), i32(3), i32(13), i32(3)];\ns := i32(0); i := i32(0);\nwhile((i < i32(8)), {\nv := arr.get(i).unwrap(); s = (s + (i * v)); i = (i + i32(1));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "202", "202"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T5 even_stride_sum of [10,12,9,8,11] = 30", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(12), i32(9), i32(8), i32(11)];\ns := i32(0); i := i32(0);\nwhile((i < i32(5)), {\nv := arr.get(i).unwrap(); s = (s + v); i = (i + i32(2));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "30", "30"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T6 odd_stride_sum of [5,8,6,13,5,13,8,12] = 46", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(5), i32(8), i32(6), i32(13), i32(5), i32(13), i32(8), i32(12)];\ns := i32(0); i := i32(1);\nwhile((i < i32(8)), {\nv := arr.get(i).unwrap(); s = (s + v); i = (i + i32(2));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "46", "46"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T7 count_gt_5 of [1,5,13,10,11,2,13] = 4", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(5), i32(13), i32(10), i32(11), i32(2), i32(13)];\ncnt := i32(0); i := i32(0);\nwhile((i < i32(7)), {\nv := arr.get(i).unwrap(); cnt = cond((v > i32(5)) => (cnt + i32(1)), true => cnt); i = (i + i32(1));\n});\nr := cnt;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "4", "4"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T8 find_max of [9,13,15,14,14,4] = 15", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(9), i32(13), i32(15), i32(14), i32(14), i32(4)];\nmx := i32(0); i := i32(0);\nwhile((i < i32(6)), {\nv := arr.get(i).unwrap(); mx = cond((v > mx) => v, true => mx); i = (i + i32(1));\n});\nr := mx;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "15", "15"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T9 find_min of [12,2,15,7,1,11,12,4] = 1", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(12), i32(2), i32(15), i32(7), i32(1), i32(11), i32(12), i32(4)];\nmn := i32(9999); i := i32(0);\nwhile((i < i32(8)), {\nv := arr.get(i).unwrap(); mn = cond((v < mn) => v, true => mn); i = (i + i32(1));\n});\nr := mn;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "1"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T10 sum_all of [15,1,4,10,13,13,7,14,14] = 91", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(15), i32(1), i32(4), i32(10), i32(13), i32(13), i32(7), i32(14), i32(14)];\ns := i32(0); i := i32(0);\nwhile((i < i32(9)), {\nv := arr.get(i).unwrap(); s = (s + v); i = (i + i32(1));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "91", "91"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T11 running_max_sum of [6,11,9,6,4,12] = 62", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(6), i32(11), i32(9), i32(6), i32(4), i32(12)];\ns := i32(0); mx := i32(0); i := i32(0);\nwhile((i < i32(6)), {\nv := arr.get(i).unwrap(); mx = cond((v > mx) => v, true => mx); s = (s + mx); i = (i + i32(1));\n});\npms := s;\nr := pms;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "62", "62"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T12 running_min_sum_rev of [9,4,12,7,9,7] = 36", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(9), i32(4), i32(12), i32(7), i32(9), i32(7)];\ns := i32(0); mn := i32(9999); i := i32(5);\nwhile((i >= i32(0)), {\nv := arr.get(i).unwrap(); mn = cond((v < mn) => v, true => mn); s = (s + mn); i = (i - i32(1));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "36", "36"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T13 new_max_count of [9,7,6,8,9,15,6,9,4] = 2", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(9), i32(7), i32(6), i32(8), i32(9), i32(15), i32(6), i32(9), i32(4)];\ncnt := i32(0); mx := i32(0); i := i32(0);\nwhile((i < i32(9)), {\nv := arr.get(i).unwrap(); is_new := (v > mx); mx = cond(is_new => v, true => mx); cnt = cond(is_new => (cnt + i32(1)), true => cnt); i = (i + i32(1));\n});\nr := cnt;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T14 weighted_sum of [1,15,5,8,6,15,11,8,5] = 310", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(1), i32(15), i32(5), i32(8), i32(6), i32(15), i32(11), i32(8), i32(5)];\ns := i32(0); i := i32(0);\nwhile((i < i32(9)), {\nv := arr.get(i).unwrap(); s = (s + (i * v)); i = (i + i32(1));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "310", "310"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T15 even_stride_sum of [6,2,3,2,3,8,10,11] = 22", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(6), i32(2), i32(3), i32(2), i32(3), i32(8), i32(10), i32(11)];\ns := i32(0); i := i32(0);\nwhile((i < i32(8)), {\nv := arr.get(i).unwrap(); s = (s + v); i = (i + i32(2));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "22", "22"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T16 odd_stride_sum of [2,5,15,15,15] = 20", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(2), i32(5), i32(15), i32(15), i32(15)];\ns := i32(0); i := i32(1);\nwhile((i < i32(5)), {\nv := arr.get(i).unwrap(); s = (s + v); i = (i + i32(2));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "20", "20"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T17 count_gt_6 of [4,14,6,5,6,5] = 1", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(4), i32(14), i32(6), i32(5), i32(6), i32(5)];\ncnt := i32(0); i := i32(0);\nwhile((i < i32(6)), {\nv := arr.get(i).unwrap(); cnt = cond((v > i32(6)) => (cnt + i32(1)), true => cnt); i = (i + i32(1));\n});\nr := cnt;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "1", "1"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T18 find_max of [4,13,13,7,1] = 13", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(4), i32(13), i32(13), i32(7), i32(1)];\nmx := i32(0); i := i32(0);\nwhile((i < i32(5)), {\nv := arr.get(i).unwrap(); mx = cond((v > mx) => v, true => mx); i = (i + i32(1));\n});\nr := mx;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "13", "13"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T19 find_min of [10,2,9,13,14,4] = 2", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(10), i32(2), i32(9), i32(13), i32(14), i32(4)];\nmn := i32(9999); i := i32(0);\nwhile((i < i32(6)), {\nv := arr.get(i).unwrap(); mn = cond((v < mn) => v, true => mn); i = (i + i32(1));\n});\nr := mn;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "2", "2"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
+
+test("Phase 12ng/10ar: T20 sum_all of [9,11,11,12,11,2,5,14,7] = 82", {
+  env := empty_env();
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "e");
+        escape(());
+      }
+    )
+  );
+  src := "arr := [i32(9), i32(11), i32(11), i32(12), i32(11), i32(2), i32(5), i32(14), i32(7)];\ns := i32(0); i := i32(0);\nwhile((i < i32(9)), {\nv := arr.get(i).unwrap(); s = (s + v); i = (i + i32(1));\n});\nr := s;\nexport(r);\n";
+  exprs := generate_exprs_from_code(src, using(exn));
+  result := evaluate_module_body(exprs, &(env));
+  match(
+    result,
+    .None => assert(false, "N"),
+    .Some(m) => match(
+      m,
+      .ModuleVal(_, v) => {
+        match(
+          v.get(usize(0)),
+          .Some(x) => match(x,.IntLit(n) => assert(n.as_str() == "82", "82"), _ => assert(false, "t")),
+          .None => assert(false, "v")
+        );
+      },
+      _ => assert(false, "m")
+    )
+  );
+});
