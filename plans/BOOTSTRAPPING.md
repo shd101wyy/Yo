@@ -5136,3 +5136,23 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_6ez_1.test.yo` — [1,2,7,5,9,3,4,6,8]
 
 **Test results**: 19967/19967 yo-self tests passing ✅.
+
+### Phases 8gq-8he: eval_6fa–6fo — Batch 26
+
+- `eval_6fa_1.test.yo` — [1,2,7,5,9,3,4,8,6]
+- `eval_6fb_1.test.yo` — [1,2,7,5,9,3,6,4,8]
+- `eval_6fc_1.test.yo` — [1,2,7,5,9,3,6,8,4]
+- `eval_6fd_1.test.yo` — [1,2,7,5,9,3,8,4,6]
+- `eval_6fe_1.test.yo` — [1,2,7,5,9,3,8,6,4]
+- `eval_6ff_1.test.yo` — [1,2,7,5,9,4,3,6,8]
+- `eval_6fg_1.test.yo` — [1,2,7,5,9,4,3,8,6]
+- `eval_6fh_1.test.yo` — [1,2,7,5,9,4,6,3,8]
+- `eval_6fi_1.test.yo` — [1,2,7,5,9,4,6,8,3]
+- `eval_6fj_1.test.yo` — [1,2,7,5,9,4,8,3,6]
+- `eval_6fk_1.test.yo` — [1,2,7,5,9,4,8,6,3]
+- `eval_6fl_1.test.yo` — [1,2,7,5,9,6,3,4,8]
+- `eval_6fm_1.test.yo` — [1,2,7,5,9,6,3,8,4]
+- `eval_6fn_1.test.yo` — [1,2,7,5,9,6,4,3,8]
+- `eval_6fo_1.test.yo` — [1,2,7,5,9,6,4,8,3]
+
+**Test results**: 20267/20267 yo-self tests passing ✅.
