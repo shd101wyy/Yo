@@ -6581,3 +6581,49 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 **Result: 300/300 passed**
 
 **Running total after B97: 41,547 tests**
+
+### Batch 98 — eval_7un..7vb (Phases 10fm-10fz)
+
+| File       | Index | Highlights |
+| ---------- | ----- | ---------- |
+| eval_7un_1 | 4297  | 20 passed  |
+| eval_7uo_1 | 4298  | 20 passed  |
+| eval_7up_1 | 4299  | 20 passed  |
+| eval_7uq_1 | 4300  | 20 passed  |
+| eval_7ur_1 | 4301  | 20 passed  |
+| eval_7us_1 | 4302  | 20 passed  |
+| eval_7ut_1 | 4303  | 20 passed  |
+| eval_7uu_1 | 4304  | 20 passed  |
+| eval_7uv_1 | 4305  | 20 passed  |
+| eval_7uw_1 | 4306  | 20 passed  |
+| eval_7ux_1 | 4307  | 20 passed  |
+| eval_7uy_1 | 4308  | 20 passed  |
+| eval_7uz_1 | 4309  | 20 passed  |
+| eval_7va_1 | 4310  | 20 passed  |
+| eval_7vb_1 | 4311  | 20 passed  |
+
+**Result: 300/300 passed**
+
+### Batch 99 — eval_7vc..7vq (Phases 10ga-10gn)
+
+| File       | Index | Highlights |
+| ---------- | ----- | ---------- |
+| eval_7vc_1 | 4312  | 20 passed  |
+| eval_7vd_1 | 4313  | 20 passed  |
+| eval_7ve_1 | 4314  | 20 passed  |
+| eval_7vf_1 | 4315  | 20 passed  |
+| eval_7vg_1 | 4316  | 20 passed  |
+| eval_7vh_1 | 4317  | 20 passed  |
+| eval_7vi_1 | 4318  | 20 passed  |
+| eval_7vj_1 | 4319  | 20 passed  |
+| eval_7vk_1 | 4320  | 20 passed  |
+| eval_7vl_1 | 4321  | 20 passed  |
+| eval_7vm_1 | 4322  | 20 passed  |
+| eval_7vn_1 | 4323  | 20 passed  |
+| eval_7vo_1 | 4324  | 20 passed  |
+| eval_7vp_1 | 4325  | 20 passed  |
+| eval_7vq_1 | 4326  | 20 passed  |
+
+**Result: 300/300 passed**
+
+**Running total after B99: 42,147 tests**
