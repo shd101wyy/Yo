@@ -7061,3 +7061,13 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 
 **Result: 300/300 passed**
 **Running total after B179: 66,147 tests**
+
+### Batch 180 — eval_9pv..9qj (Phases 12ck-12cy)
+
+**Result: 300/300 passed**
+**Running total after B180: 66,447 tests**
+
+### Batch 181 — eval_9qk..9qy (Phases 12cz-12dn)
+
+**Result: 300/300 passed**
+**Running total after B181: 66,747 tests**
