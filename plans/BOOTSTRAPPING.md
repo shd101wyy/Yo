@@ -6687,3 +6687,13 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 **Result: 300/300 passed**
 
 **Running total after B111: 45,747 tests**
+
+### Batch 112 — eval_8cp..8dd (Phases 10ra-10rn)
+
+**Result: 300/300 passed**
+
+### Batch 113 — eval_8de..8ds (Phases 10ro-10sb)
+
+**Result: 300/300 passed**
+
+**Running total after B113: 46,347 tests**
