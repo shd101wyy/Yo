@@ -6455,3 +6455,43 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_7ra_1.test.yo` — [1, 2, 8, 9, 3, 5, 4, 6, 7]
 
 **Test results**: 39747/39747 yo-self tests passing ✅.
+
+### Batch 92 (Phases 10cg-10ct) — eval_7rb..7rp — 300 tests
+
+- `eval_7rb_1.test.yo` — [1, 2, 8, 9, 3, 5, 4, 7, 6]
+- `eval_7rc_1.test.yo` — [1, 2, 8, 9, 3, 5, 6, 4, 7]
+- `eval_7rd_1.test.yo` — [1, 2, 8, 9, 3, 5, 6, 7, 4]
+- `eval_7re_1.test.yo` — [1, 2, 8, 9, 3, 5, 7, 4, 6]
+- `eval_7rf_1.test.yo` — [1, 2, 8, 9, 3, 5, 7, 6, 4]
+- `eval_7rg_1.test.yo` — [1, 2, 8, 9, 3, 6, 4, 5, 7]
+- `eval_7rh_1.test.yo` — [1, 2, 8, 9, 3, 6, 4, 7, 5]
+- `eval_7ri_1.test.yo` — [1, 2, 8, 9, 3, 6, 5, 4, 7]
+- `eval_7rj_1.test.yo` — [1, 2, 8, 9, 3, 6, 5, 7, 4]
+- `eval_7rk_1.test.yo` — [1, 2, 8, 9, 3, 6, 7, 4, 5]
+- `eval_7rl_1.test.yo` — [1, 2, 8, 9, 3, 6, 7, 5, 4]
+- `eval_7rm_1.test.yo` — [1, 2, 8, 9, 3, 7, 4, 5, 6]
+- `eval_7rn_1.test.yo` — [1, 2, 8, 9, 3, 7, 4, 6, 5]
+- `eval_7ro_1.test.yo` — [1, 2, 8, 9, 3, 7, 5, 4, 6]
+- `eval_7rp_1.test.yo` — [1, 2, 8, 9, 3, 7, 5, 6, 4]
+
+**Test results**: 40047/40047 yo-self tests passing ✅.
+
+### Batch 93 (Phases 10cu-10dh) — eval_7rq..7se — 300 tests
+
+- `eval_7rq_1.test.yo` — [1, 2, 8, 9, 3, 7, 6, 4, 5]
+- `eval_7rr_1.test.yo` — [1, 2, 8, 9, 3, 7, 6, 5, 4]
+- `eval_7rs_1.test.yo` — [1, 2, 8, 9, 4, 3, 5, 6, 7]
+- `eval_7rt_1.test.yo` — [1, 2, 8, 9, 4, 3, 5, 7, 6]
+- `eval_7ru_1.test.yo` — [1, 2, 8, 9, 4, 3, 6, 5, 7]
+- `eval_7rv_1.test.yo` — [1, 2, 8, 9, 4, 3, 6, 7, 5]
+- `eval_7rw_1.test.yo` — [1, 2, 8, 9, 4, 3, 7, 5, 6]
+- `eval_7rx_1.test.yo` — [1, 2, 8, 9, 4, 3, 7, 6, 5]
+- `eval_7ry_1.test.yo` — [1, 2, 8, 9, 4, 5, 3, 6, 7]
+- `eval_7rz_1.test.yo` — [1, 2, 8, 9, 4, 5, 3, 7, 6]
+- `eval_7sa_1.test.yo` — [1, 2, 8, 9, 4, 5, 6, 3, 7]
+- `eval_7sb_1.test.yo` — [1, 2, 8, 9, 4, 5, 6, 7, 3]
+- `eval_7sc_1.test.yo` — [1, 2, 8, 9, 4, 5, 7, 3, 6]
+- `eval_7sd_1.test.yo` — [1, 2, 8, 9, 4, 5, 7, 6, 3]
+- `eval_7se_1.test.yo` — [1, 2, 8, 9, 4, 6, 3, 5, 7]
+
+**Test results**: 40347/40347 yo-self tests passing ✅.
