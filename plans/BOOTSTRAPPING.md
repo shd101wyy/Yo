@@ -5196,3 +5196,23 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_6gs_1.test.yo` — [1,2,7,6,3,9,5,8,4]
 
 **Test results**: 20867/20867 yo-self tests passing ✅.
+
+### Phases 8ii-8iw: eval_6gt–6hh — Batch 29
+
+- `eval_6gt_1.test.yo` — [1,2,7,6,3,9,8,4,5]
+- `eval_6gu_1.test.yo` — [1,2,7,6,3,9,8,5,4]
+- `eval_6gv_1.test.yo` — [1,2,7,6,4,3,5,8,9]
+- `eval_6gw_1.test.yo` — [1,2,7,6,4,3,5,9,8]
+- `eval_6gx_1.test.yo` — [1,2,7,6,4,3,8,5,9]
+- `eval_6gy_1.test.yo` — [1,2,7,6,4,3,8,9,5]
+- `eval_6gz_1.test.yo` — [1,2,7,6,4,3,9,5,8]
+- `eval_6ha_1.test.yo` — [1,2,7,6,4,5,3,8,9]
+- `eval_6hb_1.test.yo` — [1,2,7,6,4,5,3,9,8]
+- `eval_6hc_1.test.yo` — [1,2,7,6,4,5,8,3,9]
+- `eval_6hd_1.test.yo` — [1,2,7,6,4,5,8,9,3]
+- `eval_6he_1.test.yo` — [1,2,7,6,4,5,9,3,8]
+- `eval_6hf_1.test.yo` — [1,2,7,6,4,5,9,8,3]
+- `eval_6hg_1.test.yo` — [1,2,7,6,4,8,3,5,9]
+- `eval_6hh_1.test.yo` — [1,2,7,6,4,8,3,9,5]
+
+**Test results**: 21167/21167 yo-self tests passing ✅.
