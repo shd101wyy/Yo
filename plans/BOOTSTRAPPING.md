@@ -5090,3 +5090,26 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_6dv_1.test.yo` — [1,2,7,5,6,9,3,4,8]
 
 **Test results**: 19367/19367 yo-self tests passing ✅.
+
+### Phases 8fm-8ga: eval_6dw-6ek — 300 tests → 19667 total
+
+**Permutation indices**: 3187–3201
+**Arrays covered**:
+
+- `eval_6dw_1.test.yo` — [1,2,7,5,6,9,3,8,4]
+- `eval_6dx_1.test.yo` — [1,2,7,5,6,9,4,3,8]
+- `eval_6dy_1.test.yo` — [1,2,7,5,6,9,4,8,3]
+- `eval_6dz_1.test.yo` — [1,2,7,5,6,9,8,3,4]
+- `eval_6ea_1.test.yo` — [1,2,7,5,6,9,8,4,3]
+- `eval_6eb_1.test.yo` — [1,2,7,5,8,3,4,6,9]
+- `eval_6ec_1.test.yo` — [1,2,7,5,8,3,4,9,6]
+- `eval_6ed_1.test.yo` — [1,2,7,5,8,3,6,4,9]
+- `eval_6ee_1.test.yo` — [1,2,7,5,8,3,6,9,4]
+- `eval_6ef_1.test.yo` — [1,2,7,5,8,3,9,4,6]
+- `eval_6eg_1.test.yo` — [1,2,7,5,8,3,9,6,4]
+- `eval_6eh_1.test.yo` — [1,2,7,5,8,4,3,6,9]
+- `eval_6ei_1.test.yo` — [1,2,7,5,8,4,3,9,6]
+- `eval_6ej_1.test.yo` — [1,2,7,5,8,4,6,3,9]
+- `eval_6ek_1.test.yo` — [1,2,7,5,8,4,6,9,3]
+
+**Test results**: 19667/19667 yo-self tests passing ✅.
