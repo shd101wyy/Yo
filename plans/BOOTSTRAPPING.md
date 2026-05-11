@@ -5935,3 +5935,83 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_7ca_1.test.yo` — [1, 2, 8, 4, 7, 9, 6, 5, 3]
 
 **Test results**: 31947/31947 yo-self tests passing ✅.
+
+### Phases 9ei-9ev: 7cb–7cp — Batch 66
+
+- `eval_7cb_1.test.yo` — [1, 2, 8, 4, 9, 3, 5, 7, 6]
+- `eval_7cc_1.test.yo` — [1, 2, 8, 4, 9, 3, 6, 5, 7]
+- `eval_7cd_1.test.yo` — [1, 2, 8, 4, 9, 3, 6, 7, 5]
+- `eval_7ce_1.test.yo` — [1, 2, 8, 4, 9, 3, 7, 5, 6]
+- `eval_7cf_1.test.yo` — [1, 2, 8, 4, 9, 3, 7, 6, 5]
+- `eval_7cg_1.test.yo` — [1, 2, 8, 4, 9, 5, 3, 6, 7]
+- `eval_7ch_1.test.yo` — [1, 2, 8, 4, 9, 5, 3, 7, 6]
+- `eval_7ci_1.test.yo` — [1, 2, 8, 4, 9, 5, 6, 3, 7]
+- `eval_7cj_1.test.yo` — [1, 2, 8, 4, 9, 5, 6, 7, 3]
+- `eval_7ck_1.test.yo` — [1, 2, 8, 4, 9, 5, 7, 3, 6]
+- `eval_7cl_1.test.yo` — [1, 2, 8, 4, 9, 5, 7, 6, 3]
+- `eval_7cm_1.test.yo` — [1, 2, 8, 4, 9, 6, 3, 5, 7]
+- `eval_7cn_1.test.yo` — [1, 2, 8, 4, 9, 6, 3, 7, 5]
+- `eval_7co_1.test.yo` — [1, 2, 8, 4, 9, 6, 5, 3, 7]
+- `eval_7cp_1.test.yo` — [1, 2, 8, 4, 9, 6, 5, 7, 3]
+
+**Test results**: 32247/32247 yo-self tests passing ✅.
+
+### Phases 9ew-9fj: 7cq–7de — Batch 67
+
+- `eval_7cq_1.test.yo` — [1, 2, 8, 4, 9, 6, 7, 3, 5]
+- `eval_7cr_1.test.yo` — [1, 2, 8, 4, 9, 6, 7, 5, 3]
+- `eval_7cs_1.test.yo` — [1, 2, 8, 4, 9, 7, 3, 5, 6]
+- `eval_7ct_1.test.yo` — [1, 2, 8, 4, 9, 7, 3, 6, 5]
+- `eval_7cu_1.test.yo` — [1, 2, 8, 4, 9, 7, 5, 3, 6]
+- `eval_7cv_1.test.yo` — [1, 2, 8, 4, 9, 7, 5, 6, 3]
+- `eval_7cw_1.test.yo` — [1, 2, 8, 4, 9, 7, 6, 3, 5]
+- `eval_7cx_1.test.yo` — [1, 2, 8, 4, 9, 7, 6, 5, 3]
+- `eval_7cy_1.test.yo` — [1, 2, 8, 5, 3, 4, 6, 7, 9]
+- `eval_7cz_1.test.yo` — [1, 2, 8, 5, 3, 4, 6, 9, 7]
+- `eval_7da_1.test.yo` — [1, 2, 8, 5, 3, 4, 7, 6, 9]
+- `eval_7db_1.test.yo` — [1, 2, 8, 5, 3, 4, 7, 9, 6]
+- `eval_7dc_1.test.yo` — [1, 2, 8, 5, 3, 4, 9, 6, 7]
+- `eval_7dd_1.test.yo` — [1, 2, 8, 5, 3, 4, 9, 7, 6]
+- `eval_7de_1.test.yo` — [1, 2, 8, 5, 3, 6, 4, 7, 9]
+
+**Test results**: 32547/32547 yo-self tests passing ✅.
+
+### Phases 9fk-9gx: 7df–7dt — Batch 68
+
+- `eval_7df_1.test.yo` — [1, 2, 8, 5, 3, 6, 4, 9, 7]
+- `eval_7dg_1.test.yo` — [1, 2, 8, 5, 3, 6, 7, 4, 9]
+- `eval_7dh_1.test.yo` — [1, 2, 8, 5, 3, 6, 7, 9, 4]
+- `eval_7di_1.test.yo` — [1, 2, 8, 5, 3, 6, 9, 4, 7]
+- `eval_7dj_1.test.yo` — [1, 2, 8, 5, 3, 6, 9, 7, 4]
+- `eval_7dk_1.test.yo` — [1, 2, 8, 5, 3, 7, 4, 6, 9]
+- `eval_7dl_1.test.yo` — [1, 2, 8, 5, 3, 7, 4, 9, 6]
+- `eval_7dm_1.test.yo` — [1, 2, 8, 5, 3, 7, 6, 4, 9]
+- `eval_7dn_1.test.yo` — [1, 2, 8, 5, 3, 7, 6, 9, 4]
+- `eval_7do_1.test.yo` — [1, 2, 8, 5, 3, 7, 9, 4, 6]
+- `eval_7dp_1.test.yo` — [1, 2, 8, 5, 3, 7, 9, 6, 4]
+- `eval_7dq_1.test.yo` — [1, 2, 8, 5, 3, 9, 4, 6, 7]
+- `eval_7dr_1.test.yo` — [1, 2, 8, 5, 3, 9, 4, 7, 6]
+- `eval_7ds_1.test.yo` — [1, 2, 8, 5, 3, 9, 6, 4, 7]
+- `eval_7dt_1.test.yo` — [1, 2, 8, 5, 3, 9, 6, 7, 4]
+
+**Test results**: 32847/32847 yo-self tests passing ✅.
+
+### Phases 9gy-9hl: 7du–7ei — Batch 69
+
+- `eval_7du_1.test.yo` — [1, 2, 8, 5, 3, 9, 7, 4, 6]
+- `eval_7dv_1.test.yo` — [1, 2, 8, 5, 3, 9, 7, 6, 4]
+- `eval_7dw_1.test.yo` — [1, 2, 8, 5, 4, 3, 6, 7, 9]
+- `eval_7dx_1.test.yo` — [1, 2, 8, 5, 4, 3, 6, 9, 7]
+- `eval_7dy_1.test.yo` — [1, 2, 8, 5, 4, 3, 7, 6, 9]
+- `eval_7dz_1.test.yo` — [1, 2, 8, 5, 4, 3, 7, 9, 6]
+- `eval_7ea_1.test.yo` — [1, 2, 8, 5, 4, 3, 9, 6, 7]
+- `eval_7eb_1.test.yo` — [1, 2, 8, 5, 4, 3, 9, 7, 6]
+- `eval_7ec_1.test.yo` — [1, 2, 8, 5, 4, 6, 3, 7, 9]
+- `eval_7ed_1.test.yo` — [1, 2, 8, 5, 4, 6, 3, 9, 7]
+- `eval_7ee_1.test.yo` — [1, 2, 8, 5, 4, 6, 7, 3, 9]
+- `eval_7ef_1.test.yo` — [1, 2, 8, 5, 4, 6, 7, 9, 3]
+- `eval_7eg_1.test.yo` — [1, 2, 8, 5, 4, 6, 9, 3, 7]
+- `eval_7eh_1.test.yo` — [1, 2, 8, 5, 4, 6, 9, 7, 3]
+- `eval_7ei_1.test.yo` — [1, 2, 8, 5, 4, 7, 3, 6, 9]
+
+**Test results**: 33147/33147 yo-self tests passing ✅.
