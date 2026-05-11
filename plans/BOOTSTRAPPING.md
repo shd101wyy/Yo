@@ -6793,3 +6793,15 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 **Result: 300/300 passed**
 
 **Running total after B131: 51,747 tests**
+
+### Batch 132 — eval_8od..8or (Phases 11bv-11ci)
+
+**Result: 300/300 passed**
+
+**Running total after B132: 52,047 tests**
+
+### Batch 133 — eval_8os..8pg (Phases 11cj-11cw)
+
+**Result: 300/300 passed**
+
+**Running total after B133: 52,347 tests**
