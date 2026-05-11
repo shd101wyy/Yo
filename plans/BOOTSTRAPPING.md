@@ -6949,3 +6949,15 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 **Result: 300/300 passed**
 
 **Running total after B157: 59,547 tests**
+
+### Batch 158 — eval_9dd..9dr (Phases 11pw-11qj)
+
+**Result: 300/300 passed**
+
+**Running total after B158: 59,847 tests**
+
+### Batch 159 — eval_9ds..9eg (Phases 11qk-11qx)
+
+**Result: 300/300 passed**
+
+**Running total after B159: 60,147 tests**
