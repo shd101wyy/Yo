@@ -5816,3 +5816,43 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_6yp_1.test.yo` — [1, 2, 8, 4, 3, 6, 5, 7, 9]
 
 **Test results**: 30167/30167 yo-self tests passing ✅.
+
+### Phases 9bc-9bp: 6yq–6ze — Batch 60
+
+- `eval_6yq_1.test.yo` — [1, 2, 8, 4, 3, 6, 5, 9, 7]
+- `eval_6yr_1.test.yo` — [1, 2, 8, 4, 3, 6, 7, 5, 9]
+- `eval_6ys_1.test.yo` — [1, 2, 8, 4, 3, 6, 7, 9, 5]
+- `eval_6yt_1.test.yo` — [1, 2, 8, 4, 3, 6, 9, 5, 7]
+- `eval_6yu_1.test.yo` — [1, 2, 8, 4, 3, 6, 9, 7, 5]
+- `eval_6yv_1.test.yo` — [1, 2, 8, 4, 3, 7, 5, 6, 9]
+- `eval_6yw_1.test.yo` — [1, 2, 8, 4, 3, 7, 5, 9, 6]
+- `eval_6yx_1.test.yo` — [1, 2, 8, 4, 3, 7, 6, 5, 9]
+- `eval_6yy_1.test.yo` — [1, 2, 8, 4, 3, 7, 6, 9, 5]
+- `eval_6yz_1.test.yo` — [1, 2, 8, 4, 3, 7, 9, 5, 6]
+- `eval_6za_1.test.yo` — [1, 2, 8, 4, 3, 7, 9, 6, 5]
+- `eval_6zb_1.test.yo` — [1, 2, 8, 4, 3, 9, 5, 6, 7]
+- `eval_6zc_1.test.yo` — [1, 2, 8, 4, 3, 9, 5, 7, 6]
+- `eval_6zd_1.test.yo` — [1, 2, 8, 4, 3, 9, 6, 5, 7]
+- `eval_6ze_1.test.yo` — [1, 2, 8, 4, 3, 9, 6, 7, 5]
+
+**Test results**: 30467/30467 yo-self tests passing ✅.
+
+### Phases 9bq-9cd: 6zf–6zt — Batch 61
+
+- `eval_6zf_1.test.yo` — [1, 2, 8, 4, 3, 9, 7, 5, 6]
+- `eval_6zg_1.test.yo` — [1, 2, 8, 4, 3, 9, 7, 6, 5]
+- `eval_6zh_1.test.yo` — [1, 2, 8, 4, 5, 3, 6, 7, 9]
+- `eval_6zi_1.test.yo` — [1, 2, 8, 4, 5, 3, 6, 9, 7]
+- `eval_6zj_1.test.yo` — [1, 2, 8, 4, 5, 3, 7, 6, 9]
+- `eval_6zk_1.test.yo` — [1, 2, 8, 4, 5, 3, 7, 9, 6]
+- `eval_6zl_1.test.yo` — [1, 2, 8, 4, 5, 3, 9, 6, 7]
+- `eval_6zm_1.test.yo` — [1, 2, 8, 4, 5, 3, 9, 7, 6]
+- `eval_6zn_1.test.yo` — [1, 2, 8, 4, 5, 6, 3, 7, 9]
+- `eval_6zo_1.test.yo` — [1, 2, 8, 4, 5, 6, 3, 9, 7]
+- `eval_6zp_1.test.yo` — [1, 2, 8, 4, 5, 6, 7, 3, 9]
+- `eval_6zq_1.test.yo` — [1, 2, 8, 4, 5, 6, 7, 9, 3]
+- `eval_6zr_1.test.yo` — [1, 2, 8, 4, 5, 6, 9, 3, 7]
+- `eval_6zs_1.test.yo` — [1, 2, 8, 4, 5, 6, 9, 7, 3]
+- `eval_6zt_1.test.yo` — [1, 2, 8, 4, 5, 7, 3, 6, 9]
+
+**Test results**: 30767/30767 yo-self tests passing ✅.
