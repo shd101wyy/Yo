@@ -5156,3 +5156,23 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 - `eval_6fo_1.test.yo` — [1,2,7,5,9,6,4,8,3]
 
 **Test results**: 20267/20267 yo-self tests passing ✅.
+
+### Phases 8hf-8ht: eval_6fp–6gd — Batch 27
+
+- `eval_6fp_1.test.yo` — [1,2,7,5,9,6,8,3,4]
+- `eval_6fq_1.test.yo` — [1,2,7,5,9,6,8,4,3]
+- `eval_6fr_1.test.yo` — [1,2,7,5,9,8,3,4,6]
+- `eval_6fs_1.test.yo` — [1,2,7,5,9,8,3,6,4]
+- `eval_6ft_1.test.yo` — [1,2,7,5,9,8,4,3,6]
+- `eval_6fu_1.test.yo` — [1,2,7,5,9,8,4,6,3]
+- `eval_6fv_1.test.yo` — [1,2,7,5,9,8,6,3,4]
+- `eval_6fw_1.test.yo` — [1,2,7,5,9,8,6,4,3]
+- `eval_6fx_1.test.yo` — [1,2,7,6,3,4,5,8,9]
+- `eval_6fy_1.test.yo` — [1,2,7,6,3,4,5,9,8]
+- `eval_6fz_1.test.yo` — [1,2,7,6,3,4,8,5,9]
+- `eval_6ga_1.test.yo` — [1,2,7,6,3,4,8,9,5]
+- `eval_6gb_1.test.yo` — [1,2,7,6,3,4,9,5,8]
+- `eval_6gc_1.test.yo` — [1,2,7,6,3,4,9,8,5]
+- `eval_6gd_1.test.yo` — [1,2,7,6,3,5,4,8,9]
+
+**Test results**: 20567/20567 yo-self tests passing ✅.
