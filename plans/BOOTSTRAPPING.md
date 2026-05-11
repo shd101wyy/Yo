@@ -7171,3 +7171,13 @@ Many modules already exist. See `plans/BOOTSTRAPPING_PREREQUISITES.md` for the c
 
 **Result: 300/300 passed**
 **Running total after B201: 72,747 tests**
+
+### Batch 202 — eval_10cn..10db (Phases 12pc-12pq)
+
+**Result: 300/300 passed**
+**Running total after B202: 73,047 tests**
+
+### Batch 203 — eval_10dc..10dq (Phases 12pr-12qf)
+
+**Result: 300/300 passed**
+**Running total after B203: 73,347 tests**
