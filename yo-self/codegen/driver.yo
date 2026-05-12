@@ -2058,6 +2058,62 @@ collect_all_enum_defs :: (fn(expr : AstExpr, result : *(ArrayList(EnumDef))) -> 
     )
   )
 );
+merge_enum_defs_for_name :: (fn(all_eds : ArrayList(EnumDef), enum_name : str) -> EnumDef)({
+  merged_variants := ArrayList(EnumVariant).new();
+  is_complex := false;
+  n_all := all_eds.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n_all), {
+    match(
+      all_eds.get(i),
+      .None => (),
+      .Some(ed) => if(ed.name.as_str() == enum_name, {
+        nv := ed.variants.len();
+        (vi : usize) = usize(0);
+        while(runtime(vi < nv), {
+          match(
+            ed.variants.get(vi),
+            .None => (),
+            .Some(ev) => {
+              (later_same_variant : bool) = false;
+              (j : usize) = (i + usize(1));
+              while(runtime((j < n_all) && (!(later_same_variant))), {
+                match(
+                  all_eds.get(j),
+                  .None => (),
+                  .Some(later_ed) => if(later_ed.name.as_str() == enum_name, {
+                    later_nv := later_ed.variants.len();
+                    (later_vi : usize) = usize(0);
+                    while(runtime((later_vi < later_nv) && (!(later_same_variant))), {
+                      match(
+                        later_ed.variants.get(later_vi),
+                        .None => (),
+                        .Some(later_ev) => if(later_ev.name.as_str() == ev.name.as_str(), {
+                          later_same_variant = true;
+                        })
+                      );
+                      later_vi = (later_vi + usize(1));
+                    });
+                  })
+                );
+                j = (j + usize(1));
+              });
+              if(!(later_same_variant), {
+                if(ev.fields.len() > usize(0), {
+                  is_complex = true;
+                });
+                merged_variants.push(ev);
+              });
+            }
+          );
+          vi = (vi + usize(1));
+        });
+      })
+    );
+    i = (i + usize(1));
+  });
+  EnumDef(name : String.from(enum_name), variants : merged_variants, is_complex : is_complex)
+});
 /// Recursively scan a begin-block AST for local `Name :: struct(...)` and
 /// `Name :: enum(...)` definitions at any nesting depth.
 ///
@@ -2097,8 +2153,15 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
           j = (j + usize(1));
         });
         cond(
-          // Last occurrence → emit typedef + register variants
-          (!(later_found)) => emit_enum_to_c(ed, ctx),
+          // Last occurrence → emit one merged typedef and register variants.
+          // Same-named local enums can appear in separate lexical scopes; the
+          // bootstrap C backend has module-level typedefs, so merge distinct
+          // variant names while allowing later definitions of the same variant
+          // to win for field names/discriminants.
+          (!(later_found)) => {
+            merged_ed := merge_enum_defs_for_name(all_eds, ed.name.as_str());
+            emit_enum_to_c(merged_ed, ctx);
+          },
           // Earlier occurrence → only register variants (no C emit)
           true => _register_enum_variants(ed, ctx)
         );

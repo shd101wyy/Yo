@@ -1660,6 +1660,30 @@ test("validation: single-field struct destructuring binds alias", {
     }
   );
 });
+test("validation: same-named local enums merge distinct variants", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ { Shape :: enum(Circle(r : i32), Rectangle(width : i32, height : i32)); a := Shape.Rectangle(1, 2); }; { Shape :: enum(Circle(radius : i32) = 2, Square(side : i32) = 4, Triangle(base : i32, height : i32)); b := Shape.Triangle(3, 4); }; }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "merged_local_enum_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("Shape_Rectangle")), "merged enum keeps earlier distinct variant tag");
+      assert(c.contains(String.from("} Rectangle;")), "merged enum keeps earlier distinct variant data");
+      assert(c.contains(String.from("Shape_Triangle")), "merged enum keeps later variant tag");
+      assert(c.contains(String.from("} Triangle;")), "merged enum keeps later variant data");
+      assert(c.contains(String.from("int32_t radius;")), "later duplicate variant definition wins");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
 // ---------------------------------------------------------------------------

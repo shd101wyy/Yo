@@ -7499,3 +7499,33 @@ identifiers.
 - ✅ `yo-self/yo-self-bin test tests/basic.test.yo` improves from 25/32 to
   26/32. Remaining skips are struct/enum/union, generic comptime functions,
   return-in-match compatibility, and index-on-call-result.
+
+### Phase 13h — Same-named local enum merging
+
+**Problem**: `tests/basic.test.yo` defines local enums with the same Yo name
+in different lexical scopes. The bootstrap C backend emits module-level C
+typedefs, so it previously used "last enum definition wins" to avoid duplicate
+C type names. That kept the final `Shape` typedef but erased earlier distinct
+variants such as `Rectangle`, while earlier code still constructed
+`Shape.Rectangle(...)`, causing undeclared C enum tags and missing union
+fields.
+
+**Fix** (`yo-self/codegen/driver.yo`):
+
+- Added `merge_enum_defs_for_name(...)`.
+- When emitting the final local enum typedef for a Yo name, merge distinct
+  variants from all same-named local enum definitions.
+- If the same variant name appears more than once, the later definition wins
+  for field names, field types, and discriminant value.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: same-named local enums merge distinct variants`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 218/218.
+- ✅ `yo-self/yo-self-bin test tests/basic.test.yo --test-name-pattern "Test 'enum'"`
+  passes.
+- ✅ `yo-self/yo-self-bin test tests/basic.test.yo` improves from 26/32 to
+  27/32. Remaining skips are struct, union, generic comptime functions,
+  return-in-match compatibility, and index-on-call-result.
