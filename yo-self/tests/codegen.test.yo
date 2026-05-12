@@ -4729,3 +4729,51 @@ test("validation: Impl closure capturing object shares payload", {
     }
   );
 });
+test("validation: Dyn closure captures mutable shared env", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ x := i32(1); (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box((y) => { x = (x + y); return(x); })); closure2 := closure; closure(i32(1)); closure2(i32(1)); result := closure(i32(2)); assert((x == i32(1)), \"outer x\"); assert((result == i32(5)), \"result\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "dyn_closure_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("__yo_closure_env_closure __yo_closure_storage_closure = { .x = x };")), "Dyn closure should allocate storage env");
+      assert(c.contains(String.from("__yo_closure_env_closure* closure = &__yo_closure_storage_closure;")), "Dyn closure value should be env pointer");
+      assert(c.contains(String.from("((closure->x = (closure->x + (int32_t)(1))), closure->x);")), "Dyn closure should mutate pointer env");
+      assert(c.contains(String.from("((closure2->x = (closure2->x + (int32_t)(1))), closure2->x);")), "Dyn closure copy should share pointer env");
+      assert(c.contains(String.from("__auto_type result = ((closure->x = (closure->x + (int32_t)(2))), closure->x);")), "Dyn closure result should use shared pointer env");
+    }
+  );
+});
+test("validation: Dyn closure capturing object shares payload", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("MyBox :: object((*) : i32); main :: (fn() -> unit)({ x := MyBox(i32(1)); (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => { x.* = (x.* + y); return(x.*); }); closure2 := closure; result := closure(i32(4)); result2 := closure2(i32(2)); assert((result == i32(5)), \"result\"); assert((result2 == i32(7)), \"copy result\"); assert((x.* == i32(7)), \"shared box\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "dyn_rc_closure_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { __typeof__(&x) x; } __yo_closure_env_closure;")), "Dyn object closure should capture pointer to x");
+      assert(c.contains(String.from("__yo_closure_env_closure __yo_closure_storage_closure = { .x = &x };")), "Dyn object closure should initialize pointer storage");
+      assert(c.contains(String.from("__yo_closure_env_closure* closure = &__yo_closure_storage_closure;")), "Dyn object closure value should be env pointer");
+      assert(c.contains(String.from("__auto_type result = ((closure->x->_0 = (closure->x->_0 + (int32_t)(4))), closure->x->_0);")), "Dyn object closure should mutate shared payload");
+      assert(c.contains(String.from("__auto_type result2 = ((closure2->x->_0 = (closure2->x->_0 + (int32_t)(2))), closure2->x->_0);")), "Dyn object closure copy should mutate shared payload");
+    }
+  );
+});

@@ -7304,7 +7304,7 @@ Running `yo-self/yo-self-bin test <file>` on representative `./tests/*.test.yo`:
 | `array.test.yo`                      | 10/12        | 2 skipped need `Array(T, _)` length inference                                 |
 | `comptime_option_result.test.yo`     | 8/12         |                                                                               |
 | `basic.test.yo`                      | 24/32        | 8 use destructuring patterns, default fields, generics, `.Some(...)` literals |
-| `closure.test.yo`                    | 6/9          | Primitive + object `Impl(Fn(...))` closure capture works; Dyn captures remain |
+| `closure.test.yo`                    | 9/9          | Primitive, object/RC, and narrow `Dyn(Fn(...))` closure captures pass         |
 | `control_fn_as_regular_call.test.yo` | 0/3          | Requires IO effect injection                                                  |
 | `algebraic_effects.test.yo`          | 0/61         | Effects runtime not ported (~15k lines TS)                                    |
 | `async_await.test.yo`                | 0/121        | Async runtime not ported (~15k lines TS)                                      |
@@ -8223,6 +8223,67 @@ semantics in the current benchmark.
 - ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
 - ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
 - ⚠️ `tests/closure.test.yo` → 6 passed, 0 failed, 3 skipped.
+
+### Phase 13z — Dyn closure lowering
+
+**Problem**: after Phase 13y, the remaining three `tests/closure.test.yo`
+skips were all `Dyn(Fn(...))` closure forms. The self-hosted emitter recognized
+`Impl(Fn(...))` closure declarations, but passed typed Dyn assignments through
+without emitting a `closure` variable:
+
+```c
+__auto_type x = 1;
+__auto_type closure2 = closure;
+closure(1);
+```
+
+That left the closure symbol undeclared and still emitted raw closure calls.
+
+**Fix**:
+
+- Treat `Dyn(Fn(...))` as a bootstrap closure type for extracting the lambda
+  parameter name.
+- Unwrap both `dyn(box((y) => { ... }))` and `dyn((y) => { ... })` when lowering
+  typed closure assignments.
+- Emit Dyn closure environments through a pointer-backed local storage value:
+
+  ```c
+  typedef struct { __typeof__(x) x; } __yo_closure_env_closure;
+  __yo_closure_env_closure __yo_closure_storage_closure = { .x = x };
+  __yo_closure_env_closure* closure = &__yo_closure_storage_closure;
+  ```
+
+- Preserve the pointer-backed environment metadata through `closure2 := closure`,
+  so duplicate Dyn closures share mutable captured state.
+- Reuse the object-payload capture path from Phase 13y so Dyn closures over
+  `object((*) : T)` mutate `closure->x->_0`.
+
+This remains a narrow bootstrap representation for the current benchmark shapes,
+not the final production Dyn trait-object ABI.
+
+**Verification**:
+
+- ✅ Added targeted tests:
+  - `validation: Dyn closure captures mutable shared env`
+  - `validation: Dyn closure capturing object shares payload`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 247/247.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/closure.test.yo --disable-sanitize --parallel 1`
+  now passes: 9 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
 
 ### Phase 13x — Primitive closure value lowering
 
