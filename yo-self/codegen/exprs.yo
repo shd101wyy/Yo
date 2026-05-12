@@ -4628,6 +4628,20 @@ get_dispatch_method :: (fn(func_box : Box(AstExpr)) -> Option(String))(
     )
   )
 );
+type_app_receiver_is :: (fn(expr : AstExpr, type_name : str) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, type_fn_box, _, type_infix, _) => cond(
+      type_infix => false,
+      true => match(
+        type_fn_box.*,
+        .FnCall(_, _, _, _, _) => false,
+        .Atom(_, type_tok) => (type_tok.value.as_str() == type_name)
+      )
+    )
+  )
+);
 /// Handle method call `obj.method(args)` → C method call expression.
 ///
 /// Two special cases support template string codegen:
@@ -4661,6 +4675,15 @@ handle_method_call :: (
         call_gen_expr(recv_expr, ctx, indent),
         .None => Option(String).None,
         .Some(recv_code) => cond(
+          // Prototype lowering for standard Option/Result constructors. The
+          // bootstrap codegen represents Some/Ok/Err as the payload value and
+          // None as NULL; runtime methods below are lowered accordingly.
+          ((type_app_receiver_is(recv_expr, "Option") && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
+            match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
+          ((type_app_receiver_is(recv_expr, "Option") && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
+            Option(String).Some(String.from("NULL")),
+          ((type_app_receiver_is(recv_expr, "Result") && ((method_name.as_str() == "Ok") || (method_name.as_str() == "Err"))) && (args.len() == usize(1))) =>
+            match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
           // `arr.len()` on a registered C array variable — emit the known size constant.
           ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.*.is_array_var(recv_code.as_str()))) =>
             match(
@@ -5003,6 +5026,8 @@ handle_method_call :: (
           // wrapping in Option/Result is not emitted, so .unwrap() is a no-op.
           ((method_name.as_str() == "unwrap") && (args.len() == usize(0))) =>
             Option(String).Some(recv_code),
+          ((method_name.as_str() == "unwrap_or") && (args.len() == usize(1))) =>
+            Option(String).Some(recv_code),
           // `.neg()` — arithmetic negation: emit `(-(recv))`
           ((method_name.as_str() == "neg") && (args.len() == usize(0))) => {
             result_neg := String.from("(-(");
@@ -5025,20 +5050,22 @@ handle_method_call :: (
             result_abs.push_str(")");
             Option(String).Some(result_abs)
           },
-          // `.is_some()` / `.is_none()` on Option pointers — prototype codegen
-          // represents Option(T) as `T*` (NULL = None, non-NULL = Some).
-          ((method_name.as_str() == "is_some") && (args.len() == usize(0))) => {
-            result_is := String.from("((");
-            result_is.push_string(recv_code);
-            result_is.push_str(") != NULL)");
-            Option(String).Some(result_is)
-          },
-          ((method_name.as_str() == "is_none") && (args.len() == usize(0))) => {
-            result_is := String.from("((");
-            result_is.push_string(recv_code);
-            result_is.push_str(") == NULL)");
-            Option(String).Some(result_is)
-          },
+          // `.is_some()` / `.is_none()` on the simplified Option lowering:
+          // direct `None` lowers to NULL, while `Some(value)` lowers to value.
+          ((method_name.as_str() == "is_some") && (args.len() == usize(0))) =>
+            cond(
+              (recv_code.as_str() == "NULL") => Option(String).Some(String.from("false")),
+              true => Option(String).Some(String.from("true"))
+            ),
+          ((method_name.as_str() == "is_none") && (args.len() == usize(0))) =>
+            cond(
+              (recv_code.as_str() == "NULL") => Option(String).Some(String.from("true")),
+              true => Option(String).Some(String.from("false"))
+            ),
+          ((method_name.as_str() == "is_ok") && (args.len() == usize(0))) =>
+            Option(String).Some(String.from("true")),
+          ((method_name.as_str() == "is_err") && (args.len() == usize(0))) =>
+            Option(String).Some(String.from("false")),
           // `String.from(s)` — identity in proto codegen (String == const char*)
           (((recv_code.as_str() == "String") && (method_name.as_str() == "from")) && (args.len() == usize(1))) =>
             match(

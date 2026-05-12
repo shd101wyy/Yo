@@ -7384,3 +7384,36 @@ length for later `arr.len()` calls.
   passes: 213/213.
 - ✅ `yo-self/yo-self-bin test tests/array.test.yo` improves from 10/12 to
   11/12. Remaining skipped case is `Array(T, N).fill(value)`.
+
+### Phase 13d — Option/Result runtime constructor lowering
+
+**Problem**: Runtime standard enum construction such as
+`Option(i32).Some(i32(42))` and `Result(i32, bool).Ok(i32(42))` reached C as
+pseudo type-method calls (`Option(i32).Some(...)`, `Result(...).Ok(...)`),
+which clang rejected as undeclared function calls. The self-hosted prototype
+codegen already treated `.unwrap()` as a no-op, so the missing piece was
+lowering these standard constructors and query methods.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- Added `type_app_receiver_is(...)` to recognize type-application receivers
+  like `Option(i32)` and `Result(i32, bool)`.
+- Lowered `Option(T).Some(value)`, `Result(T, E).Ok(value)`, and
+  `Result(T, E).Err(value)` to their payload expression in prototype codegen.
+- Lowered `Option(T).None` to `NULL`.
+- Lowered `.unwrap_or(default)` as a no-op for the payload representation.
+- Lowered `.is_some()`, `.is_none()`, `.is_ok()`, and `.is_err()` for the
+  simplified payload representation used by the bootstrap codegen.
+
+**Verification**:
+
+- ✅ `yo-self/yo-self-bin` compiles and runs a runtime Option/Result program
+  using `Some`, `Ok`, `unwrap`, `unwrap_or`, `is_some`, `is_none`, `is_ok`,
+  and `is_err`.
+- ✅ Added targeted test:
+  - `validation: Option/Result runtime constructors lower to payload values`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 214/214.
+- ✅ `yo-self/yo-self-bin test tests/comptime_option_result.test.yo` improves
+  from 8/12 to 10/12. Remaining skips are method extraction from type
+  (`f :: Option(i32).unwrap`, `f(x)`).
