@@ -1772,6 +1772,54 @@ test("validation: value receiver method calls use inferred function return type"
     }
   );
 });
+test("validation: local tuple aliases and struct defaults lower to C aggregates", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ { Point :: struct(x : i32, (y : i32) ?= 12); p4 :: Point(14); assert(p4.y == 12); }; { SomeStruct :: struct(x : i32, y : bool); Complex :: Tuple(s : SomeStruct); (c : Complex) = (_(3, true),); assert(c.0.x == 3); }; }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "local_tuple_defaults_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("__auto_type p4 = (Point){14, 12};")), "positional constructor fills default field");
+      assert(c.contains(String.from("typedef struct { SomeStruct _0; SomeStruct s; } Complex;")), "local Tuple alias emits numeric and named fields");
+      assert(c.contains(String.from("Complex c = {{3, 1}};")), "typed tuple alias assignment uses brace initializer");
+      assert(c.contains(String.from("c._0.x == 3")), "numeric tuple field access maps to C field");
+    }
+  );
+});
+test("validation: generic single-field struct methods lower through concrete value type", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(struct(value : T)); impl(forall(T : Type), MyStruct(T), new : (fn(v : T) -> Self)(Self(v)), another_new : (fn(v : T) -> Self)(Self.new(v)), add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({ self.value = (self.value + value); }), another_add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({ self.add(value); })); main :: (fn() -> unit)({ value := 10; x := MyStruct(i32).new(value); y := MyStruct(i32).another_new(value); x.add(3); y.another_add(4); assert(x.value == 13); assert(y.value == 14); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "generic_value_struct_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { int32_t value; } MyStruct_i32;")), "generic type application emits concrete value struct");
+      assert(c.contains(String.from("__auto_type x = (MyStruct_i32){value};")), "generic new constructor emits concrete struct");
+      assert(c.contains(String.from("(x.value = (x.value + 3));")), "generic value add mutates value field");
+      assert(c.contains(String.from("(y.value = (y.value + 4));")), "delegated generic value add mutates value field");
+      assert(!(c.contains(String.from(".new("))), "generic static method syntax must not reach C output");
+      assert(!(c.contains(String.from(".add("))), "generic value method syntax must not reach C output");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
 // ---------------------------------------------------------------------------

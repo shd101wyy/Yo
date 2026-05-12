@@ -2368,7 +2368,14 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
         )
       ),
       (is_infix) => Option(String).None,
-      (func_args.len() != usize(1)) => Option(String).None,
+      (
+        (func_args.len() != usize(1)) &&
+          match(
+            func_box.*,
+            .FnCall(_, _, _, _, _) => true,
+            .Atom(_, arity_tok) => (arity_tok.value.as_str() != "Tuple")
+          )
+      ) => Option(String).None,
       true => match(
         func_box.*,
         .FnCall(_, _, _, _, _) => Option(String).None,
@@ -2399,6 +2406,97 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
               )
             )
           ),
+          // Tuple(T1, T2, ...) or Tuple(name : T, ...) — lower to an inline C
+          // struct type with numeric fields, plus named aliases for labeled fields.
+          (ftok.value.as_str() == "Tuple") => {
+            n_tuple := func_args.len();
+            cond(
+              (n_tuple == usize(0)) => Option(String).None,
+              true => {
+                tuple_ty := String.from("struct { ");
+                (ti : usize) = usize(0);
+                (tuple_ok : bool) = true;
+                while(runtime((ti < n_tuple) && tuple_ok), {
+                  match(
+                    func_args.get(ti),
+                    .None => {
+                      tuple_ok = false;
+                    },
+                    .Some(tuple_arg) => {
+                      named_field_opt := match(
+                        tuple_arg,
+                        .Atom(_, _) => Option(String).None,
+                        .FnCall(_, tf_box, tf_args, tf_infix, _) => cond(
+                          (!(tf_infix && (tf_args.len() == usize(2)))) => Option(String).None,
+                          true => match(
+                            tf_box.*,
+                            .FnCall(_, _, _, _, _) => Option(String).None,
+                            .Atom(_, tf_tok) => cond(
+                              (tf_tok.value.as_str() != ":") => Option(String).None,
+                              true => match(
+                                tf_args.get(usize(0)),
+                                .None => Option(String).None,
+                                .Some(tf_name_e) => match(
+                                  tf_name_e,
+                                  .FnCall(_, _, _, _, _) => Option(String).None,
+                                  .Atom(_, tf_name_tok) => Option(String).Some(tf_name_tok.value)
+                                )
+                              )
+                            )
+                          )
+                        )
+                      );
+                      ty_expr_opt := match(
+                        named_field_opt,
+                        .None => Option(AstExpr).Some(tuple_arg),
+                        .Some(_) => match(
+                          tuple_arg,
+                          .Atom(_, _) => Option(AstExpr).None,
+                          .FnCall(_, _, tf_args2, _, _) => tf_args2.get(usize(1))
+                        )
+                      );
+                      match(
+                        ty_expr_opt,
+                        .None => {
+                          tuple_ok = false;
+                        },
+                        .Some(ty_expr_inner) => match(
+                          recur(ty_expr_inner),
+                          .None => {
+                            tuple_ok = false;
+                          },
+                          .Some(field_c_ty) => {
+                            tuple_ty.push_string(field_c_ty);
+                            tuple_ty.push_str(" _");
+                            tuple_ty.push_string(ti.to_string());
+                            tuple_ty.push_str("; ");
+                            match(
+                              named_field_opt,
+                              .None => (),
+                              .Some(named_field) => {
+                                tuple_ty.push_string(field_c_ty);
+                                tuple_ty.push_str(" ");
+                                tuple_ty.push_string(sanitize_c_ident(named_field.as_str()));
+                                tuple_ty.push_str("; ");
+                              }
+                            );
+                          }
+                        )
+                      );
+                    }
+                  );
+                  ti = (ti + usize(1));
+                });
+                cond(
+                  (!(tuple_ok)) => Option(String).None,
+                  true => {
+                    tuple_ty.push_str("}");
+                    Option(String).Some(tuple_ty)
+                  }
+                )
+              }
+            )
+          },
           // *(T) — pointer type: non-infix call to "*" with one arg (T must be an atom)
           (!(ftok.value.as_str() == "*")) => cond(
             // Generic container types: ArrayList(T), Option(T), Result(T, E), Box(T), HashMap(K, V)
@@ -2887,6 +2985,106 @@ type_app_receiver_is :: (fn(expr : AstExpr, type_name : str) -> bool)(
     )
   )
 );
+generic_type_app_c_name :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, type_fn_box, type_args, type_infix, _) => cond(
+      type_infix => Option(String).None,
+      (type_args.len() != usize(1)) => Option(String).None,
+      true => match(
+        type_fn_box.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, type_tok) => match(
+          type_args.get(usize(0)),
+          .None => Option(String).None,
+          .Some(arg_expr) => match(
+            arg_expr,
+            .FnCall(_, _, _, _, _) => Option(String).None,
+            .Atom(_, arg_tok) => cond(
+              (arg_tok.kind != TokenKind.Identifier) => Option(String).None,
+              true => {
+                result := sanitize_c_ident(type_tok.value.as_str());
+                result.push_str("_");
+                result.push_string(sanitize_c_ident(arg_tok.value.as_str()));
+                Option(String).Some(result)
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+);
+generic_type_app_field_c_type :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, _, type_args, type_infix, _) => cond(
+      type_infix => Option(String).None,
+      (type_args.len() != usize(1)) => Option(String).None,
+      true => match(
+        type_args.get(usize(0)),
+        .None => Option(String).None,
+        .Some(arg_expr) => type_expr_to_c(arg_expr)
+      )
+    )
+  )
+);
+ensure_generic_value_struct :: (fn(ctx : *(CodegenContext), type_name : String, field_c_ty : String) -> unit)({
+  if(!(ctx.*.is_struct_name(type_name.as_str())), {
+    decl := String.from("typedef struct { ");
+    decl.push_string(field_c_ty);
+    decl.push_str(" value; } ");
+    decl.push_string(type_name);
+    decl.push_str(";");
+    ctx.*.emitter.emit_declaration_string_line(decl);
+    ctx.*.register_struct(String.from(type_name.as_str()));
+    ctx.*.register_struct_fields(type_name.as_str(), "value");
+    ctx.*.register_struct_field_types(type_name.as_str(), field_c_ty.as_str());
+  });
+});
+generic_static_constructor_type_from_call :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, call_fn_box, call_args, call_infix, _) => cond(
+      call_infix => Option(String).None,
+      (call_args.len() != usize(1)) => Option(String).None,
+      true => match(
+        call_fn_box.*,
+        .Atom(_, _) => Option(String).None,
+        .FnCall(_, dot_fn, dot_args, dot_infix, _) => cond(
+          (!(dot_infix && (dot_args.len() == usize(2)))) => Option(String).None,
+          true => match(
+            dot_fn.*,
+            .FnCall(_, _, _, _, _) => Option(String).None,
+            .Atom(_, dot_tok) => cond(
+              (dot_tok.value.as_str() != ".") => Option(String).None,
+              true => match(
+                dot_args.get(usize(1)),
+                .None => Option(String).None,
+                .Some(method_e) => match(
+                  method_e,
+                  .FnCall(_, _, _, _, _) => Option(String).None,
+                  .Atom(_, method_tok) => cond(
+                    !((method_tok.value.as_str() == "new") || (method_tok.value.as_str() == "another_new")) =>
+                      Option(String).None,
+                    true => match(
+                      dot_args.get(usize(0)),
+                      .None => Option(String).None,
+                      .Some(recv_e) => generic_type_app_c_name(recv_e)
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
 emit_method_extraction_macro_if_supported :: (
   fn(name : str, rhs_expr : AstExpr, ctx : *(CodegenContext), indent : String) -> bool
 )(
@@ -2955,23 +3153,54 @@ anon_struct_type_to_c :: (fn(type_args : ArrayList(AstExpr)) -> Option(String))(
               ok = false;
             },
             .Atom(_, colon_tok) => cond(
-              (colon_tok.value.as_str() != ":") => {
+              !((colon_tok.value.as_str() == ":") || (colon_tok.value.as_str() == "?=")) => {
                 ok = false;
               },
               true => {
+                actual_args_opt := cond(
+                  (colon_tok.value.as_str() == ":") => Option(ArrayList(AstExpr)).Some(colon_args),
+                  true => match(
+                    colon_args.get(usize(0)),
+                    .None => Option(ArrayList(AstExpr)).None,
+                    .Some(inner_field_expr) => match(
+                      inner_field_expr,
+                      .Atom(_, _) => Option(ArrayList(AstExpr)).None,
+                      .FnCall(_, inner_colon_box, inner_colon_args, inner_colon_infix, _) => cond(
+                        (!(inner_colon_infix && (inner_colon_args.len() == usize(2)))) =>
+                          Option(ArrayList(AstExpr)).None,
+                        true => match(
+                          inner_colon_box.*,
+                          .FnCall(_, _, _, _, _) => Option(ArrayList(AstExpr)).None,
+                          .Atom(_, inner_colon_tok) => cond(
+                            (inner_colon_tok.value.as_str() != ":") => Option(ArrayList(AstExpr)).None,
+                            true => Option(ArrayList(AstExpr)).Some(inner_colon_args)
+                          )
+                        )
+                      )
+                    )
+                  )
+                );
                 field_name_opt := match(
-                  colon_args.get(usize(0)),
+                  actual_args_opt,
                   .None => Option(String).None,
-                  .Some(name_expr) => match(
-                    name_expr,
-                    .FnCall(_, _, _, _, _) => Option(String).None,
-                    .Atom(_, name_tok) => Option(String).Some(name_tok.value)
+                  .Some(actual_args) => match(
+                    actual_args.get(usize(0)),
+                    .None => Option(String).None,
+                    .Some(name_expr) => match(
+                      name_expr,
+                      .FnCall(_, _, _, _, _) => Option(String).None,
+                      .Atom(_, name_tok) => Option(String).Some(name_tok.value)
+                    )
                   )
                 );
                 field_ty_opt := match(
-                  colon_args.get(usize(1)),
+                  actual_args_opt,
                   .None => Option(String).None,
-                  .Some(ty_expr) => type_expr_to_c(ty_expr)
+                  .Some(actual_args2) => match(
+                    actual_args2.get(usize(1)),
+                    .None => Option(String).None,
+                    .Some(ty_expr) => type_expr_to_c(ty_expr)
+                  )
                 );
                 match(
                   field_name_opt,
@@ -3047,6 +3276,181 @@ anon_struct_initializer_to_c :: (
     }
   )
 });
+struct_default_values_csv :: (
+  fn(
+    type_args : ArrayList(AstExpr),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> String
+)({
+  result := String.new();
+  n := type_args.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    if(i > usize(0), {
+      result.push_str(",");
+    });
+    default_code_opt := match(
+      type_args.get(i),
+      .None => Option(String).None,
+      .Some(field_expr) => match(
+        field_expr,
+        .Atom(_, _) => Option(String).None,
+        .FnCall(_, field_fn, field_args, field_infix, _) => cond(
+          (!(field_infix && (field_args.len() == usize(2)))) => Option(String).None,
+          true => match(
+            field_fn.*,
+            .FnCall(_, _, _, _, _) => Option(String).None,
+            .Atom(_, field_tok) => cond(
+              (field_tok.value.as_str() != "?=") => Option(String).None,
+              true => match(
+                field_args.get(usize(1)),
+                .None => Option(String).None,
+                .Some(default_expr) => call_gen_expr(default_expr, ctx, indent)
+              )
+            )
+          )
+        )
+      )
+    );
+    match(
+      default_code_opt,
+      .None => result.push_str("__yo_no_default"),
+      .Some(default_code) => result.push_string(default_code)
+    );
+    i = (i + usize(1));
+  });
+  result
+});
+struct_defaults_has_value :: (fn(defaults_csv : String) -> bool)({
+  parts := _split_csv(defaults_csv.as_str());
+  n := parts.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while(runtime((i < n) && (!(found))), {
+    match(
+      parts.get(i),
+      .None => (),
+      .Some(part) => {
+        if(part.as_str() != "__yo_no_default", {
+          found = true;
+        });
+      }
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+aggregate_initializer_to_c :: (
+  fn(
+    expr : AstExpr,
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)(
+  match(
+    expr,
+    .Atom(_, _) => call_gen_expr(expr, ctx, indent),
+    .FnCall(_, agg_fn, agg_args, agg_infix, _) => cond(
+      agg_infix => call_gen_expr(expr, ctx, indent),
+      true => match(
+        agg_fn.*,
+        .FnCall(_, _, _, _, _) => call_gen_expr(expr, ctx, indent),
+        .Atom(_, agg_tok) => cond(
+          !((agg_tok.value.as_str() == BK_TUPLE) || (agg_tok.value.as_str() == BK_ANON_STRUCT)) =>
+            call_gen_expr(expr, ctx, indent),
+          true => {
+            result := String.from("{");
+            n := agg_args.len();
+            (i : usize) = usize(0);
+            (ok : bool) = true;
+            while(runtime((i < n) && ok), {
+              match(
+                agg_args.get(i),
+                .None => {
+                  ok = false;
+                },
+                .Some(arg_expr) => {
+                  if(i > usize(0), {
+                    result.push_str(", ");
+                  });
+                  arg_is_labeled := match(
+                    arg_expr,
+                    .Atom(_, _) => false,
+                    .FnCall(_, label_fn, label_args, label_infix, _) => (
+                      label_infix &&
+                        (label_args.len() == usize(2)) &&
+                          match(
+                            label_fn.*,
+                            .Atom(_, label_tok) => (label_tok.value.as_str() == ":"),
+                            .FnCall(_, _, _, _, _) => false
+                          )
+                    )
+                  );
+                  cond(
+                    ((agg_tok.value.as_str() == BK_ANON_STRUCT) && arg_is_labeled) => match(
+                      arg_expr,
+                      .Atom(_, _) => {
+                        ok = false;
+                      },
+                      .FnCall(_, _, label_args2, _, _) => match(
+                        label_args2.get(usize(0)),
+                        .None => {
+                          ok = false;
+                        },
+                        .Some(label_name_e) => match(
+                          label_args2.get(usize(1)),
+                          .None => {
+                            ok = false;
+                          },
+                          .Some(label_value_e) => match(
+                            label_name_e,
+                            .FnCall(_, _, _, _, _) => {
+                              ok = false;
+                            },
+                            .Atom(_, label_name_tok) => match(
+                              recur(label_value_e, ctx, indent),
+                              .None => {
+                                ok = false;
+                              },
+                              .Some(label_value_c) => {
+                                result.push_str(".");
+                                result.push_string(sanitize_c_ident(label_name_tok.value.as_str()));
+                                result.push_str(" = ");
+                                result.push_string(label_value_c);
+                              }
+                            )
+                          )
+                        )
+                      )
+                    ),
+                    true => match(
+                      recur(arg_expr, ctx, indent),
+                      .None => {
+                        ok = false;
+                      },
+                      .Some(arg_c) => {
+                        result.push_string(arg_c);
+                      }
+                    )
+                  );
+                }
+              );
+              i = (i + usize(1));
+            });
+            cond(
+              (!(ok)) => Option(String).None,
+              true => {
+                result.push_str("}");
+                Option(String).Some(result)
+              }
+            )
+          }
+        )
+      )
+    )
+  )
+);
 /// Handle variable definition `name := val` → emit `__auto_type name = val;\n` as a
 /// statement and return `"0"` (the unit sentinel).
 ///
@@ -3797,23 +4201,31 @@ handle_define :: (
                     match(
                       clone_recv_var,
                       .None => {
-                        fn_return_ty := match(
-                          rhs_expr,
-                          .Atom(_, _) => Option(String).None,
-                          .FnCall(_, ret_fn_box, _ret_args, ret_infix, _) => cond(
-                            ret_infix => Option(String).None,
-                            true => match(
-                              ret_fn_box.*,
-                              .FnCall(_, _, _, _, _) => Option(String).None,
-                              .Atom(_, ret_fn_tok) => ctx.*.get_fn_return_type(ret_fn_tok.value.as_str())
-                            )
-                          )
-                        );
                         match(
-                          fn_return_ty,
-                          .None => (),
-                          .Some(ret_ty_name) => {
-                            ctx.*.register_var_type(name_tok.value.as_str(), ret_ty_name.as_str());
+                          generic_static_constructor_type_from_call(rhs_expr),
+                          .Some(generic_ctor_ty) => {
+                            ctx.*.register_var_type(name_tok.value.as_str(), generic_ctor_ty.as_str());
+                          },
+                          .None => {
+                            fn_return_ty := match(
+                              rhs_expr,
+                              .Atom(_, _) => Option(String).None,
+                              .FnCall(_, ret_fn_box, _ret_args, ret_infix, _) => cond(
+                                ret_infix => Option(String).None,
+                                true => match(
+                                  ret_fn_box.*,
+                                  .FnCall(_, _, _, _, _) => Option(String).None,
+                                  .Atom(_, ret_fn_tok) => ctx.*.get_fn_return_type(ret_fn_tok.value.as_str())
+                                )
+                              )
+                            );
+                            match(
+                              fn_return_ty,
+                              .None => (),
+                              .Some(ret_ty_name) => {
+                                ctx.*.register_var_type(name_tok.value.as_str(), ret_ty_name.as_str());
+                              }
+                            );
                           }
                         );
                       },
@@ -4949,10 +5361,11 @@ handle_dot_access :: (
                     .None => false,
                     .Some(r) => ((r.char >= u32(48)) && (r.char <= u32(57)))
                   );
+                  field_c_name := fname.replace(String.from("."), String.from("._"));
                   if(is_index_field, {
                     result.push_str("_");
                   });
-                  result.push_string(fname);
+                  result.push_string(field_c_name);
                   Option(String).Some(result)
                 },
                 true => {
@@ -4966,10 +5379,11 @@ handle_dot_access :: (
                     .None => false,
                     .Some(r) => ((r.char >= u32(48)) && (r.char <= u32(57)))
                   );
+                  field_c_name := fname.replace(String.from("."), String.from("._"));
                   if(is_index_field, {
                     result.push_str("_");
                   });
-                  result.push_string(fname);
+                  result.push_string(field_c_name);
                   Option(String).Some(result)
                 }
               )
@@ -5046,6 +5460,35 @@ handle_method_call :: (
             Option(String).Some(String.from("NULL")),
           ((type_app_receiver_is(recv_expr, "Result") && ((method_name.as_str() == "Ok") || (method_name.as_str() == "Err"))) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
+          (
+            ((method_name.as_str() == "new") || (method_name.as_str() == "another_new")) &&
+              (args.len() == usize(1)) &&
+                (!(type_app_receiver_is(recv_expr, "Option") || type_app_receiver_is(recv_expr, "Result")))
+          ) => match(
+            generic_type_app_c_name(recv_expr),
+            .None => Option(String).None,
+            .Some(generic_type_name) => match(
+              generic_type_app_field_c_type(recv_expr),
+              .None => Option(String).None,
+              .Some(generic_field_ty) => match(
+                args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(arg_e) => match(
+                  call_gen_expr(arg_e, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(arg_c) => {
+                    ensure_generic_value_struct(ctx, generic_type_name, generic_field_ty);
+                    result_generic_ctor := String.from("(");
+                    result_generic_ctor.push_string(generic_type_name);
+                    result_generic_ctor.push_str("){");
+                    result_generic_ctor.push_string(arg_c);
+                    result_generic_ctor.push_str("}");
+                    Option(String).Some(result_generic_ctor)
+                  }
+                )
+              )
+            )
+          ),
           // `arr.len()` on a registered C array variable — emit the known size constant.
           ((method_name.as_str() == "len") && ((args.len() == usize(0)) && ctx.*.is_array_var(recv_code.as_str()))) =>
             match(
@@ -5419,6 +5862,40 @@ handle_method_call :: (
                 )
               }
             ),
+          (
+            ((method_name.as_str() == "add") || (method_name.as_str() == "another_add")) &&
+              (args.len() == usize(1)) &&
+                match(
+                  recv_expr,
+                  .FnCall(_, _, _, _, _) => false,
+                  .Atom(_, add_recv_tok) => match(
+                    ctx.*.get_var_type(add_recv_tok.value.as_str()),
+                    .None => false,
+                    .Some(add_recv_ty) => match(
+                      ctx.*.get_struct_fields(add_recv_ty.as_str()),
+                      .None => false,
+                      .Some(add_fields) => (add_fields.as_str() == "value")
+                    )
+                  )
+                )
+          ) => match(
+            args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(add_arg_e) => match(
+              call_gen_expr(add_arg_e, ctx, indent),
+              .None => Option(String).None,
+              .Some(add_arg_c) => {
+                result_add := String.from("(");
+                result_add.push_string(recv_code);
+                result_add.push_str(".value = (");
+                result_add.push_string(recv_code);
+                result_add.push_str(".value + ");
+                result_add.push_string(add_arg_c);
+                result_add.push_str("))");
+                Option(String).Some(result_add)
+              }
+            )
+          ),
           // `x.unwrap()` with no args — strip the call, pass receiver through.
           // In the prototype codegen, malloc/calloc/realloc return raw C pointers;
           // wrapping in Option/Result is not emitted, so .unwrap() is a no-op.
@@ -5628,7 +6105,7 @@ gen_anon_struct_compound :: (
               fval_opt2 := match(
                 fa2.get(usize(1)),
                 .None => Option(String).None,
-                .Some(ve2) => call_gen_expr(ve2, ctx, indent)
+                .Some(ve2) => aggregate_initializer_to_c(ve2, ctx, indent)
               );
               match(
                 fname_opt2,
@@ -5672,7 +6149,7 @@ gen_anon_struct_compound :: (
         ),
         // Positional: emit value directly
         true => match(
-          call_gen_expr(arg_expr, ctx, indent),
+          aggregate_initializer_to_c(arg_expr, ctx, indent),
           .None => {
             ok2 = false;
           },
@@ -5971,11 +6448,79 @@ handle_assignment :: (
             }
           )
         );
+        typed_tuple_decl_opt := match(
+          rhs_expr,
+          .Atom(_, _) => Option(String).None,
+          .FnCall(_, tuple_rhs_fn, _, tuple_rhs_infix, _) => cond(
+            tuple_rhs_infix => Option(String).None,
+            true => match(
+              tuple_rhs_fn.*,
+              .FnCall(_, _, _, _, _) => Option(String).None,
+              .Atom(_, tuple_rhs_tok) => cond(
+                (tuple_rhs_tok.value.as_str() != BK_TUPLE) => Option(String).None,
+                true => match(
+                  lhs_expr,
+                  .Atom(_, _) => Option(String).None,
+                  .FnCall(_, colon_box_t, colon_args_t, colon_infix_t, _) => cond(
+                    (
+                      !(
+                        colon_infix_t && match(
+                          colon_box_t.*,
+                          .Atom(_, ctokt) => ((ctokt.kind == TokenKind.Operator) && (ctokt.value.as_str() == ":")),
+                          .FnCall(_, _, _, _, _) => false
+                        )
+                      )
+                    ) => Option(String).None,
+                    true => {
+                      name_opt_t := match(
+                        colon_args_t.get(usize(0)),
+                        .None => Option(String).None,
+                        .Some(ne_t) => match(
+                          ne_t,
+                          .Atom(_, ntokt) => Option(String).Some(ntokt.value),
+                          .FnCall(_, _, _, _, _) => Option(String).None
+                        )
+                      );
+                      ty_opt_t := match(
+                        colon_args_t.get(usize(1)),
+                        .None => Option(String).None,
+                        .Some(te_t) => type_expr_to_c(te_t)
+                      );
+                      init_opt_t := aggregate_initializer_to_c(rhs_expr, ctx, indent);
+                      match(
+                        name_opt_t,
+                        .None => Option(String).None,
+                        .Some(var_name_t) => match(
+                          ty_opt_t,
+                          .None => Option(String).None,
+                          .Some(c_ty_t) => match(
+                            init_opt_t,
+                            .None => Option(String).None,
+                            .Some(init_t) => {
+                              ctx.*.emitter.emit_string(indent);
+                              ctx.*.emitter.emit_string(build_typed_decl(c_ty_t.as_str(), sanitize_c_ident(var_name_t.as_str()).as_str()));
+                              ctx.*.emitter.emit(" = ");
+                              ctx.*.emitter.emit_string(init_t);
+                              ctx.*.emitter.emit_line(";");
+                              Option(String).Some(String.from("0"))
+                            }
+                          )
+                        )
+                      )
+                    }
+                  )
+                )
+              )
+            )
+          )
+        );
         cond(
           // --- Special path: (arr : [T; N]) = [v0, v1, ...] ---
           match(arr_typed_decl_opt,.Some(_) => true,.None => false) => arr_typed_decl_opt,
           // --- Special path: (p : struct(...)) = _(...) ---
           match(typed_anon_struct_decl_opt,.Some(_) => true,.None => false) => typed_anon_struct_decl_opt,
+          // --- Special path: (p : TupleAlias) = (v0, v1, ...) ---
+          match(typed_tuple_decl_opt,.Some(_) => true,.None => false) => typed_tuple_decl_opt,
           // --- Special path: arr = [v0, v1, ...] for known array var (element-by-element) ---
           match(
             lhs_expr,
@@ -6185,7 +6730,21 @@ handle_assignment :: (
                   ty_opt := match(
                     colon_args.get(usize(1)),
                     .None => Option(String).None,
-                    .Some(te) => type_expr_to_c(te)
+                    .Some(te) => match(
+                      te,
+                      .Atom(_, _) => type_expr_to_c(te),
+                      .FnCall(_, tuple_ty_fn, _, tuple_ty_infix, _) => cond(
+                        tuple_ty_infix => type_expr_to_c(te),
+                        true => match(
+                          tuple_ty_fn.*,
+                          .FnCall(_, _, _, _, _) => type_expr_to_c(te),
+                          .Atom(_, tuple_ty_tok) => cond(
+                            (tuple_ty_tok.value.as_str() == "Tuple") => Option(String).None,
+                            true => type_expr_to_c(te)
+                          )
+                        )
+                      )
+                    )
                   );
                   // When `name_is_comptime = true`, skip declarations whose type has no C
                   // representation (not a primitive, not a registered struct or enum).
@@ -6687,6 +7246,7 @@ handle_struct_constructor :: (
   (i : usize) = usize(0);
   (all_ok : bool) = true;
   (first : bool) = true;
+  provided_fields := ArrayList(String).new();
   while(runtime((i < n) && all_ok), {
     match(
       args.get(i),
@@ -6731,6 +7291,7 @@ handle_struct_constructor :: (
                 result.push_string(fname);
                 result.push_str(" = ");
                 result.push_string(fval);
+                provided_fields.push(String.from(fname.as_str()));
                 first = false;
               }
             )
@@ -6743,6 +7304,62 @@ handle_struct_constructor :: (
   cond(
     (!(all_ok)) => Option(String).None,
     true => {
+      match(
+        ctx.*.get_struct_defaults(type_name.as_str()),
+        .None => (),
+        .Some(defaults_csv) => match(
+          ctx.*.get_struct_fields(type_name.as_str()),
+          .None => (),
+          .Some(fields_csv) => {
+            default_values := _split_csv(defaults_csv.as_str());
+            field_names := _split_csv(fields_csv.as_str());
+            n_defaults := default_values.len();
+            (di : usize) = usize(0);
+            while(runtime(di < n_defaults), {
+              match(
+                default_values.get(di),
+                .None => (),
+                .Some(default_value) => {
+                  if(default_value.as_str() != "__yo_no_default", {
+                    field_name_opt := field_names.get(di);
+                    match(
+                      field_name_opt,
+                      .None => (),
+                      .Some(default_field_name) => {
+                        (already_provided : bool) = false;
+                        (pi : usize) = usize(0);
+                        while(runtime((pi < provided_fields.len()) && (!(already_provided))), {
+                          match(
+                            provided_fields.get(pi),
+                            .None => (),
+                            .Some(provided_name) => {
+                              if(provided_name.as_str() == default_field_name.as_str(), {
+                                already_provided = true;
+                              });
+                            }
+                          );
+                          pi = (pi + usize(1));
+                        });
+                        if(!(already_provided), {
+                          if(!(first), {
+                            result.push_str(", ");
+                          });
+                          result.push_str(".");
+                          result.push_string(default_field_name);
+                          result.push_str(" = ");
+                          result.push_string(default_value);
+                          first = false;
+                        });
+                      }
+                    );
+                  });
+                }
+              );
+              di = (di + usize(1));
+            });
+          }
+        )
+      );
       result.push_str("}");
       .Some(result)
     }
@@ -7446,6 +8063,29 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
               );
               ai = (ai + usize(1));
             });
+            match(
+              ctx.*.get_struct_defaults(effective_id2.as_str()),
+              .None => (),
+              .Some(defaults_csv2) => {
+                default_values2 := _split_csv(defaults_csv2.as_str());
+                n_defaults2 := default_values2.len();
+                while(runtime((ai < n_defaults2) && args_ok), {
+                  match(
+                    default_values2.get(ai),
+                    .None => (),
+                    .Some(default_value2) => {
+                      if(default_value2.as_str() != "__yo_no_default", {
+                        if(ai > usize(0), {
+                          result2.push_str(", ");
+                        });
+                        result2.push_string(default_value2);
+                      });
+                    }
+                  );
+                  ai = (ai + usize(1));
+                });
+              }
+            );
             if(args_ok, {
               result2.push_str("}");
             });
@@ -7816,8 +8456,94 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
               .None =>.Some(String.from("0")),
               .Some(rhs_e2) => {
                 method_extract_const_emitted := emit_method_extraction_macro_if_supported(c_name.as_str(), rhs_e2, ctx, indent);
+                inline_type_alias_emitted := match(
+                  rhs_e2,
+                  .Atom(_, alias_atom_tok) => cond(
+                    (alias_atom_tok.kind != TokenKind.Identifier) => false,
+                    !(
+                      ctx.*.is_struct_name(alias_atom_tok.value.as_str()) ||
+                        ctx.*.is_enum_name(alias_atom_tok.value.as_str())
+                    ) => false,
+                    true => {
+                      san_type_name := sanitize_c_ident(c_name.as_str());
+                      ctx.*.emitter.emit_string(indent);
+                      ctx.*.emitter.emit("typedef ");
+                      ctx.*.emitter.emit_string(sanitize_c_ident(alias_atom_tok.value.as_str()));
+                      ctx.*.emitter.emit(" ");
+                      ctx.*.emitter.emit_string(san_type_name);
+                      ctx.*.emitter.emit_line(";");
+                      cond(
+                        ctx.*.is_struct_name(alias_atom_tok.value.as_str()) => {
+                          ctx.*.register_struct(String.from(c_name.as_str()));
+                          true
+                        },
+                        true => {
+                          ctx.*.register_enum(String.from(c_name.as_str()));
+                          true
+                        }
+                      )
+                    }
+                  ),
+                  .FnCall(_, type_alias_fn, _, type_alias_infix, _) => cond(
+                    type_alias_infix => false,
+                    true => match(
+                      type_alias_fn.*,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, type_alias_tok) => {
+                        type_alias_c_opt := cond(
+                          (type_alias_tok.value.as_str() == "struct") => match(
+                            rhs_e2,
+                            .Atom(_, _) => Option(String).None,
+                            .FnCall(_, _, type_alias_args, _, _) => anon_struct_type_to_c(type_alias_args)
+                          ),
+                          (type_alias_tok.value.as_str() == "Tuple") => type_expr_to_c(rhs_e2),
+                          true => Option(String).None
+                        );
+                        match(
+                          type_alias_c_opt,
+                          .None => false,
+                          .Some(type_alias_c) => {
+                            san_type_name := sanitize_c_ident(c_name.as_str());
+                            defaults_csv_for_alias := match(
+                              rhs_e2,
+                              .Atom(_, _) => String.new(),
+                              .FnCall(_, _, type_alias_args2, _, _) => cond(
+                                (type_alias_tok.value.as_str() == "struct") =>
+                                  struct_default_values_csv(type_alias_args2, ctx, indent),
+                                true => String.new()
+                              )
+                            );
+                            has_defaults_for_alias := struct_defaults_has_value(defaults_csv_for_alias);
+                            should_emit_alias := (
+                              (!(type_alias_c.contains(String.from("Self")))) &&
+                                (
+                                  (type_alias_tok.value.as_str() == "Tuple") ||
+                                    has_defaults_for_alias ||
+                                      (!(ctx.*.is_struct_name(c_name.as_str())))
+                                )
+                            );
+                            if(should_emit_alias, {
+                              ctx.*.emitter.emit_string(indent);
+                              ctx.*.emitter.emit("typedef ");
+                              ctx.*.emitter.emit_string(type_alias_c);
+                              ctx.*.emitter.emit(" ");
+                              ctx.*.emitter.emit_string(san_type_name);
+                              ctx.*.emitter.emit_line(";");
+                              ctx.*.register_struct(String.from(c_name.as_str()));
+                            });
+                            if(has_defaults_for_alias, {
+                              ctx.*.register_struct_defaults(c_name.as_str(), defaults_csv_for_alias.as_str());
+                            });
+                            should_emit_alias || has_defaults_for_alias
+                          }
+                        )
+                      }
+                    )
+                  )
+                );
                 cond(
                   method_extract_const_emitted =>.Some(String.from("0")),
+                  inline_type_alias_emitted =>.Some(String.from("0")),
                   // Inline array literal: `arr :: [v0, v1, ...]`
                   // Emit C array declaration and register as array var, same as `:=`.
                   (

@@ -7655,3 +7655,96 @@ context did not remember that `bank` has type `Withdraw`.
   `bank.withdraw(...)` errors are gone. The remaining struct failures are now
   dominated by tuple/struct aggregate fields, same-named local struct aliases,
   and generic type methods such as `MyStruct(i32).new(...)`.
+
+### Phase 13m — Local tuple aliases, scoped aggregate initializers, and defaults
+
+**Problem**: The remaining `Test 'struct'` failures included local tuple aliases
+and aggregate fields:
+
+```rust
+SomeStruct :: struct(x : i32, y : bool);
+Complex :: Tuple(s : SomeStruct);
+(c : Complex) = (_(3, true),);
+
+Complex :: struct(x : Tuple(i32, bool), y : i32);
+(c : Complex) = _((3, true), 4);
+```
+
+The bootstrap codegen treated `Tuple(...)` aliases as compile-time-only and
+lowered nested aggregate values through anonymous C compound literals. C treats
+anonymous struct types nominally, so even textually identical nested
+`struct { ... }` literals are incompatible. Local same-named struct aliases also
+needed block-local shadowing only when it is safe; emitting every local typedef
+inline regressed function parameter compatibility.
+
+**Fix** (`yo-self/codegen/exprs.yo`, `yo-self/codegen/context.yo`):
+
+- Added C type lowering for `Tuple(...)`, including numeric fields (`_0`, `_1`)
+  and named aliases for labeled tuple fields.
+- Added aggregate brace-initializer lowering for nested tuple / anonymous-struct
+  values in typed aggregate declarations.
+- Emitted inline local typedefs only when needed for tuple aliases, defaulted
+  structs, or previously unknown local structs; skipped `Self`-recursive layouts.
+- Added struct default-value tracking and made labeled/positional struct
+  constructors fill omitted defaults.
+- Normalized chained numeric tuple fields such as `c3.0.0.x` to C field access
+  `c3._0._0.x`.
+- Changed variable type lookup to last-wins, matching local shadowing and fixing
+  stale receiver-type inference.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: local tuple aliases and struct defaults lower to C aggregates`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 224/224.
+- ✅ `./yo-self/yo-self-bin test tests/basic.test.yo --test-name-pattern "Test 'struct'" -v`
+  passes: 1/1.
+
+### Phase 13n — Generic single-field value struct method lowering
+
+**Problem**: The last compile errors inside `Test 'struct'` came from generic
+type methods:
+
+```rust
+MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(struct(value : T));
+x := MyStruct(i32).new(value);
+x.add(3);
+```
+
+The receiver `MyStruct(i32)` is a compile-time type application, so the
+prototype codegen erased it to `0` and emitted invalid C such as
+`0.new(value)`. The value receiver methods also needed the concrete variable
+type to dispatch or lower correctly.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- Detect single-argument generic type applications used as static method
+  receivers.
+- Materialize a concrete C value struct such as:
+  `typedef struct { int32_t value; } MyStruct_i32;`
+- Lower constructor-like static methods (`new`, `another_new`) to concrete
+  struct values.
+- Track bindings initialized from those constructors so value methods can lower
+  `add` / `another_add` to `value` field mutation.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: generic single-field struct methods lower through concrete value type`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 224/224.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ Real benchmark status:
+  - `./yo-self/yo-self-bin test tests/basic.test.yo` → 29 passed, 0 failed, 3 skipped.
+  - `./yo-self/yo-self-bin test tests/array.test.yo` → 11 passed, 0 failed, 1 skipped.
+  - `./yo-self/yo-self-bin test tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+
+**Remaining real-test blockers**:
+
+- `tests/basic.test.yo`
+  - `Test 'comptime_fn' function call and function overloading`
+  - `return in match branch type compatibility`
+  - `index function call result`
+- `tests/array.test.yo`
+  - `Test Array fill method`
