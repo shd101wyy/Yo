@@ -2561,6 +2561,18 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
               )
             )
           ),
+          (ftok.value.as_str() == "Slice") => match(
+            func_args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(slice_elem_e) => match(
+              slice_elem_e,
+              .FnCall(_, _, _, _, _) => Option(String).None,
+              .Atom(_, slice_elem_tok) => cond(
+                (slice_elem_tok.value.as_str() == "u8") => Option(String).Some(String.from("YoSlice_u8")),
+                true => Option(String).None
+              )
+            )
+          ),
           (ftok.value.as_str() == "Tuple") => {
             n_tuple := func_args.len();
             cond(
@@ -3183,6 +3195,79 @@ array_i32_size_arg_to_c :: (
         )
       )
     )
+  )
+);
+type_app_receiver_arg_is :: (fn(expr : AstExpr, type_name : str, arg_name : str) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, type_fn_box, type_args, type_infix, _) => cond(
+      type_infix => false,
+      (type_args.len() != usize(1)) => false,
+      true => match(
+        type_fn_box.*,
+        .FnCall(_, _, _, _, _) => false,
+        .Atom(_, type_tok) => cond(
+          (type_tok.value.as_str() != type_name) => false,
+          true => match(
+            type_args.get(usize(0)),
+            .None => false,
+            .Some(arg_expr) => match(
+              arg_expr,
+              .FnCall(_, _, _, _, _) => false,
+              .Atom(_, arg_tok) => (arg_tok.value.as_str() == arg_name)
+            )
+          )
+        )
+      )
+    )
+  )
+);
+is_slice_u8_from_raw_parts_call :: (fn(expr : AstExpr) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, call_fn_box, call_args, call_infix, _) => cond(
+      call_infix => false,
+      (call_args.len() != usize(2)) => false,
+      true => match(
+        call_fn_box.*,
+        .Atom(_, _) => false,
+        .FnCall(_, dot_fn_box, dot_args, dot_infix, _) => cond(
+          (!(dot_infix && (dot_args.len() == usize(2)))) => false,
+          true => match(
+            dot_fn_box.*,
+            .FnCall(_, _, _, _, _) => false,
+            .Atom(_, dot_tok) => cond(
+              (dot_tok.value.as_str() != ".") => false,
+              true => match(
+                dot_args.get(usize(0)),
+                .None => false,
+                .Some(recv_e) => cond(
+                  (!(type_app_receiver_arg_is(recv_e, "Slice", "u8"))) => false,
+                  true => match(
+                    dot_args.get(usize(1)),
+                    .None => false,
+                    .Some(method_e) => match(
+                      method_e,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, method_tok) => (method_tok.value.as_str() == "from_raw_parts")
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+var_type_is :: (fn(ctx : *(CodegenContext), name : str, c_type : str) -> bool)(
+  match(
+    ctx.*.get_var_type(name),
+    .None => false,
+    .Some(actual) => (actual.as_str() == c_type)
   )
 );
 generic_type_app_c_name :: (fn(expr : AstExpr) -> Option(String))(
@@ -4235,6 +4320,10 @@ handle_define :: (
                 if(is_slice_rhs, {
                   ctx.*.register_slice_var(name_tok.value.as_str());
                 });
+                if(is_slice_u8_from_raw_parts_call(rhs_expr), {
+                  ctx.*.register_slice_var(name_tok.value.as_str());
+                  ctx.*.register_var_type(name_tok.value.as_str(), "YoSlice_u8");
+                });
                 // If RHS is a `box(...)` call, register LHS as a box var for deref equality.
                 is_box_rhs := match(
                   rhs_expr,
@@ -5181,7 +5270,7 @@ handle_regular_call :: (
             .Some(e) => call_gen_expr(e, ctx, indent)
           ),
         // Returned-array wrapper indexing: `arr(idx)` → `arr.data[idx]`.
-        (ctx.*.get_var_type(id.as_str()).is_some() && (args.len() == usize(1))) => match(
+        ((args.len() == usize(1)) && var_type_is(ctx, id.as_str(), "YoArray_i32")) => match(
           ctx.*.get_var_type(id.as_str()),
           .None => Option(String).None,
           .Some(id_ty) => cond(
@@ -5691,6 +5780,46 @@ handle_method_call :: (
           // Prototype lowering for standard Option/Result constructors. The
           // bootstrap codegen represents Some/Ok/Err as the payload value and
           // None as NULL; runtime methods below are lowered accordingly.
+          (((recv_code.as_str() == "str") && (method_name.as_str() == "from_raw_parts")) && (args.len() == usize(2))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(str_ptr_e) => match(
+                call_gen_expr(str_ptr_e, ctx, indent),
+                .None => Option(String).None,
+                .Some(str_ptr_c) => {
+                  str_raw := String.from("(const char*)(");
+                  str_raw.push_string(str_ptr_c);
+                  str_raw.push_str(")");
+                  Option(String).Some(str_raw)
+                }
+              )
+            ),
+          ((type_app_receiver_arg_is(recv_expr, "Slice", "u8") && (method_name.as_str() == "from_raw_parts")) && (args.len() == usize(2))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(slice_ptr_e) => match(
+                args.get(usize(1)),
+                .None => Option(String).None,
+                .Some(slice_len_e) => match(
+                  call_gen_expr(slice_ptr_e, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(slice_ptr_c) => match(
+                    call_gen_expr(slice_len_e, ctx, indent),
+                    .None => Option(String).None,
+                    .Some(slice_len_c) => {
+                      slice_raw := String.from("(YoSlice_u8){.data = ");
+                      slice_raw.push_string(slice_ptr_c);
+                      slice_raw.push_str(", .length = ");
+                      slice_raw.push_string(slice_len_c);
+                      slice_raw.push_str("}");
+                      Option(String).Some(slice_raw)
+                    }
+                  )
+                )
+              )
+            ),
           ((type_app_receiver_is(recv_expr, "Array") && (method_name.as_str() == "fill")) && (args.len() == usize(1))) => match(
             array_i32_size_arg_to_c(recv_expr, ctx, indent),
             .None => Option(String).None,

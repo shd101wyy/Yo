@@ -4395,3 +4395,50 @@ test("generate_expr: if-else emits ternary or if/else blocks", {
     }
   );
 });
+test("validation: str.from_raw_parts lowers to C pointer view", {
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Identifier, "ptr"));
+  len_args := ArrayList(AstExpr).new();
+  len_args.push(make_atom_expr(TokenKind.Integer, "5"));
+  args.push(make_fncall_expr("usize", len_args));
+  call_expr := make_method_call_expr(make_atom_expr(TokenKind.Identifier, "str"), "from_raw_parts", args);
+  result := run_gen(call_expr);
+  match(
+    result,
+    .None => assert(false, "str.from_raw_parts should generate"),
+    .Some(code) => {
+      assert(code.contains(String.from("(const char*)")), "should cast pointer to const char*");
+      assert(!(code.contains(String.from("str.from_raw_parts"))), "should not emit raw Yo method call");
+    }
+  );
+});
+test("validation: Slice(u8).from_raw_parts returns indexable slice wrapper", {
+  slice_type_args := ArrayList(AstExpr).new();
+  slice_type_args.push(make_atom_expr(TokenKind.Identifier, "u8"));
+  slice_type := make_fncall_expr("Slice", slice_type_args);
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Identifier, "ptr"));
+  len_args := ArrayList(AstExpr).new();
+  len_args.push(make_atom_expr(TokenKind.Integer, "5"));
+  args.push(make_fncall_expr("usize", len_args));
+  raw_parts := make_method_call_expr(slice_type, "from_raw_parts", args);
+  ctx := CodegenContext.new();
+  pctx := &(ctx);
+  ind := String.new();
+  def_expr := make_infix_expr(":=", make_atom_expr(TokenKind.Identifier, "slice"), raw_parts);
+  gen_result := generate_expr(def_expr, pctx, ind);
+  match(gen_result,.None => assert(false, "slice definition should generate"),.Some(_) => ());
+  idx_args := ArrayList(AstExpr).new();
+  idx_usize_args := ArrayList(AstExpr).new();
+  idx_usize_args.push(make_atom_expr(TokenKind.Integer, "0"));
+  idx_args.push(make_fncall_expr("usize", idx_usize_args));
+  idx_expr := make_fncall_expr("slice", idx_args);
+  idx_result := generate_expr(idx_expr, pctx, ind);
+  match(
+    idx_result,
+    .None => assert(false, "slice index should generate"),
+    .Some(code) => {
+      assert(code.contains(String.from("slice.data[")), "slice var should index through data field");
+    }
+  );
+});

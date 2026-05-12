@@ -7914,3 +7914,72 @@ array layouts across element types and sizes.
 - Start expanding beyond the initial benchmark trio into additional `./tests`
   files, prioritizing small files first to expose the next missing evaluator or
   codegen feature.
+
+### Phase 13r — Raw `str` / `Slice(u8)` constructor lowering
+
+**Problem**: After the initial trio was green, the next small benchmark pass
+found `tests/str.test.yo` still had three skipped compile-error tests:
+
+- `Test str.from_raw_parts`
+- `Test str.from_raw_parts with zero length`
+- `Test Slice(u8).from_raw_parts`
+
+The self-hosted bootstrap codegen already simplified `String` / `str` to
+`const char*` for string-heavy tests, but it still emitted raw Yo method calls
+for the static constructors:
+
+```c
+str.from_raw_parts((uint8_t*)("hello"), (size_t)(5))
+Slice((uint8_t)).from_raw_parts(...)
+```
+
+Those pseudo-calls are not C symbols, and `Slice(u8)` values were not
+registered as slice variables, so `slice.len()` and `slice(idx)` could not be
+lowered.
+
+**Fix**:
+
+- Added a bootstrap-only `YoSlice_u8` C layout:
+
+  ```c
+  typedef struct { uint8_t* data; size_t length; } YoSlice_u8;
+  ```
+
+- Taught `type_expr_to_c` to map `Slice(u8)` to `YoSlice_u8`.
+- Lowered `str.from_raw_parts(ptr, len)` to a `const char*` pointer view,
+  preserving the existing simplified `String == str == const char*` bootstrap
+  ABI used by earlier passing string tests.
+- Lowered `Slice(u8).from_raw_parts(ptr, len)` to a `YoSlice_u8` compound value
+  and registered local bindings from that constructor as slice variables, so
+  `slice.len()` and `slice(idx)` lower through `.length` and `.data[idx]`.
+- Tightened returned-array call-result indexing so non-`YoArray_i32` typed
+  locals can still fall through to the existing slice indexing path.
+
+This remains a narrow bootstrap representation, not the final generic slice ABI.
+It is enough for the current `str` benchmark while avoiding disruption to the
+existing simplified string representation.
+
+**Verification**:
+
+- ✅ Added targeted tests:
+  - `validation: str.from_raw_parts lowers to C pointer view`
+  - `validation: Slice(u8).from_raw_parts returns indexable slice wrapper`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 229/229.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/str.test.yo` passes:
+  7 passed, 0 failed, 0 skipped.
+- ✅ Existing benchmark trio still passes:
+  - `./yo-self/yo-self-bin test tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+  - `./yo-self/yo-self-bin test tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+  - `./yo-self/yo-self-bin test tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- Existing remaining skips in the sampled small files are now outside this slice:
+  - `tests/process.test.yo` — missing process constants / `println` lowering.
+  - `tests/forward_ref_self_method.test.yo` — missing `Self` static method resolution.
+  - `tests/ptr.test.yo` — missing `Option(MyBox)` pointer/object lowering.
+  - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
+  - `tests/control_fn_as_regular_call.test.yo` — missing async/IO/Worker lowering.
