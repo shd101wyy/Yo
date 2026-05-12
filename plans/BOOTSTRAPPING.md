@@ -7580,3 +7580,42 @@ function whose C return type is `Withdraw`.
 - `tests/basic.test.yo` remains 28/32 overall; the struct benchmark still has
   additional independent gaps around anonymous/local struct values, tuple
   struct fields, default-field materialization, and generic type methods.
+
+### Phase 13k — Anonymous struct constructor declarations
+
+**Problem**: The struct benchmark uses anonymous struct constructors in two
+declaration forms:
+
+```rust
+p := (struct(x : i32, y : i32))(3, 4);
+(p2 : struct(x : i32, y : i32)) = _(3, 4);
+```
+
+The bootstrap codegen either erased the declaration or tried to lower through a
+separate anonymous C compound literal. In C, two textual `struct { ... }` types
+are distinct, so `struct { ... } p = (struct { ... }){ ... };` is invalid even
+when the fields match.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- Added anonymous-struct type and initializer helpers for declaration contexts.
+- Lower `p := (struct(...))(...)` directly to:
+  `struct { ... } p = { ... };`
+- Lower `(p2 : struct(...)) = _(...)` directly to:
+  `struct { ... } p2 = { ... };`
+- Keep this path separate from expression-level anonymous struct literals so C
+  does not see incompatible anonymous struct types.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: anonymous struct constructors emit direct declarations`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 221/221.
+- Rebuilt `yo-self/yo-self-bin` and re-ran the real struct benchmark. The
+  anonymous struct subcase now emits valid declarations; the remaining struct
+  failures are the next independent gaps:
+  - tuple/struct aggregate fields, especially local `Tuple(...)` aliases
+  - same-named local struct aliases with different block scopes
+  - value receiver method calls such as `bank.withdraw(...)`
+  - generic type method calls such as `MyStruct(i32).new(...)`

@@ -1727,6 +1727,29 @@ test("validation: return single-field struct literal coerces to return type", {
     }
   );
 });
+test("validation: anonymous struct constructors emit direct declarations", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ p := (struct(x : i32, y : i32))(3, 4); assert(p.x == 3); (p2 : struct(x : i32, y : i32)) = _(3, 4); assert(p2.y == 4); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "anon_struct_constructor_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("struct { int32_t x; int32_t y; } p = {3, 4};")), "anonymous constructor define emits named variable declaration");
+      assert(c.contains(String.from("struct { int32_t x; int32_t y; } p2 = {3, 4};")), "typed anonymous struct assignment emits direct declaration");
+      assert(c.contains(String.from("p.x == 3")), "anonymous struct define variable is available");
+      assert(c.contains(String.from("p2.y == 4")), "typed anonymous struct variable is available");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
 // ---------------------------------------------------------------------------

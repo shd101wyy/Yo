@@ -2929,6 +2929,124 @@ emit_method_extraction_macro_if_supported :: (
     )
   )
 );
+anon_struct_type_to_c :: (fn(type_args : ArrayList(AstExpr)) -> Option(String))({
+  n := type_args.len();
+  result := String.from("struct { ");
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while(runtime((i < n) && ok), {
+    match(
+      type_args.get(i),
+      .None => {
+        ok = false;
+      },
+      .Some(field_expr) => match(
+        field_expr,
+        .Atom(_, _) => {
+          ok = false;
+        },
+        .FnCall(_, colon_box, colon_args, colon_infix, _) => cond(
+          (!(colon_infix && (colon_args.len() == usize(2)))) => {
+            ok = false;
+          },
+          true => match(
+            colon_box.*,
+            .FnCall(_, _, _, _, _) => {
+              ok = false;
+            },
+            .Atom(_, colon_tok) => cond(
+              (colon_tok.value.as_str() != ":") => {
+                ok = false;
+              },
+              true => {
+                field_name_opt := match(
+                  colon_args.get(usize(0)),
+                  .None => Option(String).None,
+                  .Some(name_expr) => match(
+                    name_expr,
+                    .FnCall(_, _, _, _, _) => Option(String).None,
+                    .Atom(_, name_tok) => Option(String).Some(name_tok.value)
+                  )
+                );
+                field_ty_opt := match(
+                  colon_args.get(usize(1)),
+                  .None => Option(String).None,
+                  .Some(ty_expr) => type_expr_to_c(ty_expr)
+                );
+                match(
+                  field_name_opt,
+                  .None => {
+                    ok = false;
+                  },
+                  .Some(field_name) => match(
+                    field_ty_opt,
+                    .None => {
+                      ok = false;
+                    },
+                    .Some(field_ty) => {
+                      result.push_string(field_ty);
+                      result.push_str(" ");
+                      result.push_string(sanitize_c_ident(field_name.as_str()));
+                      result.push_str("; ");
+                    }
+                  )
+                );
+              }
+            )
+          )
+        )
+      )
+    );
+    i = (i + usize(1));
+  });
+  cond(
+    (!(ok)) => Option(String).None,
+    true => {
+      result.push_str("}");
+      Option(String).Some(result)
+    }
+  )
+});
+anon_struct_initializer_to_c :: (
+  fn(
+    value_args : ArrayList(AstExpr),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)({
+  result := String.from("{");
+  n := value_args.len();
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while(runtime((i < n) && ok), {
+    match(
+      value_args.get(i),
+      .None => {
+        ok = false;
+      },
+      .Some(arg_expr) => match(
+        call_gen_expr(arg_expr, ctx, indent),
+        .None => {
+          ok = false;
+        },
+        .Some(arg_code) => {
+          if(i > usize(0), {
+            result.push_str(", ");
+          });
+          result.push_string(arg_code);
+        }
+      )
+    );
+    i = (i + usize(1));
+  });
+  cond(
+    (!(ok)) => Option(String).None,
+    true => {
+      result.push_str("}");
+      Option(String).Some(result)
+    }
+  )
+});
 /// Handle variable definition `name := val` → emit `__auto_type name = val;\n` as a
 /// statement and return `"0"` (the unit sentinel).
 ///
@@ -3054,6 +3172,45 @@ handle_define :: (
           .Some(csv_s) => {
             ctx.*.track_open_var(name_tok.value.as_str(), csv_s.as_str());
           }
+        );
+        anon_struct_constructor_emitted := match(
+          rhs_expr,
+          .Atom(_, _) => false,
+          .FnCall(_, rhs_ctor_fn, rhs_ctor_args, rhs_ctor_infix, _) => cond(
+            rhs_ctor_infix => false,
+            true => match(
+              rhs_ctor_fn.*,
+              .Atom(_, _) => false,
+              .FnCall(_, rhs_ty_fn, rhs_ty_args, rhs_ty_infix, _) => cond(
+                rhs_ty_infix => false,
+                true => match(
+                  rhs_ty_fn.*,
+                  .FnCall(_, _, _, _, _) => false,
+                  .Atom(_, rhs_ty_tok) => cond(
+                    (rhs_ty_tok.value.as_str() != "struct") => false,
+                    true => match(
+                      anon_struct_type_to_c(rhs_ty_args),
+                      .None => false,
+                      .Some(anon_c_ty) => match(
+                        anon_struct_initializer_to_c(rhs_ctor_args, ctx, indent),
+                        .None => false,
+                        .Some(init_c) => {
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit_string(anon_c_ty);
+                          ctx.*.emitter.emit(" ");
+                          ctx.*.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
+                          ctx.*.emitter.emit(" = ");
+                          ctx.*.emitter.emit_string(init_c);
+                          ctx.*.emitter.emit_line(";");
+                          true
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
         );
         assignment_value_emitted := match(
           rhs_expr,
@@ -3425,7 +3582,7 @@ handle_define :: (
             )
           );
           cond(
-            (assignment_value_emitted || (method_extraction_emitted || (arr_copy_emitted || arr_constructor_emitted))) =>
+            (anon_struct_constructor_emitted || (assignment_value_emitted || (method_extraction_emitted || (arr_copy_emitted || arr_constructor_emitted)))) =>
               Option(String).Some(String.from("0")),
             array_decl_emitted => Option(String).Some(String.from("0")),
             true => match(
@@ -5668,9 +5825,101 @@ handle_assignment :: (
                 )
           )
         );
+        typed_anon_struct_decl_opt := match(
+          lhs_expr,
+          .Atom(_, _) => Option(String).None,
+          .FnCall(_, colon_box_a, colon_args_a, colon_infix_a, _) => cond(
+            (
+              !(
+                colon_infix_a && match(
+                  colon_box_a.*,
+                  .Atom(_, ctoka) => ((ctoka.kind == TokenKind.Operator) && (ctoka.value.as_str() == ":")),
+                  .FnCall(_, _, _, _, _) => false
+                )
+              )
+            ) => Option(String).None,
+            true => {
+              name_opt_a := match(
+                colon_args_a.get(usize(0)),
+                .None => Option(String).None,
+                .Some(ne_a) => match(
+                  ne_a,
+                  .Atom(_, ntoka) => Option(String).Some(ntoka.value),
+                  .FnCall(_, _, _, _, _) => Option(String).None
+                )
+              );
+              ty_args_opt_a := match(
+                colon_args_a.get(usize(1)),
+                .None => Option(ArrayList(AstExpr)).None,
+                .Some(te_a) => match(
+                  te_a,
+                  .Atom(_, _) => Option(ArrayList(AstExpr)).None,
+                  .FnCall(_, ty_fn_a, ty_args_a, ty_infix_a, _) => cond(
+                    ty_infix_a => Option(ArrayList(AstExpr)).None,
+                    true => match(
+                      ty_fn_a.*,
+                      .FnCall(_, _, _, _, _) => Option(ArrayList(AstExpr)).None,
+                      .Atom(_, ty_tok_a) => cond(
+                        (ty_tok_a.value.as_str() == "struct") => Option(ArrayList(AstExpr)).Some(ty_args_a),
+                        true => Option(ArrayList(AstExpr)).None
+                      )
+                    )
+                  )
+                )
+              );
+              rhs_args_opt_a := match(
+                rhs_expr,
+                .Atom(_, _) => Option(ArrayList(AstExpr)).None,
+                .FnCall(_, rhs_fn_a, rhs_args_a, rhs_infix_a, _) => cond(
+                  rhs_infix_a => Option(ArrayList(AstExpr)).None,
+                  true => match(
+                    rhs_fn_a.*,
+                    .FnCall(_, _, _, _, _) => Option(ArrayList(AstExpr)).None,
+                    .Atom(_, rhs_tok_a) => cond(
+                      (rhs_tok_a.value.as_str() == BK_ANON_STRUCT) => Option(ArrayList(AstExpr)).Some(rhs_args_a),
+                      true => Option(ArrayList(AstExpr)).None
+                    )
+                  )
+                )
+              );
+              match(
+                name_opt_a,
+                .None => Option(String).None,
+                .Some(var_name_a) => match(
+                  ty_args_opt_a,
+                  .None => Option(String).None,
+                  .Some(type_args_a) => match(
+                    rhs_args_opt_a,
+                    .None => Option(String).None,
+                    .Some(value_args_a) => match(
+                      anon_struct_type_to_c(type_args_a),
+                      .None => Option(String).None,
+                      .Some(anon_ty_a) => match(
+                        anon_struct_initializer_to_c(value_args_a, ctx, indent),
+                        .None => Option(String).None,
+                        .Some(init_a) => {
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit_string(anon_ty_a);
+                          ctx.*.emitter.emit(" ");
+                          ctx.*.emitter.emit_string(sanitize_c_ident(var_name_a.as_str()));
+                          ctx.*.emitter.emit(" = ");
+                          ctx.*.emitter.emit_string(init_a);
+                          ctx.*.emitter.emit_line(";");
+                          Option(String).Some(String.from("0"))
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            }
+          )
+        );
         cond(
           // --- Special path: (arr : [T; N]) = [v0, v1, ...] ---
           match(arr_typed_decl_opt,.Some(_) => true,.None => false) => arr_typed_decl_opt,
+          // --- Special path: (p : struct(...)) = _(...) ---
+          match(typed_anon_struct_decl_opt,.Some(_) => true,.None => false) => typed_anon_struct_decl_opt,
           // --- Special path: arr = [v0, v1, ...] for known array var (element-by-element) ---
           match(
             lhs_expr,
