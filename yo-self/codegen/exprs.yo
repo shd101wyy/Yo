@@ -1650,6 +1650,61 @@ data_arm_variant_name :: (fn(pat_expr : AstExpr) -> Option(String))(
     )
   )
 );
+emit_simplified_some_binding_name :: (
+  fn(binding_name : str, scrut_code : String, ctx : *(CodegenContext), indent : String) -> unit
+)(
+  if(binding_name != "_", {
+    ctx.*.emitter.emit_string(indent);
+    ctx.*.emitter.emit("__auto_type ");
+    ctx.*.emitter.emit_string(sanitize_c_ident(binding_name));
+    ctx.*.emitter.emit(" = ");
+    ctx.*.emitter.emit_string(scrut_code);
+    ctx.*.emitter.emit_line(";");
+  })
+);
+emit_simplified_some_binding_expr :: (
+  fn(binding_expr : AstExpr, scrut_code : String, ctx : *(CodegenContext), indent : String) -> unit
+)(
+  match(
+    binding_expr,
+    .Atom(_, binding_tok) =>
+      emit_simplified_some_binding_name(binding_tok.value.as_str(), scrut_code, ctx, indent),
+    .FnCall(_, binding_func_box, binding_args, binding_infix, _) => cond(
+      binding_infix => match(
+        binding_func_box.*,
+        .FnCall(_, _, _, _, _) => (),
+        .Atom(_, binding_func_tok) => if(binding_func_tok.value.as_str() == ":", {
+          match(
+            binding_args.get(usize(1)),
+            .None => (),
+            .Some(alias_expr) => match(
+              alias_expr,
+              .FnCall(_, _, _, _, _) => (),
+              .Atom(_, alias_tok) =>
+                emit_simplified_some_binding_name(alias_tok.value.as_str(), scrut_code, ctx, indent)
+            )
+          );
+        })
+      ),
+      true => match(
+        binding_func_box.*,
+        .FnCall(_, _, _, _, _) => (),
+        .Atom(_, binding_func_tok2) => if(binding_func_tok2.value.as_str() == BK_ANON_STRUCT, {
+          (i : usize) = usize(0);
+          n := binding_args.len();
+          while(runtime(i < n), {
+            match(
+              binding_args.get(i),
+              .None => (),
+              .Some(inner_binding_expr) => recur(inner_binding_expr, scrut_code, ctx, indent)
+            );
+            i = (i + usize(1));
+          });
+        })
+      )
+    )
+  )
+);
 emit_simplified_some_bindings :: (
   fn(pat_expr : AstExpr, scrut_code : String, ctx : *(CodegenContext), indent : String) -> unit
 )(
@@ -1668,21 +1723,7 @@ emit_simplified_some_bindings :: (
             match(
               pat_args.get(i),
               .None => (),
-              .Some(binding_expr) => match(
-                binding_expr,
-                .FnCall(_, _, _, _, _) => (),
-                .Atom(_, binding_tok) => cond(
-                  (binding_tok.value.as_str() == "_") => (),
-                  true => {
-                    ctx.*.emitter.emit_string(indent);
-                    ctx.*.emitter.emit("__auto_type ");
-                    ctx.*.emitter.emit_string(sanitize_c_ident(binding_tok.value.as_str()));
-                    ctx.*.emitter.emit(" = ");
-                    ctx.*.emitter.emit_string(scrut_code);
-                    ctx.*.emitter.emit_line(";");
-                  }
-                )
-              )
+              .Some(binding_expr) => emit_simplified_some_binding_expr(binding_expr, scrut_code, ctx, indent)
             );
             i = (i + usize(1));
           });

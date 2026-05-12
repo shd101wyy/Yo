@@ -331,6 +331,19 @@ test("Parse shorthand anonymous struct { x, y }", {
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `_(x : x, y : y)`, "anon struct shorthand form");
 });
+test("Parse single-field shorthand anonymous struct { x }", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  prog := parse(`{ x }`, `test.yo`, using(exn));
+  e := only_expr(prog);
+  assert_str_eq(ast_expr_to_string(e), `_(x : x)`, "single-field anon struct shorthand form");
+});
 // ─── Array and bracket expressions ───────────────────────────────────────────
 test("Parse array value [1, 2, 3]", {
   given(exn) := Exception(

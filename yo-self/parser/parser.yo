@@ -780,6 +780,24 @@ impl(
       index : (idx + usize(1))
     )
   }),
+  is_valid_struct_field_arg : (fn(self : *(Self), expr : AstExpr) -> bool)(
+    match(
+      expr,
+      .Atom(_, _) => true,
+      .FnCall(_, func_box, _, is_infix, _) => cond(
+        is_infix => match(
+          func_box.*,
+          .Atom(_, func_tok) => (func_tok.value.as_str() == ":"),
+          .FnCall(_, _, _, _, _) => false
+        ),
+        true => match(
+          func_box.*,
+          .Atom(_, func_tok2) => (func_tok2.value.as_str() == "..."),
+          .FnCall(_, _, _, _, _) => false
+        )
+      )
+    )
+  ),
   parse_curly_bracket_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
@@ -871,15 +889,37 @@ impl(
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     });
-    // No separator seen means a single expression or empty block → begin block, not anon struct.
-    // Comma separator → anonymous struct; semicolon separator → begin block.
+    // No separator or comma separator -> anonymous struct; semicolon separator -> begin block.
     is_comma := match(
       separator_is_comma,
-      .None => false,
+      .None => true,
       .Some(__sb) => __sb
     );
     cond(
       is_comma => {
+        (vi : usize) = usize(0);
+        vn := args.len();
+        while(runtime(vi < vn), {
+          match(
+            args.get(vi),
+            .None => (),
+            .Some(arg) => {
+              if(!(self.is_valid_struct_field_arg(arg)), {
+                exn.throw(
+                  dyn(
+                    make_parse_error(
+                      tok,
+                      String.from(
+                        "{ ... } without semicolons is parsed as a struct literal, not a block. To write a block, use semicolons: { stmt1; stmt2; }"
+                      )
+                    )
+                  )
+                );
+              });
+            }
+          );
+          vi = (vi + usize(1));
+        });
         // Anonymous struct: { x, y: 2 } → _(x: x, y: 2)
         n_args := args.len();
         final_args := ArrayList(AstExpr).new();

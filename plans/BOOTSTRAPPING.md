@@ -7305,6 +7305,7 @@ Running `yo-self/yo-self-bin test <file>` on representative `./tests/*.test.yo`:
 | `comptime_option_result.test.yo`     | 8/12         |                                                                               |
 | `basic.test.yo`                      | 24/32        | 8 use destructuring patterns, default fields, generics, `.Some(...)` literals |
 | `closure.test.yo`                    | 9/9          | Primitive, object/RC, and narrow `Dyn(Fn(...))` closure captures pass         |
+| `match_curly.test.yo`                | 10/10        | Single-field curly structs and Option.Some curly bindings pass                |
 | `control_fn_as_regular_call.test.yo` | 0/3          | Requires IO effect injection                                                  |
 | `algebraic_effects.test.yo`          | 0/61         | Effects runtime not ported (~15k lines TS)                                    |
 | `async_await.test.yo`                | 0/121        | Async runtime not ported (~15k lines TS)                                      |
@@ -8284,6 +8285,65 @@ not the final production Dyn trait-object ABI.
 - ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
 - ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
 - ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+
+### Phase 13aa — Single-field curly match destructuring
+
+**Problem**: after Phase 13z, `tests/match_curly.test.yo` still had three skips.
+The self-hosted parser treated `{ x }` as a `begin(x)` block when no comma or
+semicolon was present, while the TypeScript parser treats no-separator curlies
+as anonymous structs and rewrites `{ x }` to `_(x : x)`. That meant match arms
+like `.Triangle({ base })` and `.Circle({ radius })` did not emit bindings:
+
+```c
+case Shape_Triangle: {
+  _yo_t0 = (base + 1);
+}
+```
+
+The remaining `.Some({ value })` case used the simplified Option payload path,
+which only handled positional `.Some(value)` bindings and ignored curly
+shorthand bindings.
+
+**Fix**:
+
+- Ported the TypeScript parser behavior for curly braces:
+  - no separator or comma separator -> anonymous struct;
+  - semicolon separator -> begin block.
+- Added validation so invalid single-expression blocks written as `{ expr }`
+  produce the same actionable parse error instead of silently becoming begin
+  blocks.
+- Added a parser regression for `{ x } -> _(x : x)`.
+- Extended simplified `.Some(...)` match lowering to recursively handle
+  anonymous-struct curly bindings and labeled aliases, so `.Some({ value })`
+  emits `__auto_type value = o;` before compiling the selected arm.
+
+**Verification**:
+
+- ✅ Added targeted tests:
+  - `Parse single-field shorthand anonymous struct { x }`
+  - `validation: Option Some curly binding lowers to payload binding`
+- ✅ `./yo-cli test ./yo-self/tests/parser.test.yo --disable-sanitize --parallel 1`
+  passes: 44/44.
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 248/248.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/match_curly.test.yo --disable-sanitize --parallel 1`
+  passes: 10 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime.test.yo` → 28 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
 
 ### Phase 13x — Primitive closure value lowering
 

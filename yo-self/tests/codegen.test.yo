@@ -1644,6 +1644,29 @@ test("validation: generic option-like Some match lowers to payload branch", {
     }
   );
 });
+test("validation: Option Some curly binding lowers to payload binding", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ o := Option(i32).Some(i32(42)); v := match(o, .Some({ value }) => value, .None => i32(0)); assert(v == i32(42)); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "option_some_curly_match_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("__auto_type value = o;")), "curly Some binding should bind payload");
+      assert(c.contains(String.from("__auto_type v = value;")), "match result should use bound value");
+      assert(!(c.contains(String.from(".Some"))), "Some pseudo-call must not reach C");
+      assert(!(c.contains(String.from(".tag"))), "simplified Some match must not emit enum tag switch");
+    }
+  );
+});
 test("validation: ArrayList(u8) value return can be indexed directly", {
   given(exn) := Exception(
     throw : (
@@ -1802,7 +1825,7 @@ test("validation: return single-field struct literal coerces to return type", {
     opt_c,
     .None => assert(false, "compile_module_to_c returned None"),
     .Some(c) => {
-      assert(c.contains(String.from("return (Withdraw){ .balance = balance };")), "return coerces shorthand struct literal");
+      assert(c.contains(String.from("return (Withdraw){.balance = balance };")), "return coerces shorthand struct literal");
       assert(!(c.contains(String.from("return balance;"))), "return must not emit bare field value");
     }
   );
