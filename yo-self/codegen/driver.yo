@@ -1828,6 +1828,43 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
                         );
                       }
                     );
+                    // Multi-method impls parse as `impl(T, method1 : ..., method2 : ..., ...)`.
+                    // The first method is `body_expr`; remaining methods live in top_args[2..].
+                    (extra_i : usize) = usize(2);
+                    while(runtime(extra_i < top_args.len()), {
+                      match(
+                        top_args.get(extra_i),
+                        .None => (),
+                        .Some(extra_method_expr) => {
+                          extra_fd_opt := match(
+                            extract_fn_def(extra_method_expr),
+                            .Some(fd_c) => Option(FnDef).Some(fd_c),
+                            .None => extract_colon_fn_def(extra_method_expr)
+                          );
+                          match(
+                            extra_fd_opt,
+                            .None => (),
+                            .Some(extra_fd) => {
+                              extra_c_name := String.from(type_prefix);
+                              extra_c_name.push_str("_");
+                              extra_c_name.push_string(extra_fd.name);
+                              results.push(
+                                FnDef(
+                                  name : extra_c_name,
+                                  ret_ty_c : subst_self_ty(extra_fd.ret_ty_c, type_prefix),
+                                  params : extra_fd.params,
+                                  param_tys : subst_self_ty_list(extra_fd.param_tys, type_prefix),
+                                  body : extra_fd.body,
+                                  is_impl : true,
+                                  impl_type : String.from(type_prefix)
+                                )
+                              );
+                            }
+                          );
+                        }
+                      );
+                      extra_i = (extra_i + usize(1));
+                    });
                     results
                   }
                 )

@@ -3270,6 +3270,24 @@ var_type_is :: (fn(ctx : *(CodegenContext), name : str, c_type : str) -> bool)(
     .Some(actual) => (actual.as_str() == c_type)
   )
 );
+static_method_receiver_type_name :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(String))(
+  match(
+    expr,
+    .FnCall(_, _, _, _, _) => Option(String).None,
+    .Atom(_, tok) => cond(
+      (tok.value.as_str() == "Self") => {
+        self_ty := ctx.*.get_self_type();
+        cond(
+          (self_ty == "") => Option(String).None,
+          true => Option(String).Some(String.from(self_ty))
+        )
+      },
+      match(tok.value.at(usize(0)),.Some(r) => ((r.char >= u32(65)) && (r.char <= u32(90))),.None => false) =>
+        Option(String).Some(tok.value),
+      true => Option(String).None
+    )
+  )
+);
 generic_type_app_c_name :: (fn(expr : AstExpr) -> Option(String))(
   match(
     expr,
@@ -6210,13 +6228,20 @@ handle_method_call :: (
               )
             )
           ),
-          (ctx.*.is_struct_name(recv_code.as_str()) && ctx.*.is_defined_fn(`${ recv_code }_${ method_name }`.as_str())) =>
-            match(
+          match(
+            static_method_receiver_type_name(recv_expr, ctx),
+            .None => false,
+            .Some(static_recv_ty_check) =>
+              ctx.*.is_defined_fn(`${ static_recv_ty_check }_${ method_name }`.as_str())
+          ) => match(
+            static_method_receiver_type_name(recv_expr, ctx),
+            .None => Option(String).None,
+            .Some(static_recv_ty) => match(
               gen_arg_list(args, ctx, indent),
               .None => Option(String).None,
               .Some(arg_s2) => {
                 result_static := String.from("fn_");
-                result_static.push_string(recv_code);
+                result_static.push_string(static_recv_ty);
                 result_static.push_str("_");
                 result_static.push_string(method_name);
                 result_static.push_str("(");
@@ -6224,7 +6249,8 @@ handle_method_call :: (
                 result_static.push_str(")");
                 Option(String).Some(result_static)
               }
-            ),
+            )
+          ),
           // Complex enum constructor: `EnumName.Variant(args…)`
           // Emits: `(EnumName){ .tag = EnumName_Variant, .data = { .Variant = { .f0 = a0, … } } }`
           (ctx.*.is_enum_name(recv_code.as_str()) && ctx.*.get_variant_fields(recv_code.as_str(), method_name.as_str()).is_some()) =>

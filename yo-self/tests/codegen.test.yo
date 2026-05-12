@@ -2159,6 +2159,27 @@ test("extract_impl_fns: extracts method as TypeName_method", {
     }
   );
 });
+test("extract_impl_fns: extracts multiple inline methods", {
+  ret := make_atom_expr(TokenKind.Identifier, "i32");
+  first_rhs := make_fn_app(ArrayList(AstExpr).new(), ret, make_atom_expr(TokenKind.Integer, "1"));
+  second_rhs := make_fn_app(ArrayList(AstExpr).new(), ret, make_atom_expr(TokenKind.Integer, "2"));
+  first_method := make_colon_expr(make_atom_expr(TokenKind.Identifier, "first"), first_rhs);
+  second_method := make_colon_expr(make_atom_expr(TokenKind.Identifier, "second"), second_rhs);
+  impl_args := ArrayList(AstExpr).new();
+  impl_args.push(make_atom_expr(TokenKind.Identifier, "Counter"));
+  impl_args.push(first_method);
+  impl_args.push(second_method);
+  impl_expr := make_fncall_expr("impl", impl_args);
+  fns := extract_impl_fns(impl_expr, "Counter");
+  assert(fns.len() == usize(2), "two inline impl methods extracted");
+  match(
+    fns.get(usize(1)),
+    .None => assert(false, "second method missing"),
+    .Some(fd) => {
+      assert(fd.name == String.from("Counter_second"), "second method C name");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Struct constructor — is_labeled_arg, all_labeled_args, is_uppercase_start,
 //                      handle_struct_constructor, generate_expr integration
@@ -4461,4 +4482,39 @@ test("validation: println lowers to printf string output", {
   match(result,.None => assert(false, "println should generate"),.Some(_) => ());
   output := ctx.emitter.print();
   assert(output.contains(String.from("printf(\"%s\\n\", message);")), "println should emit printf");
+});
+test("validation: Self.method static dispatch uses current impl type", {
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Identifier, "n"));
+  call_expr := make_method_call_expr(make_atom_expr(TokenKind.Identifier, "Self"), "callee", args);
+  ctx := CodegenContext.new();
+  ctx.register_fn_with_params(String.from("P_callee"), String.new());
+  ctx.set_self_type("P");
+  pctx := &(ctx);
+  ind := String.new();
+  result := generate_expr(call_expr, pctx, ind);
+  match(
+    result,
+    .None => assert(false, "Self.callee should generate"),
+    .Some(code) => {
+      assert(code == String.from("fn_P_callee(n)"), "Self should resolve to current impl type");
+    }
+  );
+});
+test("validation: type-name static dispatch does not require registered struct", {
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Integer, "10"));
+  call_expr := make_method_call_expr(make_atom_expr(TokenKind.Identifier, "P"), "caller", args);
+  ctx := CodegenContext.new();
+  ctx.register_fn_with_params(String.from("P_caller"), String.new());
+  pctx := &(ctx);
+  ind := String.new();
+  result := generate_expr(call_expr, pctx, ind);
+  match(
+    result,
+    .None => assert(false, "P.caller should generate"),
+    .Some(code) => {
+      assert(code == String.from("fn_P_caller(10)"), "type-name static dispatch should use fn prefix");
+    }
+  );
 });

@@ -8044,3 +8044,64 @@ than this direct C string path.
   - `tests/ptr.test.yo` — missing `Option(MyBox)` pointer/object lowering.
   - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
   - `tests/control_fn_as_regular_call.test.yo` — missing async/IO/Worker lowering.
+
+### Phase 13t — `Self.method` forward-reference impl lowering
+
+**Problem**: `tests/forward_ref_self_method.test.yo` was skipped with compile
+errors around static-style impl method calls:
+
+```rust
+impl(
+  P,
+  caller : (fn(n : i32) -> i32)(Self.callee(n)),
+  callee : (fn(n : i32) -> i32)(n + i32(1))
+);
+```
+
+The generated C still contained raw `Self.callee(...)` and, for one direct
+type-name call, raw `N.is_odd_static(...)`. There were two root causes:
+
+1. `extract_impl_fns` only extracted the first inline method from
+   `impl(T, method1 : ..., method2 : ..., ...)`, so forward targets like
+   `callee` and mutual-recursion targets like `is_odd_static` were not emitted.
+2. `handle_method_call` only lowered type-name static dispatch when the receiver
+   was a registered struct name, and did not resolve `Self` through the current
+   impl type.
+
+**Fix**:
+
+- Taught `extract_impl_fns` to collect all inline methods from multi-method
+  `impl(...)` calls, not just the first method argument.
+- Added `Self.method(...)` static dispatch resolution through
+  `CodegenContext.self_type`.
+- Relaxed type-name static dispatch to use the registered impl function name
+  (`TypeName_method`) for uppercase receivers, even when the receiver has not
+  been registered as a struct in the current test body context.
+
+**Verification**:
+
+- ✅ Added targeted tests:
+  - `extract_impl_fns: extracts multiple inline methods`
+  - `validation: Self.method static dispatch uses current impl type`
+  - `validation: type-name static dispatch does not require registered struct`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 234/234.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/forward_ref_self_method.test.yo`
+  passes: 2 passed, 0 failed, 0 skipped.
+- ✅ Existing green set still passes:
+  - `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+  - `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+  - `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+  - `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+  - `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- Remaining sampled skips:
+  - `tests/ptr.test.yo` — missing `Option(MyBox)` pointer/object lowering.
+  - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
+  - `tests/control_fn_as_regular_call.test.yo` — missing async/IO/Worker lowering.
