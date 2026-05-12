@@ -8105,3 +8105,55 @@ type-name call, raw `N.is_odd_static(...)`. There were two root causes:
   - `tests/ptr.test.yo` — missing `Option(MyBox)` pointer/object lowering.
   - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
   - `tests/control_fn_as_regular_call.test.yo` — missing async/IO/Worker lowering.
+
+### Phase 13u — Generic type expressions in `sizeof(...)`
+
+**Problem**: `tests/ptr.test.yo` had one remaining skipped compile-error test:
+`Test pointer to object type value and consume builtin function`. The first
+failure was:
+
+```c
+malloc(sizeof(Option(MyBox)))
+```
+
+The bootstrap `sizeof(...)` lowering handled atomic type names but treated
+generic type expressions as runtime calls, so `Option(MyBox)` was emitted
+literally instead of mapping through the existing `type_expr_to_c` path where
+`Option(T)` is represented as `void*`.
+
+**Fix**:
+
+- Updated `sizeof(T)` lowering to try `type_expr_to_c(T)` for non-atomic type
+  expressions before falling back to expression codegen.
+- This lowers `sizeof(Option(MyBox))` to `sizeof(void*)`, which matches the
+  current opaque bootstrap representation for `Option(T)`.
+
+This is intentionally narrow: it fixes generic type-expression handling in
+`sizeof` without adding a full concrete `Option(T)` ABI.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: sizeof Option(T) lowers through type_expr_to_c`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 235/235.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/ptr.test.yo` passes:
+  2 passed, 0 failed, 0 skipped.
+- ✅ Existing green set still passes:
+  - `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+  - `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+  - `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+  - `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+  - `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+  - `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- Remaining sampled skips:
+  - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
+  - `tests/control_fn_as_regular_call.test.yo` — missing async/IO/Worker lowering.

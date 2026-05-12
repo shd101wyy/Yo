@@ -4518,3 +4518,19 @@ test("validation: type-name static dispatch does not require registered struct",
     }
   );
 });
+test("validation: sizeof Option(T) lowers through type_expr_to_c", {
+  option_args := ArrayList(AstExpr).new();
+  option_args.push(make_atom_expr(TokenKind.Identifier, "MyBox"));
+  option_type := make_fncall_expr("Option", option_args);
+  sizeof_args := ArrayList(AstExpr).new();
+  sizeof_args.push(option_type);
+  sizeof_expr := make_fncall_expr("sizeof", sizeof_args);
+  result := run_gen(sizeof_expr);
+  match(
+    result,
+    .None => assert(false, "sizeof Option(MyBox) should generate"),
+    .Some(code) => {
+      assert(code == String.from("sizeof(void*)"), "Option(T) should lower to opaque pointer size");
+    }
+  );
+});

@@ -8648,7 +8648,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .Some(sz_arg) => {
             sz_c := match(
               sz_arg,
-              .FnCall(_, _, _, _, _) => call_gen_expr(sz_arg, ctx, indent),
+              .FnCall(_, _, _, _, _) => match(
+                type_expr_to_c(sz_arg),
+                .Some(sz_ty_c) => Option(String).Some(sz_ty_c),
+                .None => call_gen_expr(sz_arg, ctx, indent)
+              ),
               .Atom(_, sz_tok) => {
                 c_ty := type_name_to_c(sz_tok.value.as_str());
                 Option(String).Some(c_ty)
