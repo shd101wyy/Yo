@@ -2656,6 +2656,105 @@ is_c_type_name :: (fn(name : str) -> bool)(
     true => false
   )
 );
+impl_fn_i32_i32_c_type_from_expr :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, impl_box, impl_args, impl_infix, _) => cond(
+      impl_infix => Option(String).None,
+      (impl_args.len() != usize(1)) => Option(String).None,
+      true => match(
+        impl_box.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, impl_tok) => cond(
+          !((impl_tok.value.as_str() == "Impl") || (impl_tok.value.as_str() == "Dyn")) =>
+            Option(String).None,
+          true => match(
+            impl_args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(fn_type_expr) => match(
+              fn_type_expr,
+              .Atom(_, _) => Option(String).None,
+              .FnCall(_, arrow_box, arrow_args, arrow_infix, _) => cond(
+                (!(arrow_infix && (arrow_args.len() == usize(2)))) => Option(String).None,
+                true => match(
+                  arrow_box.*,
+                  .FnCall(_, _, _, _, _) => Option(String).None,
+                  .Atom(_, arrow_tok) => cond(
+                    (arrow_tok.value.as_str() != "->") => Option(String).None,
+                    true => match(
+                      arrow_args.get(usize(1)),
+                      .None => Option(String).None,
+                      .Some(ret_expr) => match(
+                        ret_expr,
+                        .FnCall(_, _, _, _, _) => Option(String).None,
+                        .Atom(_, ret_tok) => cond(
+                          (ret_tok.value.as_str() != "i32") => Option(String).None,
+                          true => match(
+                            arrow_args.get(usize(0)),
+                            .None => Option(String).None,
+                            .Some(fn_head_expr) => match(
+                              fn_head_expr,
+                              .Atom(_, _) => Option(String).None,
+                              .FnCall(_, fn_head_box, fn_head_args, fn_head_infix, _) => cond(
+                                fn_head_infix => Option(String).None,
+                                (fn_head_args.len() != usize(1)) => Option(String).None,
+                                true => match(
+                                  fn_head_box.*,
+                                  .FnCall(_, _, _, _, _) => Option(String).None,
+                                  .Atom(_, fn_tok) => cond(
+                                    !((fn_tok.value.as_str() == "Fn") || (fn_tok.value.as_str() == "fn")) =>
+                                      Option(String).None,
+                                    true => match(
+                                      fn_head_args.get(usize(0)),
+                                      .None => Option(String).None,
+                                      .Some(param_expr) => match(
+                                        param_expr,
+                                        .Atom(_, _) => Option(String).None,
+                                        .FnCall(_, colon_box, colon_args, colon_infix, _) => cond(
+                                          (!(colon_infix && (colon_args.len() == usize(2)))) =>
+                                            Option(String).None,
+                                          true => match(
+                                            colon_box.*,
+                                            .FnCall(_, _, _, _, _) => Option(String).None,
+                                            .Atom(_, colon_tok) => cond(
+                                              (colon_tok.value.as_str() != ":") => Option(String).None,
+                                              true => match(
+                                                colon_args.get(usize(1)),
+                                                .None => Option(String).None,
+                                                .Some(param_ty_expr) => match(
+                                                  param_ty_expr,
+                                                  .FnCall(_, _, _, _, _) => Option(String).None,
+                                                  .Atom(_, param_ty_tok) => cond(
+                                                    (param_ty_tok.value.as_str() == "i32") =>
+                                                      Option(String).Some(String.from("__yo_impl_fn_i32_i32")),
+                                                    true => Option(String).None
+                                                  )
+                                                )
+                                              )
+                                            )
+                                          )
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
 type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
   match(
     ty_expr,
@@ -2986,7 +3085,11 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
             (ftok.value.as_str() == "Option") => Option(String).Some(String.from("void*")),
             (ftok.value.as_str() == "Result") => Option(String).Some(String.from("void*")),
             (ftok.value.as_str() == "Box") => Option(String).Some(String.from("void*")),
-            (ftok.value.as_str() == "Impl") => Option(String).Some(String.from("void*")),
+            ((ftok.value.as_str() == "Impl") || (ftok.value.as_str() == "Dyn")) => match(
+              impl_fn_i32_i32_c_type_from_expr(ty_expr),
+              .Some(impl_fn_ty) => Option(String).Some(impl_fn_ty),
+              .None => Option(String).Some(String.from("void*"))
+            ),
             true => Option(String).None
           ),
           true => match(
@@ -4011,6 +4114,18 @@ ensure_arraylist_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
     );
   });
 });
+is_impl_fn_c_type :: (fn(c_ty : str) -> bool)(
+  c_ty == "__yo_impl_fn_i32_i32"
+);
+ensure_impl_fn_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
+  if((is_impl_fn_c_type(c_ty)) && (!(ctx.*.is_struct_name(c_ty))), {
+    ctx.*.emitter.emit_declaration_string_line(
+      String.from("typedef struct { void* data; int32_t (*call)(void*, int32_t); } __yo_impl_fn_i32_i32;")
+    );
+    ctx.*.register_struct(String.from(c_ty));
+    ctx.*.register_struct_fields(c_ty, "data,call");
+  });
+});
 deque_elem_c_type_from_name :: (fn(c_ty : str) -> Option(String))({
   c_ty_s := String.from(c_ty);
   prefix := String.from("Deque_");
@@ -4133,6 +4248,36 @@ generic_static_constructor_type_from_call :: (fn(expr : AstExpr) -> Option(Strin
                     )
                   )
                 )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+box_constructor_elem_c_type :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, box_call_fn_box, box_call_args, box_call_infix, _) => cond(
+      box_call_infix => Option(String).None,
+      (box_call_args.len() != usize(1)) => Option(String).None,
+      true => match(
+        box_call_fn_box.*,
+        .Atom(_, _) => Option(String).None,
+        .FnCall(_, box_type_fn_box, box_type_args, box_type_infix, _) => cond(
+          box_type_infix => Option(String).None,
+          (box_type_args.len() != usize(1)) => Option(String).None,
+          true => match(
+            box_type_fn_box.*,
+            .FnCall(_, _, _, _, _) => Option(String).None,
+            .Atom(_, box_type_tok) => cond(
+              (box_type_tok.value.as_str() != "Box") => Option(String).None,
+              true => match(
+                box_type_args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(box_elem_ty_expr) => type_expr_to_c(box_elem_ty_expr)
               )
             )
           )
@@ -5656,6 +5801,16 @@ handle_define :: (
                 if(is_box_rhs, {
                   ctx.*.register_box_var(name_tok.value.as_str());
                 });
+                match(
+                  box_constructor_elem_c_type(rhs_expr),
+                  .None => (),
+                  .Some(box_elem_ty) => {
+                    box_ptr_ty := String.from(box_elem_ty.as_str());
+                    box_ptr_ty.push_str("*");
+                    ctx.*.register_var_type(name_tok.value.as_str(), box_ptr_ty.as_str());
+                    ctx.*.register_box_var(name_tok.value.as_str());
+                  }
+                );
                 // If RHS is a struct/enum constructor call, track LHS variable's type
                 // so that `(&var).to_string()` dispatch can find the type name.
                 rhs_ctor_type := match(
@@ -6291,7 +6446,7 @@ is_lambda_expr :: (fn(expr : AstExpr) -> bool)(
         lf.*,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, lt) => cond(
-          (lt.value.as_str() != "->") => false,
+          !((lt.value.as_str() == "->") || (lt.value.as_str() == "=>")) => false,
           true => match(
             largs.get(usize(0)),
             .None => false,
@@ -6395,6 +6550,154 @@ _split_c_params :: (fn(params_str : str) -> ArrayList(String))({
   );
   result
 });
+first_captured_ident_name :: (
+  fn(expr : AstExpr, param_name : str, ctx : *(CodegenContext)) -> Option(String)
+)(
+  match(
+    expr,
+    .Atom(_, tok) => cond(
+      (tok.kind != TokenKind.Identifier) => Option(String).None,
+      (tok.value.as_str() == param_name) => Option(String).None,
+      is_c_type_name(tok.value.as_str()) => Option(String).None,
+      is_primitive_type_cast(tok.value.as_str()) => Option(String).None,
+      is_builtin_keyword(tok.value.as_str()) => Option(String).None,
+      ctx.*.is_defined_fn(tok.value.as_str()) => Option(String).None,
+      true => Option(String).Some(tok.value)
+    ),
+    .FnCall(_, capture_func_box, capture_args, _, _) => {
+      found := recur(capture_func_box.*, param_name, ctx);
+      (capture_i : usize) = usize(0);
+      while(runtime((capture_i < capture_args.len()) && match(found,.None => true,.Some(_) => false)), {
+        match(
+          capture_args.get(capture_i),
+          .None => (),
+          .Some(capture_arg) => {
+            found = recur(capture_arg, param_name, ctx);
+          }
+        );
+        capture_i = (capture_i + usize(1));
+      });
+      found
+    }
+  )
+);
+lift_impl_fn_i32_i32_lambda :: (
+  fn(
+    ctx : *(CodegenContext),
+    lambda : AstExpr,
+    indent : String
+  ) -> Option(String)
+)(
+  match(
+    lambda,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, _, largs, _, _) => match(
+      largs.get(usize(0)),
+      .None => Option(String).None,
+      .Some(params_expr) => match(
+        largs.get(usize(1)),
+        .None => Option(String).None,
+        .Some(body_expr) => {
+          param_names := extract_lambda_param_names(params_expr);
+          match(
+            param_names.get(usize(0)),
+            .None => Option(String).None,
+            .Some(param_name) => {
+              fn_name := ctx.*.fresh_lambda_name();
+              ctx.*.register_var_type(param_name.as_str(), "int32_t");
+              capture_opt := first_captured_ident_name(body_expr, param_name.as_str(), ctx);
+              env_type := {
+                s := String.from(fn_name.as_str());
+                s.push_str("_env");
+                s
+              };
+              match(
+                capture_opt,
+                .None => {
+                  body_code := match(
+                    call_gen_expr(body_expr, ctx, String.from("  ")),
+                    .None => String.from("0"),
+                    .Some(c) => c
+                  );
+                  lambda_code := String.from("static int32_t ");
+                  lambda_code.push_string(fn_name);
+                  lambda_code.push_str("(void* __yo_env, int32_t ");
+                  lambda_code.push_string(param_name);
+                  lambda_code.push_str(") {\n  (void)__yo_env;\n  return ");
+                  lambda_code.push_string(body_code);
+                  lambda_code.push_str(";\n}");
+                  ctx.*.emitter.emit_declaration_string_line(lambda_code);
+                  result := String.from("(__yo_impl_fn_i32_i32){ .data = NULL, .call = ");
+                  result.push_string(fn_name);
+                  result.push_str(" }");
+                  Option(String).Some(result)
+                },
+                .Some(capture_name) => {
+                  capture_ty := match(
+                    ctx.*.get_var_type(capture_name.as_str()),
+                    .None => String.from("int32_t"),
+                    .Some(existing_capture_ty) => existing_capture_ty
+                  );
+                  ctx.*.register_var_type(capture_name.as_str(), capture_ty.as_str());
+                  env_var := {
+                    s2 := String.from(fn_name.as_str());
+                    s2.push_str("_env_value");
+                    s2
+                  };
+                  san_capture := sanitize_c_ident(capture_name.as_str());
+                  decl := String.from("typedef struct { ");
+                  decl.push_string(capture_ty);
+                  decl.push_str(" ");
+                  decl.push_string(san_capture);
+                  decl.push_str("; } ");
+                  decl.push_string(env_type);
+                  decl.push_str(";\nstatic int32_t ");
+                  decl.push_string(fn_name);
+                  decl.push_str("(void* __yo_env, int32_t ");
+                  decl.push_string(param_name);
+                  decl.push_str(") {\n  ");
+                  decl.push_string(env_type);
+                  decl.push_str("* __yo_capture = (");
+                  decl.push_string(env_type);
+                  decl.push_str("*)__yo_env;\n  ");
+                  decl.push_string(capture_ty);
+                  decl.push_str(" ");
+                  decl.push_string(san_capture);
+                  decl.push_str(" = __yo_capture->");
+                  decl.push_string(san_capture);
+                  decl.push_str(";\n  return ");
+                  body_code2 := match(
+                    call_gen_expr(body_expr, ctx, String.from("  ")),
+                    .None => String.from("0"),
+                    .Some(c2) => c2
+                  );
+                  decl.push_string(body_code2);
+                  decl.push_str(";\n}");
+                  ctx.*.emitter.emit_declaration_string_line(decl);
+                  ctx.*.emitter.emit_string(indent);
+                  ctx.*.emitter.emit_string(env_type);
+                  ctx.*.emitter.emit(" ");
+                  ctx.*.emitter.emit_string(env_var);
+                  ctx.*.emitter.emit(" = { .");
+                  ctx.*.emitter.emit_string(san_capture);
+                  ctx.*.emitter.emit(" = ");
+                  ctx.*.emitter.emit_string(san_capture);
+                  ctx.*.emitter.emit_line(" };");
+                  result2 := String.from("(__yo_impl_fn_i32_i32){ .data = &");
+                  result2.push_string(env_var);
+                  result2.push_str(", .call = ");
+                  result2.push_string(fn_name);
+                  result2.push_str(" }");
+                  Option(String).Some(result2)
+                }
+              )
+            }
+          )
+        }
+      )
+    )
+  )
+);
 /// Lift a non-capturing lambda to a static C function.
 /// `lambda` must be `is_lambda_expr`. `fp_c_ty` is the expected function
 /// pointer type like `"int32_t(*_FP_)(int32_t)"`.
@@ -6625,6 +6928,25 @@ handle_regular_call :: (
             )
           )
         ),
+        ((args.len() == usize(1)) && match(ctx.*.get_var_type(id.as_str()),.None => false,.Some(id_impl_fn_ty) => is_impl_fn_c_type(id_impl_fn_ty.as_str()))) =>
+          match(
+            args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(impl_arg_expr) => match(
+              call_gen_expr(impl_arg_expr, ctx, indent),
+              .None => Option(String).None,
+              .Some(impl_arg_c) => {
+                impl_call := String.new();
+                impl_call.push_string(sanitize_c_ident(id.as_str()));
+                impl_call.push_str(".call(");
+                impl_call.push_string(sanitize_c_ident(id.as_str()));
+                impl_call.push_str(".data, ");
+                impl_call.push_string(impl_arg_c);
+                impl_call.push_str(")");
+                Option(String).Some(impl_call)
+              }
+            )
+          ),
         // Returned-array wrapper indexing: `arr(idx)` → `arr.data[idx]`.
         ((args.len() == usize(1)) && var_type_is(ctx, id.as_str(), "YoArray_i32")) => match(
           ctx.*.get_var_type(id.as_str()),
@@ -7016,6 +7338,8 @@ handle_regular_call :: (
                       param_ty_opt,
                       .None => call_gen_expr(arg_rc, ctx, indent),
                       .Some(cb_ty) => cond(
+                        (is_impl_fn_c_type(cb_ty.as_str())) =>
+                          lift_impl_fn_i32_i32_lambda(ctx, arg_rc, indent),
                         (cb_ty.contains(String.from("_FP_"))) =>
                           lift_non_capturing_lambda(ctx, arg_rc, cb_ty),
                         true => call_gen_expr(arg_rc, ctx, indent)
@@ -10172,6 +10496,38 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             }
           )
         ),
+        // Box(T)(arg) — prelude object constructor form for Box values.
+        (
+          (!(is_infix)) &&
+            (
+              (args.len() == usize(1)) &&
+                match(
+                  func_box.*,
+                  .Atom(_, _) => false,
+                  .FnCall(_, box_type_fn_box_early, box_type_args_early, box_type_infix_early, _) => (
+                    ((!(box_type_infix_early)) && (box_type_args_early.len() == usize(1))) &&
+                      match(
+                        box_type_fn_box_early.*,
+                        .FnCall(_, _, _, _, _) => false,
+                        .Atom(_, box_type_tok_early) => (box_type_tok_early.value.as_str() == "Box")
+                      )
+                  )
+                )
+            )
+        ) => match(
+          args.get(usize(0)),
+          .None => Option(String).None,
+          .Some(box_ctor_arg_expr_early) => match(
+            call_gen_expr(box_ctor_arg_expr_early, ctx, indent),
+            .None => Option(String).None,
+            .Some(box_ctor_arg_c_early) => {
+              box_ctor_result_early := String.from("__yo_box(");
+              box_ctor_result_early.push_string(box_ctor_arg_c_early);
+              box_ctor_result_early.push_str(")");
+              Option(String).Some(box_ctor_result_early)
+            }
+          )
+        ),
         func_box_is_dot_dispatch(func_box) => handle_method_call(func_box, args, ctx, indent),
         // Index directly into a call result: `make_list()(idx)`.
         (
@@ -10453,6 +10809,45 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
               Option(String).Some(result)
             }
           )
+        ),
+        // dyn(lambda) / dyn(box(lambda)) — bootstrap Dyn(Fn(i32)->i32) carrier.
+        (
+          ((!(is_infix)) && (args.len() == usize(1))) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "dyn")
+          )
+        ) => match(
+          args.get(usize(0)),
+          .None => Option(String).None,
+          .Some(dyn_arg_expr) => {
+            lambda_arg_opt := cond(
+              is_lambda_expr(dyn_arg_expr) => Option(AstExpr).Some(dyn_arg_expr),
+              true => match(
+                dyn_arg_expr,
+                .FnCall(_, dyn_box_fn_box, dyn_box_args, dyn_box_infix, _) => cond(
+                  (dyn_box_infix || (!(dyn_box_args.len() == usize(1)))) => Option(AstExpr).None,
+                  true => match(
+                    dyn_box_fn_box.*,
+                    .FnCall(_, _, _, _, _) => Option(AstExpr).None,
+                    .Atom(_, dyn_box_tok) => cond(
+                      (dyn_box_tok.value.as_str() == "box") => dyn_box_args.get(usize(0)),
+                      true => Option(AstExpr).Some(dyn_arg_expr)
+                    )
+                  )
+                ),
+                .Atom(_, _) => Option(AstExpr).None
+              )
+            );
+            match(
+              lambda_arg_opt,
+              .None => Option(String).None,
+              .Some(lambda_arg_expr) => cond(
+                is_lambda_expr(lambda_arg_expr) => lift_impl_fn_i32_i32_lambda(ctx, lambda_arg_expr, indent),
+                true => Option(String).None
+              )
+            )
+          }
         ),
         // Special case: primitive type cast — i32(x) → (int32_t)(x)
         (
@@ -10975,7 +11370,7 @@ _gen_expr_fn_init := (fn() -> bool)({
 export(generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op);
 export(gen_integer_lit, gen_float_lit, gen_bool_lit, gen_string_lit);
 export(gen_binary_op, gen_unary_op);
-export(type_name_to_c, type_expr_to_c, is_c_type_name, is_builtin_keyword, is_primitive_type_cast, build_typed_decl, ensure_arraylist_c_type);
+export(type_name_to_c, type_expr_to_c, is_c_type_name, is_builtin_keyword, is_primitive_type_cast, build_typed_decl, ensure_arraylist_c_type, ensure_impl_fn_c_type);
 export(register_generic_struct_template_if_supported);
 export(gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment);
 export(handle_define, handle_bare_colon_decl, handle_type_cast, handle_assert);

@@ -3747,6 +3747,52 @@ test("validation: function pointer parameter call is not treated as Index", {
     }
   );
 });
+test("validation: Impl Fn parameter callbacks lower through carrier", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("use_cb :: (fn(v : i32, cb : Impl(Fn(u : i32) -> i32)) -> i32)({ return(cb(v)); }); main :: (fn() -> unit)({ a := i32(2); x := use_cb(i32(10), (u) => ((u + i32(1)) + a)); y := use_cb(i32(20), (u) => (u * i32(2))); b := Box(i32)(i32(5)); z := use_cb(i32(10), (u) => ((u + i32(1)) + b.*)); assert((x == i32(13)), \"x\"); assert((y == i32(40)), \"y\"); assert((z == i32(16)), \"z\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "impl_fn_callback_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { void* data; int32_t (*call)(void*, int32_t); } __yo_impl_fn_i32_i32;")), "Impl Fn should emit carrier type");
+      assert(c.contains(String.from("static int32_t fn_use_cb(int32_t v, __yo_impl_fn_i32_i32 cb)")), "callback param should use carrier type");
+      assert(c.contains(String.from("return cb.call(cb.data, v);")), "callback call should dispatch through carrier");
+      assert(c.contains(String.from("__yo_impl_fn_i32_i32){ .data = NULL, .call = __yo_lambda_1 }")), "non-capturing lambda should pass NULL env");
+      assert(c.contains(String.from("__yo_box")), "Box constructor should lower to __yo_box");
+    }
+  );
+});
+test("validation: Dyn Fn parameter callbacks lower through carrier", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("use_cb :: (fn(v : i32, cb : Dyn(Fn(u : i32) -> i32)) -> i32)({ return(cb(v)); }); main :: (fn() -> unit)({ a := i32(2); x := use_cb(i32(10), dyn((u) => ((u + i32(1)) + a))); y := use_cb(i32(20), dyn(box((u) => (u * i32(2))))); assert((x == i32(13)), \"x\"); assert((y == i32(40)), \"y\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "dyn_fn_callback_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("static int32_t fn_use_cb(int32_t v, __yo_impl_fn_i32_i32 cb)")), "Dyn callback param should use carrier type");
+      assert(c.contains(String.from("return cb.call(cb.data, v);")), "Dyn callback call should dispatch through carrier");
+      assert(c.contains(String.from(".data = NULL")), "manual boxed non-capturing Dyn lambda should pass NULL env");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Integration test: compile a complete program through compile_module_to_c
 // ---------------------------------------------------------------------------

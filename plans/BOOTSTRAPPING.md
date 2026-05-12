@@ -8757,6 +8757,67 @@ The generated callback function body became empty instead of returning
 - ✅ `tests/index.test.yo` → 54 passed, 0 failed, 0 skipped.
 - ⚠️ `tests/fn.test.yo` → 8 passed, 0 failed, 17 skipped.
 
+### Phase 13aj — Impl/Dyn callback carriers in `fn.test.yo`
+
+**Problem**: after regular function-pointer callbacks passed, the next
+`tests/fn.test.yo` callback cases still skipped. Parameters typed as
+`Impl(Fn(u : i32) -> i32)` or `Dyn(Fn(u : i32) -> i32)` lowered to `void*`, so
+`cb(v)` emitted invalid C:
+
+```c
+static int32_t fn_use_cb(int32_t v, void* cb) {
+  return cb(v);
+}
+```
+
+Passing `dyn(...)` / `Impl(...)` closure arguments also produced no call-site
+value, leaving result variables like `x`, `y`, and `z` undeclared. The same real
+benchmark exposed a coupled `Box(i32)(5)` gap, where `Box(T)(arg)` was
+mistakenly lowered as "Index into call result" (`(Box(i32)).data[5]`).
+
+**Fix**:
+
+- Added a bootstrap callback carrier for `Impl(Fn(i32) -> i32)` and
+  `Dyn(Fn(i32) -> i32)`:
+  `typedef struct { void* data; int32_t (*call)(void*, int32_t); } __yo_impl_fn_i32_i32;`.
+- Lowered callback parameters of that shape to the carrier and emitted
+  `cb.call(cb.data, v)` for calls inside function bodies.
+- Lowered lambda callback arguments into static helper functions plus optional
+  stack environment values:
+  - captured locals use `.data = &env`;
+  - non-capturing lambdas use `.data = NULL`;
+  - both direct `dyn(lambda)` and manual `dyn(box(lambda))` are accepted.
+- Added `Box(T)(arg)` constructor lowering before generic call-result Index
+  lowering, so `Box(i32)(5)` emits through `__yo_box(...)`.
+
+**Verification**:
+
+- ✅ Added targeted codegen regressions:
+  - `validation: Impl Fn parameter callbacks lower through carrier`
+  - `validation: Dyn Fn parameter callbacks lower through carrier`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 260/260.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/fn.test.yo --disable-sanitize --parallel 1`
+  improves to 11 passed, 0 failed, 14 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime.test.yo` → 28 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
+- ✅ `tests/index.test.yo` → 54 passed, 0 failed, 0 skipped.
+- ⚠️ `tests/fn.test.yo` → 11 passed, 0 failed, 14 skipped.
+
 ### Phase 13x — Primitive closure value lowering
 
 **Problem**: `tests/closure.test.yo` only had the expected-error case passing under
