@@ -7471,3 +7471,31 @@ invalid function calls.
 - ✅ `yo-self/yo-self-bin test tests/basic.test.yo` improves from 24/32 to
   25/32. Remaining skips are destructuring, struct/enum/union, generic
   comptime functions, return-in-match compatibility, and index-on-call-result.
+
+### Phase 13g — Single-field struct destructuring
+
+**Problem**: The parser represents a single-field destructuring pattern such
+as `{ x : another_x } := point` as a `begin(x : another_x)` expression on the
+left-hand side, while multi-field patterns use the anonymous-struct wrapper.
+The self-hosted codegen only recognized the multi-field wrapper, so the
+binding was erased and later uses of `another_x` reached C as undeclared
+identifiers.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- Taught the destructuring path in `handle_define` to recognize a one-argument
+  `begin(...)` LHS when that argument is an infix `:` field/alias pair.
+- Reused the existing labeled struct destructuring emission once this parser
+  shape is recognized.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: single-field struct destructuring binds alias`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 217/217.
+- ✅ `yo-self/yo-self-bin test tests/basic.test.yo --test-name-pattern "Test destructuring"`
+  passes.
+- ✅ `yo-self/yo-self-bin test tests/basic.test.yo` improves from 25/32 to
+  26/32. Remaining skips are struct/enum/union, generic comptime functions,
+  return-in-match compatibility, and index-on-call-result.

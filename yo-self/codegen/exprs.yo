@@ -3661,7 +3661,53 @@ handle_define :: (
         // Destructuring: (a, b, c) := rhs  OR  {x, y} := rhs  OR  {x: a, y: b} := rhs
         // Also handles: given(name) := rhs — emit as regular define of inner name.
         .FnCall(_, destr_func, destr_args, destr_infix, _) => cond(
-          destr_infix => Option(String).None,
+          // Single-field struct destructuring `{ x : alias } := rhs` can parse as
+          // the bare infix `x : alias` rather than an anonymous-struct wrapper.
+          destr_infix => match(
+            destr_func.*,
+            .FnCall(_, _, _, _, _) => Option(String).None,
+            .Atom(_, single_field_tok) => cond(
+              ((single_field_tok.value.as_str() == ":") && (destr_args.len() == usize(2))) => match(
+                destr_args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(single_field_e) => match(
+                  single_field_e,
+                  .FnCall(_, _, _, _, _) => Option(String).None,
+                  .Atom(_, single_field_name) => match(
+                    destr_args.get(usize(1)),
+                    .None => Option(String).None,
+                    .Some(single_var_e) => match(
+                      single_var_e,
+                      .FnCall(_, _, _, _, _) => Option(String).None,
+                      .Atom(_, single_var_name) => match(
+                        call_gen_expr(rhs_expr, ctx, indent),
+                        .None => Option(String).None,
+                        .Some(single_rhs_code) => {
+                          tmp_single := ctx.*.fresh_temp();
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit("__auto_type ");
+                          ctx.*.emitter.emit_string(tmp_single);
+                          ctx.*.emitter.emit(" = ");
+                          ctx.*.emitter.emit_string(single_rhs_code);
+                          ctx.*.emitter.emit_line(";");
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit("__auto_type ");
+                          ctx.*.emitter.emit_string(sanitize_c_ident(single_var_name.value.as_str()));
+                          ctx.*.emitter.emit(" = ");
+                          ctx.*.emitter.emit_string(tmp_single);
+                          ctx.*.emitter.emit(".");
+                          ctx.*.emitter.emit_string(single_field_name.value);
+                          ctx.*.emitter.emit_line(";");
+                          Option(String).Some(String.from("0"))
+                        }
+                      )
+                    )
+                  )
+                )
+              ),
+              true => Option(String).None
+            )
+          ),
           true => {
             // Check for `given(name) := rhs` — treat as regular variable define
             is_given := match(
@@ -3700,6 +3746,27 @@ handle_define :: (
                   .Atom(_, dtok) => cond(
                     (dtok.value.as_str() == BK_TUPLE) => Option(String).Some(String.from("tuple")),
                     (dtok.value.as_str() == BK_ANON_STRUCT) => Option(String).Some(String.from("struct")),
+                    (
+                      (dtok.value.as_str() == BK_BEGIN) && (
+                        (destr_args.len() == usize(1)) &&
+                          match(
+                            destr_args.get(usize(0)),
+                            .None => false,
+                            .Some(single_begin_arg) => match(
+                              single_begin_arg,
+                              .Atom(_, _) => false,
+                              .FnCall(_, single_begin_fn, single_begin_args, single_begin_infix, _) => (
+                                (single_begin_infix && (single_begin_args.len() == usize(2))) &&
+                                  match(
+                                    single_begin_fn.*,
+                                    .Atom(_, single_begin_tok) => (single_begin_tok.value.as_str() == ":"),
+                                    .FnCall(_, _, _, _, _) => false
+                                  )
+                              )
+                            )
+                          )
+                      )
+                    ) => Option(String).Some(String.from("struct")),
                     true => Option(String).None
                   )
                 );
