@@ -2892,7 +2892,18 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
               .None => Option(String).Some(String.from("void*")),
               .Some(list_arg) => match(
                 list_arg,
-                .FnCall(_, _, _, _, _) => Option(String).Some(String.from("void*")),
+                .FnCall(_, _, _, _, _) => match(
+                  recur(list_arg),
+                  .None => Option(String).Some(String.from("void*")),
+                  .Some(nested_list_ty) => cond(
+                    (nested_list_ty.as_str() == "void*") => Option(String).Some(String.from("void*")),
+                    true => {
+                      list_ty := String.from("ArrayList_");
+                      list_ty.push_string(sanitize_c_ident(nested_list_ty.as_str()));
+                      Option(String).Some(list_ty)
+                    }
+                  )
+                ),
                 .Atom(_, list_arg_tok) => cond(
                   (list_arg_tok.kind != TokenKind.Identifier) => Option(String).Some(String.from("void*")),
                   true => {
@@ -3902,6 +3913,9 @@ ensure_arraylist_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
       arraylist_elem_c_type_from_name(c_ty),
       .None => (),
       .Some(elem_c_ty) => {
+        if(is_arraylist_c_type(elem_c_ty.as_str()), {
+          recur(ctx, elem_c_ty.as_str());
+        });
         decl := String.from("typedef struct { ");
         decl.push_string(elem_c_ty);
         decl.push_str(" data[1024]; size_t length; ");

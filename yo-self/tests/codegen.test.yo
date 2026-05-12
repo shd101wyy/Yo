@@ -1757,6 +1757,29 @@ test("validation: String bytes_len lowers for ArrayList Index loop element", {
     }
   );
 });
+test("validation: nested ArrayList value type lowers through Index", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ (outer : ArrayList(ArrayList(u8))) = ArrayList(ArrayList(u8)).new(); (inner : ArrayList(u8)) = ArrayList(u8).new(); inner.push(u8(42)); outer.push(inner); (extracted : ArrayList(u8)) = outer(usize(0)); assert(extracted.len() == usize(1), \"len\"); assert(extracted(usize(0)) == u8(42), \"value\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "nested_arraylist_index_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { ArrayList_u8 data[1024]; size_t length; ArrayList_u8* _ptr; } ArrayList_ArrayList_u8;")), "nested ArrayList typedef should use concrete inner type");
+      assert(c.contains(String.from("ArrayList_ArrayList_u8 outer = (ArrayList_ArrayList_u8){.data = {0}, .length = 0, ._ptr = NULL};")), "nested ArrayList new should use concrete outer type");
+      assert(c.contains(String.from("ArrayList_u8 extracted = outer.data[(size_t)(0)];")), "nested ArrayList Index should bind inner list value");
+      assert(c.contains(String.from("extracted.data[(size_t)(0)] == (uint8_t)(42)")), "extracted inner list should remain indexable");
+    }
+  );
+});
 test("validation: struct runtime Index call lowers to field pointer selection", {
   given(exn) := Exception(
     throw : (
