@@ -1712,6 +1712,29 @@ test("validation: ArrayList(i32) direct Index call lowers to data access", {
     }
   );
 });
+test("validation: discard binding and ArrayList dispose lower to statements", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("Marker :: struct(active : bool, is_image : bool); main :: (fn() -> unit)({ (markers : ArrayList(Marker)) = ArrayList(Marker).new(); _ := markers.push(Marker(active : true, is_image : false)); _ := markers.push(Marker(active : true, is_image : true)); assert(!(markers(usize(0)).is_image), \"not image\"); markers.dispose(); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "arraylist_discard_dispose_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(!(c.contains(String.from("__auto_type _ ="))), "discard binding should not declare underscore");
+      assert(c.contains(String.from("markers.data[markers.length++] = (Marker){.active = 1, .is_image = 0}")), "discarded push still emits append");
+      assert(!(c.contains(String.from("markers.dispose()"))), "ArrayList dispose should lower to no-op");
+      assert(c.contains(String.from("!markers.data[(size_t)(0)].is_image")), "not on indexed field should use runtime field access");
+    }
+  );
+});
 test("validation: struct runtime Index call lowers to field pointer selection", {
   given(exn) := Exception(
     throw : (

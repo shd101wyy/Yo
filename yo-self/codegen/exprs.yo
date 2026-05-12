@@ -4931,35 +4931,128 @@ handle_define :: (
             ctx.*.track_open_var(name_tok.value.as_str(), csv_s.as_str());
           }
         );
-        anon_struct_constructor_emitted := match(
-          rhs_expr,
-          .Atom(_, _) => false,
-          .FnCall(_, rhs_ctor_fn, rhs_ctor_args, rhs_ctor_infix, _) => cond(
-            rhs_ctor_infix => false,
-            true => match(
-              rhs_ctor_fn.*,
-              .Atom(_, _) => false,
-              .FnCall(_, rhs_ty_fn, rhs_ty_args, rhs_ty_infix, _) => cond(
-                rhs_ty_infix => false,
-                true => match(
-                  rhs_ty_fn.*,
-                  .FnCall(_, _, _, _, _) => false,
-                  .Atom(_, rhs_ty_tok) => cond(
-                    (rhs_ty_tok.value.as_str() != "struct") => false,
-                    true => match(
-                      anon_struct_type_to_c(rhs_ty_args),
-                      .None => false,
-                      .Some(anon_c_ty) => match(
-                        anon_struct_initializer_to_c(rhs_ctor_args, ctx, indent),
+        discard_binding_emitted := cond(
+          (name_tok.value.as_str() == "_") => match(
+            call_gen_expr(rhs_expr, ctx, indent),
+            .None => false,
+            .Some(discard_code) => {
+              if(discard_code.as_str() != "0", {
+                emit_as_stmt(discard_code, ctx, indent);
+              });
+              true
+            }
+          ),
+          true => false
+        );
+        anon_struct_constructor_emitted := cond(
+          discard_binding_emitted => false,
+          true => match(
+            rhs_expr,
+            .Atom(_, _) => false,
+            .FnCall(_, rhs_ctor_fn, rhs_ctor_args, rhs_ctor_infix, _) => cond(
+              rhs_ctor_infix => false,
+              true => match(
+                rhs_ctor_fn.*,
+                .Atom(_, _) => false,
+                .FnCall(_, rhs_ty_fn, rhs_ty_args, rhs_ty_infix, _) => cond(
+                  rhs_ty_infix => false,
+                  true => match(
+                    rhs_ty_fn.*,
+                    .FnCall(_, _, _, _, _) => false,
+                    .Atom(_, rhs_ty_tok) => cond(
+                      (rhs_ty_tok.value.as_str() != "struct") => false,
+                      true => match(
+                        anon_struct_type_to_c(rhs_ty_args),
                         .None => false,
-                        .Some(init_c) => {
+                        .Some(anon_c_ty) => match(
+                          anon_struct_initializer_to_c(rhs_ctor_args, ctx, indent),
+                          .None => false,
+                          .Some(init_c) => {
+                            ctx.*.emitter.emit_string(indent);
+                            ctx.*.emitter.emit_string(anon_c_ty);
+                            ctx.*.emitter.emit(" ");
+                            ctx.*.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
+                            ctx.*.emitter.emit(" = ");
+                            ctx.*.emitter.emit_string(init_c);
+                            ctx.*.emitter.emit_line(";");
+                            true
+                          }
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        );
+        assignment_value_emitted := cond(
+          discard_binding_emitted => false,
+          true => match(
+            rhs_expr,
+            .Atom(_, _) => false,
+            .FnCall(_, asn_fn_box, asn_args, asn_infix, _) => cond(
+              (!(asn_infix)) => false,
+              (asn_args.len() != usize(2)) => false,
+              true => match(
+                asn_fn_box.*,
+                .FnCall(_, _, _, _, _) => false,
+                .Atom(_, asn_tok) => cond(
+                  (asn_tok.value.as_str() != "=") => false,
+                  true => match(
+                    asn_args.get(usize(0)),
+                    .None => false,
+                    .Some(assign_lhs) => match(
+                      assign_lhs,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, assign_lhs_tok) => cond(
+                        ctx.*.is_array_var(assign_lhs_tok.value.as_str()) => match(
+                          ctx.*.get_array_var_size(assign_lhs_tok.value.as_str()),
+                          .None => false,
+                          .Some(array_sz) => {
+                            san_src_array := sanitize_c_ident(assign_lhs_tok.value.as_str());
+                            san_old_array := sanitize_c_ident(name_tok.value.as_str());
+                            ctx.*.emitter.emit_string(indent);
+                            ctx.*.emitter.emit("__typeof__(");
+                            ctx.*.emitter.emit_string(san_src_array);
+                            ctx.*.emitter.emit("[0]) ");
+                            ctx.*.emitter.emit_string(san_old_array);
+                            ctx.*.emitter.emit("[");
+                            ctx.*.emitter.emit_string(array_sz);
+                            ctx.*.emitter.emit_line("];");
+                            ctx.*.emitter.emit_string(indent);
+                            ctx.*.emitter.emit("memcpy(");
+                            ctx.*.emitter.emit_string(san_old_array);
+                            ctx.*.emitter.emit(", ");
+                            ctx.*.emitter.emit_string(san_src_array);
+                            ctx.*.emitter.emit(", sizeof(");
+                            ctx.*.emitter.emit_string(san_old_array);
+                            ctx.*.emitter.emit_line("));");
+                            ctx.*.register_array_var_with_size(name_tok.value.as_str(), array_sz.as_str());
+                            match(
+                              call_gen_expr(rhs_expr, ctx, indent),
+                              .None => (),
+                              .Some(assign_code) => if(assign_code.as_str() != "0", {
+                                emit_as_stmt(assign_code, ctx, indent);
+                              })
+                            );
+                            true
+                          }
+                        ),
+                        true => {
                           ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit_string(anon_c_ty);
-                          ctx.*.emitter.emit(" ");
+                          ctx.*.emitter.emit("__auto_type ");
                           ctx.*.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
                           ctx.*.emitter.emit(" = ");
-                          ctx.*.emitter.emit_string(init_c);
+                          ctx.*.emitter.emit_string(sanitize_c_ident(assign_lhs_tok.value.as_str()));
                           ctx.*.emitter.emit_line(";");
+                          match(
+                            call_gen_expr(rhs_expr, ctx, indent),
+                            .None => (),
+                            .Some(assign_code2) => if(assign_code2.as_str() != "0", {
+                              emit_as_stmt(assign_code2, ctx, indent);
+                            })
+                          );
                           true
                         }
                       )
@@ -4970,116 +5063,51 @@ handle_define :: (
             )
           )
         );
-        assignment_value_emitted := match(
-          rhs_expr,
-          .Atom(_, _) => false,
-          .FnCall(_, asn_fn_box, asn_args, asn_infix, _) => cond(
-            (!(asn_infix)) => false,
-            (asn_args.len() != usize(2)) => false,
-            true => match(
-              asn_fn_box.*,
-              .FnCall(_, _, _, _, _) => false,
-              .Atom(_, asn_tok) => cond(
-                (asn_tok.value.as_str() != "=") => false,
-                true => match(
-                  asn_args.get(usize(0)),
-                  .None => false,
-                  .Some(assign_lhs) => match(
-                    assign_lhs,
-                    .FnCall(_, _, _, _, _) => false,
-                    .Atom(_, assign_lhs_tok) => cond(
-                      ctx.*.is_array_var(assign_lhs_tok.value.as_str()) => match(
-                        ctx.*.get_array_var_size(assign_lhs_tok.value.as_str()),
-                        .None => false,
-                        .Some(array_sz) => {
-                          san_src_array := sanitize_c_ident(assign_lhs_tok.value.as_str());
-                          san_old_array := sanitize_c_ident(name_tok.value.as_str());
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit("__typeof__(");
-                          ctx.*.emitter.emit_string(san_src_array);
-                          ctx.*.emitter.emit("[0]) ");
-                          ctx.*.emitter.emit_string(san_old_array);
-                          ctx.*.emitter.emit("[");
-                          ctx.*.emitter.emit_string(array_sz);
-                          ctx.*.emitter.emit_line("];");
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit("memcpy(");
-                          ctx.*.emitter.emit_string(san_old_array);
-                          ctx.*.emitter.emit(", ");
-                          ctx.*.emitter.emit_string(san_src_array);
-                          ctx.*.emitter.emit(", sizeof(");
-                          ctx.*.emitter.emit_string(san_old_array);
-                          ctx.*.emitter.emit_line("));");
-                          ctx.*.register_array_var_with_size(name_tok.value.as_str(), array_sz.as_str());
-                          match(
-                            call_gen_expr(rhs_expr, ctx, indent),
-                            .None => (),
-                            .Some(assign_code) => if(assign_code.as_str() != "0", {
-                              emit_as_stmt(assign_code, ctx, indent);
-                            })
-                          );
-                          true
-                        }
-                      ),
-                      true => {
-                        ctx.*.emitter.emit_string(indent);
-                        ctx.*.emitter.emit("__auto_type ");
-                        ctx.*.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
-                        ctx.*.emitter.emit(" = ");
-                        ctx.*.emitter.emit_string(sanitize_c_ident(assign_lhs_tok.value.as_str()));
-                        ctx.*.emitter.emit_line(";");
-                        match(
-                          call_gen_expr(rhs_expr, ctx, indent),
-                          .None => (),
-                          .Some(assign_code2) => if(assign_code2.as_str() != "0", {
-                            emit_as_stmt(assign_code2, ctx, indent);
-                          })
-                        );
-                        true
-                      }
-                    )
-                  )
-                )
-              )
-            )
-          )
+        method_extraction_emitted := cond(
+          discard_binding_emitted => false,
+          true => emit_method_extraction_macro_if_supported(name_tok.value.as_str(), rhs_expr, ctx, indent)
         );
-        method_extraction_emitted := emit_method_extraction_macro_if_supported(name_tok.value.as_str(), rhs_expr, ctx, indent);
-        simple_closure_emitted := emit_simple_closure_constructor(name_tok.value.as_str(), rhs_expr, ctx, indent);
+        simple_closure_emitted := cond(
+          discard_binding_emitted => false,
+          true => emit_simple_closure_constructor(name_tok.value.as_str(), rhs_expr, ctx, indent)
+        );
         // Special case: `b := arr_var` where arr_var is a registered C array — array copy.
         // Emit `__typeof__(arr_var[0]) b[N]; memcpy(b, arr_var, sizeof(b));`
         // and register b as an array var with the same size.
-        arr_copy_emitted := match(
-          rhs_expr,
-          .FnCall(_, _, _, _, _) => false,
-          .Atom(_, arr_cp_tok) => cond(
-            (arr_cp_tok.kind != TokenKind.Identifier) => false,
-            (!(ctx.*.is_array_var(arr_cp_tok.value.as_str()))) => false,
-            true => match(
-              ctx.*.get_array_var_size(arr_cp_tok.value.as_str()),
-              .None => false,
-              .Some(sz) => {
-                san_src := sanitize_c_ident(arr_cp_tok.value.as_str());
-                san_dst := sanitize_c_ident(name_tok.value.as_str());
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit("__typeof__(");
-                ctx.*.emitter.emit_string(san_src);
-                ctx.*.emitter.emit("[0]) ");
-                ctx.*.emitter.emit_string(san_dst);
-                ctx.*.emitter.emit("[");
-                ctx.*.emitter.emit_string(sz);
-                ctx.*.emitter.emit_line("];");
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit("memcpy(");
-                ctx.*.emitter.emit_string(san_dst);
-                ctx.*.emitter.emit(", ");
-                ctx.*.emitter.emit_string(san_src);
-                ctx.*.emitter.emit(", sizeof(");
-                ctx.*.emitter.emit_string(san_dst);
-                ctx.*.emitter.emit_line("));");
-                ctx.*.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
-                true
-              }
+        arr_copy_emitted := cond(
+          discard_binding_emitted => false,
+          true => match(
+            rhs_expr,
+            .FnCall(_, _, _, _, _) => false,
+            .Atom(_, arr_cp_tok) => cond(
+              (arr_cp_tok.kind != TokenKind.Identifier) => false,
+              (!(ctx.*.is_array_var(arr_cp_tok.value.as_str()))) => false,
+              true => match(
+                ctx.*.get_array_var_size(arr_cp_tok.value.as_str()),
+                .None => false,
+                .Some(sz) => {
+                  san_src := sanitize_c_ident(arr_cp_tok.value.as_str());
+                  san_dst := sanitize_c_ident(name_tok.value.as_str());
+                  ctx.*.emitter.emit_string(indent);
+                  ctx.*.emitter.emit("__typeof__(");
+                  ctx.*.emitter.emit_string(san_src);
+                  ctx.*.emitter.emit("[0]) ");
+                  ctx.*.emitter.emit_string(san_dst);
+                  ctx.*.emitter.emit("[");
+                  ctx.*.emitter.emit_string(sz);
+                  ctx.*.emitter.emit_line("];");
+                  ctx.*.emitter.emit_string(indent);
+                  ctx.*.emitter.emit("memcpy(");
+                  ctx.*.emitter.emit_string(san_dst);
+                  ctx.*.emitter.emit(", ");
+                  ctx.*.emitter.emit_string(san_src);
+                  ctx.*.emitter.emit(", sizeof(");
+                  ctx.*.emitter.emit_string(san_dst);
+                  ctx.*.emitter.emit_line("));");
+                  ctx.*.register_array_var_with_size(name_tok.value.as_str(), sz.as_str());
+                  true
+                }
+              )
             )
           )
         );
@@ -5087,6 +5115,7 @@ handle_define :: (
         // Array type-constructor call: FnCall(FnCall(Atom("Array"), [T, N], false), args, false).
         // Emit `T_c b[N] = {v0, v1, ...};` (or `= {0}` for empty args).
         arr_constructor_emitted := cond(
+          discard_binding_emitted => false,
           arr_copy_emitted => false,
           true => match(
             rhs_expr,
@@ -5191,78 +5220,81 @@ handle_define :: (
         // Special case: `b := [v0, v1, v2]` — inline array literal.
         // `array` FnCall: FnCall(Atom("array"), [v0, v1, ...], false).
         // Emit `__typeof__(v0) b[N] = {v0, v1, ...};` using first element type via __typeof__.
-        inline_array_emitted := match(
-          rhs_expr,
-          .Atom(_, _) => false,
-          .FnCall(_, il_fn_box, il_fn_args, il_fn_infix, _) => cond(
-            il_fn_infix => false,
-            (il_fn_args.len() == usize(0)) => false,
-            true => match(
-              il_fn_box.*,
-              .FnCall(_, _, _, _, _) => false,
-              .Atom(_, il_fn_tok) => cond(
-                (il_fn_tok.value.as_str() != "array") => false,
-                true => {
-                  n_il := il_fn_args.len();
-                  // Generate all element expressions
-                  init_il := String.from("{");
-                  (il_i : usize) = usize(0);
-                  (il_ok : bool) = true;
-                  while(runtime((il_i < n_il) && il_ok), {
-                    match(
-                      il_fn_args.get(il_i),
-                      .None => {
-                        il_ok = false;
-                      },
-                      .Some(il_e) => match(
-                        call_gen_expr(il_e, ctx, indent),
+        inline_array_emitted := cond(
+          discard_binding_emitted => false,
+          true => match(
+            rhs_expr,
+            .Atom(_, _) => false,
+            .FnCall(_, il_fn_box, il_fn_args, il_fn_infix, _) => cond(
+              il_fn_infix => false,
+              (il_fn_args.len() == usize(0)) => false,
+              true => match(
+                il_fn_box.*,
+                .FnCall(_, _, _, _, _) => false,
+                .Atom(_, il_fn_tok) => cond(
+                  (il_fn_tok.value.as_str() != "array") => false,
+                  true => {
+                    n_il := il_fn_args.len();
+                    // Generate all element expressions
+                    init_il := String.from("{");
+                    (il_i : usize) = usize(0);
+                    (il_ok : bool) = true;
+                    while(runtime((il_i < n_il) && il_ok), {
+                      match(
+                        il_fn_args.get(il_i),
                         .None => {
                           il_ok = false;
                         },
-                        .Some(il_c) => {
-                          if(il_i > usize(0), {
-                            init_il.push_str(", ");
-                          });
-                          init_il.push_string(il_c);
-                          il_i = (il_i + usize(1));
-                        }
-                      )
-                    );
-                  });
-                  cond(
-                    (!(il_ok)) => false,
-                    true => {
-                      init_il.push_str("}");
-                      // Emit: `__typeof__(v0) name[N] = {v0, v1, ...};`
-                      // We regenerate first element for __typeof__ — or use
-                      // the already-generated init_il[0] via a compound literal.
-                      first_code_opt := match(
-                        il_fn_args.get(usize(0)),
-                        .None => Option(String).None,
-                        .Some(fe) => call_gen_expr(fe, ctx, indent)
+                        .Some(il_e) => match(
+                          call_gen_expr(il_e, ctx, indent),
+                          .None => {
+                            il_ok = false;
+                          },
+                          .Some(il_c) => {
+                            if(il_i > usize(0), {
+                              init_il.push_str(", ");
+                            });
+                            init_il.push_string(il_c);
+                            il_i = (il_i + usize(1));
+                          }
+                        )
                       );
-                      match(
-                        first_code_opt,
-                        .None => false,
-                        .Some(first_c) => {
-                          san_name := sanitize_c_ident(name_tok.value.as_str());
-                          ctx.*.emitter.emit_string(indent);
-                          ctx.*.emitter.emit("__typeof__(");
-                          ctx.*.emitter.emit_string(first_c);
-                          ctx.*.emitter.emit(") ");
-                          ctx.*.emitter.emit_string(san_name);
-                          ctx.*.emitter.emit("[");
-                          ctx.*.emitter.emit_string(n_il.to_string());
-                          ctx.*.emitter.emit("] = ");
-                          ctx.*.emitter.emit_string(init_il);
-                          ctx.*.emitter.emit_line(";");
-                          ctx.*.register_array_var_with_size(name_tok.value.as_str(), n_il.to_string().as_str());
-                          true
-                        }
-                      )
-                    }
-                  )
-                }
+                    });
+                    cond(
+                      (!(il_ok)) => false,
+                      true => {
+                        init_il.push_str("}");
+                        // Emit: `__typeof__(v0) name[N] = {v0, v1, ...};`
+                        // We regenerate first element for __typeof__ — or use
+                        // the already-generated init_il[0] via a compound literal.
+                        first_code_opt := match(
+                          il_fn_args.get(usize(0)),
+                          .None => Option(String).None,
+                          .Some(fe) => call_gen_expr(fe, ctx, indent)
+                        );
+                        match(
+                          first_code_opt,
+                          .None => false,
+                          .Some(first_c) => {
+                            san_name := sanitize_c_ident(name_tok.value.as_str());
+                            ctx.*.emitter.emit_string(indent);
+                            ctx.*.emitter.emit("__typeof__(");
+                            ctx.*.emitter.emit_string(first_c);
+                            ctx.*.emitter.emit(") ");
+                            ctx.*.emitter.emit_string(san_name);
+                            ctx.*.emitter.emit("[");
+                            ctx.*.emitter.emit_string(n_il.to_string());
+                            ctx.*.emitter.emit("] = ");
+                            ctx.*.emitter.emit_string(init_il);
+                            ctx.*.emitter.emit_line(";");
+                            ctx.*.register_array_var_with_size(name_tok.value.as_str(), n_il.to_string().as_str());
+                            true
+                          }
+                        )
+                      }
+                    )
+                  }
+                )
               )
             )
           )
@@ -5270,6 +5302,7 @@ handle_define :: (
         // Special case: `b := ArrayAlias(v0, v1, ...)` where `ArrayAlias :: [T; N]`.
         // Emit `elem_type b[N] = {v0, v1, ...};` instead of `__auto_type b = ...`.
         array_decl_emitted := cond(
+          discard_binding_emitted => false,
           inline_array_emitted => true,
           true => match(
             rhs_expr,
@@ -5341,6 +5374,7 @@ handle_define :: (
             )
           );
           cond(
+            discard_binding_emitted => Option(String).Some(String.from("0")),
             (anon_struct_constructor_emitted || (assignment_value_emitted || (method_extraction_emitted || (simple_closure_emitted || (arr_copy_emitted || arr_constructor_emitted))))) =>
               Option(String).Some(String.from("0")),
             array_decl_emitted => Option(String).Some(String.from("0")),
@@ -7183,6 +7217,14 @@ handle_method_call :: (
                   }
                 )
               )
+            )
+          ),
+          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "dispose") && (args.len() == usize(0)))) => match(
+            ctx.*.get_var_type(recv_code.as_str()),
+            .None => Option(String).None,
+            .Some(recv_ty_for_dispose) => cond(
+              is_arraylist_c_type(recv_ty_for_dispose.as_str()) => Option(String).Some(String.from("0")),
+              true => Option(String).None
             )
           ),
           // `str_lit.len()` / `str_const.len()` — str/String .len() → strlen(recv)
