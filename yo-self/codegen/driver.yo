@@ -4201,6 +4201,7 @@ compile_module_to_c :: (
           .Some(fd) => {
             name_copy := String.from(fd.name.as_str());
             pctx.*.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
+            pctx.*.register_fn_return_type(fd.name.as_str(), fd.ret_ty_c.as_str());
           },
           .None => {
             // Also register impl method names for forward reference support.
@@ -4233,6 +4234,7 @@ compile_module_to_c :: (
                               .Some(ifd) => {
                                 iname := String.from(ifd.name.as_str());
                                 pctx.*.register_fn_with_params(iname, build_param_tys_pipe(ifd.param_tys));
+                                pctx.*.register_fn_return_type(ifd.name.as_str(), ifd.ret_ty_c.as_str());
                               }
                             );
                           });
@@ -4484,6 +4486,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                               .None => (),
                               .Some(ifd) => {
                                 pctx.*.register_fn_with_params(String.from(ifd.name.as_str()), build_param_tys_pipe(ifd.param_tys));
+                                pctx.*.register_fn_return_type(ifd.name.as_str(), ifd.ret_ty_c.as_str());
                               }
                             );
                           });
@@ -4498,6 +4501,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
           .Some(fd) => {
             name_copy := String.from(fd.name.as_str());
             pctx.*.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
+            pctx.*.register_fn_return_type(fd.name.as_str(), fd.ret_ty_c.as_str());
           }
         );
       }
@@ -4673,6 +4677,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
         // Only pre-register impl method names (called as TypeName.method()).
         if(lfd0.is_impl, {
           pctx.*.register_fn_with_params(String.from(lfd0.name.as_str()), build_param_tys_pipe(lfd0.param_tys));
+          pctx.*.register_fn_return_type(lfd0.name.as_str(), lfd0.ret_ty_c.as_str());
         });
       }
     );
@@ -4737,6 +4742,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
             // Regular local function that is directly called in the test body.
             name_copy2 := String.from(lfd.name.as_str());
             pctx.*.register_fn_with_params(name_copy2, build_param_tys_pipe(lfd.param_tys));
+            pctx.*.register_fn_return_type(lfd.name.as_str(), lfd.ret_ty_c.as_str());
             c_name2 := `fn_${ lfd.name }`;
             emit_function_declaration(
               c_name2.as_str(),

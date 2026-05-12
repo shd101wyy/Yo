@@ -3796,7 +3796,27 @@ handle_define :: (
                     // Propagate type from the clone source var to the define target
                     match(
                       clone_recv_var,
-                      .None => (),
+                      .None => {
+                        fn_return_ty := match(
+                          rhs_expr,
+                          .Atom(_, _) => Option(String).None,
+                          .FnCall(_, ret_fn_box, _ret_args, ret_infix, _) => cond(
+                            ret_infix => Option(String).None,
+                            true => match(
+                              ret_fn_box.*,
+                              .FnCall(_, _, _, _, _) => Option(String).None,
+                              .Atom(_, ret_fn_tok) => ctx.*.get_fn_return_type(ret_fn_tok.value.as_str())
+                            )
+                          )
+                        );
+                        match(
+                          fn_return_ty,
+                          .None => (),
+                          .Some(ret_ty_name) => {
+                            ctx.*.register_var_type(name_tok.value.as_str(), ret_ty_name.as_str());
+                          }
+                        );
+                      },
                       .Some(src_var) => match(
                         ctx.*.get_var_type(src_var.as_str()),
                         .None => (),
@@ -5263,6 +5283,42 @@ handle_method_call :: (
             ),
           // Static method call: `TypeName.method(args)` where TypeName is a registered struct/union.
           // Emits: `fn_TypeName_method(args)` instead of `TypeName.method(args)`.
+          (
+            match(
+              recv_expr,
+              .FnCall(_, _, _, _, _) => false,
+              .Atom(_, recv_tok_method) => match(
+                ctx.*.get_var_type(recv_tok_method.value.as_str()),
+                .None => false,
+                .Some(recv_ty_method) => ctx.*.is_defined_fn(`${ recv_ty_method }_${ method_name }`.as_str())
+              )
+            )
+          ) => match(
+            recv_expr,
+            .FnCall(_, _, _, _, _) => Option(String).None,
+            .Atom(_, recv_tok_method2) => match(
+              ctx.*.get_var_type(recv_tok_method2.value.as_str()),
+              .None => Option(String).None,
+              .Some(recv_ty_method2) => match(
+                gen_arg_list(args, ctx, indent),
+                .None => Option(String).None,
+                .Some(arg_s_method) => {
+                  result_method := String.from("fn_");
+                  result_method.push_string(recv_ty_method2);
+                  result_method.push_str("_");
+                  result_method.push_string(method_name);
+                  result_method.push_str("(&");
+                  result_method.push_string(recv_code);
+                  if(arg_s_method.len() > usize(0), {
+                    result_method.push_str(", ");
+                    result_method.push_string(arg_s_method);
+                  });
+                  result_method.push_str(")");
+                  Option(String).Some(result_method)
+                }
+              )
+            )
+          ),
           (ctx.*.is_struct_name(recv_code.as_str()) && ctx.*.is_defined_fn(`${ recv_code }_${ method_name }`.as_str())) =>
             match(
               gen_arg_list(args, ctx, indent),

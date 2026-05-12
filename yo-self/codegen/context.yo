@@ -69,6 +69,9 @@ CodegenContext :: object(
   // Parallel to `defined_fns`: pipe-separated C param type strings for each function.
   // Used for lambda lifting to infer callback param types.
   fn_param_ty_lists : ArrayList(String),
+  // Function return type registry, keyed by Yo-level function name.
+  fn_return_names : ArrayList(String),
+  fn_return_tys : ArrayList(String),
   // C array variables: variable names that are declared as C arrays (e.g. `int32_t arr[3]`).
   // Indexing syntax `arr(idx)` → `arr[idx]` for these variables.
   array_var_names : ArrayList(String),
@@ -142,6 +145,8 @@ impl(
       lambda_count : usize(0),
       pre_fn_code : String.new(),
       fn_param_ty_lists : ArrayList(String).new(),
+      fn_return_names : ArrayList(String).new(),
+      fn_return_tys : ArrayList(String).new(),
       array_var_names : ArrayList(String).new(),
       array_var_sizes : ArrayList(String).new(),
       slice_var_names : ArrayList(String).new(),
@@ -183,6 +188,26 @@ impl(
   register_fn_with_params : (fn(self : *(Self), name : String, param_tys_pipe : String) -> unit)({
     self.*.defined_fns.push(name);
     self.*.fn_param_ty_lists.push(param_tys_pipe);
+  }),
+  register_fn_return_type : (fn(self : *(Self), name : str, ret_ty : str) -> unit)({
+    self.*.fn_return_names.push(String.from(name));
+    self.*.fn_return_tys.push(String.from(ret_ty));
+  }),
+  get_fn_return_type : (fn(self : *(Self), name : str) -> Option(String))({
+    n := self.*.fn_return_names.len();
+    (i : usize) = usize(0);
+    (result : Option(String)) = Option(String).None;
+    while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
+      match(
+        self.*.fn_return_names.get(i),
+        .None => (),
+        .Some(fn_name) => if(fn_name.as_str() == name, {
+          result = self.*.fn_return_tys.get(i);
+        })
+      );
+      i = (i + usize(1));
+    });
+    result
   }),
   /// Return the C param type at position `param_idx` for function `fn_name`, or None.
   get_fn_param_ty_at : (fn(self : *(Self), fn_name : str, param_idx : usize) -> Option(String))({

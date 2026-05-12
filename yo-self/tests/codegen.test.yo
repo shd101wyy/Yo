@@ -1750,6 +1750,28 @@ test("validation: anonymous struct constructors emit direct declarations", {
     }
   );
 });
+test("validation: value receiver method calls use inferred function return type", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("Withdraw :: struct(balance : i32); impl(Withdraw, withdraw : (fn(self : *(Self), amount : i32) -> i32)({ self.balance = (self.balance - amount); return(self.balance); })); make_bank :: (fn() -> Withdraw)({ return(Withdraw(100)); }); main :: (fn() -> unit)({ bank := make_bank(); left := bank.withdraw(50); assert(left == 50); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "value_receiver_method_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("__auto_type bank = fn_make_bank();")), "function call binding is emitted");
+      assert(c.contains(String.from("__auto_type left = fn_Withdraw_withdraw(&bank, 50);")), "value receiver method call passes receiver address");
+      assert(!(c.contains(String.from("bank.withdraw"))), "method syntax must not reach C output");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
 // ---------------------------------------------------------------------------

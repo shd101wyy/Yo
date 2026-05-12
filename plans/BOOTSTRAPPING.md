@@ -7619,3 +7619,39 @@ when the fields match.
   - same-named local struct aliases with different block scopes
   - value receiver method calls such as `bank.withdraw(...)`
   - generic type method calls such as `MyStruct(i32).new(...)`
+
+### Phase 13l — Value receiver method dispatch from inferred return types
+
+**Problem**: The struct benchmark includes a method call on a value returned
+from a local function:
+
+```rust
+bank := make_widthdraw_balance_100();
+left := bank.withdraw(50);
+```
+
+The bootstrap codegen emitted `bank.withdraw(50)` as if C supported methods
+because it only knew how to lower static `TypeName.method(...)` calls. The
+binding `bank := make_widthdraw_balance_100()` used `__auto_type`, but the
+context did not remember that `bank` has type `Withdraw`.
+
+**Fix**:
+
+- Added a function return type registry to `CodegenContext`.
+- Registered return types while collecting top-level, local, and impl function
+  definitions.
+- When a local binding is initialized from a known function call, register the
+  binding's inferred C type.
+- Lower value receiver method calls using the remembered variable type:
+  `bank.withdraw(50)` → `fn_Withdraw_withdraw(&bank, 50)`.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: value receiver method calls use inferred function return type`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 222/222.
+- Rebuilt `yo-self/yo-self-bin` and re-ran the real struct benchmark. The
+  `bank.withdraw(...)` errors are gone. The remaining struct failures are now
+  dominated by tuple/struct aggregate fields, same-named local struct aliases,
+  and generic type methods such as `MyStruct(i32).new(...)`.
