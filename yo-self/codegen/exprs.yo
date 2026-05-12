@@ -4076,7 +4076,37 @@ simple_closure_capture_from_body :: (fn(body_expr : AstExpr, param_name : str) -
                         .None => Option(String).None,
                         .Some(lhs_expr) => match(
                           lhs_expr,
-                          .FnCall(_, _, _, _, _) => Option(String).None,
+                          .FnCall(_, lhs_dot_box, lhs_dot_args, lhs_dot_infix, _) => cond(
+                            (!(lhs_dot_infix)) => Option(String).None,
+                            (lhs_dot_args.len() != usize(2)) => Option(String).None,
+                            true => match(
+                              lhs_dot_box.*,
+                              .FnCall(_, _, _, _, _) => Option(String).None,
+                              .Atom(_, lhs_dot_tok) => cond(
+                                (lhs_dot_tok.value.as_str() != ".") => Option(String).None,
+                                true => match(
+                                  lhs_dot_args.get(usize(1)),
+                                  .None => Option(String).None,
+                                  .Some(lhs_field_expr) => match(
+                                    lhs_field_expr,
+                                    .FnCall(_, _, _, _, _) => Option(String).None,
+                                    .Atom(_, lhs_field_tok) => cond(
+                                      (lhs_field_tok.value.as_str() != "*") => Option(String).None,
+                                      true => match(
+                                        lhs_dot_args.get(usize(0)),
+                                        .None => Option(String).None,
+                                        .Some(lhs_base_expr) => match(
+                                          lhs_base_expr,
+                                          .FnCall(_, _, _, _, _) => Option(String).None,
+                                          .Atom(_, lhs_base_tok) => Option(String).Some(lhs_base_tok.value)
+                                        )
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          ),
                           .Atom(_, lhs_tok) => Option(String).Some(lhs_tok.value)
                         )
                       );
@@ -4101,6 +4131,80 @@ simple_closure_capture_from_body :: (fn(body_expr : AstExpr, param_name : str) -
     )
   )
 );
+simple_closure_capture_from_body_or_cond :: (fn(body_expr : AstExpr, param_name : str) -> Option(String))({
+  direct := simple_closure_capture_from_body(body_expr, param_name);
+  match(
+    direct,
+    .Some(_) => direct,
+    .None => match(
+      body_expr,
+      .Atom(_, _) => Option(String).None,
+      .FnCall(_, begin_fn_box, begin_args, begin_infix, _) => cond(
+        begin_infix => Option(String).None,
+        true => match(
+          begin_fn_box.*,
+          .FnCall(_, _, _, _, _) => Option(String).None,
+          .Atom(_, begin_tok) => cond(
+            (begin_tok.value.as_str() != BK_BEGIN) => Option(String).None,
+            true => {
+              (i : usize) = usize(0);
+              (result : Option(String)) = Option(String).None;
+              while(runtime((i < begin_args.len()) && match(result,.None => true,.Some(_) => false)), {
+                match(
+                  begin_args.get(i),
+                  .None => (),
+                  .Some(stmt_expr) => match(
+                    stmt_expr,
+                    .Atom(_, _) => (),
+                    .FnCall(_, cond_fn_box, cond_args, cond_infix, _) => if(!(cond_infix), {
+                      is_cond_expr := match(
+                        cond_fn_box.*,
+                        .FnCall(_, _, _, _, _) => false,
+                        .Atom(_, cond_tok) => (cond_tok.value.as_str() == "cond")
+                      );
+                      if(is_cond_expr, {
+                        (ci : usize) = usize(0);
+                        while(runtime((ci < cond_args.len()) && match(result,.None => true,.Some(_) => false)), {
+                          match(
+                            cond_args.get(ci),
+                            .None => (),
+                            .Some(arm_expr) => match(
+                              arm_expr,
+                              .Atom(_, _) => (),
+                              .FnCall(_, arm_fn_box, arm_args, arm_infix, _) => if(arm_infix && (arm_args.len() == usize(2)), {
+                                is_arrow := match(
+                                  arm_fn_box.*,
+                                  .FnCall(_, _, _, _, _) => false,
+                                  .Atom(_, arm_tok) => (arm_tok.value.as_str() == "=>")
+                                );
+                                if(is_arrow, {
+                                  match(
+                                    arm_args.get(usize(1)),
+                                    .None => (),
+                                    .Some(arm_body_expr) => {
+                                      result = simple_closure_capture_from_body(arm_body_expr, param_name);
+                                    }
+                                  );
+                                });
+                              })
+                            )
+                          );
+                          ci = (ci + usize(1));
+                        });
+                      });
+                    })
+                  )
+                );
+                i = (i + usize(1));
+              });
+              result
+            }
+          )
+        )
+      )
+    )
+  )
+});
 lambda_body_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
   match(
     expr,
@@ -4134,15 +4238,27 @@ emit_simple_closure_value :: (
   ) -> bool
 )(
   match(
-    simple_closure_capture_from_body(body_expr, param_name),
+    simple_closure_capture_from_body_or_cond(body_expr, param_name),
     .None => false,
     .Some(capture_name) => {
       san_var := sanitize_c_ident(var_name);
       san_capture := sanitize_c_ident(capture_name.as_str());
       env_type := String.from("__yo_closure_env_");
       env_type.push_string(san_var);
+      capture_by_ref := match(
+        ctx.*.get_var_type(capture_name.as_str()),
+        .None => false,
+        .Some(capture_ty) => match(
+          ctx.*.get_struct_fields(capture_ty.as_str()),
+          .None => false,
+          .Some(fields_csv) => (fields_csv.as_str() == "_0")
+        )
+      );
       ctx.*.emitter.emit_string(indent);
       ctx.*.emitter.emit("typedef struct { __typeof__(");
+      if(capture_by_ref, {
+        ctx.*.emitter.emit("&");
+      });
       ctx.*.emitter.emit_string(san_capture);
       ctx.*.emitter.emit(") ");
       ctx.*.emitter.emit_string(san_capture);
@@ -4156,6 +4272,9 @@ emit_simple_closure_value :: (
       ctx.*.emitter.emit(" = { .");
       ctx.*.emitter.emit_string(san_capture);
       ctx.*.emitter.emit(" = ");
+      if(capture_by_ref, {
+        ctx.*.emitter.emit("&");
+      });
       ctx.*.emitter.emit_string(san_capture);
       ctx.*.emitter.emit_line(" };");
       ctx.*.register_simple_closure_var(var_name, capture_name.as_str(), param_name);
@@ -4163,6 +4282,32 @@ emit_simple_closure_value :: (
     }
   )
 );
+capture_access_for_closure_var :: (
+  fn(
+    closure_var_name : str,
+    capture_name : str,
+    ctx : *(CodegenContext)
+  ) -> String
+)({
+  san_var := sanitize_c_ident(closure_var_name);
+  san_capture := sanitize_c_ident(capture_name);
+  result := String.from(san_var.as_str());
+  result.push_str(".");
+  result.push_string(san_capture);
+  should_use_payload := match(
+    ctx.*.get_var_type(capture_name),
+    .None => false,
+    .Some(capture_ty) => match(
+      ctx.*.get_struct_fields(capture_ty.as_str()),
+      .None => false,
+      .Some(fields_csv) => (fields_csv.as_str() == "_0")
+    )
+  );
+  if(should_use_payload, {
+    result.push_str("->_0");
+  });
+  result
+});
 emit_simple_closure_constructor :: (
   fn(
     var_name : str,
@@ -5764,22 +5909,15 @@ handle_regular_call :: (
               call_gen_expr(arg_expr, ctx, indent),
               .None => Option(String).None,
               .Some(arg_c) => {
-                san_var := sanitize_c_ident(id.as_str());
-                san_capture := sanitize_c_ident(capture_name.as_str());
+                capture_access := capture_access_for_closure_var(id.as_str(), capture_name.as_str(), ctx);
                 result := String.from("((");
-                result.push_string(san_var);
-                result.push_str(".");
-                result.push_string(san_capture);
+                result.push_string(capture_access);
                 result.push_str(" = (");
-                result.push_string(san_var);
-                result.push_str(".");
-                result.push_string(san_capture);
+                result.push_string(capture_access);
                 result.push_str(" + ");
                 result.push_string(arg_c);
                 result.push_str(")), ");
-                result.push_string(san_var);
-                result.push_str(".");
-                result.push_string(san_capture);
+                result.push_string(capture_access);
                 result.push_str(")");
                 Option(String).Some(result)
               }
@@ -6170,7 +6308,21 @@ handle_dot_access :: (
                 .None => false,
                 .Some(obj_ty) => (obj_ty.as_str() == "ArrayList_u8")
               );
+              deref_is_value_payload := match(
+                ctx.*.get_var_type(obj_code.as_str()),
+                .None => false,
+                .Some(obj_ty2) => match(
+                  ctx.*.get_struct_fields(obj_ty2.as_str()),
+                  .None => false,
+                  .Some(fields_csv) => (fields_csv.as_str() == "_0")
+                )
+              );
               cond(
+                (is_deref && deref_is_value_payload) => {
+                  result := String.from(obj_code.as_str());
+                  result.push_str("._0");
+                  Option(String).Some(result)
+                },
                 is_deref => {
                   // c.* → (*c) — pointer dereference
                   result := String.from("(*");
@@ -7572,24 +7724,35 @@ handle_assignment :: (
                 .Atom(_, closure_name_tok) => match(
                   closure_colon_args.get(usize(1)),
                   .None => Option(String).None,
-                  .Some(closure_type_expr) => match(
-                    closure_param_name_from_impl_fn(closure_type_expr),
-                    .None => Option(String).None,
-                    .Some(closure_param_name) => match(
-                      lambda_body_expr(rhs_expr),
+                  .Some(closure_type_expr) => {
+                    closure_param_opt := match(
+                      closure_param_name_from_impl_fn(closure_type_expr),
+                      .Some(param_name) => Option(String).Some(param_name),
+                      .None => match(
+                        closure_type_expr,
+                        .FnCall(_, _, _, _, _) => Option(String).None,
+                        .Atom(_, closure_type_tok) => ctx.*.get_closure_alias_param_name(closure_type_tok.value.as_str())
+                      )
+                    );
+                    match(
+                      closure_param_opt,
                       .None => Option(String).None,
-                      .Some(closure_body_expr) => cond(
-                        emit_simple_closure_value(
-                          closure_name_tok.value.as_str(),
-                          closure_body_expr,
-                          closure_param_name.as_str(),
-                          ctx,
-                          indent
-                        ) => Option(String).Some(String.from("0")),
-                        true => Option(String).None
+                      .Some(closure_param_name) => match(
+                        lambda_body_expr(rhs_expr),
+                        .None => Option(String).None,
+                        .Some(closure_body_expr) => cond(
+                          emit_simple_closure_value(
+                            closure_name_tok.value.as_str(),
+                            closure_body_expr,
+                            closure_param_name.as_str(),
+                            ctx,
+                            indent
+                          ) => Option(String).Some(String.from("0")),
+                          true => Option(String).None
+                        )
                       )
                     )
-                  )
+                  }
                 )
               )
             )

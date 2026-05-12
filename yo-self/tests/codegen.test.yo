@@ -4683,3 +4683,49 @@ test("validation: typed Impl lambda captures mutable local copy", {
     }
   );
 });
+test("validation: object payload field lowers through star accessor", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("MyBox :: object((*) : i32); main :: (fn() -> unit)({ x := MyBox(i32(1)); x.* = (x.* + i32(1)); assert((x.* == i32(2)), \"payload\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "object_payload_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { int32_t _0; } MyBox;")), "object payload should emit _0 field");
+      assert(c.contains(String.from("x._0 = (x._0 + (int32_t)(1));")), "star assignment should use _0 field");
+      assert(c.contains(String.from("if (!((x._0 == (int32_t)(2)))) { exit(1); }")), "star assertion should use _0 field");
+    }
+  );
+});
+test("validation: Impl closure capturing object shares payload", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("MyBox :: object((*) : i32); main :: (fn() -> unit)({ x := MyBox(i32(1)); ClosureType :: Impl(Fn(y : i32) -> i32); closure := ClosureType({ x.* = (x.* + y); return(x.*); }); closure2 := closure; result := closure(i32(4)); result2 := closure2(i32(2)); assert((result == i32(5)), \"result\"); assert((result2 == i32(7)), \"copy result\"); assert((x.* == i32(7)), \"shared box\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "rc_closure_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { __typeof__(&x) x; } __yo_closure_env_closure;")), "object closure should capture pointer to x");
+      assert(c.contains(String.from("__yo_closure_env_closure closure = { .x = &x };")), "object closure should initialize pointer env");
+      assert(c.contains(String.from("__auto_type result = ((closure.x->_0 = (closure.x->_0 + (int32_t)(4))), closure.x->_0);")), "closure call should mutate shared payload");
+      assert(c.contains(String.from("__auto_type result2 = ((closure2.x->_0 = (closure2.x->_0 + (int32_t)(2))), closure2.x->_0);")), "closure copy should mutate shared payload");
+      assert(c.contains(String.from("if (!((x._0 == (int32_t)(7)))) { exit(1); }")), "outer object should see shared payload");
+    }
+  );
+});

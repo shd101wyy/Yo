@@ -144,6 +144,9 @@ counter.* = (counter.* + i32(1));
 - Use `*(T)` for raw pointers
 - Model nullable pointers as `Option(*(T))` or `?*(T)`, not sentinel integers
 - Constructor syntax: `Box(T)(value)` — NOT `Box(T).new(value)`
+- Single-payload objects may use `(*) : T`; access the payload with `value.*`.
+  This is a value payload accessor for object values, while pointer dereference
+  still applies when the receiver has pointer type.
 - For self-referential `object` types, use `Box(Self)` to break the recursive cycle:
 
 ```rust

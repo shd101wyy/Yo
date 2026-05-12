@@ -7304,7 +7304,7 @@ Running `yo-self/yo-self-bin test <file>` on representative `./tests/*.test.yo`:
 | `array.test.yo`                      | 10/12        | 2 skipped need `Array(T, _)` length inference                                 |
 | `comptime_option_result.test.yo`     | 8/12         |                                                                               |
 | `basic.test.yo`                      | 24/32        | 8 use destructuring patterns, default fields, generics, `.Some(...)` literals |
-| `closure.test.yo`                    | 3/9          | Primitive `Impl(Fn(...))` closure capture now works; Dyn/RC captures remain   |
+| `closure.test.yo`                    | 6/9          | Primitive + object `Impl(Fn(...))` closure capture works; Dyn captures remain |
 | `control_fn_as_regular_call.test.yo` | 0/3          | Requires IO effect injection                                                  |
 | `algebraic_effects.test.yo`          | 0/61         | Effects runtime not ported (~15k lines TS)                                    |
 | `async_await.test.yo`                | 0/121        | Async runtime not ported (~15k lines TS)                                      |
@@ -8156,6 +8156,73 @@ This is intentionally narrow: it fixes generic type-expression handling in
 - ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
 - Remaining sampled skips:
   - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
+
+### Phase 13y — Object payload and shared Impl closure captures
+
+**Problem**: after Phase 13x, primitive closure values worked, but the object/RC
+closure cases in `tests/closure.test.yo` still skipped or failed. Generated C had
+two direct gaps:
+
+```c
+typedef struct { } MyBox;
+(*x) = ((*x) + y);
+```
+
+`MyBox :: object((*) : i32)` lost its payload field during bootstrap struct
+extraction, `x.*` lowered as a pointer dereference even though `x` was a value
+object in the bootstrap C layout, and closures over `MyBox` captured a by-value
+copy even though the test expects duplicated closures to share the boxed payload.
+
+**Fix**:
+
+- `object((*) : T)` fields now lower to a concrete `_0` payload field in the
+  bootstrap C typedef.
+- `value.*` lowers to `value._0` when `value` is a registered single-payload
+  object value; true pointer dereference behavior remains for pointer values.
+- Closure capture detection now recognizes assignments to `x.*`, not just
+  assignments to a bare local `x`.
+- Single-payload object captures are stored by pointer in the bootstrap closure
+  environment:
+
+  ```c
+  typedef struct { __typeof__(&x) x; } __yo_closure_env_closure;
+  __yo_closure_env_closure closure = { .x = &x };
+  ```
+
+- Closure calls for those captures mutate `closure.x->_0`, so `closure2 :=
+closure` shares the same object payload.
+- Capture discovery also scans one-level `cond` branch bodies, enough to unblock
+  the nested early-return RC closure benchmark.
+- Typed closure declarations can use a previously registered alias:
+  `(closure : ClosureType) = ((y) => { ... })`.
+
+This is still a bootstrap representation rather than the final production
+closure/RC ABI, but it preserves the observed `Impl(Fn(...))` object-capture
+semantics in the current benchmark.
+
+**Verification**:
+
+- ✅ Added targeted tests:
+  - `validation: object payload field lowers through star accessor`
+  - `validation: Impl closure capturing object shares payload`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 245/245.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/closure.test.yo --disable-sanitize --parallel 1`
+  now passes: 6 passed, 0 failed, 3 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ⚠️ `tests/closure.test.yo` → 6 passed, 0 failed, 3 skipped.
 
 ### Phase 13x — Primitive closure value lowering
 

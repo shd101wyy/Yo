@@ -93,6 +93,11 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
 ;
 ```
 
+Single-payload object types can use the payload field syntax `(*) : T` and are
+accessed with `value.*`. Treat this as a value payload accessor for object values,
+not automatically as a pointer dereference; pointer dereference still applies
+when the receiver itself has pointer type.
+
 ## Pointers
 
 - `Pointer` works in both compile-time and runtime contexts (`Runtime` and `Comptime` traits in `prelude.yo`).

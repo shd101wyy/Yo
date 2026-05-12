@@ -115,6 +115,23 @@ atom_ident :: (fn(expr : AstExpr) -> Option(str))(
     .FnCall(_, _, _, _, _) => Option(str).None
   )
 );
+/// Return a C field name for struct/object field declarations.
+/// Yo object single-field syntax uses `(*) : T`; the bootstrap C layout names
+/// that payload field `_0` so `value.*` can lower to `value._0`.
+struct_field_c_name :: (fn(expr : AstExpr) -> Option(str))(
+  match(
+    atom_ident(expr),
+    .Some(name) => Option(str).Some(name),
+    .None => match(
+      expr,
+      .FnCall(_, _, _, _, _) => Option(str).None,
+      .Atom(_, tok) => cond(
+        (tok.value.as_str() == "*") => Option(str).Some("_0"),
+        true => Option(str).None
+      )
+    )
+  )
+);
 // ---------------------------------------------------------------------------
 // is_comptime_expr
 // ---------------------------------------------------------------------------
@@ -522,7 +539,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                                           fa.get(usize(0)),
                                           .None => (),
                                           .Some(field_name_e) => match(
-                                            atom_ident(field_name_e),
+                                            struct_field_c_name(field_name_e),
                                             .None => (),
                                             .Some(fname) => match(
                                               fa.get(usize(1)),
@@ -561,7 +578,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                                                     ic_args.get(usize(0)),
                                                     .None => (),
                                                     .Some(field_name_e2) => match(
-                                                      atom_ident(field_name_e2),
+                                                      struct_field_c_name(field_name_e2),
                                                       .None => (),
                                                       .Some(fname2) => match(
                                                         ic_args.get(usize(1)),
