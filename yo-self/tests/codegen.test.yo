@@ -4534,3 +4534,43 @@ test("validation: sizeof Option(T) lowers through type_expr_to_c", {
     }
   );
 });
+test("validation: using(io) without local evidence lowers to NULL", {
+  using_args := ArrayList(AstExpr).new();
+  using_args.push(make_atom_expr(TokenKind.Identifier, "io"));
+  using_expr := make_fncall_expr("using", using_args);
+  result := run_gen(using_expr);
+  match(
+    result,
+    .None => assert(false, "using(io) should generate"),
+    .Some(code) => {
+      assert(code == String.from("NULL"), "missing test-body io evidence should lower to NULL");
+    }
+  );
+});
+test("validation: io.await(yield()) lowers to no-op", {
+  yield_args := ArrayList(AstExpr).new();
+  await_args := ArrayList(AstExpr).new();
+  await_args.push(make_fncall_expr("yield", yield_args));
+  await_expr := make_method_call_expr(make_atom_expr(TokenKind.Identifier, "io"), "await", await_args);
+  result := run_gen(await_expr);
+  match(
+    result,
+    .None => assert(false, "io.await should generate"),
+    .Some(code) => {
+      assert(code == String.from("0"), "bootstrap io.await should be a no-op");
+    }
+  );
+});
+test("validation: Worker bootstrap methods lower to no-op", {
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Integer, "2"));
+  call_expr := make_method_call_expr(make_atom_expr(TokenKind.Identifier, "Worker"), "set_num_threads", args);
+  result := run_gen(call_expr);
+  match(
+    result,
+    .None => assert(false, "Worker.set_num_threads should generate"),
+    .Some(code) => {
+      assert(code == String.from("0"), "Worker.set_num_threads should be no-op");
+    }
+  );
+});

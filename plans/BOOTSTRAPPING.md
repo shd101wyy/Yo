@@ -8157,3 +8157,55 @@ This is intentionally narrow: it fixes generic type-expression handling in
 - Remaining sampled skips:
   - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
   - `tests/control_fn_as_regular_call.test.yo` — missing async/IO/Worker lowering.
+
+### Phase 13v — Bootstrap control-function IO/Worker stubs
+
+**Problem**: `tests/control_fn_as_regular_call.test.yo` skipped all three tests
+under `yo-self/yo-self-bin` because the bootstrap C emitter passed through
+effect/control scaffolding literally:
+
+```c
+io.await(yield())
+fn_do_work(10, 20, io)
+Worker.set_num_threads(2)
+Worker.spawn(...)
+```
+
+The self-hosted codegen does not yet implement the real async/effects or
+parallel worker runtimes, so those constructs produced undeclared `io`,
+`yield`, and `Worker` symbols in generated C.
+
+**Fix**:
+
+- Lower `using(io)` in a test-body call site to `NULL` when no local `io`
+  evidence variable exists. If a function body has an `io` parameter in scope,
+  forwarding still emits `io`.
+- Lower `io.await(...)` to `0` as a no-op in the bootstrap emitter.
+- Lower `Worker.set_num_threads(...)` and `Worker.spawn(...)` to `0` as no-op
+  bootstrap stubs.
+
+This keeps the phase intentionally narrow: it unblocks regular-call control
+function benchmarks without claiming to implement the production async/effects
+runtime or worker scheduler.
+
+**Verification**:
+
+- ✅ Added targeted tests:
+  - `validation: using(io) without local evidence lowers to NULL`
+  - `validation: io.await(yield()) lowers to no-op`
+  - `validation: Worker bootstrap methods lower to no-op`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 238/238.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/control_fn_as_regular_call.test.yo --disable-sanitize --parallel 1`
+  passes: 3 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- Remaining sampled skips:
+  - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.

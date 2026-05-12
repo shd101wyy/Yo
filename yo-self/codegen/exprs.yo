@@ -5244,8 +5244,17 @@ gen_arg_list :: (
           ),
           .Atom(_, _) => arg
         );
+        arg_code_opt := match(
+          actual_arg,
+          .FnCall(_, _, _, _, _) => call_gen_expr(actual_arg, ctx, indent),
+          .Atom(_, actual_tok) => cond(
+            ((actual_tok.value.as_str() == "io") && ctx.*.get_var_type("io").is_none()) =>
+              Option(String).Some(String.from("NULL")),
+            true => call_gen_expr(actual_arg, ctx, indent)
+          )
+        );
         match(
-          call_gen_expr(actual_arg, ctx, indent),
+          arg_code_opt,
           .None => {
             ok = false;
           },
@@ -5798,6 +5807,12 @@ handle_method_call :: (
           // Prototype lowering for standard Option/Result constructors. The
           // bootstrap codegen represents Some/Ok/Err as the payload value and
           // None as NULL; runtime methods below are lowered accordingly.
+          (((recv_code.as_str() == "io") && (method_name.as_str() == "await")) && (args.len() == usize(1))) =>
+            Option(String).Some(String.from("0")),
+          (((recv_code.as_str() == "Worker") && (method_name.as_str() == "set_num_threads")) && (args.len() == usize(1))) =>
+            Option(String).Some(String.from("0")),
+          (((recv_code.as_str() == "Worker") && (method_name.as_str() == "spawn")) && (args.len() == usize(1))) =>
+            Option(String).Some(String.from("0")),
           (((recv_code.as_str() == "str") && (method_name.as_str() == "from_raw_parts")) && (args.len() == usize(2))) =>
             match(
               args.get(usize(0)),
@@ -8503,8 +8518,16 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           )
         ) => match(
           args.get(usize(0)),
-          .None =>.Some(String.from("0")),
-          .Some(inner) => call_gen_expr(inner, ctx, indent)
+          .None =>.Some(String.from("NULL")),
+          .Some(inner) => match(
+            inner,
+            .FnCall(_, _, _, _, _) => call_gen_expr(inner, ctx, indent),
+            .Atom(_, inner_tok) => cond(
+              ((inner_tok.value.as_str() == "io") && ctx.*.get_var_type("io").is_none()) =>
+                Option(String).Some(String.from("NULL")),
+              true => call_gen_expr(inner, ctx, indent)
+            )
+          )
         ),
         // given(name) — compile-time binding, no runtime effect. Emit "0".
         (
