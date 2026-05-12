@@ -7417,3 +7417,28 @@ lowering these standard constructors and query methods.
 - ✅ `yo-self/yo-self-bin test tests/comptime_option_result.test.yo` improves
   from 8/12 to 10/12. Remaining skips are method extraction from type
   (`f :: Option(i32).unwrap`, `f(x)`).
+
+### Phase 13e — Option/Result unwrap method extraction
+
+**Problem**: Type-method extraction such as `f :: Option(i32).unwrap` and
+`g :: Result(i32, bool).unwrap` was treated as a compile-time-only constant
+binding and erased from C output. Later calls (`f(x)`, `g(y)`) therefore
+reached clang as undeclared C functions.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- Added `emit_method_extraction_macro_if_supported(...)` for the currently
+  supported generic standard-library methods.
+- Lowered `Option(T).unwrap` and `Result(T, E).unwrap` extraction to a C macro
+  alias (`#define f(__yo_value) (__yo_value)`) matching the bootstrap
+  payload-only representation from Phase 13d.
+- Wired the lowering through both `:=` and `::` binding paths.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: Option/Result unwrap method extraction lowers to macro alias`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 215/215.
+- ✅ `yo-self/yo-self-bin test tests/comptime_option_result.test.yo` improves
+  from 10/12 to 12/12, with 0 skipped tests.

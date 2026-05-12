@@ -2873,6 +2873,62 @@ _tuple_field_ref :: (fn(idx : usize) -> String)({
   });
   r
 });
+type_app_receiver_is :: (fn(expr : AstExpr, type_name : str) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, type_fn_box, _, type_infix, _) => cond(
+      type_infix => false,
+      true => match(
+        type_fn_box.*,
+        .FnCall(_, _, _, _, _) => false,
+        .Atom(_, type_tok) => (type_tok.value.as_str() == type_name)
+      )
+    )
+  )
+);
+emit_method_extraction_macro_if_supported :: (
+  fn(name : str, rhs_expr : AstExpr, ctx : *(CodegenContext), indent : String) -> bool
+)(
+  match(
+    rhs_expr,
+    .Atom(_, _) => false,
+    .FnCall(_, me_fn_box, me_args, me_infix, _) => cond(
+      (!(me_infix)) => false,
+      (me_args.len() != usize(2)) => false,
+      true => match(
+        me_fn_box.*,
+        .FnCall(_, _, _, _, _) => false,
+        .Atom(_, me_dot_tok) => cond(
+          (me_dot_tok.value.as_str() != ".") => false,
+          true => match(
+            me_args.get(usize(0)),
+            .None => false,
+            .Some(me_recv) => match(
+              me_args.get(usize(1)),
+              .None => false,
+              .Some(me_method_expr) => match(
+                me_method_expr,
+                .FnCall(_, _, _, _, _) => false,
+                .Atom(_, me_method_tok) => cond(
+                  (me_method_tok.value.as_str() != "unwrap") => false,
+                  (!(type_app_receiver_is(me_recv, "Option") || type_app_receiver_is(me_recv, "Result"))) => false,
+                  true => {
+                    ctx.*.emitter.emit_string(indent);
+                    ctx.*.emitter.emit("#define ");
+                    ctx.*.emitter.emit_string(sanitize_c_ident(name));
+                    ctx.*.emitter.emit_line("(__yo_value) (__yo_value)");
+                    true
+                  }
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
 /// Handle variable definition `name := val` → emit `__auto_type name = val;\n` as a
 /// statement and return `"0"` (the unit sentinel).
 ///
@@ -2999,6 +3055,7 @@ handle_define :: (
             ctx.*.track_open_var(name_tok.value.as_str(), csv_s.as_str());
           }
         );
+        method_extraction_emitted := emit_method_extraction_macro_if_supported(name_tok.value.as_str(), rhs_expr, ctx, indent);
         // Special case: `b := arr_var` where arr_var is a registered C array — array copy.
         // Emit `__typeof__(arr_var[0]) b[N]; memcpy(b, arr_var, sizeof(b));`
         // and register b as an array var with the same size.
@@ -3294,7 +3351,7 @@ handle_define :: (
             )
           );
           cond(
-            (arr_copy_emitted || arr_constructor_emitted) => Option(String).Some(String.from("0")),
+            (method_extraction_emitted || (arr_copy_emitted || arr_constructor_emitted)) => Option(String).Some(String.from("0")),
             array_decl_emitted => Option(String).Some(String.from("0")),
             true => match(
               call_gen_expr(rhs_expr, ctx, indent),
@@ -4624,20 +4681,6 @@ get_dispatch_method :: (fn(func_box : Box(AstExpr)) -> Option(String))(
         method_expr,
         .Atom(_, mtok) => Option(String).Some(mtok.value),
         .FnCall(_, _, _, _, _) => Option(String).None
-      )
-    )
-  )
-);
-type_app_receiver_is :: (fn(expr : AstExpr, type_name : str) -> bool)(
-  match(
-    expr,
-    .Atom(_, _) => false,
-    .FnCall(_, type_fn_box, _, type_infix, _) => cond(
-      type_infix => false,
-      true => match(
-        type_fn_box.*,
-        .FnCall(_, _, _, _, _) => false,
-        .Atom(_, type_tok) => (type_tok.value.as_str() == type_name)
       )
     )
   )
@@ -7284,109 +7327,113 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(c_name) => match(
               args.get(usize(1)),
               .None =>.Some(String.from("0")),
-              .Some(rhs_e2) => cond(
-                // Inline array literal: `arr :: [v0, v1, ...]`
-                // Emit C array declaration and register as array var, same as `:=`.
-                (
-                  (!(rhs_is_eligible)) && match(
-                    rhs_e2,
-                    .Atom(_, _) => false,
-                    .FnCall(_, il_fn_b, il_fn_a, il_fi, _) => (
-                      ((!(il_fi)) && (il_fn_a.len() > usize(0))) &&
-                        match(
-                          il_fn_b.*,
-                          .FnCall(_, _, _, _, _) => false,
-                          .Atom(_, il_tok) => (il_tok.value.as_str() == "array")
-                        )
+              .Some(rhs_e2) => {
+                method_extract_const_emitted := emit_method_extraction_macro_if_supported(c_name.as_str(), rhs_e2, ctx, indent);
+                cond(
+                  method_extract_const_emitted =>.Some(String.from("0")),
+                  // Inline array literal: `arr :: [v0, v1, ...]`
+                  // Emit C array declaration and register as array var, same as `:=`.
+                  (
+                    (!(rhs_is_eligible)) && match(
+                      rhs_e2,
+                      .Atom(_, _) => false,
+                      .FnCall(_, il_fn_b, il_fn_a, il_fi, _) => (
+                        ((!(il_fi)) && (il_fn_a.len() > usize(0))) &&
+                          match(
+                            il_fn_b.*,
+                            .FnCall(_, _, _, _, _) => false,
+                            .Atom(_, il_tok) => (il_tok.value.as_str() == "array")
+                          )
+                      )
                     )
-                  )
-                ) => match(
-                  rhs_e2,
-                  .Atom(_, _) =>.Some(String.from("0")),
-                  .FnCall(_, _, il_args2, _, _) => {
-                    n_il2 := il_args2.len();
-                    init_il2 := String.from("{");
-                    (il2_i : usize) = usize(0);
-                    (il2_ok : bool) = true;
-                    while(runtime((il2_i < n_il2) && il2_ok), {
-                      match(
-                        il_args2.get(il2_i),
-                        .None => {
-                          il2_ok = false;
-                        },
-                        .Some(il_e2) => match(
-                          call_gen_expr(il_e2, ctx, indent),
+                  ) => match(
+                    rhs_e2,
+                    .Atom(_, _) =>.Some(String.from("0")),
+                    .FnCall(_, _, il_args2, _, _) => {
+                      n_il2 := il_args2.len();
+                      init_il2 := String.from("{");
+                      (il2_i : usize) = usize(0);
+                      (il2_ok : bool) = true;
+                      while(runtime((il2_i < n_il2) && il2_ok), {
+                        match(
+                          il_args2.get(il2_i),
                           .None => {
                             il2_ok = false;
                           },
-                          .Some(il_c2) => {
-                            if(il2_i > usize(0), {
-                              init_il2.push_str(", ");
-                            });
-                            init_il2.push_string(il_c2);
-                            il2_i = (il2_i + usize(1));
-                          }
-                        )
-                      );
-                    });
-                    cond(
-                      (!(il2_ok)) =>.Some(String.from("0")),
-                      true => {
-                        init_il2.push_str("}");
-                        first_opt2 := match(
-                          il_args2.get(usize(0)),
-                          .None => Option(String).None,
-                          .Some(fe2) => call_gen_expr(fe2, ctx, indent)
+                          .Some(il_e2) => match(
+                            call_gen_expr(il_e2, ctx, indent),
+                            .None => {
+                              il2_ok = false;
+                            },
+                            .Some(il_c2) => {
+                              if(il2_i > usize(0), {
+                                init_il2.push_str(", ");
+                              });
+                              init_il2.push_string(il_c2);
+                              il2_i = (il2_i + usize(1));
+                            }
+                          )
                         );
-                        match(
-                          first_opt2,
-                          .None =>.Some(String.from("0")),
-                          .Some(first2) => {
-                            san_il := sanitize_c_ident(c_name.as_str());
-                            ctx.*.emitter.emit_string(indent);
-                            ctx.*.emitter.emit("__typeof__(");
-                            ctx.*.emitter.emit_string(first2);
-                            ctx.*.emitter.emit(") ");
-                            ctx.*.emitter.emit_string(san_il);
-                            ctx.*.emitter.emit("[");
-                            ctx.*.emitter.emit_string(n_il2.to_string());
-                            ctx.*.emitter.emit("] = ");
-                            ctx.*.emitter.emit_string(init_il2);
-                            ctx.*.emitter.emit_line(";");
-                            ctx.*.register_array_var_with_size(c_name.as_str(), n_il2.to_string().as_str());
-                            .Some(String.from("0"))
-                          }
-                        )
-                      }
-                    )
-                  }
-                ),
-                // Skip if RHS is a function definition (pre-hoisted) or not eligible
-                (!(rhs_is_eligible)) =>.Some(String.from("0")),
-                true => match(
-                  call_gen_expr(rhs_e2, ctx, indent),
-                  .None =>.Some(String.from("0")),
-                  .Some(rhs_code) => {
-                    ctx.*.emitter.emit_string(indent);
-                    ctx.*.emitter.emit("__auto_type ");
-                    ctx.*.emitter.emit_string(c_name);
-                    ctx.*.emitter.emit(" = ");
-                    ctx.*.emitter.emit_string(rhs_code);
-                    ctx.*.emitter.emit_line(";");
-                    ctx.*.register_const_var(c_name.as_str());
-                    // Track string constants so we can reject string `+` in dependent bindings
-                    is_str_rhs := match(
-                      rhs_e2,
-                      .Atom(_, str_tok) => (str_tok.kind == TokenKind.StringLit),
-                      .FnCall(_, _, _, _, _) => false
-                    );
-                    if(is_str_rhs, {
-                      ctx.*.register_string_const(c_name.as_str());
-                    });
-                    .Some(String.from("0"))
-                  }
+                      });
+                      cond(
+                        (!(il2_ok)) =>.Some(String.from("0")),
+                        true => {
+                          init_il2.push_str("}");
+                          first_opt2 := match(
+                            il_args2.get(usize(0)),
+                            .None => Option(String).None,
+                            .Some(fe2) => call_gen_expr(fe2, ctx, indent)
+                          );
+                          match(
+                            first_opt2,
+                            .None =>.Some(String.from("0")),
+                            .Some(first2) => {
+                              san_il := sanitize_c_ident(c_name.as_str());
+                              ctx.*.emitter.emit_string(indent);
+                              ctx.*.emitter.emit("__typeof__(");
+                              ctx.*.emitter.emit_string(first2);
+                              ctx.*.emitter.emit(") ");
+                              ctx.*.emitter.emit_string(san_il);
+                              ctx.*.emitter.emit("[");
+                              ctx.*.emitter.emit_string(n_il2.to_string());
+                              ctx.*.emitter.emit("] = ");
+                              ctx.*.emitter.emit_string(init_il2);
+                              ctx.*.emitter.emit_line(";");
+                              ctx.*.register_array_var_with_size(c_name.as_str(), n_il2.to_string().as_str());
+                              .Some(String.from("0"))
+                            }
+                          )
+                        }
+                      )
+                    }
+                  ),
+                  // Skip if RHS is a function definition (pre-hoisted) or not eligible
+                  (!(rhs_is_eligible)) =>.Some(String.from("0")),
+                  true => match(
+                    call_gen_expr(rhs_e2, ctx, indent),
+                    .None =>.Some(String.from("0")),
+                    .Some(rhs_code) => {
+                      ctx.*.emitter.emit_string(indent);
+                      ctx.*.emitter.emit("__auto_type ");
+                      ctx.*.emitter.emit_string(c_name);
+                      ctx.*.emitter.emit(" = ");
+                      ctx.*.emitter.emit_string(rhs_code);
+                      ctx.*.emitter.emit_line(";");
+                      ctx.*.register_const_var(c_name.as_str());
+                      // Track string constants so we can reject string `+` in dependent bindings
+                      is_str_rhs := match(
+                        rhs_e2,
+                        .Atom(_, str_tok) => (str_tok.kind == TokenKind.StringLit),
+                        .FnCall(_, _, _, _, _) => false
+                      );
+                      if(is_str_rhs, {
+                        ctx.*.register_string_const(c_name.as_str());
+                      });
+                      .Some(String.from("0"))
+                    }
+                  )
                 )
-              )
+              }
             )
           )
         },

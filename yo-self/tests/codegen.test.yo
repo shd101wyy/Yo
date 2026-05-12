@@ -1590,6 +1590,29 @@ test("validation: Option/Result runtime constructors lower to payload values", {
     }
   );
 });
+test("validation: Option/Result unwrap method extraction lowers to macro alias", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ f :: Option(i32).unwrap; x := Option(i32).Some(i32(42)); val := f(x); assert(val == i32(42)); g :: Result(i32, bool).unwrap; y := Result(i32, bool).Ok(i32(7)); got := g(y); assert(got == i32(7)); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "option_result_method_extract_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("#define f(__yo_value) (__yo_value)")), "Option unwrap macro");
+      assert(c.contains(String.from("#define g(__yo_value) (__yo_value)")), "Result unwrap macro");
+      assert(c.contains(String.from("__auto_type val = f(x);")), "extracted Option unwrap call remains macro-expanded by C");
+      assert(c.contains(String.from("__auto_type got = g(y);")), "extracted Result unwrap call remains macro-expanded by C");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
 // ---------------------------------------------------------------------------
