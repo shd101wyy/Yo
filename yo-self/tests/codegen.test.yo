@@ -1735,6 +1735,28 @@ test("validation: discard binding and ArrayList dispose lower to statements", {
     }
   );
 });
+test("validation: String bytes_len lowers for ArrayList Index loop element", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ (list : ArrayList(String)) = ArrayList(String).new(); list.push(`alpha`); (i : usize) = usize(0); while(i < list.len(), { (elem : String) = list(i); assert(elem.bytes_len() > usize(0), \"element should not be empty\"); i = (i + usize(1)); }); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "arraylist_string_bytes_len_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("const char* elem = list.data[i];")), "ArrayList(String) Index should bind string element");
+      assert(c.contains(String.from("strlen(elem) > (size_t)(0)")), "String.bytes_len should lower to strlen");
+      assert(!(c.contains(String.from("elem.bytes_len()"))), "String.bytes_len should not fall through as C method");
+    }
+  );
+});
 test("validation: struct runtime Index call lowers to field pointer selection", {
   given(exn) := Exception(
     throw : (

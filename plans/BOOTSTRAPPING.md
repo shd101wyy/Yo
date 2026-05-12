@@ -7298,18 +7298,18 @@ Called from the Pass-2 loop in `compile_module_to_c` just before each
 
 Running `yo-self/yo-self-bin test <file>` on representative `./tests/*.test.yo`:
 
-| Test file                            | passed/total | Notes                                                                           |
-| ------------------------------------ | ------------ | ------------------------------------------------------------------------------- |
-| `comptime.test.yo`                   | 28/28        | Fully passes!                                                                   |
-| `array.test.yo`                      | 10/12        | 2 skipped need `Array(T, _)` length inference                                   |
-| `comptime_option_result.test.yo`     | 8/12         |                                                                                 |
-| `basic.test.yo`                      | 24/32        | 8 use destructuring patterns, default fields, generics, `.Some(...)` literals   |
-| `closure.test.yo`                    | 9/9          | Primitive, object/RC, and narrow `Dyn(Fn(...))` closure captures pass           |
-| `match_curly.test.yo`                | 10/10        | Single-field curly structs and Option.Some curly bindings pass                  |
-| `index.test.yo`                      | 45/54        | Runtime ArrayList, simple/generic struct Index, and indexed bool-field `!` pass |
-| `control_fn_as_regular_call.test.yo` | 0/3          | Requires IO effect injection                                                    |
-| `algebraic_effects.test.yo`          | 0/61         | Effects runtime not ported (~15k lines TS)                                      |
-| `async_await.test.yo`                | 0/121        | Async runtime not ported (~15k lines TS)                                        |
+| Test file                            | passed/total | Notes                                                                                                 |
+| ------------------------------------ | ------------ | ----------------------------------------------------------------------------------------------------- |
+| `comptime.test.yo`                   | 28/28        | Fully passes!                                                                                         |
+| `array.test.yo`                      | 10/12        | 2 skipped need `Array(T, _)` length inference                                                         |
+| `comptime_option_result.test.yo`     | 8/12         |                                                                                                       |
+| `basic.test.yo`                      | 24/32        | 8 use destructuring patterns, default fields, generics, `.Some(...)` literals                         |
+| `closure.test.yo`                    | 9/9          | Primitive, object/RC, and narrow `Dyn(Fn(...))` closure captures pass                                 |
+| `match_curly.test.yo`                | 10/10        | Single-field curly structs and Option.Some curly bindings pass                                        |
+| `index.test.yo`                      | 46/54        | Runtime ArrayList, simple/generic struct Index, indexed bool-field `!`, and String `bytes_len()` pass |
+| `control_fn_as_regular_call.test.yo` | 0/3          | Requires IO effect injection                                                                          |
+| `algebraic_effects.test.yo`          | 0/61         | Effects runtime not ported (~15k lines TS)                                                            |
+| `async_await.test.yo`                | 0/121        | Async runtime not ported (~15k lines TS)                                                              |
 
 ### Remaining major codegen subsystems (TS → Yo)
 
@@ -8503,6 +8503,53 @@ access. The generated C failed earlier/later in the same test because:
 - ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
 - ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
 - ⚠️ `tests/index.test.yo` → 45 passed, 0 failed, 9 skipped.
+
+### Phase 13ae — String `bytes_len()` lowering in ArrayList loop extraction
+
+**Problem**: after Phase 13ad, `tests/index.test.yo` still skipped
+`Test Index on ArrayList(String) - RC dup in loop`. The bootstrap ArrayList
+lowering already extracted `list(i)` as a `const char*`, but `elem.bytes_len()`
+fell through as a raw C method call:
+
+```c
+elem.bytes_len()
+```
+
+which is invalid for the current bootstrap `String == const char*`
+representation.
+
+**Fix**:
+
+- Lower zero-argument `bytes_len()` through the same string path as `.len()`:
+  `strlen(recv)`.
+
+**Verification**:
+
+- ✅ Added targeted codegen regression:
+  - `validation: String bytes_len lowers for ArrayList Index loop element`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 253/253.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --test-name-pattern "RC dup in loop" --disable-sanitize --parallel 1`
+  passes: 1 passed, 0 failed, 0 skipped.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  passes: 46 passed, 0 failed, 8 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime.test.yo` → 28 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
+- ⚠️ `tests/index.test.yo` → 46 passed, 0 failed, 8 skipped.
 
 ### Phase 13x — Primitive closure value lowering
 

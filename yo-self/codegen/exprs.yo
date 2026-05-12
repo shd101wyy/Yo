@@ -7227,8 +7227,8 @@ handle_method_call :: (
               true => Option(String).None
             )
           ),
-          // `str_lit.len()` / `str_const.len()` — str/String .len() → strlen(recv)
-          ((method_name.as_str() == "len") && (args.len() == usize(0))) => {
+          // `str_lit.len()` / `str_const.len()` / `string.bytes_len()` → strlen(recv)
+          (((method_name.as_str() == "len") || (method_name.as_str() == "bytes_len")) && (args.len() == usize(0))) => {
             sl_len2 := String.from("strlen(");
             sl_len2.push_string(recv_code);
             sl_len2.push_str(")");
