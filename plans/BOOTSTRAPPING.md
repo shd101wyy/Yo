@@ -7748,3 +7748,55 @@ type to dispatch or lower correctly.
   - `index function call result`
 - `tests/array.test.yo`
   - `Test Array fill method`
+
+### Phase 13o — Generic option-like `Some` match lowering
+
+**Problem**: `tests/basic.test.yo` still skipped
+`Test 'comptime_fn' function call and function overloading`. The real benchmark
+defines a local generic option type and then matches a known `Some` value:
+
+```rust
+MyOption :: (fn(comptime(T) : Type) -> comptime(Type))(enum(None, Some(value : T)));
+op := MyOption(i32).Some(12);
+match(op, .Some(_) => { ... }, .None => { y := add(4, 5); ... });
+```
+
+The bootstrap codegen only knew the built-in `Option` constructor shape, so it
+emitted invalid C like `0.Some(12)`. After constructor lowering, the existing
+data-enum match path would still try to switch on `op.tag`, even though the
+prototype representation stores `Some(payload)` as the payload value directly.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- Recognize generic type-application receivers for `Some` / `None`, not just
+  the standard `Option(T)` receiver.
+- Treat `comptime_unwrap()` like `unwrap()` in the payload-only prototype
+  representation.
+- When matching a simplified payload-only `Some`, emit only the `.Some(...)`
+  arm body and avoid generating a `.tag` switch or dead `.None` branch C.
+
+This is still a benchmark-driven prototype representation, not a full generic
+enum instantiation system. The remaining work is to materialize real generic
+enum layouts when a runtime `None` path is needed.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: generic option-like Some match lowers to payload branch`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 225/225.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/basic.test.yo --test-name-pattern "Test 'comptime_fn' function call and function overloading" -v`
+  passes: 1/1.
+- ✅ Real benchmark status:
+  - `./yo-self/yo-self-bin test tests/basic.test.yo` → 30 passed, 0 failed, 2 skipped.
+  - `./yo-self/yo-self-bin test tests/array.test.yo` → 11 passed, 0 failed, 1 skipped.
+  - `./yo-self/yo-self-bin test tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+
+**Remaining real-test blockers**:
+
+- `tests/basic.test.yo`
+  - `return in match branch type compatibility`
+  - `index function call result`
+- `tests/array.test.yo`
+  - `Test Array fill method`

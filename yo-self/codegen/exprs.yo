@@ -1476,6 +1476,80 @@ _is_data_arm_pattern :: (fn(pat_expr : AstExpr) -> bool)(
     )
   )
 );
+data_arm_variant_name :: (fn(pat_expr : AstExpr) -> Option(String))(
+  match(
+    pat_expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, pat_func, _, pat_infix, _) => cond(
+      pat_infix => Option(String).None,
+      true => match(
+        pat_func.*,
+        .Atom(_, _) => Option(String).None,
+        .FnCall(_, inner_func, inner_args, inner_infix, _) => cond(
+          inner_infix => Option(String).None,
+          (inner_args.len() != usize(1)) => Option(String).None,
+          true => match(
+            inner_func.*,
+            .FnCall(_, _, _, _, _) => Option(String).None,
+            .Atom(_, dot_tok) => cond(
+              (dot_tok.kind != TokenKind.Dot) => Option(String).None,
+              true => match(
+                inner_args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(variant_expr) => match(
+                  variant_expr,
+                  .FnCall(_, _, _, _, _) => Option(String).None,
+                  .Atom(_, variant_tok) => Option(String).Some(variant_tok.value)
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+emit_simplified_some_bindings :: (
+  fn(pat_expr : AstExpr, scrut_code : String, ctx : *(CodegenContext), indent : String) -> unit
+)(
+  match(
+    pat_expr,
+    .Atom(_, _) => (),
+    .FnCall(_, pat_func, pat_args, pat_infix, _) => cond(
+      pat_infix => (),
+      true => match(
+        pat_func.*,
+        .Atom(_, _) => (),
+        .FnCall(_, _, _, _, _) => {
+          n := pat_args.len();
+          (i : usize) = usize(0);
+          while(runtime(i < n), {
+            match(
+              pat_args.get(i),
+              .None => (),
+              .Some(binding_expr) => match(
+                binding_expr,
+                .FnCall(_, _, _, _, _) => (),
+                .Atom(_, binding_tok) => cond(
+                  (binding_tok.value.as_str() == "_") => (),
+                  true => {
+                    ctx.*.emitter.emit_string(indent);
+                    ctx.*.emitter.emit("__auto_type ");
+                    ctx.*.emitter.emit_string(sanitize_c_ident(binding_tok.value.as_str()));
+                    ctx.*.emitter.emit(" = ");
+                    ctx.*.emitter.emit_string(scrut_code);
+                    ctx.*.emitter.emit_line(";");
+                  }
+                )
+              )
+            );
+            i = (i + usize(1));
+          });
+        }
+      )
+    )
+  )
+);
 /// True if `expr` is `match(scrut, ...)` where any arm pattern is `.Variant(bindings...)`.
 /// Used to decide whether to use `generate_match_data` instead of ternary chains.
 _has_data_arm :: (fn(args : ArrayList(AstExpr)) -> bool)({
@@ -1555,53 +1629,109 @@ handle_match_data :: (
               )
             }
           );
-          temp := ctx.*.fresh_temp();
-          data_arms := ArrayList(DataArm).new();
-          (i : usize) = usize(1);
-          while(runtime(i < n), {
-            match(
-              args.get(i),
-              .None => (),
-              .Some(arm_expr) => match(
-                get_arm_args(arm_expr),
-                .None => (),
-                .Some(arm_args) => match(
-                  arm_args.get(usize(0)),
-                  .None => (),
-                  .Some(pat_expr) => {
-                    variant_name_buf := String.new();
-                    bindings := ArrayList(DataBinding).new();
-                    tag_const_str := _extract_data_arm(pat_expr, &(variant_name_buf), &(bindings), ctx);
-                    body_expr_opt := arm_args.get(usize(1));
-                    match(
-                      body_expr_opt,
-                      .None => (),
-                      .Some(body_expr) => {
-                        arm := DataArm(
-                          tag_const : tag_const_str,
-                          bindings : bindings,
-                          body : body_expr
-                        );
-                        _r := data_arms.push(arm);
-                        ();
-                      }
-                    );
-                  }
-                )
-              )
-            );
-            i = (i + usize(1));
-          });
-          generate_match_data(
-            scrut_c.as_str(),
-            "int32_t",
-            temp.as_str(),
-            data_arms,
-            call_gen_expr,
-            ctx,
-            indent.as_str()
+          can_simplify_some_match := match(
+            ctx.*.get_var_type(scrut_code.as_str()),
+            .None => true,
+            .Some(vt) => (vt.as_str() == "__auto_type")
           );
-          .Some(temp)
+          simplified_some_body := {
+            (si : usize) = usize(1);
+            (found_some : Option(AstExpr)) = Option(AstExpr).None;
+            while(runtime(can_simplify_some_match && ((si < n) && found_some.is_none())), {
+              match(
+                args.get(si),
+                .None => (),
+                .Some(arm_expr2) => match(
+                  get_arm_args(arm_expr2),
+                  .None => (),
+                  .Some(arm_args2) => match(
+                    arm_args2.get(usize(0)),
+                    .None => (),
+                    .Some(pat_expr2) => match(
+                      data_arm_variant_name(pat_expr2),
+                      .None => (),
+                      .Some(vn) => cond(
+                        (vn.as_str() != "Some") => (),
+                        true => match(
+                          arm_args2.get(usize(1)),
+                          .None => (),
+                          .Some(body_expr2) => {
+                            emit_simplified_some_bindings(pat_expr2, scrut_c, ctx, indent);
+                            found_some = Option(AstExpr).Some(body_expr2);
+                          }
+                        )
+                      )
+                    )
+                  )
+                )
+              );
+              si = (si + usize(1));
+            });
+            found_some
+          };
+          match(
+            simplified_some_body,
+            .Some(body_expr3) => {
+              body_code := call_gen_expr(body_expr3, ctx, indent);
+              match(
+                body_code,
+                .None => Option(String).Some(String.from("0")),
+                .Some(body_c) => {
+                  emit_as_stmt(body_c, ctx, indent);
+                  Option(String).Some(String.from("0"))
+                }
+              )
+            },
+            .None => {
+              temp := ctx.*.fresh_temp();
+              data_arms := ArrayList(DataArm).new();
+              (i : usize) = usize(1);
+              while(runtime(i < n), {
+                match(
+                  args.get(i),
+                  .None => (),
+                  .Some(arm_expr) => match(
+                    get_arm_args(arm_expr),
+                    .None => (),
+                    .Some(arm_args) => match(
+                      arm_args.get(usize(0)),
+                      .None => (),
+                      .Some(pat_expr) => {
+                        variant_name_buf := String.new();
+                        bindings := ArrayList(DataBinding).new();
+                        tag_const_str := _extract_data_arm(pat_expr, &(variant_name_buf), &(bindings), ctx);
+                        body_expr_opt := arm_args.get(usize(1));
+                        match(
+                          body_expr_opt,
+                          .None => (),
+                          .Some(body_expr) => {
+                            arm := DataArm(
+                              tag_const : tag_const_str,
+                              bindings : bindings,
+                              body : body_expr
+                            );
+                            _r := data_arms.push(arm);
+                            ();
+                          }
+                        );
+                      }
+                    )
+                  )
+                );
+                i = (i + usize(1));
+              });
+              generate_match_data(
+                scrut_c.as_str(),
+                "int32_t",
+                temp.as_str(),
+                data_arms,
+                call_gen_expr,
+                ctx,
+                indent.as_str()
+              );
+              .Some(temp)
+            }
+          )
         }
       )
     )
@@ -5454,6 +5584,10 @@ handle_method_call :: (
           // Prototype lowering for standard Option/Result constructors. The
           // bootstrap codegen represents Some/Ok/Err as the payload value and
           // None as NULL; runtime methods below are lowered accordingly.
+          ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
+            match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
+          ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
+            Option(String).Some(String.from("NULL")),
           ((type_app_receiver_is(recv_expr, "Option") && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
           ((type_app_receiver_is(recv_expr, "Option") && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
@@ -5899,7 +6033,7 @@ handle_method_call :: (
           // `x.unwrap()` with no args — strip the call, pass receiver through.
           // In the prototype codegen, malloc/calloc/realloc return raw C pointers;
           // wrapping in Option/Result is not emitted, so .unwrap() is a no-op.
-          ((method_name.as_str() == "unwrap") && (args.len() == usize(0))) =>
+          (((method_name.as_str() == "unwrap") || (method_name.as_str() == "comptime_unwrap")) && (args.len() == usize(0))) =>
             Option(String).Some(recv_code),
           ((method_name.as_str() == "unwrap_or") && (args.len() == usize(1))) =>
             Option(String).Some(recv_code),

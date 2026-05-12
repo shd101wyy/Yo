@@ -1613,6 +1613,29 @@ test("validation: Option/Result unwrap method extraction lowers to macro alias",
     }
   );
 });
+test("validation: generic option-like Some match lowers to payload branch", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("MyOption :: (fn(comptime(T) : Type) -> comptime(Type))(enum(None, Some(value : T))); main :: (fn() -> unit)({ op := MyOption(i32).Some(i32(12)); match(op, .Some(_) => { assert(op.comptime_unwrap() == i32(12)); }, .None => { y := add(i32(4), i32(5)); assert(y == i32(9)); }); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "generic_option_like_some_match_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("__auto_type op = (int32_t)(12);")), "generic Some lowers to payload");
+      assert(!(c.contains(String.from(".Some"))), "generic Some pseudo-call must not reach C");
+      assert(!(c.contains(String.from(".tag"))), "simplified Some match must not emit enum tag switch");
+      assert(!(c.contains(String.from("add("))), "dead None branch should not be emitted");
+    }
+  );
+});
 test("validation: assignment expression bindings preserve old value", {
   given(exn) := Exception(
     throw : (
