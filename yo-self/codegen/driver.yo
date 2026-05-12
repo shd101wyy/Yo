@@ -16,7 +16,7 @@
 //!   - No type declarations, RC helpers, or async support yet.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY } :: import("../expr/expr.yo");
+{ AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY, BK_BEGIN } :: import("../expr/expr.yo");
 { TokenKind, Token } :: import("../lexer/token.yo");
 { CodegenContext } :: import("./context.yo");
 { type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl } :: import("./exprs.yo");
@@ -4053,6 +4053,58 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
 // ---------------------------------------------------------------------------
 // compile_module_to_c
 // ---------------------------------------------------------------------------
+/// Recursively scan a function body for local type definitions
+/// (`Name :: struct(...)`, `Name :: enum(...)`, `Name :: newtype(...)`,
+/// `Name :: union(...)`) and emit them as top-level C typedefs.
+///
+/// This walks into nested begin blocks (e.g. inside if branches, while bodies)
+/// so type definitions at any depth get hoisted to the C file's top level.
+scan_and_emit_local_defs :: (
+  fn(body : AstExpr, ctx : *(CodegenContext)) -> unit
+)(
+  match(
+    body,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      // First, try to extract a type def from the expr itself
+      sd_opt := extract_struct_def(body);
+      match(
+        sd_opt,
+        .Some(sd) => emit_struct_to_c(sd, ctx),
+        .None => {
+          ed_opt := extract_enum_def(body);
+          match(
+            ed_opt,
+            .Some(ed) => emit_enum_to_c(ed, ctx),
+            .None => {
+              ud_opt := extract_union_def(body);
+              match(
+                ud_opt,
+                .Some(ud) => emit_union_to_c(ud, ctx),
+                .None => ()
+              );
+            }
+          );
+        }
+      );
+      // Recurse into begin block children to find nested defs
+      is_begin := match(
+        func_box.*,
+        .Atom(_, ftok) => (ftok.value.as_str() == BK_BEGIN),
+        .FnCall(_, _, _, _, _) => false
+      );
+      if(is_begin, {
+        (i : usize) = usize(0);
+        n := args.len();
+        while(runtime(i < n), {
+          match(args.get(i),.None => (),.Some(child) => recur(child, ctx));
+          i = (i + usize(1));
+        });
+      });
+    }
+  )
+);
+// ---------------------------------------------------------------------------
 /// Walk a parsed module body and generate a complete C11 source file.
 ///
 /// * Every `name :: (fn(…) -> T)(body)` top-level expression is compiled as a
@@ -4154,6 +4206,9 @@ compile_module_to_c :: (
               main_found = true;
               main_c_name = c_name;
             });
+            // Pre-scan body for local type definitions and emit them as
+            // top-level C typedefs before generating the function body.
+            scan_and_emit_local_defs(fd.body, pctx);
             generate_function(
               c_name.as_str(),
               fd.ret_ty_c.as_str(),
