@@ -3268,7 +3268,7 @@ test("Phase 5o: type_name_to_c maps rune to uint32_t", {
   result := type_name_to_c("rune");
   assert(result == String.from("uint32_t"), "rune maps to uint32_t");
 });
-test("Phase 5o: type_expr_to_c maps ArrayList(T) to void*", {
+test("Phase 5o: type_expr_to_c maps ArrayList(T) to concrete value type", {
   // ArrayList(String) → FnCall(Atom("ArrayList"), [Atom("String")], false)
   args := ArrayList(AstExpr).new();
   args.push(make_atom_expr(TokenKind.Identifier, "String"));
@@ -3277,7 +3277,7 @@ test("Phase 5o: type_expr_to_c maps ArrayList(T) to void*", {
   match(
     result,
     .None => assert(false, "expected Some for ArrayList(String)"),
-    .Some(ty) => assert(ty == String.from("void*"), "ArrayList(T) -> void*")
+    .Some(ty) => assert(ty == String.from("ArrayList_String"), "ArrayList(T) -> ArrayList_T")
   );
 });
 test("Phase 5o: type_expr_to_c maps Option(T) to void*", {
@@ -4571,6 +4571,69 @@ test("validation: Worker bootstrap methods lower to no-op", {
     .None => assert(false, "Worker.set_num_threads should generate"),
     .Some(code) => {
       assert(code == String.from("0"), "Worker.set_num_threads should be no-op");
+    }
+  );
+});
+test("validation: String.concat lowers to bootstrap concat helper", {
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.StringLit, "\"a\""));
+  args.push(make_atom_expr(TokenKind.StringLit, "\"b\""));
+  call_expr := make_method_call_expr(make_atom_expr(TokenKind.Identifier, "String"), "concat", args);
+  result := run_gen(call_expr);
+  match(
+    result,
+    .None => assert(false, "String.concat should generate"),
+    .Some(code) => {
+      assert(code == String.from("__yo_str_concat(\"a\", \"b\")"), "String.concat should use helper");
+    }
+  );
+});
+test("validation: ArrayList(Token) has concrete bootstrap value layout", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("Token :: object(name : String); to_str :: (fn(toks : ArrayList(Token), i : usize) -> String)({ n := toks.len(); match(toks.get(i), .Some(p) => String.concat(p.name, `tail`), .None => `none`) }); main :: (fn() -> unit)({ toks := ArrayList(Token).new(); toks.push(Token(name : `a`)); s := to_str(toks, usize(0)); assert(s == `atail`, \"ok\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "arraylist_token_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { Token data[1024]; size_t length; Token* _ptr; } ArrayList_Token;")), "ArrayList_Token typedef");
+      assert(c.contains(String.from("static const char* fn_to_str(ArrayList_Token toks, size_t i);")), "ArrayList(Token) parameter type");
+      assert(c.contains(String.from("(ArrayList_Token){.data = {0}, .length = 0, ._ptr = NULL}")), "ArrayList(Token).new concrete init");
+      assert(c.contains(String.from("__auto_type n = toks.length;")), "ArrayList(Token).len lowers to length");
+      assert(c.contains(String.from("toks.data[i]")), "ArrayList(Token).get lowers to data access");
+      assert(c.contains(String.from("__yo_str_concat(p.name, \"tail\")")), "String.concat lowers in function body");
+    }
+  );
+});
+test("validation: cond branch begin block returns inside selected branch", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("build_tag :: (fn(n : i32) -> String)(cond((n <= i32(0)) => `end`, true => { tail := recur(n - i32(1)); String.concat(`x`, tail) })); main :: (fn() -> unit)({ s := build_tag(i32(3)); assert(s == `xxxend`, \"ok\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "cond_begin_return_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("if ((n <= (int32_t)(0))) {")), "cond should emit branch if");
+      assert(c.contains(String.from("return \"end\";")), "base branch should return directly");
+      assert(c.contains(String.from("__auto_type tail = fn_build_tag((n - (int32_t)(1)));")), "recursive local should stay in branch");
+      assert(c.contains(String.from("return __yo_str_concat(\"x\", tail);")), "recursive branch should return concat");
+      assert(!(c.contains(String.from("__auto_type tail = fn_build_tag((n - (int32_t)(1)));\n  0;\n  return ((n <= (int32_t)(0))"))), "recursive local must not be hoisted before cond");
     }
   );
 });

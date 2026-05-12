@@ -8156,7 +8156,78 @@ This is intentionally narrow: it fixes generic type-expression handling in
 - ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
 - Remaining sampled skips:
   - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
-  - `tests/control_fn_as_regular_call.test.yo` — missing async/IO/Worker lowering.
+
+### Phase 13w — Generic `ArrayList(T)` and cond branch begin lowering
+
+**Problem**: `tests/recur_inline_arg.test.yo` skipped all four tests under
+`yo-self/yo-self-bin`. The generated C exposed several bootstrap codegen gaps:
+
+```c
+static const char* fn_to_str(void* toks, size_t i) {
+  __auto_type p = toks.get(i);
+  return ((i >= n) ? "done" : String.concat(p.name, fn_to_str(...)));
+}
+```
+
+The root causes were:
+
+- `ArrayList(Token)` still lowered to `void*`, while `ArrayList(T).new()` always
+  produced the old `ArrayList_u8` specialization.
+- `ArrayList(T).len()`, `.get(i)`, and `.push(v)` only worked for `ArrayList_u8`.
+- `String.concat(a, b)` fell through as a raw pseudo-call instead of lowering to
+  the generated C string helper.
+- A `cond` arm whose body was a begin block (`{ tail := recur(...); ... }`) used
+  ternary lowering, so the begin-block statements were hoisted before the
+  condition and the recursive base case was bypassed.
+
+**Fix**:
+
+- Added a concrete bootstrap `ArrayList_<T>` value layout for identifier element
+  types:
+
+  ```c
+  typedef struct { T data[1024]; size_t length; T* _ptr; } ArrayList_T;
+  ```
+
+- `type_expr_to_c(ArrayList(T))` now returns `ArrayList_T` instead of opaque
+  `void*` when `T` is an identifier.
+- Function declarations/definitions now ensure required `ArrayList_T` typedefs
+  are emitted before C signatures reference them.
+- `ArrayList(T).new()`, `.push(v)`, `.len()`, and `.get(i)` lower through the
+  generic value layout.
+- `String.concat(a, b)` lowers to `__yo_str_concat(a, b)`.
+- `cond` expressions with begin-block branch bodies in non-void functions now
+  emit `if`/`else` branches with branch-local statements and direct `return`
+  statements, preventing recursive locals from being evaluated before the
+  condition is tested.
+
+This is still a bootstrap representation: `ArrayList_T` uses a fixed 1024-item
+inline buffer and is meant to unblock real compiler-port benchmarks, not replace
+the production standard-library implementation.
+
+**Verification**:
+
+- ✅ Added targeted tests:
+  - `validation: String.concat lowers to bootstrap concat helper`
+  - `validation: ArrayList(Token) has concrete bootstrap value layout`
+  - `validation: cond branch begin block returns inside selected branch`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 241/241.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/recur_inline_arg.test.yo --disable-sanitize --parallel 1`
+  passes: 4 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
 
 ### Phase 13v — Bootstrap control-function IO/Worker stubs
 

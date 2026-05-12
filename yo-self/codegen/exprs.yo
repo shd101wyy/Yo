@@ -601,6 +601,122 @@ emit_cond_as_if_else :: (
     true => Option(String).None
   )
 });
+emit_returning_branch_body :: (
+  fn(
+    branch_body : AstExpr,
+    ctx : *(CodegenContext),
+    inner : String
+  ) -> bool
+)(
+  match(
+    call_gen_expr(branch_body, ctx, inner),
+    .None => false,
+    .Some(bs) => {
+      if(bs.as_str() != "0", {
+        ctx.*.emitter.emit_string(inner);
+        ctx.*.emitter.emit("return ");
+        ctx.*.emitter.emit_string(bs);
+        ctx.*.emitter.emit_line(";");
+      });
+      true
+    }
+  )
+);
+emit_cond_as_return_if_else :: (
+  fn(
+    args : ArrayList(AstExpr),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)({
+  n := args.len();
+  inner := String.from(indent.as_str());
+  inner.push_str("  ");
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while(runtime((i < n) && ok), {
+    match(
+      args.get(i),
+      .None => {
+        ok = false;
+      },
+      .Some(arm) => match(
+        get_arm_args(arm),
+        .None => {
+          ok = false;
+        },
+        .Some(arm_args) => match(
+          arm_args.get(usize(0)),
+          .None => {
+            ok = false;
+          },
+          .Some(cond_expr) => match(
+            arm_args.get(usize(1)),
+            .None => {
+              ok = false;
+            },
+            .Some(body_expr) => {
+              is_first := (i == usize(0));
+              is_last := (i == (n - usize(1)));
+              is_true_catch := match(
+                cond_expr,
+                .Atom(_, ctok) => ((ctok.kind == TokenKind.Bool) && (ctok.value.as_str() == "true")),
+                .FnCall(_, _, _, _, _) => false
+              );
+              cond(
+                (is_first && is_true_catch) => {
+                  ok = emit_returning_branch_body(body_expr, ctx, inner);
+                },
+                is_true_catch => {
+                  ctx.*.emitter.emit(" else {\n");
+                  ok = emit_returning_branch_body(body_expr, ctx, inner);
+                  ctx.*.emitter.emit_string(indent);
+                  ctx.*.emitter.emit("}\n");
+                },
+                true => {
+                  cond(
+                    is_first => {
+                      ctx.*.emitter.emit_string(indent);
+                      ctx.*.emitter.emit("if (");
+                    },
+                    true => {
+                      ctx.*.emitter.emit(" else if (");
+                    }
+                  );
+                  match(
+                    call_gen_expr(cond_expr, ctx, indent),
+                    .None => {
+                      ok = false;
+                    },
+                    .Some(c) => {
+                      ctx.*.emitter.emit_string(c);
+                      ctx.*.emitter.emit(") {\n");
+                      ok = emit_returning_branch_body(body_expr, ctx, inner);
+                      ctx.*.emitter.emit_string(indent);
+                      cond(
+                        is_last => {
+                          ctx.*.emitter.emit("}\n");
+                        },
+                        true => {
+                          ctx.*.emitter.emit("}");
+                        }
+                      );
+                    }
+                  )
+                }
+              );
+            }
+          )
+        )
+      )
+    );
+    i = (i + usize(1));
+  });
+  cond(
+    ok =>.Some(String.from("0")),
+    true => Option(String).None
+  )
+});
 /// True if `expr` is an Atom with token value equal to `val`.
 _is_atom_value :: (fn(expr : AstExpr, val : str) -> bool)(
   match(
@@ -705,8 +821,33 @@ handle_cond :: (
         });
         found
       };
+      has_begin_body := {
+        (bk : usize) = usize(0);
+        (found_begin : bool) = false;
+        while(runtime((bk < n) && (!(found_begin))), {
+          match(
+            args.get(bk),
+            .None => (),
+            .Some(arm_b) => match(
+              get_arm_args(arm_b),
+              .None => (),
+              .Some(arm_args_b) => match(
+                arm_args_b.get(usize(1)),
+                .None => (),
+                .Some(body_expr_b) => {
+                  found_begin = is_begin_block(body_expr_b);
+                }
+              )
+            )
+          );
+          bk = (bk + usize(1));
+        });
+        found_begin
+      };
+      can_return_from_cond := ((ctx.*.current_fn_return_type.len() > usize(0)) && (ctx.*.current_fn_return_type.as_str() != "void"));
       cond(
-        has_stmt_body => emit_cond_as_if_else(args, ctx, indent),
+        ((has_begin_body && (!(has_stmt_body))) && can_return_from_cond) => emit_cond_as_return_if_else(args, ctx, indent),
+        (has_stmt_body || has_begin_body) => emit_cond_as_if_else(args, ctx, indent),
         true => {
           // Build right-to-left, starting from the last arm's body as the default.
           last_arm_opt := args.get(n - usize(1));
@@ -2664,7 +2805,10 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
           },
           // *(T) — pointer type: non-infix call to "*" with one arg (T must be an atom)
           (!(ftok.value.as_str() == "*")) => cond(
-            // Bootstrap specialization: ArrayList(u8) has a concrete value layout.
+            // Bootstrap specialization: ArrayList(T) has a concrete value layout
+            // when T is an identifier. The typedef is emitted lazily by
+            // ensure_arraylist_c_type before the C type is used in signatures or
+            // constructors.
             (ftok.value.as_str() == "ArrayList") => match(
               func_args.get(usize(0)),
               .None => Option(String).Some(String.from("void*")),
@@ -2672,8 +2816,12 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                 list_arg,
                 .FnCall(_, _, _, _, _) => Option(String).Some(String.from("void*")),
                 .Atom(_, list_arg_tok) => cond(
-                  (list_arg_tok.value.as_str() == "u8") => Option(String).Some(String.from("ArrayList_u8")),
-                  true => Option(String).Some(String.from("void*"))
+                  (list_arg_tok.kind != TokenKind.Identifier) => Option(String).Some(String.from("void*")),
+                  true => {
+                    list_ty := String.from("ArrayList_");
+                    list_ty.push_string(sanitize_c_ident(list_arg_tok.value.as_str()));
+                    Option(String).Some(list_ty)
+                  }
                 )
               )
             ),
@@ -3345,6 +3493,40 @@ ensure_generic_value_struct :: (fn(ctx : *(CodegenContext), type_name : String, 
     ctx.*.register_struct(String.from(type_name.as_str()));
     ctx.*.register_struct_fields(type_name.as_str(), "value");
     ctx.*.register_struct_field_types(type_name.as_str(), field_c_ty.as_str());
+  });
+});
+is_arraylist_c_type :: (fn(c_ty : str) -> bool)(
+  String.from(c_ty).starts_with(String.from("ArrayList_"))
+);
+arraylist_elem_c_type_from_name :: (fn(c_ty : str) -> Option(String))({
+  c_ty_s := String.from(c_ty);
+  prefix := String.from("ArrayList_");
+  cond(
+    (!(c_ty_s.starts_with(prefix))) => Option(String).None,
+    true => {
+      elem_name := c_ty_s.substring(prefix.len(), c_ty_s.len());
+      Option(String).Some(type_name_to_c(elem_name.as_str()))
+    }
+  )
+});
+ensure_arraylist_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
+  if(((c_ty != "ArrayList_u8") && is_arraylist_c_type(c_ty)) && (!(ctx.*.is_struct_name(c_ty))), {
+    match(
+      arraylist_elem_c_type_from_name(c_ty),
+      .None => (),
+      .Some(elem_c_ty) => {
+        decl := String.from("typedef struct { ");
+        decl.push_string(elem_c_ty);
+        decl.push_str(" data[1024]; size_t length; ");
+        decl.push_string(elem_c_ty);
+        decl.push_str("* _ptr; } ");
+        decl.push_str(c_ty);
+        decl.push_str(";");
+        ctx.*.emitter.emit_declaration_string_line(decl);
+        ctx.*.register_struct(String.from(c_ty));
+        ctx.*.register_struct_fields(c_ty, "data,length,_ptr");
+      }
+    );
   });
 });
 generic_static_constructor_type_from_call :: (fn(expr : AstExpr) -> Option(String))(
@@ -5874,7 +6056,17 @@ handle_method_call :: (
             )
           ),
           ((type_app_receiver_is(recv_expr, "ArrayList") && (method_name.as_str() == "new")) && (args.len() == usize(0))) =>
-            Option(String).Some(String.from("(ArrayList_u8){.data = {0}, .length = 0, ._ptr = NULL}")),
+            match(
+              type_expr_to_c(recv_expr),
+              .None => Option(String).None,
+              .Some(list_c_ty) => {
+                ensure_arraylist_c_type(ctx, list_c_ty.as_str());
+                list_new := String.from("(");
+                list_new.push_string(list_c_ty);
+                list_new.push_str("){.data = {0}, .length = 0, ._ptr = NULL}");
+                Option(String).Some(list_new)
+              }
+            ),
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
@@ -5928,7 +6120,7 @@ handle_method_call :: (
             sl_len.push_str(".length");
             Option(String).Some(sl_len)
           },
-          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
+          (var_type_is(ctx, recv_code.as_str(), "YoArray_i32") && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
             ctx.*.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_array_len) => cond(
@@ -5941,12 +6133,12 @@ handle_method_call :: (
               }
             )
           ),
-          // Bootstrap ArrayList(u8) value operations.
+          // Bootstrap ArrayList(T) value operations.
           (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push") && (args.len() == usize(1)))) => match(
             ctx.*.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_push) => cond(
-              (recv_ty_for_push.as_str() != "ArrayList_u8") => Option(String).None,
+              (!(is_arraylist_c_type(recv_ty_for_push.as_str()))) => Option(String).None,
               true => match(
                 args.get(usize(0)),
                 .None => Option(String).None,
@@ -5975,13 +6167,36 @@ handle_method_call :: (
             ctx.*.get_var_type(recv_code.as_str()),
             .None => Option(String).None,
             .Some(recv_ty_for_len) => cond(
-              (recv_ty_for_len.as_str() != "ArrayList_u8") => Option(String).None,
+              (!(is_arraylist_c_type(recv_ty_for_len.as_str()))) => Option(String).None,
               true => {
                 list_len_code := String.new();
                 list_len_code.push_string(recv_code);
                 list_len_code.push_str(".length");
                 Option(String).Some(list_len_code)
               }
+            )
+          ),
+          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "get") && (args.len() == usize(1)))) => match(
+            ctx.*.get_var_type(recv_code.as_str()),
+            .None => Option(String).None,
+            .Some(recv_ty_for_get) => cond(
+              (!(is_arraylist_c_type(recv_ty_for_get.as_str()))) => Option(String).None,
+              true => match(
+                args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(get_idx_expr) => match(
+                  call_gen_expr(get_idx_expr, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(get_idx_c) => {
+                    get_code := String.from("(");
+                    get_code.push_string(recv_code);
+                    get_code.push_str(".data[");
+                    get_code.push_string(get_idx_c);
+                    get_code.push_str("])");
+                    Option(String).Some(get_code)
+                  }
+                )
+              )
             )
           ),
           // `str_lit.len()` / `str_const.len()` — str/String .len() → strlen(recv)
@@ -6431,6 +6646,31 @@ handle_method_call :: (
           ((method_name.as_str() == "is_err") && (args.len() == usize(0))) =>
             Option(String).Some(String.from("false")),
           // `String.from(s)` — identity in proto codegen (String == const char*)
+          (((recv_code.as_str() == "String") && (method_name.as_str() == "concat")) && (args.len() == usize(2))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(concat_lhs_e) => match(
+                args.get(usize(1)),
+                .None => Option(String).None,
+                .Some(concat_rhs_e) => match(
+                  call_gen_expr(concat_lhs_e, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(concat_lhs_c) => match(
+                    call_gen_expr(concat_rhs_e, ctx, indent),
+                    .None => Option(String).None,
+                    .Some(concat_rhs_c) => {
+                      concat_call := String.from("__yo_str_concat(");
+                      concat_call.push_string(concat_lhs_c);
+                      concat_call.push_str(", ");
+                      concat_call.push_string(concat_rhs_c);
+                      concat_call.push_str(")");
+                      Option(String).Some(concat_call)
+                    }
+                  )
+                )
+              )
+            ),
           (((recv_code.as_str() == "String") && (method_name.as_str() == "from")) && (args.len() == usize(1))) =>
             match(
               args.get(usize(0)),
@@ -9228,7 +9468,7 @@ _gen_expr_fn_init := (fn() -> bool)({
 export(generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op);
 export(gen_integer_lit, gen_float_lit, gen_bool_lit, gen_string_lit);
 export(gen_binary_op, gen_unary_op);
-export(type_name_to_c, type_expr_to_c, is_c_type_name, is_builtin_keyword, is_primitive_type_cast, build_typed_decl);
+export(type_name_to_c, type_expr_to_c, is_c_type_name, is_builtin_keyword, is_primitive_type_cast, build_typed_decl, ensure_arraylist_c_type);
 export(gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment);
 export(handle_define, handle_bare_colon_decl, handle_type_cast, handle_assert);
 export(is_labeled_arg, all_labeled_args, is_uppercase_start, handle_struct_constructor);
