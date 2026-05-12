@@ -7304,7 +7304,7 @@ Running `yo-self/yo-self-bin test <file>` on representative `./tests/*.test.yo`:
 | `array.test.yo`                      | 10/12        | 2 skipped need `Array(T, _)` length inference                                 |
 | `comptime_option_result.test.yo`     | 8/12         |                                                                               |
 | `basic.test.yo`                      | 24/32        | 8 use destructuring patterns, default fields, generics, `.Some(...)` literals |
-| `closure.test.yo`                    | 1/9          | Closure capture not ported                                                    |
+| `closure.test.yo`                    | 3/9          | Primitive `Impl(Fn(...))` closure capture now works; Dyn/RC captures remain   |
 | `control_fn_as_regular_call.test.yo` | 0/3          | Requires IO effect injection                                                  |
 | `algebraic_effects.test.yo`          | 0/61         | Effects runtime not ported (~15k lines TS)                                    |
 | `async_await.test.yo`                | 0/121        | Async runtime not ported (~15k lines TS)                                      |
@@ -8156,6 +8156,71 @@ This is intentionally narrow: it fixes generic type-expression handling in
 - ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
 - Remaining sampled skips:
   - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
+
+### Phase 13x — Primitive closure value lowering
+
+**Problem**: `tests/closure.test.yo` only had the expected-error case passing under
+`yo-self/yo-self-bin`. The first real closure cases generated invalid C because
+closure bodies were emitted inline while computing the RHS:
+
+```c
+__auto_type x = 1;
+x = (x + y);
+return x;
+__auto_type closure = ClosureType(0);
+closure(1);
+```
+
+That left `y` undeclared, returned from the void test body, and emitted raw
+`ClosureType(...)` / `closure(...)` calls.
+
+**Fix**:
+
+- Added a bootstrap closure registry to `CodegenContext`:
+  - `ClosureType :: Impl(Fn(y : i32) -> i32)` records the alias parameter name.
+  - Closure variables record their captured field name and parameter name.
+- Lowered `closure := ClosureType({ ... })` for the primitive single-capture
+  shape used by the benchmark into a local environment struct:
+
+  ```c
+  typedef struct { __typeof__(x) x; } __yo_closure_env_closure;
+  __yo_closure_env_closure closure = { .x = x };
+  ```
+
+- Lowered `(closure : Impl(Fn(...))) = ((y) => { ... })` through the same value
+  representation.
+- Lowered calls to registered primitive closure variables as environment updates,
+  e.g. `closure(2)` becomes `((closure.x = (closure.x + 2)), closure.x)`.
+- Propagated closure metadata through `closure2 := closure`, so copied closure
+  values can be called through their independent copied environment.
+
+This is intentionally a bootstrap slice for the observed primitive `i32`
+closure pattern. Dyn closures and RC-object captures still need real closure
+environment/RC semantics.
+
+**Verification**:
+
+- ✅ Added targeted tests:
+  - `validation: ClosureType begin body captures mutable local copy`
+  - `validation: typed Impl lambda captures mutable local copy`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 243/243.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/closure.test.yo --disable-sanitize --parallel 1`
+  now passes: 3 passed, 0 failed, 6 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ⚠️ `tests/closure.test.yo` → 3 passed, 0 failed, 6 skipped.
 
 ### Phase 13w — Generic `ArrayList(T)` and cond branch begin lowering
 

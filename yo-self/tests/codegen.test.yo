@@ -4637,3 +4637,49 @@ test("validation: cond branch begin block returns inside selected branch", {
     }
   );
 });
+test("validation: ClosureType begin body captures mutable local copy", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ x := i32(1); ClosureType :: Impl(Fn(y : i32) -> i32); T :: Type.to_comptime_string(ClosureType); closure := ClosureType({ x = (x + y); return(x); }); closure2 := closure; closure(1); closure(1); result := closure(2); assert((x == i32(1)), \"outer x\"); assert((result == i32(5)), \"result\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "closure_type_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { __typeof__(x) x; } __yo_closure_env_closure;")), "closure env should capture x by value");
+      assert(c.contains(String.from("__yo_closure_env_closure closure = { .x = x };")), "closure value should initialize env copy");
+      assert(c.contains(String.from("((closure.x = (closure.x + 1)), closure.x);")), "closure call should mutate env copy");
+      assert(c.contains(String.from("__auto_type result = ((closure.x = (closure.x + 2)), closure.x);")), "closure result should come from env copy");
+    }
+  );
+});
+test("validation: typed Impl lambda captures mutable local copy", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ x := i32(1); (closure : Impl(Fn(y : i32) -> i32)) = ((y) => { x = (x + y); return(x); }); closure2 := closure; closure(1); closure(1); result := closure(2); result2 := closure2(2); assert((x == i32(1)), \"outer x\"); assert((result == i32(5)), \"result\"); assert((result2 == i32(3)), \"copy result\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "typed_closure_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { __typeof__(x) x; } __yo_closure_env_closure;")), "typed closure env should capture x");
+      assert(c.contains(String.from("__yo_closure_env_closure closure = { .x = x };")), "typed closure should initialize env copy");
+      assert(c.contains(String.from("__auto_type result = ((closure.x = (closure.x + 2)), closure.x);")), "typed closure result should use env copy");
+      assert(c.contains(String.from("__auto_type result2 = ((closure2.x = (closure2.x + 2)), closure2.x);")), "closure copy call should use copied env");
+    }
+  );
+});

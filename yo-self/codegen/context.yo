@@ -117,7 +117,14 @@ CodegenContext :: object(
   skipped_fn_names : ArrayList(String),
   // Variables that were created with `box(...)`: emitting `x == y` for these
   // should be `(*x == *y)` since box returns a pointer to the heap-allocated value.
-  box_var_names : ArrayList(String)
+  box_var_names : ArrayList(String),
+  // Bootstrap closure aliases: `ClosureType :: Impl(Fn(y : i32) -> i32)`.
+  closure_alias_names : ArrayList(String),
+  closure_alias_param_names : ArrayList(String),
+  // Bootstrap closure values with one captured mutable field.
+  closure_var_names : ArrayList(String),
+  closure_capture_names : ArrayList(String),
+  closure_param_names : ArrayList(String)
 );
 impl(
   CodegenContext,
@@ -161,7 +168,12 @@ impl(
       derive_hash_names : ArrayList(String).new(),
       derive_ord_names : ArrayList(String).new(),
       skipped_fn_names : ArrayList(String).new(),
-      box_var_names : ArrayList(String).new()
+      box_var_names : ArrayList(String).new(),
+      closure_alias_names : ArrayList(String).new(),
+      closure_alias_param_names : ArrayList(String).new(),
+      closure_var_names : ArrayList(String).new(),
+      closure_capture_names : ArrayList(String).new(),
+      closure_param_names : ArrayList(String).new()
     )
   ),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
@@ -1017,6 +1029,63 @@ impl(
       i = (i + usize(1));
     });
     found
+  }),
+  register_closure_alias : (fn(self : *(Self), alias_name : str, param_name : str) -> unit)({
+    self.*.closure_alias_names.push(String.from(alias_name));
+    self.*.closure_alias_param_names.push(String.from(param_name));
+  }),
+  get_closure_alias_param_name : (fn(self : *(Self), alias_name : str) -> Option(String))({
+    n := self.*.closure_alias_names.len();
+    (i : usize) = usize(0);
+    (result : Option(String)) = Option(String).None;
+    while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
+      match(
+        self.*.closure_alias_names.get(i),
+        .None => (),
+        .Some(name) => if(name.as_str() == alias_name, {
+          result = self.*.closure_alias_param_names.get(i);
+        })
+      );
+      i = (i + usize(1));
+    });
+    result
+  }),
+  register_simple_closure_var : (fn(self : *(Self), var_name : str, capture_name : str, param_name : str) -> unit)({
+    self.*.closure_var_names.push(String.from(var_name));
+    self.*.closure_capture_names.push(String.from(capture_name));
+    self.*.closure_param_names.push(String.from(param_name));
+  }),
+  get_simple_closure_capture_name : (fn(self : *(Self), var_name : str) -> Option(String))({
+    n := self.*.closure_var_names.len();
+    (i : usize) = usize(0);
+    (result : Option(String)) = Option(String).None;
+    while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
+      match(
+        self.*.closure_var_names.get(i),
+        .None => (),
+        .Some(name) => if(name.as_str() == var_name, {
+          result = self.*.closure_capture_names.get(i);
+        })
+      );
+      i = (i + usize(1));
+    });
+    result
+  }),
+  get_simple_closure_param_name : (fn(self : *(Self), var_name : str) -> Option(String))({
+    n := self.*.closure_var_names.len();
+    (i : usize) = usize(0);
+    (result : Option(String)) = Option(String).None;
+    while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
+      match(
+        self.*.closure_var_names.get(i),
+        .None => (),
+        .Some(name) => if(name.as_str() == var_name, {
+          result = self.*.closure_param_names.get(i);
+        })
+      );
+      i = (i + usize(1));
+    });
+    result
   })
 );
 export(CodegenContext);
