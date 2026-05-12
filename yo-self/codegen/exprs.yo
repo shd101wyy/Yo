@@ -2514,7 +2514,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
           match(
             func_box.*,
             .FnCall(_, _, _, _, _) => true,
-            .Atom(_, arity_tok) => (arity_tok.value.as_str() != "Tuple")
+            .Atom(_, arity_tok) => ((arity_tok.value.as_str() != "Tuple") && (arity_tok.value.as_str() != "Array"))
           )
       ) => Option(String).None,
       true => match(
@@ -2530,7 +2530,7 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
             .None => Option(String).None,
             .Some(inner) => match(
               inner,
-              .FnCall(_, _, _, _, _) => Option(String).None,
+              .FnCall(_, _, _, _, _) => recur(inner),
               .Atom(_, itok) => cond(
                 (itok.kind != TokenKind.Identifier) => Option(String).None,
                 (itok.value.as_str() == "Type") => Option(String).None,
@@ -2549,6 +2549,18 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
           ),
           // Tuple(T1, T2, ...) or Tuple(name : T, ...) — lower to an inline C
           // struct type with numeric fields, plus named aliases for labeled fields.
+          (ftok.value.as_str() == "Array") => match(
+            func_args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(array_elem_e) => match(
+              array_elem_e,
+              .FnCall(_, _, _, _, _) => Option(String).None,
+              .Atom(_, array_elem_tok) => cond(
+                (array_elem_tok.value.as_str() == "i32") => Option(String).Some(String.from("YoArray_i32")),
+                true => Option(String).None
+              )
+            )
+          ),
           (ftok.value.as_str() == "Tuple") => {
             n_tuple := func_args.len();
             cond(
@@ -3134,6 +3146,41 @@ type_app_receiver_is :: (fn(expr : AstExpr, type_name : str) -> bool)(
         type_fn_box.*,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, type_tok) => (type_tok.value.as_str() == type_name)
+      )
+    )
+  )
+);
+array_i32_size_arg_to_c :: (
+  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)
+)(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, type_fn_box, type_args, type_infix, _) => cond(
+      type_infix => Option(String).None,
+      (type_args.len() != usize(2)) => Option(String).None,
+      true => match(
+        type_fn_box.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, type_tok) => cond(
+          (type_tok.value.as_str() != "Array") => Option(String).None,
+          true => match(
+            type_args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(elem_e) => match(
+              elem_e,
+              .FnCall(_, _, _, _, _) => Option(String).None,
+              .Atom(_, elem_tok) => cond(
+                (elem_tok.value.as_str() != "i32") => Option(String).None,
+                true => match(
+                  type_args.get(usize(1)),
+                  .None => Option(String).None,
+                  .Some(size_e) => call_gen_expr(size_e, ctx, indent)
+                )
+              )
+            )
+          )
+        )
       )
     )
   )
@@ -5133,6 +5180,30 @@ handle_regular_call :: (
             .None => Option(String).None,
             .Some(e) => call_gen_expr(e, ctx, indent)
           ),
+        // Returned-array wrapper indexing: `arr(idx)` → `arr.data[idx]`.
+        (ctx.*.get_var_type(id.as_str()).is_some() && (args.len() == usize(1))) => match(
+          ctx.*.get_var_type(id.as_str()),
+          .None => Option(String).None,
+          .Some(id_ty) => cond(
+            (id_ty.as_str() != "YoArray_i32") => Option(String).None,
+            true => match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(array_idx_e) => match(
+                call_gen_expr(array_idx_e, ctx, indent),
+                .None => Option(String).None,
+                .Some(array_idx_c) => {
+                  array_index_code := String.new();
+                  array_index_code.push_string(id);
+                  array_index_code.push_str(".data[");
+                  array_index_code.push_string(array_idx_c);
+                  array_index_code.push_str("]");
+                  Option(String).Some(array_index_code)
+                }
+              )
+            )
+          )
+        ),
         // arr(start..end) — slice creation: emit compound literal {.data=&arr[start], .length=end-start}
         (ctx.*.is_array_var(id.as_str()) && (args.len() == usize(1))) =>
           match(
@@ -5620,6 +5691,26 @@ handle_method_call :: (
           // Prototype lowering for standard Option/Result constructors. The
           // bootstrap codegen represents Some/Ok/Err as the payload value and
           // None as NULL; runtime methods below are lowered accordingly.
+          ((type_app_receiver_is(recv_expr, "Array") && (method_name.as_str() == "fill")) && (args.len() == usize(1))) => match(
+            array_i32_size_arg_to_c(recv_expr, ctx, indent),
+            .None => Option(String).None,
+            .Some(array_size_c) => match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(fill_value_e) => match(
+                call_gen_expr(fill_value_e, ctx, indent),
+                .None => Option(String).None,
+                .Some(fill_value_c) => {
+                  fill_call := String.from("__yo_array_i32_fill(");
+                  fill_call.push_string(array_size_c);
+                  fill_call.push_str(", ");
+                  fill_call.push_string(fill_value_c);
+                  fill_call.push_str(")");
+                  Option(String).Some(fill_call)
+                }
+              )
+            )
+          ),
           ((type_app_receiver_is(recv_expr, "ArrayList") && (method_name.as_str() == "new")) && (args.len() == usize(0))) =>
             Option(String).Some(String.from("(ArrayList_u8){.data = {0}, .length = 0, ._ptr = NULL}")),
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
@@ -5675,6 +5766,19 @@ handle_method_call :: (
             sl_len.push_str(".length");
             Option(String).Some(sl_len)
           },
+          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
+            ctx.*.get_var_type(recv_code.as_str()),
+            .None => Option(String).None,
+            .Some(recv_ty_for_array_len) => cond(
+              (recv_ty_for_array_len.as_str() != "YoArray_i32") => Option(String).None,
+              true => {
+                array_len_code := String.new();
+                array_len_code.push_string(recv_code);
+                array_len_code.push_str(".length");
+                Option(String).Some(array_len_code)
+              }
+            )
+          ),
           // Bootstrap ArrayList(u8) value operations.
           (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push") && (args.len() == usize(1)))) => match(
             ctx.*.get_var_type(recv_code.as_str()),

@@ -1659,6 +1659,32 @@ test("validation: ArrayList(u8) value return can be indexed directly", {
     }
   );
 });
+test("validation: Array(i32, n).fill returns indexable array wrapper", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("return_array :: (fn(comptime(n) : usize) -> [i32 ; n])({ return(Array(i32, n).fill(10)); }); comptime_return_array :: (fn(comptime(n) : usize) -> comptime([i32 ; n]))(Array(i32, n).fill(30)); main :: (fn() -> unit)({ arr2 := return_array(5); assert(arr2.len() == 5); assert(arr2(0) == 10); arr3 := comptime_return_array(10); assert(arr3.len() == 10); assert(arr3(0) == 30); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "array_fill_wrapper_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { int32_t data[1024]; size_t length; } YoArray_i32;")), "YoArray_i32 typedef");
+      assert(c.contains(String.from("static YoArray_i32 fn_return_array(size_t n);")), "runtime array function return type");
+      assert(c.contains(String.from("static YoArray_i32 fn_comptime_return_array(size_t n);")), "comptime array function return type");
+      assert(c.contains(String.from("return __yo_array_i32_fill(n, 10);")), "runtime fill returns wrapper");
+      assert(c.contains(String.from("return __yo_array_i32_fill(n, 30);")), "comptime fill returns wrapper");
+      assert(c.contains(String.from("arr2.length == 5")), "wrapper len access");
+      assert(c.contains(String.from("arr3.data[0] == 30")), "wrapper index access");
+    }
+  );
+});
 test("validation: assignment expression bindings preserve old value", {
   given(exn) := Exception(
     throw : (

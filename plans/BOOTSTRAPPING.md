@@ -7855,3 +7855,62 @@ the bound pointer expression instead of only emitting statement-form bodies.
 
 - `tests/array.test.yo`
   - `Test Array fill method`
+
+### Phase 13q — Returned `Array(i32, n).fill(...)` wrapper lowering
+
+**Problem**: `tests/array.test.yo` still skipped `Test Array fill method`.
+The benchmark returns arrays from functions:
+
+```rust
+return_array :: (fn(comptime(n) : usize) -> [i32 ; n])({
+  return(Array(i32, n).fill(10));
+});
+comptime_return_array :: (fn(comptime(n) : usize) -> comptime([i32 ; n]))(
+  Array(i32, n).fill(30)
+);
+```
+
+C arrays cannot be returned by value, and the bootstrap codegen had no C type
+for `[i32 ; n]` or `comptime([i32 ; n])`. As a result it emitted `void*`
+returns, raw `Array(i32, n).fill(...)` pseudo-calls, and invalid indexing like
+`arr2(0)`.
+
+**Fix**:
+
+- Added a bootstrap-only returned-array wrapper in `yo-self/codegen/program.yo`:
+
+  ```c
+  typedef struct { int32_t data[1024]; size_t length; } YoArray_i32;
+  static inline YoArray_i32 __yo_array_i32_fill(size_t length, int32_t value) { ... }
+  ```
+
+- Taught `type_expr_to_c` that `Array(i32, n)` maps to `YoArray_i32`.
+- Taught `comptime(T)` return types to recurse into non-meta function-call
+  type expressions, so `comptime([i32 ; n])` is not skipped.
+- Lowered `Array(i32, n).fill(value)` to
+  `__yo_array_i32_fill(n, value)`.
+- Lowered `.len()` and indexing on variables whose inferred return type is
+  `YoArray_i32` to `.length` and `.data[idx]`.
+
+This is a bootstrap representation for the currently exercised `i32` returned
+array case. A full self-hosted compiler still needs proper generic returned
+array layouts across element types and sizes.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: Array(i32, n).fill returns indexable array wrapper`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 227/227.
+- ✅ `./yo-self/yo-self-bin test tests/array.test.yo --test-name-pattern "Test Array fill method" -v`
+  passes: 1/1.
+- ✅ Real benchmark status:
+  - `./yo-self/yo-self-bin test tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+  - `./yo-self/yo-self-bin test tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+  - `./yo-self/yo-self-bin test tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+
+**Next real-test targets**:
+
+- Start expanding beyond the initial benchmark trio into additional `./tests`
+  files, prioritizing small files first to expose the next missing evaluator or
+  codegen feature.
