@@ -6866,17 +6866,57 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             ctx.*.emitter.emit_line("return;");
             .Some(String.from("0"))
           },
-          .Some(ret_expr) => match(
-            call_gen_expr(ret_expr, ctx, indent),
-            .None => Option(String).None,
-            .Some(ret_code) => {
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit("return ");
-              ctx.*.emitter.emit_string(ret_code);
-              ctx.*.emitter.emit_line(";");
-              .Some(String.from("0"))
-            }
-          )
+          .Some(ret_expr) => {
+            single_field_return := match(
+              ret_expr,
+              .Atom(_, _) => Option(String).None,
+              .FnCall(_, ret_fn_box, ret_args, ret_infix, _) => cond(
+                ret_infix => Option(String).None,
+                (ret_args.len() != usize(1)) => Option(String).None,
+                true => match(
+                  ret_fn_box.*,
+                  .FnCall(_, _, _, _, _) => Option(String).None,
+                  .Atom(_, ret_begin_tok) => cond(
+                    ((ret_begin_tok.value.as_str() == BK_BEGIN) && (ctx.*.current_fn_return_type.len() > usize(0))) => match(
+                      ret_args.get(usize(0)),
+                      .None => Option(String).None,
+                      .Some(ret_field_expr) => match(
+                        ret_field_expr,
+                        .FnCall(_, _, _, _, _) => Option(String).None,
+                        .Atom(_, ret_field_tok) => {
+                          c := String.from("(");
+                          c.push_string(ctx.*.current_fn_return_type);
+                          c.push_str("){ .");
+                          c.push_string(ret_field_tok.value);
+                          c.push_str(" = ");
+                          c.push_string(sanitize_c_ident(ret_field_tok.value.as_str()));
+                          c.push_str(" }");
+                          Option(String).Some(c)
+                        }
+                      )
+                    ),
+                    true => Option(String).None
+                  )
+                )
+              )
+            );
+            ret_code_opt := match(
+              single_field_return,
+              .Some(single_ret_code) => Option(String).Some(single_ret_code),
+              .None => call_gen_expr(ret_expr, ctx, indent)
+            );
+            match(
+              ret_code_opt,
+              .None => Option(String).None,
+              .Some(ret_code) => {
+                ctx.*.emitter.emit_string(indent);
+                ctx.*.emitter.emit("return ");
+                ctx.*.emitter.emit_string(ret_code);
+                ctx.*.emitter.emit_line(";");
+                .Some(String.from("0"))
+              }
+            )
+          }
         ),
         // escape(expr) — in the prototype codegen, treated identically to `return`.
         // In the full codegen, `escape` discards the continuation and exits the

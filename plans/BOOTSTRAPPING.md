@@ -7556,3 +7556,27 @@ identifier.
 - ✅ `yo-self/yo-self-bin test tests/basic.test.yo` improves from 27/32 to
   28/32. Remaining skips are struct, generic comptime functions,
   return-in-match compatibility, and index-on-call-result.
+
+### Phase 13j — Return-context single-field struct literal coercion
+
+**Problem**: In the struct benchmark, `return({ balance })` inside a function
+returning `Withdraw` was parsed as a single-field begin expression. The
+bootstrap codegen lowered that to `return balance;`, which is invalid for a
+function whose C return type is `Withdraw`.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- In the `return(expr)` path, detect a single-field `begin(field)` expression
+  when the current function return type is known.
+- Emit a C compound literal for the current return type:
+  `return (Withdraw){ .balance = balance };`.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: return single-field struct literal coerces to return type`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 220/220.
+- `tests/basic.test.yo` remains 28/32 overall; the struct benchmark still has
+  additional independent gaps around anonymous/local struct values, tuple
+  struct fields, default-field materialization, and generic type methods.

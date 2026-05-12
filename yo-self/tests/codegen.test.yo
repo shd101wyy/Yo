@@ -1706,6 +1706,27 @@ test("validation: same-named local enums merge distinct variants", {
     }
   );
 });
+test("validation: return single-field struct literal coerces to return type", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("Withdraw :: struct(balance : i32); make :: (fn() -> Withdraw)({ (balance : i32) = 100; return({ balance }); }); main :: (fn() -> unit)({ bank := make(); assert(bank.balance == 100); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "return_single_field_struct_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("return (Withdraw){ .balance = balance };")), "return coerces shorthand struct literal");
+      assert(!(c.contains(String.from("return balance;"))), "return must not emit bare field value");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
 // ---------------------------------------------------------------------------
