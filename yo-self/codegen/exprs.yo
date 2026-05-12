@@ -3071,7 +3071,10 @@ handle_define :: (
                             .FnCall(_, _, _, _, _) => Option(String).None,
                             .Atom(_, stok) => cond(
                               (stok.kind == TokenKind.Integer) => Option(String).Some(stok.value),
-                              (stok.kind == TokenKind.Identifier) => Option(String).Some(stok.value),
+                              (stok.kind == TokenKind.Identifier) => cond(
+                                (stok.value.as_str() == "_") => Option(String).Some(ac_fn_args.len().to_string()),
+                                true => Option(String).Some(stok.value)
+                              ),
                               true => Option(String).None
                             )
                           )

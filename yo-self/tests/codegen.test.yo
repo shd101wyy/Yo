@@ -1545,6 +1545,28 @@ test("validation: parse and compile fn with i32 parameter", {
     }
   );
 });
+test("validation: Array(T, _) constructor infers C array length", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ arr1 := Array(i32, _)(1, 2, 3); arr2 := [i32 ; _](4, 5); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "array_infer_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("int32_t arr1[3] = {1, 2, 3};")), "Array(i32, _) infers length 3");
+      assert(c.contains(String.from("int32_t arr2[2] = {4, 5};")), "[i32 ; _] infers length 2");
+      assert(!(c.contains(String.from("[_]"))), "underscore length must not reach C output");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
 // ---------------------------------------------------------------------------

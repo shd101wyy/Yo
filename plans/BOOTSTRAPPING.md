@@ -7361,3 +7361,26 @@ errors from clang.
   - `compile_module_to_c: forward call emits function prototype`
 - ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
   passes: 212/212.
+
+### Phase 13c — Array constructor `_` length inference
+
+**Problem**: The self-hosted codegen recognized `Array(T, N)(...)` and
+`[T ; N](...)` constructor calls, but treated `_` as a literal C size. This
+emitted invalid C such as `int32_t arr[_] = {1, 2, 3};`, and the registered
+array length for `.len()` was also `_`.
+
+**Fix** (`yo-self/codegen/exprs.yo`): In the Array type-constructor branch of
+`handle_define`, when the size argument is identifier `_`, infer the C array
+length from the number of constructor arguments and register that inferred
+length for later `arr.len()` calls.
+
+**Verification**:
+
+- ✅ `yo-self/yo-self-bin` compiles and runs a program using both
+  `Array(i32, _)(1, 2, 3)` and `[i32 ; _](4, 5)`.
+- ✅ Added targeted test:
+  - `validation: Array(T, _) constructor infers C array length`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 213/213.
+- ✅ `yo-self/yo-self-bin test tests/array.test.yo` improves from 10/12 to
+  11/12. Remaining skipped case is `Array(T, N).fill(value)`.
