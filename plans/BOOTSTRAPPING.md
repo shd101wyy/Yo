@@ -263,6 +263,17 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 | `src/target.ts`                                     | `yo-self/target/target.yo`                              | ✅ Done                                                                                                                                                                                                                                                             |
 | `src/doc-command.ts` / `src/doc/**`                 | `yo-self/doc/`                                          | 🔲 Partial (model/sections/extractor/render-markdown done; builder/render-html/render-json pending)                                                                                                                                                                 |
 
+> **Codegen porting correction**: `yo-self/codegen/driver.yo` is a temporary
+> bootstrap/test harness that stitches parser output to the current prototype C
+> emitter. It is **not** a 1:1 counterpart to a TypeScript `driver.ts` file. Do
+> not continue adding new language features by growing `driver.yo` with ad-hoc
+> benchmark-specific lowering. The correct bootstrapping path is to port the real
+> TypeScript codegen modules above (`src/codegen/index.ts`,
+> `src/codegen/functions/*`, `src/codegen/exprs/*`, `src/codegen/types/*`,
+> `src/codegen/utils/*`) into corresponding Yo modules, then use `driver.yo`
+> only as a thin transitional harness until the real module manager/codegen entry
+> points exist in Yo.
+
 ### Translation guidelines
 
 Follow these rules consistently across all ported files:
