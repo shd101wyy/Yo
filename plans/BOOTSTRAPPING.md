@@ -7266,3 +7266,68 @@ Two files (eval_10mu, eval_10mw) had `weighted_sum` in T1 → added warmup.
 
 **Result: 300/300 tests + 2 warmup tests**
 **Running total after B219: 78,147 tests (+2 warmup)**
+
+---
+
+## Phase 13 — Pivot: Real codegen porting (Self-hosted compiler bug-fix loop)
+
+**Direction change**: Stop generating duplicative regression tests. Focus on
+actual TS→Yo codegen porting by running `yo-self/yo-self-bin` on real
+`./tests/*.test.yo` files, finding concrete codegen bugs, and fixing them.
+
+### Phase 13a — Local type definitions inside fn bodies
+
+**Problem**: `Name :: struct(...)`, `Name :: enum(...)`, `Name :: union(...)`
+inside a function body were silently dropped (only top-level module body was
+scanned for type defs), causing `undeclared identifier` errors when the
+constructor was used.
+
+**Fix** (`yo-self/codegen/driver.yo`): Added `scan_and_emit_local_defs(body, ctx)`
+which recursively walks function body begin blocks and emits any local type
+definitions as top-level C typedefs before the function body is generated.
+Called from the Pass-2 loop in `compile_module_to_c` just before each
+`generate_function` call.
+
+**Verification**:
+
+- ✅ A simple `Point :: struct(x : i32, y : i32)` inside `main` now compiles
+  and runs correctly through yo-self-bin → yo-self-bin.c → clang → exec
+- ✅ Existing `yo-self/tests/lexer.test.yo` (33/33) and `parser.test.yo` (43/43) still pass
+
+### Self-hosted compiler benchmark status (post-13a)
+
+Running `yo-self/yo-self-bin test <file>` on representative `./tests/*.test.yo`:
+
+| Test file                            | passed/total | Notes                                                                         |
+| ------------------------------------ | ------------ | ----------------------------------------------------------------------------- |
+| `comptime.test.yo`                   | 28/28        | Fully passes!                                                                 |
+| `array.test.yo`                      | 10/12        | 2 skipped need `Array(T, _)` length inference                                 |
+| `comptime_option_result.test.yo`     | 8/12         |                                                                               |
+| `basic.test.yo`                      | 24/32        | 8 use destructuring patterns, default fields, generics, `.Some(...)` literals |
+| `closure.test.yo`                    | 1/9          | Closure capture not ported                                                    |
+| `control_fn_as_regular_call.test.yo` | 0/3          | Requires IO effect injection                                                  |
+| `algebraic_effects.test.yo`          | 0/61         | Effects runtime not ported (~15k lines TS)                                    |
+| `async_await.test.yo`                | 0/121        | Async runtime not ported (~15k lines TS)                                      |
+
+### Remaining major codegen subsystems (TS → Yo)
+
+| Subsystem                 | TS lines | YO lines | Status        | Impact                             |
+| ------------------------- | -------- | -------- | ------------- | ---------------------------------- |
+| `codegen/async/`          | 15,455   | 0        | ❌            | Blocks 121 async + 61 effect tests |
+| `codegen/functions/`      | 4,520    | 122      | ⚠️ Stubs      | Blocks closures, generics          |
+| `codegen/exprs/` per-node | 16,163   | 7,384    | ⚠️ Many holes | Many basic test failures           |
+| `codegen/utils/`          | 1,140    | 0        | ❌            | Helpers missing                    |
+| `codegen/shared/`         | 199      | 0        | ❌            | Helpers missing                    |
+
+Concrete bugs catalogued from `tests/basic.test.yo` (next porting targets):
+
+1. ✅ ~~Local struct/enum/union typedefs inside fn body~~ (fixed in 13a)
+2. Destructuring patterns: `(a, b, c) := tuple`, `{ x : a, y : b } := point`
+3. Anonymous struct literals as fn args: `fn({ x : 1, y : 2 })`
+4. Default struct field values: `struct(x : i32, (y : i32) ?= 12)`
+5. Forward function calls (no forward decls emitted)
+6. Generic type instantiation: `ArrayList(u8).new()`
+7. Enum data union member naming (variant vs data union confusion)
+8. `.Some(12)` Option literal construction
+9. Mixed positional+named struct construction
+10. Function shadowing: `y(0)` where `y` was a local variable
