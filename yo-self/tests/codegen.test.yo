@@ -1757,6 +1757,27 @@ test("validation: String bytes_len lowers for ArrayList Index loop element", {
     }
   );
 });
+test("validation: String Index remains callable while function pointer calls stay calls", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("use_cb :: (fn(v : i32, cb : (fn(u : i32) -> i32)) -> i32)({ return(cb(v)); }); main :: (fn() -> unit)({ (s : String) = `Hello`; assert(s(usize(0)) == u8(72), \"string index\"); x := use_cb(10, (u) -> (u + 1)); assert(x == 11, \"callback\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "string_index_callback_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("(uint8_t)(s[(size_t)(0)])")), "String Index should lower to byte access");
+      assert(c.contains(String.from("return cb(v);")), "function pointer parameter call should remain a call");
+    }
+  );
+});
 test("validation: nested ArrayList value type lowers through Index", {
   given(exn) := Exception(
     throw : (
@@ -3679,6 +3700,7 @@ test("lift_non_capturing_lambda: single param emits static function", {
       output := ctx.emitter.print();
       assert(output.contains(String.from("static int32_t")), "should have static int32_t return(type)");
       assert(output.contains(String.from("int32_t x")), "should have param declaration");
+      assert(output.contains(String.from(") {\n  return 42;")), "should emit valid C function body");
     }
   );
 });
@@ -3700,6 +3722,28 @@ test("lift_non_capturing_lambda: multi param emits correct params", {
       output := ctx.emitter.print();
       assert(output.contains(String.from("int32_t a")), "should have param a");
       assert(output.contains(String.from("int32_t b")), "should have param b");
+    }
+  );
+});
+test("validation: function pointer parameter call is not treated as Index", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("use_cb :: (fn(v : i32, cb : (fn(u : i32) -> i32)) -> i32)({ return(cb(v)); }); main :: (fn() -> unit)({ x := use_cb(10, (u) -> (u + 1)); assert(x == 11, \"callback\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "fn_ptr_callback_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("static int32_t __yo_lambda_0(int32_t u) {\n  return (u + 1);\n}")), "lambda should emit valid C function");
+      assert(c.contains(String.from("return cb(v);")), "function pointer parameter call should remain a call");
+      assert(c.contains(String.from("fn_use_cb(10, __yo_lambda_0)")), "callback argument should lower to lifted lambda");
     }
   );
 });

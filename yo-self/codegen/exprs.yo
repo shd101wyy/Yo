@@ -3921,6 +3921,9 @@ is_runtime_index_assignable_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> 
       .Some(_) => true
     )
 );
+is_runtime_index_callable_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> bool)(
+  (c_ty == "const char*") || is_runtime_index_assignable_type(ctx, c_ty)
+);
 should_skip_comptime_field_assignment :: (fn(ctx : *(CodegenContext), lhs_expr : AstExpr) -> bool)(
   match(
     lhs_expr,
@@ -6469,7 +6472,7 @@ lift_non_capturing_lambda :: (
                   if((n_params == usize(0)) && (n_pt == usize(0)), {
                     sb.push_str("void");
                   });
-                  sb.push_str(")({\n  return)");
+                  sb.push_str(") {\n  return ");
                   // Register params temporarily so body can use them
                   {
                     (ri : usize) = usize(0);
@@ -6646,17 +6649,38 @@ handle_regular_call :: (
             )
           )
         ),
-        // Bootstrap Index lowering for ArrayList(T): `list(idx)` -> `list.data[idx]`.
+        // Bootstrap Index lowering for runtime indexable values.
         (
           (args.len() == usize(1)) &&
             (
-              ctx.*.get_var_type(id.as_str()).is_some() &&
+              match(
+                ctx.*.get_var_type(id.as_str()),
+                .None => false,
+                .Some(id_index_candidate_ty) =>
+                  is_runtime_index_callable_type(ctx, id_index_candidate_ty.as_str())
+              ) &&
                 ((!(ctx.*.is_array_var(id.as_str()))) && (!(ctx.*.is_slice_var(id.as_str()))))
             )
         ) => match(
           ctx.*.get_var_type(id.as_str()),
           .None => Option(String).None,
           .Some(id_ty_for_index) => cond(
+            (id_ty_for_index.as_str() == "const char*") => match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(str_idx_expr) => match(
+                call_gen_expr(str_idx_expr, ctx, indent),
+                .None => Option(String).None,
+                .Some(str_idx_c) => {
+                  str_index_code := String.from("(uint8_t)(");
+                  str_index_code.push_string(sanitize_c_ident(id.as_str()));
+                  str_index_code.push_str("[");
+                  str_index_code.push_string(str_idx_c);
+                  str_index_code.push_str("])");
+                  Option(String).Some(str_index_code)
+                }
+              )
+            ),
             is_arraylist_c_type(id_ty_for_index.as_str()) => match(
               args.get(usize(0)),
               .None => Option(String).None,

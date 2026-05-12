@@ -8698,6 +8698,65 @@ implementations.
 - ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
 - ✅ `tests/index.test.yo` → 54 passed, 0 failed, 0 skipped.
 
+### Phase 13ai — Function-pointer callbacks in `fn.test.yo`
+
+**Problem**: after `tests/index.test.yo` was fully green, sampling
+`tests/fn.test.yo` showed the regular callback test was still skipped by invalid
+C from lifted non-capturing lambdas:
+
+```c
+static int32_t __yo_lambda_0(int32_t u)({
+  return)(u + 1);
+}
+```
+
+Fixing that syntax exposed a second issue: `cb(v)` inside a function body was
+treated as a runtime Index call because `cb` had a registered variable type.
+The generated callback function body became empty instead of returning
+`cb(v)`.
+
+**Fix**:
+
+- Fixed `lift_non_capturing_lambda` to emit a normal C function body:
+  `) { return ...; }`.
+- Narrowed the runtime Index dispatch condition so only actually indexable
+  runtime types enter the Index lowering path.
+- Added `const char*` as a readable Index type for `String`/`str`, preserving
+  `s(idx)` as byte access while still avoiding string Index mutation.
+- Left function-pointer variables to the regular-call fallback, so `cb(v)`
+  emits as `cb(v)`.
+
+**Verification**:
+
+- ✅ Added/strengthened targeted codegen regressions:
+  - `lift_non_capturing_lambda: single param emits static function`
+  - `validation: String Index remains callable while function pointer calls stay calls`
+  - `validation: function pointer parameter call is not treated as Index`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 258/258.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  stays green: 54 passed, 0 failed, 0 skipped.
+- ✅ `./yo-self/yo-self-bin test tests/fn.test.yo --disable-sanitize --parallel 1`
+  improves to 8 passed, 0 failed, 17 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime.test.yo` → 28 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
+- ✅ `tests/index.test.yo` → 54 passed, 0 failed, 0 skipped.
+- ⚠️ `tests/fn.test.yo` → 8 passed, 0 failed, 17 skipped.
+
 ### Phase 13x — Primitive closure value lowering
 
 **Problem**: `tests/closure.test.yo` only had the expected-error case passing under
