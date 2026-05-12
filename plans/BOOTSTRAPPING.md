@@ -8649,6 +8649,55 @@ implementation.
 - ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
 - ⚠️ `tests/index.test.yo` → 50 passed, 0 failed, 4 skipped.
 
+### Phase 13ah — HashMap and BTreeMap Index lowering
+
+**Problem**: after Phase 13ag, `tests/index.test.yo` still skipped the four
+HashMap/BTreeMap Index cases. The self-hosted codegen treated `HashMap(K, V)`
+and `BTreeMap(K, V)` as opaque type applications, so `new`, `set`, and
+`map(key)` fell through as raw C-like calls.
+
+**Fix**:
+
+- Extended `type_expr_to_c` to allow two-argument `HashMap(K, V)` and
+  `BTreeMap(K, V)` runtime value types.
+- Added bootstrap-narrow fixed-size map layouts:
+  `typedef struct { K keys[1024]; V values[1024]; size_t length; } Map_K_V;`.
+- Added early static `new` lowering for `(HashMap(...).new)()` /
+  `(BTreeMap(...).new)()` so type receivers with two arguments do not need to
+  be evaluated as runtime expressions.
+- Lowered `set(key, value)` to store into the direct key slot and lowered
+  `map(key)` to an addressable `values[(size_t)(key)]` lvalue.
+
+This is intentionally narrow for the current `i32 -> i32` benchmark coverage;
+it does not yet port the real SwissTable HashMap or sorted-array BTreeMap
+implementations.
+
+**Verification**:
+
+- ✅ Added targeted codegen regression:
+  - `validation: map value types lower set and Index`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 256/256.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  passes: 54 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime.test.yo` → 28 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
+- ✅ `tests/index.test.yo` → 54 passed, 0 failed, 0 skipped.
+
 ### Phase 13x — Primitive closure value lowering
 
 **Problem**: `tests/closure.test.yo` only had the expected-error case passing under

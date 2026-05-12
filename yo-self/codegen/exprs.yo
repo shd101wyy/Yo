@@ -2589,6 +2589,41 @@ type_name_to_c :: (fn(name : str) -> String)(
     true => String.from(name)
   )
 );
+two_arg_type_app_name_to_c :: (fn(container_name : str, args : ArrayList(AstExpr)) -> Option(String))(
+  cond(
+    (args.len() != usize(2)) => Option(String).Some(String.from("void*")),
+    true => match(
+      args.get(usize(0)),
+      .None => Option(String).Some(String.from("void*")),
+      .Some(key_expr) => match(
+        key_expr,
+        .FnCall(_, _, _, _, _) => Option(String).Some(String.from("void*")),
+        .Atom(_, key_tok) => cond(
+          (key_tok.kind != TokenKind.Identifier) => Option(String).Some(String.from("void*")),
+          true => match(
+            args.get(usize(1)),
+            .None => Option(String).Some(String.from("void*")),
+            .Some(value_expr) => match(
+              value_expr,
+              .FnCall(_, _, _, _, _) => Option(String).Some(String.from("void*")),
+              .Atom(_, value_tok) => cond(
+                (value_tok.kind != TokenKind.Identifier) => Option(String).Some(String.from("void*")),
+                true => {
+                  result := sanitize_c_ident(container_name);
+                  result.push_str("_");
+                  result.push_string(sanitize_c_ident(key_tok.value.as_str()));
+                  result.push_str("_");
+                  result.push_string(sanitize_c_ident(value_tok.value.as_str()));
+                  Option(String).Some(result)
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
 /// Convert a type-annotation AST node to a C type string.
 ///
 /// Handles:
@@ -2733,7 +2768,11 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
           match(
             func_box.*,
             .FnCall(_, _, _, _, _) => true,
-            .Atom(_, arity_tok) => ((arity_tok.value.as_str() != "Tuple") && (arity_tok.value.as_str() != "Array"))
+            .Atom(_, arity_tok) =>
+              (
+                ((arity_tok.value.as_str() != "Tuple") && (arity_tok.value.as_str() != "Array")) &&
+                  ((arity_tok.value.as_str() != "HashMap") && (arity_tok.value.as_str() != "BTreeMap"))
+              )
           )
       ) => Option(String).None,
       true => match(
@@ -2792,6 +2831,8 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
               )
             )
           ),
+          (ftok.value.as_str() == "HashMap") => two_arg_type_app_name_to_c("HashMap", func_args),
+          (ftok.value.as_str() == "BTreeMap") => two_arg_type_app_name_to_c("BTreeMap", func_args),
           (ftok.value.as_str() == "Tuple") => {
             n_tuple := func_args.len();
             cond(
@@ -2942,8 +2983,6 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
               )
             ),
             // Other generic container types still use the opaque prototype representation.
-            (ftok.value.as_str() == "HashMap") =>
-              Option(String).Some(String.from("void*")),
             (ftok.value.as_str() == "Option") => Option(String).Some(String.from("void*")),
             (ftok.value.as_str() == "Result") => Option(String).Some(String.from("void*")),
             (ftok.value.as_str() == "Box") => Option(String).Some(String.from("void*")),
@@ -3865,8 +3904,17 @@ is_arraylist_c_type :: (fn(c_ty : str) -> bool)(
 is_deque_c_type :: (fn(c_ty : str) -> bool)(
   String.from(c_ty).starts_with(String.from("Deque_"))
 );
+is_hashmap_c_type :: (fn(c_ty : str) -> bool)(
+  String.from(c_ty).starts_with(String.from("HashMap_"))
+);
+is_btreemap_c_type :: (fn(c_ty : str) -> bool)(
+  String.from(c_ty).starts_with(String.from("BTreeMap_"))
+);
+is_runtime_map_c_type :: (fn(c_ty : str) -> bool)(
+  is_hashmap_c_type(c_ty) || is_btreemap_c_type(c_ty)
+);
 is_runtime_index_assignable_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> bool)(
-  (is_arraylist_c_type(c_ty) || is_deque_c_type(c_ty)) ||
+  ((is_arraylist_c_type(c_ty) || is_deque_c_type(c_ty)) || is_runtime_map_c_type(c_ty)) ||
     match(
       ctx.*.get_struct_fields(c_ty),
       .None => false,
@@ -3986,6 +4034,66 @@ ensure_deque_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
         ctx.*.register_struct(String.from(c_ty));
         ctx.*.register_struct_fields(c_ty, "data,head,length");
       }
+    );
+  });
+});
+map_key_c_type_from_name :: (fn(c_ty : str, prefix : str) -> Option(String))({
+  c_ty_s := String.from(c_ty);
+  prefix_s := String.from(prefix);
+  cond(
+    (!(c_ty_s.starts_with(prefix_s))) => Option(String).None,
+    true => {
+      suffix := c_ty_s.substring(prefix_s.len(), c_ty_s.len());
+      match(
+        suffix.index_of(String.from("_"), usize(0)),
+        .None => Option(String).None,
+        .Some(sep) => {
+          key_name := suffix.substring(usize(0), sep);
+          Option(String).Some(type_name_to_c(key_name.as_str()))
+        }
+      )
+    }
+  )
+});
+map_value_c_type_from_name :: (fn(c_ty : str, prefix : str) -> Option(String))({
+  c_ty_s := String.from(c_ty);
+  prefix_s := String.from(prefix);
+  cond(
+    (!(c_ty_s.starts_with(prefix_s))) => Option(String).None,
+    true => {
+      suffix := c_ty_s.substring(prefix_s.len(), c_ty_s.len());
+      match(
+        suffix.index_of(String.from("_"), usize(0)),
+        .None => Option(String).None,
+        .Some(sep) => {
+          value_name := suffix.substring(sep + usize(1), suffix.len());
+          Option(String).Some(type_name_to_c(value_name.as_str()))
+        }
+      )
+    }
+  )
+});
+ensure_runtime_map_c_type :: (fn(ctx : *(CodegenContext), c_ty : str, prefix : str) -> unit)({
+  if((String.from(c_ty).starts_with(String.from(prefix))) && (!(ctx.*.is_struct_name(c_ty))), {
+    match(
+      map_key_c_type_from_name(c_ty, prefix),
+      .None => (),
+      .Some(key_c_ty) => match(
+        map_value_c_type_from_name(c_ty, prefix),
+        .None => (),
+        .Some(value_c_ty) => {
+          decl := String.from("typedef struct { ");
+          decl.push_string(key_c_ty);
+          decl.push_str(" keys[1024]; ");
+          decl.push_string(value_c_ty);
+          decl.push_str(" values[1024]; size_t length; } ");
+          decl.push_str(c_ty);
+          decl.push_str(";");
+          ctx.*.emitter.emit_declaration_string_line(decl);
+          ctx.*.register_struct(String.from(c_ty));
+          ctx.*.register_struct_fields(c_ty, "keys,values,length");
+        }
+      )
     );
   });
 });
@@ -6583,6 +6691,22 @@ handle_regular_call :: (
                 }
               )
             ),
+            is_runtime_map_c_type(id_ty_for_index.as_str()) => match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(map_idx_expr) => match(
+                call_gen_expr(map_idx_expr, ctx, indent),
+                .None => Option(String).None,
+                .Some(map_idx_c) => {
+                  map_index_code := String.new();
+                  map_index_code.push_string(sanitize_c_ident(id.as_str()));
+                  map_index_code.push_str(".values[(size_t)(");
+                  map_index_code.push_string(map_idx_c);
+                  map_index_code.push_str(")]");
+                  Option(String).Some(map_index_code)
+                }
+              )
+            ),
             true => match(
               ctx.*.get_struct_fields(id_ty_for_index.as_str()),
               .None => Option(String).None,
@@ -7064,6 +7188,19 @@ get_dispatch_method :: (fn(func_box : Box(AstExpr)) -> Option(String))(
     )
   )
 );
+func_box_static_type_app_method_is :: (fn(func_box : Box(AstExpr), type_name : str, method_name : str) -> bool)(
+  func_box_is_dot_dispatch(func_box) &&
+    match(
+      get_dispatch_method(func_box),
+      .None => false,
+      .Some(found_method) => (found_method.as_str() == method_name)
+    ) &&
+      match(
+        get_dispatch_receiver(func_box),
+        .None => false,
+        .Some(recv_expr) => type_app_receiver_is(recv_expr, type_name)
+      )
+);
 /// Handle method call `obj.method(args)` → C method call expression.
 ///
 /// Two special cases support template string codegen:
@@ -7188,6 +7325,29 @@ handle_method_call :: (
                 deque_new.push_string(deque_c_ty);
                 deque_new.push_str("){.data = {0}, .head = 0, .length = 0}");
                 Option(String).Some(deque_new)
+              }
+            ),
+          (
+            (
+              (type_app_receiver_is(recv_expr, "HashMap") || type_app_receiver_is(recv_expr, "BTreeMap")) &&
+                (method_name.as_str() == "new")
+            ) &&
+              (args.len() == usize(0))
+          ) =>
+            match(
+              type_expr_to_c(recv_expr),
+              .None => Option(String).None,
+              .Some(map_c_ty) => {
+                if(is_hashmap_c_type(map_c_ty.as_str()), {
+                  ensure_runtime_map_c_type(ctx, map_c_ty.as_str(), "HashMap_");
+                });
+                if(is_btreemap_c_type(map_c_ty.as_str()), {
+                  ensure_runtime_map_c_type(ctx, map_c_ty.as_str(), "BTreeMap_");
+                });
+                map_new := String.from("(");
+                map_new.push_string(map_c_ty);
+                map_new.push_str("){.keys = {0}, .values = {0}, .length = 0}");
+                Option(String).Some(map_new)
               }
             ),
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
@@ -7328,6 +7488,47 @@ handle_method_call :: (
             .Some(recv_ty_for_dispose) => cond(
               is_arraylist_c_type(recv_ty_for_dispose.as_str()) => Option(String).Some(String.from("0")),
               true => Option(String).None
+            )
+          ),
+          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "set") && (args.len() == usize(2)))) => match(
+            ctx.*.get_var_type(recv_code.as_str()),
+            .None => Option(String).None,
+            .Some(recv_ty_for_map_set) => cond(
+              (!(is_runtime_map_c_type(recv_ty_for_map_set.as_str()))) => Option(String).None,
+              true => match(
+                args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(map_key_expr) => match(
+                  args.get(usize(1)),
+                  .None => Option(String).None,
+                  .Some(map_value_expr) => match(
+                    call_gen_expr(map_key_expr, ctx, indent),
+                    .None => Option(String).None,
+                    .Some(map_key_c) => match(
+                      call_gen_expr(map_value_expr, ctx, indent),
+                      .None => Option(String).None,
+                      .Some(map_value_c) => {
+                        map_set_code := String.from("(");
+                        map_set_code.push_string(recv_code);
+                        map_set_code.push_str(".keys[(size_t)(");
+                        map_set_code.push_string(map_key_c);
+                        map_set_code.push_str(")] = ");
+                        map_set_code.push_string(map_key_c);
+                        map_set_code.push_str(", ");
+                        map_set_code.push_string(recv_code);
+                        map_set_code.push_str(".values[(size_t)(");
+                        map_set_code.push_string(map_key_c);
+                        map_set_code.push_str(")] = ");
+                        map_set_code.push_string(map_value_c);
+                        map_set_code.push_str(", ");
+                        map_set_code.push_string(recv_code);
+                        map_set_code.push_str(".length++)");
+                        Option(String).Some(map_set_code)
+                      }
+                    )
+                  )
+                )
+              )
             )
           ),
           (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push_back") && (args.len() == usize(1)))) => match(
@@ -9918,6 +10119,35 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         // Used in match arm patterns; resolves to `EnumName_Variant` via variant registry.
         ((!(is_infix)) && (func_box_is_dot(func_box) && (args.len() == usize(1)))) => handle_bare_dot_variant(args, ctx),
         // Method call: a.method(args) — func_box is itself a dot-dispatch FnCall
+        (
+          (!(is_infix)) &&
+            (
+              (args.len() == usize(0)) &&
+                (
+                  func_box_static_type_app_method_is(func_box, "HashMap", "new") ||
+                    func_box_static_type_app_method_is(func_box, "BTreeMap", "new")
+                )
+            )
+        ) => match(
+          get_dispatch_receiver(func_box),
+          .None => Option(String).None,
+          .Some(static_map_recv) => match(
+            type_expr_to_c(static_map_recv),
+            .None => Option(String).None,
+            .Some(static_map_c_ty) => {
+              if(is_hashmap_c_type(static_map_c_ty.as_str()), {
+                ensure_runtime_map_c_type(ctx, static_map_c_ty.as_str(), "HashMap_");
+              });
+              if(is_btreemap_c_type(static_map_c_ty.as_str()), {
+                ensure_runtime_map_c_type(ctx, static_map_c_ty.as_str(), "BTreeMap_");
+              });
+              static_map_new := String.from("(");
+              static_map_new.push_string(static_map_c_ty);
+              static_map_new.push_str("){.keys = {0}, .values = {0}, .length = 0}");
+              Option(String).Some(static_map_new)
+            }
+          )
+        ),
         func_box_is_dot_dispatch(func_box) => handle_method_call(func_box, args, ctx, indent),
         // Index directly into a call result: `make_list()(idx)`.
         (

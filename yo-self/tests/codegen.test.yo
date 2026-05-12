@@ -1805,6 +1805,33 @@ test("validation: Deque value type lowers push, pop, and Index", {
     }
   );
 });
+test("validation: map value types lower set and Index", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ (hm : HashMap(i32, i32)) = HashMap(i32, i32).new(); hm.set(i32(1), i32(100)); &(hm(i32(1))).* = i32(101); assert(hm(i32(1)) == i32(101), \"hash map\"); (bt : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new(); bt.set(i32(3), i32(300)); &(bt(i32(3))).* = i32(301); assert(bt(i32(3)) == i32(301), \"btree map\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "map_index_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { int32_t keys[1024]; int32_t values[1024]; size_t length; } HashMap_i32_i32;")), "HashMap(i32, i32) typedef should be emitted");
+      assert(c.contains(String.from("typedef struct { int32_t keys[1024]; int32_t values[1024]; size_t length; } BTreeMap_i32_i32;")), "BTreeMap(i32, i32) typedef should be emitted");
+      assert(c.contains(String.from("HashMap_i32_i32 hm = (HashMap_i32_i32){.keys = {0}, .values = {0}, .length = 0};")), "HashMap.new should emit concrete value init");
+      assert(c.contains(String.from("BTreeMap_i32_i32 bt = (BTreeMap_i32_i32){.keys = {0}, .values = {0}, .length = 0};")), "BTreeMap.new should emit concrete value init");
+      assert(c.contains(String.from("hm.values[(size_t)((int32_t)(1))]")), "HashMap Index should lower to value slot");
+      assert(c.contains(String.from("bt.values[(size_t)((int32_t)(3))]")), "BTreeMap Index should lower to value slot");
+      assert(c.contains(String.from("(int32_t)(101)")), "HashMap address-of Index mutation should assign value");
+      assert(c.contains(String.from("(int32_t)(301)")), "BTreeMap address-of Index mutation should assign value");
+    }
+  );
+});
 test("validation: struct runtime Index call lowers to field pointer selection", {
   given(exn) := Exception(
     throw : (
