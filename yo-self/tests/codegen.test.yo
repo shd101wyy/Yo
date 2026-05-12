@@ -1636,6 +1636,29 @@ test("validation: generic option-like Some match lowers to payload branch", {
     }
   );
 });
+test("validation: ArrayList(u8) value return can be indexed directly", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("get_list :: (fn() -> ArrayList(u8))({ (list : ArrayList(u8)) = ArrayList(u8).new(); list.push(u8(10)); list.push(u8(20)); list }); main :: (fn() -> unit)({ (val : u8) = get_list()(usize(1)); assert(val == u8(20)); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "arraylist_u8_return_index_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { uint8_t data[1024]; size_t length; uint8_t* _ptr; } ArrayList_u8;")), "ArrayList_u8 typedef");
+      assert(c.contains(String.from("static ArrayList_u8 fn_get_list();")), "ArrayList(u8) function return type");
+      assert(c.contains(String.from("list.data[list.length++] = (uint8_t)(10)")), "ArrayList push lowers to data append");
+      assert(c.contains(String.from("uint8_t val = (fn_get_list()).data[(size_t)(1)];")), "call result index lowers to data access");
+    }
+  );
+});
 test("validation: assignment expression bindings preserve old value", {
   given(exn) := Exception(
     throw : (

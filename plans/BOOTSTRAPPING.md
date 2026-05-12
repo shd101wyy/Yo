@@ -7800,3 +7800,58 @@ enum layouts when a runtime `None` path is needed.
   - `index function call result`
 - `tests/array.test.yo`
   - `Test Array fill method`
+
+### Phase 13p — Concrete `ArrayList(u8)` value representation and call-result indexing
+
+**Problem**: After Phase 13o, `tests/basic.test.yo` still had two skipped
+benchmarks:
+
+- `return in match branch type compatibility`
+- `index function call result`
+
+Both depended on runtime `ArrayList(u8)`. The bootstrap codegen mapped
+`ArrayList(T)` to `void*`, so local functions returning `ArrayList(u8)` were not
+usable as C values, `list.push(...)` remained an invalid C member call, and
+`get_list()(usize(1))` failed to emit the typed `val` declaration.
+
+**Fix**:
+
+- Added a bootstrap-only concrete C layout in `yo-self/codegen/program.yo`:
+
+  ```c
+  typedef struct { uint8_t data[1024]; size_t length; uint8_t* _ptr; } ArrayList_u8;
+  ```
+
+- Taught `type_expr_to_c` to map `ArrayList(u8)` to `ArrayList_u8` while leaving
+  other `ArrayList(T)` instantiations on the existing opaque prototype path.
+- Lowered `ArrayList(u8).new()` to a zero-initialized value.
+- Lowered `list.push(value)` to append into `.data` and maintain `._ptr`.
+- Lowered `list.len()` and `list._ptr` for the current benchmark patterns.
+- Taught local function call detection to find calls used as the callee of an
+  outer call, so `get_list()(idx)` causes `get_list` to be hoisted.
+- Lowered direct indexing of simple function call results:
+  `get_list()(usize(1))` → `(fn_get_list()).data[(size_t)(1)]`.
+
+This also made the match/return benchmark pass because `list._ptr` now has a
+concrete pointer expression and the simplified `.Some(p)` match path can return
+the bound pointer expression instead of only emitting statement-form bodies.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: ArrayList(u8) value return can be indexed directly`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 226/226.
+- ✅ `./yo-self/yo-self-bin test tests/basic.test.yo --test-name-pattern "index function call result" -v`
+  passes: 1/1.
+- ✅ `./yo-self/yo-self-bin test tests/basic.test.yo` now passes all current
+  basic benchmarks: 32 passed, 0 failed, 0 skipped.
+- ✅ Real benchmark status:
+  - `./yo-self/yo-self-bin test tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+  - `./yo-self/yo-self-bin test tests/array.test.yo` → 11 passed, 0 failed, 1 skipped.
+  - `./yo-self/yo-self-bin test tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+
+**Remaining real-test blockers**:
+
+- `tests/array.test.yo`
+  - `Test Array fill method`

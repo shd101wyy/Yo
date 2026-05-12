@@ -2000,22 +2000,32 @@ is_fn_name_called :: (fn(name : str, expr : AstExpr) -> bool)(
         cond(
           this_is_call => true,
           true => {
-            n := args.len();
-            (i : usize) = usize(0);
-            (found : bool) = false;
-            while(runtime((i < n) && (!(found))), {
-              match(
-                args.get(i),
-                .None => (),
-                .Some(a) => {
-                  if(recur(name, a), {
-                    found = true;
-                  });
-                }
-              );
-              i = (i + usize(1));
-            });
-            found
+            found_in_func := match(
+              func_box.*,
+              .Atom(_, _) => false,
+              .FnCall(_, _, _, _, _) => recur(name, func_box.*)
+            );
+            cond(
+              found_in_func => true,
+              true => {
+                n := args.len();
+                (i : usize) = usize(0);
+                (found : bool) = false;
+                while(runtime((i < n) && (!(found))), {
+                  match(
+                    args.get(i),
+                    .None => (),
+                    .Some(a) => {
+                      if(recur(name, a), {
+                        found = true;
+                      });
+                    }
+                  );
+                  i = (i + usize(1));
+                });
+                found
+              }
+            )
           }
         )
       }

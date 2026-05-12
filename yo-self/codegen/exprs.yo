@@ -1676,10 +1676,7 @@ handle_match_data :: (
               match(
                 body_code,
                 .None => Option(String).Some(String.from("0")),
-                .Some(body_c) => {
-                  emit_as_stmt(body_c, ctx, indent);
-                  Option(String).Some(String.from("0"))
-                }
+                .Some(body_c) => Option(String).Some(body_c)
               )
             },
             .None => {
@@ -2330,6 +2327,20 @@ fncall_func_ident :: (fn(func_box : Box(AstExpr)) -> Option(String))(
     .FnCall(_, _, _, _, _) => Option(String).None
   )
 );
+is_plain_identifier_call_expr :: (fn(expr : AstExpr) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, inner_func, _, inner_infix, _) => (
+      (!(inner_infix)) &&
+        match(
+          inner_func.*,
+          .Atom(_, inner_tok) => (inner_tok.kind == TokenKind.Identifier),
+          .FnCall(_, _, _, _, _) => false
+        )
+    )
+  )
+);
 // ---------------------------------------------------------------------------
 // Phase 4d helpers — type mapping, function calls, dot access, assignment
 // ---------------------------------------------------------------------------
@@ -2629,9 +2640,21 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
           },
           // *(T) — pointer type: non-infix call to "*" with one arg (T must be an atom)
           (!(ftok.value.as_str() == "*")) => cond(
-            // Generic container types: ArrayList(T), Option(T), Result(T, E), Box(T), HashMap(K, V)
-            // In proto-codegen these are all opaque pointer types (void*).
-            ((ftok.value.as_str() == "ArrayList") || (ftok.value.as_str() == "HashMap")) =>
+            // Bootstrap specialization: ArrayList(u8) has a concrete value layout.
+            (ftok.value.as_str() == "ArrayList") => match(
+              func_args.get(usize(0)),
+              .None => Option(String).Some(String.from("void*")),
+              .Some(list_arg) => match(
+                list_arg,
+                .FnCall(_, _, _, _, _) => Option(String).Some(String.from("void*")),
+                .Atom(_, list_arg_tok) => cond(
+                  (list_arg_tok.value.as_str() == "u8") => Option(String).Some(String.from("ArrayList_u8")),
+                  true => Option(String).Some(String.from("void*"))
+                )
+              )
+            ),
+            // Other generic container types still use the opaque prototype representation.
+            (ftok.value.as_str() == "HashMap") =>
               Option(String).Some(String.from("void*")),
             (ftok.value.as_str() == "Option") => Option(String).Some(String.from("void*")),
             (ftok.value.as_str() == "Result") => Option(String).Some(String.from("void*")),
@@ -5465,6 +5488,11 @@ handle_dot_access :: (
               // `rune` is a zero-cost newtype over u32.  In C it is `typedef uint32_t rune;`
               // so there is no `.char` field — the `.char` accessor is an identity.
               is_char_field := (fname.as_str() == "char");
+              is_arraylist_u8 := match(
+                ctx.*.get_var_type(obj_code.as_str()),
+                .None => false,
+                .Some(obj_ty) => (obj_ty.as_str() == "ArrayList_u8")
+              );
               cond(
                 is_deref => {
                   // c.* → (*c) — pointer dereference
@@ -5474,6 +5502,14 @@ handle_dot_access :: (
                   Option(String).Some(result)
                 },
                 is_char_field => Option(String).Some(obj_code),
+                (is_arraylist_u8 && (fname.as_str() == "_ptr")) => {
+                  result_ptr := String.from("((");
+                  result_ptr.push_string(obj_code);
+                  result_ptr.push_str(".length > 0) ? &");
+                  result_ptr.push_string(obj_code);
+                  result_ptr.push_str(".data[0] : NULL)");
+                  Option(String).Some(result_ptr)
+                },
                 is_enum => {
                   result := String.new();
                   result.push_string(obj_code);
@@ -5584,6 +5620,8 @@ handle_method_call :: (
           // Prototype lowering for standard Option/Result constructors. The
           // bootstrap codegen represents Some/Ok/Err as the payload value and
           // None as NULL; runtime methods below are lowered accordingly.
+          ((type_app_receiver_is(recv_expr, "ArrayList") && (method_name.as_str() == "new")) && (args.len() == usize(0))) =>
+            Option(String).Some(String.from("(ArrayList_u8){.data = {0}, .length = 0, ._ptr = NULL}")),
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
@@ -5637,6 +5675,49 @@ handle_method_call :: (
             sl_len.push_str(".length");
             Option(String).Some(sl_len)
           },
+          // Bootstrap ArrayList(u8) value operations.
+          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push") && (args.len() == usize(1)))) => match(
+            ctx.*.get_var_type(recv_code.as_str()),
+            .None => Option(String).None,
+            .Some(recv_ty_for_push) => cond(
+              (recv_ty_for_push.as_str() != "ArrayList_u8") => Option(String).None,
+              true => match(
+                args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(push_arg_expr) => match(
+                  call_gen_expr(push_arg_expr, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(push_arg_c) => {
+                    push_code := String.from("(");
+                    push_code.push_string(recv_code);
+                    push_code.push_str(".data[");
+                    push_code.push_string(recv_code);
+                    push_code.push_str(".length++] = ");
+                    push_code.push_string(push_arg_c);
+                    push_code.push_str(", ");
+                    push_code.push_string(recv_code);
+                    push_code.push_str("._ptr = &");
+                    push_code.push_string(recv_code);
+                    push_code.push_str(".data[0])");
+                    Option(String).Some(push_code)
+                  }
+                )
+              )
+            )
+          ),
+          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
+            ctx.*.get_var_type(recv_code.as_str()),
+            .None => Option(String).None,
+            .Some(recv_ty_for_len) => cond(
+              (recv_ty_for_len.as_str() != "ArrayList_u8") => Option(String).None,
+              true => {
+                list_len_code := String.new();
+                list_len_code.push_string(recv_code);
+                list_len_code.push_str(".length");
+                Option(String).Some(list_len_code)
+              }
+            )
+          ),
           // `str_lit.len()` / `str_const.len()` — str/String .len() → strlen(recv)
           ((method_name.as_str() == "len") && (args.len() == usize(0))) => {
             sl_len2 := String.from("strlen(");
@@ -7115,6 +7196,7 @@ handle_assignment :: (
                           ctx.*.emitter.emit(" = ");
                           ctx.*.emitter.emit_string(rhs_code);
                           ctx.*.emitter.emit_line(";");
+                          ctx.*.register_var_type(var_name.as_str(), c_ty.as_str());
                           .Some(String.from("0"))
                         }
                       )
@@ -8073,6 +8155,37 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ((!(is_infix)) && (func_box_is_dot(func_box) && (args.len() == usize(1)))) => handle_bare_dot_variant(args, ctx),
         // Method call: a.method(args) — func_box is itself a dot-dispatch FnCall
         func_box_is_dot_dispatch(func_box) => handle_method_call(func_box, args, ctx, indent),
+        // Index directly into a call result: `make_list()(idx)`.
+        (
+          (!(is_infix)) &&
+            (
+              (args.len() == usize(1)) &&
+                (ident_opt.is_none() && is_plain_identifier_call_expr(func_box.*))
+            )
+        ) => match(
+          func_box.*,
+          .Atom(_, _) => Option(String).None,
+          .FnCall(_, _, _, _, _) => match(
+            call_gen_expr(func_box.*, ctx, indent),
+            .None => Option(String).None,
+            .Some(callee_c) => match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(index_expr) => match(
+                call_gen_expr(index_expr, ctx, indent),
+                .None => Option(String).None,
+                .Some(index_c) => {
+                  indexed_result := String.from("(");
+                  indexed_result.push_string(callee_c);
+                  indexed_result.push_str(").data[");
+                  indexed_result.push_string(index_c);
+                  indexed_result.push_str("]");
+                  Option(String).Some(indexed_result)
+                }
+              )
+            )
+          )
+        ),
         // assert(cond, msg) — runtime test assertion: emits if(!(cond)){exit(1);}
         (
           (!(is_infix)) && match(
