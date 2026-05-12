@@ -7542,6 +7542,30 @@ handle_assert :: (
     )
   )
 );
+/// Handle `println(value)` for bootstrap tests by printing string-like values.
+handle_println :: (
+  fn(
+    args : ArrayList(AstExpr),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)(
+  match(
+    args.get(usize(0)),
+    .None => Option(String).None,
+    .Some(value_expr) => match(
+      call_gen_expr(value_expr, ctx, indent),
+      .None => Option(String).None,
+      .Some(value_code) => {
+        ctx.*.emitter.emit_string(indent);
+        ctx.*.emitter.emit("printf(\"%s\\n\", ");
+        ctx.*.emitter.emit_string(value_code);
+        ctx.*.emitter.emit_line(");");
+        .Some(String.from("0"))
+      }
+    )
+  )
+);
 /// True if `expr` is a labeled argument: `FnCall(Atom(":"), [name, val], true)`.
 is_labeled_arg :: (fn(expr : AstExpr) -> bool)(
   match(
@@ -8427,6 +8451,14 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => (id.as_str() == "assert")
           )
         ) => handle_assert(args, ctx, indent),
+        // println(value) — bootstrap lowering for std/fmt string output.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "println")
+          )
+        ) => handle_println(args, ctx, indent),
         // comptime_assert(cond) / comptime_expect_error(expr) — compile-time only, no-op in prototype.
         (
           (!(is_infix)) && match(

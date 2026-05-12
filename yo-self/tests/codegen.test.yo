@@ -1125,6 +1125,14 @@ test("emit_c_preamble: has module ID comment", {
   output := ctx.emitter.print();
   assert(output.contains(String.from("// Module ID: yoabc999")), "module id comment");
 });
+test("emit_c_preamble: has process platform and arch constants", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  emit_c_preamble("yomod0001", pctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("static const char* platform")), "platform constant");
+  assert(output.contains(String.from("static const char* arch")), "arch constant");
+});
 test("emit_main_wrapper: emits int main with user fn call", {
   ctx := CodegenContext.new();
   (pctx : *(CodegenContext)) = &(ctx);
@@ -4441,4 +4449,16 @@ test("validation: Slice(u8).from_raw_parts returns indexable slice wrapper", {
       assert(code.contains(String.from("slice.data[")), "slice var should index through data field");
     }
   );
+});
+test("validation: println lowers to printf string output", {
+  args := ArrayList(AstExpr).new();
+  args.push(make_atom_expr(TokenKind.Identifier, "message"));
+  call_expr := make_fncall_expr("println", args);
+  ctx := CodegenContext.new();
+  pctx := &(ctx);
+  ind := String.new();
+  result := generate_expr(call_expr, pctx, ind);
+  match(result,.None => assert(false, "println should generate"),.Some(_) => ());
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("printf(\"%s\\n\", message);")), "println should emit printf");
 });

@@ -7983,3 +7983,64 @@ existing simplified string representation.
   - `tests/ptr.test.yo` — missing `Option(MyBox)` pointer/object lowering.
   - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
   - `tests/control_fn_as_regular_call.test.yo` — missing async/IO/Worker lowering.
+
+### Phase 13s — Process constants and `println` lowering
+
+**Problem**: `tests/process.test.yo` was still skipped with compile errors.
+The benchmark imports `std/process` and `std/fmt`, then uses exported
+compile-time constants and formatted output:
+
+```rust
+println(`Platform: ${platform}`);
+println(`Arch: ${arch}`);
+valid_platform := ((platform == "linux") || (platform == "macos") || ...);
+valid_arch := ((arch == "x86_64") || (arch == "aarch64") || ...);
+```
+
+The bootstrap codegen emitted `platform`, `arch`, and `println(...)` literally,
+so the generated C had undeclared identifiers and an undeclared `println`
+function.
+
+**Fix**:
+
+- Added bootstrap process constants to the generated C preamble using C
+  preprocessor target detection:
+  - `platform`: `"windows"`, `"macos"`, `"freebsd"`, `"emscripten"`, `"wasi"`,
+    or `"linux"`.
+  - `arch`: `"x86_64"`, `"aarch64"`, `"x86"`, `"arm"`, `"wasm32"`, or
+    `"unknown"` as a fallback.
+- Added a narrow `println(value)` lowering for string-like values:
+
+  ```c
+  printf("%s\n", value);
+  ```
+
+This is sufficient for the current benchmark's template-string output. The full
+self-hosted compiler still needs real `std/fmt` / `ToString` dispatch rather
+than this direct C string path.
+
+**Verification**:
+
+- ✅ Added targeted tests:
+  - `emit_c_preamble: has process platform and arch constants`
+  - `validation: println lowers to printf string output`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 231/231.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/process.test.yo` passes:
+  1 passed, 0 failed, 0 skipped.
+- ✅ Existing green set still passes:
+  - `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+  - `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+  - `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+  - `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- Remaining sampled skips:
+  - `tests/forward_ref_self_method.test.yo` — missing `Self` static method resolution.
+  - `tests/ptr.test.yo` — missing `Option(MyBox)` pointer/object lowering.
+  - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
+  - `tests/control_fn_as_regular_call.test.yo` — missing async/IO/Worker lowering.
