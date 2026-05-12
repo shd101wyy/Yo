@@ -6431,6 +6431,280 @@ func_box_is_dot_dispatch :: (fn(func_box : Box(AstExpr)) -> bool)(
     )
   )
 );
+anon_typeof_receiver_name :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, fn_box, fn_args, fn_infix, _) => cond(
+      fn_infix => Option(String).None,
+      (fn_args.len() != usize(1)) => Option(String).None,
+      true => match(
+        fn_box.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, ftok) => cond(
+          (ftok.value.as_str() != "typeof") => Option(String).None,
+          true => match(
+            fn_args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(recv_expr) => match(
+              recv_expr,
+              .FnCall(_, _, _, _, _) => Option(String).None,
+              .Atom(_, recv_tok) => cond(
+                (recv_tok.kind == TokenKind.Identifier) => Option(String).Some(recv_tok.value),
+                true => Option(String).None
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+replace_all_string :: (fn(input : String, needle : str, replacement : String) -> String)({
+  result := input;
+  needle_string := String.from(needle);
+  while(runtime(result.contains(needle_string)), {
+    result = result.replace(needle_string, replacement);
+  });
+  result
+});
+anon_method_template_expr_to_c :: (
+  fn(expr : AstExpr, self_name : str, param_name : str, ctx : *(CodegenContext), indent : String) -> Option(String)
+)(
+  match(
+    expr,
+    .Atom(_, tok) => cond(
+      ((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == param_name)) => Option(String).Some(String.from("__YO_ARG__")),
+      true => call_gen_expr(expr, ctx, indent)
+    ),
+    .FnCall(_, func_box, expr_args, expr_infix, _) => cond(
+      (
+        expr_infix &&
+          (func_box_is_dot(func_box) && (expr_args.len() == usize(2)))
+      ) => {
+        recv_is_self := match(
+          expr_args.get(usize(0)),
+          .None => false,
+          .Some(recv_expr) => match(
+            recv_expr,
+            .FnCall(_, _, _, _, _) => false,
+            .Atom(_, recv_tok) => ((recv_tok.kind == TokenKind.Identifier) && (recv_tok.value.as_str() == self_name))
+          )
+        );
+        field_name := match(
+          expr_args.get(usize(1)),
+          .None => String.new(),
+          .Some(field_expr) => match(
+            field_expr,
+            .FnCall(_, _, _, _, _) => String.new(),
+            .Atom(_, field_tok) => field_tok.value
+          )
+        );
+        cond(
+          (!(recv_is_self)) => call_gen_expr(expr, ctx, indent),
+          (field_name.len() == usize(0)) => Option(String).None,
+          true => {
+            result := String.from("__YO_SELF__.");
+            result.push_string(field_name);
+            Option(String).Some(result)
+          }
+        )
+      },
+      (
+        expr_infix &&
+          match(
+            func_box.*,
+            .FnCall(_, _, _, _, _) => false,
+            .Atom(_, op_tok2) => is_binary_op(op_tok2.value.as_str())
+          ) &&
+            (expr_args.len() == usize(2))
+      ) => match(
+        expr_args.get(usize(0)),
+        .None => Option(String).None,
+        .Some(lhs_expr) => match(
+          expr_args.get(usize(1)),
+          .None => Option(String).None,
+          .Some(rhs_expr) => match(
+            recur(lhs_expr, self_name, param_name, ctx, indent),
+            .None => Option(String).None,
+            .Some(lhs_c) => match(
+              recur(rhs_expr, self_name, param_name, ctx, indent),
+              .None => Option(String).None,
+              .Some(rhs_c) => {
+                op_s := match(
+                  func_box.*,
+                  .FnCall(_, _, _, _, _) => String.from("?"),
+                  .Atom(_, op_tok3) => op_tok3.value
+                );
+                result := String.from("(");
+                result.push_string(lhs_c);
+                result.push_str(" ");
+                result.push_string(op_s);
+                result.push_str(" ");
+                result.push_string(rhs_c);
+                result.push_str(")");
+                Option(String).Some(result)
+              }
+            )
+          )
+        )
+      ),
+      (
+        (!(expr_infix)) &&
+          (expr_args.len() == usize(1)) &&
+            match(
+              func_box.*,
+              .FnCall(_, _, _, _, _) => false,
+              .Atom(_, tuple_tok) => (tuple_tok.value.as_str() == BK_TUPLE)
+            )
+      ) => match(
+        expr_args.get(usize(0)),
+        .None => Option(String).None,
+        .Some(inner_expr) => recur(inner_expr, self_name, param_name, ctx, indent)
+      ),
+      true => call_gen_expr(expr, ctx, indent)
+    )
+  )
+);
+param_name_from_colon_or_atom :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, tok) => cond(
+      (tok.kind == TokenKind.Identifier) => Option(String).Some(tok.value),
+      true => Option(String).None
+    ),
+    .FnCall(_, func_box, args, is_infix, _) => cond(
+      (!(is_infix)) => Option(String).None,
+      (args.len() != usize(2)) => Option(String).None,
+      true => match(
+        func_box.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, op_tok) => cond(
+          (op_tok.value.as_str() != ":") => Option(String).None,
+          true => match(
+            args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(name_expr) => match(
+              name_expr,
+              .FnCall(_, _, _, _, _) => Option(String).None,
+              .Atom(_, name_tok) => cond(
+                (name_tok.kind == TokenKind.Identifier) => Option(String).Some(name_tok.value),
+                true => Option(String).None
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+register_anon_typeof_impl :: (
+  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> bool
+)({
+  result := false;
+  if(args.len() >= usize(2), {
+    recv_name_opt := match(args.get(usize(0)),.None => Option(String).None,.Some(type_expr) => anon_typeof_receiver_name(type_expr));
+    match(
+      recv_name_opt,
+      .None => (),
+      .Some(recv_name) => match(
+        args.get(usize(1)),
+        .None => (),
+        .Some(binding_expr) => match(
+          binding_expr,
+          .Atom(_, _) => (),
+          .FnCall(_, bind_func, bind_args, bind_infix, _) => if(bind_infix && (bind_args.len() == usize(2)), {
+            is_colon := match(
+              bind_func.*,
+              .FnCall(_, _, _, _, _) => false,
+              .Atom(_, bind_tok) => (bind_tok.value.as_str() == ":")
+            );
+            if(is_colon, {
+              method_name_opt := match(
+                bind_args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(method_expr) => match(
+                  method_expr,
+                  .FnCall(_, _, _, _, _) => Option(String).None,
+                  .Atom(_, method_tok) => cond(
+                    (method_tok.kind == TokenKind.Identifier) => Option(String).Some(method_tok.value),
+                    true => Option(String).None
+                  )
+                )
+              );
+              match(
+                method_name_opt,
+                .None => (),
+                .Some(method_name) => match(
+                  bind_args.get(usize(1)),
+                  .None => (),
+                  .Some(fn_app) => match(
+                    fn_app,
+                    .Atom(_, _) => (),
+                    .FnCall(_, app_func, app_args, _, _) => if(app_args.len() == usize(1), {
+                      match(
+                        app_func.*,
+                        .Atom(_, _) => (),
+                        .FnCall(_, arrow_func, arrow_args, arrow_infix, _) => if(arrow_infix && (arrow_args.len() == usize(2)), {
+                          is_arrow := match(
+                            arrow_func.*,
+                            .FnCall(_, _, _, _, _) => false,
+                            .Atom(_, arrow_tok) => (arrow_tok.value.as_str() == "->")
+                          );
+                          if(is_arrow, {
+                            fn_type_expr := match(arrow_args.get(usize(0)),.None => fn_app,.Some(e) => e);
+                            match(
+                              fn_type_expr,
+                              .Atom(_, _) => (),
+                              .FnCall(_, fn_func, fn_params, fn_infix, _) => if((!(fn_infix)) && (fn_params.len() >= usize(2)), {
+                                is_fn := match(
+                                  fn_func.*,
+                                  .FnCall(_, _, _, _, _) => false,
+                                  .Atom(_, fn_tok) => (fn_tok.value.as_str() == "fn")
+                                );
+                                if(is_fn, {
+                                  match(
+                                    fn_params.get(usize(1)),
+                                    .None => (),
+                                    .Some(param_expr) => match(
+                                      param_name_from_colon_or_atom(param_expr),
+                                      .None => (),
+                                      .Some(param_name) => match(
+                                        app_args.get(usize(0)),
+                                        .None => (),
+                                        .Some(body_expr) => match(
+                                          anon_method_template_expr_to_c(body_expr, "self", param_name.as_str(), ctx, indent),
+                                          .None => (),
+                                          .Some(template) => {
+                                            ctx.*.register_anon_method(
+                                              recv_name.as_str(),
+                                              method_name.as_str(),
+                                              template.as_str()
+                                            );
+                                            result = true;
+                                          }
+                                        )
+                                      )
+                                    )
+                                  );
+                                });
+                              })
+                            );
+                          });
+                        })
+                      );
+                    })
+                  )
+                )
+              );
+            });
+          })
+        )
+      )
+    );
+  });
+  result
+});
 /// True if `expr` is a non-capturing lambda: infix `->` with a TUPLE or bare-identifier LHS.
 /// e.g. `(u) -> (u + 1)` — single param parsed as bare Atom after grouping.
 /// e.g. `(u, v) -> (u + v)` — multi-param parsed as a TUPLE FnCall.
@@ -8440,6 +8714,26 @@ handle_method_call :: (
                   result_bytes.push_str("])");
                   Option(String).Some(result_bytes)
                 }
+              )
+            ),
+          // Bootstrap `impl(typeof(local_anon), method : fn(...))` by inlining
+          // the registered method body at the call site.
+          ((ctx.*.get_anon_method_body_template(recv_code.as_str(), method_name.as_str()).is_some()) && (args.len() == usize(1))) =>
+            match(
+              ctx.*.get_anon_method_body_template(recv_code.as_str(), method_name.as_str()),
+              .None => Option(String).None,
+              .Some(template) => match(
+                args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(arg_expr) => match(
+                  call_gen_expr(arg_expr, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(arg_code) => {
+                    replaced_self := replace_all_string(template, "__YO_SELF__", recv_code);
+                    replaced_arg := replace_all_string(replaced_self, "__YO_ARG__", arg_code);
+                    Option(String).Some(replaced_arg)
+                  }
+                )
               )
             ),
           // Default: emit as C method call `recv.method(args)`
@@ -10881,6 +11175,16 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .Atom(_, _) => Option(String).None,
           .FnCall(_, _, _, _, _) => generic_struct_constructor_to_c(func_box.*, args, ctx, indent)
         ),
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "impl")
+          )
+        ) => {
+          register_anon_typeof_impl(args, ctx, indent);
+          Option(String).Some(String.from("0"))
+        },
         (
           (!(is_infix)) && match(
             ident_opt,

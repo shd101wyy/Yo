@@ -8818,6 +8818,75 @@ mistakenly lowered as "Index into call result" (`(Box(i32)).data[5]`).
 - ✅ `tests/index.test.yo` → 54 passed, 0 failed, 0 skipped.
 - ⚠️ `tests/fn.test.yo` → 11 passed, 0 failed, 14 skipped.
 
+### Phase 13ak — Local `typeof(anonymous)` method dispatch in `fn.test.yo`
+
+**Problem**: after callback carrier support, the next `tests/fn.test.yo` case
+used a method implementation on the type of a local anonymous struct:
+
+```rust
+closure := { x, y };
+impl(typeof(closure),
+  call : (fn(self : Self, z : i32) -> i32)(
+    self.x + (self.y + z)
+  )
+);
+result := closure.call(3);
+```
+
+The self-hosted codegen already lowered `closure := { x, y }` to a valid C
+anonymous struct value, but it did not extract `impl(typeof(closure), ...)`.
+Consequently `closure.call(3)` fell through to default C method syntax:
+
+```c
+__auto_type result = closure.call(3);
+```
+
+which fails because the anonymous C struct has no function member named `call`.
+
+**Fix**:
+
+- Added a bootstrap local anonymous-method registry to `CodegenContext`.
+- Recognized local `impl(typeof(var), method : (fn(self : Self, arg : T) -> R)(body))`
+  expressions during statement generation.
+- Converted the supported method body shape into a small C expression template
+  using placeholders for `self` and the single non-self argument.
+- Lowered `var.method(arg)` through that registry by inlining the method body at
+  the call site. This avoids introducing top-level C typedefs for anonymous
+  struct shapes that depend on local `__typeof__(x)` fields.
+- Added a local replace-all helper because Yo `String.replace` replaces only the
+  first occurrence; method templates can contain multiple `self` references.
+
+**Verification**:
+
+- ✅ Added targeted codegen regression:
+  - `validation: typeof anonymous struct methods inline at call site`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 261/261.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/fn.test.yo --test-name-pattern "Test anonymous struct with type method" --disable-sanitize --parallel 1 -v`
+  passes: 1 passed, 0 failed, 0 skipped.
+- ✅ `./yo-self/yo-self-bin test tests/fn.test.yo --disable-sanitize --parallel 1 -v`
+  improves to 12 passed, 0 failed, 13 skipped.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  stays green: 54 passed, 0 failed, 0 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime.test.yo` → 28 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
+- ✅ `tests/index.test.yo` → 54 passed, 0 failed, 0 skipped.
+- ⚠️ `tests/fn.test.yo` → 12 passed, 0 failed, 13 skipped.
+
 ### Phase 13x — Primitive closure value lowering
 
 **Problem**: `tests/closure.test.yo` only had the expected-error case passing under

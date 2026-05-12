@@ -3793,6 +3793,28 @@ test("validation: Dyn Fn parameter callbacks lower through carrier", {
     }
   );
 });
+test("validation: typeof anonymous struct methods inline at call site", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ x := i32(1); y := i32(2); closure := { x, y }; impl(typeof(closure), call : (fn(self : Self, z : i32) -> i32)(self.x + (self.y + z))); result := closure.call(i32(3)); assert((result == i32(6)), \"Expected 6\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "anon_typeof_method_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(!(c.contains(String.from("closure.call"))), "anonymous typeof method should not emit invalid C method call");
+      assert(c.contains(String.from("closure.x")), "inlined method should read x field");
+      assert(c.contains(String.from("closure.y")), "inlined method should read y field");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Integration test: compile a complete program through compile_module_to_c
 // ---------------------------------------------------------------------------

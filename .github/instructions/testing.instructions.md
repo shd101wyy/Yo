@@ -38,6 +38,7 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
 - Run these whenever modifying `yo-self/` source or tests.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
+- Do not run multiple `./yo-self/yo-self-bin test ...` commands concurrently. The self-hosted test path currently writes shared scratch files such as `/tmp/yo_self_out.c`, so concurrent runs can collide and produce misleading compile errors or skipped-test counts.
 
 ### macOS 26 AMFI / ASAN dylib workaround
 

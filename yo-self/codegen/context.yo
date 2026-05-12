@@ -128,7 +128,11 @@ CodegenContext :: object(
   // Bootstrap closure values with one captured mutable field.
   closure_var_names : ArrayList(String),
   closure_capture_names : ArrayList(String),
-  closure_param_names : ArrayList(String)
+  closure_param_names : ArrayList(String),
+  // Bootstrap local anonymous-struct methods from `impl(typeof(var), method : fn...)`.
+  anon_method_var_names : ArrayList(String),
+  anon_method_names : ArrayList(String),
+  anon_method_body_templates : ArrayList(String)
 );
 impl(
   CodegenContext,
@@ -179,7 +183,10 @@ impl(
       closure_alias_param_names : ArrayList(String).new(),
       closure_var_names : ArrayList(String).new(),
       closure_capture_names : ArrayList(String).new(),
-      closure_param_names : ArrayList(String).new()
+      closure_param_names : ArrayList(String).new(),
+      anon_method_var_names : ArrayList(String).new(),
+      anon_method_names : ArrayList(String).new(),
+      anon_method_body_templates : ArrayList(String).new()
     )
   ),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
@@ -1136,6 +1143,33 @@ impl(
           result = self.*.closure_param_names.get(i);
         })
       );
+      i = (i + usize(1));
+    });
+    result
+  }),
+  register_anon_method : (fn(self : *(Self), var_name : str, method_name : str, body_template : str) -> unit)({
+    self.*.anon_method_var_names.push(String.from(var_name));
+    self.*.anon_method_names.push(String.from(method_name));
+    self.*.anon_method_body_templates.push(String.from(body_template));
+  }),
+  get_anon_method_body_template : (fn(self : *(Self), var_name : str, method_name : str) -> Option(String))({
+    n := self.*.anon_method_var_names.len();
+    (i : usize) = usize(0);
+    (result : Option(String)) = Option(String).None;
+    while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
+      var_matches := match(
+        self.*.anon_method_var_names.get(i),
+        .None => false,
+        .Some(name) => (name.as_str() == var_name)
+      );
+      method_matches := match(
+        self.*.anon_method_names.get(i),
+        .None => false,
+        .Some(name2) => (name2.as_str() == method_name)
+      );
+      if(var_matches && method_matches, {
+        result = self.*.anon_method_body_templates.get(i);
+      });
       i = (i + usize(1));
     });
     result
