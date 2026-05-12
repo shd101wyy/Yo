@@ -3545,6 +3545,21 @@ generic_type_app_c_name :: (fn(expr : AstExpr) -> Option(String))(
     )
   )
 );
+generic_type_app_base_name :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, type_fn_box, type_args, type_infix, _) => cond(
+      type_infix => Option(String).None,
+      (type_args.len() != usize(1)) => Option(String).None,
+      true => match(
+        type_fn_box.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, type_tok) => Option(String).Some(type_tok.value)
+      )
+    )
+  )
+);
 generic_type_app_field_c_type :: (fn(expr : AstExpr) -> Option(String))(
   match(
     expr,
@@ -3556,6 +3571,239 @@ generic_type_app_field_c_type :: (fn(expr : AstExpr) -> Option(String))(
         type_args.get(usize(0)),
         .None => Option(String).None,
         .Some(arg_expr) => type_expr_to_c(arg_expr)
+      )
+    )
+  )
+);
+struct_template_field_names_csv :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, struct_fn_box, struct_args, struct_infix, _) => cond(
+      struct_infix => Option(String).None,
+      true => match(
+        struct_fn_box.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, struct_tok) => cond(
+          (struct_tok.value.as_str() != "struct") => Option(String).None,
+          true => {
+            csv := String.new();
+            n := struct_args.len();
+            (i : usize) = usize(0);
+            (ok : bool) = true;
+            while(runtime((i < n) && ok), {
+              match(
+                struct_args.get(i),
+                .None => {
+                  ok = false;
+                },
+                .Some(field_expr) => match(
+                  field_expr,
+                  .Atom(_, _) => {
+                    ok = false;
+                  },
+                  .FnCall(_, field_fn, field_args, field_infix, _) => cond(
+                    (!(field_infix && (field_args.len() >= usize(2)))) => {
+                      ok = false;
+                    },
+                    true => match(
+                      field_fn.*,
+                      .FnCall(_, _, _, _, _) => {
+                        ok = false;
+                      },
+                      .Atom(_, field_tok) => cond(
+                        (field_tok.value.as_str() != ":") => {
+                          ok = false;
+                        },
+                        true => match(
+                          field_args.get(usize(0)),
+                          .None => {
+                            ok = false;
+                          },
+                          .Some(field_name_expr) => match(
+                            field_name_expr,
+                            .FnCall(_, _, _, _, _) => {
+                              ok = false;
+                            },
+                            .Atom(_, field_name_tok) => {
+                              if(i > usize(0), {
+                                csv.push_str(",");
+                              });
+                              csv.push_string(field_name_tok.value);
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              );
+              i = (i + usize(1));
+            });
+            cond(
+              ((!(ok)) || (csv.len() == usize(0))) => Option(String).None,
+              true => Option(String).Some(csv)
+            )
+          }
+        )
+      )
+    )
+  )
+);
+generic_struct_template_fields_from_alias_rhs :: (fn(expr : AstExpr) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, alias_fn_box, alias_args, alias_infix, _) => cond(
+      alias_infix => Option(String).None,
+      (alias_args.len() != usize(1)) => Option(String).None,
+      true => match(
+        alias_fn_box.*,
+        .Atom(_, _) => Option(String).None,
+        .FnCall(_, _, _, _, _) => match(
+          alias_args.get(usize(0)),
+          .None => Option(String).None,
+          .Some(body_expr) => struct_template_field_names_csv(body_expr)
+        )
+      )
+    )
+  )
+);
+register_generic_struct_template_if_supported :: (
+  fn(name : str, rhs_expr : AstExpr, ctx : *(CodegenContext)) -> bool
+)(
+  match(
+    generic_struct_template_fields_from_alias_rhs(rhs_expr),
+    .None => false,
+    .Some(fields_csv) => {
+      ctx.*.register_generic_struct_template(name, fields_csv.as_str());
+      true
+    }
+  )
+);
+ensure_generic_struct_instance :: (fn(ctx : *(CodegenContext), type_app_expr : AstExpr) -> Option(String))(
+  match(
+    generic_type_app_base_name(type_app_expr),
+    .None => Option(String).None,
+    .Some(base_name) => match(
+      ctx.*.get_generic_struct_template_fields(base_name.as_str()),
+      .None => Option(String).None,
+      .Some(fields_csv) => match(
+        generic_type_app_c_name(type_app_expr),
+        .None => Option(String).None,
+        .Some(concrete_name) => match(
+          generic_type_app_field_c_type(type_app_expr),
+          .None => Option(String).None,
+          .Some(field_c_ty) => {
+            if(!(ctx.*.is_struct_name(concrete_name.as_str())), {
+              fields := _split_csv(fields_csv.as_str());
+              decl := String.from("typedef struct { ");
+              field_types_csv := String.new();
+              n := fields.len();
+              (i : usize) = usize(0);
+              while(runtime(i < n), {
+                match(
+                  fields.get(i),
+                  .None => (),
+                  .Some(field_name) => {
+                    decl.push_string(field_c_ty);
+                    decl.push_str(" ");
+                    decl.push_string(field_name);
+                    decl.push_str("; ");
+                    if(i > usize(0), {
+                      field_types_csv.push_str(",");
+                    });
+                    field_types_csv.push_string(field_c_ty);
+                  }
+                );
+                i = (i + usize(1));
+              });
+              decl.push_str("} ");
+              decl.push_string(concrete_name);
+              decl.push_str(";");
+              ctx.*.emitter.emit_declaration_string_line(decl);
+              ctx.*.register_struct(String.from(concrete_name.as_str()));
+              ctx.*.register_struct_fields(concrete_name.as_str(), fields_csv.as_str());
+              ctx.*.register_struct_field_types(concrete_name.as_str(), field_types_csv.as_str());
+            });
+            Option(String).Some(concrete_name)
+          }
+        )
+      )
+    )
+  )
+);
+generic_struct_constructor_to_c :: (
+  fn(type_app_expr : AstExpr, args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+)(
+  match(
+    ensure_generic_struct_instance(ctx, type_app_expr),
+    .None => Option(String).None,
+    .Some(concrete_name) => match(
+      ctx.*.get_struct_fields(concrete_name.as_str()),
+      .None => Option(String).None,
+      .Some(fields_csv) => {
+        fields := _split_csv(fields_csv.as_str());
+        cond(
+          (fields.len() != args.len()) => Option(String).None,
+          true => {
+            result := String.from("(");
+            result.push_string(concrete_name);
+            result.push_str("){");
+            n := args.len();
+            (i : usize) = usize(0);
+            (ok : bool) = true;
+            while(runtime((i < n) && ok), {
+              match(
+                fields.get(i),
+                .None => {
+                  ok = false;
+                },
+                .Some(field_name) => match(
+                  args.get(i),
+                  .None => {
+                    ok = false;
+                  },
+                  .Some(arg_expr) => match(
+                    call_gen_expr(arg_expr, ctx, indent),
+                    .None => {
+                      ok = false;
+                    },
+                    .Some(arg_c) => {
+                      if(i > usize(0), {
+                        result.push_str(", ");
+                      });
+                      result.push_str(".");
+                      result.push_string(field_name);
+                      result.push_str(" = ");
+                      result.push_string(arg_c);
+                    }
+                  )
+                )
+              );
+              i = (i + usize(1));
+            });
+            result.push_str("}");
+            cond(
+              ok => Option(String).Some(result),
+              true => Option(String).None
+            )
+          }
+        )
+      }
+    )
+  )
+);
+generic_struct_constructor_type_from_call :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(String))(
+  match(
+    expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, ctor_fn_box, _, ctor_infix, _) => cond(
+      ctor_infix => Option(String).None,
+      true => match(
+        ctor_fn_box.*,
+        .Atom(_, _) => Option(String).None,
+        .FnCall(_, _, _, _, _) => ensure_generic_struct_instance(ctx, ctor_fn_box.*)
       )
     )
   )
@@ -5341,31 +5589,37 @@ handle_define :: (
                       clone_recv_var,
                       .None => {
                         match(
-                          generic_static_constructor_type_from_call(rhs_expr),
-                          .Some(generic_ctor_ty) => {
-                            ctx.*.register_var_type(name_tok.value.as_str(), generic_ctor_ty.as_str());
+                          generic_struct_constructor_type_from_call(rhs_expr, ctx),
+                          .Some(generic_struct_ctor_ty) => {
+                            ctx.*.register_var_type(name_tok.value.as_str(), generic_struct_ctor_ty.as_str());
                           },
-                          .None => {
-                            fn_return_ty := match(
-                              rhs_expr,
-                              .Atom(_, _) => Option(String).None,
-                              .FnCall(_, ret_fn_box, _ret_args, ret_infix, _) => cond(
-                                ret_infix => Option(String).None,
-                                true => match(
-                                  ret_fn_box.*,
-                                  .FnCall(_, _, _, _, _) => Option(String).None,
-                                  .Atom(_, ret_fn_tok) => ctx.*.get_fn_return_type(ret_fn_tok.value.as_str())
+                          .None => match(
+                            generic_static_constructor_type_from_call(rhs_expr),
+                            .Some(generic_ctor_ty) => {
+                              ctx.*.register_var_type(name_tok.value.as_str(), generic_ctor_ty.as_str());
+                            },
+                            .None => {
+                              fn_return_ty := match(
+                                rhs_expr,
+                                .Atom(_, _) => Option(String).None,
+                                .FnCall(_, ret_fn_box, _ret_args, ret_infix, _) => cond(
+                                  ret_infix => Option(String).None,
+                                  true => match(
+                                    ret_fn_box.*,
+                                    .FnCall(_, _, _, _, _) => Option(String).None,
+                                    .Atom(_, ret_fn_tok) => ctx.*.get_fn_return_type(ret_fn_tok.value.as_str())
+                                  )
                                 )
+                              );
+                              match(
+                                fn_return_ty,
+                                .None => (),
+                                .Some(ret_ty_name) => {
+                                  ctx.*.register_var_type(name_tok.value.as_str(), ret_ty_name.as_str());
+                                }
                               )
-                            );
-                            match(
-                              fn_return_ty,
-                              .None => (),
-                              .Some(ret_ty_name) => {
-                                ctx.*.register_var_type(name_tok.value.as_str(), ret_ty_name.as_str());
-                              }
-                            );
-                          }
+                            }
+                          )
                         );
                       },
                       .Some(src_var) => match(
@@ -9757,6 +10011,22 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .Some(id) => handle_type_cast(id, args, ctx, indent)
         ),
         (
+          (!(is_infix)) &&
+            match(
+              func_box.*,
+              .Atom(_, _) => false,
+              .FnCall(_, _, _, _, _) => match(
+                generic_type_app_base_name(func_box.*),
+                .None => false,
+                .Some(generic_base) => ctx.*.get_generic_struct_template_fields(generic_base.as_str()).is_some()
+              )
+            )
+        ) => match(
+          func_box.*,
+          .Atom(_, _) => Option(String).None,
+          .FnCall(_, _, _, _, _) => generic_struct_constructor_to_c(func_box.*, args, ctx, indent)
+        ),
+        (
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
@@ -10035,6 +10305,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                     true
                   }
                 );
+                generic_struct_template_registered := register_generic_struct_template_if_supported(c_name.as_str(), rhs_e2, ctx);
                 inline_type_alias_emitted := match(
                   rhs_e2,
                   .Atom(_, alias_atom_tok) => cond(
@@ -10122,6 +10393,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 );
                 cond(
                   closure_alias_registered =>.Some(String.from("0")),
+                  generic_struct_template_registered =>.Some(String.from("0")),
                   method_extract_const_emitted =>.Some(String.from("0")),
                   inline_type_alias_emitted =>.Some(String.from("0")),
                   // Inline array literal: `arr :: [v0, v1, ...]`
@@ -10244,6 +10516,7 @@ export(generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op);
 export(gen_integer_lit, gen_float_lit, gen_bool_lit, gen_string_lit);
 export(gen_binary_op, gen_unary_op);
 export(type_name_to_c, type_expr_to_c, is_c_type_name, is_builtin_keyword, is_primitive_type_cast, build_typed_decl, ensure_arraylist_c_type);
+export(register_generic_struct_template_if_supported);
 export(gen_arg_list, handle_regular_call, handle_dot_access, handle_method_call, handle_assignment);
 export(handle_define, handle_bare_colon_decl, handle_type_cast, handle_assert);
 export(is_labeled_arg, all_labeled_args, is_uppercase_start, handle_struct_constructor);

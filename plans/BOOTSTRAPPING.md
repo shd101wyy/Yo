@@ -7306,7 +7306,7 @@ Running `yo-self/yo-self-bin test <file>` on representative `./tests/*.test.yo`:
 | `basic.test.yo`                      | 24/32        | 8 use destructuring patterns, default fields, generics, `.Some(...)` literals |
 | `closure.test.yo`                    | 9/9          | Primitive, object/RC, and narrow `Dyn(Fn(...))` closure captures pass         |
 | `match_curly.test.yo`                | 10/10        | Single-field curly structs and Option.Some curly bindings pass                |
-| `index.test.yo`                      | 42/54        | Runtime ArrayList and simple struct Index reads/mutations pass                |
+| `index.test.yo`                      | 44/54        | Runtime ArrayList, simple struct, and single-param generic struct Index pass  |
 | `control_fn_as_regular_call.test.yo` | 0/3          | Requires IO effect injection                                                  |
 | `algebraic_effects.test.yo`          | 0/61         | Effects runtime not ported (~15k lines TS)                                    |
 | `async_await.test.yo`                | 0/121        | Async runtime not ported (~15k lines TS)                                      |
@@ -8400,6 +8400,62 @@ remaining HashMap/BTreeMap/Deque/String/RC collection gaps for later slices.
 - ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
 - ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
 - ⚠️ `tests/index.test.yo` → 42 passed, 0 failed, 12 skipped.
+
+### Phase 13ac — Single-param generic struct template instantiation
+
+**Problem**: after Phase 13ab, `tests/index.test.yo` still skipped the two
+runtime `GenericPoint(i32)` Index cases. The self-hosted test compiler emitted
+raw calls like `gp1(0)` because the top-level generic type constructor:
+
+```rust
+GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(x : T, y : T)
+);
+```
+
+was not recorded as a runtime struct template. As a result,
+`gp1 := GenericPoint(i32)(...)` was dropped, and the Index lowering had no
+registered variable type or field list for `gp1`.
+
+**Fix**:
+
+- Added a bootstrap generic-struct-template registry to `CodegenContext`.
+- Registered simple single-parameter templates from both whole-module codegen
+  and the test-body codegen path used by `yo-self-bin test`.
+- Lazily instantiated concrete C structs such as `GenericPoint_i32` when the
+  corresponding constructor call is used.
+- Registered the instantiated field list, so the existing runtime struct Index
+  lowering from Phase 13ab can handle reads, address-of, and mutations.
+
+This is intentionally limited to simple templates where all runtime fields use
+the single generic type parameter. More general generic type constructors and
+trait-based Index dispatch remain future work.
+
+**Verification**:
+
+- ✅ Added targeted codegen regression:
+  - `validation: generic struct runtime Index lowers through concrete instance`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 251/251.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  passes: 44 passed, 0 failed, 10 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime.test.yo` → 28 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
+- ⚠️ `tests/index.test.yo` → 44 passed, 0 failed, 10 skipped.
 
 ### Phase 13x — Primitive closure value lowering
 

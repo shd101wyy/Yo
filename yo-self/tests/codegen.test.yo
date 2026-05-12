@@ -1734,6 +1734,28 @@ test("validation: struct runtime Index call lowers to field pointer selection", 
     }
   );
 });
+test("validation: generic struct runtime Index lowers through concrete instance", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T)); main :: (fn() -> unit)({ gp1 := GenericPoint(i32)(i32(5), i32(6)); assert(gp1(usize(0)) == i32(5)); gp1(usize(0)) = i32(50); assert(gp1(usize(0)) == i32(50)); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "generic_struct_index_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { int32_t x; int32_t y; } GenericPoint_i32;")), "generic struct instance typedef");
+      assert(c.contains(String.from("__auto_type gp1 = (GenericPoint_i32){.x = (int32_t)(5), .y = (int32_t)(6)};")), "generic struct constructor emits concrete init");
+      assert(c.contains(String.from("(*(((size_t)(0) == (size_t)(0)) ? &gp1.x : &gp1.y)) == (int32_t)(50)")), "generic struct Index mutation reads selected field");
+    }
+  );
+});
 test("validation: Array(i32, n).fill returns indexable array wrapper", {
   given(exn) := Exception(
     throw : (

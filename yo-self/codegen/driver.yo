@@ -19,7 +19,7 @@ open(import("std/string"));
 { AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY, BK_BEGIN } :: import("../expr/expr.yo");
 { TokenKind, Token } :: import("../lexer/token.yo");
 { CodegenContext } :: import("./context.yo");
-{ type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl } :: import("./exprs.yo");
+{ type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl, register_generic_struct_template_if_supported } :: import("./exprs.yo");
 { generate_function, emit_function_declaration } :: import("./functions.yo");
 { emit_c_preamble, emit_main_wrapper, generate_c_output } :: import("./program.yo");
 // ---------------------------------------------------------------------------
@@ -4450,11 +4450,41 @@ compile_module_to_c :: (
                         });
                         // Fifth: try to extract a module-level constant.
                         if(nm == usize(0), {
-                          match(
-                            extract_const_def(expr),
-                            .Some(cd) => emit_const_to_c(cd, pctx),
-                            .None => ()
+                          generic_template_registered := match(
+                            expr,
+                            .Atom(_, _) => false,
+                            .FnCall(_, gen_func, gen_args, gen_infix, _) => cond(
+                              (!(gen_infix && (gen_args.len() >= usize(2)))) => false,
+                              true => match(
+                                gen_func.*,
+                                .FnCall(_, _, _, _, _) => false,
+                                .Atom(_, gen_op_tok) => cond(
+                                  (gen_op_tok.value.as_str() != "::") => false,
+                                  true => match(
+                                    gen_args.get(usize(0)),
+                                    .None => false,
+                                    .Some(gen_name_expr) => match(
+                                      atom_ident(gen_name_expr),
+                                      .None => false,
+                                      .Some(gen_name) => match(
+                                        gen_args.get(usize(1)),
+                                        .None => false,
+                                        .Some(gen_rhs) =>
+                                          register_generic_struct_template_if_supported(gen_name, gen_rhs, pctx)
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
                           );
+                          if(!(generic_template_registered), {
+                            match(
+                              extract_const_def(expr),
+                              .Some(cd) => emit_const_to_c(cd, pctx),
+                              .None => ()
+                            );
+                          });
                         });
                       }
                     )
@@ -4626,6 +4656,33 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                         emit_union_to_c(ud, pctx);
                       },
                       .None => {
+                        match(
+                          mexpr,
+                          .Atom(_, _) => (),
+                          .FnCall(_, gen_func2, gen_args2, gen_infix2, _) => if(gen_infix2 && (gen_args2.len() >= usize(2)), {
+                            match(
+                              gen_func2.*,
+                              .FnCall(_, _, _, _, _) => (),
+                              .Atom(_, gen_op_tok2) => if(gen_op_tok2.value.as_str() == "::", {
+                                match(
+                                  gen_args2.get(usize(0)),
+                                  .None => (),
+                                  .Some(gen_name_expr2) => match(
+                                    atom_ident(gen_name_expr2),
+                                    .None => (),
+                                    .Some(gen_name2) => match(
+                                      gen_args2.get(usize(1)),
+                                      .None => (),
+                                      .Some(gen_rhs2) => {
+                                        register_generic_struct_template_if_supported(gen_name2, gen_rhs2, pctx);
+                                      }
+                                    )
+                                  )
+                                );
+                              })
+                            );
+                          })
+                        );
                         // Emit impl methods
                         match(
                           mexpr,

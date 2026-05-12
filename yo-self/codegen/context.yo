@@ -91,6 +91,10 @@ CodegenContext :: object(
   // e.g. "const char*,int32_t" for struct(name: String, age: i32).
   // Populated by `register_struct_field_types` alongside `register_struct_fields`.
   struct_field_type_csvs : ArrayList(String),
+  // Bootstrap generic struct templates: `Name :: fn(comptime(T)) struct(x: T, ...)`.
+  // We instantiate these lazily as concrete C structs such as `Name_i32`.
+  generic_struct_names : ArrayList(String),
+  generic_struct_field_csvs : ArrayList(String),
   // Types that have `derive(ToString)` registered.
   // When calling `to_string()` on a pointer to one of these types, dispatch to
   // the pre-generated `fn_TypeName_to_string` C function.
@@ -162,6 +166,8 @@ impl(
       emitted_const_names : ArrayList(String).new(),
       string_const_names : ArrayList(String).new(),
       struct_field_type_csvs : ArrayList(String).new(),
+      generic_struct_names : ArrayList(String).new(),
+      generic_struct_field_csvs : ArrayList(String).new(),
       derive_tostring_names : ArrayList(String).new(),
       derive_clone_names : ArrayList(String).new(),
       derive_eq_names : ArrayList(String).new(),
@@ -502,6 +508,53 @@ impl(
               .Some(fcsv) => cond(
                 (fcsv.len() == usize(0)) => Option(String).None,
                 true => Option(String).Some(String.from(fcsv.as_str()))
+              )
+            );
+          });
+        }
+      );
+      i = (i + usize(1));
+    });
+    result
+  }),
+  register_generic_struct_template : (fn(self : *(Self), name : str, fields_csv : str) -> unit)({
+    n := self.*.generic_struct_names.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while(runtime((i < n) && (!(found))), {
+      match(
+        self.*.generic_struct_names.get(i),
+        .None => (),
+        .Some(existing) => {
+          if(existing.as_str() == name, {
+            (&(self.*.generic_struct_field_csvs)).index(i).* = String.from(fields_csv);
+            found = true;
+          });
+        }
+      );
+      i = (i + usize(1));
+    });
+    if(!(found), {
+      self.*.generic_struct_names.push(String.from(name));
+      self.*.generic_struct_field_csvs.push(String.from(fields_csv));
+    });
+  }),
+  get_generic_struct_template_fields : (fn(self : *(Self), name : str) -> Option(String))({
+    n := self.*.generic_struct_names.len();
+    (i : usize) = usize(0);
+    (result : Option(String)) = Option(String).None;
+    while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
+      match(
+        self.*.generic_struct_names.get(i),
+        .None => (),
+        .Some(existing) => {
+          if(existing.as_str() == name, {
+            result = match(
+              self.*.generic_struct_field_csvs.get(i),
+              .None => Option(String).None,
+              .Some(fields) => cond(
+                (fields.len() == usize(0)) => Option(String).None,
+                true => Option(String).Some(String.from(fields.as_str()))
               )
             );
           });
