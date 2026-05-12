@@ -20,7 +20,7 @@ open(import("std/string"));
 { TokenKind, Token } :: import("../lexer/token.yo");
 { CodegenContext } :: import("./context.yo");
 { type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl } :: import("./exprs.yo");
-{ generate_function } :: import("./functions.yo");
+{ generate_function, emit_function_declaration } :: import("./functions.yo");
 { emit_c_preamble, emit_main_wrapper, generate_c_output } :: import("./program.yo");
 // ---------------------------------------------------------------------------
 // FnDef — extracted function definition record
@@ -4209,6 +4209,13 @@ compile_module_to_c :: (
             // Pre-scan body for local type definitions and emit them as
             // top-level C typedefs before generating the function body.
             scan_and_emit_local_defs(fd.body, pctx);
+            emit_function_declaration(
+              c_name.as_str(),
+              fd.ret_ty_c.as_str(),
+              fd.params,
+              fd.param_tys,
+              pctx
+            );
             generate_function(
               c_name.as_str(),
               fd.ret_ty_c.as_str(),
@@ -4294,6 +4301,13 @@ compile_module_to_c :: (
                                 main_found = true;
                                 main_c_name = fd.name;
                               });
+                              emit_function_declaration(
+                                fd.name.as_str(),
+                                fd.ret_ty_c.as_str(),
+                                fd.params,
+                                fd.param_tys,
+                                pctx
+                              );
                               generate_function(
                                 fd.name.as_str(),
                                 fd.ret_ty_c.as_str(),
@@ -4440,6 +4454,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
           extract_fn_def(mexpr),
           .Some(fd) => {
             c_name := `fn_${ fd.name }`;
+            emit_function_declaration(
+              c_name.as_str(),
+              fd.ret_ty_c.as_str(),
+              fd.params,
+              fd.param_tys,
+              pctx
+            );
             generate_function(
               c_name.as_str(),
               fd.ret_ty_c.as_str(),
@@ -4506,6 +4527,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                                             // Determine the implementing type (strip leading `TypeName_` prefix)
                                             // tp2 holds the Yo type name (e.g. "SomeUnion").
                                             pctx.*.set_self_type(tp2);
+                                            emit_function_declaration(
+                                              c_name3.as_str(),
+                                              ifd2.ret_ty_c.as_str(),
+                                              ifd2.params,
+                                              ifd2.param_tys,
+                                              pctx
+                                            );
                                             generate_function(
                                               c_name3.as_str(),
                                               ifd2.ret_ty_c.as_str(),
@@ -4623,6 +4651,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
             // invoked as TypeName.method() which is_fn_name_called won't detect.
             c_name2 := `fn_${ lfd.name }`;
             pctx.*.set_self_type(lfd.impl_type.as_str());
+            emit_function_declaration(
+              c_name2.as_str(),
+              lfd.ret_ty_c.as_str(),
+              lfd.params,
+              lfd.param_tys,
+              pctx
+            );
             generate_function(
               c_name2.as_str(),
               lfd.ret_ty_c.as_str(),
@@ -4640,6 +4675,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
             name_copy2 := String.from(lfd.name.as_str());
             pctx.*.register_fn_with_params(name_copy2, build_param_tys_pipe(lfd.param_tys));
             c_name2 := `fn_${ lfd.name }`;
+            emit_function_declaration(
+              c_name2.as_str(),
+              lfd.ret_ty_c.as_str(),
+              lfd.params,
+              lfd.param_tys,
+              pctx
+            );
             generate_function(
               c_name2.as_str(),
               lfd.ret_ty_c.as_str(),
@@ -4659,6 +4701,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   // === Emit the test body as a standalone function ===
   params := ArrayList(String).new();
   param_tys := ArrayList(String).new();
+  emit_function_declaration("fn_test_body", "void", params, param_tys, pctx);
   generate_function("fn_test_body", "void", params, param_tys, body, pctx);
   emit_main_wrapper("fn_test_body", pctx);
   generate_c_output(pctx)

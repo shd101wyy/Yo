@@ -7325,9 +7325,39 @@ Concrete bugs catalogued from `tests/basic.test.yo` (next porting targets):
 2. Destructuring patterns: `(a, b, c) := tuple`, `{ x : a, y : b } := point`
 3. Anonymous struct literals as fn args: `fn({ x : 1, y : 2 })`
 4. Default struct field values: `struct(x : i32, (y : i32) ?= 12)`
-5. Forward function calls (no forward decls emitted)
+5. ✅ ~~Forward function calls (no forward decls emitted)~~ (fixed in 13b)
 6. Generic type instantiation: `ArrayList(u8).new()`
 7. Enum data union member naming (variant vs data union confusion)
 8. `.Some(12)` Option literal construction
 9. Mixed positional+named struct construction
 10. Function shadowing: `y(0)` where `y` was a local variable
+
+### Phase 13b — C function forward declarations
+
+**Problem**: The self-hosted codegen registered Yo function names early enough
+for call sites to emit the `fn_` C prefix, but it did not emit C prototypes.
+That meant a function body could call another generated function whose C
+definition appeared later in the file, producing implicit/undeclared function
+errors from clang.
+
+**Fix**:
+
+- Added `build_param_list(...)` in `yo-self/codegen/functions.yo` so function
+  definitions and declarations share identical signature formatting.
+- Added `emit_function_declaration(...)` to emit `static ret name(params);` into
+  the declarations section.
+- Wired prototypes into both `compile_module_to_c` and `compile_test_body_to_c`
+  for top-level functions, impl methods, hoisted local functions, and
+  `fn_test_body`.
+
+**Verification**:
+
+- ✅ `yo-self/yo-self-bin` compiles and runs a program where `main` calls `add`
+  before `add` is defined.
+- ✅ Generated C contains prototypes such as
+  `static int32_t fn_add(int32_t x, int32_t y);` before function definitions.
+- ✅ Added targeted tests:
+  - `emit_function_declaration: emits prototype in declarations`
+  - `compile_module_to_c: forward call emits function prototype`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 212/212.

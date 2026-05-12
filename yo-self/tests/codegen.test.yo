@@ -30,7 +30,7 @@ open(import("std/error"));
   extract_lambda_param_names,
   lift_non_capturing_lambda
 } :: import("../codegen/exprs.yo");
-{ generate_function } :: import("../codegen/functions.yo");
+{ generate_function, emit_function_declaration } :: import("../codegen/functions.yo");
 { TypeValue, t_i32, t_f32, t_usize, t_bool, t_comptime_string } :: import("../types/type.yo");
 {
   generate_type_decl,
@@ -848,6 +848,19 @@ test("generate_function: function with begin block body", {
   output := ctx.emitter.print();
   assert(output.contains(String.from("static int32_t const_42()")), "signature");
   assert(output.contains(String.from("return 42;")), "expected 'return 42;'");
+});
+test("emit_function_declaration: emits prototype in declarations", {
+  params := ArrayList(String).new();
+  param_tys := ArrayList(String).new();
+  params.push(String.from("a"));
+  params.push(String.from("b"));
+  param_tys.push(String.from("int32_t"));
+  param_tys.push(String.from("int32_t"));
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  emit_function_declaration("add", "int32_t", params, param_tys, pctx);
+  output := ctx.emitter.print();
+  assert(output.contains(String.from("static int32_t add(int32_t a, int32_t b);")), "prototype");
 });
 // ---------------------------------------------------------------------------
 // Phase 4e: Type codegen helpers
@@ -1975,6 +1988,34 @@ test("compile_module_to_c: cross-function call uses fn_ prefix", {
     .Some(c) => {
       assert(c.contains(String.from("fn_double(")), "double defined as fn_double");
       assert(c.contains(String.from("fn_double(21)")), "call site uses fn_double prefix");
+    }
+  );
+});
+test("compile_module_to_c: forward call emits function prototype", {
+  main_args := ArrayList(AstExpr).new();
+  main_args.push(make_atom_expr(TokenKind.Integer, "20"));
+  main_args.push(make_atom_expr(TokenKind.Integer, "22"));
+  main_stmts := ArrayList(AstExpr).new();
+  main_stmts.push(make_fncall_expr("add", main_args));
+  main_body := make_begin_expr(main_stmts);
+  main_ret := make_atom_expr(TokenKind.Identifier, "unit");
+  main_def := make_define_expr("main", make_fn_app(ArrayList(AstExpr).new(), main_ret, main_body));
+  add_params := ArrayList(AstExpr).new();
+  add_params.push(make_colon_expr(make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "i32")));
+  add_params.push(make_colon_expr(make_atom_expr(TokenKind.Identifier, "y"), make_atom_expr(TokenKind.Identifier, "i32")));
+  add_body := make_infix_expr("+", make_atom_expr(TokenKind.Identifier, "x"), make_atom_expr(TokenKind.Identifier, "y"));
+  add_ret := make_atom_expr(TokenKind.Identifier, "i32");
+  add_def := make_define_expr("add", make_fn_app(add_params, add_ret, add_body));
+  exprs := ArrayList(AstExpr).new();
+  exprs.push(main_def);
+  exprs.push(add_def);
+  opt_c := compile_module_to_c(exprs, "test_forward", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("static int32_t fn_add(int32_t x, int32_t y);")), "add prototype");
+      assert(c.contains(String.from("fn_add(20, 22)")), "call site uses fn_add prefix");
     }
   );
 });
