@@ -1705,6 +1705,43 @@ emit_simplified_some_binding_expr :: (
     )
   )
 );
+build_struct_field_index_expr :: (fn(var_name : String, fields_csv : String, idx_c : String) -> Option(String))({
+  fields := _split_csv(fields_csv.as_str());
+  n := fields.len();
+  cond(
+    (n == usize(0)) => Option(String).None,
+    true => {
+      result := String.from("(*(");
+      (i : usize) = usize(0);
+      while(runtime(i < n), {
+        match(
+          fields.get(i),
+          .None => (),
+          .Some(field_name) => {
+            if(i < (n - usize(1)), {
+              result.push_str("(");
+              result.push_string(idx_c);
+              result.push_str(" == (size_t)(");
+              result.push_string(i.to_string());
+              result.push_str(")) ? &");
+            }, {
+              result.push_str("&");
+            });
+            result.push_string(var_name);
+            result.push_str(".");
+            result.push_string(field_name);
+            if(i < (n - usize(1)), {
+              result.push_str(" : ");
+            });
+          }
+        );
+        i = (i + usize(1));
+      });
+      result.push_str("))");
+      Option(String).Some(result)
+    }
+  )
+});
 emit_simplified_some_bindings :: (
   fn(pat_expr : AstExpr, scrut_code : String, ctx : *(CodegenContext), indent : String) -> unit
 )(
@@ -3538,6 +3575,67 @@ ensure_generic_value_struct :: (fn(ctx : *(CodegenContext), type_name : String, 
 });
 is_arraylist_c_type :: (fn(c_ty : str) -> bool)(
   String.from(c_ty).starts_with(String.from("ArrayList_"))
+);
+is_runtime_index_assignable_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> bool)(
+  is_arraylist_c_type(c_ty) ||
+    match(
+      ctx.*.get_struct_fields(c_ty),
+      .None => false,
+      .Some(_) => true
+    )
+);
+should_skip_comptime_field_assignment :: (fn(ctx : *(CodegenContext), lhs_expr : AstExpr) -> bool)(
+  match(
+    lhs_expr,
+    .Atom(_, _) => false,
+    .FnCall(_, cm_fn, cm_args, cm_infix, _) => (
+      cm_infix &&
+        match(
+          cm_fn.*,
+          .Atom(_, cm_tok) => (cm_tok.value.as_str() == "."),
+          .FnCall(_, _, _, _, _) => false
+        ) &&
+          match(
+            cm_args.get(usize(0)),
+            .None => false,
+            .Some(cm_recv) => match(
+              cm_recv,
+              .Atom(_, cm_recv_tok) => (
+                (cm_recv_tok.kind == TokenKind.Identifier) &&
+                  ctx.*.is_const_var(cm_recv_tok.value.as_str())
+              ),
+              .FnCall(_, _, _, _, _) => false
+            )
+          )
+    )
+  )
+);
+should_skip_unsupported_index_assignment :: (fn(ctx : *(CodegenContext), lhs_expr : AstExpr) -> bool)(
+  match(
+    lhs_expr,
+    .Atom(_, _) => false,
+    .FnCall(_, nai_fn, nai_args, nai_infix, _) => (
+      ((!(nai_infix)) && (nai_args.len() == usize(1))) &&
+        match(
+          nai_fn.*,
+          .FnCall(_, _, _, _, _) => false,
+          .Atom(_, nai_tok) => cond(
+            (nai_tok.kind != TokenKind.Identifier) => false,
+            ctx.*.is_array_var(nai_tok.value.as_str()) => false,
+            ctx.*.is_slice_var(nai_tok.value.as_str()) => false,
+            ctx.*.is_defined_fn(nai_tok.value.as_str()) => false,
+            true => match(
+              ctx.*.get_var_type(nai_tok.value.as_str()),
+              .None => true,
+              .Some(nai_var_ty) => cond(
+                is_runtime_index_assignable_type(ctx, nai_var_ty.as_str()) => false,
+                true => true
+              )
+            )
+          )
+        )
+    )
+  )
 );
 arraylist_elem_c_type_from_name :: (fn(c_ty : str) -> Option(String))({
   c_ty_s := String.from(c_ty);
@@ -6079,6 +6177,49 @@ handle_regular_call :: (
             )
           )
         ),
+        // Bootstrap Index lowering for ArrayList(T): `list(idx)` -> `list.data[idx]`.
+        (
+          (args.len() == usize(1)) &&
+            (
+              ctx.*.get_var_type(id.as_str()).is_some() &&
+                ((!(ctx.*.is_array_var(id.as_str()))) && (!(ctx.*.is_slice_var(id.as_str()))))
+            )
+        ) => match(
+          ctx.*.get_var_type(id.as_str()),
+          .None => Option(String).None,
+          .Some(id_ty_for_index) => cond(
+            is_arraylist_c_type(id_ty_for_index.as_str()) => match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(list_idx_expr) => match(
+                call_gen_expr(list_idx_expr, ctx, indent),
+                .None => Option(String).None,
+                .Some(list_idx_c) => {
+                  list_index_code := String.new();
+                  list_index_code.push_string(sanitize_c_ident(id.as_str()));
+                  list_index_code.push_str(".data[");
+                  list_index_code.push_string(list_idx_c);
+                  list_index_code.push_str("]");
+                  Option(String).Some(list_index_code)
+                }
+              )
+            ),
+            true => match(
+              ctx.*.get_struct_fields(id_ty_for_index.as_str()),
+              .None => Option(String).None,
+              .Some(struct_fields_csv) => match(
+                args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(struct_idx_expr) => match(
+                  call_gen_expr(struct_idx_expr, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(struct_idx_c) =>
+                    build_struct_field_index_expr(sanitize_c_ident(id.as_str()), struct_fields_csv, struct_idx_c)
+                )
+              )
+            )
+          )
+        ),
         // arr(start..end) — slice creation: emit compound literal {.data=&arr[start], .length=end-start}
         (ctx.*.is_array_var(id.as_str()) && (args.len() == usize(1))) =>
           match(
@@ -8389,56 +8530,13 @@ handle_assignment :: (
                 // where `const_var` was declared with `::`.
                 // Skip (no-op): `::` bindings are comptime constants; any mutations to their
                 // fields are comptime-only and all dependent asserts are `comptime_assert` (no-ops).
-                match(
-                  lhs_expr,
-                  .Atom(_, _) => false,
-                  .FnCall(_, cm_fn, cm_args, cm_infix, _) => (
-                    cm_infix &&
-                      match(
-                        cm_fn.*,
-                        .Atom(_, cm_tok) => (cm_tok.value.as_str() == "."),
-                        .FnCall(_, _, _, _, _) => false
-                      ) &&
-                        match(
-                          cm_args.get(usize(0)),
-                          .None => false,
-                          .Some(cm_recv) => match(
-                            cm_recv,
-                            .Atom(_, cm_recv_tok) => (
-                              (cm_recv_tok.kind == TokenKind.Identifier) &&
-                                ctx.*.is_const_var(cm_recv_tok.value.as_str())
-                            ),
-                            .FnCall(_, _, _, _, _) => false
-                          )
-                        )
-                  )
-                ) => Option(String).Some(String.from("0")),
+                should_skip_comptime_field_assignment(ctx, lhs_expr) => Option(String).Some(String.from("0")),
                 // Compound LHS: e.g. c.*.field = val, arr.data = val
-                // Guard: if LHS is a non-infix FnCall where the callee is neither a
-                // registered array var nor a registered function (i.e., it's a struct
-                // variable being indexed via the Index trait), emit a no-op.
-                // This handles comptime-only mutations like `p(0) = val` where `p` is a
-                // struct with a ComptimeIndex impl — all asserts around it are comptime.
-                match(
-                  lhs_expr,
-                  .Atom(_, _) => false,
-                  .FnCall(_, nai_fn, nai_args, nai_infix, _) => (
-                    ((!(nai_infix)) && (nai_args.len() == usize(1))) &&
-                      match(
-                        nai_fn.*,
-                        .FnCall(_, _, _, _, _) => false,
-                        .Atom(_, nai_tok) => {
-                          is_non_array_index := (
-                            (nai_tok.kind == TokenKind.Identifier) &&
-                              (!(ctx.*.is_array_var(nai_tok.value.as_str()))) &&
-                                (!(ctx.*.is_slice_var(nai_tok.value.as_str()))) &&
-                                  (!(ctx.*.is_defined_fn(nai_tok.value.as_str())))
-                          );
-                          is_non_array_index
-                        }
-                      )
-                  )
-                ) => Option(String).Some(String.from("0")),
+                // Guard: if LHS is an unsupported non-infix Index trait assignment,
+                // emit a no-op. This keeps comptime-only mutations like `p(0) = val`
+                // out of generated C, while allowing runtime struct/ArrayList Index
+                // assignments that this bootstrapper can lower to real lvalues.
+                should_skip_unsupported_index_assignment(ctx, lhs_expr) => Option(String).Some(String.from("0")),
                 // Compound LHS: e.g. c.*.field = val, arr.data = val
                 // Generate the LHS as an expression and return "lhs = rhs"
                 true => match(

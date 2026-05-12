@@ -7306,6 +7306,7 @@ Running `yo-self/yo-self-bin test <file>` on representative `./tests/*.test.yo`:
 | `basic.test.yo`                      | 24/32        | 8 use destructuring patterns, default fields, generics, `.Some(...)` literals |
 | `closure.test.yo`                    | 9/9          | Primitive, object/RC, and narrow `Dyn(Fn(...))` closure captures pass         |
 | `match_curly.test.yo`                | 10/10        | Single-field curly structs and Option.Some curly bindings pass                |
+| `index.test.yo`                      | 42/54        | Runtime ArrayList and simple struct Index reads/mutations pass                |
 | `control_fn_as_regular_call.test.yo` | 0/3          | Requires IO effect injection                                                  |
 | `algebraic_effects.test.yo`          | 0/61         | Effects runtime not ported (~15k lines TS)                                    |
 | `async_await.test.yo`                | 0/121        | Async runtime not ported (~15k lines TS)                                      |
@@ -8344,6 +8345,61 @@ shorthand bindings.
 - ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
 - ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
 - ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
+
+### Phase 13ab — Runtime Index lowering for ArrayList and simple structs
+
+**Problem**: `tests/index.test.yo` had many skipped cases under
+`yo-self/yo-self-bin`. Simple runtime Index reads and mutations on custom
+structs such as `Point` and `Pair` either emitted raw C calls like `p1(...)` or
+were silently dropped by a broad "non-array Index assignment is comptime-only"
+guard. Direct `ArrayList(T)` call syntax (`list(idx)`) also needed bootstrap
+lowering; only method forms like `.get(...)` and specialized slice/array paths
+were handled.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- Added bootstrap direct-call Index lowering for registered `ArrayList(T)`
+  variables: `list(idx)` emits `list.data[idx]`, including address-of and
+  mutation uses.
+- Added narrow simple-struct Index lowering for registered concrete struct
+  variables: `p(idx)` emits a field-pointer selection over the registered field
+  list and dereferences it, e.g. `idx == 0 ? &p.x : &p.y`.
+- Kept registered C arrays and slices on their existing specialized paths so
+  `arr(range)` and `slice(idx)` behavior does not regress.
+- Narrowed the Index-assignment no-op guard so unsupported/comptime-only
+  assignments stay out of generated C, while runtime `ArrayList(T)` and
+  concrete struct Index assignments lower to real C lvalues.
+
+This is intentionally bootstrap-narrow rather than full trait dispatch. It
+unblocks common direct Index syntax in the real test suite while preserving the
+remaining HashMap/BTreeMap/Deque/String/RC collection gaps for later slices.
+
+**Verification**:
+
+- ✅ Added targeted codegen regressions:
+  - `validation: ArrayList(i32) direct Index call lowers to data access`
+  - `validation: struct runtime Index call lowers to field pointer selection`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 250/250.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  passes: 42 passed, 0 failed, 12 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime.test.yo` → 28 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
+- ⚠️ `tests/index.test.yo` → 42 passed, 0 failed, 12 skipped.
 
 ### Phase 13x — Primitive closure value lowering
 

@@ -1690,6 +1690,50 @@ test("validation: ArrayList(u8) value return can be indexed directly", {
     }
   );
 });
+test("validation: ArrayList(i32) direct Index call lowers to data access", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ (list : ArrayList(i32)) = ArrayList(i32).new(); list.push(i32(10)); list.push(i32(20)); assert(list(usize(1)) == i32(20)); p := &(list(usize(0))); p.* = i32(99); assert(list(usize(0)) == i32(99)); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "arraylist_direct_index_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("list.data[(size_t)(1)] == (int32_t)(20)")), "ArrayList direct index should use data field");
+      assert(c.contains(String.from("__auto_type p = (&list.data[(size_t)(0)]);")), "address-of ArrayList index should address data element");
+      assert(c.contains(String.from("list.data[(size_t)(0)] == (int32_t)(99)")), "mutated ArrayList index should read data element");
+    }
+  );
+});
+test("validation: struct runtime Index call lowers to field pointer selection", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("MyArray :: struct(data0 : i32, data1 : i32, data2 : i32); main :: (fn() -> unit)({ (arr : MyArray) = MyArray(i32(10), i32(20), i32(30)); value := arr(usize(1)); assert(value == i32(20)); p := &(arr(usize(2))); p.* = i32(99); assert(arr(usize(2)) == i32(99)); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "struct_runtime_index_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("__auto_type value = (*(((size_t)(1) == (size_t)(0)) ? &arr.data0 : ((size_t)(1) == (size_t)(1)) ? &arr.data1 : &arr.data2));")), "struct Index should select fields by index");
+      assert(c.contains(String.from("__auto_type p = (&(*(((size_t)(2) == (size_t)(0)) ? &arr.data0 : ((size_t)(2) == (size_t)(1)) ? &arr.data1 : &arr.data2)));")), "address-of struct Index should address selected field");
+      assert(c.contains(String.from("(*(((size_t)(2) == (size_t)(0)) ? &arr.data0 : ((size_t)(2) == (size_t)(1)) ? &arr.data1 : &arr.data2)) == (int32_t)(99)")), "mutated struct Index should read selected field");
+    }
+  );
+});
 test("validation: Array(i32, n).fill returns indexable array wrapper", {
   given(exn) := Exception(
     throw : (
