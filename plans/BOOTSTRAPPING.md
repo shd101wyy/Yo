@@ -8600,6 +8600,55 @@ Index path.
 - ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
 - ⚠️ `tests/index.test.yo` → 47 passed, 0 failed, 7 skipped.
 
+### Phase 13ag — Deque value layout and Index lowering
+
+**Problem**: after Phase 13af, `tests/index.test.yo` still skipped the three
+Deque Index cases. The self-hosted codegen did not understand `Deque(T)` as a
+runtime collection type, so `Deque(i32).new()`, `push_back`, `pop_front`, `len`,
+and `d(idx)` fell through as raw C-like method calls.
+
+**Fix**:
+
+- Added a bootstrap-narrow concrete `Deque(T)` C value layout:
+  `typedef struct { T data[1024]; size_t head; size_t length; } Deque_T;`.
+- Lowered `Deque(T).new()` to a zeroed compound literal.
+- Lowered `push_back`, `pop_front`, and `len` against the fixed ring-buffer
+  layout.
+- Lowered runtime Deque Index reads and address-of mutations to logical ring
+  slots: `data[(head + idx) % 1024]`.
+
+This deliberately mirrors only the behavior needed by the current benchmark
+tests; it is not yet a full port of `std/collections/deque.yo`'s object-backed
+implementation.
+
+**Verification**:
+
+- ✅ Added targeted codegen regression:
+  - `validation: Deque value type lowers push, pop, and Index`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 255/255.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --test-name-pattern "Deque" --disable-sanitize --parallel 1`
+  passes: 3 passed, 0 failed, 0 skipped.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  passes: 50 passed, 0 failed, 4 skipped.
+
+**Current small-file expansion status**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped.
+- ✅ `tests/array.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime.test.yo` → 28 passed, 0 failed, 0 skipped.
+- ✅ `tests/comptime_option_result.test.yo` → 12 passed, 0 failed, 0 skipped.
+- ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
+- ✅ `tests/process.test.yo` → 1 passed, 0 failed, 0 skipped.
+- ✅ `tests/forward_ref_self_method.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/ptr.test.yo` → 2 passed, 0 failed, 0 skipped.
+- ✅ `tests/control_fn_as_regular_call.test.yo` → 3 passed, 0 failed, 0 skipped.
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped.
+- ✅ `tests/closure.test.yo` → 9 passed, 0 failed, 0 skipped.
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
+- ⚠️ `tests/index.test.yo` → 50 passed, 0 failed, 4 skipped.
+
 ### Phase 13x — Primitive closure value lowering
 
 **Problem**: `tests/closure.test.yo` only had the expected-error case passing under

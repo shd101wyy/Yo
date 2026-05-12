@@ -2914,6 +2914,33 @@ type_expr_to_c :: (fn(ty_expr : AstExpr) -> Option(String))(
                 )
               )
             ),
+            (ftok.value.as_str() == "Deque") => match(
+              func_args.get(usize(0)),
+              .None => Option(String).Some(String.from("void*")),
+              .Some(deque_arg) => match(
+                deque_arg,
+                .FnCall(_, _, _, _, _) => match(
+                  recur(deque_arg),
+                  .None => Option(String).Some(String.from("void*")),
+                  .Some(nested_deque_ty) => cond(
+                    (nested_deque_ty.as_str() == "void*") => Option(String).Some(String.from("void*")),
+                    true => {
+                      deque_ty := String.from("Deque_");
+                      deque_ty.push_string(sanitize_c_ident(nested_deque_ty.as_str()));
+                      Option(String).Some(deque_ty)
+                    }
+                  )
+                ),
+                .Atom(_, deque_arg_tok) => cond(
+                  (deque_arg_tok.kind != TokenKind.Identifier) => Option(String).Some(String.from("void*")),
+                  true => {
+                    deque_ty2 := String.from("Deque_");
+                    deque_ty2.push_string(sanitize_c_ident(deque_arg_tok.value.as_str()));
+                    Option(String).Some(deque_ty2)
+                  }
+                )
+              )
+            ),
             // Other generic container types still use the opaque prototype representation.
             (ftok.value.as_str() == "HashMap") =>
               Option(String).Some(String.from("void*")),
@@ -3835,8 +3862,11 @@ ensure_generic_value_struct :: (fn(ctx : *(CodegenContext), type_name : String, 
 is_arraylist_c_type :: (fn(c_ty : str) -> bool)(
   String.from(c_ty).starts_with(String.from("ArrayList_"))
 );
+is_deque_c_type :: (fn(c_ty : str) -> bool)(
+  String.from(c_ty).starts_with(String.from("Deque_"))
+);
 is_runtime_index_assignable_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> bool)(
-  is_arraylist_c_type(c_ty) ||
+  (is_arraylist_c_type(c_ty) || is_deque_c_type(c_ty)) ||
     match(
       ctx.*.get_struct_fields(c_ty),
       .None => false,
@@ -3926,6 +3956,35 @@ ensure_arraylist_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
         ctx.*.emitter.emit_declaration_string_line(decl);
         ctx.*.register_struct(String.from(c_ty));
         ctx.*.register_struct_fields(c_ty, "data,length,_ptr");
+      }
+    );
+  });
+});
+deque_elem_c_type_from_name :: (fn(c_ty : str) -> Option(String))({
+  c_ty_s := String.from(c_ty);
+  prefix := String.from("Deque_");
+  cond(
+    (!(c_ty_s.starts_with(prefix))) => Option(String).None,
+    true => {
+      elem_name := c_ty_s.substring(prefix.len(), c_ty_s.len());
+      Option(String).Some(type_name_to_c(elem_name.as_str()))
+    }
+  )
+});
+ensure_deque_c_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> unit)({
+  if(is_deque_c_type(c_ty) && (!(ctx.*.is_struct_name(c_ty))), {
+    match(
+      deque_elem_c_type_from_name(c_ty),
+      .None => (),
+      .Some(elem_c_ty) => {
+        decl := String.from("typedef struct { ");
+        decl.push_string(elem_c_ty);
+        decl.push_str(" data[1024]; size_t head; size_t length; } ");
+        decl.push_str(c_ty);
+        decl.push_str(";");
+        ctx.*.emitter.emit_declaration_string_line(decl);
+        ctx.*.register_struct(String.from(c_ty));
+        ctx.*.register_struct_fields(c_ty, "data,head,length");
       }
     );
   });
@@ -6506,6 +6565,24 @@ handle_regular_call :: (
                 }
               )
             ),
+            is_deque_c_type(id_ty_for_index.as_str()) => match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(deque_idx_expr) => match(
+                call_gen_expr(deque_idx_expr, ctx, indent),
+                .None => Option(String).None,
+                .Some(deque_idx_c) => {
+                  deque_index_code := String.new();
+                  deque_index_code.push_string(sanitize_c_ident(id.as_str()));
+                  deque_index_code.push_str(".data[(");
+                  deque_index_code.push_string(sanitize_c_ident(id.as_str()));
+                  deque_index_code.push_str(".head + ");
+                  deque_index_code.push_string(deque_idx_c);
+                  deque_index_code.push_str(") % (size_t)(1024)]");
+                  Option(String).Some(deque_index_code)
+                }
+              )
+            ),
             true => match(
               ctx.*.get_struct_fields(id_ty_for_index.as_str()),
               .None => Option(String).None,
@@ -7101,6 +7178,18 @@ handle_method_call :: (
                 Option(String).Some(list_new)
               }
             ),
+          ((type_app_receiver_is(recv_expr, "Deque") && (method_name.as_str() == "new")) && (args.len() == usize(0))) =>
+            match(
+              type_expr_to_c(recv_expr),
+              .None => Option(String).None,
+              .Some(deque_c_ty) => {
+                ensure_deque_c_type(ctx, deque_c_ty.as_str());
+                deque_new := String.from("(");
+                deque_new.push_string(deque_c_ty);
+                deque_new.push_str("){.data = {0}, .head = 0, .length = 0}");
+                Option(String).Some(deque_new)
+              }
+            ),
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
@@ -7239,6 +7328,67 @@ handle_method_call :: (
             .Some(recv_ty_for_dispose) => cond(
               is_arraylist_c_type(recv_ty_for_dispose.as_str()) => Option(String).Some(String.from("0")),
               true => Option(String).None
+            )
+          ),
+          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "push_back") && (args.len() == usize(1)))) => match(
+            ctx.*.get_var_type(recv_code.as_str()),
+            .None => Option(String).None,
+            .Some(recv_ty_for_deque_push) => cond(
+              (!(is_deque_c_type(recv_ty_for_deque_push.as_str()))) => Option(String).None,
+              true => match(
+                args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(deque_push_arg_expr) => match(
+                  call_gen_expr(deque_push_arg_expr, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(deque_push_arg_c) => {
+                    deque_push_code := String.from("(");
+                    deque_push_code.push_string(recv_code);
+                    deque_push_code.push_str(".data[(");
+                    deque_push_code.push_string(recv_code);
+                    deque_push_code.push_str(".head + ");
+                    deque_push_code.push_string(recv_code);
+                    deque_push_code.push_str(".length) % (size_t)(1024)] = ");
+                    deque_push_code.push_string(deque_push_arg_c);
+                    deque_push_code.push_str(", ");
+                    deque_push_code.push_string(recv_code);
+                    deque_push_code.push_str(".length++)");
+                    Option(String).Some(deque_push_code)
+                  }
+                )
+              )
+            )
+          ),
+          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "pop_front") && (args.len() == usize(0)))) => match(
+            ctx.*.get_var_type(recv_code.as_str()),
+            .None => Option(String).None,
+            .Some(recv_ty_for_deque_pop) => cond(
+              (!(is_deque_c_type(recv_ty_for_deque_pop.as_str()))) => Option(String).None,
+              true => {
+                deque_pop_code := String.from("(");
+                deque_pop_code.push_string(recv_code);
+                deque_pop_code.push_str(".head = (");
+                deque_pop_code.push_string(recv_code);
+                deque_pop_code.push_str(".head + (size_t)(1)) % (size_t)(1024), ");
+                deque_pop_code.push_string(recv_code);
+                deque_pop_code.push_str(".length = (");
+                deque_pop_code.push_string(recv_code);
+                deque_pop_code.push_str(".length - (size_t)(1)))");
+                Option(String).Some(deque_pop_code)
+              }
+            )
+          ),
+          (ctx.*.get_var_type(recv_code.as_str()).is_some() && ((method_name.as_str() == "len") && (args.len() == usize(0)))) => match(
+            ctx.*.get_var_type(recv_code.as_str()),
+            .None => Option(String).None,
+            .Some(recv_ty_for_deque_len) => cond(
+              (!(is_deque_c_type(recv_ty_for_deque_len.as_str()))) => Option(String).None,
+              true => {
+                deque_len_code := String.new();
+                deque_len_code.push_string(recv_code);
+                deque_len_code.push_str(".length");
+                Option(String).Some(deque_len_code)
+              }
             )
           ),
           // `str_lit.len()` / `str_const.len()` / `string.bytes_len()` → strlen(recv)

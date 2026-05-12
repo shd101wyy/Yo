@@ -1780,6 +1780,31 @@ test("validation: nested ArrayList value type lowers through Index", {
     }
   );
 });
+test("validation: Deque value type lowers push, pop, and Index", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ (d : Deque(i32)) = Deque(i32).new(); d.push_back(i32(1)); d.push_back(i32(2)); d.push_back(i32(3)); d.pop_front(); d.pop_front(); d.push_back(i32(4)); d.push_back(i32(5)); assert(d(usize(0)) == i32(3), \"first\"); &(d(usize(1))).* = i32(40); assert(d(usize(1)) == i32(40), \"mutated\"); assert(d(usize(2)) == i32(5), \"third\"); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "deque_index_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("typedef struct { int32_t data[1024]; size_t head; size_t length; } Deque_i32;")), "Deque(i32) typedef should be emitted");
+      assert(c.contains(String.from("Deque_i32 d = (Deque_i32){.data = {0}, .head = 0, .length = 0};")), "Deque.new should emit concrete value init");
+      assert(c.contains(String.from("d.data[(d.head + d.length) % (size_t)(1024)] = (int32_t)(1), d.length++")), "Deque.push_back should append at logical tail");
+      assert(c.contains(String.from("d.head = (d.head + (size_t)(1)) % (size_t)(1024), d.length = (d.length - (size_t)(1))")), "Deque.pop_front should advance head");
+      assert(c.contains(String.from("d.data[(d.head + (size_t)(1)) % (size_t)(1024)]")), "Deque Index should address logical element");
+      assert(c.contains(String.from("(int32_t)(40)")), "Deque address-of Index mutation should assign value");
+    }
+  );
+});
 test("validation: struct runtime Index call lowers to field pointer selection", {
   given(exn) := Exception(
     throw : (
