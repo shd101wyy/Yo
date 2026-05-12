@@ -1660,6 +1660,28 @@ test("validation: single-field struct destructuring binds alias", {
     }
   );
 });
+test("validation: single-field struct destructuring binds shorthand", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("Point :: struct(x : i32, y : f64); main :: (fn() -> unit)({ point := Point(3, 4.5); { x } := point; assert(x == 3); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "single_field_shorthand_destructuring_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("__auto_type x =")), "single-field shorthand binding emitted");
+      assert(c.contains(String.from(".x;")), "single-field shorthand reads requested field");
+      assert(c.contains(String.from("x == 3")), "shorthand binding is available to later expressions");
+    }
+  );
+});
 test("validation: same-named local enums merge distinct variants", {
   given(exn) := Exception(
     throw : (

@@ -7529,3 +7529,30 @@ fields.
 - ✅ `yo-self/yo-self-bin test tests/basic.test.yo` improves from 26/32 to
   27/32. Remaining skips are struct, union, generic comptime functions,
   return-in-match compatibility, and index-on-call-result.
+
+### Phase 13i — Single-field shorthand destructuring
+
+**Problem**: `{ x } := value` has the same single-field parser shape as the
+alias form from Phase 13g (`begin(x)` on the left-hand side). The codegen only
+recognized the alias shape (`begin(x : alias)`), so shorthand destructuring in
+the union test erased the binding and later emitted `x` as an undeclared C
+identifier.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- Extended the single-argument `begin(...)` destructuring recognition to accept
+  a bare atom as shorthand field binding.
+- Reused the existing positional struct/union destructuring emission, which
+  binds `x` from `tmp.x`.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: single-field struct destructuring binds shorthand`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 219/219.
+- ✅ `yo-self/yo-self-bin test tests/basic.test.yo --test-name-pattern "Test 'union'"`
+  passes.
+- ✅ `yo-self/yo-self-bin test tests/basic.test.yo` improves from 27/32 to
+  28/32. Remaining skips are struct, generic comptime functions,
+  return-in-match compatibility, and index-on-call-result.
