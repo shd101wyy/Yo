@@ -1613,6 +1613,31 @@ test("validation: Option/Result unwrap method extraction lowers to macro alias",
     }
   );
 });
+test("validation: assignment expression bindings preserve old value", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  src := String.from("main :: (fn() -> unit)({ x := 1; y := (x = 2); assert(x == 2); assert(y == 1); (arr : [i32 ; 3]) = [1, 2, 3]; old := (arr = [2, 3, 4]); assert(arr(0) == 2); assert(old(0) == 1); }); export(main);");
+  exprs := parse(src, String.from("<test>"), using(exn));
+  opt_c := compile_module_to_c(exprs, "assignment_old_value_module", "main");
+  match(
+    opt_c,
+    .None => assert(false, "compile_module_to_c returned None"),
+    .Some(c) => {
+      assert(c.contains(String.from("__auto_type y = x;")), "scalar assignment captures old value first");
+      assert(c.contains(String.from("x = 2;")), "scalar assignment still updates target");
+      assert(c.contains(String.from("__typeof__(arr[0]) old[3];")), "array assignment captures old array");
+      assert(c.contains(String.from("memcpy(old, arr, sizeof(old));")), "array old value is copied");
+      assert(c.contains(String.from("arr[0] = 2;")), "array assignment still updates target");
+      assert(c.contains(String.from("old[0] == 1")), "old array is registered for indexing");
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Phase 5b — handle_define, handle_type_cast, handle_assert, compile_test_body_to_c
 // ---------------------------------------------------------------------------

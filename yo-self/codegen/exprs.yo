@@ -3055,6 +3055,80 @@ handle_define :: (
             ctx.*.track_open_var(name_tok.value.as_str(), csv_s.as_str());
           }
         );
+        assignment_value_emitted := match(
+          rhs_expr,
+          .Atom(_, _) => false,
+          .FnCall(_, asn_fn_box, asn_args, asn_infix, _) => cond(
+            (!(asn_infix)) => false,
+            (asn_args.len() != usize(2)) => false,
+            true => match(
+              asn_fn_box.*,
+              .FnCall(_, _, _, _, _) => false,
+              .Atom(_, asn_tok) => cond(
+                (asn_tok.value.as_str() != "=") => false,
+                true => match(
+                  asn_args.get(usize(0)),
+                  .None => false,
+                  .Some(assign_lhs) => match(
+                    assign_lhs,
+                    .FnCall(_, _, _, _, _) => false,
+                    .Atom(_, assign_lhs_tok) => cond(
+                      ctx.*.is_array_var(assign_lhs_tok.value.as_str()) => match(
+                        ctx.*.get_array_var_size(assign_lhs_tok.value.as_str()),
+                        .None => false,
+                        .Some(array_sz) => {
+                          san_src_array := sanitize_c_ident(assign_lhs_tok.value.as_str());
+                          san_old_array := sanitize_c_ident(name_tok.value.as_str());
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit("__typeof__(");
+                          ctx.*.emitter.emit_string(san_src_array);
+                          ctx.*.emitter.emit("[0]) ");
+                          ctx.*.emitter.emit_string(san_old_array);
+                          ctx.*.emitter.emit("[");
+                          ctx.*.emitter.emit_string(array_sz);
+                          ctx.*.emitter.emit_line("];");
+                          ctx.*.emitter.emit_string(indent);
+                          ctx.*.emitter.emit("memcpy(");
+                          ctx.*.emitter.emit_string(san_old_array);
+                          ctx.*.emitter.emit(", ");
+                          ctx.*.emitter.emit_string(san_src_array);
+                          ctx.*.emitter.emit(", sizeof(");
+                          ctx.*.emitter.emit_string(san_old_array);
+                          ctx.*.emitter.emit_line("));");
+                          ctx.*.register_array_var_with_size(name_tok.value.as_str(), array_sz.as_str());
+                          match(
+                            call_gen_expr(rhs_expr, ctx, indent),
+                            .None => (),
+                            .Some(assign_code) => if(assign_code.as_str() != "0", {
+                              emit_as_stmt(assign_code, ctx, indent);
+                            })
+                          );
+                          true
+                        }
+                      ),
+                      true => {
+                        ctx.*.emitter.emit_string(indent);
+                        ctx.*.emitter.emit("__auto_type ");
+                        ctx.*.emitter.emit_string(sanitize_c_ident(name_tok.value.as_str()));
+                        ctx.*.emitter.emit(" = ");
+                        ctx.*.emitter.emit_string(sanitize_c_ident(assign_lhs_tok.value.as_str()));
+                        ctx.*.emitter.emit_line(";");
+                        match(
+                          call_gen_expr(rhs_expr, ctx, indent),
+                          .None => (),
+                          .Some(assign_code2) => if(assign_code2.as_str() != "0", {
+                            emit_as_stmt(assign_code2, ctx, indent);
+                          })
+                        );
+                        true
+                      }
+                    )
+                  )
+                )
+              )
+            )
+          )
+        );
         method_extraction_emitted := emit_method_extraction_macro_if_supported(name_tok.value.as_str(), rhs_expr, ctx, indent);
         // Special case: `b := arr_var` where arr_var is a registered C array — array copy.
         // Emit `__typeof__(arr_var[0]) b[N]; memcpy(b, arr_var, sizeof(b));`
@@ -3351,7 +3425,8 @@ handle_define :: (
             )
           );
           cond(
-            (method_extraction_emitted || (arr_copy_emitted || arr_constructor_emitted)) => Option(String).Some(String.from("0")),
+            (assignment_value_emitted || (method_extraction_emitted || (arr_copy_emitted || arr_constructor_emitted))) =>
+              Option(String).Some(String.from("0")),
             array_decl_emitted => Option(String).Some(String.from("0")),
             true => match(
               call_gen_expr(rhs_expr, ctx, indent),

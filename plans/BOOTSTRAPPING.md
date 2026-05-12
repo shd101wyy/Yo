@@ -7442,3 +7442,32 @@ reached clang as undeclared C functions.
   passes: 215/215.
 - ✅ `yo-self/yo-self-bin test tests/comptime_option_result.test.yo` improves
   from 10/12 to 12/12, with 0 skipped tests.
+
+### Phase 13f — Assignment expression old-value semantics
+
+**Problem**: Yo assignment expressions return the previous value of the
+assigned target, but the bootstrap C codegen emitted C assignment expressions
+directly. For scalar bindings this returned the new value, and for array
+bindings it emitted `0`, causing later `old_array(0)` calls to reach C as
+invalid function calls.
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- In `handle_define`, detect bindings whose RHS is an assignment expression.
+- For scalar targets, emit the new binding as a copy of the old target first,
+  then emit the assignment as a separate statement.
+- For registered C array targets, emit a same-sized array copy with `memcpy`,
+  register the new binding as an array variable, then emit the element-wise
+  assignment.
+
+**Verification**:
+
+- ✅ Added targeted test:
+  - `validation: assignment expression bindings preserve old value`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes: 216/216.
+- ✅ `yo-self/yo-self-bin test tests/basic.test.yo --test-name-pattern "Test assignments"`
+  passes.
+- ✅ `yo-self/yo-self-bin test tests/basic.test.yo` improves from 24/32 to
+  25/32. Remaining skips are destructuring, struct/enum/union, generic
+  comptime functions, return-in-match compatibility, and index-on-call-result.
