@@ -1,0 +1,264 @@
+//! Codegen for inline builtin function calls (operators, pointer ops,
+//! slice helpers, randomness wrappers, sleep, no-op).
+//!
+//! 1-to-1 port of the metadata-independent subset of
+//! `src/codegen/exprs/inline-fns.ts` (`generateYoInlineFunctionCall`).
+//!
+//! Operates on already-generated argument C strings, so it does not require
+//! typed `expr.$` metadata.  The metadata-dependent branches in the TS source
+//! (`__yo_as`, `__yo_slice_new`, `__yo_array_index_range*`, `__yo_maybe_uninit_new`,
+//! `__yo_maybe_uninit_as_ptr`) are intentionally NOT ported here — they need
+//! `expr.$.type` / `expr.$.args[i].$.type` which yo-self does not yet expose.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../../expr/expr.yo");
+{ CodegenContext } :: import("../context.yo");
+{
+  BF_YO_OP_ADD,
+  BF_YO_OP_SUB,
+  BF_YO_OP_MUL,
+  BF_YO_OP_DIV,
+  BF_YO_OP_MOD,
+  BF_YO_OP_NEG,
+  BF_YO_OP_EQ,
+  BF_YO_OP_NEQ,
+  BF_YO_OP_LT,
+  BF_YO_OP_LTE,
+  BF_YO_OP_GT,
+  BF_YO_OP_GTE,
+  BF_YO_OP_NOT,
+  BF_YO_OP_BIT_AND,
+  BF_YO_OP_BIT_OR,
+  BF_YO_OP_BIT_XOR,
+  BF_YO_OP_BIT_COMPLEMENT,
+  BF_YO_OP_BIT_LEFT_SHIFT,
+  BF_YO_OP_BIT_RIGHT_SHIFT,
+  BF_YO_NOOP,
+  BF_YO_RETURN_SELF,
+  BF_YO_MS_SLEEP,
+  BF_YO_PTR_ADD,
+  BF_YO_PTR_SUB,
+  BF_YO_PTR_DIFF,
+  BF_YO_PTR_EQ,
+  BF_YO_PTR_NEQ,
+  BF_YO_PTR_LT,
+  BF_YO_PTR_LTE,
+  BF_YO_PTR_GT,
+  BF_YO_PTR_GTE,
+  BF_YO_SLICE_LEN,
+  BF_YO_SLICE_PTR,
+  BF_YO_GETRANDOM,
+  BF_YO_ARC4RANDOM_BUF,
+  BF_YO_BCRYPT_GEN_RANDOM,
+  BF_YO_GETENTROPY,
+  BF_YO_ARRAY_INDEX,
+  BF_YO_SLICE_INDEX,
+  BF_YO_DECR_RC,
+  BF_YO_MAYBE_UNINIT_ASSUME_INIT,
+} :: import("../../expr/expr.yo");
+emit_binop :: (fn(lhs : str, op : str, rhs : str) -> String)({
+  out := String.from("((");
+  out.push_str(lhs);
+  out.push_str(") ");
+  out.push_str(op);
+  out.push_str(" (");
+  out.push_str(rhs);
+  out.push_str("))");
+  out
+});
+emit_unop :: (fn(op : str, operand : str) -> String)({
+  out := String.from("(");
+  out.push_str(op);
+  out.push_str("(");
+  out.push_str(operand);
+  out.push_str("))");
+  out
+});
+emit_ptr_binop :: (fn(lhs : str, op : str, rhs : str) -> String)({
+  out := String.from("(");
+  out.push_str(lhs);
+  out.push_str(" ");
+  out.push_str(op);
+  out.push_str(" ");
+  out.push_str(rhs);
+  out.push_str(")");
+  out
+});
+emit_field :: (fn(base : str, field : str) -> String)({
+  out := String.from("(");
+  out.push_str(base);
+  out.push_str(".");
+  out.push_str(field);
+  out.push_str(")");
+  out
+});
+emit_call_1 :: (fn(name : str, a0 : str) -> String)({
+  out := String.from(name);
+  out.push_str("(");
+  out.push_str(a0);
+  out.push_str(")");
+  out
+});
+emit_call_2 :: (fn(name : str, a0 : str, a1 : str) -> String)({
+  out := String.from(name);
+  out.push_str("(");
+  out.push_str(a0);
+  out.push_str(", ");
+  out.push_str(a1);
+  out.push_str(")");
+  out
+});
+emit_call_3 :: (fn(name : str, a0 : str, a1 : str, a2 : str) -> String)({
+  out := String.from(name);
+  out.push_str("(");
+  out.push_str(a0);
+  out.push_str(", ");
+  out.push_str(a1);
+  out.push_str(", ");
+  out.push_str(a2);
+  out.push_str(")");
+  out
+});
+emit_array_index :: (fn(arr : str, idx : str) -> String)({
+  out := String.from("(&((");
+  out.push_str(arr);
+  out.push_str(")->data[");
+  out.push_str(idx);
+  out.push_str("]))");
+  out
+});
+/// Look up the inline emission for a builtin by C-emitted argument strings.
+/// Returns `Option.Some(c_code)` if `func_name` is a recognised inline
+/// builtin and `args` has the right shape; otherwise `Option.None`.
+///
+/// Mirrors the metadata-independent branches of `generateYoInlineFunctionCall`
+/// in `src/codegen/exprs/inline-fns.ts`.
+generate_yo_inline_function_call :: (
+  fn(func_name : str, arg_codes : ArrayList(String)) -> Option(String)
+)({
+  arg0 := match(arg_codes.get(usize(0)),.None => str(""),.Some(s) => s.as_str());
+  arg1 := match(arg_codes.get(usize(1)),.None => str(""),.Some(s) => s.as_str());
+  arg2 := match(arg_codes.get(usize(2)),.None => str(""),.Some(s) => s.as_str());
+  cond(
+    (func_name == BF_YO_OP_ADD) => Option(String).Some(emit_binop(arg0, "+", arg1)),
+    (func_name == BF_YO_OP_SUB) => Option(String).Some(emit_binop(arg0, "-", arg1)),
+    (func_name == BF_YO_OP_MUL) => Option(String).Some(emit_binop(arg0, "*", arg1)),
+    (func_name == BF_YO_OP_DIV) => Option(String).Some(emit_binop(arg0, "/", arg1)),
+    (func_name == BF_YO_OP_MOD) => Option(String).Some(emit_binop(arg0, "%", arg1)),
+    (func_name == BF_YO_OP_NEG) => Option(String).Some(emit_unop("-", arg0)),
+    (func_name == BF_YO_OP_EQ) => Option(String).Some(emit_binop(arg0, "==", arg1)),
+    (func_name == BF_YO_OP_NEQ) => Option(String).Some(emit_binop(arg0, "!=", arg1)),
+    (func_name == BF_YO_OP_LT) => Option(String).Some(emit_binop(arg0, "<", arg1)),
+    (func_name == BF_YO_OP_LTE) => Option(String).Some(emit_binop(arg0, "<=", arg1)),
+    (func_name == BF_YO_OP_GT) => Option(String).Some(emit_binop(arg0, ">", arg1)),
+    (func_name == BF_YO_OP_GTE) => Option(String).Some(emit_binop(arg0, ">=", arg1)),
+    (func_name == BF_YO_OP_NOT) => Option(String).Some(emit_unop("!", arg0)),
+    (func_name == BF_YO_OP_BIT_AND) => Option(String).Some(emit_binop(arg0, "&", arg1)),
+    (func_name == BF_YO_OP_BIT_OR) => Option(String).Some(emit_binop(arg0, "|", arg1)),
+    (func_name == BF_YO_OP_BIT_XOR) => Option(String).Some(emit_binop(arg0, "^", arg1)),
+    (func_name == BF_YO_OP_BIT_COMPLEMENT) => Option(String).Some(emit_unop("~", arg0)),
+    (func_name == BF_YO_OP_BIT_LEFT_SHIFT) => Option(String).Some(emit_binop(arg0, "<<", arg1)),
+    (func_name == BF_YO_OP_BIT_RIGHT_SHIFT) => Option(String).Some(emit_binop(arg0, ">>", arg1)),
+    (func_name == BF_YO_NOOP) => Option(String).Some(String.new()),
+    (func_name == BF_YO_RETURN_SELF) => {
+      out := String.from("(*");
+      out.push_str(arg0);
+      out.push_str(")");
+      Option(String).Some(out)
+    },
+    (func_name == BF_YO_MS_SLEEP) => Option(String).Some(emit_call_1("usleep", arg0)),
+    (func_name == BF_YO_DECR_RC) => {
+      out := String.from("__yo_decr_rc((void*)(");
+      out.push_str(arg0);
+      out.push_str("))");
+      Option(String).Some(out)
+    },
+    (func_name == BF_YO_PTR_ADD) => Option(String).Some(emit_ptr_binop(arg0, "+", arg1)),
+    (func_name == BF_YO_PTR_SUB) => Option(String).Some(emit_ptr_binop(arg0, "-", arg1)),
+    (func_name == BF_YO_PTR_DIFF) => Option(String).Some(emit_ptr_binop(arg0, "-", arg1)),
+    (func_name == BF_YO_PTR_EQ) => Option(String).Some(emit_ptr_binop(arg0, "==", arg1)),
+    (func_name == BF_YO_PTR_NEQ) => Option(String).Some(emit_ptr_binop(arg0, "!=", arg1)),
+    (func_name == BF_YO_PTR_LT) => Option(String).Some(emit_ptr_binop(arg0, "<", arg1)),
+    (func_name == BF_YO_PTR_LTE) => Option(String).Some(emit_ptr_binop(arg0, "<=", arg1)),
+    (func_name == BF_YO_PTR_GT) => Option(String).Some(emit_ptr_binop(arg0, ">", arg1)),
+    (func_name == BF_YO_PTR_GTE) => Option(String).Some(emit_ptr_binop(arg0, ">=", arg1)),
+    (func_name == BF_YO_SLICE_LEN) => Option(String).Some(emit_field(arg0, "length")),
+    (func_name == BF_YO_SLICE_PTR) => Option(String).Some(emit_field(arg0, "data")),
+    (func_name == BF_YO_GETRANDOM) => Option(String).Some(emit_call_3("getrandom", arg0, arg1, arg2)),
+    (func_name == BF_YO_ARC4RANDOM_BUF) => {
+      out := String.from("(arc4random_buf(");
+      out.push_str(arg0);
+      out.push_str(", ");
+      out.push_str(arg1);
+      out.push_str("), (void)0)");
+      Option(String).Some(out)
+    },
+    (func_name == BF_YO_BCRYPT_GEN_RANDOM) => {
+      out := String.from("(int32_t)BCryptGenRandom(NULL, ");
+      out.push_str(arg0);
+      out.push_str(", ");
+      out.push_str(arg1);
+      out.push_str(", BCRYPT_USE_SYSTEM_PREFERRED_RNG)");
+      Option(String).Some(out)
+    },
+    (func_name == BF_YO_GETENTROPY) => Option(String).Some(emit_call_2("getentropy", arg0, arg1)),
+    (func_name == BF_YO_ARRAY_INDEX) => Option(String).Some(emit_array_index(arg0, arg1)),
+    (func_name == BF_YO_SLICE_INDEX) => Option(String).Some(emit_array_index(arg0, arg1)),
+    (func_name == BF_YO_MAYBE_UNINIT_ASSUME_INIT) => {
+      out := String.from("(");
+      out.push_str(arg0);
+      out.push_str(")");
+      Option(String).Some(out)
+    },
+    true => Option(String).None
+  )
+});
+/// True iff `func_name` names an inline builtin handled by
+/// `generate_yo_inline_function_call`.
+is_yo_inline_builtin :: (fn(func_name : str) -> bool)(
+  cond(
+    (func_name == BF_YO_OP_ADD) => true,
+    (func_name == BF_YO_OP_SUB) => true,
+    (func_name == BF_YO_OP_MUL) => true,
+    (func_name == BF_YO_OP_DIV) => true,
+    (func_name == BF_YO_OP_MOD) => true,
+    (func_name == BF_YO_OP_NEG) => true,
+    (func_name == BF_YO_OP_EQ) => true,
+    (func_name == BF_YO_OP_NEQ) => true,
+    (func_name == BF_YO_OP_LT) => true,
+    (func_name == BF_YO_OP_LTE) => true,
+    (func_name == BF_YO_OP_GT) => true,
+    (func_name == BF_YO_OP_GTE) => true,
+    (func_name == BF_YO_OP_NOT) => true,
+    (func_name == BF_YO_OP_BIT_AND) => true,
+    (func_name == BF_YO_OP_BIT_OR) => true,
+    (func_name == BF_YO_OP_BIT_XOR) => true,
+    (func_name == BF_YO_OP_BIT_COMPLEMENT) => true,
+    (func_name == BF_YO_OP_BIT_LEFT_SHIFT) => true,
+    (func_name == BF_YO_OP_BIT_RIGHT_SHIFT) => true,
+    (func_name == BF_YO_NOOP) => true,
+    (func_name == BF_YO_RETURN_SELF) => true,
+    (func_name == BF_YO_MS_SLEEP) => true,
+    (func_name == BF_YO_DECR_RC) => true,
+    (func_name == BF_YO_PTR_ADD) => true,
+    (func_name == BF_YO_PTR_SUB) => true,
+    (func_name == BF_YO_PTR_DIFF) => true,
+    (func_name == BF_YO_PTR_EQ) => true,
+    (func_name == BF_YO_PTR_NEQ) => true,
+    (func_name == BF_YO_PTR_LT) => true,
+    (func_name == BF_YO_PTR_LTE) => true,
+    (func_name == BF_YO_PTR_GT) => true,
+    (func_name == BF_YO_PTR_GTE) => true,
+    (func_name == BF_YO_SLICE_LEN) => true,
+    (func_name == BF_YO_SLICE_PTR) => true,
+    (func_name == BF_YO_GETRANDOM) => true,
+    (func_name == BF_YO_ARC4RANDOM_BUF) => true,
+    (func_name == BF_YO_BCRYPT_GEN_RANDOM) => true,
+    (func_name == BF_YO_GETENTROPY) => true,
+    (func_name == BF_YO_ARRAY_INDEX) => true,
+    (func_name == BF_YO_SLICE_INDEX) => true,
+    (func_name == BF_YO_MAYBE_UNINIT_ASSUME_INIT) => true,
+    true => false
+  )
+);
+export(generate_yo_inline_function_call, is_yo_inline_builtin);

@@ -88,6 +88,7 @@ Use `cond` when there are more than two branches or when the branches are large.
 - `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return(expr); })`
 - No space between `(fn() -> ReturnType)` and `({ body; })`
 - Function type body creation is a normal call: `(fn(...) -> T)({ body })`, not `(fn(...) -> T) { body }`
+- Top-level aliases for function types also need parentheses: `Callback :: (fn(x : i32) -> i32);`, not `Callback :: fn(x : i32) -> i32;`
 - Method definitions in `impl` use `name : (fn(self : Self) -> ReturnType)({ body })`
 - Use `Self` instead of the type name in method signatures, enum definitions, and struct definitions — the type name is not available inside its own definition
 - Use `struct(...)` for record/effect-record types. The old `module(...)`,

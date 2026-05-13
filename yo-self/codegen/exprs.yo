@@ -16,6 +16,12 @@ open(import("std/string"));
 { TokenKind } :: import("../lexer/token.yo");
 { CodegenContext } :: import("./context.yo");
 { DataBinding, DataArm, generate_match_data } :: import("./match.yo");
+{ set_generate_expr_fn, call_gen_expr } :: import("./exprs/expr.yo");
+{ generate_consume } :: import("./exprs/consume.yo");
+{ generate_yo_gc_collect } :: import("./exprs/gc.yo");
+{ generate_yo_thread_set_maximum_threads } :: import("./exprs/parallelism.yo");
+{ generate_sizeof } :: import("./exprs/sizeof.yo");
+{ generate_yo_inline_function_call, is_yo_inline_builtin } :: import("./exprs/inline_fns.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -141,21 +147,6 @@ gen_unary_op :: (fn(op : String, operand : String) -> String)({
   result
 });
 // ---------------------------------------------------------------------------
-// Module-level function pointer — avoids direct recursion in generate_expr
-// ---------------------------------------------------------------------------
-//
-// Yo standalone functions cannot call themselves directly (no forward
-// declarations).  We store a pointer to generate_expr and route recursive
-// calls through call_gen_expr, mirroring the g_eval_fn trick in eval.yo.
-(g_gen_expr_fn : Option(fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String))) =.None;
-call_gen_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String))(
-  match(
-    g_gen_expr_fn,
-    .None => Option(String).None,
-    .Some(f) => f(expr, ctx, indent)
-  )
-);
-// ---------------------------------------------------------------------------
 // Phase 4b helpers — infix/prefix sub-expression generation
 // ---------------------------------------------------------------------------
 gen_infix_side :: (fn(args : ArrayList(AstExpr), idx : usize, ctx : *(CodegenContext), indent : String) -> Option(String))(
@@ -185,8 +176,8 @@ handle_infix_op :: (
         // Use strcmp for string equality/inequality comparisons.
         // Detect: either side is a C string literal (starts with '"') or
         // a to_string() call (contains "_to_string(").
-        lhs_is_str := (l.starts_with(String.from("\"")) || l.contains(String.from("_to_string(")));
-        rhs_is_str := (r.starts_with(String.from("\"")) || r.contains(String.from("_to_string(")));
+        lhs_is_str := (l.starts_with(String.from("\"")) || (l.contains(String.from("_to_string(")) || (l.contains(String.from("__yo_")) || match(ctx.*.get_var_type(l.as_str()),.None => false,.Some(ltyp) => (ltyp.as_str() == "const char*")))));
+        rhs_is_str := (r.starts_with(String.from("\"")) || (r.contains(String.from("_to_string(")) || (r.contains(String.from("__yo_")) || match(ctx.*.get_var_type(r.as_str()),.None => false,.Some(rtyp) => (rtyp.as_str() == "const char*")))));
         // box var check: `box(T)` returns a pointer; compare via deref (*x == *y).
         lhs_is_box := ctx.*.is_box_var(l.as_str());
         // Derive-Eq type check: look up the type of lhs variable and check for registered Eq.
@@ -1742,6 +1733,40 @@ build_struct_field_index_expr :: (fn(var_name : String, fields_csv : String, idx
     }
   )
 });
+/// Extract the variant name from either a data arm `.V(bindings)` or a bare
+/// unit arm `.V` (no parentheses).
+///
+/// Returns `None` for wildcards (`_`) and non-variant patterns.
+_get_arm_variant_name :: (fn(pat_expr : AstExpr) -> Option(String))(
+  match(
+    data_arm_variant_name(pat_expr),
+    .Some(vn) => Option(String).Some(vn),
+    .None => match(
+      pat_expr,
+      .Atom(_, _) => Option(String).None,
+      .FnCall(_, pfunc, pargs, pinfix, _) => cond(
+        pinfix => Option(String).None,
+        (pargs.len() != usize(1)) => Option(String).None,
+        true => match(
+          pfunc.*,
+          .FnCall(_, _, _, _, _) => Option(String).None,
+          .Atom(_, ptok) => cond(
+            (ptok.kind != TokenKind.Dot) => Option(String).None,
+            true => match(
+              pargs.get(usize(0)),
+              .None => Option(String).None,
+              .Some(vexpr) => match(
+                vexpr,
+                .FnCall(_, _, _, _, _) => Option(String).None,
+                .Atom(_, vatom) => Option(String).Some(vatom.value)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
 emit_simplified_some_bindings :: (
   fn(pat_expr : AstExpr, scrut_code : String, ctx : *(CodegenContext), indent : String) -> unit
 )(
@@ -1769,6 +1794,117 @@ emit_simplified_some_bindings :: (
     )
   )
 );
+/// Emit an `if (scrut != NULL) { .Some/Ok body } else { .None/Err body }` block
+/// for an Option or Result match using the void-pointer bootstrap encoding.
+///
+/// Used when no enum is registered for `Some`/`Ok` (i.e. the value is encoded as
+/// `void*`: non-NULL for Some/Ok, NULL for None/Err).
+///
+/// Arms are scanned from `args[1..n]`. The first `.Some`/`.Ok` arm is used for
+/// the non-NULL branch (with bindings emitted via `emit_simplified_some_bindings`).
+/// The first `.None`/`.Err` arm (or `_` wildcard) is used for the NULL branch.
+emit_option_null_if_else :: (
+  fn(
+    scrut_c : String,
+    n : usize,
+    args : ArrayList(AstExpr),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> unit
+)({
+  inner := String.from(indent.as_str());
+  inner.push_str("  ");
+  (i : usize) = usize(1);
+  (some_pat_expr : Option(AstExpr)) = Option(AstExpr).None;
+  (some_body_expr : Option(AstExpr)) = Option(AstExpr).None;
+  (none_body_expr : Option(AstExpr)) = Option(AstExpr).None;
+  (wild_body_expr : Option(AstExpr)) = Option(AstExpr).None;
+  while(runtime(i < n), {
+    match(
+      args.get(i),
+      .None => (),
+      .Some(arm_expr) => match(
+        get_arm_args(arm_expr),
+        .None => (),
+        .Some(arm_args) => match(
+          arm_args.get(usize(0)),
+          .None => (),
+          .Some(pat_e) => match(
+            arm_args.get(usize(1)),
+            .None => (),
+            .Some(body_e) => {
+              is_wild := _is_atom_value(pat_e, "_");
+              cond(
+                is_wild => {
+                  if(wild_body_expr.is_none(), {
+                    wild_body_expr = Option(AstExpr).Some(body_e);
+                  });
+                },
+                true => match(
+                  _get_arm_variant_name(pat_e),
+                  .None => (),
+                  .Some(vn) => cond(
+                    ((vn.as_str() == "Some") || (vn.as_str() == "Ok")) => {
+                      if(some_body_expr.is_none(), {
+                        some_body_expr = Option(AstExpr).Some(body_e);
+                        some_pat_expr = Option(AstExpr).Some(pat_e);
+                      });
+                    },
+                    ((vn.as_str() == "None") || (vn.as_str() == "Err")) => {
+                      if(none_body_expr.is_none(), {
+                        none_body_expr = Option(AstExpr).Some(body_e);
+                      });
+                    },
+                    true => ()
+                  )
+                )
+              );
+            }
+          )
+        )
+      )
+    );
+    i = (i + usize(1));
+  });
+  ctx.*.emitter.emit_string(indent);
+  ctx.*.emitter.emit("if (");
+  ctx.*.emitter.emit_string(scrut_c);
+  ctx.*.emitter.emit(" != NULL) {\n");
+  match(
+    some_body_expr,
+    .None => (),
+    .Some(sb) => {
+      match(
+        some_pat_expr,
+        .None => (),
+        .Some(sp) => emit_simplified_some_bindings(sp, scrut_c, ctx, inner)
+      );
+      match(
+        call_gen_expr(sb, ctx, inner),
+        .None => (),
+        .Some(bc) => emit_as_stmt(bc, ctx, inner)
+      );
+    }
+  );
+  ctx.*.emitter.emit_string(indent);
+  ctx.*.emitter.emit("} else {\n");
+  actual_none_body := match(
+    none_body_expr,
+    .Some(_) => none_body_expr,
+    .None => wild_body_expr
+  );
+  match(
+    actual_none_body,
+    .None => (),
+    .Some(nb) => match(
+      call_gen_expr(nb, ctx, inner),
+      .None => (),
+      .Some(nc) => emit_as_stmt(nc, ctx, inner)
+    )
+  );
+  ctx.*.emitter.emit_string(indent);
+  ctx.*.emitter.emit("}\n");
+});
 /// True if `expr` is `match(scrut, ...)` where any arm pattern is `.Variant(bindings...)`.
 /// Used to decide whether to use `generate_match_data` instead of ternary chains.
 _has_data_arm :: (fn(args : ArrayList(AstExpr)) -> bool)({
@@ -1850,7 +1986,7 @@ handle_match_data :: (
           );
           can_simplify_some_match := match(
             ctx.*.get_var_type(scrut_code.as_str()),
-            .None => true,
+            .None => false,
             .Some(vt) => (vt.as_str() == "__auto_type")
           );
           simplified_some_body := {
@@ -1899,53 +2035,66 @@ handle_match_data :: (
               )
             },
             .None => {
-              temp := ctx.*.fresh_temp();
-              data_arms := ArrayList(DataArm).new();
-              (i : usize) = usize(1);
-              while(runtime(i < n), {
-                match(
-                  args.get(i),
-                  .None => (),
-                  .Some(arm_expr) => match(
-                    get_arm_args(arm_expr),
-                    .None => (),
-                    .Some(arm_args) => match(
-                      arm_args.get(usize(0)),
-                      .None => (),
-                      .Some(pat_expr) => {
-                        variant_name_buf := String.new();
-                        bindings := ArrayList(DataBinding).new();
-                        tag_const_str := _extract_data_arm(pat_expr, &(variant_name_buf), &(bindings), ctx);
-                        body_expr_opt := arm_args.get(usize(1));
-                        match(
-                          body_expr_opt,
-                          .None => (),
-                          .Some(body_expr) => {
-                            arm := DataArm(
-                              tag_const : tag_const_str,
-                              bindings : bindings,
-                              body : body_expr
-                            );
-                            _r := data_arms.push(arm);
-                            ();
-                          }
-                        );
-                      }
-                    )
-                  )
-                );
-                i = (i + usize(1));
-              });
-              generate_match_data(
-                scrut_c.as_str(),
-                "int32_t",
-                temp.as_str(),
-                data_arms,
-                call_gen_expr,
-                ctx,
-                indent.as_str()
+              is_void_ptr_opt := match(
+                ctx.*.get_enum_for_variant("Some"),
+                .Some(_) => false,
+                .None => true
               );
-              .Some(temp)
+              cond(
+                is_void_ptr_opt => {
+                  emit_option_null_if_else(scrut_c, n, args, ctx, indent);
+                  Option(String).Some(String.from("0"))
+                },
+                true => {
+                  temp := ctx.*.fresh_temp();
+                  data_arms := ArrayList(DataArm).new();
+                  (i : usize) = usize(1);
+                  while(runtime(i < n), {
+                    match(
+                      args.get(i),
+                      .None => (),
+                      .Some(arm_expr) => match(
+                        get_arm_args(arm_expr),
+                        .None => (),
+                        .Some(arm_args) => match(
+                          arm_args.get(usize(0)),
+                          .None => (),
+                          .Some(pat_expr) => {
+                            variant_name_buf := String.new();
+                            bindings := ArrayList(DataBinding).new();
+                            tag_const_str := _extract_data_arm(pat_expr, &(variant_name_buf), &(bindings), ctx);
+                            body_expr_opt := arm_args.get(usize(1));
+                            match(
+                              body_expr_opt,
+                              .None => (),
+                              .Some(body_expr) => {
+                                arm := DataArm(
+                                  tag_const : tag_const_str,
+                                  bindings : bindings,
+                                  body : body_expr
+                                );
+                                _r := data_arms.push(arm);
+                                ();
+                              }
+                            );
+                          }
+                        )
+                      )
+                    );
+                    i = (i + usize(1));
+                  });
+                  generate_match_data(
+                    scrut_c.as_str(),
+                    "int32_t",
+                    temp.as_str(),
+                    data_arms,
+                    call_gen_expr,
+                    ctx,
+                    indent.as_str()
+                  );
+                  .Some(temp)
+                }
+              )
             }
           )
         }
@@ -3554,6 +3703,12 @@ _tuple_field_ref :: (fn(idx : usize) -> String)({
   });
   r
 });
+/// Returns true if the C type name is a numeric/scalar primitive.
+/// Used to decide whether Option(T).None should emit `(T)0` vs `NULL`.
+is_numeric_c_type :: (fn(ty : str) -> bool)(
+  (ty == "int32_t") || ((ty == "int64_t") || ((ty == "uint32_t") || ((ty == "uint64_t") || ((ty == "int8_t") || ((ty == "int16_t") || ((ty == "uint8_t") || ((ty == "uint16_t") || ((ty == "isize") || ((ty == "size_t") || ((ty == "double") || ((ty == "float") || (ty == "bool"))))))))))))
+);
+
 type_app_receiver_is :: (fn(expr : AstExpr, type_name : str) -> bool)(
   match(
     expr,
@@ -4921,14 +5076,51 @@ simple_closure_capture_from_body_or_cond :: (fn(body_expr : AstExpr, param_name 
     )
   )
 });
+/// Check if a fn_box is a typed fn-type: `fn(params) -> RetType` parsed as
+/// `FnCall(fn=Atom("->"), args=[FnCall(fn=Atom("fn"), params), RetType], infix=true)`.
+/// Returns `Some(params_expr)` (the first arg of `fn(...)`) if so.
+typed_lambda_fn_box_params :: (fn(fn_box : AstExpr) -> Option(AstExpr))(
+  match(
+    fn_box,
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(_, arrow_box, arrow_args, arrow_infix, _) => cond(
+      (!(arrow_infix && (arrow_args.len() == usize(2)))) => Option(AstExpr).None,
+      true => match(
+        arrow_box.*,
+        .FnCall(_, _, _, _, _) => Option(AstExpr).None,
+        .Atom(_, arrow_tok) => cond(
+          (arrow_tok.value.as_str() != "->") => Option(AstExpr).None,
+          true => match(
+            arrow_args.get(usize(0)),
+            .None => Option(AstExpr).None,
+            .Some(fn_params_e) => match(
+              fn_params_e,
+              .Atom(_, _) => Option(AstExpr).None,
+              .FnCall(_, fn_kw_box, fn_kw_args, fn_kw_infix, _) => cond(
+                (fn_kw_infix || (fn_kw_args.len() != usize(1))) => Option(AstExpr).None,
+                true => match(
+                  fn_kw_box.*,
+                  .FnCall(_, _, _, _, _) => Option(AstExpr).None,
+                  .Atom(_, fn_kw_tok) => cond(
+                    (fn_kw_tok.value.as_str() != "fn") => Option(AstExpr).None,
+                    true => fn_kw_args.get(usize(0))
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
 lambda_body_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
   match(
     expr,
     .Atom(_, _) => Option(AstExpr).None,
     .FnCall(_, lambda_fn_box, lambda_args, lambda_infix, _) => cond(
-      (!(lambda_infix)) => Option(AstExpr).None,
-      (lambda_args.len() != usize(2)) => Option(AstExpr).None,
-      true => match(
+      // Normal lambda: `params => body` or `params -> body` (infix form, 2 args)
+      (lambda_infix && (lambda_args.len() == usize(2))) => match(
         lambda_fn_box.*,
         .FnCall(_, _, _, _, _) => Option(AstExpr).None,
         .Atom(_, lambda_tok) => cond(
@@ -4938,6 +5130,80 @@ lambda_body_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
             lambda_args.get(usize(1)),
             .None => Option(AstExpr).None,
             .Some(body_expr) => Option(AstExpr).Some(body_expr)
+          )
+        )
+      ),
+      // Typed lambda: `(fn(a : T) -> RetType)(body)` (non-infix, 1 arg, fn box is `->` infix)
+      ((!(lambda_infix)) && (lambda_args.len() == usize(1))) => match(
+        typed_lambda_fn_box_params(lambda_fn_box.*),
+        .None => Option(AstExpr).None,
+        .Some(_) => lambda_args.get(usize(0))
+      ),
+      true => Option(AstExpr).None
+    )
+  )
+);
+/// Extract the params expression from a `(params) => body` or `(params) -> body` lambda,
+/// or from a typed lambda `(fn(a : T) -> RetType)(body)`.
+/// Returns the first argument (the params) of the `=>` / `->` infix expression.
+lambda_params_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
+  match(
+    expr,
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(_, lambda_fn_box, lambda_args, lambda_infix, _) => cond(
+      // Normal lambda: `params => body` or `params -> body` (infix form, 2 args)
+      (lambda_infix && (lambda_args.len() == usize(2))) => match(
+        lambda_fn_box.*,
+        .FnCall(_, _, _, _, _) => Option(AstExpr).None,
+        .Atom(_, lambda_tok) => cond(
+          !((lambda_tok.value.as_str() == "->") || (lambda_tok.value.as_str() == "=>")) =>
+            Option(AstExpr).None,
+          true => match(
+            lambda_args.get(usize(0)),
+            .None => Option(AstExpr).None,
+            .Some(params_expr) => Option(AstExpr).Some(params_expr)
+          )
+        )
+      ),
+      // Typed lambda: `(fn(a : T) -> RetType)(body)` (non-infix, 1 arg, fn box is `->` infix)
+      ((!(lambda_infix)) && (lambda_args.len() == usize(1))) => match(
+        typed_lambda_fn_box_params(lambda_fn_box.*),
+        .None => Option(AstExpr).None,
+        .Some(single_param_e) => Option(AstExpr).Some(single_param_e)
+      ),
+      true => Option(AstExpr).None
+    )
+  )
+);
+/// Extract a single parameter name from a lambda params expression.
+/// Handles: bare identifier `x`, and typed param `x : T`.
+lambda_single_param_name :: (fn(params_expr : AstExpr) -> Option(String))(
+  match(
+    params_expr,
+    .Atom(_, ptok) => cond(
+      (ptok.kind == TokenKind.Identifier) => Option(String).Some(sanitize_c_ident(ptok.value.as_str())),
+      true => Option(String).None
+    ),
+    .FnCall(_, op_box, pargs, pinfix, _) => cond(
+      (!(pinfix)) => Option(String).None,
+      (pargs.len() != usize(2)) => Option(String).None,
+      true => match(
+        op_box.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, op_tok) => cond(
+          (op_tok.value.as_str() != ":") => Option(String).None,
+          true => match(
+            pargs.get(usize(0)),
+            .None => Option(String).None,
+            .Some(name_expr) => match(
+              name_expr,
+              .FnCall(_, _, _, _, _) => Option(String).None,
+              .Atom(_, name_tok) => cond(
+                (name_tok.kind == TokenKind.Identifier) =>
+                  Option(String).Some(sanitize_c_ident(name_tok.value.as_str())),
+                true => Option(String).None
+              )
+            )
           )
         )
       )
@@ -5746,6 +6012,68 @@ handle_define :: (
                     })
                   )
                 );
+                // Track numeric/bool literal types so `to_string()` can emit proper conversions.
+                match(
+                  rhs_expr,
+                  .FnCall(_, _, _, _, _) => (),
+                  .Atom(_, rhs_lit_tok) => cond(
+                    (rhs_lit_tok.kind == TokenKind.Integer) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "int64_t"),
+                    (rhs_lit_tok.kind == TokenKind.Float) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "double"),
+                    ((rhs_lit_tok.kind == TokenKind.Bool) || ((rhs_lit_tok.value.as_str() == "true") || (rhs_lit_tok.value.as_str() == "false"))) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "bool"),
+                    true => ()
+                  )
+                );
+                // Track const char* for string-producing RHS (string literals, __yo_ helpers, propagation).
+                rhs_is_cstr := (rhs_code.starts_with(String.from("\"")) || (rhs_code.contains(String.from("__yo_int_to_str(")) || (rhs_code.contains(String.from("__yo_uint_to_str(")) || (rhs_code.contains(String.from("__yo_float_to_str(")) || (rhs_code.contains(String.from("__yo_bool_to_str(")) || rhs_code.contains(String.from("__yo_str_concat(")))))));
+                if(rhs_is_cstr, {
+                  ctx.*.register_var_type(name_tok.value.as_str(), "const char*");
+                });
+                if(!(rhs_is_cstr), {
+                  match(
+                    ctx.*.get_var_type(rhs_code.as_str()),
+                    .None => (),
+                    .Some(rhs_prop_ty) => if(rhs_prop_ty.as_str() == "const char*", {
+                      ctx.*.register_var_type(name_tok.value.as_str(), "const char*");
+                    })
+                  );
+                });
+                // Track numeric type-cast patterns: i32(x) → (int32_t)(x).
+                // This allows closure params (e.g., in .map()) to infer their type
+                // from the receiver variable's tracked type for to_string() dispatch.
+                if(!(rhs_is_cstr), {
+                  cond(
+                    rhs_code.starts_with(String.from("(int32_t)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "int32_t"),
+                    rhs_code.starts_with(String.from("(int64_t)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "int64_t"),
+                    rhs_code.starts_with(String.from("(uint32_t)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "uint32_t"),
+                    rhs_code.starts_with(String.from("(uint64_t)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "uint64_t"),
+                    rhs_code.starts_with(String.from("(double)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "double"),
+                    rhs_code.starts_with(String.from("(float)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "float"),
+                    rhs_code.starts_with(String.from("(bool)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "bool"),
+                    rhs_code.starts_with(String.from("(int8_t)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "int8_t"),
+                    rhs_code.starts_with(String.from("(int16_t)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "int16_t"),
+                    rhs_code.starts_with(String.from("(uint8_t)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "uint8_t"),
+                    rhs_code.starts_with(String.from("(uint16_t)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "uint16_t"),
+                    rhs_code.starts_with(String.from("(isize)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "isize"),
+                    rhs_code.starts_with(String.from("(size_t)(")) =>
+                      ctx.*.register_var_type(name_tok.value.as_str(), "size_t"),
+                    true => ()
+                  );
+                });
                 // If RHS was an array/slice range call, register LHS as slice var
                 is_slice_rhs := match(
                   rhs_expr,
@@ -6384,7 +6712,8 @@ is_builtin_keyword :: (fn(name : str) -> bool)(
 handle_bare_dot_variant :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext)
+    ctx : *(CodegenContext),
+    indent : String
   ) -> Option(String)
 )(
   match(
@@ -6392,10 +6721,13 @@ handle_bare_dot_variant :: (
     .None => Option(String).None,
     .Some(variant_expr) => match(
       variant_expr,
-      .FnCall(_, _, _, _, _) => Option(String).None,
       .Atom(_, vtok) => match(
         ctx.*.get_enum_for_variant(vtok.value.as_str()),
-        .None => Option(String).None,
+        .None => cond(
+          // `.None` without a registered enum → bootstrap encoding is NULL (void*/0)
+          (vtok.value.as_str() == "None") => Option(String).Some(String.from("NULL")),
+          true => Option(String).None
+        ),
         .Some(enum_name) => {
           result := String.new();
           result.push_string(enum_name);
@@ -6403,6 +6735,31 @@ handle_bare_dot_variant :: (
           result.push_string(vtok.value);
           Option(String).Some(result)
         }
+      ),
+      // `.Some(inner)` or `.Ok(inner)` / `.Err(inner)` without a registered enum
+      // → bootstrap encoding is the inner value itself
+      .FnCall(_, vfn_box, vfn_args, vfn_infix, _) => cond(
+        vfn_infix => Option(String).None,
+        (vfn_args.len() != usize(1)) => Option(String).None,
+        true => match(
+          vfn_box.*,
+          .FnCall(_, _, _, _, _) => Option(String).None,
+          .Atom(_, vftok) => cond(
+            (
+              (vftok.value.as_str() == "Some") ||
+                ((vftok.value.as_str() == "Ok") || (vftok.value.as_str() == "Err"))
+            ) => match(
+              ctx.*.get_enum_for_variant(vftok.value.as_str()),
+              .Some(_) => Option(String).None,
+              .None => match(
+                vfn_args.get(usize(0)),
+                .None => Option(String).None,
+                .Some(inner_e) => call_gen_expr(inner_e, ctx, indent)
+              )
+            ),
+            true => Option(String).None
+          )
+        )
       )
     )
   )
@@ -7172,11 +7529,37 @@ handle_regular_call :: (
       cond(
         // consume(expr) — no-op: just return the expression (emitted as stmt by caller)
         ((id.as_str() == "consume") && (args.len() == usize(1))) =>
-          match(
-            args.get(usize(0)),
-            .None => Option(String).None,
-            .Some(e) => call_gen_expr(e, ctx, indent)
-          ),
+          generate_consume(args, ctx, indent),
+        // Inline builtins (operators, ptr ops, slice helpers, randomness wrappers).
+        // Mirrors `generateYoInlineFunctionCall` dispatch in src/codegen/exprs/generation.ts.
+        is_yo_inline_builtin(id.as_str()) => {
+          arg_codes := ArrayList(String).new();
+          (i_inline : usize) = usize(0);
+          (n_inline : usize) = args.len();
+          (ok_inline : bool) = true;
+          while(runtime((i_inline < n_inline) && ok_inline), {
+            match(
+              args.get(i_inline),
+              .None => {
+                ok_inline = false;
+              },
+              .Some(a_expr) => match(
+                call_gen_expr(a_expr, ctx, indent),
+                .None => {
+                  ok_inline = false;
+                },
+                .Some(a_code) => {
+                  arg_codes.push(a_code);
+                }
+              )
+            );
+            i_inline = (i_inline + usize(1));
+          });
+          cond(
+            ok_inline => generate_yo_inline_function_call(id.as_str(), arg_codes),
+            true => Option(String).None
+          )
+        },
         ((args.len() == usize(1)) && ctx.*.get_simple_closure_capture_name(id.as_str()).is_some()) => match(
           ctx.*.get_simple_closure_capture_name(id.as_str()),
           .None => Option(String).None,
@@ -7715,6 +8098,37 @@ handle_dot_access :: (
                 )
               );
               cond(
+                // Type constructor field access without parens: Option(T).None → typed zero or NULL
+                (type_app_receiver_is(obj_expr, "Option") && (fname.as_str() == "None")) =>
+                  match(
+                    generic_type_app_field_c_type(obj_expr),
+                    .None => Option(String).Some(String.from("NULL")),
+                    .Some(inner_c_ty3) => cond(
+                      is_numeric_c_type(inner_c_ty3.as_str()) => {
+                        z3 := String.from("(");
+                        z3.push_string(inner_c_ty3);
+                        z3.push_str(")0");
+                        Option(String).Some(z3)
+                      },
+                      true => Option(String).Some(String.from("NULL"))
+                    )
+                  ),
+                (type_app_receiver_is(obj_expr, "Result") && (fname.as_str() == "Err")) =>
+                  Option(String).Some(String.from("NULL")),
+                (generic_type_app_c_name(obj_expr).is_some() && (fname.as_str() == "None")) =>
+                  match(
+                    generic_type_app_field_c_type(obj_expr),
+                    .None => Option(String).Some(String.from("NULL")),
+                    .Some(inner_c_ty4) => cond(
+                      is_numeric_c_type(inner_c_ty4.as_str()) => {
+                        z4 := String.from("(");
+                        z4.push_string(inner_c_ty4);
+                        z4.push_str(")0");
+                        Option(String).Some(z4)
+                      },
+                      true => Option(String).Some(String.from("NULL"))
+                    )
+                  ),
                 (is_deref && deref_is_value_payload) => {
                   result := String.from(obj_code.as_str());
                   result.push_str("._0");
@@ -7975,13 +8389,40 @@ handle_method_call :: (
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
           ((generic_type_app_c_name(recv_expr).is_some() && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
-            Option(String).Some(String.from("NULL")),
+            match(
+              generic_type_app_field_c_type(recv_expr),
+              .None => Option(String).Some(String.from("NULL")),
+              .Some(inner_c_ty) => cond(
+                is_numeric_c_type(inner_c_ty.as_str()) => {
+                  z := String.from("(");
+                  z.push_string(inner_c_ty);
+                  z.push_str(")0");
+                  Option(String).Some(z)
+                },
+                true => Option(String).Some(String.from("NULL"))
+              )
+            ),
           ((type_app_receiver_is(recv_expr, "Option") && (method_name.as_str() == "Some")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
           ((type_app_receiver_is(recv_expr, "Option") && (method_name.as_str() == "None")) && (args.len() == usize(0))) =>
-            Option(String).Some(String.from("NULL")),
-          ((type_app_receiver_is(recv_expr, "Result") && ((method_name.as_str() == "Ok") || (method_name.as_str() == "Err"))) && (args.len() == usize(1))) =>
+            match(
+              generic_type_app_field_c_type(recv_expr),
+              .None => Option(String).Some(String.from("NULL")),
+              .Some(inner_c_ty) => cond(
+                is_numeric_c_type(inner_c_ty.as_str()) => {
+                  z2 := String.from("(");
+                  z2.push_string(inner_c_ty);
+                  z2.push_str(")0");
+                  Option(String).Some(z2)
+                },
+                true => Option(String).Some(String.from("NULL"))
+              )
+            ),
+          ((type_app_receiver_is(recv_expr, "Result") && (method_name.as_str() == "Ok")) && (args.len() == usize(1))) =>
             match(args.get(usize(0)),.None => Option(String).None,.Some(v) => call_gen_expr(v, ctx, indent)),
+          // Err(e) lowers to NULL (the error value is discarded in the prototype encoding).
+          ((type_app_receiver_is(recv_expr, "Result") && (method_name.as_str() == "Err")) && (args.len() == usize(1))) =>
+            Option(String).Some(String.from("NULL")),
           (
             ((method_name.as_str() == "new") || (method_name.as_str() == "another_new")) &&
               (args.len() == usize(1)) &&
@@ -8280,7 +8721,96 @@ handle_method_call :: (
             match(
               tostr_result,
               .Some(_) => tostr_result,
-              .None => Option(String).Some(recv_code)
+              .None => {
+                // Check if receiver is a numeric/bool literal atom → emit conversion helper
+                recv_converted_opt := match(
+                  recv_expr,
+                  .FnCall(_, arith_fn_b, arith_args_b, arith_infix_b, _) => cond(
+                    (arith_infix_b && (arith_args_b.len() == usize(2))) => match(
+                      arith_fn_b.*,
+                      .FnCall(_, _, _, _, _) => Option(String).None,
+                      .Atom(_, arith_op_tok) => cond(
+                        ((arith_op_tok.value.as_str() == "+") || ((arith_op_tok.value.as_str() == "-") || ((arith_op_tok.value.as_str() == "*") || ((arith_op_tok.value.as_str() == "/") || (arith_op_tok.value.as_str() == "%"))))) => {
+                          arith_conv := String.from("__yo_int_to_str((int64_t)(");
+                          arith_conv.push_string(recv_code);
+                          arith_conv.push_str("))");
+                          Option(String).Some(arith_conv)
+                        },
+                        true => Option(String).None
+                      )
+                    ),
+                    true => Option(String).None
+                  ),
+                  .Atom(_, recv_tok_ts) => cond(
+                    (recv_tok_ts.kind == TokenKind.Integer) => {
+                      conv_int := String.from("__yo_int_to_str(");
+                      conv_int.push_string(recv_code);
+                      conv_int.push_str(")");
+                      Option(String).Some(conv_int)
+                    },
+                    (recv_tok_ts.kind == TokenKind.Float) => {
+                      conv_flt := String.from("__yo_float_to_str(");
+                      conv_flt.push_string(recv_code);
+                      conv_flt.push_str(")");
+                      Option(String).Some(conv_flt)
+                    },
+                    ((recv_tok_ts.value.as_str() == "true") || (recv_tok_ts.value.as_str() == "false")) => {
+                      conv_bool := String.from("__yo_bool_to_str(");
+                      conv_bool.push_string(recv_code);
+                      conv_bool.push_str(")");
+                      Option(String).Some(conv_bool)
+                    },
+                    true => Option(String).None
+                  )
+                );
+                // Also check tracked variable types for numeric vars like `age := 25`
+                tracked_converted_opt := match(
+                  recv_converted_opt,
+                  .Some(_) => Option(String).None,
+                  .None => match(
+                    recv_expr,
+                    .FnCall(_, _, _, _, _) => Option(String).None,
+                    .Atom(_, recv_var_tok) => match(
+                      ctx.*.get_var_type(recv_var_tok.value.as_str()),
+                      .None => Option(String).None,
+                      .Some(tracked_ty) => cond(
+                        ((tracked_ty.as_str() == "int64_t") || ((tracked_ty.as_str() == "int32_t") || ((tracked_ty.as_str() == "int16_t") || ((tracked_ty.as_str() == "int8_t") || (tracked_ty.as_str() == "isize"))))) => {
+                          tv_int := String.from("__yo_int_to_str((int64_t)(");
+                          tv_int.push_string(recv_code);
+                          tv_int.push_str("))");
+                          Option(String).Some(tv_int)
+                        },
+                        ((tracked_ty.as_str() == "size_t") || ((tracked_ty.as_str() == "uint64_t") || ((tracked_ty.as_str() == "uint32_t") || ((tracked_ty.as_str() == "uint16_t") || (tracked_ty.as_str() == "uint8_t"))))) => {
+                          tv_uint := String.from("__yo_uint_to_str((uint64_t)(");
+                          tv_uint.push_string(recv_code);
+                          tv_uint.push_str("))");
+                          Option(String).Some(tv_uint)
+                        },
+                        ((tracked_ty.as_str() == "double") || (tracked_ty.as_str() == "float")) => {
+                          tv_flt := String.from("__yo_float_to_str((double)(");
+                          tv_flt.push_string(recv_code);
+                          tv_flt.push_str("))");
+                          Option(String).Some(tv_flt)
+                        },
+                        (tracked_ty.as_str() == "bool") => {
+                          tv_bool := String.from("__yo_bool_to_str(");
+                          tv_bool.push_string(recv_code);
+                          tv_bool.push_str(")");
+                          Option(String).Some(tv_bool)
+                        },
+                        true => Option(String).None
+                      )
+                    )
+                  )
+                );
+                cond(
+                  match(recv_converted_opt,.Some(_) => true,.None => false) =>
+                    recv_converted_opt,
+                  match(tracked_converted_opt,.Some(_) => true,.None => false) =>
+                    tracked_converted_opt,
+                  true => Option(String).Some(recv_code)
+                )
+              }
             )
           },
           // `x.clone()` — check for derive(Clone) on receiver type, emit fn_TypeName_clone(recv).
@@ -8651,16 +9181,301 @@ handle_method_call :: (
               (recv_code.as_str() == "NULL") => Option(String).Some(String.from("false")),
               true => Option(String).Some(String.from("true"))
             ),
-          ((method_name.as_str() == "is_none") && (args.len() == usize(0))) =>
-            cond(
-              (recv_code.as_str() == "NULL") => Option(String).Some(String.from("true")),
-              true => Option(String).Some(String.from("false"))
-            ),
+          ((method_name.as_str() == "is_none") && (args.len() == usize(0))) => {
+            is_none_c := String.from("(");
+            is_none_c.push_string(recv_code);
+            is_none_c.push_str(" == NULL)");
+            Option(String).Some(is_none_c)
+          },
           ((method_name.as_str() == "is_ok") && (args.len() == usize(0))) =>
             Option(String).Some(String.from("true")),
-          ((method_name.as_str() == "is_err") && (args.len() == usize(0))) =>
-            Option(String).Some(String.from("false")),
-          // `String.from(s)` — identity in proto codegen (String == const char*)
+          ((method_name.as_str() == "is_err") && (args.len() == usize(0))) => {
+            is_err_c := String.from("(");
+            is_err_c.push_string(recv_code);
+            is_err_c.push_str(" == NULL)");
+            Option(String).Some(is_err_c)
+          },
+          // `.map(closure)` — Option/Result map: apply closure when Some/Ok, propagate None/Err.
+          // Bootstrap encoding: Some(x)/Ok(x) = x (non-NULL), None/Err = NULL.
+          // Emits: (recv != NULL ? ({ __auto_type param = recv; body; }) : NULL)
+          ((method_name.as_str() == "map") && (args.len() == usize(1))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(map_closure_e) => match(
+                lambda_params_expr(map_closure_e),
+                .None => Option(String).None,
+                .Some(map_params_e) => match(
+                  lambda_single_param_name(map_params_e),
+                  .None => Option(String).None,
+                  .Some(map_param_name) => match(
+                    lambda_body_expr(map_closure_e),
+                    .None => Option(String).None,
+                    .Some(map_body_e) => {
+                      match(
+                        ctx.*.get_var_type(recv_code.as_str()),
+                        .None => (),
+                        .Some(recv_ty) => {
+                          ctx.*.register_var_type(map_param_name.as_str(), recv_ty.as_str());
+                        }
+                      );
+                      match(
+                        call_gen_expr(map_body_e, ctx, indent),
+                        .None => Option(String).None,
+                        .Some(map_body_c) => {
+                          map_c := String.from("(");
+                          map_c.push_string(recv_code);
+                          map_c.push_str(" != NULL ? ({ __auto_type ");
+                          map_c.push_string(map_param_name);
+                          map_c.push_str(" = ");
+                          map_c.push_string(recv_code);
+                          map_c.push_str("; ");
+                          map_c.push_string(map_body_c);
+                          map_c.push_str("; }) : NULL)");
+                          Option(String).Some(map_c)
+                        }
+                      )
+                    }
+                  )
+                )
+              )
+            ),
+          // `.map(forall(T), closure)` — 2-arg form where first arg is forall type, second is closure.
+          // In HKT usage: `x.map(forall(i32), (fn(a : i32) -> i32)(body))`.
+          // Bootstrap: ignore the forall type arg, treat as 1-arg .map(closure).
+          ((method_name.as_str() == "map") && (args.len() == usize(2))) =>
+            match(
+              args.get(usize(1)),
+              .None => Option(String).None,
+              .Some(map2_closure_e) => match(
+                lambda_params_expr(map2_closure_e),
+                .None => Option(String).None,
+                .Some(map2_params_e) => match(
+                  lambda_single_param_name(map2_params_e),
+                  .None => Option(String).None,
+                  .Some(map2_param_name) => match(
+                    lambda_body_expr(map2_closure_e),
+                    .None => Option(String).None,
+                    .Some(map2_body_e) => {
+                      match(
+                        ctx.*.get_var_type(recv_code.as_str()),
+                        .None => (),
+                        .Some(recv_ty2) => {
+                          ctx.*.register_var_type(map2_param_name.as_str(), recv_ty2.as_str());
+                        }
+                      );
+                      match(
+                        call_gen_expr(map2_body_e, ctx, indent),
+                        .None => Option(String).None,
+                        .Some(map2_body_c) => {
+                          map2_c := String.from("(");
+                          map2_c.push_string(recv_code);
+                          map2_c.push_str(" != NULL ? ({ __auto_type ");
+                          map2_c.push_string(map2_param_name);
+                          map2_c.push_str(" = ");
+                          map2_c.push_string(recv_code);
+                          map2_c.push_str("; ");
+                          map2_c.push_string(map2_body_c);
+                          map2_c.push_str("; }) : NULL)");
+                          Option(String).Some(map2_c)
+                        }
+                      )
+                    }
+                  )
+                )
+              )
+            ),
+          // `.transform(closure)` — 1-arg form, alias for .map() in Mappable trait.
+          ((method_name.as_str() == "transform") && (args.len() == usize(1))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(tr1_closure_e) => match(
+                lambda_params_expr(tr1_closure_e),
+                .None => Option(String).None,
+                .Some(tr1_params_e) => match(
+                  lambda_single_param_name(tr1_params_e),
+                  .None => Option(String).None,
+                  .Some(tr1_param_name) => match(
+                    lambda_body_expr(tr1_closure_e),
+                    .None => Option(String).None,
+                    .Some(tr1_body_e) => {
+                      match(
+                        ctx.*.get_var_type(recv_code.as_str()),
+                        .None => (),
+                        .Some(recv_tr1_ty) => {
+                          ctx.*.register_var_type(tr1_param_name.as_str(), recv_tr1_ty.as_str());
+                        }
+                      );
+                      match(
+                        call_gen_expr(tr1_body_e, ctx, indent),
+                        .None => Option(String).None,
+                        .Some(tr1_body_c) => {
+                          tr1_c := String.from("(");
+                          tr1_c.push_string(recv_code);
+                          tr1_c.push_str(" != NULL ? ({ __auto_type ");
+                          tr1_c.push_string(tr1_param_name);
+                          tr1_c.push_str(" = ");
+                          tr1_c.push_string(recv_code);
+                          tr1_c.push_str("; ");
+                          tr1_c.push_string(tr1_body_c);
+                          tr1_c.push_str("; }) : NULL)");
+                          Option(String).Some(tr1_c)
+                        }
+                      )
+                    }
+                  )
+                )
+              )
+            ),
+          // `.transform(forall(T), closure)` — 2-arg form alias for .map().
+          ((method_name.as_str() == "transform") && (args.len() == usize(2))) =>
+            match(
+              args.get(usize(1)),
+              .None => Option(String).None,
+              .Some(tr2_closure_e) => match(
+                lambda_params_expr(tr2_closure_e),
+                .None => Option(String).None,
+                .Some(tr2_params_e) => match(
+                  lambda_single_param_name(tr2_params_e),
+                  .None => Option(String).None,
+                  .Some(tr2_param_name) => match(
+                    lambda_body_expr(tr2_closure_e),
+                    .None => Option(String).None,
+                    .Some(tr2_body_e) => {
+                      match(
+                        ctx.*.get_var_type(recv_code.as_str()),
+                        .None => (),
+                        .Some(recv_tr2_ty) => {
+                          ctx.*.register_var_type(tr2_param_name.as_str(), recv_tr2_ty.as_str());
+                        }
+                      );
+                      match(
+                        call_gen_expr(tr2_body_e, ctx, indent),
+                        .None => Option(String).None,
+                        .Some(tr2_body_c) => {
+                          tr2_c := String.from("(");
+                          tr2_c.push_string(recv_code);
+                          tr2_c.push_str(" != NULL ? ({ __auto_type ");
+                          tr2_c.push_string(tr2_param_name);
+                          tr2_c.push_str(" = ");
+                          tr2_c.push_string(recv_code);
+                          tr2_c.push_str("; ");
+                          tr2_c.push_string(tr2_body_c);
+                          tr2_c.push_str("; }) : NULL)");
+                          Option(String).Some(tr2_c)
+                        }
+                      )
+                    }
+                  )
+                )
+              )
+            ),
+          // `.contains_value()` — Mappable trait: returns true if Some/Ok, false if None/Err.
+          // Bootstrap: (recv != NULL)
+          ((method_name.as_str() == "contains_value") && (args.len() == usize(0))) => {
+            cv_c := String.from("(");
+            cv_c.push_string(recv_code);
+            cv_c.push_str(" != NULL)");
+            Option(String).Some(cv_c)
+          },
+          // `.get_value()` — Container trait: extract inner value (assumes Some/Ok).
+          // Bootstrap: identity — recv is already the inner value
+          ((method_name.as_str() == "get_value") && (args.len() == usize(0))) =>
+            Option(String).Some(recv_code),
+          // `.and_then(closure)` — flatMap: same lowering as `.map()` in bootstrap.
+          ((method_name.as_str() == "and_then") && (args.len() == usize(1))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(at_closure_e) => match(
+                lambda_params_expr(at_closure_e),
+                .None => Option(String).None,
+                .Some(at_params_e) => match(
+                  lambda_single_param_name(at_params_e),
+                  .None => Option(String).None,
+                  .Some(at_param_name) => match(
+                    lambda_body_expr(at_closure_e),
+                    .None => Option(String).None,
+                    .Some(at_body_e) => {
+                      match(
+                        ctx.*.get_var_type(recv_code.as_str()),
+                        .None => (),
+                        .Some(at_recv_ty) => {
+                          ctx.*.register_var_type(at_param_name.as_str(), at_recv_ty.as_str());
+                        }
+                      );
+                      match(
+                        call_gen_expr(at_body_e, ctx, indent),
+                        .None => Option(String).None,
+                        .Some(at_body_c) => {
+                          at_c := String.from("(");
+                          at_c.push_string(recv_code);
+                          at_c.push_str(" != NULL ? ({ __auto_type ");
+                          at_c.push_string(at_param_name);
+                          at_c.push_str(" = ");
+                          at_c.push_string(recv_code);
+                          at_c.push_str("; ");
+                          at_c.push_string(at_body_c);
+                          at_c.push_str("; }) : NULL)");
+                          Option(String).Some(at_c)
+                        }
+                      )
+                    }
+                  )
+                )
+              )
+            ),
+          // `.filter(pred)` — keep Some if pred is true, otherwise None.
+          // Emits: (recv != NULL ? (({ __auto_type param = recv; pred; }) ? recv : NULL) : NULL)
+          ((method_name.as_str() == "filter") && (args.len() == usize(1))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(filt_closure_e) => match(
+                lambda_params_expr(filt_closure_e),
+                .None => Option(String).None,
+                .Some(filt_params_e) => match(
+                  lambda_single_param_name(filt_params_e),
+                  .None => Option(String).None,
+                  .Some(filt_param_name) => match(
+                    lambda_body_expr(filt_closure_e),
+                    .None => Option(String).None,
+                    .Some(filt_body_e) => {
+                      match(
+                        ctx.*.get_var_type(recv_code.as_str()),
+                        .None => (),
+                        .Some(filt_recv_ty) => {
+                          ctx.*.register_var_type(filt_param_name.as_str(), filt_recv_ty.as_str());
+                        }
+                      );
+                      match(
+                        call_gen_expr(filt_body_e, ctx, indent),
+                        .None => Option(String).None,
+                        .Some(filt_body_c) => {
+                          filt_c := String.from("(");
+                          filt_c.push_string(recv_code);
+                          filt_c.push_str(" != NULL ? (({ __auto_type ");
+                          filt_c.push_string(filt_param_name);
+                          filt_c.push_str(" = ");
+                          filt_c.push_string(recv_code);
+                          filt_c.push_str("; ");
+                          filt_c.push_string(filt_body_c);
+                          filt_c.push_str("; }) ? ");
+                          filt_c.push_string(recv_code);
+                          filt_c.push_str(" : NULL) : NULL)");
+                          Option(String).Some(filt_c)
+                        }
+                      )
+                    }
+                  )
+                )
+              )
+            ),
+          // `.map_err(closure)` — transform error value; Ok passes through unchanged.
+          // Bootstrap encoding: Ok = value, Err = NULL. Since Err is NULL, just return recv.
+          ((method_name.as_str() == "map_err") && (args.len() == usize(1))) =>
+            Option(String).Some(recv_code),
           (((recv_code.as_str() == "String") && (method_name.as_str() == "concat")) && (args.len() == usize(2))) =>
             match(
               args.get(usize(0)),
@@ -8736,6 +9551,224 @@ handle_method_call :: (
                 )
               )
             ),
+          // `.or_else(closure)` — If Some, return self. If None, call closure() → Option.
+          // Emits: (recv != NULL ? recv : closure_body)
+          ((method_name.as_str() == "or_else") && (args.len() == usize(1))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(oe_closure_e) => match(
+                lambda_body_expr(oe_closure_e),
+                .None => Option(String).None,
+                .Some(oe_body_e) => match(
+                  call_gen_expr(oe_body_e, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(oe_body_c) => {
+                    oe_c := String.from("(");
+                    oe_c.push_string(recv_code);
+                    oe_c.push_str(" != 0 ? ");
+                    oe_c.push_string(recv_code);
+                    oe_c.push_str(" : ");
+                    oe_c.push_string(oe_body_c);
+                    oe_c.push_str(")");
+                    Option(String).Some(oe_c)
+                  }
+                )
+              )
+            ),
+          // `.unwrap_or_else(closure)` — If Some(x), return x. If None, call closure().
+          // Emits: (recv != 0 ? recv : closure_body)
+          ((method_name.as_str() == "unwrap_or_else") && (args.len() == usize(1))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(uoe_closure_e) => match(
+                lambda_body_expr(uoe_closure_e),
+                .None => Option(String).None,
+                .Some(uoe_body_e) => match(
+                  call_gen_expr(uoe_body_e, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(uoe_body_c) => {
+                    uoe_c := String.from("(");
+                    uoe_c.push_string(recv_code);
+                    uoe_c.push_str(" != 0 ? ");
+                    uoe_c.push_string(recv_code);
+                    uoe_c.push_str(" : ");
+                    uoe_c.push_string(uoe_body_c);
+                    uoe_c.push_str(")");
+                    Option(String).Some(uoe_c)
+                  }
+                )
+              )
+            ),
+          // `.map_or(default, closure)` — If Some(x), return closure(x). If None, return default.
+          // Emits: (recv != 0 ? ({ __auto_type p = recv; body }) : default)
+          ((method_name.as_str() == "map_or") && (args.len() == usize(2))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(mo_default_e) => match(
+                args.get(usize(1)),
+                .None => Option(String).None,
+                .Some(mo_closure_e) => match(
+                  call_gen_expr(mo_default_e, ctx, indent),
+                  .None => Option(String).None,
+                  .Some(mo_default_c) => match(
+                    lambda_params_expr(mo_closure_e),
+                    .None => Option(String).None,
+                    .Some(mo_params_e) => match(
+                      lambda_single_param_name(mo_params_e),
+                      .None => Option(String).None,
+                      .Some(mo_param_name) => match(
+                        lambda_body_expr(mo_closure_e),
+                        .None => Option(String).None,
+                        .Some(mo_body_e) => {
+                          match(
+                            ctx.*.get_var_type(recv_code.as_str()),
+                            .None => (),
+                            .Some(mo_recv_ty) => ctx.*.register_var_type(mo_param_name.as_str(), mo_recv_ty.as_str())
+                          );
+                          match(
+                            call_gen_expr(mo_body_e, ctx, indent),
+                            .None => Option(String).None,
+                            .Some(mo_body_c) => {
+                              mo_c := String.from("(");
+                              mo_c.push_string(recv_code);
+                              mo_c.push_str(" != 0 ? ({ __auto_type ");
+                              mo_c.push_string(mo_param_name);
+                              mo_c.push_str(" = ");
+                              mo_c.push_string(recv_code);
+                              mo_c.push_str("; ");
+                              mo_c.push_string(mo_body_c);
+                              mo_c.push_str("; }) : ");
+                              mo_c.push_string(mo_default_c);
+                              mo_c.push_str(")");
+                              Option(String).Some(mo_c)
+                            }
+                          )
+                        }
+                      )
+                    )
+                  )
+                )
+              )
+            ),
+          // `.map_or_else(default_fn, closure)` — If Some(x), return closure(x). If None, call default_fn().
+          // Emits: (recv != 0 ? ({ __auto_type p = recv; body }) : default_fn_body)
+          ((method_name.as_str() == "map_or_else") && (args.len() == usize(2))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(moe_default_e) => match(
+                args.get(usize(1)),
+                .None => Option(String).None,
+                .Some(moe_closure_e) => match(
+                  lambda_body_expr(moe_default_e),
+                  .None => Option(String).None,
+                  .Some(moe_def_body_e) => match(
+                    call_gen_expr(moe_def_body_e, ctx, indent),
+                    .None => Option(String).None,
+                    .Some(moe_default_c) => match(
+                      lambda_params_expr(moe_closure_e),
+                      .None => Option(String).None,
+                      .Some(moe_params_e) => match(
+                        lambda_single_param_name(moe_params_e),
+                        .None => Option(String).None,
+                        .Some(moe_param_name) => match(
+                          lambda_body_expr(moe_closure_e),
+                          .None => Option(String).None,
+                          .Some(moe_body_e) => {
+                            match(
+                              ctx.*.get_var_type(recv_code.as_str()),
+                              .None => (),
+                              .Some(moe_recv_ty) => ctx.*.register_var_type(moe_param_name.as_str(), moe_recv_ty.as_str())
+                            );
+                            match(
+                              call_gen_expr(moe_body_e, ctx, indent),
+                              .None => Option(String).None,
+                              .Some(moe_body_c) => {
+                                moe_c := String.from("(");
+                                moe_c.push_string(recv_code);
+                                moe_c.push_str(" != 0 ? ({ __auto_type ");
+                                moe_c.push_string(moe_param_name);
+                                moe_c.push_str(" = ");
+                                moe_c.push_string(recv_code);
+                                moe_c.push_str("; ");
+                                moe_c.push_string(moe_body_c);
+                                moe_c.push_str("; }) : ");
+                                moe_c.push_string(moe_default_c);
+                                moe_c.push_str(")");
+                                Option(String).Some(moe_c)
+                              }
+                            )
+                          }
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            ),
+          // `.flatten()` — Option(Option(T)) → Option(T). In bootstrap encoding, identity (both None=0, Some(v)=v).
+          // Emits: recv
+          ((method_name.as_str() == "flatten") && (args.len() == usize(0))) =>
+            Option(String).Some(recv_code),
+          // `.ok_or(err)` — Convert Option to Result: Some(x) → Ok(x), None → Err(_) = NULL.
+          // In bootstrap encoding, identity (Ok=value, Err=NULL; Some=value, None=NULL).
+          // Emits: recv
+          ((method_name.as_str() == "ok_or") && (args.len() == usize(1))) =>
+            Option(String).Some(recv_code),
+          // `.ok_or_else(fn)` — Same as ok_or but lazy. In bootstrap, identity.
+          ((method_name.as_str() == "ok_or_else") && (args.len() == usize(1))) =>
+            Option(String).Some(recv_code),
+          // `.and(other)` — Option/Result.and: if None/Err return None/Err (0), else return other.
+          // Emits: (recv != 0 ? other_code : 0)
+          ((method_name.as_str() == "and") && (args.len() == usize(1))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(and_arg_e) => match(
+                call_gen_expr(and_arg_e, ctx, indent),
+                .None => Option(String).None,
+                .Some(and_arg_c) => {
+                  and_c := String.from("(");
+                  and_c.push_string(recv_code);
+                  and_c.push_str(" != 0 ? ");
+                  and_c.push_string(and_arg_c);
+                  and_c.push_str(" : 0)");
+                  Option(String).Some(and_c)
+                }
+              )
+            ),
+          // `.or(other)` — Option/Result.or: if Some/Ok return self, else return other.
+          // Emits: (recv != 0 ? recv : other_code)
+          ((method_name.as_str() == "or") && (args.len() == usize(1))) =>
+            match(
+              args.get(usize(0)),
+              .None => Option(String).None,
+              .Some(or_arg_e) => match(
+                call_gen_expr(or_arg_e, ctx, indent),
+                .None => Option(String).None,
+                .Some(or_arg_c) => {
+                  or_c := String.from("(");
+                  or_c.push_string(recv_code);
+                  or_c.push_str(" != 0 ? ");
+                  or_c.push_string(recv_code);
+                  or_c.push_str(" : ");
+                  or_c.push_string(or_arg_c);
+                  or_c.push_str(")");
+                  Option(String).Some(or_c)
+                }
+              )
+            ),
+          // `.ok()` — Result → Option: Ok(x) → Some(x), Err(_) → None. In bootstrap, identity.
+          ((method_name.as_str() == "ok") && (args.len() == usize(0))) =>
+            Option(String).Some(recv_code),
+          // `.err()` — Result → Option: Ok(_) → None, Err(e) → Some(e). In bootstrap, invert.
+          // Ok=value (non-zero), Err=NULL (0). .err() → None if Ok (0), Some if Err (but Err=0 too).
+          // Bootstrap simplification: emit 0 (always None since Err discards its value).
+          ((method_name.as_str() == "err") && (args.len() == usize(0))) =>
+            Option(String).Some(String.from("0")),
           // Default: emit as C method call `recv.method(args)`
           true => match(
             gen_arg_list(args, ctx, indent),
@@ -9823,6 +10856,20 @@ handle_assignment :: (
                           ctx.*.emitter.emit_string(rhs_code);
                           ctx.*.emitter.emit_line(";");
                           ctx.*.register_var_type(var_name.as_str(), c_ty.as_str());
+                          // If the type annotation is Option(T) or Result(T, E) with a numeric inner T,
+                          // register the variable as T instead of void* so .map() closure params
+                          // can infer the correct numeric type for to_string() and arithmetic.
+                          match(
+                            colon_args.get(usize(1)),
+                            .None => (),
+                            .Some(inner_type_e) => match(
+                              generic_type_app_field_c_type(inner_type_e),
+                              .None => (),
+                              .Some(inner_c_ty) => if(is_numeric_c_type(inner_c_ty.as_str()), {
+                                ctx.*.register_var_type(var_name.as_str(), inner_c_ty.as_str());
+                              })
+                            )
+                          );
                           .Some(String.from("0"))
                         }
                       )
@@ -9907,9 +10954,96 @@ handle_println :: (
       call_gen_expr(value_expr, ctx, indent),
       .None => Option(String).None,
       .Some(value_code) => {
+        // Wrap non-string values with a to-string helper so printf("%s\n", ...) is safe.
+        print_arg := cond(
+          (value_code.starts_with(String.from("\"")) || (value_code.contains(String.from("__yo_")) || match(ctx.*.get_var_type(value_code.as_str()),.None => false,.Some(pln_vty) => (pln_vty.as_str() == "const char*")))) =>
+            value_code,
+          true => match(
+            value_expr,
+            .Atom(_, pln_atom_tok) => cond(
+              (pln_atom_tok.kind == TokenKind.Integer) => {
+                pln_wi := String.from("__yo_int_to_str(");
+                pln_wi.push_string(value_code);
+                pln_wi.push_str(")");
+                pln_wi
+              },
+              (pln_atom_tok.kind == TokenKind.Float) => {
+                pln_wf := String.from("__yo_float_to_str(");
+                pln_wf.push_string(value_code);
+                pln_wf.push_str(")");
+                pln_wf
+              },
+              ((pln_atom_tok.value.as_str() == "true") || (pln_atom_tok.value.as_str() == "false")) => {
+                pln_wb := String.from("__yo_bool_to_str(");
+                pln_wb.push_string(value_code);
+                pln_wb.push_str(")");
+                pln_wb
+              },
+              true => match(
+                ctx.*.get_var_type(value_code.as_str()),
+                .None => value_code,
+                .Some(pln_ty) => cond(
+                  ((pln_ty.as_str() == "int64_t") || ((pln_ty.as_str() == "int32_t") || ((pln_ty.as_str() == "int16_t") || ((pln_ty.as_str() == "int8_t") || (pln_ty.as_str() == "isize"))))) => {
+                    pln_ti := String.from("__yo_int_to_str((int64_t)(");
+                    pln_ti.push_string(value_code);
+                    pln_ti.push_str("))");
+                    pln_ti
+                  },
+                  ((pln_ty.as_str() == "size_t") || ((pln_ty.as_str() == "uint64_t") || ((pln_ty.as_str() == "uint32_t") || ((pln_ty.as_str() == "uint16_t") || (pln_ty.as_str() == "uint8_t"))))) => {
+                    pln_tu := String.from("__yo_uint_to_str((uint64_t)(");
+                    pln_tu.push_string(value_code);
+                    pln_tu.push_str("))");
+                    pln_tu
+                  },
+                  ((pln_ty.as_str() == "double") || (pln_ty.as_str() == "float")) => {
+                    pln_tf := String.from("__yo_float_to_str((double)(");
+                    pln_tf.push_string(value_code);
+                    pln_tf.push_str("))");
+                    pln_tf
+                  },
+                  (pln_ty.as_str() == "bool") => {
+                    pln_tbl := String.from("__yo_bool_to_str(");
+                    pln_tbl.push_string(value_code);
+                    pln_tbl.push_str(")");
+                    pln_tbl
+                  },
+                  true => value_code
+                )
+              )
+            ),
+            .FnCall(_, pln_fn_b, pln_fn_args_b, pln_infix_b, _) => cond(
+              (!(pln_infix_b) && (pln_fn_args_b.len() == usize(1))) => match(
+                pln_fn_b.*,
+                .FnCall(_, _, _, _, _) => value_code,
+                .Atom(_, pln_cast_tok) => cond(
+                  ((pln_cast_tok.value.as_str() == "i8") || ((pln_cast_tok.value.as_str() == "i16") || ((pln_cast_tok.value.as_str() == "i32") || ((pln_cast_tok.value.as_str() == "i64") || (pln_cast_tok.value.as_str() == "isize"))))) => {
+                    pln_ci := String.from("__yo_int_to_str((int64_t)(");
+                    pln_ci.push_string(value_code);
+                    pln_ci.push_str("))");
+                    pln_ci
+                  },
+                  ((pln_cast_tok.value.as_str() == "u8") || ((pln_cast_tok.value.as_str() == "u16") || ((pln_cast_tok.value.as_str() == "u32") || ((pln_cast_tok.value.as_str() == "u64") || (pln_cast_tok.value.as_str() == "usize"))))) => {
+                    pln_cu := String.from("__yo_uint_to_str((uint64_t)(");
+                    pln_cu.push_string(value_code);
+                    pln_cu.push_str("))");
+                    pln_cu
+                  },
+                  ((pln_cast_tok.value.as_str() == "f32") || (pln_cast_tok.value.as_str() == "f64")) => {
+                    pln_cf := String.from("__yo_float_to_str((double)(");
+                    pln_cf.push_string(value_code);
+                    pln_cf.push_str("))");
+                    pln_cf
+                  },
+                  true => value_code
+                )
+              ),
+              true => value_code
+            )
+          )
+        );
         ctx.*.emitter.emit_string(indent);
         ctx.*.emitter.emit("printf(\"%s\\n\", ");
-        ctx.*.emitter.emit_string(value_code);
+        ctx.*.emitter.emit_string(print_arg);
         ctx.*.emitter.emit_line(");");
         .Some(String.from("0"))
       }
@@ -10759,7 +11893,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         (is_infix && func_box_is_dot(func_box)) => handle_dot_access(args, ctx, indent),
         // Bare enum variant pattern: .Variant — non-infix, Dot func, exactly 1 arg.
         // Used in match arm patterns; resolves to `EnumName_Variant` via variant registry.
-        ((!(is_infix)) && (func_box_is_dot(func_box) && (args.len() == usize(1)))) => handle_bare_dot_variant(args, ctx),
+        ((!(is_infix)) && (func_box_is_dot(func_box) && (args.len() == usize(1)))) => handle_bare_dot_variant(args, ctx, indent),
         // Method call: a.method(args) — func_box is itself a dot-dispatch FnCall
         (
           (!(is_infix)) &&
@@ -11026,6 +12160,24 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             )
           }
         ),
+        // __yo_gc_collect() — trigger garbage collection.
+        // Mirrors `src/codegen/exprs/generation.ts` BuiltinFunctions.__yo_gc_collect dispatch.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "__yo_gc_collect")
+          )
+        ) => Option(String).Some(generate_yo_gc_collect(args, ctx, indent)),
+        // __yo_thread_set_maximum_threads(n) — configure parallelism runtime.
+        // Mirrors `src/codegen/exprs/generation.ts` BuiltinFunctions.__yo_thread_set_maximum_threads dispatch.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "__yo_thread_set_maximum_threads")
+          )
+        ) => generate_yo_thread_set_maximum_threads(args, ctx, indent),
         // sizeof(type_name) — translate Yo type name to C type
         (
           (!(is_infix)) && (
@@ -11038,22 +12190,10 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
         ) => match(
           args.get(usize(0)),
           .None => Option(String).None,
-          .Some(sz_arg) => {
-            sz_c := match(
-              sz_arg,
-              .FnCall(_, _, _, _, _) => match(
-                type_expr_to_c(sz_arg),
-                .Some(sz_ty_c) => Option(String).Some(sz_ty_c),
-                .None => call_gen_expr(sz_arg, ctx, indent)
-              ),
-              .Atom(_, sz_tok) => {
-                c_ty := type_name_to_c(sz_tok.value.as_str());
-                Option(String).Some(c_ty)
-              }
-            );
+          .Some(sz_arg) =>
             match(
-              sz_c,
-              .None => Option(String).None,
+              type_expr_to_c(sz_arg),
+              .None => generate_sizeof(args, ctx, indent),
               .Some(sz_str) => {
                 r := String.from("sizeof(");
                 r.push_string(sz_str);
@@ -11061,7 +12201,6 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 Option(String).Some(r)
               }
             )
-          }
         ),
         // Regular function call: f(args) — identifier func, not a builtin keyword
         // recur(args) — self-recursive call to the current function
@@ -11668,7 +12807,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
 );
 // Initialize the g_gen_expr_fn pointer after generate_expr is defined.
 _gen_expr_fn_init := (fn() -> bool)({
-  g_gen_expr_fn =.Some(generate_expr);
+  set_generate_expr_fn(generate_expr);
   true
 })();
 export(generate_expr, sanitize_c_ident, is_binary_op, is_unary_prefix_op);

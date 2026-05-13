@@ -401,7 +401,15 @@ impl(
           i = j;
         },
         true => {
-          cur_sb.write_rune(c);
+          cond(
+            (c.char == u32(0x5C)) => cur_sb.write_str("\\\\"),
+            (c.char == u32(0x22)) => cur_sb.write_str("\\\""),
+            (c.char == u32(0x0A)) => cur_sb.write_str("\\n"),
+            (c.char == u32(0x09)) => cur_sb.write_str("\\t"),
+            (c.char == u32(0x0D)) => cur_sb.write_str("\\r"),
+            (c.char == u32(0x00)) => cur_sb.write_str("\\0"),
+            true => cur_sb.write_rune(c)
+          );
           i = (i + usize(1));
         }
       );

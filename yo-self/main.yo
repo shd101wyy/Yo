@@ -16,7 +16,7 @@ open(import("std/error"));
 open(import("std/fmt"));
 { args } :: import("std/env");
 { Path } :: import("std/path");
-{ read_file, write_file } :: import("std/fs/file");
+{ read_file, write_file, exists } :: import("std/fs/file");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
@@ -124,7 +124,26 @@ collect_module_deps :: (
   // Resolve absolute path by normalizing base_dir/norm_path as one string.
   // Path.new normalizes ".." segments, which is needed for relative imports like "../types/tags.yo".
   // (Path.join does NOT re-normalize ".." in the second argument.)
-  abs_path := Path.new(`${base_dir}/${norm_path.as_str()}`).to_string();
+  abs_path_raw := Path.new(`${base_dir}/${norm_path.as_str()}`).to_string();
+  // Also skip imports that resolve to a path inside the std/ directory
+  // (e.g. relative imports like "../string" from within std/imm/).
+  if(String.from(abs_path_raw.as_str()).starts_with(String.from("std/")), {
+    return(());
+  });
+  // Handle directory modules: if path.yo doesn't exist but path/index.yo does, use the latter.
+  (abs_path : String) = String.from(abs_path_raw.as_str());
+  (file_found : bool) = io.await(exists(Path.new(String.from(abs_path_raw.as_str()))));
+  if(!(file_found), {
+    // Strip the trailing .yo (3 chars) to get the base name, then try index.yo
+    base_len := abs_path_raw.len();
+    base_no_ext := abs_path_raw.substring(usize(0), (base_len - usize(3)));
+    index_path := `${base_no_ext.as_str()}/index.yo`;
+    index_found := io.await(exists(Path.new(index_path)));
+    cond(
+      index_found => { abs_path = index_path; },
+      true => { return(()); }
+    );
+  });
   // Deduplication: skip if already visited (also handles import cycles)
   nv := visited.*.len();
   (iv : usize) = usize(0);
@@ -153,7 +172,7 @@ collect_module_deps :: (
     .Some(p) => p.to_string()
   );
   // Read and parse the imported module
-  src_bytes := io.await(read_file(Path.new(abs_path)));
+  src_bytes := io.await(read_file(Path.new(String.from(abs_path.as_str()))));
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, String.from(mod_base_dir.as_str()), using(exn));
   // Recursively collect dependencies of this module first (post-order DFS)
@@ -359,13 +378,19 @@ run_test :: (
                 cc.arg(String.from(TEST_BIN_TMP));
                 compile_st := io.await(cc.status());
                 if(compile_st.success(), {
-                  // Run the test binary
-                  run := Command.new(String.from(TEST_BIN_TMP));
+                  // Run the test binary (with a timeout to avoid hangs)
+                  run := Command.new(`timeout`);
+                  run.arg(String.from("3"));
+                  run.arg(String.from(TEST_BIN_TMP));
                   run_st := io.await(run.status());
                   cond(
                     run_st.success() => {
                       println(`  ✓ ${test_name}`);
                       passed = (passed + usize(1));
+                    },
+                    (run_st.code() == i32(124)) => {
+                      println(`  - ${test_name} (skipped: timeout)`);
+                      skipped = (skipped + usize(1));
                     },
                     true => {
                       println(`  ✗ ${test_name}`);

@@ -1,0 +1,47 @@
+/// Codegen tests for parallelism builtin helpers.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../expr/expr.yo");
+{ TokenKind, Token } :: import("../lexer/token.yo");
+{ CodegenContext } :: import("../codegen/context.yo");
+{ generate_expr } :: import("../codegen/exprs.yo");
+{ set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
+{ generate_yo_thread_set_maximum_threads } :: import("../codegen/exprs/parallelism.yo");
+make_token :: (fn(kind : TokenKind, value : str) -> Token)(
+  Token(
+    kind : kind,
+    value : String.from(value),
+    row : usize(0),
+    column : usize(0),
+    character : usize(0),
+    module_path : String.from(""),
+    input : String.from("")
+  )
+);
+test("generate_yo_thread_set_maximum_threads: wraps generated arg", {
+  set_generate_expr_fn(generate_expr);
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  ind := String.new();
+  args := ArrayList(AstExpr).new();
+  args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Integer, "4")));
+  out := generate_yo_thread_set_maximum_threads(args, pctx, ind);
+  match(
+    out,
+    .None => assert(false, "expected output"),
+    .Some(code) => assert(code.as_str() == "__yo_thread_set_maximum_threads(4)", "expected maximum thread call")
+  );
+});
+test("generate_yo_thread_set_maximum_threads: missing arg emits error comment", {
+  set_generate_expr_fn(generate_expr);
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  ind := String.new();
+  args := ArrayList(AstExpr).new();
+  out := generate_yo_thread_set_maximum_threads(args, pctx, ind);
+  match(
+    out,
+    .None => assert(false, "expected error output"),
+    .Some(code) => assert(code.as_str() == "// Error: __yo_thread_set_maximum_threads requires exactly 1 argument", "expected error comment")
+  );
+});

@@ -1,0 +1,154 @@
+//! Shared helpers for emitting async Future completion boilerplate.
+//!
+//! 1-to-1 port of `src/codegen/exprs/async-completion.ts`.
+open(import("std/string"));
+{ Emitter } :: import("../emitter.yo");
+AsyncCompletionOptions :: object(
+  emitter : *(Emitter),
+  indent : String,
+  result_code : Option(String),
+  debug_label : Option(String)
+);
+emit_async_future_completion :: (fn(opts : AsyncCompletionOptions) -> unit)({
+  match(
+    opts.result_code,
+    .None => (),
+    .Some(result_code) => {
+      line := String.from(opts.indent.as_str());
+      line.push_str("sm->result = ");
+      line.push_string(result_code);
+      line.push_str(";");
+      opts.emitter.*.emit_string_line(line);
+    }
+  );
+  match(
+    opts.debug_label,
+    .None => (),
+    .Some(debug_label) => {
+      line := String.from(opts.indent.as_str());
+      line.push_str("ASYNC_DEBUG(\"");
+      line.push_string(debug_label);
+      line.push_str(": Setting state to COMPLETED\\n\");");
+      opts.emitter.*.emit_string_line(line);
+    }
+  );
+  line_state := String.from(opts.indent.as_str());
+  line_state.push_str("sm->state = -1;  // -1 = completed");
+  opts.emitter.*.emit_string_line(line_state);
+  opts.emitter.*.emit_line("");
+  line_cont_fn := String.from(opts.indent.as_str());
+  line_cont_fn.push_str("void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;");
+  opts.emitter.*.emit_string_line(line_cont_fn);
+  line_cont_sm := String.from(opts.indent.as_str());
+  line_cont_sm.push_str("void* continuation_sm = sm->continuation_sm;");
+  opts.emitter.*.emit_string_line(line_cont_sm);
+  opts.emitter.*.emit_line("");
+  line_if := String.from(opts.indent.as_str());
+  line_if.push_str("if (continuation_fn != NULL) {");
+  opts.emitter.*.emit_string_line(line_if);
+  match(
+    opts.debug_label,
+    .None => (),
+    .Some(debug_label2) => {
+      line := String.from(opts.indent.as_str());
+      line.push_str("  ASYNC_DEBUG(\"");
+      line.push_string(debug_label2);
+      line.push_str(": Spawning continuation: resume_fn=%p, sm=%p\\n\", (void*)continuation_fn, continuation_sm);");
+      opts.emitter.*.emit_string_line(line);
+    }
+  );
+  opts.emitter.*.emit_line("");
+  line_clear_fn := String.from(opts.indent.as_str());
+  line_clear_fn.push_str("  sm->continuation_fn = NULL;");
+  opts.emitter.*.emit_string_line(line_clear_fn);
+  line_clear_sm := String.from(opts.indent.as_str());
+  line_clear_sm.push_str("  sm->continuation_sm = NULL;");
+  opts.emitter.*.emit_string_line(line_clear_sm);
+  opts.emitter.*.emit_line("");
+  line_spawn := String.from(opts.indent.as_str());
+  line_spawn.push_str("  __yo_async_spawn_task(continuation_fn, continuation_sm);");
+  opts.emitter.*.emit_string_line(line_spawn);
+  line_close := String.from(opts.indent.as_str());
+  line_close.push_str("}");
+  opts.emitter.*.emit_string_line(line_close);
+  opts.emitter.*.emit_line("");
+  line_drop := String.from(opts.indent.as_str());
+  line_drop.push_str("__yo_decr_rc((void*)sm);");
+  opts.emitter.*.emit_string_line(line_drop);
+  opts.emitter.*.emit_line("");
+  line_return := String.from(opts.indent.as_str());
+  line_return.push_str("return;");
+  opts.emitter.*.emit_string_line(line_return);
+});
+emit_async_future_escape :: (fn(opts : AsyncCompletionOptions) -> unit)({
+  match(
+    opts.result_code,
+    .None => (),
+    .Some(result_code) => {
+      line := String.from(opts.indent.as_str());
+      line.push_str("sm->result = ");
+      line.push_string(result_code);
+      line.push_str(";");
+      opts.emitter.*.emit_string_line(line);
+    }
+  );
+  match(
+    opts.debug_label,
+    .None => (),
+    .Some(debug_label) => {
+      line := String.from(opts.indent.as_str());
+      line.push_str("ASYNC_DEBUG(\"");
+      line.push_string(debug_label);
+      line.push_str(": Setting state to ESCAPED (effect handler escape)\\n\");");
+      opts.emitter.*.emit_string_line(line);
+    }
+  );
+  line_state := String.from(opts.indent.as_str());
+  line_state.push_str("sm->state = -2;  // -2 = escaped");
+  opts.emitter.*.emit_string_line(line_state);
+  opts.emitter.*.emit_line("");
+  line_cont_fn := String.from(opts.indent.as_str());
+  line_cont_fn.push_str("void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;");
+  opts.emitter.*.emit_string_line(line_cont_fn);
+  line_cont_sm := String.from(opts.indent.as_str());
+  line_cont_sm.push_str("void* continuation_sm = sm->continuation_sm;");
+  opts.emitter.*.emit_string_line(line_cont_sm);
+  opts.emitter.*.emit_line("");
+  line_if := String.from(opts.indent.as_str());
+  line_if.push_str("if (continuation_fn != NULL) {");
+  opts.emitter.*.emit_string_line(line_if);
+  match(
+    opts.debug_label,
+    .None => (),
+    .Some(debug_label2) => {
+      line := String.from(opts.indent.as_str());
+      line.push_str("  ASYNC_DEBUG(\"");
+      line.push_string(debug_label2);
+      line.push_str(": Spawning continuation for escaped future: resume_fn=%p, sm=%p\\n\", (void*)continuation_fn, continuation_sm);");
+      opts.emitter.*.emit_string_line(line);
+    }
+  );
+  opts.emitter.*.emit_line("");
+  line_clear_fn := String.from(opts.indent.as_str());
+  line_clear_fn.push_str("  sm->continuation_fn = NULL;");
+  opts.emitter.*.emit_string_line(line_clear_fn);
+  line_clear_sm := String.from(opts.indent.as_str());
+  line_clear_sm.push_str("  sm->continuation_sm = NULL;");
+  opts.emitter.*.emit_string_line(line_clear_sm);
+  opts.emitter.*.emit_line("");
+  line_spawn := String.from(opts.indent.as_str());
+  line_spawn.push_str("  __yo_async_spawn_task(continuation_fn, continuation_sm);");
+  opts.emitter.*.emit_string_line(line_spawn);
+  line_close := String.from(opts.indent.as_str());
+  line_close.push_str("}");
+  opts.emitter.*.emit_string_line(line_close);
+  opts.emitter.*.emit_line("");
+  line_drop := String.from(opts.indent.as_str());
+  line_drop.push_str("__yo_decr_rc((void*)sm);");
+  opts.emitter.*.emit_string_line(line_drop);
+  opts.emitter.*.emit_line("");
+  line_return := String.from(opts.indent.as_str());
+  line_return.push_str("return;");
+  opts.emitter.*.emit_string_line(line_return);
+});
+export(AsyncCompletionOptions, emit_async_future_completion, emit_async_future_escape);

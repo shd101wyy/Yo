@@ -1,0 +1,29 @@
+//! Codegen helpers for parallelism builtins.
+//!
+//! Partial 1-to-1 port of `src/codegen/exprs/parallelism.ts`.
+//! This file currently ports the metadata-independent
+//! `generateYoThreadSetMaximumThreads` helper.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../../expr/expr.yo");
+{ CodegenContext } :: import("../context.yo");
+{ call_gen_expr } :: import("./expr.yo");
+generate_yo_thread_set_maximum_threads :: (
+  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+)(
+  match(
+    args.get(usize(0)),
+    .None => Option(String).Some(String.from("// Error: __yo_thread_set_maximum_threads requires exactly 1 argument")),
+    .Some(num_arg) => match(
+      call_gen_expr(num_arg, ctx, indent),
+      .None => Option(String).None,
+      .Some(num_code) => {
+        result := String.from("__yo_thread_set_maximum_threads(");
+        result.push_string(num_code);
+        result.push_str(")");
+        Option(String).Some(result)
+      }
+    )
+  )
+);
+export(generate_yo_thread_set_maximum_threads);

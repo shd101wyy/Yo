@@ -146,6 +146,8 @@ impl(Counter,
 ```
 
 - No space between a function type and its body: `(fn(...) -> T)(...)`
+- Top-level aliases for function types need parentheses too:
+  `Callback :: (fn(x : i32) -> i32);`, not `Callback :: fn(x : i32) -> i32;`
 - Use `Self` in method signatures and in type definitions for recursive references (the type name is not available during its own definition)
 - `Self` also works inside generic type constructors — it refers to the current instantiation (e.g., `Tree(T)` inside `Tree`). Use `recur(args)` only when type arguments differ from the current instantiation.
 - Use `struct(...)` for record and effect-record types. The legacy `module(...)`,

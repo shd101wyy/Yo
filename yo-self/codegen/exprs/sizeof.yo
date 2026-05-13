@@ -1,0 +1,30 @@
+//! Codegen for the `sizeof(expr)` builtin.
+//!
+//! 1-to-1 port of `src/codegen/exprs/sizeof.ts` (`generateSizeOf`).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../../expr/expr.yo");
+{ CodegenContext } :: import("../context.yo");
+{ call_gen_expr } :: import("./expr.yo");
+/// Generate C code for a `sizeof(expr)` call.
+///
+/// Mirrors `generateSizeOf` in `src/codegen/exprs/sizeof.ts`.
+generate_sizeof :: (
+  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+)(
+  match(
+    args.get(usize(0)),
+    .None => Option(String).None,
+    .Some(arg_expr) => match(
+      call_gen_expr(arg_expr, ctx, indent),
+      .None => Option(String).None,
+      .Some(arg_code) => {
+        result := String.from("sizeof(");
+        result.push_string(arg_code);
+        result.push_str(")");
+        Option(String).Some(result)
+      }
+    )
+  )
+);
+export(generate_sizeof);

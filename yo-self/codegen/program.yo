@@ -51,15 +51,34 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     e.*.emit_header_line("#define __yo_realloc realloc");
     e.*.emit_header_line("#define __yo_free    free");
     e.*.emit_header_line("");
-    // Template string helper: concatenate two C strings.
+    // Template string helpers: concatenate and convert-to-string.
     // Used by the self-hosted codegen to implement `\`...${x}...\`` expressions.
-    e.*.emit_header_line("// Template string helper");
+    e.*.emit_header_line("#include <inttypes.h>");
+    e.*.emit_header_line("// Template string helpers");
     e.*.emit_header_line("static inline char* __yo_str_concat(const char* a, const char* b) {");
     e.*.emit_header_line("  size_t la = strlen(a), lb = strlen(b);");
     e.*.emit_header_line("  char* buf = (char*)__yo_malloc(la + lb + 1);");
     e.*.emit_header_line("  memcpy(buf, a, la); memcpy(buf + la, b, lb);");
     e.*.emit_header_line("  buf[la + lb] = '\\0';");
     e.*.emit_header_line("  return(buf);");
+    e.*.emit_header_line("}");
+    e.*.emit_header_line("static inline char* __yo_int_to_str(int64_t n) {");
+    e.*.emit_header_line("  char* buf = (char*)__yo_malloc(32);");
+    e.*.emit_header_line("  snprintf(buf, 32, \"%lld\", (long long)n);");
+    e.*.emit_header_line("  return buf;");
+    e.*.emit_header_line("}");
+    e.*.emit_header_line("static inline char* __yo_uint_to_str(uint64_t n) {");
+    e.*.emit_header_line("  char* buf = (char*)__yo_malloc(32);");
+    e.*.emit_header_line("  snprintf(buf, 32, \"%llu\", (unsigned long long)n);");
+    e.*.emit_header_line("  return buf;");
+    e.*.emit_header_line("}");
+    e.*.emit_header_line("static inline char* __yo_float_to_str(double d) {");
+    e.*.emit_header_line("  char* buf = (char*)__yo_malloc(32);");
+    e.*.emit_header_line("  snprintf(buf, 32, \"%g\", d);");
+    e.*.emit_header_line("  return buf;");
+    e.*.emit_header_line("}");
+    e.*.emit_header_line("static inline const char* __yo_bool_to_str(_Bool b) {");
+    e.*.emit_header_line("  return b ? \"true\" : \"false\";");
     e.*.emit_header_line("}");
     e.*.emit_header_line("");
     // box(v) — heap-allocate a value and return a typed pointer to it.
