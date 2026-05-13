@@ -183,6 +183,7 @@ those shadowing-shaped bindings.
 - Write `func(arg1, arg2)`, not `func arg1, arg2`.
 - Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
 - Control-flow keywords follow the same rule: `return(value)`, `return()`, `escape(value)`, `escape()`.
+- In `given(exn) := Exception(throw: ((err) -> { ... }))` handlers, add `escape(...)` / `escape()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves.
 - Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`, `~(bits)`.
 - Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
 - Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.

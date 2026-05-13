@@ -22,6 +22,10 @@ open(import("std/string"));
 { generate_yo_thread_set_maximum_threads } :: import("./exprs/parallelism.yo");
 { generate_sizeof } :: import("./exprs/sizeof.yo");
 { generate_yo_inline_function_call, is_yo_inline_builtin } :: import("./exprs/inline_fns.yo");
+{ generate_typeid } :: import("./exprs/typeid.yo");
+{ generate_panic } :: import("./exprs/panic.yo");
+{ generate_open } :: import("./exprs/open.yo");
+{ generate_binding } :: import("./exprs/binding.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -12290,6 +12294,16 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => (id.as_str() == "__yo_gc_collect")
           )
         ) => Option(String).Some(generate_yo_gc_collect(args, ctx, indent)),
+        // panic([message]) — print message (if present), abort, and return an
+        // unreachable dummy value of the expression's typed return type.
+        // Mirrors `src/codegen/exprs/generation.ts` BuiltinFunctions.panic dispatch.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "panic")
+          )
+        ) => generate_panic(expr, args, ctx, indent),
         // __yo_thread_set_maximum_threads(n) — configure parallelism runtime.
         // Mirrors `src/codegen/exprs/generation.ts` BuiltinFunctions.__yo_thread_set_maximum_threads dispatch.
         (
@@ -12299,6 +12313,20 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => (id.as_str() == "__yo_thread_set_maximum_threads")
           )
         ) => generate_yo_thread_set_maximum_threads(args, ctx, indent),
+        // open(struct_value) — emit runtime destructuring declarations when
+        // typed metadata records `runtime_destructurings`.
+        // Mirrors `src/codegen/exprs/generation.ts` BuiltinKeywords.open dispatch.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "open")
+          )
+        ) => match(
+          generate_open(expr, args, ctx, indent),
+          .Some(open_code) => Option(String).Some(open_code),
+          .None => handle_regular_call(ident_opt, args, ctx, indent)
+        ),
         // sizeof(type_name) — translate Yo type name to C type
         (
           (!(is_infix)) && (
@@ -12323,6 +12351,18 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
               }
             )
         ),
+        // typeid(T) — metadata-aware handler emits a deduped static type-id
+        // declaration and returns the address expression.
+        // Mirrors `src/codegen/exprs/generation.ts` BuiltinFunctions.typeid dispatch.
+        (
+          (!(is_infix)) && (
+            (args.len() == usize(1)) && match(
+              ident_opt,
+              .None => false,
+              .Some(id) => (id.as_str() == "typeid")
+            )
+          )
+        ) => generate_typeid(args, ctx),
         // Regular function call: f(args) — identifier func, not a builtin keyword
         // recur(args) — self-recursive call to the current function
         (
@@ -12467,7 +12507,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .None => false,
             .Some(op) => (op.as_str() == ":")
           )
-        ) => handle_bare_colon_decl(args, ctx, indent),
+        ) => match(
+          generate_binding(args, ctx, indent),
+          .Some(binding_code) => Option(String).Some(binding_code),
+          .None => handle_bare_colon_decl(args, ctx, indent)
+        ),
         // Variable definition: x := val  →  __auto_type x = val;
         (
           is_infix && match(

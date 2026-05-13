@@ -136,12 +136,16 @@ collect_module_deps :: (
   if(!(file_found), {
     // Strip the trailing .yo (3 chars) to get the base name, then try index.yo
     base_len := abs_path_raw.len();
-    base_no_ext := abs_path_raw.substring(usize(0), (base_len - usize(3)));
+    base_no_ext := abs_path_raw.substring(usize(0), base_len - usize(3));
     index_path := `${base_no_ext.as_str()}/index.yo`;
     index_found := io.await(exists(Path.new(index_path)));
     cond(
-      index_found => { abs_path = index_path; },
-      true => { return(()); }
+      index_found => {
+        abs_path = index_path;
+      },
+      true => {
+        return(());
+      }
     );
   });
   // Deduplication: skip if already visited (also handles import cycles)
@@ -422,6 +426,7 @@ main :: (fn(using(io : IO)) -> unit)({
       (err) -> {
         eprintln(`yo-self: error: ${err.to_string()}`);
         exit(int(1));
+        escape();
       }
     )
   );

@@ -721,6 +721,13 @@ given(exn) := Exception(throw: ((err) -> {
 }));
 do_something(using(exn));
 
+// CORRECT — even after process-exit helpers, satisfy the handler's resume type:
+given(exn2) := Exception(throw: ((err) -> {
+  eprintln(err.to_string());
+  exit(int(1));
+  escape(); // required because exit() returns unit, not the handler ResumeType
+}));
+
 // CORRECT — escape inside a closure passed as argument:
 result := match(opt, .Some(x) => x, .None => {
   // This is NOT a nested function — use return:
