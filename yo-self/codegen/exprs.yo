@@ -27,6 +27,7 @@ open(import("std/string"));
 { generate_open } :: import("./exprs/open.yo");
 { generate_binding } :: import("./exprs/binding.yo");
 { generate_anonymous_tuple } :: import("./exprs/tuple_fn.yo");
+{ generate_anonymous_array, generate_yo_array_fill } :: import("./exprs/array_fns.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -12318,6 +12319,28 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => (id.as_str() == "__yo_thread_set_maximum_threads")
           )
         ) => generate_yo_thread_set_maximum_threads(args, ctx, indent),
+        // array(v0, v1, ...) — metadata-aware anonymous array lowering.
+        // Mirrors `src/codegen/exprs/generation.ts` BuiltinKeywords.array dispatch.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "array")
+          )
+        ) => match(
+          generate_anonymous_array(expr, args, ctx, indent),
+          .Some(array_code) => Option(String).Some(array_code),
+          .None => handle_regular_call(ident_opt, args, ctx, indent)
+        ),
+        // __yo_array_fill(Array(T, N), value) — macro expansion for Array.fill.
+        // Mirrors `src/codegen/exprs/generation.ts` BuiltinFunctions.__yo_array_fill dispatch.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "__yo_array_fill")
+          )
+        ) => Option(String).Some(generate_yo_array_fill(expr, args, ctx, indent)),
         // open(struct_value) — emit runtime destructuring declarations when
         // typed metadata records `runtime_destructurings`.
         // Mirrors `src/codegen/exprs/generation.ts` BuiltinKeywords.open dispatch.
