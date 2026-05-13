@@ -9500,3 +9500,53 @@ never caught up.
 - ✅ `./yo-cli test ./yo-self/tests/initialization_assignment.test.yo` → 4/4 pass.
 - ✅ `./yo-self/yo-self-bin test tests/basic.test.yo` → 32/32 pass.
 - Structural mismatch: 8 TS-side files → 1 (typo); 12 yo-side files → 10.
+
+### Phase 13at — Typed-AST metadata pivot, infrastructure step 1
+
+**Motivation**: The bootstrap codegen has accumulated hand-rolled
+heuristics that operate on bare `AstExpr` because the codegen does not
+receive the evaluator's per-expression metadata. The TypeScript codegen
+reads `expr.$.type` / `expr.$.value` / `expr.$.runtimeDestructurings`
+etc. from each node — yo-self has the corresponding `ExprInfo` /
+`ExprInfoTable` types in `yo-self/expr/expr_info.yo`, and the proper
+evaluator path (`yo-self/evaluator/exprs/_expr.yo` family) populates
+the table — but the codegen never reads from it.
+
+Pivot goal: thread `ExprInfoTable` through the codegen so blocked TS
+handlers (binding, panic, typeid, recur, drop-dup, iso, dyn, …) can be
+ported 1-to-1 as soon as the metadata is available, while existing
+heuristics keep working until each handler is converted.
+
+**Step 1 of the pivot** (this phase): wire the _type-system hook_
+without changing any caller. Adds an optional
+`expr_info_table : Option(ExprInfoTable)` field to `CodegenContext`,
+initialised to `.None`, plus a
+`get_expr_info(self, id) -> Option(ExprInfo)` accessor that returns
+`.None` when no evaluator pass has run.
+
+This is fully additive — every existing handler still operates on bare
+AST. The next phases will:
+
+- **Step 2**: invoke the proper evaluator
+  (`_evaluate_expression` over each top-level module expression) in
+  `yo-self/main.yo`'s compile flow, capturing the populated
+  `ExprInfoTable` on the codegen context. Expected to surface
+  evaluator gaps that need to be filled.
+- **Step 3**: port the smallest metadata-dependent TS handlers first —
+  `src/codegen/exprs/typeid.ts` (45 lines), then `binding.ts` (60
+  lines), then `panic.ts` (62 lines) — each as a yo file under
+  `yo-self/codegen/exprs/` reading from `ctx.get_expr_info(id)` and
+  delegating to the bootstrap heuristic when the lookup returns
+  `.None`.
+- **Step 4**: expand to the larger handlers (`recur`, `drop-dup`,
+  `iso`, `dyn`, `closures`, `match`, `return`) once the evaluator
+  coverage is sufficient.
+
+**Verification (step 1)**:
+
+- ✅ `./yo-cli compile yo-self/main.yo --release` rebuilds yo-self-bin.
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo` → 10/10 (added
+  "CodegenContext: get_expr_info returns None when no evaluator pass
+  has run" lock-in test).
+- ✅ `./yo-self/yo-self-bin test tests/basic.test.yo` → 32/32 pass — the
+  hook is fully additive; no current behavior changes.
