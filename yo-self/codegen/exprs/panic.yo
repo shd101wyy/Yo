@@ -1,0 +1,236 @@
+//! Generate code for the `panic` / `panic(msg)` builtin.
+//!
+//! 1-to-1 port of `src/codegen/exprs/panic.ts`.
+//!
+//! Semantics:
+//!   - `panic()`         — emits `abort();`.
+//!   - `panic("lit")`    — when the argument is a compile-time string, emits
+//!                         `fprintf(stderr, "%s\n", "lit"); abort();`.
+//!   - `panic(rt_expr)`  — when the argument is a runtime value, emits
+//!                         `fprintf(stderr, "%s\n", <rt_expr>); abort();`,
+//!                         or `fprintf(stderr, "%.*s\n", (int)x.length, x.data); abort();`
+//!                         when the argument has the `str` newtype.
+//!
+//! Because `panic` never returns, the caller still needs an expression with
+//! the right type. We emit the unreachable dummy `(*((<retT>*)NULL))`.
+//!
+//! Metadata requirement:
+//!   The call expression's `ExprInfo.ty` (the return type) must be present
+//!   so the dummy expression can be typed. The argument expression's value
+//!   (for compile-time-string detection) and type (for str-newtype
+//!   detection) are also read from `ExprInfoTable` when available. With no
+//!   metadata at all the handler returns `.None` and the caller can fall
+//!   back to a bootstrap heuristic — though the production TS code paths
+//!   require the metadata.
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_id } :: import("../../expr/expr.yo");
+{ ExprInfo } :: import("../../expr/expr_info.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ EvalValue } :: import("../../evaluator/value.yo");
+{ CodegenContext } :: import("../context.yo");
+{ type_value_to_c_field } :: import("../types.yo");
+{ call_gen_expr } :: import("./expr.yo");
+/// Best-effort recovery of a compile-time string value from an `EvalValue`.
+/// In yo-self the analog of TS `ComptimeStringValue` is the `StrLit(raw)`
+/// variant — `raw` carries the literal text *with* surrounding `"` for
+/// `StringLit` tokens and *without* for template-string segments.
+extract_comptime_string_value :: (fn(v : EvalValue) -> Option(String))(
+  match(
+    v,
+    .StrLit(raw) => Option(String).Some(raw),
+    _ => Option(String).None
+  )
+);
+/// True if `t` is the `str` newtype (a `Struct` with `is_newtype = true`
+/// and `name == "str"`). Mirrors the TS check
+/// `isStructType(msgType) && isNewtypeType(msgType) && msgType.typeName === "str"`.
+is_str_newtype :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct(_, name, _, _, _, _, is_newtype) =>
+      (is_newtype && (name.as_str() == "str")),
+    _ => false
+  )
+);
+/// Best-effort C type string for a `TypeValue`, with `int32_t` as the
+/// final fallback to match the TS `getTypeString` shape for unsupported
+/// types. The dummy expression `(*((T*)NULL))` needs *some* C type and
+/// the TS implementation falls back too.
+get_c_type_string :: (fn(t : TypeValue) -> String)(
+  match(
+    type_value_to_c_field(t),
+    .Some(s) => s,
+    .None => String.from("int32_t")
+  )
+);
+/// Quote `raw` as a C string literal.
+///
+/// The Yo lexer stores `StringLit` tokens with their surrounding `"` and
+/// keeps escape sequences (`\n`, `\t`, `\\`, `\"`, …) byte-for-byte. That
+/// representation is *already* a valid C string literal, so the most
+/// faithful port simply passes the raw text through.
+///
+/// For template-string segments (which the lexer stores *without* outer
+/// quotes), we add the missing quotes and escape inner backslashes,
+/// double quotes, and the common whitespace-control characters so that
+/// the resulting C literal is well-formed.
+quote_as_c_string :: (fn(raw : String) -> String)({
+  bytes := raw.as_bytes();
+  n := bytes.len();
+  already_quoted := cond(
+    (n < usize(2)) => false,
+    true => {
+      first := match(bytes.get(usize(0)),.Some(x) => x,.None => u8(0));
+      last := match(bytes.get(n - usize(1)),.Some(x) => x,.None => u8(0));
+      (first == u8(34)) && (last == u8(34))
+    }
+  );
+  cond(
+    already_quoted => raw,
+    true => {
+      buf := String.new();
+      buf.push_str("\"");
+      (i : usize) = usize(0);
+      while(runtime(i < n), {
+        b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+        cond(
+          (b == u8(92)) => buf.push_str("\\\\"), // backslash
+          (b == u8(34)) => buf.push_str("\\\""), // double quote
+          (b == u8(10)) => buf.push_str("\\n"), // newline
+          (b == u8(13)) => buf.push_str("\\r"), // carriage return
+          (b == u8(9)) => buf.push_str("\\t"), // tab
+          (b == u8(0)) => buf.push_str("\\0"), // NUL
+          true => buf.push_byte(b)
+        );
+        i = (i + usize(1));
+      });
+      buf.push_str("\"");
+      buf
+    }
+  )
+});
+/// Generate the C expression for a `panic(...)` call.
+///
+/// `call_expr` is the full `panic(...)` AST node (used to look up the
+/// return type metadata). `args` is the argument list (length 0 or 1).
+/// `indent` is the current C indentation prefix used for emitted
+/// statements. Returns `.Some(c_expr)` on success or `.None` when the
+/// required metadata is unavailable.
+generate_panic :: (
+  fn(
+    call_expr : AstExpr,
+    args : ArrayList(AstExpr),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)({
+  // The TS implementation reads `expr.$?.type` first and bails out with
+  // a comment if it is missing.
+  info_opt := ctx.*.get_expr_info(ast_expr_id(call_expr));
+  match(
+    info_opt,
+    .None => Option(String).None,
+    .Some(info) => {
+      n := args.len();
+      cond(
+        (n == usize(0)) => {
+          // panic() — just abort.
+          line := String.from(indent.as_str());
+          line.push_str("abort();");
+          ctx.*.emitter.emit_string_line(line);
+        },
+        (n == usize(1)) => {
+          match(
+            args.get(usize(0)),
+            .None => (),
+            .Some(message_arg) => match(
+              ctx.*.get_expr_info(ast_expr_id(message_arg)),
+              .None => {
+                // Message arg has no metadata — fall back to runtime path
+                // with the bootstrap codegen of the message expression.
+                match(
+                  call_gen_expr(message_arg, ctx, indent),
+                  .None => (),
+                  .Some(msg_code) => {
+                    fprintf_line := String.from(indent.as_str());
+                    fprintf_line.push_str("fprintf(stderr, \"%s\\n\", ");
+                    fprintf_line.push_string(msg_code);
+                    fprintf_line.push_str(");");
+                    ctx.*.emitter.emit_string_line(fprintf_line);
+                  }
+                );
+                abort_line := String.from(indent.as_str());
+                abort_line.push_str("abort();");
+                ctx.*.emitter.emit_string_line(abort_line);
+              },
+              .Some(msg_info) => {
+                comptime_str_opt := match(
+                  msg_info.value,
+                  .None => Option(String).None,
+                  .Some(v) => extract_comptime_string_value(v)
+                );
+                match(
+                  comptime_str_opt,
+                  .Some(raw) => {
+                    quoted := quote_as_c_string(raw);
+                    fprintf_line := String.from(indent.as_str());
+                    fprintf_line.push_str("fprintf(stderr, \"%s\\n\", ");
+                    fprintf_line.push_string(quoted);
+                    fprintf_line.push_str(");");
+                    ctx.*.emitter.emit_string_line(fprintf_line);
+                    abort_line := String.from(indent.as_str());
+                    abort_line.push_str("abort();");
+                    ctx.*.emitter.emit_string_line(abort_line);
+                  },
+                  .None => match(
+                    call_gen_expr(message_arg, ctx, indent),
+                    .None => (),
+                    .Some(msg_code) => {
+                      // Distinguish str newtype (Slice(u8) under the hood)
+                      // from a plain C string.
+                      fprintf_line := String.from(indent.as_str());
+                      cond(
+                        is_str_newtype(msg_info.ty) => {
+                          fprintf_line.push_str("fprintf(stderr, \"%.*s\\n\", (int)");
+                          fprintf_line.push_string(msg_code);
+                          fprintf_line.push_str(".length, ");
+                          fprintf_line.push_string(msg_code);
+                          fprintf_line.push_str(".data);");
+                        },
+                        true => {
+                          fprintf_line.push_str("fprintf(stderr, \"%s\\n\", ");
+                          fprintf_line.push_string(msg_code);
+                          fprintf_line.push_str(");");
+                        }
+                      );
+                      ctx.*.emitter.emit_string_line(fprintf_line);
+                      abort_line := String.from(indent.as_str());
+                      abort_line.push_str("abort();");
+                      ctx.*.emitter.emit_string_line(abort_line);
+                    }
+                  )
+                );
+              }
+            )
+          );
+        },
+        true => ()
+      );
+      // Return the unreachable dummy expression of the panic's return type.
+      return_c_ty := get_c_type_string(info.ty);
+      dummy := String.from("(*((");
+      dummy.push_string(return_c_ty);
+      dummy.push_str("*)NULL))");
+      Option(String).Some(dummy)
+    }
+  )
+});
+export(
+  generate_panic,
+  extract_comptime_string_value,
+  is_str_newtype,
+  get_c_type_string,
+  quote_as_c_string
+);
