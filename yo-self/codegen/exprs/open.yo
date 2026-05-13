@@ -1,0 +1,115 @@
+//! Generate code for the `open(struct_value)` runtime destructuring form.
+//!
+//! 1-to-1 port of `src/codegen/exprs/open.ts`.
+//!
+//! When the evaluator records non-empty `runtime_destructurings` on the
+//! `open(...)` call and the argument is a runtime `Struct` value (no
+//! compile-time value), the handler emits a local variable declaration
+//! per destructured field:
+//!
+//!   ```c
+//!   <field_c_type> <var_name> = <struct_code>.<field_label>;
+//!   ```
+//!
+//! The expression itself evaluates to `""` — `open` is a statement-style
+//! form; the resulting Yo value is `unit`.
+//!
+//! Metadata requirement:
+//!   `expr.$.runtimeDestructurings` and `argExpr.$.type` from the typed-
+//!   AST pipeline. With no metadata at all (no evaluator pass), this
+//!   handler is unreachable from the production code paths — the TS
+//!   implementation also early-returns when the metadata is missing.
+//!   Yo-self returns `.None` so callers can fall back to the bootstrap
+//!   heuristic in `exprs.yo`.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_id } :: import("../../expr/expr.yo");
+{ ExprInfo, RuntimeDestructuring } :: import("../../expr/expr_info.yo");
+{ TypeValue, is_struct_type } :: import("../../types/type.yo");
+{ EvalValue } :: import("../../evaluator/value.yo");
+{ CodegenContext } :: import("../context.yo");
+{ type_value_to_c_field } :: import("../types.yo");
+{ call_gen_expr } :: import("./expr.yo");
+{ sanitize_for_c_identifier } :: import("./typeid.yo");
+/// Best-effort C type string for a TypeValue, with `int32_t` as the
+/// fallback to mirror TS `getTypeString`.
+get_field_c_type :: (fn(t : TypeValue) -> String)(
+  match(
+    type_value_to_c_field(t),
+    .Some(s) => s,
+    .None => String.from("int32_t")
+  )
+);
+/// Generate code for `open(arg_expr)`.
+///
+/// Reads `expr.runtime_destructurings` and the arg's type/value from the
+/// `ExprInfoTable` via the `CodegenContext`. Emits one
+/// `T var = struct.label;` statement per destructured field and returns
+/// the empty Yo unit sentinel `""` when destructurings were present.
+/// Returns `.None` when no metadata is attached to the call.
+generate_open :: (
+  fn(
+    call_expr : AstExpr,
+    args : ArrayList(AstExpr),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)(
+  match(
+    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    .None => Option(String).None,
+    .Some(info) => match(
+      info.runtime_destructurings,
+      .None => Option(String).Some(String.from("")),
+      .Some(destructurings) => cond(
+        (destructurings.len() == usize(0)) => Option(String).Some(String.from("")),
+        true => match(
+          args.get(usize(0)),
+          .None => Option(String).Some(String.from("")),
+          .Some(arg_expr) => match(
+            ctx.*.get_expr_info(ast_expr_id(arg_expr)),
+            .None => Option(String).Some(String.from("")),
+            .Some(arg_info) => cond(
+              // Only emit code for *runtime* struct values: the type is
+              // a Struct AND there is no compile-time value attached.
+              (!(is_struct_type(arg_info.ty) && arg_info.value.is_none())) =>
+                Option(String).Some(String.from("")),
+              true => match(
+                call_gen_expr(arg_expr, ctx, indent),
+                .None => Option(String).None,
+                .Some(struct_code) => {
+                  n := destructurings.len();
+                  (i : usize) = usize(0);
+                  while(runtime(i < n), {
+                    match(
+                      destructurings.get(i),
+                      .None => (),
+                      .Some(d) => {
+                        field_type := get_field_c_type(d.ty);
+                        var_name := sanitize_for_c_identifier(d.variable_name.as_str());
+                        field_label := sanitize_for_c_identifier(d.label.as_str());
+                        line := String.from(indent.as_str());
+                        line.push_string(field_type);
+                        line.push_str(" ");
+                        line.push_string(var_name);
+                        line.push_str(" = ");
+                        line.push_string(struct_code);
+                        line.push_str(".");
+                        line.push_string(field_label);
+                        line.push_str(";");
+                        ctx.*.emitter.emit_string_line(line);
+                      }
+                    );
+                    i = (i + usize(1));
+                  });
+                  Option(String).Some(String.from(""))
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+export(generate_open, get_field_c_type);
