@@ -1984,10 +1984,48 @@ handle_match_data :: (
               )
             }
           );
+          // The simplified-Some bootstrap path treats `Option(T).Some(x)` and
+          // `Result(T,E).Ok(x)` as just their payload `x` (Phase 13d encoding).
+          // It applies whenever the scrutinee uses the payload-as-value
+          // representation rather than a tagged-union value.
+          //
+          // - Unregistered scrutinee expressions (e.g. `toks.get(i)`) default
+          //   to the simplified path because they almost always carry an
+          //   Option payload directly.
+          // - `__auto_type` temps and registered C primitive/string types are
+          //   also payload-as-value (Phase 13d/e lowering).
+          // - Registered tagged-union scrutinees (e.g. variables of a real
+          //   data enum like `Shape`) take the proper `generate_match_data`
+          //   switch path.
+          //
+          // It is NOT correct when `Some` has been registered as a real
+          // data-enum variant — in that case `generate_match_data` must drive
+          // the dispatch through the tagged union.
           can_simplify_some_match := match(
-            ctx.*.get_var_type(scrut_code.as_str()),
-            .None => false,
-            .Some(vt) => (vt.as_str() == "__auto_type")
+            ctx.*.get_enum_for_variant("Some"),
+            .Some(_) => false,
+            .None => match(
+              ctx.*.get_var_type(scrut_code.as_str()),
+              .None => true,
+              .Some(vt) => cond(
+                (vt.as_str() == "__auto_type") => true,
+                (vt.as_str() == "int8_t") => true,
+                (vt.as_str() == "int16_t") => true,
+                (vt.as_str() == "int32_t") => true,
+                (vt.as_str() == "int64_t") => true,
+                (vt.as_str() == "uint8_t") => true,
+                (vt.as_str() == "uint16_t") => true,
+                (vt.as_str() == "uint32_t") => true,
+                (vt.as_str() == "uint64_t") => true,
+                (vt.as_str() == "size_t") => true,
+                (vt.as_str() == "isize") => true,
+                (vt.as_str() == "double") => true,
+                (vt.as_str() == "float") => true,
+                (vt.as_str() == "bool") => true,
+                (vt.as_str() == "const char*") => true,
+                true => false
+              )
+            )
           );
           simplified_some_body := {
             (si : usize) = usize(1);
@@ -2035,10 +2073,49 @@ handle_match_data :: (
               )
             },
             .None => {
-              is_void_ptr_opt := match(
-                ctx.*.get_enum_for_variant("Some"),
-                .Some(_) => false,
-                .None => true
+              // The void-pointer Option/Result encoding only applies when the
+              // match arms reference Option/Result variants AND `Some` has not
+              // been registered to a real data enum. If any arm names a variant
+              // that is registered (e.g. `Shape.Rectangle`), we must take the
+              // proper `generate_match_data` switch path instead. Otherwise we
+              // would emit `if (s != NULL)` against a non-pointer enum value.
+              (any_arm_registered : bool) = false;
+              {
+                (ci : usize) = usize(1);
+                while(runtime((ci < n) && (!(any_arm_registered))), {
+                  match(
+                    args.get(ci),
+                    .None => (),
+                    .Some(arm_check) => match(
+                      get_arm_args(arm_check),
+                      .None => (),
+                      .Some(arm_args_check) => match(
+                        arm_args_check.get(usize(0)),
+                        .None => (),
+                        .Some(pat_check) => match(
+                          data_arm_variant_name(pat_check),
+                          .None => (),
+                          .Some(vn_check) => match(
+                            ctx.*.get_enum_for_variant(vn_check.as_str()),
+                            .None => (),
+                            .Some(_) => {
+                              any_arm_registered = true;
+                            }
+                          )
+                        )
+                      )
+                    )
+                  );
+                  ci = (ci + usize(1));
+                });
+              };
+              is_void_ptr_opt := cond(
+                any_arm_registered => false,
+                true => match(
+                  ctx.*.get_enum_for_variant("Some"),
+                  .Some(_) => false,
+                  .None => true
+                )
               );
               cond(
                 is_void_ptr_opt => {
