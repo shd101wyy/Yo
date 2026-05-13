@@ -4248,6 +4248,15 @@ is_btreemap_c_type :: (fn(c_ty : str) -> bool)(
 is_runtime_map_c_type :: (fn(c_ty : str) -> bool)(
   is_hashmap_c_type(c_ty) || is_btreemap_c_type(c_ty)
 );
+/// True if `c_ty` is one of the bootstrap compound-literal C types — i.e. the
+/// concrete value layout backing `ArrayList(T)`, `Deque(T)`, `HashMap(K,V)`,
+/// `BTreeMap(K,V)`, or a `YoSlice_*` / `YoArray_*` specialization. These all
+/// initialize via `(T){.data = ..., ...}` compound literals, so a `name :=`
+/// binding whose RHS starts with `(T){` should register the LHS as type `T`.
+is_compound_aggregate_c_type :: (fn(c_ty : str) -> bool)(
+  ((is_arraylist_c_type(c_ty) || is_deque_c_type(c_ty)) || is_runtime_map_c_type(c_ty)) ||
+    (String.from(c_ty).starts_with(String.from("YoSlice_")) || String.from(c_ty).starts_with(String.from("YoArray_")))
+);
 is_runtime_index_assignable_type :: (fn(ctx : *(CodegenContext), c_ty : str) -> bool)(
   ((is_arraylist_c_type(c_ty) || is_deque_c_type(c_ty)) || is_runtime_map_c_type(c_ty)) ||
     match(
@@ -6150,6 +6159,26 @@ handle_define :: (
                       ctx.*.register_var_type(name_tok.value.as_str(), "size_t"),
                     true => ()
                   );
+                });
+                // Track compound-literal-typed RHS: `(T){...}` lowering used by
+                // bootstrap ArrayList(T)/Deque(T)/HashMap(K,V)/etc. constructors.
+                // Register the LHS with the concrete C type T so method dispatch
+                // (e.g. list.push, list.len) finds the proper helper instead of
+                // falling through to `strlen(list)` style catch-alls.
+                if(!(rhs_is_cstr), {
+                  if(rhs_code.starts_with(String.from("(")), {
+                    close_paren_brace := rhs_code.index_of(String.from("){"), usize(0));
+                    match(
+                      close_paren_brace,
+                      .None => (),
+                      .Some(cpb_idx) => {
+                        compound_c_ty := rhs_code.substring(usize(1), cpb_idx);
+                        if(is_compound_aggregate_c_type(compound_c_ty.as_str()), {
+                          ctx.*.register_var_type(name_tok.value.as_str(), compound_c_ty.as_str());
+                        });
+                      }
+                    );
+                  });
                 });
                 // If RHS was an array/slice range call, register LHS as slice var
                 is_slice_rhs := match(
@@ -10936,15 +10965,30 @@ handle_assignment :: (
                           // If the type annotation is Option(T) or Result(T, E) with a numeric inner T,
                           // register the variable as T instead of void* so .map() closure params
                           // can infer the correct numeric type for to_string() and arithmetic.
+                          //
+                          // Only applies to Option/Result (the void-pointer payload encoding).
+                          // ArrayList(T), Deque(T), HashMap(K,V), etc. keep their concrete C
+                          // type so subsequent method dispatch (e.g. .push, .len) routes to
+                          // the proper helper.
                           match(
                             colon_args.get(usize(1)),
                             .None => (),
-                            .Some(inner_type_e) => match(
-                              generic_type_app_field_c_type(inner_type_e),
-                              .None => (),
-                              .Some(inner_c_ty) => if(is_numeric_c_type(inner_c_ty.as_str()), {
-                                ctx.*.register_var_type(var_name.as_str(), inner_c_ty.as_str());
-                              })
+                            .Some(inner_type_e) => cond(
+                              type_app_receiver_is(inner_type_e, "Option") => match(
+                                generic_type_app_field_c_type(inner_type_e),
+                                .None => (),
+                                .Some(inner_c_ty) => if(is_numeric_c_type(inner_c_ty.as_str()), {
+                                  ctx.*.register_var_type(var_name.as_str(), inner_c_ty.as_str());
+                                })
+                              ),
+                              type_app_receiver_is(inner_type_e, "Result") => match(
+                                generic_type_app_field_c_type(inner_type_e),
+                                .None => (),
+                                .Some(inner_c_ty) => if(is_numeric_c_type(inner_c_ty.as_str()), {
+                                  ctx.*.register_var_type(var_name.as_str(), inner_c_ty.as_str());
+                                })
+                              ),
+                              true => ()
                             )
                           );
                           .Some(String.from("0"))
