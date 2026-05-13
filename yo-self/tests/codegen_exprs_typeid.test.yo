@@ -1,0 +1,148 @@
+/// Phase 13at step 3 — typeid codegen handler test.
+///
+/// Exercises `yo-self/codegen/exprs/typeid.yo` end-to-end with a populated
+/// ExprInfoTable. The metadata records that the argument expression has
+/// the compile-time value `EvalValue.TypeVal(i32)`, and the handler emits:
+///
+///   - a `static const char __yo_typeid_i32 = 0;` declaration (deduped),
+///   - the call result `(uintptr_t)&__yo_typeid_i32`.
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Token, TokenKind } :: import("../lexer/token.yo");
+{ AstExpr, ast_expr_id, BF_TYPEID } :: import("../expr/expr.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_new,
+  expr_info_table_set
+} :: import("../expr/expr_info.yo");
+{ Environment } :: import("../env/env.yo");
+{ TypeValue, t_i32 } :: import("../types/type.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
+{ CodegenContext } :: import("../codegen/context.yo");
+{
+  generate_typeid,
+  sanitize_for_c_identifier,
+  extract_type_value
+} :: import("../codegen/exprs/typeid.yo");
+mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
+  AstExpr.Atom(
+    id,
+    Token(
+      kind : kind,
+      value : String.from(value),
+      row : usize(0),
+      column : usize(0),
+      character : usize(0),
+      module_path : String.from("test"),
+      input : String.from("")
+    )
+  )
+);
+test("sanitize_for_c_identifier: identifier chars passthrough", {
+  out := sanitize_for_c_identifier("i32");
+  assert(out == String.from("i32"), "i32 unchanged");
+  out2 := sanitize_for_c_identifier("_yo_foo123");
+  assert(out2 == String.from("_yo_foo123"), "underscore + digits passthrough");
+});
+test("sanitize_for_c_identifier: non-identifier chars become underscore", {
+  out := sanitize_for_c_identifier("Slice(u8)");
+  assert(out == String.from("Slice_u8_"), "parens become underscores");
+  out2 := sanitize_for_c_identifier("*(i32)");
+  assert(out2 == String.from("__i32_"), "star and parens become underscores");
+});
+test("extract_type_value: TypeVal yields inner type", {
+  ev := EvalValue.TypeVal(box(t_i32()));
+  match(
+    extract_type_value(ev),
+    .Some(ty) => match(
+      ty,
+      .Int(bits, signed) => {
+        assert(bits == u8(32), "i32 bits=32");
+        assert(signed, "i32 signed=true");
+      },
+      _ => assert(false, "expected Int variant")
+    ),
+    .None => assert(false, "expected Some")
+  );
+});
+test("extract_type_value: non-TypeVal yields None", {
+  ev := EvalValue.IntLit(String.from("42"));
+  assert(extract_type_value(ev).is_none(), "IntLit is not TypeVal");
+});
+test("generate_typeid: returns None when no metadata is available", {
+  ctx := CodegenContext.new();
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom(usize(11), "i32", TokenKind.Identifier));
+  // No expr_info_table installed → ctx.get_expr_info returns None →
+  // generate_typeid returns None.
+  result := generate_typeid(args, &(ctx));
+  assert(result.is_none(), "no metadata → None");
+});
+test("generate_typeid: emits declaration and returns address expression", {
+  ctx := CodegenContext.new();
+  // Manually populate an ExprInfoTable: arg id 11 evaluates to TypeVal(i32).
+  table := expr_info_table_new();
+  env := Environment.new(String.from("test"));
+  info := new_expr_info(env, t_i32());
+  info.value = Option(EvalValue).Some(EvalValue.TypeVal(box(t_i32())));
+  expr_info_table_set(table, usize(11), info);
+  ctx.expr_info_table = Option(typeof(table)).Some(table);
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom(usize(11), "i32", TokenKind.Identifier));
+  result := generate_typeid(args, &(ctx));
+  match(
+    result,
+    .None => assert(false, "expected Some when metadata present"),
+    .Some(c_expr) => {
+      assert(
+        c_expr == String.from("(uintptr_t)&__yo_typeid_i32"),
+        "address-of expression"
+      );
+    }
+  );
+  // Declaration must be in the declarations section.
+  decls := ctx.emitter.declarations;
+  assert(
+    decls.contains(String.from("static const char __yo_typeid_i32 = 0;")),
+    "declaration emitted"
+  );
+});
+test("generate_typeid: deduplicates declaration on repeated calls", {
+  ctx := CodegenContext.new();
+  table := expr_info_table_new();
+  env := Environment.new(String.from("test"));
+  info_a := new_expr_info(env, t_i32());
+  info_a.value = Option(EvalValue).Some(EvalValue.TypeVal(box(t_i32())));
+  expr_info_table_set(table, usize(21), info_a);
+  info_b := new_expr_info(env, t_i32());
+  info_b.value = Option(EvalValue).Some(EvalValue.TypeVal(box(t_i32())));
+  expr_info_table_set(table, usize(22), info_b);
+  ctx.expr_info_table = Option(typeof(table)).Some(table);
+  args1 := ArrayList(AstExpr).new();
+  args1.push(mk_atom(usize(21), "i32", TokenKind.Identifier));
+  _ := generate_typeid(args1, &(ctx));
+  args2 := ArrayList(AstExpr).new();
+  args2.push(mk_atom(usize(22), "i32", TokenKind.Identifier));
+  _ := generate_typeid(args2, &(ctx));
+  // The declaration appears exactly once.
+  decls := ctx.emitter.declarations;
+  // Count occurrences of the static declaration line.
+  needle := String.from("static const char __yo_typeid_i32 = 0;");
+  (count : usize) = usize(0);
+  (idx : usize) = usize(0);
+  while(runtime(true), {
+    match(
+      decls.index_of(needle, idx),
+      .None => {
+        return(());
+      },
+      .Some(found) => {
+        count = (count + usize(1));
+        idx = (found + usize(1));
+      }
+    );
+  });
+  assert(count == usize(1), "exactly one declaration emitted across calls");
+});

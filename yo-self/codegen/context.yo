@@ -163,7 +163,12 @@ CodegenContext :: object(
   /// Wiring this end-to-end is the goal of the typed-AST pivot
   /// (Phase 13at). Today the field is always `.None`; ported metadata-aware
   /// handlers should check `is_some()` and degrade gracefully.
-  expr_info_table : Option(ExprInfoTable)
+  expr_info_table : Option(ExprInfoTable),
+  /// Deduplication map for `typeid(T)` static declarations.
+  /// Maps the unique string id of a type to the C name of the emitted
+  /// `static const char __yo_typeid_<sanitized>_NN = 0;` declaration.
+  /// Mirrors `CodeGenContext.typeIdStatics` in `src/codegen/utils/index.ts`.
+  type_id_statics : HashMap(String, String)
 );
 impl(
   CodegenContext,
@@ -220,7 +225,8 @@ impl(
       anon_method_var_names : ArrayList(String).new(),
       anon_method_names : ArrayList(String).new(),
       anon_method_body_templates : ArrayList(String).new(),
-      expr_info_table : Option(ExprInfoTable).None
+      expr_info_table : Option(ExprInfoTable).None,
+      type_id_statics : HashMap(String, String).new()
     )
   ),
   /// Look up the typed metadata attached to expression `id` (set by the

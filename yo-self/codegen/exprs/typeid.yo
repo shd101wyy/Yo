@@ -1,0 +1,114 @@
+//! Generate code for the `typeid(T)` builtin.
+//!
+//! 1:1 port of `src/codegen/exprs/typeid.ts`.
+//!
+//! Behavior:
+//!   - Each unique type gets a `static const char __yo_typeid_XXX = 0;`
+//!     declaration emitted into the declarations section.
+//!   - The expression itself evaluates to `(uintptr_t)&__yo_typeid_XXX`,
+//!     a stable pointer value that uniquely identifies the type.
+//!
+//! Metadata requirement:
+//!   The argument's compile-time value must be a `TypeVal`. This requires
+//!   the typed-AST pipeline (Phase 13at): a populated
+//!   `CodegenContext.expr_info_table` from a prior evaluator pass.
+//!   When the metadata is missing, returns `Option(String).None` so the
+//!   caller can fall back to a bootstrap heuristic — though no current
+//!   bootstrap heuristic handles `typeid`; calls reach this handler only
+//!   in the typed-AST pipeline.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ AstExpr, ast_expr_id } :: import("../../expr/expr.yo");
+{ ExprInfo } :: import("../../expr/expr_info.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ EvalValue } :: import("../../evaluator/value.yo");
+{ CodegenContext } :: import("../context.yo");
+/// Replace every byte that is not `A-Z`, `a-z`, `0-9`, or `_` with `_`.
+/// Mirrors `sanitizeForCIdentifier` in `src/codegen/utils/index.ts` for the
+/// subset of inputs typeid produces (the result of `type_to_string`).
+sanitize_for_c_identifier :: (fn(s : str) -> String)({
+  buf := String.new();
+  src := String.from(s);
+  bytes := src.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+    is_upper := ((b >= u8(65)) && (b <= u8(90)));
+    is_lower := ((b >= u8(97)) && (b <= u8(122)));
+    is_digit := ((b >= u8(48)) && (b <= u8(57)));
+    is_underscore := (b == u8(95));
+    cond(
+      (is_upper || (is_lower || (is_digit || is_underscore))) => {
+        buf.push_byte(b);
+      },
+      true => {
+        buf.push_byte(u8(95));
+      }
+    );
+    i = (i + usize(1));
+  });
+  buf
+});
+/// Extract the `TypeValue` from a `.TypeVal(box)` `EvalValue`, returning
+/// `.None` for any other shape.
+extract_type_value :: (fn(v : EvalValue) -> Option(TypeValue))(
+  match(
+    v,
+    .TypeVal(box_ty) => Option(TypeValue).Some(box_ty.*),
+    _ => Option(TypeValue).None
+  )
+);
+/// Generate the C expression for a `typeid(T)` call.
+///
+/// `args` is the call's argument list (length 1: the type expression).
+/// Returns `.Some(cExpr)` on success, `.None` when no metadata is available
+/// or when the metadata is not a `TypeVal`.
+generate_typeid :: (
+  fn(
+    args : ArrayList(AstExpr),
+    ctx : *(CodegenContext)
+  ) -> Option(String)
+)(
+  cond(
+    (args.len() != usize(1)) => Option(String).None,
+    true => match(
+      args.get(usize(0)),
+      .None => Option(String).None,
+      .Some(arg_expr) => match(
+        ctx.*.get_expr_info(ast_expr_id(arg_expr)),
+        .None => Option(String).None,
+        .Some(info) => match(
+          info.value,
+          .None => Option(String).None,
+          .Some(eval_val) => match(
+            extract_type_value(eval_val),
+            .None => Option(String).None,
+            .Some(ty) => {
+              type_id_str := type_to_string(ty);
+              sanitized := sanitize_for_c_identifier(type_id_str.as_str());
+              static_var_name := String.from("__yo_typeid_");
+              static_var_name.push_string(sanitized);
+              // Deduplicate via `type_id_statics`. The first emission also
+              // writes the static declaration to the declarations section.
+              already_emitted := ctx.*.type_id_statics.get(type_id_str).is_some();
+              if(!(already_emitted), {
+                _ := ctx.*.type_id_statics.set(type_id_str, (&(static_var_name)).clone());
+                decl := String.from("static const char ");
+                decl.push_string(static_var_name);
+                decl.push_str(" = 0;");
+                ctx.*.emitter.emit_declaration_string_line(decl);
+              });
+              result := String.from("(uintptr_t)&");
+              result.push_string(static_var_name);
+              Option(String).Some(result)
+            }
+          )
+        )
+      )
+    )
+  )
+);
+export(generate_typeid, sanitize_for_c_identifier, extract_type_value);
