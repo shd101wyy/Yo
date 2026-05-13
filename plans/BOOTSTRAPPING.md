@@ -246,7 +246,7 @@ The self-hosted compiler must be a **faithful one-to-one port** of the TypeScrip
 | `src/codegen/index.ts`                              | `yo-self/codegen/index.yo`                              | 🔲 Pending                                                                                                                                                                                                                                                          |
 | `src/codegen/exprs/*.ts`                            | `yo-self/codegen/exprs/*.yo`                            | 🔲 Pending                                                                                                                                                                                                                                                          |
 | `src/codegen/effects/*.ts`                          | `yo-self/codegen/effects/*.yo`                          | 🔲 Pending                                                                                                                                                                                                                                                          |
-| `src/codegen/functions/*.ts`                        | `yo-self/codegen/functions/*.yo`                        | 🔲 Pending                                                                                                                                                                                                                                                          |
+| `src/codegen/functions/*.ts`                        | `yo-self/codegen/functions/*.yo`                        | 🔄 In progress (Phase 13ap: context.yo + declarations evidence/prototype/declaration/constructor helpers)                                                                                                                                                           |
 | `src/module-manager.ts`                             | `yo-self/module-manager/module_manager.yo`              | 🔲 Pending                                                                                                                                                                                                                                                          |
 | `src/yo-cli.ts`                                     | `yo-self/main.yo`                                       | Partial                                                                                                                                                                                                                                                             |
 | `src/build-runner.ts`                               | `yo-self/build/build_runner.yo`                         | ✅ Done                                                                                                                                                                                                                                                             |
@@ -336,6 +336,9 @@ yo-self/
   codegen/
     emitter.yo              -- Emitter with headers/declarations/code buffers
     context.yo              -- CodegenContext with Emitter + temp var counter
+    functions/
+      context.yo            -- FunctionGenerationContext shape (mirrors src/codegen/functions/context.ts)
+      declarations.yo       -- EvidenceParameter + evidence/prototype/declaration/constructor helpers (mirrors src/codegen/functions/declarations.ts)
     exprs.yo                -- generate_expr: literals, operators, control flow, calls, assignment
     functions.yo            -- generate_function: C function definition emitter
     types.yo                -- generate_type_decl: struct/enum C type declarations
@@ -418,7 +421,14 @@ yo-self/
     await_analysis.test.yo             -- 28 await analysis tests
     effect_analysis.test.yo            -- 18 effect analysis tests
     circular_smoke.test.yo  -- 3 circular-import validation tests
-    codegen.test.yo         -- 141 codegen tests
+    codegen.test.yo                 -- 9 codegen smoke/context tests
+    codegen_exprs.test.yo           -- 48 expression/control/call/function codegen tests
+    codegen_types.test.yo           -- 21 type/RC/program-emission codegen tests
+    codegen_match.test.yo           -- 9 match codegen tests
+    codegen_driver.test.yo          -- 49 driver/validation/struct/impl codegen tests
+    codegen_exprs_advanced.test.yo  -- 84 advanced expression/enum/pointer/lambda/callback codegen tests
+    codegen_functions.test.yo       -- 15 function-codegen declaration helper tests
+    codegen_integration.test.yo     -- 42 full-program integration-style codegen tests
     integration.test.yo     -- 2 end-to-end parse→C→cc→run tests
     cache.test.yo           -- 6 cache tests
     lock_file.test.yo       -- 12 lock file tests
@@ -8897,6 +8907,276 @@ which fails because the anonymous C struct has no function member named `call`.
 - ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped.
 - ✅ `tests/index.test.yo` → 54 passed, 0 failed, 0 skipped.
 - ⚠️ `tests/fn.test.yo` → 12 passed, 0 failed, 13 skipped.
+
+### Phase 13al — Real function-codegen context port and codegen test split
+
+**Problem**: after correcting the codegen bootstrapping strategy, the next work
+needed to resume 1:1 TypeScript→Yo porting instead of adding more
+benchmark-specific lowering to `yo-self/codegen/driver.yo`. At the same time,
+`yo-self/tests/codegen.test.yo` had grown to 262 tests and routinely took over a
+minute as one compilation unit, making codegen regressions harder to isolate.
+
+**Fix**:
+
+- Added `yo-self/codegen/functions/declarations.yo` with the `EvidenceParameter`
+  data model mirroring the interface from `src/codegen/functions/declarations.ts`.
+- Added `yo-self/codegen/functions/context.yo` with the
+  `FunctionGenerationContext` shape and related async/function context records
+  mirroring `src/codegen/functions/context.ts`. TypeScript `extends
+CodeGenContext` is modeled as a `base : CodegenContext` field until the wider
+  real codegen pipeline is ported.
+- Added a focused construction test for `EvidenceParameter` and `FunctionEntry`.
+- Split the large codegen test suite into focused files while preserving the same
+  262 tests:
+  - `codegen.test.yo` — 9 smoke/context tests
+  - `codegen_exprs.test.yo` — 48 expression/control/call/function tests
+  - `codegen_types.test.yo` — 21 type/RC/program-emission tests
+  - `codegen_match.test.yo` — 9 match tests
+  - `codegen_driver.test.yo` — 49 driver/validation/struct/impl tests
+  - `codegen_exprs_advanced.test.yo` — 84 advanced expression/enum/pointer/lambda/callback tests
+  - `codegen_integration.test.yo` — 42 full-program integration-style tests
+
+**Verification**:
+
+- ✅ `bun run build`
+- ✅ Sequential split suite run:
+  - `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1` — 9/9
+  - `./yo-cli test ./yo-self/tests/codegen_driver.test.yo --disable-sanitize --parallel 1` — 49/49
+  - `./yo-cli test ./yo-self/tests/codegen_exprs.test.yo --disable-sanitize --parallel 1` — 48/48
+  - `./yo-cli test ./yo-self/tests/codegen_exprs_advanced.test.yo --disable-sanitize --parallel 1` — 84/84
+  - `./yo-cli test ./yo-self/tests/codegen_integration.test.yo --disable-sanitize --parallel 1` — 42/42
+  - `./yo-cli test ./yo-self/tests/codegen_match.test.yo --disable-sanitize --parallel 1` — 9/9
+  - `./yo-cli test ./yo-self/tests/codegen_types.test.yo --disable-sanitize --parallel 1` — 21/21
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/fn.test.yo --disable-sanitize --parallel 1 -v`
+  remains: 12 passed, 0 failed, 13 skipped.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  remains: 54 passed, 0 failed, 0 skipped.
+
+### Phase 13am — Port function evidence extraction helpers
+
+**Problem**: after adding the `EvidenceParameter` data model, the Yo
+function-codegen declarations module still lacked the real helper logic from
+`src/codegen/functions/declarations.ts`. That helper is central to evidence
+passing because it expands `using(...(E))` effect-row spreads and turns
+function-typed effect record fields into explicit C function pointer parameters.
+
+**Fix**:
+
+- Ported `FunctionImplicitParameter`, `expand_implicit_parameters`, and
+  `get_evidence_parameters` into `yo-self/codegen/functions/declarations.yo`.
+- Ported recursive record traversal for module/struct effect records so nested
+  function fields produce field paths such as `errors__raise`.
+- Ported the relevant `sanitizeForCIdentifier` behavior for evidence parameter
+  names, including C reserved-word prefixing and `_uNN_` encoding for invalid C
+  identifier bytes.
+- Added `yo-self/tests/codegen_functions.test.yo` with focused coverage for:
+  - bare function-type implicit parameters,
+  - nested module evidence records,
+  - effect-row spread expansion,
+  - C identifier sanitization.
+
+**Verification**:
+
+- ✅ `bun run build`
+- ✅ `./yo-cli test ./yo-self/tests/codegen_functions.test.yo --disable-sanitize --parallel 1`
+  passes: 4/4.
+- ✅ Sequential `./yo-cli test ./yo-self/tests/codegen*.test.yo --disable-sanitize --parallel 1`
+  split run passes: 266/266 total codegen tests.
+
+### Phase 13an — Port function prototype helper
+
+**Problem**: `yo-self/codegen/functions/declarations.yo` still had no counterpart
+for the `generateFunctionPrototype` helper from
+`src/codegen/functions/declarations.ts`, so the new declarations module could
+extract evidence metadata but could not yet format C prototype strings.
+
+**Fix**:
+
+- Added `generate_function_prototype` for the currently available
+  `TypeValue.Func` shape.
+- Preserved the key TypeScript behaviors that are representable in yo-self's
+  current type model:
+  - normal runtime parameters,
+  - nested function-pointer parameters,
+  - evidence parameters from `get_evidence_parameters`,
+  - `void*` evidence parameters for forall function-type effects,
+  - override return type support.
+- Used `type_value_to_c_field` as the current Yo counterpart for
+  `getTypeString` in this foundational slice; richer `getTypeString` behavior
+  remains part of the larger `src/codegen/utils` port.
+- Added prototype tests for regular parameters, function-pointer parameters, and
+  evidence parameters.
+
+**Verification**:
+
+- ✅ `bun run build`
+- ✅ `./yo-cli test ./yo-self/tests/codegen_functions.test.yo --disable-sanitize --parallel 1`
+  passes: 7/7.
+- ✅ Sequential `./yo-cli test ./yo-self/tests/codegen*.test.yo --disable-sanitize --parallel 1`
+  split run passes: 269/269 total codegen tests.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/fn.test.yo --disable-sanitize --parallel 1 -v`
+  remains: 12 passed, 0 failed, 13 skipped.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  remains: 54 passed, 0 failed, 0 skipped.
+
+### Phase 13ao — Port function declaration emitter helper
+
+**Problem**: after porting `generate_function_prototype`, the Yo declarations
+module could format prototype strings but still had no counterpart for the
+declaration-emission layer in `generateFunctionDeclaration` from
+`src/codegen/functions/declarations.ts`.
+
+**Fix**:
+
+- Added `function_declaration_linkage_prefix`, preserving the currently
+  representable TypeScript linkage behavior:
+  - `extern` declarations use `extern `;
+  - exported-by-name functions and `__yo_user_main` are emitted without a static
+    prefix;
+  - RC helpers containing `___drop`, `___dup`, or `___dispose` use
+    `static inline __attribute__((always_inline)) `;
+  - ordinary declarations use `static inline `.
+- Added `generate_function_declaration`, which calls
+  `generate_function_prototype`, emits into `ctx.emitter`'s declarations
+  section, and appends the Yo type comment from `type_to_string`.
+- Kept the port constrained to fields available in the current yo-self
+  `CodegenContext`; full exported-label maps, function-body async return
+  overrides, and richer `getTypeString` behavior remain tied to the larger real
+  codegen context/utils ports.
+- Added tests for linkage selection, declaration emission, type comments, and
+  override return type support.
+
+**Verification**:
+
+- ✅ `bun run build`
+- ✅ `./yo-cli test ./yo-self/tests/codegen_functions.test.yo --disable-sanitize --parallel 1`
+  passes: 10/10.
+- ✅ Sequential split codegen run passes: 272/272 total codegen tests.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/fn.test.yo --disable-sanitize --parallel 1 -v`
+  remains: 12 passed, 0 failed, 13 skipped.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  remains: 54 passed, 0 failed, 0 skipped.
+
+### Phase 13ap — Port constructor declaration helpers
+
+**Problem**: `yo-self/codegen/functions/declarations.yo` had a foundational
+`generate_function_declaration` port, but the next declaration helpers from
+`src/codegen/functions/declarations.ts` were still missing:
+`generateObjectConstructorDeclarations`,
+`generateClosureConstructorDeclarations`,
+`generateCaptureDisposeFunctionDeclarations`, and
+`generateClosureVtableDeclarations`.
+
+**Fix**:
+
+- Added faithful `CodeGenContext` data-model fields to
+  `yo-self/codegen/context.yo`:
+  - `types : HashMap(String, CodegenTypeEntry)`, mirroring
+    `CodeGenContext.types`.
+  - `closure_capture_map : HashMap(String, CodegenClosureCaptureEntry)`,
+    mirroring `CodeGenContext.closureCaptureMap`.
+- Added `generate_object_constructor_declarations`:
+  - emits the builtin RC helper declarations;
+  - emits the GC helper declarations;
+  - iterates collected concrete reference-semantics `Struct` types and emits
+    `static CName* __yo_new_CName(...)` constructor prototypes;
+  - skips value-semantics structs and generic structs with `SomeT` fields.
+- Added `generate_capture_dispose_function_declarations`, which emits
+  `__yo_dispose_closure_<id>` prototypes for each closure-capture map entry.
+- Added the current no-op counterparts for
+  `generate_closure_constructor_declarations` and
+  `generate_closure_vtable_declarations`, matching the TypeScript module's
+  current behavior.
+- Added focused tests for runtime helper emission, object constructor prototype
+  emission, value-struct skipping, nested generic-field skipping,
+  capture-dispose prototypes, and closure constructor/vtable no-ops.
+
+**Verification**:
+
+- ✅ `bun run build`
+- ✅ `./yo-cli test ./yo-self/tests/codegen_functions.test.yo --disable-sanitize --parallel 1`
+  passes: 15/15.
+- ✅ Sequential split codegen run passes: 277/277 total codegen tests.
+- ✅ Rebuilt `yo-self/yo-self-bin`.
+- ✅ `./yo-self/yo-self-bin test tests/fn.test.yo --disable-sanitize --parallel 1 -v`
+  remains: 12 passed, 0 failed, 13 skipped.
+- ✅ `./yo-self/yo-self-bin test tests/index.test.yo --disable-sanitize --parallel 1`
+  remains: 54 passed, 0 failed, 0 skipped.
+
+### Phase 13aq — Port function declarations orchestrator
+
+**Problem**: `yo-self/codegen/functions/declarations.yo` had all the low-level
+declaration helpers ported (`generate_function_declaration`,
+`generate_object_constructor_declarations`, etc.), but the two top-level
+orchestrator functions were still missing:
+`generateFunctionDeclarations` and `generateSpecializedFunctionDeclarations`.
+
+Additionally, the data models in `context.yo` needed pre-computed flags that
+TypeScript computes on-the-fly via `FunctionType` metadata (e.g. `isClosure`,
+`isCompileTimeOnly`), and `FunctionImplicitParameter`/`EvidenceParameter`
+needed to move from `declarations.yo` to `context.yo` to avoid a circular
+import.
+
+**Fix**:
+
+- Resolved circular import by moving `FunctionImplicitParameter` and
+  `EvidenceParameter` definitions from `declarations.yo` to `context.yo`.
+  `declarations.yo` re-exports them so existing test imports still work.
+- Extended `FunctionEntry` from 3 fields to 16 fields with pre-computed flags:
+  `type_value`, `is_closure`, `is_effect_record_member`,
+  `is_io_async_state_machine_closure`, `is_comptime_return`, `is_hard_generic`,
+  `is_generic`, `has_builtin_inline_call`, `is_effectful`, `specialized_type`,
+  `specialized_function_caches_len`, `body`.
+- Added `is_extern : String` to `ExternFunctionEntry`.
+- Added `uses_async`, `uses_parallelism`, `exported_function_labels` to
+  `FunctionGenerationContext`.
+- Added 3 helper functions to `declarations.yo`:
+  - `is_threading_macro_function_` — checks 11-item constant set
+  - `implicit_types_contain_func_type_` — checks implicit param types
+  - `evidence_params_have_forall_` — checks if evidence params have forall types
+- Implemented `generate_function_declarations` — full port of TypeScript
+  `generateFunctionDeclarations` (~130 lines), iterates all functions and
+  emits declarations while skipping generics, comptime-only, effectful etc.
+- Implemented `generate_specialized_function_declarations` — full port of
+  TypeScript `generateSpecializedFunctionDeclarations` (~90 lines), iterates
+  specialized function caches and emits overloaded declarations.
+- Fixed several Yo syntax issues during porting:
+  - `return()` inside `match` branch is invalid — must check `is_none()` first
+  - Multi-`&&` chains need `&&` at end of line or explicit parens to avoid
+    ambiguous operator precedence errors
+  - `{ expr }` without semicolons is a struct literal, not a block — must use
+    `(expr)` or `{ expr; }`
+- Updated `FunctionEntry` constructor in `codegen.test.yo` with all 16 fields.
+- Updated export list in `declarations.yo`.
+
+**Verification**:
+
+- ✅ `bun run build`
+- ✅ `./yo-cli test ./yo-self/tests/codegen.test.yo --disable-sanitize --parallel 1`
+  passes.
+- ✅ `./yo-cli test ./yo-self/tests/codegen_functions.test.yo --disable-sanitize --parallel 1`
+  passes: 15/15.
+- ✅ `./yo-cli test ./yo-self/tests/codegen_types.test.yo --disable-sanitize --parallel 1`
+  passes: 21/21.
+- ✅ `./yo-cli test ./yo-self/tests/codegen_driver.test.yo --disable-sanitize --parallel 1`
+  passes: 49/49.
+- ✅ `./yo-cli test ./yo-self/tests/codegen_exprs.test.yo --disable-sanitize --parallel 1`
+  passes: 48/48.
+- ✅ `./yo-cli test ./yo-self/tests/codegen_exprs_advanced.test.yo --disable-sanitize --parallel 1`
+  passes: 84/84.
+- ✅ `./yo-cli test ./yo-self/tests/codegen_integration.test.yo --disable-sanitize --parallel 1`
+  passes: 42/42.
+- ✅ `./yo-cli test ./yo-self/tests/codegen_match.test.yo --disable-sanitize --parallel 1`
+  passes: 9/9.
+
+**Next porting targets** (in `src/codegen/functions/`):
+
+- `generation.ts` (2313 lines) — the main per-function body emitter
+- `collection.ts` (692 lines) — function collection/registration
+- `dyn.ts` (536 lines) — dyn trait function generation
 
 ### Phase 13x — Primitive closure value lowering
 

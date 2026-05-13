@@ -79,6 +79,12 @@ if(done, println("done"), println("pending"));
 - `if(a, b)` and `if(a, b, c)` are macro forms over `cond`
 - Write `return(value)` or `return()`; `return value` is invalid.
 - Write `escape(value)` or `escape()`; `escape value` is invalid.
+- If a `match`/`cond` branch returns an enum variant and inference fails, qualify
+  the variant with its enum type: `TypeValue.Unit` instead of `.Unit`.
+- In large enum matches, avoid binding a pattern variable with the same name as a
+  variant field (for example, prefer `struct_field_types` over `field_types`).
+  This can currently produce invalid generated C in some self-hosted codegen
+  paths.
 
 ## String types
 

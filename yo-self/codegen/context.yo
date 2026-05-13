@@ -4,7 +4,19 @@
 //! generators need to share.  More fields will be added in Phases 4c–4i.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ TypeValue } :: import("../types/type.yo");
 { Emitter } :: import("./emitter.yo");
+CodegenTypeEntry :: object(
+  type_value : TypeValue,
+  c_name : String
+);
+CodegenClosureCaptureEntry :: object(
+  closure_type : TypeValue,
+  closure_c_name : String,
+  capture_type : TypeValue,
+  capture_c_name : String
+);
 /// Shared mutable context passed to every `generate_*` function.
 ///
 /// Phase 4b/4c fields:
@@ -33,6 +45,12 @@ open(import("std/string"));
 ///                    and function parameters. Used to detect complex-enum variables
 ///                    in type-cast expressions so `i32(shape)` → `(int32_t)(shape.tag)`.
 CodegenContext :: object(
+  // Collected types that need declarations/constructor functions.
+  // Mirrors `CodeGenContext.types` in `src/codegen/utils/index.ts`.
+  types : HashMap(String, CodegenTypeEntry),
+  // Closure-to-capture type mapping for capture-specific dispose declarations.
+  // Mirrors `CodeGenContext.closureCaptureMap`.
+  closure_capture_map : HashMap(String, CodegenClosureCaptureEntry),
   emitter : Emitter,
   temp_count : usize,
   defined_fns : ArrayList(String),
@@ -139,6 +157,8 @@ impl(
   /// Create a new empty context.
   new : (fn() -> Self)(
     Self(
+      types : HashMap(String, CodegenTypeEntry).new(),
+      closure_capture_map : HashMap(String, CodegenClosureCaptureEntry).new(),
       emitter : Emitter.new(),
       temp_count : usize(0),
       defined_fns : ArrayList(String).new(),
@@ -1175,4 +1195,4 @@ impl(
     result
   })
 );
-export(CodegenContext);
+export(CodegenTypeEntry, CodegenClosureCaptureEntry, CodegenContext);
