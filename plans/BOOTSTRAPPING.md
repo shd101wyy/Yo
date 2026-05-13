@@ -9399,3 +9399,47 @@ runtime or worker scheduler.
 - ✅ `tests/str.test.yo` → 7 passed, 0 failed, 0 skipped.
 - Remaining sampled skips:
   - `tests/recur_inline_arg.test.yo` — missing deeper RC/String/recur lowering.
+
+### Phase 13ar — Restore match data-enum dispatch + ArrayList(T) method dispatch
+
+**Problem**: The earlier `inline_fns` commit (575ddf6e) introduced three
+related regressions in the bootstrap codegen:
+
+1. `handle_match_data` treated any match where `Some` was unregistered as
+   a void-pointer Option/Result fallback. Matching on a real data enum
+   (e.g. `Shape.Rectangle({width, height})`) emitted `if (s != NULL)`
+   against a non-pointer Shape value.
+2. `handle_match_data`'s simplified-Some default flipped from
+   `.None => true` to `.None => false`, breaking matches whose scrutinee
+   is an expression with no registered C type (e.g. `toks.get(i)`).
+3. `handle_assignment` (typed `(x : T) = val`) applied the Option/Result
+   "numeric inner T" re-registration to every single-arg generic type,
+   including `ArrayList(T)`. `(list : ArrayList(u8)) = ...` ended up
+   registered as `uint8_t` rather than `ArrayList_u8`, so subsequent
+   `list.push(...)` and `list.len()` fell through to the `strlen(list)`
+   catch-all and produced "/_ codegen error: body returned None _/".
+
+**Fix** (`yo-self/codegen/exprs.yo`):
+
+- Added an `any_arm_registered` pre-check before the void-pointer Option
+  branch. Routes Shape-style matches through `generate_match_data`.
+- Restored the simplified-Some default to `true` for unregistered
+  scrutinee expressions; broadened the path to also accept registered
+  primitive/`const char*` types so `Option(i32).Some(42)` lowers through
+  the same payload-as-value bootstrap encoding.
+- Scoped the Option/Result inner-type re-registration in
+  `handle_assignment` to actual `Option(T)` / `Result(T, E)` annotations.
+  ArrayList(T), Deque(T), HashMap(K,V), etc. keep their concrete C type.
+- Added `is_compound_aggregate_c_type` classifier (`ArrayList_*`,
+  `Deque_*`, `HashMap_*`, `BTreeMap_*`, `YoSlice_*`, `YoArray_*`).
+- `handle_define` (`x := val`) now extracts the type prefix of a
+  `(T){...}` RHS compound literal and registers the LHS as `T` when `T`
+  is one of those aggregate types.
+
+**Verification**:
+
+- ✅ `tests/basic.test.yo` → 32 passed, 0 failed, 0 skipped (was 30 passed, 2 failed).
+- ✅ `tests/index.test.yo` → 54 passed, 0 failed, 0 skipped (was 48 passed, 6 skipped).
+- ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped (was 1 passed, 1 failed, 8 skipped).
+- ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped (was 0 passed, 4 skipped).
+- ✅ All `./yo-cli test ./yo-self/tests/codegen*.test.yo` suites green.
