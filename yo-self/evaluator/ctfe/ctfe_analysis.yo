@@ -1,0 +1,17 @@
+//! evaluator/ctfe/ctfe_analysis — CTFE (Compile-Time Function Evaluation) analysis.
+//!
+//! TS counterpart: `src/evaluator/ctfe/ctfe-analysis.ts` (~194 lines, exports
+//! `createComptimeFunctionType` and `analyzeCtfeCapability`).
+//!
+//! Status: stub. The yo-self port currently performs the analogous analysis
+//! inline in `yo-self/evaluator/calls/comptime_fn.yo` (Phase 2/3 wiring),
+//! and `evaluator/calls/function.yo` produces the comptime function
+//! candidate on demand. Extracting the logic into its own module so the
+//! yo-self directory mirrors the TS tree 1-to-1 is a follow-up port.
+//!
+//! When porting, mirror these TS exports:
+//!   - `createComptimeFunctionType` — build a copy of the function type
+//!     with all params + return marked `isCompileTimeOnly = true`.
+//!   - `analyzeCtfeCapability` — try evaluating the function body against
+//!     the comptime type and, if successful, attach the resulting
+//!     `functionValueAtCompileTime` to the function value.

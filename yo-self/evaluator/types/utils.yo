@@ -1,0 +1,32 @@
+//! evaluator/types/utils — type-system utility helpers.
+//!
+//! TS counterpart: `src/evaluator/types/utils.ts` (~2000 lines).
+//!
+//! Status: stub. The TS file aggregates several distinct concerns:
+//!
+//!   1. Self-type module composition: `addFunctionSignatureToSelfTypeModule`,
+//!      `addFunctionCodeToSelfTypeModule`. Signature constants for `dispose`,
+//!      `___drop`, `___dup`.
+//!   2. RC machinery installation: `addRcFunctionsTo{Struct,Enum,Dyn,Some,Iso}Type`
+//!      and the matching `addRcFunctionSignaturesTo{Struct,Enum}Type` helpers.
+//!   3. Trait attachment: `attachTraitToReceiverType`.
+//!   4. Auto-derive logic: `autoDerive{Send,Rc,Acyclic,Comptime,Runtime}For{Struct,Enum,Union,Tuple}Type`
+//!      and the orchestrators `autoDeriveTraitsAndAddRcFunctionsFor{Struct,Enum}Type`.
+//!
+//! In yo-self these concerns are currently split:
+//!
+//!   - The auto-derive portion lives in `yo-self/evaluator/types/auto_derive.yo`.
+//!   - Send/Rc/Acyclic trait-check helpers live in
+//!     `yo-self/evaluator/trait_checking.yo`.
+//!   - RC signature installation is currently scattered (or stubbed) across
+//!     `evaluator/types/{struct,enum,union,object,dyn,iso}.yo`.
+//!
+//! Migration plan (follow-up port):
+//!   - Merge `types/auto_derive.yo` content here under matching function names.
+//!   - Pull the RC-signature helpers out of their per-type files into this
+//!     module so each TS function has a 1:1 yo counterpart.
+//!   - Keep `evaluator/trait_checking.yo` as-is (its TS home is
+//!     `src/evaluator/trait-checking.ts`, a separate file).
+//!
+//! This stub exists so the evaluator/types/ directory mirrors the TS tree
+//! 1-to-1.
