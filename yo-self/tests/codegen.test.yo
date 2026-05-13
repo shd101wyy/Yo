@@ -227,6 +227,16 @@ test("Emitter: new creates empty buffers", {
     "expected two newlines for empty emitter"
   );
 });
+// Phase 13at — typed-AST metadata infrastructure
+test("CodegenContext: get_expr_info returns None when no evaluator pass has run", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  // expr_info_table is initialised to .None for a fresh context.
+  result := pctx.get_expr_info(usize(0));
+  assert(result.is_none(), "no evaluator pass means no expr info available");
+  result2 := pctx.get_expr_info(usize(42));
+  assert(result2.is_none(), "any ExprId lookup is None when table is unset");
+});
 test("Function context: evidence parameter and function entry fields", {
   path := ArrayList(String).new();
   path.push(String.from("errors"));

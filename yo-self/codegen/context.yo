@@ -6,6 +6,8 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../types/type.yo");
+{ ExprId } :: import("../expr/expr.yo");
+{ ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr/expr_info.yo");
 { Emitter } :: import("./emitter.yo");
 CodegenTypeEntry :: object(
   type_value : TypeValue,
@@ -150,7 +152,18 @@ CodegenContext :: object(
   // Bootstrap local anonymous-struct methods from `impl(typeof(var), method : fn...)`.
   anon_method_var_names : ArrayList(String),
   anon_method_names : ArrayList(String),
-  anon_method_body_templates : ArrayList(String)
+  anon_method_body_templates : ArrayList(String),
+  /// Typed AST metadata table populated by the evaluator. When `.Some`, the
+  /// codegen handlers may consult it (via `get_expr_info`) for type and
+  /// compile-time-value information attached to expression nodes — mirroring
+  /// the TypeScript `expr.$` annotation. When `.None`, no evaluator pass has
+  /// run for this compilation unit and handlers must fall back to the
+  /// AST-only bootstrap heuristics.
+  ///
+  /// Wiring this end-to-end is the goal of the typed-AST pivot
+  /// (Phase 13at). Today the field is always `.None`; ported metadata-aware
+  /// handlers should check `is_some()` and degrade gracefully.
+  expr_info_table : Option(ExprInfoTable)
 );
 impl(
   CodegenContext,
@@ -206,7 +219,20 @@ impl(
       closure_param_names : ArrayList(String).new(),
       anon_method_var_names : ArrayList(String).new(),
       anon_method_names : ArrayList(String).new(),
-      anon_method_body_templates : ArrayList(String).new()
+      anon_method_body_templates : ArrayList(String).new(),
+      expr_info_table : Option(ExprInfoTable).None
+    )
+  ),
+  /// Look up the typed metadata attached to expression `id` (set by the
+  /// evaluator). Returns `.None` when no evaluator pass has run for this
+  /// compilation unit or when the evaluator did not record an entry for
+  /// this expression — handlers should fall back to bootstrap heuristics
+  /// in that case.
+  get_expr_info : (fn(self : *(Self), id : ExprId) -> Option(ExprInfo))(
+    match(
+      self.*.expr_info_table,
+      .None => Option(ExprInfo).None,
+      .Some(table) => expr_info_table_get(table, id)
     )
   ),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
