@@ -26,6 +26,7 @@ open(import("std/string"));
 { generate_panic } :: import("./exprs/panic.yo");
 { generate_open } :: import("./exprs/open.yo");
 { generate_binding } :: import("./exprs/binding.yo");
+{ generate_anonymous_tuple } :: import("./exprs/tuple_fn.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -11503,7 +11504,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
                 .None => false,
                 .Some(id) => (id.as_str() == BK_TUPLE)
               )
-        ) => handle_tuple_literal(args, ctx, indent),
+        ) => match(
+          generate_anonymous_tuple(expr, args, ctx, indent),
+          .Some(tuple_code) => Option(String).Some(tuple_code),
+          .None => handle_tuple_literal(args, ctx, indent)
+        ),
         // Labeled anonymous struct: { field1: val1, field2: val2 }
         // Generates a C compound literal with __typeof__ for type inference.
         // This is the expression form; `x := { ... }` is handled in handle_define.
