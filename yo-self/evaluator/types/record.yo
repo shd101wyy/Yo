@@ -1,8 +1,22 @@
 //! evaluate_module_type — evaluates a `module(...)` type expression.
 //!
-//! 1:1 port of `src/evaluator/types/module.ts`.
+//! TS counterpart: `src/evaluator/types/record.ts` (~420 lines).
 //!
-//! Builds a `TypeValue.ModuleT` with the given field labels and types.
+//! Naming note: TS deleted `src/evaluator/types/module.ts` and created
+//! `src/evaluator/types/record.ts` in the "Unify module and struct" PR
+//! (ca129d0e, 2026-05-08). The pre-refactor `evaluateModuleType` was
+//! replaced by `evaluateRecordField` and friends; `ModuleType` was merged
+//! into `StructType` (`SourceNamespaceType = StructType & { isSourceNamespace
+//! : true }`).
+//!
+//! This file keeps the pre-refactor symbols (`evaluate_module_type`,
+//! `TypeValue.ModuleT`, `EvalModuleFieldResult`, `evaluate_module_field`) —
+//! symbol-level rename and content sync to the new TS record-shaped API
+//! are tracked as a follow-up content-drift port. File/directory layout
+//! matches the current TS tree.
+//!
+//! Original behavior:
+//!   - Builds a `TypeValue.ModuleT` with the given field labels and types.
 //!
 //! Stubs (deferred to Phase 3):
 //!   - ?= (default value) and =/`:=` (assigned value) module field forms

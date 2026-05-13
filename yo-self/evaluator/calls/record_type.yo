@@ -1,10 +1,22 @@
-//! evaluator/calls/module_type — try_to_implement_module_with_arguments_by_module_type.
+//! evaluator/calls/record_type — try_to_implement_module_with_arguments_by_module_type.
 //!
-//! 1:1 port of `src/evaluator/calls/module-type.ts` (~283 TS lines).
+//! TS counterpart: `src/evaluator/calls/record-type.ts`.
 //!
-//! Binds argument values to the fields of a ModuleType, producing a module value.
+//! Naming note: TS renamed `module-type.ts` → `record-type.ts` in the
+//! "Unify module and struct" PR (ca129d0e, 2026-05-08), which also replaced
+//! the exported `tryToImplementModuleWithArgumentsByModuleType` with
+//! `tryToImplementRecordWithArgumentsByRecordType` and merged `ModuleType`
+//! into `StructType` (the post-refactor `SourceNamespaceType` is a
+//! `StructType` with `isSourceNamespace = true`).
 //!
-//! Adaptation notes:
+//! This file keeps the pre-refactor symbol names (`ModuleT`, `module_type`,
+//! `try_to_implement_module_with_arguments_by_module_type`) — the
+//! symbol-level rename and the type-system unification are tracked as a
+//! follow-up content port. Structural file/directory layout matches the
+//! current TS tree.
+//!
+//! Original behavior:
+//! - Binds argument values to the fields of a ModuleType, producing a module value.
 //! - `ModuleT.field_types` are already evaluated; no `exprs.typeExpr` re-evaluation needed.
 //! - `ModuleT` has no `assignedValue`/`defaultValue` per field → error if field missing.
 //! - `isFunctionValue` / `specializedType` / `ioBuiltin` propagation omitted (codegen deferred).
