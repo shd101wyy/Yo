@@ -9443,3 +9443,60 @@ related regressions in the bootstrap codegen:
 - ✅ `tests/match_curly.test.yo` → 10 passed, 0 failed, 0 skipped (was 1 passed, 1 failed, 8 skipped).
 - ✅ `tests/recur_inline_arg.test.yo` → 4 passed, 0 failed, 0 skipped (was 0 passed, 4 skipped).
 - ✅ All `./yo-cli test ./yo-self/tests/codegen*.test.yo` suites green.
+
+### Phase 13as — Evaluator structural alignment with TS post-refactor names
+
+**Problem**: `yo-self/evaluator/` had 8 TS-side files without a yo
+counterpart and 12 yo-self-only files. The bulk of the gap was caused by
+the TS "Unify module and struct" PR (ca129d0e, 2026-05-08) which renamed
+several files and merged `ModuleType` into `StructType`, but yo-self
+never caught up.
+
+**Fix** (structural, no semantic changes):
+
+- Renamed (file + import-path updates):
+
+  - `yo-self/evaluator/calls/module_type.yo` → `calls/record_type.yo`
+  - `yo-self/evaluator/types/module.yo` → `types/record.yo`
+  - `yo-self/evaluator/exprs/init_assignment.yo` → `exprs/initialization_assignment.yo`
+  - `yo-self/tests/init_assignment.test.yo` → `tests/initialization_assignment.test.yo`
+  - Headers in each renamed file now point at the post-refactor TS path
+    and note that the symbol-level rename (`tryToImplementModuleWith…` →
+    `tryToImplementRecordWith…`, `ModuleT`/`ModuleVal` → `StructT`/etc.)
+    is a follow-up content port — out of scope for this pass.
+
+- Stubbed (so the directory tree mirrors `src/evaluator/` 1-to-1):
+  - `yo-self/evaluator/types/proofs.yo` (TS file is commented-out)
+  - `yo-self/evaluator/types/validation.yo` (TS exports a never-called
+    `validateDisposeFunction`)
+  - `yo-self/evaluator/types/utils.yo` (TS file is ~2000 lines; the yo
+    equivalent is currently split across `types/auto_derive.yo` and
+    `evaluator/trait_checking.yo`)
+  - `yo-self/evaluator/ctfe/ctfe_analysis.yo` (TS `ctfe-analysis.ts`; the
+    analogous yo logic lives inline in `evaluator/calls/comptime_fn.yo`)
+  - Documented header on `exprs/identifier_and_operator.yo` noting the TS
+    counterpart has a typo (`identifer-and-operator.ts`).
+
+**Remaining divergence** (intentionally kept as bootstrap-only):
+
+- `eval.yo` (8258 lines) — proto-evaluator dispatch; substitutes for TS
+  `evaluator/index.ts` + `evaluator/exprs/_expr.ts`.
+- `type_of.yo` (37 lines) — bootstrap-only literal-type inference pass.
+- `value.yo` (1039 lines) — should eventually move to top-level
+  `yo-self/value.yo` to match `src/value.ts` (~107 importers to update).
+- `types/auto_derive.yo` (243 lines) — content of TS `types/utils.ts`;
+  the structural target is to merge into the new `types/utils.yo` stub.
+- `types/{control_fn,definition_site,macro,trait}_registry.yo` —
+  bootstrap-only global registries for state that TS keeps as mutable
+  fields on `FunctionValue` / `TypeValue` / `FunctionType.parameter`.
+  Eliminating these requires adding the corresponding mutable fields to
+  the yo-self type definitions and inlining the lookups.
+- `values/generic_impl_registry.yo` (439 lines) — content of TS
+  `values/impl.ts`; structural target is to merge into `values/impl.yo`.
+
+**Verification**:
+
+- ✅ `./yo-cli compile yo-self/main.yo --release` rebuilds yo-self-bin.
+- ✅ `./yo-cli test ./yo-self/tests/initialization_assignment.test.yo` → 4/4 pass.
+- ✅ `./yo-self/yo-self-bin test tests/basic.test.yo` → 32/32 pass.
+- Structural mismatch: 8 TS-side files → 1 (typo); 12 yo-side files → 10.
