@@ -947,6 +947,22 @@ is_trait_val :: (fn(v : EvalValue) -> bool)(match(v,.TraitVal(_, _, _) => true, 
 is_comptime_list_val :: (fn(v : EvalValue) -> bool)(match(v,.ComptimeListVal(_) => true, _ => false));
 is_expr_val :: (fn(v : EvalValue) -> bool)(match(v,.ExprVal(_) => true, _ => false));
 is_unknown_val :: (fn(v : EvalValue) -> bool)(match(v,.UnknownVal(_) => true, _ => false));
+/// Check if `v` is a numeric literal (int or float). Mirrors TS
+/// `isNumberValue` in `src/value.ts`, which covers all numeric
+/// variants. yo-self stores numerics as `IntLit` / `FloatLit` raw
+/// text; this helper is the disjunction of those two checks.
+is_number_val :: (fn(v : EvalValue) -> bool)(
+  match(v,.IntLit(_) => true,.FloatLit(_) => true, _ => false)
+);
+/// Check if `v` is a compile-time string literal (`StrLit`). Mirrors
+/// TS `isComptimeStringValue` in `src/value.ts`. yo-self does not
+/// distinguish runtime-`str` from comptime-string at the EvalValue
+/// level — the lexer-stored `StrLit(raw)` is the comptime-string
+/// representation; runtime `str` values are constructed via
+/// `convert_comptime_type_to_runtime_type`.
+is_comptime_string_value :: (fn(v : EvalValue) -> bool)(
+  match(v,.StrLit(_) => true, _ => false)
+);
 /// Check if an `Option(EvalValue)` contains a `TypeVal`.
 /// Mirrors `isTypeValue(value)` from `src/value.ts`.
 is_type_value :: (fn(opt : Option(EvalValue)) -> bool)(
@@ -1035,5 +1051,6 @@ export(is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_re
 export(is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val);
 export(is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val);
 export(is_comptime_list_val, is_expr_val, is_unknown_val);
+export(is_number_val, is_comptime_string_value);
 export(is_type_value, create_unknown_val);
 export(eval_value_eq);
