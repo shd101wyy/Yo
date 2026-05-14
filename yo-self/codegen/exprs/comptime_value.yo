@@ -50,6 +50,69 @@ normalize_float_raw :: (fn(raw : String) -> String)({
   });
   s
 });
+/// Format a tag-only enum construction:
+///   `(<enum_c_name>){ .tag = <variant_tag> }`
+///
+/// Used for enums whose selected variant has no data, or whose
+/// variants have only unit-typed fields. Pure string composition —
+/// the eventual full `generate_comptime_value` for `EnumVal` will
+/// call this after looking up `<enum_c_name>` from `ctx.types` and
+/// `<variant_tag>` from `get_enum_variant_c_name`. Mirrors the
+/// TS branch
+///     return `(${cName}){ .tag = ${variantTag} }`;
+format_enum_tag_construction :: (
+  fn(enum_c_name : String, variant_tag : String) -> String
+)({
+  s := String.from("(");
+  s.push_string(enum_c_name);
+  s.push_str("){ .tag = ");
+  s.push_string(variant_tag);
+  s.push_str(" }");
+  s
+});
+/// Format a tagged-union construction with field initializers:
+///   `(<enum_c_name>){ .tag = <variant_tag>, .data = { .<variant_name> = { <field_inits> } } }`
+///
+/// `field_inits` is a single pre-joined string like
+/// `.field0 = v0, .field1 = v1` — the caller is responsible for
+/// formatting and joining each field's initialiser. Pure string
+/// composition. Mirrors the TS branch
+///     return `(${cName}){ .tag = ${variantTag}, .data = { .${variantName} = { ${joined} } } }`;
+format_enum_data_construction :: (
+  fn(
+    enum_c_name : String,
+    variant_tag : String,
+    variant_name : String,
+    field_inits : String
+  ) -> String
+)({
+  s := String.from("(");
+  s.push_string(enum_c_name);
+  s.push_str("){ .tag = ");
+  s.push_string(variant_tag);
+  s.push_str(", .data = { .");
+  s.push_string(variant_name);
+  s.push_str(" = { ");
+  s.push_string(field_inits);
+  s.push_str(" } } }");
+  s
+});
+/// Format a tuple-struct construction with numeric field initializers:
+///   `(<tuple_c_name>){ ._0 = v0, ._1 = v1, ... }`
+///
+/// `field_inits` is a single pre-joined string of `._<idx> = <code>`
+/// pairs. Mirrors the TS tuple-value branch
+///     return `(${cName}){ ${fields.join(", ")} }`;
+format_tuple_construction :: (
+  fn(tuple_c_name : String, field_inits : String) -> String
+)({
+  s := String.from("(");
+  s.push_string(tuple_c_name);
+  s.push_str("){ ");
+  s.push_string(field_inits);
+  s.push_str(" }");
+  s
+});
 /// Generate the C expression for a compile-time `EvalValue`.
 /// Returns `.Some(c_expr)` for the supported variants and
 /// `.None` for variants whose lowering needs the codegen-side type
@@ -74,4 +137,10 @@ generate_comptime_value :: (
     _ => Option(String).None
   )
 );
-export(generate_comptime_value, normalize_float_raw);
+export(
+  generate_comptime_value,
+  normalize_float_raw,
+  format_enum_tag_construction,
+  format_enum_data_construction,
+  format_tuple_construction
+);

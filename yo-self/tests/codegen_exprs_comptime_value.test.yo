@@ -6,7 +6,13 @@ open(import("std/string"));
 { AstExpr, make_err_expr } :: import("../expr.yo");
 { CodegenContext } :: import("../codegen/context.yo");
 { type_to_string } :: import("../types/string.yo");
-{ generate_comptime_value, normalize_float_raw } :: import("../codegen/exprs/comptime_value.yo");
+{
+  generate_comptime_value,
+  normalize_float_raw,
+  format_enum_tag_construction,
+  format_enum_data_construction,
+  format_tuple_construction
+} :: import("../codegen/exprs/comptime_value.yo");
 test("normalize_float_raw: adds .0 when no decimal point", {
   assert(
     normalize_float_raw(String.from("3")) == String.from("3.0"),
@@ -166,5 +172,53 @@ test("generate_comptime_value: unregistered TypeVal returns None", {
   assert(
     generate_comptime_value(tv, &(ctx)).is_none(),
     "unregistered TypeVal → None"
+  );
+});
+// ─── enum / tuple construction formatters ───────────────────────────────────
+test("format_enum_tag_construction: tag-only", {
+  out := format_enum_tag_construction(
+    String.from("Color"),
+    String.from("COLOR_RED")
+  );
+  assert(out == String.from("(Color){ .tag = COLOR_RED }"), "tag-only");
+});
+test("format_enum_data_construction: tag + named fields", {
+  out := format_enum_data_construction(
+    String.from("Shape"),
+    String.from("SHAPE_CIRCLE"),
+    String.from("Circle"),
+    String.from(".radius = 5")
+  );
+  assert(
+    out ==
+      String.from("(Shape){ .tag = SHAPE_CIRCLE, .data = { .Circle = { .radius = 5 } } }"),
+    "tagged + data"
+  );
+});
+test("format_enum_data_construction: multi-field caller pre-joins", {
+  // The formatter doesn't join — the caller is expected to format
+  // and join field initialisers itself.
+  out := format_enum_data_construction(
+    String.from("Rect"),
+    String.from("RECT_NEW"),
+    String.from("New"),
+    String.from(".w = 10, .h = 20")
+  );
+  assert(
+    out ==
+      String.from("(Rect){ .tag = RECT_NEW, .data = { .New = { .w = 10, .h = 20 } } }"),
+    "multi-field"
+  );
+});
+test("format_tuple_construction: numeric field initialisers", {
+  // Tuples always use numeric field names _0, _1, _2... in the
+  // generated C compound literal. Caller pre-joins the initialisers.
+  out := format_tuple_construction(
+    String.from("Tuple2_i32_str"),
+    String.from("._0 = 1, ._1 = \"hi\"")
+  );
+  assert(
+    out == String.from("(Tuple2_i32_str){ ._0 = 1, ._1 = \"hi\" }"),
+    "tuple shape"
   );
 });
