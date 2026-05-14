@@ -2,7 +2,13 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_i32 } :: import("../types/type.yo");
-{ generate_newtype_field_access } :: import("../codegen/exprs/property_access.yo");
+{ EvalValue } :: import("../value.yo");
+{ Token, TokenKind } :: import("../token.yo");
+{ CodegenContext } :: import("../codegen/context.yo");
+{
+  generate_newtype_field_access,
+  generate_method_field_access
+} :: import("../codegen/exprs/property_access.yo");
 /// Build a single-field newtype struct with the given field label.
 mk_newtype_struct :: (fn(name : str, field_label : str) -> TypeValue)({
   field_labels := ArrayList(String).new();
@@ -77,4 +83,54 @@ test("newtype field access: primitive types → None", {
     String.from("value")
   );
   assert(out.is_none(), "i32 → None");
+});
+// ─── generate_method_field_access ───────────────────────────────────────────
+mk_func_val :: (fn(id : str) -> EvalValue)(
+  EvalValue.FuncVal(
+    forall_names : ArrayList(String).new(),
+    params : ArrayList(String).new(),
+    param_type_names : ArrayList(String).new(),
+    evidence_params : ArrayList(String).new(),
+    body : box(.Atom(usize(0), Token(kind : TokenKind.Identifier, value : String.from(""), row : usize(0), column : usize(0), character : usize(0), module_path : String.from(""), input : String.from("")))),
+    cap_names : ArrayList(String).new(),
+    cap_tys : ArrayList(TypeValue).new(),
+    cap_vals : ArrayList(EvalValue).new(),
+    func_id : String.from(id)
+  )
+);
+test("method field access: registered FuncVal → C name", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  fv := mk_func_val("greet_id");
+  pctx.*.register_function(String.from("greet_id"), fv, String.from("fn_greet"));
+  match(
+    generate_method_field_access(fv, pctx),
+    .Some(s) => assert(s == String.from("fn_greet"), "registered c_name"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("method field access: unregistered FuncVal → fallback to func_id", {
+  // Mirrors the TS `?? functionValue.funcId` short-circuit when the
+  // function value hasn't been registered yet.
+  ctx := CodegenContext.new();
+  fv := mk_func_val("orphan_id");
+  match(
+    generate_method_field_access(fv, &(ctx)),
+    .Some(s) => assert(s == String.from("orphan_id"), "fallback to func_id"),
+    .None => assert(false, "expected Some(func_id fallback)")
+  );
+});
+test("method field access: non-FuncVal → None", {
+  // The handler is a sentinel for the FuncVal-only branch. Anything
+  // else (a struct value, an enum, etc.) returns None so the caller
+  // defers to the bootstrap struct/field-access path.
+  ctx := CodegenContext.new();
+  assert(
+    generate_method_field_access(EvalValue.IntLit(String.from("0")), &(ctx)).is_none(),
+    "IntLit → None"
+  );
+  assert(
+    generate_method_field_access(EvalValue.UnitVal, &(ctx)).is_none(),
+    "UnitVal → None"
+  );
 });
