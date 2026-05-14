@@ -28,6 +28,7 @@ open(import("std/fmt"));
 { AstExpr, ast_expr_id } :: import("../../expr/expr.yo");
 { ExprInfo } :: import("../../expr/expr_info.yo");
 { TypeValue } :: import("../../types/type.yo");
+{ is_str_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../evaluator/value.yo");
 { CodegenContext } :: import("../context.yo");
 { get_type_string } :: import("../utils.yo");
@@ -43,16 +44,8 @@ extract_comptime_string_value :: (fn(v : EvalValue) -> Option(String))(
     _ => Option(String).None
   )
 );
-/// True if `t` is the `str` newtype (a `Struct` with `is_newtype = true`
-/// and `name == "str"`). Mirrors the TS check
-/// `isStructType(msgType) && isNewtypeType(msgType) && msgType.typeName === "str"`.
-is_str_newtype :: (fn(t : TypeValue) -> bool)(
-  match(
-    t,
-    .Struct({ name, is_newtype }) => (is_newtype && (name.as_str() == "str")),
-    _ => false
-  )
-);
+// `is_str_type(t)` lives in `types/guards.yo` — same semantics as
+// the old local `is_str_newtype` helper; imported below.
 // `get_type_string(t, ctx)` lives in `codegen/utils.yo` — the
 // canonical 1-to-1 home for `getTypeString` in
 // `src/codegen/utils/index.ts`. The old `get_c_type_string`
@@ -191,7 +184,7 @@ generate_panic :: (
                       // from a plain C string.
                       fprintf_line := String.from(indent.as_str());
                       cond(
-                        is_str_newtype(msg_info.ty) => {
+                        is_str_type(msg_info.ty) => {
                           fprintf_line.push_str("fprintf(stderr, \"%.*s\\n\", (int)");
                           fprintf_line.push_string(msg_code);
                           fprintf_line.push_str(".length, ");
@@ -229,6 +222,5 @@ generate_panic :: (
 export(
   generate_panic,
   extract_comptime_string_value,
-  is_str_newtype,
   quote_as_c_string
 );

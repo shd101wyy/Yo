@@ -27,9 +27,9 @@ open(import("std/fmt"));
 {
   generate_panic,
   extract_comptime_string_value,
-  is_str_newtype,
   quote_as_c_string
 } :: import("../codegen/exprs/panic.yo");
+{ is_str_type } :: import("../types/guards.yo");
 mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
   AstExpr.Atom(
     id,
@@ -68,7 +68,7 @@ test("extract_comptime_string_value: non-string yields None", {
   ev := EvalValue.IntLit(String.from("42"));
   assert(extract_comptime_string_value(ev).is_none(), "IntLit is not a string");
 });
-test("is_str_newtype: matches Struct(name=str, is_newtype=true)", {
+test("is_str_type: matches Struct(name=str, is_newtype=true)", {
   fl := ArrayList(String).new();
   ft := ArrayList(TypeValue).new();
   str_ty := TypeValue.Struct(
@@ -80,9 +80,9 @@ test("is_str_newtype: matches Struct(name=str, is_newtype=true)", {
     false,
     true
   );
-  assert(is_str_newtype(str_ty), "str newtype detected");
+  assert(is_str_type(str_ty), "str newtype detected");
 });
-test("is_str_newtype: rejects non-newtype Struct", {
+test("is_str_type: rejects non-newtype Struct", {
   fl := ArrayList(String).new();
   ft := ArrayList(TypeValue).new();
   plain_ty := TypeValue.Struct(
@@ -94,7 +94,7 @@ test("is_str_newtype: rejects non-newtype Struct", {
     false,
     false
   );
-  assert(!(is_str_newtype(plain_ty)), "non-newtype rejected");
+  assert(!(is_str_type(plain_ty)), "non-newtype rejected");
 });
 test("quote_as_c_string: strips surrounding quotes and escapes", {
   q := quote_as_c_string(String.from("\"hello\""));
