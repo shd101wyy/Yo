@@ -130,7 +130,7 @@ functions, RC machinery beyond bootstrap stubs).
 | `initialization-assignment.ts` | 534      | ⚠️ `initialization_assignment.yo` (`is_skipped_init_lhs`)                            | `codegen_exprs_initialization_assignment.test.yo` (5 tests) |
 | `atom.ts`                      | 545      | ❌                                                                                   |                                                             |
 | `dyn.ts`                       | 171      | ⚠️ `dyn.yo` (object/iso underlying-type leaf path + impl registration)               | `codegen_exprs_dyn.test.yo` (7 tests)                       |
-| `asm.ts`                       | 757      | ❌                                                                                   |                                                             |
+| `asm.ts`                       | 757      | ⚠️ `asm.yo` (`is_register_class`, `resolve_constraint`, `transform_template`)        | `codegen_exprs_asm.test.yo` (15 tests)                      |
 | `property-access.ts`           | 416      | ❌                                                                                   |                                                             |
 | `ptr-fns.ts`                   | 225      | ❌                                                                                   |                                                             |
 | `await.ts`                     | 829      | ❌                                                                                   |                                                             |
