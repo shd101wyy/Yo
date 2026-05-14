@@ -77,12 +77,50 @@ shape.
 
 ## Likely TS-side fix
 
-Investigate `src/codegen/functions/collection.ts` and
-`src/codegen/functions/declarations.ts` for how `parse`'s
-`FunctionEntry` is registered. When a function is reached via two
-import paths it should still get its body emitted; the current
-collection probably keeps only one record and that record loses its
-`body` field somewhere along the way.
+Investigation pointed to a mismatch between call-site C-name emission
+and the declaration-skip rule in
+`src/codegen/functions/declarations.ts`:
+
+```ts
+// declarations.ts ~line 135:
+if (
+  !isUserMain &&
+  !value.type.isClosure &&
+  !value.isEffectRecordMember &&
+  value.specializedFunctionCaches?.length > 0
+) {
+  continue; // skip the unspecialized — "specialized versions handle codegen"
+}
+```
+
+The skip rule says: when a function has specialization caches, the
+_base_ (unspecialized) version is omitted from declarations on the
+assumption that all call sites will emit specialized C names. But in
+this bug all three `parse` call sites still emit the _base_ C name
+`fn_yode3c21e6_id_525_parse` — no specialization suffix — so the
+declaration skip leaves the call sites dangling.
+
+So either:
+
+- The call-site codegen for one of the call sites should pick the
+  correct specialization (and emit that specialized name); OR
+- When the unspecialized name is still needed at a call site, the
+  declaration skip should keep the base around (perhaps emitting
+  both base and specialized variants).
+
+Likely the right fix is in `other-fn-call.ts` (or whichever handler
+emits the call to `parse`): when a call's effective parameters match
+the base type but specializations also exist for other call sites, the
+call should be routed to the matching specialization rather than the
+base. Or the declarations.ts skip rule should require that _no_ call
+site still uses the base name.
+
+Also worth checking: the `isFunctionSpecializable` predicate in
+`src/types/guards.ts:514` is logically inconsistent with the
+`!functionValue.specializedFunctionCaches` check in
+`src/codegen/functions/collection.ts:578` — `isFunctionSpecializable`
+already requires `specializedFunctionCaches.length > 0`, so the
+conjunction in `collection.ts` is dead code.
 
 ## Workaround
 
