@@ -1,0 +1,195 @@
+//! Pure helpers extracted from `src/codegen/exprs/match.ts`.
+//!
+//! 1-to-1 partial port. These four helpers are pure functions over
+//! `String` / `AstExpr` / `EvalValue` and do not depend on the codegen
+//! context, emitter, or evaluator side-state. The full
+//! `generateMatchExpression` port (1182 lines in TS) is still pending
+//! because it needs the function-generation context (pending deferred
+//! drops, consumed-var pending drops, inside-match flag, ...).
+//!
+//! Helpers ported:
+//!   - `is_control_flow_code(c)` — true iff the emitted C string
+//!     represents an unconditional control-flow exit (empty,
+//!     `break`, `continue`, a `goto`, or a `return` keyword).
+//!   - `is_or_pattern(e)` — true iff the AST node is a `|`-infix
+//!     binary call (used inside `match` arms to combine patterns).
+//!   - `flatten_or_pattern(e)` — left/right flatten an or-pattern
+//!     into a list of individual sub-patterns.
+//!   - `c_literal_from_eval_value(v)` — emit the C literal text for
+//!     a `BoolVal` / `IntLit` `EvalValue` (`true`, `false`, `42`,
+//!     etc.). Returns `.None` for any other shape.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of
+} :: import("../../expr/expr.yo");
+{ EvalValue } :: import("../../evaluator/value.yo");
+/// True iff `byte` is part of a C identifier (`[A-Za-z0-9_]`).
+is_c_word_byte_ :: (fn(byte : u8) -> bool)(
+  ((byte >= u8(65)) && (byte <= u8(90))) ||
+    (
+      ((byte >= u8(97)) && (byte <= u8(122))) ||
+        (((byte >= u8(48)) && (byte <= u8(57))) || (byte == u8(95)))
+    )
+);
+/// Helper: true iff `code` contains the bare word `return` (not as a
+/// prefix or suffix of a longer identifier). Mirrors the TS
+/// `/\breturn\b/` regex by checking each candidate match's
+/// surrounding byte against the C identifier byte set.
+contains_return_word :: (fn(code : String) -> bool)({
+  needle := String.from("return");
+  needle_str := needle.as_str();
+  needle_bytes := needle.as_bytes();
+  needle_len := needle_bytes.len();
+  haystack_bytes := code.as_bytes();
+  haystack_len := haystack_bytes.len();
+  cond(
+    (haystack_len < needle_len) => false,
+    true => {
+      // Walk every candidate start position and check (a) the bytes
+      // there spell `return` and (b) the byte before / after is not
+      // an identifier-byte (so we reject `return_flag` and `noreturn`).
+      i := usize(0);
+      end := (haystack_len - needle_len);
+      found := false;
+      while(runtime((i <= end) && !(found)), {
+        // Match the needle bytes at position `i`.
+        matches := true;
+        k := usize(0);
+        while(runtime((k < needle_len) && matches), {
+          h := match(haystack_bytes.get(i + k),.Some(b) => b,.None => u8(0));
+          n := match(needle_bytes.get(k),.Some(b) => b,.None => u8(1));
+          if(h != n, {
+            matches = false;
+          });
+          k = (k + usize(1));
+        });
+        if(matches, {
+          before_ok := cond(
+            (i == usize(0)) => true,
+            true => {
+              prev := match(haystack_bytes.get(i - usize(1)),.Some(b) => b,.None => u8(0));
+              !(is_c_word_byte_(prev))
+            }
+          );
+          after_ok := {
+            after_i := (i + needle_len);
+            cond(
+              (after_i >= haystack_len) => true,
+              true => {
+                next := match(haystack_bytes.get(after_i),.Some(b) => b,.None => u8(0));
+                !(is_c_word_byte_(next))
+              }
+            )
+          };
+          if(before_ok && after_ok, {
+            found = true;
+          });
+        });
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+});
+/// True iff `code` is an empty string or has the shape of a C control
+/// flow exit (`break`, `continue`, a `goto <label>` prefix, or a
+/// statement containing the `return` keyword).
+///
+/// Mirrors TS `isControlFlowCode`. The `return` check uses a word
+/// boundary (so identifiers like `return_flag` don't match) — yo-self
+/// approximates that with prefix / suffix-of-word checks against the
+/// surrounding bytes.
+is_control_flow_code :: (fn(code : String) -> bool)({
+  s := code.as_str();
+  cond(
+    (code.len() == usize(0)) => true,
+    (s == "break") => true,
+    (s == "continue") => true,
+    code.starts_with(String.from("goto")) => true,
+    true => contains_return_word(code)
+  )
+});
+/// True iff `e` is an infix `|`-call with exactly two arguments —
+/// the shape `match` arms use to combine alternate patterns
+/// (`.A | .B => …`).
+is_or_pattern :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, "|", Option(usize).Some(usize(2)))
+);
+/// Left/right flatten an or-pattern into a list of individual
+/// patterns. Non-or-patterns wrap into a singleton list. Mirrors TS
+/// `flattenOrPattern`.
+flatten_or_pattern :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  cond(
+    !(is_or_pattern(e)) => {
+      out.push(e);
+    },
+    true => match(
+      e,
+      .Atom(_, _) => {
+        out.push(e);
+      },
+      .FnCall({ args }) => match(
+        args.get(usize(0)),
+        .None => (),
+        .Some(left) => match(
+          args.get(usize(1)),
+          .None => (),
+          .Some(right) => {
+            left_flat := recur(left);
+            right_flat := recur(right);
+            i := usize(0);
+            while(runtime(i < left_flat.len()), {
+              match(
+                left_flat.get(i),
+                .None => (),
+                .Some(p) => {
+                  out.push(p);
+                }
+              );
+              i = (i + usize(1));
+            });
+            j := usize(0);
+            while(runtime(j < right_flat.len()), {
+              match(
+                right_flat.get(j),
+                .None => (),
+                .Some(p) => {
+                  out.push(p);
+                }
+              );
+              j = (j + usize(1));
+            });
+          }
+        )
+      )
+    )
+  );
+  out
+});
+/// Emit the C literal text for a compile-time `EvalValue` that's
+/// either a boolean or an integer literal. Used by primitive `switch`
+/// case labels. Returns `.None` for any other shape (floats / strings
+/// / enums / structs / etc. need richer lowering).
+///
+/// Mirrors TS `getCLiteralFromValue` — number values are stringified
+/// directly, booleans become the C `true` / `false` keywords.
+c_literal_from_eval_value :: (fn(v : EvalValue) -> Option(String))(
+  match(
+    v,
+    .BoolVal(b) => Option(String).Some(
+      cond(b => String.from("true"), true => String.from("false"))
+    ),
+    .IntLit(raw) => Option(String).Some(raw),
+    _ => Option(String).None
+  )
+);
+export(
+  is_control_flow_code,
+  is_or_pattern,
+  flatten_or_pattern,
+  c_literal_from_eval_value
+);
