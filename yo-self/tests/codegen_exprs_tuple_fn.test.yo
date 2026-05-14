@@ -13,11 +13,11 @@ open(import("std/string"));
 { type_to_string } :: import("../types/string.yo");
 { CodegenContext, CodegenTypeEntry } :: import("../codegen/context.yo");
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
+{ generate_anonymous_tuple } :: import("../codegen/exprs/tuple_fn.yo");
 {
-  generate_anonymous_tuple,
-  tuple_variable_type_string
-} :: import("../codegen/exprs/tuple_fn.yo");
-{ get_type_string_opt } :: import("../codegen/utils.yo");
+  get_type_string_opt,
+  get_variable_type_string_opt_str
+} :: import("../codegen/utils.yo");
 
 mk_token :: (fn(value : str, kind : TokenKind) -> Token)(
   Token(
@@ -83,12 +83,12 @@ test("get_type_string_opt: reads tuple C name from context types", {
   );
 });
 
-test("tuple_variable_type_string: sanitizes temp variable name", {
+test("get_variable_type_string_opt_str: sanitizes tuple-temp variable name", {
   ctx := CodegenContext.new();
   ty := mk_pair_ty();
   install_tuple_type(&(ctx), ty, "__yo_tuple_i32_bool");
   match(
-    tuple_variable_type_string(ty, "tmp.value", &(ctx)),
+    get_variable_type_string_opt_str(ty, "tmp.value", &(ctx)),
     .None => assert(false, "expected variable type string"),
     .Some(s) => assert(
       s == String.from("__yo_tuple_i32_bool tmp_u46_value"),

@@ -13,26 +13,12 @@ open(import("std/string"));
 {
   sanitize_for_c_identifier,
   sanitize_for_c_identifier_str,
-  get_type_string_opt
+  get_type_string_opt,
+  get_variable_type_string_opt_str
 } :: import("../utils.yo");
-
-array_variable_type_string :: (
-  fn(t : TypeValue, var_name : str, ctx : *(CodegenContext)) -> Option(String)
-)(
-  match(
-    get_type_string_opt(t, ctx),
-    .None => Option(String).None,
-    .Some(c_ty) => {
-      san := sanitize_for_c_identifier_str(var_name);
-      out := String.new();
-      out.push_string(c_ty);
-      out.push_str(" ");
-      out.push_string(san);
-      Option(String).Some(out)
-    }
-  )
-);
-
+// `array_variable_type_string` was a local divergence — its body
+// is the canonical `get_variable_type_string_opt_str` in utils.yo.
+// Callers are migrated to use the canonical helper directly.
 array_apply_deferred_dup :: (
   fn(arg : AstExpr, arg_code : String, ctx : *(CodegenContext), indent : String) -> Option(String)
 )(
@@ -145,7 +131,7 @@ array_value_or_temp :: (
     temp_var,
     .None => Option(String).Some(array_value),
     .Some(tv) => match(
-      array_variable_type_string(array_ty, tv.as_str(), ctx),
+      get_variable_type_string_opt_str(array_ty, tv.as_str(), ctx),
       .None => Option(String).Some(array_value),
       .Some(var_type_and_name) => {
         line := String.from(indent.as_str());
@@ -302,7 +288,6 @@ generate_yo_array_fill :: (
 export(
   generate_anonymous_array,
   generate_yo_array_fill,
-  array_variable_type_string,
   array_args_to_c_with_deferred_dup,
   extract_array_type_value
 );

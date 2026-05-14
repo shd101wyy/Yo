@@ -14,28 +14,12 @@ open(import("std/string"));
 {
   sanitize_for_c_identifier,
   sanitize_for_c_identifier_str,
-  get_type_string_opt
+  get_type_string_opt,
+  get_variable_type_string_opt_str
 } :: import("../utils.yo");
-
-/// Build `"<c_type> <sanitized_var_name>"`, mirroring TS
-/// `getVariableTypeString` for tuple temporaries.
-tuple_variable_type_string :: (
-  fn(t : TypeValue, var_name : str, ctx : *(CodegenContext)) -> Option(String)
-)(
-  match(
-    get_type_string_opt(t, ctx),
-    .None => Option(String).None,
-    .Some(c_ty) => {
-      san := sanitize_for_c_identifier_str(var_name);
-      out := String.new();
-      out.push_string(c_ty);
-      out.push_str(" ");
-      out.push_string(san);
-      Option(String).Some(out)
-    }
-  )
-);
-
+// `tuple_variable_type_string` was a local divergence — its body
+// is the canonical `get_variable_type_string_opt_str` in utils.yo.
+// Callers are migrated to use the canonical helper directly.
 /// If an argument has deferred dup expressions, emit them and use the first
 /// dup expression's temp variable as the final field value, matching the TS
 /// handler's `generateDeferredDupExpressions(...); return dupExpr.$.variableName`.
@@ -192,7 +176,7 @@ tuple_value_or_temp :: (
     .Some(tv) => cond(
       is_unit_type(tuple_ty) => Option(String).Some(String.from("")),
       true => match(
-        tuple_variable_type_string(tuple_ty, tv.as_str(), ctx),
+        get_variable_type_string_opt_str(tuple_ty, tv.as_str(), ctx),
         .None => Option(String).Some(tuple_value),
         .Some(var_type_and_name) => {
           line := String.from(indent.as_str());
@@ -273,7 +257,6 @@ generate_anonymous_tuple :: (
 
 export(
   generate_anonymous_tuple,
-  tuple_variable_type_string,
   tuple_args_to_c,
   tuple_args_to_c_with_deferred_dup,
   tuple_apply_deferred_dup

@@ -331,6 +331,31 @@ get_variable_type_string :: (
 get_variable_type_string_str :: (
   fn(t : TypeValue, var_name : str, ctx : *(CodegenContext)) -> String
 )(get_variable_type_string(t, String.from(var_name), ctx));
+/// Deferral variant of `get_variable_type_string`: returns `.None`
+/// when `get_type_string_opt(t, ctx)` misses (i.e. the type is neither
+/// in the registry nor a primitive). Useful for handlers that want to
+/// defer to the legacy bootstrap codegen rather than emit an
+/// `int32_t` cast that would be wrong.
+get_variable_type_string_opt :: (
+  fn(t : TypeValue, var_name : String, ctx : *(CodegenContext)) -> Option(String)
+)(
+  match(
+    get_type_string_opt(t, ctx),
+    .None => Option(String).None,
+    .Some(c_ty) => {
+      san := sanitize_for_c_identifier(var_name);
+      out := String.new();
+      out.push_string(c_ty);
+      out.push_str(" ");
+      out.push_string(san);
+      Option(String).Some(out)
+    }
+  )
+);
+/// Convenience `str` overload of `get_variable_type_string_opt`.
+get_variable_type_string_opt_str :: (
+  fn(t : TypeValue, var_name : str, ctx : *(CodegenContext)) -> Option(String)
+)(get_variable_type_string_opt(t, String.from(var_name), ctx));
 /// C name for the variant `variant_name` of enum `enum_ty`. Mirrors
 /// TS `getEnumVariantCName` in `src/codegen/utils/index.ts`:
 ///
@@ -553,6 +578,8 @@ export(
   get_type_string_opt,
   get_variable_type_string,
   get_variable_type_string_str,
+  get_variable_type_string_opt,
+  get_variable_type_string_opt_str,
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
