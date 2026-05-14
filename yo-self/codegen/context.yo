@@ -336,17 +336,12 @@ CodegenContext :: object(
   /// `async.ts` to dispatch directly to the impl function for a
   /// concrete closure value.
   impl_closure_call_map : HashMap(String, CodegenImplClosureEntry),
-  /// `FunctionType` `TypeValue` of the function currently being
-  /// generated. Mirrors `FunctionGenerationContext.currentFunctionType`
-  /// in `src/codegen/functions/context.ts`. Used by drop-dup,
-  /// await, generation, and other-fn-call handlers to find the
-  /// return type (`.return.type`) and parameter list of the enclosing
-  /// function — needed for type-aware drop emission and Future
-  /// return-type lowering.
-  ///
-  /// `.None` when codegen is outside any function body (e.g. emitting
-  /// module-level type declarations).
-  current_function_type : Option(TypeValue),
+  // Note: `current_function_type` is NOT on CodegenContext — the
+  // pre-existing `FunctionCtx` (in `codegen/functions/context.yo`) is
+  // the yo-self analogue of TS `FunctionGenerationContext` and already
+  // carries it. Handlers that need the enclosing FunctionType reach
+  // for it via the FunctionCtx, not via CodegenContext, matching the
+  // separation yo-self maintains between the two contexts.
   /// True iff codegen is currently inside the body of an async state
   /// machine. Mirrors `FunctionGenerationContext.inAsyncStateMachine`
   /// (TS uses an object-or-undefined; yo-self uses bool until the
@@ -459,7 +454,6 @@ impl(
       extern_functions : HashMap(String, CodegenExternFunctionEntry).new(),
       c_includes : ArrayList(String).new(),
       impl_closure_call_map : HashMap(String, CodegenImplClosureEntry).new(),
-      current_function_type : Option(TypeValue).None,
       in_async_state_machine : false,
       in_effect_state_machine : false,
       inside_match : false,
