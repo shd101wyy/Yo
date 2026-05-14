@@ -1,0 +1,73 @@
+//! Partial 1-to-1 port of `src/codegen/exprs/drop-dup.ts`.
+//!
+//! Covers the leaf-type drop emit: for `Dyn`, atomic-`Object`,
+//! `Object`, and `Iso` values, the generated C string is a pure
+//! `__yo_decr_rc[_atomic]((void*)x[.data])` and needs no type-name
+//! registry or emitter. Returns `Option(String).Some(...)` for those
+//! four shapes and `Option(String).None` for everything else so the
+//! bootstrap codegen can keep handling the remaining cases (struct /
+//! enum drops via `___drop`, array/tuple recursive drops via the C
+//! emitter, dup paths that need `getTypeString`).
+//!
+//! Full ports of `generateDupCodeForValue`, the array / tuple
+//! recursion, and `getDropFunctionForType` /
+//! `getDupFunctionForType` (which look up
+//! `context.functions[funcId].cName`) wait on the type-name registry +
+//! function-cname table landing in yo-self codegen.
+open(import("std/string"));
+{ TypeValue } :: import("../../types/type.yo");
+{
+  is_dyn_type,
+  is_atomic_object_type,
+  is_object_type,
+  is_iso_type
+} :: import("../../types/guards.yo");
+/// Emit the C drop expression for a leaf RC type shape, given the
+/// already-generated `value_code` and its static `ty`.
+///
+/// Returns:
+///   - `Some("__yo_decr_rc((void*)(value_code).data)")` for `Dyn(T)`
+///   - `Some("__yo_decr_rc_atomic((void*)(value_code))")` for atomic
+///     object types and `Iso(T)`
+///   - `Some("__yo_decr_rc((void*)(value_code))")` for non-atomic
+///     object types
+///   - `None` for everything else (the bootstrap codegen handles these)
+///
+/// Matches the corresponding branches of `generateDropCodeForValue` in
+/// TS, post-`resolveSomeType` / `typeContainsRcType` filtering — that
+/// is, the call site is expected to have already established that the
+/// value participates in RC.
+generate_drop_code_for_leaf_type :: (
+  fn(value_code : String, ty : TypeValue) -> Option(String)
+)(
+  cond(
+    is_dyn_type(ty) => Option(String).Some({
+      s := String.from("__yo_decr_rc((void*)(");
+      s.push_str(value_code.as_str());
+      s.push_str(").data)");
+      s
+    }),
+    // Atomic object check MUST precede the general object check
+    // because `is_atomic_object_type` is the more specific predicate.
+    is_atomic_object_type(ty) => Option(String).Some({
+      s := String.from("__yo_decr_rc_atomic((void*)(");
+      s.push_str(value_code.as_str());
+      s.push_str("))");
+      s
+    }),
+    is_object_type(ty) => Option(String).Some({
+      s := String.from("__yo_decr_rc((void*)(");
+      s.push_str(value_code.as_str());
+      s.push_str("))");
+      s
+    }),
+    is_iso_type(ty) => Option(String).Some({
+      s := String.from("__yo_decr_rc_atomic((void*)(");
+      s.push_str(value_code.as_str());
+      s.push_str("))");
+      s
+    }),
+    true => Option(String).None
+  )
+);
+export(generate_drop_code_for_leaf_type);
