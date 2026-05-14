@@ -15,12 +15,12 @@ open(import("std/string"));
 // Global type-trait registry
 // ---------------------------------------------------------------------------
 /// Maps type id → list of trait names auto-derived for that type.
-/// Populated by `auto_derive.yo` during struct/enum/union type construction.
+/// Populated by `utils.yo` during struct/enum/union type construction.
 /// Queried by `type_implements_trait` step 4 in `trait_checking.yo`.
 (g_type_trait_registry : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
 /// Register that the type with `type_id` auto-derives the trait named `trait_name`.
 ///
-/// Called during struct/enum/union construction by `auto_derive.yo`.
+/// Called during struct/enum/union construction by `utils.yo`.
 register_type_trait :: (fn(type_id : String, trait_name : str) -> unit)({
   match(
     g_type_trait_registry.get(type_id),
