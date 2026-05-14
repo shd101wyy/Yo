@@ -1,7 +1,14 @@
-//! Type declaration code generation for the self-hosted Yo C code generator.
+//! Type declaration + per-type RC helper-function code generation for the
+//! self-hosted Yo C code generator. Partial port of
+//! `src/codegen/types/generation.ts` (the TS file is ~1300 lines and also
+//! handles the more complex iso/dyn/some/forall lowering cases).
 //!
 //! Phase 4e: generate C type declarations (struct/enum/union layouts) from
 //! `TypeValue` instances.
+//!
+//! Phase 4i (folded in from the former `codegen/rc.yo`): generate per-type
+//! `___dispose` / `___drop` / `___dup` helper functions for structs and
+//! enums whose fields are all primitive (no heap-allocated RC objects).
 //!
 //! C naming conventions (mirrors the TypeScript compiler):
 //!   Struct:  __yo_struct_{module_id}_id_{type_id}
