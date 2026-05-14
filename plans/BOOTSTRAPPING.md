@@ -129,7 +129,7 @@ functions, RC machinery beyond bootstrap stubs).
 | `assignment.ts`                | 359      | ❌                                                                                  |                                                   |
 | `initialization-assignment.ts` | 534      | ❌                                                                                  |                                                   |
 | `atom.ts`                      | 545      | ❌                                                                                  |                                                   |
-| `dyn.ts`                       | 171      | ❌                                                                                  |                                                   |
+| `dyn.ts`                       | 171      | ⚠️ `dyn.yo` (object/iso underlying-type leaf path + impl registration)              | `codegen_exprs_dyn.test.yo` (7 tests)             |
 | `asm.ts`                       | 757      | ❌                                                                                  |                                                   |
 | `property-access.ts`           | 416      | ❌                                                                                  |                                                   |
 | `ptr-fns.ts`                   | 225      | ❌                                                                                  |                                                   |
