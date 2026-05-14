@@ -22,7 +22,8 @@ open(import("std/string"));
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
-  is_deferred_drop_for_closure_capture
+  is_deferred_drop_for_closure_capture,
+  is_function_value_with_only_builtin_yo_inline_function_call
 } :: import("../codegen/utils.yo");
 mk_struct :: (
   fn(
@@ -524,5 +525,155 @@ test("get_variable_name_for_codegen: reserved-word still gets the prefix", {
   assert(
     out == String.from("__yo_c_reserved_return"),
     "reserved word prefixed"
+  );
+});
+/// Build a placeholder FuncVal whose body is the given expression.
+mk_func_val :: (fn(body : AstExpr) -> EvalValue)(
+  EvalValue.FuncVal(
+    ArrayList(String).new(),
+    ArrayList(String).new(),
+    ArrayList(String).new(),
+    ArrayList(String).new(),
+    box(body),
+    ArrayList(String).new(),
+    ArrayList(TypeValue).new(),
+    ArrayList(EvalValue).new(),
+    String.from("")
+  )
+);
+/// Build a 2-arg FnCall whose func is an atom with name `func_name`.
+mk_call_2_atoms :: (
+  fn(func_name : str, a_name : str, b_name : str) -> AstExpr
+)({
+  args := ArrayList(AstExpr).new();
+  args.push(
+    AstExpr.Atom(
+      usize(0),
+      Token(
+        kind : TokenKind.Identifier,
+        value : String.from(a_name),
+        row : usize(0),
+        column : usize(0),
+        character : usize(0),
+        module_path : String.from(""),
+        input : String.from("")
+      )
+    )
+  );
+  args.push(
+    AstExpr.Atom(
+      usize(0),
+      Token(
+        kind : TokenKind.Identifier,
+        value : String.from(b_name),
+        row : usize(0),
+        column : usize(0),
+        character : usize(0),
+        module_path : String.from(""),
+        input : String.from("")
+      )
+    )
+  );
+  AstExpr.FnCall(
+    usize(0),
+    box(
+      AstExpr.Atom(
+        usize(0),
+        Token(
+          kind : TokenKind.Identifier,
+          value : String.from(func_name),
+          row : usize(0),
+          column : usize(0),
+          character : usize(0),
+          module_path : String.from(""),
+          input : String.from("")
+        )
+      )
+    ),
+    args,
+    true,
+    Token(
+      kind : TokenKind.Identifier,
+      value : String.from(func_name),
+      row : usize(0),
+      column : usize(0),
+      character : usize(0),
+      module_path : String.from(""),
+      input : String.from("")
+    )
+  )
+});
+test("is_function_value_with_only_builtin_yo_inline_function_call: direct __yo_op_add body", {
+  body := mk_call_2_atoms("__yo_op_add", "a", "b");
+  match(
+    is_function_value_with_only_builtin_yo_inline_function_call(mk_func_val(body)),
+    .Some(name) => assert(name == String.from("__yo_op_add"), "add returned"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("is_function_value_with_only_builtin_yo_inline_function_call: begin-wrapped inline body", {
+  // Inner: `__yo_op_eq(a, b)`. Outer: `begin(inner)`.
+  inner := mk_call_2_atoms("__yo_op_eq", "a", "b");
+  inner_args := ArrayList(AstExpr).new();
+  inner_args.push(inner);
+  body := AstExpr.FnCall(
+    usize(0),
+    box(
+      AstExpr.Atom(
+        usize(0),
+        Token(
+          kind : TokenKind.Identifier,
+          value : String.from("begin"),
+          row : usize(0),
+          column : usize(0),
+          character : usize(0),
+          module_path : String.from(""),
+          input : String.from("")
+        )
+      )
+    ),
+    inner_args,
+    false,
+    Token(
+      kind : TokenKind.Identifier,
+      value : String.from("begin"),
+      row : usize(0),
+      column : usize(0),
+      character : usize(0),
+      module_path : String.from(""),
+      input : String.from("")
+    )
+  );
+  match(
+    is_function_value_with_only_builtin_yo_inline_function_call(mk_func_val(body)),
+    .Some(name) => assert(name == String.from("__yo_op_eq"), "eq via begin"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("is_function_value_with_only_builtin_yo_inline_function_call: __yo_as is excluded", {
+  // Even though __yo_as is in BuiltinYoInlineFunctions, the predicate
+  // returns None for it because the codegen needs proper call-site
+  // handling of its argument expressions.
+  body := mk_call_2_atoms("__yo_as", "v", "T");
+  assert(
+    is_function_value_with_only_builtin_yo_inline_function_call(mk_func_val(body)).is_none(),
+    "__yo_as → None"
+  );
+});
+test("is_function_value_with_only_builtin_yo_inline_function_call: non-inline body → None", {
+  body := mk_call_2_atoms("foo", "a", "b");
+  assert(
+    is_function_value_with_only_builtin_yo_inline_function_call(mk_func_val(body)).is_none(),
+    "user fn → None"
+  );
+});
+test("is_function_value_with_only_builtin_yo_inline_function_call: non-FuncVal → None", {
+  assert(
+    is_function_value_with_only_builtin_yo_inline_function_call(EvalValue.UnitVal).is_none(),
+    "UnitVal → None"
+  );
+  assert(
+    is_function_value_with_only_builtin_yo_inline_function_call(EvalValue.BoolVal(true)).is_none(),
+    "BoolVal → None"
   );
 });

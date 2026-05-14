@@ -43,10 +43,14 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   BF_DOT,
   BF_DROP,
-  BF_DUP
+  BF_DUP,
+  BF_YO_AS,
+  BK_BEGIN
 } :: import("../expr/expr.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
 { type_value_to_c_field } :: import("./types.yo");
 { CodegenContext } :: import("./context.yo");
+{ is_builtin_yo_inline_function } :: import("./constants.yo");
 is_c_identifier_byte_ :: (fn(byte : u8) -> bool)(
   ((byte >= u8(65)) && (byte <= u8(90))) ||
     (
@@ -567,6 +571,83 @@ is_deferred_drop_for_closure_capture :: (
     }
   )
 );
+/// Helper: extract the func-token value from a FnCall whose func is
+/// an Atom (returns `.None` for nested FnCall funcs or for Atom-shaped
+/// expressions). Used by `is_function_value_with_only_builtin_yo_inline_function_call`.
+_fn_call_func_atom_name :: (fn(e : AstExpr) -> Option(String))(
+  match(
+    e,
+    .Atom(_, _) => Option(String).None,
+    .FnCall({ func }) => match(
+      func.*,
+      .Atom({ token }) => Option(String).Some(token.value),
+      .FnCall(_, _, _, _, _) => Option(String).None
+    )
+  )
+);
+/// True iff `body` is a 1-arg `begin(inner_call)` whose inner call is
+/// itself a `FnCall(<inline-builtin>, ...)`. Used to recognise the
+/// `(_) -> { __yo_op_add(_,_) }` body shape that wraps a single
+/// inline-emit builtin call.
+_body_is_begin_wrapping_inline_call :: (fn(body : AstExpr) -> Option(String))(
+  cond(
+    !(ast_expr_is_fn_call_of(body, BK_BEGIN, Option(usize).Some(usize(1)))) =>
+      Option(String).None,
+    true => match(
+      body,
+      .Atom(_, _) => Option(String).None,
+      .FnCall({ args }) => match(
+        args.get(usize(0)),
+        .None => Option(String).None,
+        .Some(inner) => match(
+          _fn_call_func_atom_name(inner),
+          .None => Option(String).None,
+          .Some(name) => cond(
+            is_builtin_yo_inline_function(name.as_str()) => Option(String).Some(name),
+            true => Option(String).None
+          )
+        )
+      )
+    )
+  )
+);
+/// Detect a `FuncVal` whose body is a direct call to (or a
+/// 1-arg-begin-wrapped call to) one of the inline-emit builtins.
+/// Returns the operator name when eligible, `.None` otherwise.
+///
+/// Mirrors TS `isFunctionValueWithOnlyBuiltinYoInlineFunctionCall` in
+/// `src/codegen/utils/index.ts`. The `__yo_as` builtin is excluded
+/// because its argument expression needs proper function-call
+/// handling.
+///
+/// Used by the codegen dispatcher to recognise functions that can
+/// be inlined into the call site (e.g. `fn add(x, y) :: x + y` →
+/// emit `x + y` directly at the call site rather than
+/// `add(x, y)`).
+is_function_value_with_only_builtin_yo_inline_function_call :: (
+  fn(func_val : EvalValue) -> Option(String)
+)(
+  match(
+    func_val,
+    .FuncVal({ body }) => match(
+      _body_is_begin_wrapping_inline_call(body.*),
+      .Some(name) => cond(
+        (name.as_str() == BF_YO_AS) => Option(String).None,
+        true => Option(String).Some(name)
+      ),
+      .None => match(
+        _fn_call_func_atom_name(body.*),
+        .None => Option(String).None,
+        .Some(name) => cond(
+          (name.as_str() == BF_YO_AS) => Option(String).None,
+          is_builtin_yo_inline_function(name.as_str()) => Option(String).Some(name),
+          true => Option(String).None
+        )
+      )
+    ),
+    _ => Option(String).None
+  )
+);
 export(
   sanitize_for_c_identifier,
   sanitize_for_c_identifier_str,
@@ -583,5 +664,6 @@ export(
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
-  is_deferred_drop_for_closure_capture
+  is_deferred_drop_for_closure_capture,
+  is_function_value_with_only_builtin_yo_inline_function_call
 );
