@@ -5,7 +5,11 @@ open(import("std/string"));
 { TypeValue, t_i32, t_bool, t_ptr } :: import("../types/type.yo");
 { type_to_string } :: import("../types/string.yo");
 { CodegenContext, CodegenTypeEntry } :: import("../codegen/context.yo");
-{ generate_downcast_for_resolved_types } :: import("../codegen/exprs/downcast.yo");
+{
+  generate_downcast_for_resolved_types,
+  format_box_extract,
+  format_typed_incr_rc_cast
+} :: import("../codegen/exprs/downcast.yo");
 mk_struct :: (
   fn(
     name : str,
@@ -179,4 +183,40 @@ test("downcast: missing Some/None variant tags return None", {
     &(ctx)
   );
   assert(out.is_none(), "unregistered option enum → None");
+});
+// ─── pure formatters ────────────────────────────────────────────────────────
+test("format_box_extract: typedef cast + .data + field access", {
+  out := format_box_extract(
+    String.from("__yo_box_String"),
+    String.from("dv"),
+    String.from("value")
+  );
+  assert(
+    out == String.from("((__yo_box_String*)dv.data)->value"),
+    "box extract shape"
+  );
+});
+test("format_typed_incr_rc_cast: non-atomic dup-and-cast", {
+  // Non-atomic variant: `((<target>)__yo_incr_rc((void*)<inner>))`.
+  out := format_typed_incr_rc_cast(
+    String.from("Counter"),
+    String.from("dv.data"),
+    false
+  );
+  assert(
+    out == String.from("((Counter)__yo_incr_rc((void*)dv.data))"),
+    "non-atomic shape"
+  );
+});
+test("format_typed_incr_rc_cast: atomic variant", {
+  // Atomic variant uses `__yo_incr_rc_atomic`. Same outer wrap shape.
+  out := format_typed_incr_rc_cast(
+    String.from("AtomicCounter"),
+    String.from("dv.data"),
+    true
+  );
+  assert(
+    out == String.from("((AtomicCounter)__yo_incr_rc_atomic((void*)dv.data))"),
+    "atomic shape"
+  );
 });

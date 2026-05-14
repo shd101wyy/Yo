@@ -34,9 +34,54 @@ open(import("std/string"));
   get_enum_variant_c_name,
   can_optimize_as_nullable_pointer
 } :: import("../utils/index.yo");
-{ format_incr_rc_call } :: import("./rc_fns.yo");
+{ format_incr_rc_call, format_incr_rc_atomic_call } :: import("./rc_fns.yo");
 { register_typeid_static, extract_type_value } :: import("./typeid.yo");
 { call_gen_expr } :: import("./expr.yo");
+/// Format the box-extraction subexpression
+///   `((<box_c_name>*)<dyn_code>.data)-><box_field_name>`
+///
+/// Used by the boxed-target branch of `generate_downcast` after the
+/// caller has resolved the box type via `ctx.get_dyn_impl(impl_key)`
+/// and its single field's label. Pure string composition.
+///
+/// Mirrors the TS line
+///     const extractExpr = `((${boxTypeCName}*)${dynCode}.data)->${boxFieldName}`;
+/// in `generateDowncast`.
+format_box_extract :: (
+  fn(box_c_name : String, dyn_code : String, box_field_name : String) -> String
+)({
+  s := String.from("((");
+  s.push_string(box_c_name);
+  s.push_str("*)");
+  s.push_string(dyn_code);
+  s.push_str(".data)->");
+  s.push_string(box_field_name);
+  s
+});
+/// Format a typed-incr-rc cast for an object target:
+///   `((<target_c_name>)__yo_incr_rc[_atomic]((void*)<inner_expr>))`
+///
+/// `atomic` selects between the atomic and non-atomic variants. The
+/// shape matches the three call sites in `generateDowncast` that emit
+/// a typed cast around a refcount increment (the direct-object branch,
+/// the newtype-wrapped-object fallback, and the unwrapped-dyn-data
+/// case for non-boxed dyn values).
+format_typed_incr_rc_cast :: (
+  fn(target_c_name : String, inner_expr : String, atomic : bool) -> String
+)({
+  void_arg := String.from("(void*)");
+  void_arg.push_str(inner_expr.as_str());
+  incr := cond(
+    atomic => format_incr_rc_atomic_call(void_arg),
+    true => format_incr_rc_call(void_arg)
+  );
+  out := String.from("((");
+  out.push_string(target_c_name);
+  out.push_str(")");
+  out.push_string(incr);
+  out.push_str(")");
+  out
+});
 /// Emit the C expression for a `downcast(dyn_value, T)` call where the
 /// runtime path is the non-boxed-object branch.
 ///
@@ -79,15 +124,9 @@ generate_downcast_for_resolved_types :: (
       // The Dyn data pointer aliases the underlying object; dup it so
       // both the Dyn wrapper's drop and the cast result's drop can
       // each decrement RC.
-      inner_arg := String.from("(void*)");
-      inner_arg.push_str(dyn_code.as_str());
-      inner_arg.push_str(".data");
-      incr := format_incr_rc_call(inner_arg);
-      cast_expr := String.from("((");
-      cast_expr.push_string(target_c_name);
-      cast_expr.push_str(")");
-      cast_expr.push_string(incr);
-      cast_expr.push_str(")");
+      dyn_data_expr := String.from(dyn_code.as_str());
+      dyn_data_expr.push_str(".data");
+      cast_expr := format_typed_incr_rc_cast(target_c_name, dyn_data_expr, false);
       match(
         can_optimize_as_nullable_pointer(option_type),
         // Nullable-pointer fast path: `((is_check) ? cast : NULL)`.
@@ -198,4 +237,9 @@ generate_downcast_call :: (
     )
   )
 );
-export(generate_downcast_for_resolved_types, generate_downcast_call);
+export(
+  generate_downcast_for_resolved_types,
+  generate_downcast_call,
+  format_box_extract,
+  format_typed_incr_rc_cast
+);
