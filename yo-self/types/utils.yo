@@ -450,6 +450,20 @@ type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
 /// Full implementation needs `typeImplementsAcyclic` (Phase 3).
 /// Stub: always returns `false` — conservative.
 can_type_form_rc_cycle :: (fn(_ty : TypeValue) -> bool)(false);
+/// Return `true` if the type needs type-inference to resolve fully
+/// — specifically when an `Array(T, length)` carries an unknown
+/// `length` that the evaluator must compute. Mirrors
+/// `typeRequiresInference` in `src/types/utils.ts`.
+///
+/// **Stub returning `false`** — yo-self's `Array(element, length)`
+/// stores `length` as a plain `usize`, which is always concretely
+/// known. The TS evaluator can defer array-length inference for
+/// types like `[T; ?]` where the size is a runtime expression; yo-self
+/// rejects unknown array lengths at parse time. Once yo-self gains
+/// the same deferred-length mechanism this stub should walk
+/// `Array.length` and recurse on `Array.element` / `Slice.element` /
+/// tuple/struct/enum field types.
+type_requires_inference :: (fn(_ty : TypeValue) -> bool)(false);
 /// Return `true` if `ty` contains any unresolved generic type variable
 /// (`SomeT` / `TypeAppT`).
 ///
@@ -682,6 +696,7 @@ export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
 export(type_contains_rc_type);
 export(can_type_form_rc_cycle);
+export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);
 export(get_size_of_type, get_alignment_of_type);
