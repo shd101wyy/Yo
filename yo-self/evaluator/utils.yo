@@ -30,7 +30,7 @@ open(import("std/string"));
   generate_variable_id,
   add_variable_to_begin_block_frame
 } :: import("../env/env.yo");
-{ Token } :: import("../lexer/token.yo");
+{ Token, TokenKind } :: import("../lexer/token.yo");
 { EvalContext } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
 {
@@ -240,6 +240,19 @@ attach_temp_variable_to_expr :: (
 /// Returns `.None` if no owner is found or if the chain cycles.
 ///
 /// Mirrors `findRcValueOwnerRelationship` in `src/evaluator/utils.ts`.
+/// True iff `expr` has a valid binding-LHS shape for `name := rhs`
+/// — either an `Identifier` atom or any expression whose token is an
+/// `Operator` (e.g. infix `+` defined as a function). Mirrors TS
+/// `isValidVariableName` in `src/evaluator/utils.ts`.
+///
+/// Note: the TS check is `(exprIsAtom(e) && token === Identifier) ||
+/// token === Operator` — the operator branch applies to both Atom
+/// and FnCall shapes. The yo-self port preserves that asymmetry.
+is_valid_variable_name :: (fn(expr : AstExpr) -> bool)({
+  tok := ast_expr_token(expr);
+  (ast_expr_is_atom(expr) && (tok.kind == TokenKind.Identifier)) ||
+    (tok.kind == TokenKind.Operator)
+  });
 find_rc_value_owner_relationship :: (
   fn(
     rhs : AstExpr,
@@ -1134,7 +1147,7 @@ parse_raw_float :: (fn(raw : String) -> Option(f64))({
   )
 });
 export(generate_new_temp_variable_name, is_temp_variable_name, random_id);
-export(find_rc_value_owner_relationship);
+export(find_rc_value_owner_relationship, is_valid_variable_name);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(set_expr_as_needs_to_call_dup);
