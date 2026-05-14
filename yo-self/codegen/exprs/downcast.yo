@@ -23,8 +23,11 @@
 //! lives one layer up in the eventual full `generate_downcast` and
 //! is therefore not duplicated here.
 open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_id } :: import("../../expr/expr.yo");
 { TypeValue } :: import("../../types/type.yo");
 { is_dyn_type, is_object_type } :: import("../../types/guards.yo");
+{ EvalValue } :: import("../../evaluator/value.yo");
 { CodegenContext } :: import("../context.yo");
 {
   get_type_string,
@@ -32,7 +35,8 @@ open(import("std/string"));
   can_optimize_as_nullable_pointer
 } :: import("../utils.yo");
 { format_incr_rc_call } :: import("./rc_fns.yo");
-{ register_typeid_static } :: import("./typeid.yo");
+{ register_typeid_static, extract_type_value } :: import("./typeid.yo");
+{ call_gen_expr } :: import("./expr.yo");
 /// Emit the C expression for a `downcast(dyn_value, T)` call where the
 /// runtime path is the non-boxed-object branch.
 ///
@@ -133,4 +137,65 @@ generate_downcast_for_resolved_types :: (
     }
   )
 );
-export(generate_downcast_for_resolved_types);
+/// AST-level entry point for `downcast(dyn_value, T)` codegen.
+///
+/// Reads the dyn argument's runtime type, the target type (a
+/// `TypeVal` compile-time value on the second argument), and the
+/// result `Option(T)` enum type from the ExprInfo table, recursively
+/// lowers the dyn argument via `call_gen_expr`, and delegates to
+/// `generate_downcast_for_resolved_types`.
+///
+/// Returns `.None` on any precondition failure so the bootstrap
+/// codegen can recover.
+generate_downcast_call :: (
+  fn(
+    call_expr : AstExpr,
+    args : ArrayList(AstExpr),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)(
+  cond(
+    (args.len() < usize(2)) => Option(String).None,
+    true => match(
+      args.get(usize(0)),
+      .None => Option(String).None,
+      .Some(dyn_arg) => match(
+        args.get(usize(1)),
+        .None => Option(String).None,
+        .Some(type_arg) => match(
+          ctx.*.get_expr_info(ast_expr_id(dyn_arg)),
+          .None => Option(String).None,
+          .Some(dyn_info) => match(
+            ctx.*.get_expr_info(ast_expr_id(type_arg)),
+            .None => Option(String).None,
+            .Some(type_info) => match(
+              type_info.value,
+              .None => Option(String).None,
+              .Some(type_val) => match(
+                extract_type_value(type_val),
+                .None => Option(String).None,
+                .Some(target_type) => match(
+                  ctx.*.get_expr_info(ast_expr_id(call_expr)),
+                  .None => Option(String).None,
+                  .Some(call_info) => match(
+                    call_gen_expr(dyn_arg, ctx, indent),
+                    .None => Option(String).None,
+                    .Some(dyn_code) => generate_downcast_for_resolved_types(
+                      dyn_code,
+                      dyn_info.ty,
+                      target_type,
+                      call_info.ty,
+                      ctx
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+export(generate_downcast_for_resolved_types, generate_downcast_call);
