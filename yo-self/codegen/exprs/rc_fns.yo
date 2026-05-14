@@ -9,11 +9,13 @@
 //!   - `__yo_rc_own` (ownership-transfer marker; identity in C)
 //!   - `__yo_dyn_drop` / `__yo_dyn_dup` (Dyn is value-typed; the
 //!     ref-count lives on its `.data` pointer)
+//!   - `rc(x)` ref-count read — non-atomic header-field access and
+//!     the atomic-ordering variant for atomic-object types
 //!
 //! These are the formatter primitives that the full handler ports
-//! (`generateYoDecrRc` / `…IncrRc` / `…RcOwn` / `…DynDrop` / `…DynDup`)
-//! will call after recursively lowering the argument expression via
-//! the main expr dispatcher.
+//! (`generateYoDecrRc` / `…IncrRc` / `…RcOwn` / `…DynDrop` / `…DynDup`
+//! / `generateRcCall`) will call after recursively lowering the
+//! argument expression via the main expr dispatcher.
 //!
 //! The array/tuple element variants
 //! (`generateYoDropArrayElement` / `generateYoDupArrayElement`) need
@@ -83,6 +85,30 @@ format_dyn_dup_call :: (fn(arg_code : String) -> String)({
   s.push_str(").data)");
   s
 });
+/// Format the non-atomic `rc(x)` read site:
+///   `((__yo_ref_header_t*)(arg_code))->ref_count`
+///
+/// Mirrors the non-atomic-object branch of TS `generateRcCall`. The
+/// builtin returns a runtime `usize` so the C lowering is a direct
+/// header-field access through a cast.
+format_rc_count_non_atomic :: (fn(arg_code : String) -> String)({
+  s := String.from("((__yo_ref_header_t*)(");
+  s.push_str(arg_code.as_str());
+  s.push_str("))->ref_count");
+  s
+});
+/// Format the atomic `rc(x)` read site:
+///   `atomic_load_explicit((_Atomic size_t*)&((__yo_ref_header_t*)(arg_code))->ref_count, memory_order_acquire)`
+///
+/// Mirrors the atomic-object branch of TS `generateRcCall`. Reads
+/// through `atomic_load_explicit` with acquire ordering so the
+/// observed count is consistent across threads.
+format_rc_count_atomic :: (fn(arg_code : String) -> String)({
+  s := String.from("atomic_load_explicit((_Atomic size_t*)&((__yo_ref_header_t*)(");
+  s.push_str(arg_code.as_str());
+  s.push_str("))->ref_count, memory_order_acquire)");
+  s
+});
 export(
   format_decr_rc_call,
   format_incr_rc_call,
@@ -90,5 +116,7 @@ export(
   format_decr_rc_atomic_call,
   format_incr_rc_atomic_call,
   format_dyn_drop_call,
-  format_dyn_dup_call
+  format_dyn_dup_call,
+  format_rc_count_non_atomic,
+  format_rc_count_atomic
 );

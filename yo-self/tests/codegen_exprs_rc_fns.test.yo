@@ -8,7 +8,9 @@ open(import("std/string"));
   format_decr_rc_atomic_call,
   format_incr_rc_atomic_call,
   format_dyn_drop_call,
-  format_dyn_dup_call
+  format_dyn_dup_call,
+  format_rc_count_non_atomic,
+  format_rc_count_atomic
 } :: import("../codegen/exprs/rc_fns.yo");
 test("format_decr_rc_call wraps a simple arg", {
   assert(
@@ -89,4 +91,36 @@ test("format_dyn_drop / format_dyn_dup are symmetric (decr/incr only differ)", {
   dup_s := format_dyn_dup_call(String.from("x"));
   assert(drop_s == String.from("__yo_decr_rc((void*)(x).data)"), "drop");
   assert(dup_s == String.from("__yo_incr_rc((void*)(x).data)"), "dup");
+});
+test("format_rc_count_non_atomic: simple identifier", {
+  // Pin the TS `generateRcCall` non-atomic branch shape:
+  //   ((__yo_ref_header_t*)(<arg>))->ref_count
+  out := format_rc_count_non_atomic(String.from("p"));
+  assert(
+    out == String.from("((__yo_ref_header_t*)(p))->ref_count"),
+    "non-atomic shape"
+  );
+});
+test("format_rc_count_non_atomic: complex arg passthrough", {
+  out := format_rc_count_non_atomic(String.from("self.head"));
+  assert(
+    out == String.from("((__yo_ref_header_t*)(self.head))->ref_count"),
+    "complex arg"
+  );
+});
+test("format_rc_count_atomic: simple identifier", {
+  // Pin the TS `generateRcCall` atomic branch shape — load with
+  // acquire ordering through an `_Atomic size_t*` cast.
+  out := format_rc_count_atomic(String.from("p"));
+  expected := String.from(
+    "atomic_load_explicit((_Atomic size_t*)&((__yo_ref_header_t*)(p))->ref_count, memory_order_acquire)"
+  );
+  assert(out == expected, "atomic shape");
+});
+test("format_rc_count_atomic: complex arg passthrough", {
+  out := format_rc_count_atomic(String.from("queue.front"));
+  expected := String.from(
+    "atomic_load_explicit((_Atomic size_t*)&((__yo_ref_header_t*)(queue.front))->ref_count, memory_order_acquire)"
+  );
+  assert(out == expected, "atomic complex");
 });
