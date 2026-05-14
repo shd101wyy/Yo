@@ -1,7 +1,10 @@
 /// Tests for yo-self/codegen/exprs/ptr_fns.yo (partial port —
 /// pure formatters only).
 open(import("std/string"));
-{ format_address_of } :: import("../codegen/exprs/ptr_fns.yo");
+{
+  format_address_of,
+  format_slice_index_range
+} :: import("../codegen/exprs/ptr_fns.yo");
 test("format_address_of: wraps an identifier", {
   out := format_address_of(String.from("x"));
   assert(out == String.from("(&x)"), "(&x)");
@@ -15,4 +18,45 @@ test("format_address_of: wraps a complex expression verbatim", {
   // produce a well-formed primary expression. Mirror exactly.
   out := format_address_of(String.from("foo(bar)"));
   assert(out == String.from("(&foo(bar))"), "complex passthrough");
+});
+test("format_slice_index_range: exclusive range", {
+  out := format_slice_index_range(
+    String.from("Slice_i32"),
+    String.from("arr"),
+    String.from("0"),
+    String.from("3"),
+    false
+  );
+  assert(
+    out == String.from("(Slice_i32){ .data = &arr.data[0], .length = (3) - (0) }"),
+    "exclusive layout"
+  );
+});
+test("format_slice_index_range: inclusive range appends `+ 1`", {
+  out := format_slice_index_range(
+    String.from("Slice_u8"),
+    String.from("buf"),
+    String.from("start"),
+    String.from("end"),
+    true
+  );
+  assert(
+    out == String.from("(Slice_u8){ .data = &buf.data[start], .length = (end) - (start) + 1 }"),
+    "inclusive layout"
+  );
+});
+test("format_slice_index_range: complex start/end expressions wrap correctly", {
+  // TS pre-wraps `(end)` and `(start)` so caller expressions like
+  // `a + b` parse as a single operand inside the subtraction.
+  out := format_slice_index_range(
+    String.from("S"),
+    String.from("a"),
+    String.from("i + 1"),
+    String.from("n - 1"),
+    false
+  );
+  assert(
+    out == String.from("(S){ .data = &a.data[i + 1], .length = (n - 1) - (i + 1) }"),
+    "complex expressions"
+  );
 });

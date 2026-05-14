@@ -1,22 +1,24 @@
 //! Partial 1-to-1 port of `src/codegen/exprs/ptr-fns.ts`.
 //!
-//! Currently exposes one pure formatter:
+//! Pure formatters extracted from `generateAddressOf`:
 //!
 //!   - `format_address_of(arg_code)` — wraps an already-generated C
-//!     expression in the `(&...)` address-of form. This is the tail
-//!     fallback path of `generateAddressOf` (the path that doesn't
-//!     intercept array-index-range / slice-construction / function-
-//!     pointer special cases). Pure string transformation.
+//!     expression in the `(&...)` address-of form. The tail fallback
+//!     path of TS `generateAddressOf`.
 //!
-//! The slice-construction, array-index-range, and function-pointer
-//! paths still depend on `context.sliceStructTypes`, the recursive
-//! `generateExpr` dispatcher, and
-//! `is_function_value_with_only_builtin_yo_inline_function_call` —
-//! none of which are ported yet. The rvalue-spilling path
-//! (taking the address of a function call by spilling to a temp)
-//! depends on `get_variable_type_string` (✓ available) plus a fresh
-//! temp counter that lives on the codegen context (not yet exposed
-//! in yo-self), so it also waits.
+//!   - `format_slice_index_range(slice_c_type, array_code, start_code,
+//!     end_code, inclusive)` — builds a slice-value compound literal
+//!     `(SliceCType){ .data = &<array>.data[<start>], .length = <end> - <start>[+ 1] }`.
+//!     Used by the array-range path in `generateAddressOf` for the
+//!     forms `*(arr(start..end))` / `*(arr(start..=end))`.
+//!
+//! Both helpers are pure string transformations — no codegen context,
+//! emitter, or AST dispatch required. The remaining specialised
+//! paths in `generateAddressOf` (slice/range-target detection,
+//! function-pointer extraction, rvalue spill-to-temp) still depend
+//! on `context.sliceStructTypes`, the recursive `generateExpr`
+//! dispatcher, and the function-cname registry — none yet exposed
+//! in yo-self codegen.
 open(import("std/string"));
 /// Format the C address-of expression `(&arg_code)` — TS
 /// `return `(&${argCode})`;` in `generateAddressOf`. Pure string
@@ -27,4 +29,37 @@ format_address_of :: (fn(arg_code : String) -> String)({
   s.push_str(")");
   s
 });
-export(format_address_of);
+/// Build a slice-value compound literal for an array-range expression:
+///
+///   inclusive=false → `(SliceCType){ .data = &<array>.data[<start>], .length = (<end>) - (<start>) }`
+///   inclusive=true  → `(SliceCType){ .data = &<array>.data[<start>], .length = (<end>) - (<start>) + 1 }`
+///
+/// Mirrors the two return branches inside the `..` / `..=` arm of
+/// TS `generateAddressOf`. Pure string composition.
+format_slice_index_range :: (
+  fn(
+    slice_c_type : String,
+    array_code : String,
+    start_code : String,
+    end_code : String,
+    inclusive : bool
+  ) -> String
+)({
+  out := String.from("(");
+  out.push_string(slice_c_type);
+  out.push_str("){ .data = &");
+  out.push_str(array_code.as_str());
+  out.push_str(".data[");
+  out.push_str(start_code.as_str());
+  out.push_str("], .length = (");
+  out.push_str(end_code.as_str());
+  out.push_str(") - (");
+  out.push_str(start_code.as_str());
+  out.push_str(")");
+  if(inclusive, {
+    out.push_str(" + 1");
+  });
+  out.push_str(" }");
+  out
+});
+export(format_address_of, format_slice_index_range);
