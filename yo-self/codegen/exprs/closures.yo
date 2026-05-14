@@ -1,0 +1,40 @@
+//! Closure codegen helpers.
+//!
+//! 1-to-1 partial port of `src/codegen/exprs/closures.ts`. Only the
+//! pure utility helpers that do not depend on the closure-capture
+//! struct machinery (`context.types[].cName`, `deferredDupExpressions`,
+//! state-machine fields, …) are ported here. The main entry points
+//! `generateClosureConstruction` / `allocateClosureCapture` are
+//! intentionally left to a follow-up port — they hard-depend on
+//! infrastructure that the bootstrap codegen does not yet expose.
+//!
+//! Helpers ported here:
+//!   - `check_variable_is_closure_captured(name, env, capture_frame_level)`
+//!     — mirror of TS `checkVariableIsClosureCaptured`.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Environment, Variable, get_variables_from_env } :: import("../../env/env.yo");
+/// True if the most recent variable named `name` in `env` was bound at
+/// a frame level shallower than (or equal to) `capture_frame_level` —
+/// i.e. it was captured by an enclosing closure rather than declared
+/// locally inside the closure body. Mirrors
+/// `checkVariableIsClosureCaptured` in `src/codegen/exprs/closures.ts`.
+check_variable_is_closure_captured :: (
+  fn(
+    name : String,
+    env : Environment,
+    capture_frame_level : usize
+  ) -> bool
+)({
+  variables := get_variables_from_env(env, name);
+  n := variables.len();
+  cond(
+    (n == usize(0)) => false,
+    true => match(
+      variables.get(n - usize(1)),
+      .None => false,
+      .Some(latest) => (latest.frame_level <= capture_frame_level)
+    )
+  )
+});
+export(check_variable_is_closure_captured);

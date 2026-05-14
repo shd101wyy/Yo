@@ -1,0 +1,68 @@
+/// Tests for yo-self/codegen/exprs/closures.yo.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Environment, add_variable_to_env } :: import("../env/env.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
+{ TypeValue, t_i32 } :: import("../types/type.yo");
+{ Token, TokenKind } :: import("../lexer/token.yo");
+{ check_variable_is_closure_captured } :: import("../codegen/exprs/closures.yo");
+placeholder_token :: (fn() -> Token)(
+  Token(
+    kind : TokenKind.Identifier,
+    value : String.from(""),
+    row : usize(0),
+    column : usize(0),
+    character : usize(0),
+    module_path : String.from(""),
+    input : String.from("")
+  )
+);
+test("check_variable_is_closure_captured: missing variable returns false", {
+  env := Environment.new(String.from("test"));
+  assert(
+    !(check_variable_is_closure_captured(String.from("never_defined"), env, usize(0))),
+    "missing variable cannot be captured"
+  );
+});
+test("check_variable_is_closure_captured: outer-frame var captured when capture level matches", {
+  // env starts with one frame (frame_level == 0). Add `x` there.
+  env := Environment.new(String.from("test"));
+  _r := add_variable_to_env(
+    &(env),
+    String.from("x"),
+    t_i32(),
+    Option(EvalValue).None,
+    false,
+    false,
+    false,
+    false,
+    placeholder_token()
+  );
+  // capture_frame_level = 0 ⇒ x's frame_level (0) <= 0 ⇒ captured.
+  assert(
+    check_variable_is_closure_captured(String.from("x"), env, usize(0)),
+    "x at outer frame is captured when capture_frame_level >= 0"
+  );
+});
+test("check_variable_is_closure_captured: inner-frame var is local, not captured", {
+  // Outer frame is frame_level 0. Push an inner frame; new vars there
+  // get frame_level 1. capture_frame_level = 0 ⇒ inner var's
+  // frame_level (1) > 0 ⇒ NOT captured (it's a local).
+  env := Environment.new(String.from("test"));
+  _push_idx := (&(env)).push_frame(true);
+  _r := add_variable_to_env(
+    &(env),
+    String.from("inner"),
+    t_i32(),
+    Option(EvalValue).None,
+    false,
+    false,
+    false,
+    false,
+    placeholder_token()
+  );
+  assert(
+    !(check_variable_is_closure_captured(String.from("inner"), env, usize(0))),
+    "inner-frame var is local, not captured by outer closure"
+  );
+});
