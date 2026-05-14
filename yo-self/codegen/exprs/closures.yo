@@ -76,8 +76,53 @@ is_closure_construction :: (
 /// to `TypeValue.SomeT`, fill in the loop body — the call sites are
 /// already wired through the canonical API.
 resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)(t);
+/// Build the C name of the closure constructor function for a given
+/// closure C type name: `__yo_create_<closure_c_name>`. Pure string
+/// composition — the eventual full `generate_closure_construction`
+/// port emits a call to this function.
+format_closure_constructor_name :: (fn(closure_c_name : String) -> String)({
+  s := String.from("__yo_create_");
+  s.push_string(closure_c_name);
+  s
+});
+/// Build the C name of the closure dispose function for a given
+/// closure C type name: `__yo_dispose_<closure_c_name>`. Symmetric
+/// to `format_closure_constructor_name`.
+format_closure_dispose_name :: (fn(closure_c_name : String) -> String)({
+  s := String.from("__yo_dispose_");
+  s.push_string(closure_c_name);
+  s
+});
+/// Format the dyn-closure construction call site:
+///   `__yo_create_<closure_c_name>(<capture_arg>, __yo_dispose_<closure_c_name>, <cast_call_function>)`
+///
+/// `capture_arg` is either the temp-var name holding the
+/// heap-allocated capture struct, or `"NULL"` for closures with no
+/// captures. `cast_call_function` is the (∂  type-cast) function-pointer
+/// expression for the closure's body.
+///
+/// Mirrors the two `${constructorName}(...)` return branches in TS
+/// `generateClosureConstruction` (with-captures vs without-captures
+/// dyn-closure paths). Pure string composition.
+format_dyn_closure_construction :: (
+  fn(closure_c_name : String, capture_arg : String, cast_call_function : String) -> String
+)({
+  s := String.from("__yo_create_");
+  s.push_string(closure_c_name);
+  s.push_str("(");
+  s.push_str(capture_arg.as_str());
+  s.push_str(", __yo_dispose_");
+  s.push_string(closure_c_name);
+  s.push_str(", ");
+  s.push_str(cast_call_function.as_str());
+  s.push_str(")");
+  s
+});
 export(
   check_variable_is_closure_captured,
   is_closure_construction,
-  resolve_some_type_to_concrete
+  resolve_some_type_to_concrete,
+  format_closure_constructor_name,
+  format_closure_dispose_name,
+  format_dyn_closure_construction
 );

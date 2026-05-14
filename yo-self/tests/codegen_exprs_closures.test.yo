@@ -24,7 +24,10 @@ open(import("std/string"));
 {
   check_variable_is_closure_captured,
   is_closure_construction,
-  resolve_some_type_to_concrete
+  resolve_some_type_to_concrete,
+  format_closure_constructor_name,
+  format_closure_dispose_name,
+  format_dyn_closure_construction
 } :: import("../codegen/exprs/closures.yo");
 placeholder_token :: (fn() -> Token)(
   Token(
@@ -174,5 +177,43 @@ test("resolve_some_type_to_concrete: stub returns input unchanged", {
       assert(signed, "i32 signed");
     },
     _ => assert(false, "expected Int variant returned unchanged")
+  );
+});
+// ─── closure constructor / dispose / dyn-construction formatters ────────────
+test("format_closure_constructor_name: prefixes with __yo_create_", {
+  out := format_closure_constructor_name(String.from("Cls_42"));
+  assert(out == String.from("__yo_create_Cls_42"), "prefix");
+});
+test("format_closure_dispose_name: prefixes with __yo_dispose_", {
+  out := format_closure_dispose_name(String.from("Cls_42"));
+  assert(out == String.from("__yo_dispose_Cls_42"), "prefix");
+});
+test("format_dyn_closure_construction: with captures", {
+  out := format_dyn_closure_construction(
+    String.from("Greeter"),
+    String.from("_cap_tmp"),
+    String.from("(call_fn_t)greet_impl")
+  );
+  assert(
+    out ==
+      String.from(
+        "__yo_create_Greeter(_cap_tmp, __yo_dispose_Greeter, (call_fn_t)greet_impl)"
+      ),
+    "with captures"
+  );
+});
+test("format_dyn_closure_construction: without captures uses NULL", {
+  // For closures without captures, TS passes `NULL` as the capture
+  // argument. Mirror that exactly — the formatter doesn't special-case
+  // it; the caller passes "NULL" as the literal string.
+  out := format_dyn_closure_construction(
+    String.from("Idle"),
+    String.from("NULL"),
+    String.from("(call_fn_t)idle_impl")
+  );
+  assert(
+    out ==
+      String.from("__yo_create_Idle(NULL, __yo_dispose_Idle, (call_fn_t)idle_impl)"),
+    "without captures"
   );
 });
