@@ -10,7 +10,9 @@ open(import("std/string"));
   format_dyn_drop_call,
   format_dyn_dup_call,
   format_rc_count_non_atomic,
-  format_rc_count_atomic
+  format_rc_count_atomic,
+  format_null_checked_decr_rc,
+  format_null_checked_incr_rc
 } :: import("../codegen/exprs/rc_fns.yo");
 test("format_decr_rc_call wraps a simple arg", {
   assert(
@@ -123,4 +125,29 @@ test("format_rc_count_atomic: complex arg passthrough", {
     "atomic_load_explicit((_Atomic size_t*)&((__yo_ref_header_t*)(queue.front))->ref_count, memory_order_acquire)"
   );
   assert(out == expected, "atomic complex");
+});
+test("format_null_checked_decr_rc: wraps decr_rc in if-NULL guard", {
+  // Pin the TS `generateYoSomeTypeDrop` Impl(Future) shape.
+  out := format_null_checked_decr_rc(String.from("fut"));
+  assert(
+    out == String.from("if (fut != NULL) { __yo_decr_rc((void*)fut); }"),
+    "null-checked drop shape"
+  );
+});
+test("format_null_checked_incr_rc: symmetric incr_rc variant", {
+  out := format_null_checked_incr_rc(String.from("fut"));
+  assert(
+    out == String.from("if (fut != NULL) { __yo_incr_rc((void*)fut); }"),
+    "null-checked dup shape"
+  );
+});
+test("format_null_checked_decr_rc: complex arg passthrough", {
+  // Complex args appear twice in the output (once in the check, once
+  // in the call). Pin that the formatter doesn't pre-bind the arg.
+  out := format_null_checked_decr_rc(String.from("self->fut"));
+  assert(
+    out ==
+      String.from("if (self->fut != NULL) { __yo_decr_rc((void*)self->fut); }"),
+    "complex arg appears twice"
+  );
 });

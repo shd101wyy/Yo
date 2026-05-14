@@ -11,19 +11,23 @@
 //!     ref-count lives on its `.data` pointer)
 //!   - `rc(x)` ref-count read — non-atomic header-field access and
 //!     the atomic-ordering variant for atomic-object types
+//!   - null-checked decr/incr — the `if (x != NULL) { … }` shape used
+//!     by `__yo_sometype_drop` / `…dup` for `Impl(Future(T))` values
+//!     to skip refcount adjustments on aborted-Future placeholders.
 //!
 //! These are the formatter primitives that the full handler ports
 //! (`generateYoDecrRc` / `…IncrRc` / `…RcOwn` / `…DynDrop` / `…DynDup`
-//! / `generateRcCall`) will call after recursively lowering the
-//! argument expression via the main expr dispatcher.
+//! / `generateRcCall` / `…SomeTypeDrop` / `…SomeTypeDup`) will call
+//! after recursively lowering the argument expression via the main
+//! expr dispatcher.
 //!
 //! The array/tuple element variants
 //! (`generateYoDropArrayElement` / `generateYoDupArrayElement`) need
 //! the recursive emitter + `get_drop_function_for_type` /
 //! `get_dup_function_for_type` lookups and stay in the bootstrap
 //! codegen until the type-name + function-cname registries land.
-//! `generateYoSomeTypeDrop` / `generateYoSomeTypeDup` need the typed
-//! AST metadata to branch on `Impl(Future(T))` and similarly defer.
+//! The concrete-`___drop` dispatch branch of `generateYoSomeTypeDrop`
+//! similarly waits on the trait fields' `assigned_value` slot.
 open(import("std/string"));
 /// Format the C call site `__yo_decr_rc(arg_code)`. Mirrors the body of
 /// TS `generateYoDecrRc` — pure string wrap.
@@ -109,6 +113,32 @@ format_rc_count_atomic :: (fn(arg_code : String) -> String)({
   s.push_str("))->ref_count, memory_order_acquire)");
   s
 });
+/// Format the null-checked decr-rc statement used by
+/// `generateYoSomeTypeDrop` for `Impl(Future(T))` values:
+///   `if (<arg_code> != NULL) { __yo_decr_rc((void*)<arg_code>); }`
+///
+/// `Impl(Future(T))` is heap-backed and ref-counted; the state
+/// machine is freed when the refcount hits zero. The null check
+/// guards against an aborted-Future placeholder (`state == -2`).
+/// Pure string composition.
+format_null_checked_decr_rc :: (fn(arg_code : String) -> String)({
+  s := String.from("if (");
+  s.push_str(arg_code.as_str());
+  s.push_str(" != NULL) { __yo_decr_rc((void*)");
+  s.push_str(arg_code.as_str());
+  s.push_str("); }");
+  s
+});
+/// Symmetric `incr_rc` variant used by `generateYoSomeTypeDup`:
+///   `if (<arg_code> != NULL) { __yo_incr_rc((void*)<arg_code>); }`
+format_null_checked_incr_rc :: (fn(arg_code : String) -> String)({
+  s := String.from("if (");
+  s.push_str(arg_code.as_str());
+  s.push_str(" != NULL) { __yo_incr_rc((void*)");
+  s.push_str(arg_code.as_str());
+  s.push_str("); }");
+  s
+});
 export(
   format_decr_rc_call,
   format_incr_rc_call,
@@ -118,5 +148,7 @@ export(
   format_dyn_drop_call,
   format_dyn_dup_call,
   format_rc_count_non_atomic,
-  format_rc_count_atomic
+  format_rc_count_atomic,
+  format_null_checked_decr_rc,
+  format_null_checked_incr_rc
 );
