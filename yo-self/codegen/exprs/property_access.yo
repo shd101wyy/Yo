@@ -1,0 +1,58 @@
+//! Partial 1-to-1 port of `src/codegen/exprs/property-access.ts`.
+//!
+//! Currently exposes the newtype-field-access leaf path of
+//! `generateFieldAccess`:
+//!
+//!   - `generate_newtype_field_access(object_code, object_type,
+//!     field_name)` — when `object_type` is a single-field newtype
+//!     struct AND `field_name` matches that field's label, returns
+//!     `object_code` unchanged (newtype is a zero-cost abstraction;
+//!     in C the newtype is typedef'd to the underlying type and the
+//!     field access is the identity).
+//!
+//! Returns `.None` for any other shape so the bootstrap codegen can
+//! keep handling struct/enum/module/Rc-method paths. The full
+//! `generate_field_access` still depends on the function-cname
+//! registry, state-machine variables, and the evaluator's
+//! evidence-parameter resolution — none yet exposed in yo-self
+//! codegen.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../../types/type.yo");
+{ is_newtype_type } :: import("../../types/guards.yo");
+/// Emit the C code for `obj.field` when `obj` has a single-field
+/// newtype type and `field_name` matches that field's label.
+/// Returns `.Some(object_code)` (the newtype access is the
+/// identity); `.None` otherwise so the caller can defer.
+///
+/// Mirrors the newtype branch in TS `generateFieldAccess`:
+///
+///     if (isNewtypeType(objectType) && objectType.fields.length === 1) {
+///       const singleField = objectType.fields[0];
+///       if (singleField && singleField.label === fieldName) {
+///         return objectCode;
+///       }
+///     }
+generate_newtype_field_access :: (
+  fn(object_code : String, object_type : TypeValue, field_name : String) -> Option(String)
+)(
+  cond(
+    !(is_newtype_type(object_type)) => Option(String).None,
+    true => match(
+      object_type,
+      .Struct({ field_labels }) => cond(
+        (field_labels.len() != usize(1)) => Option(String).None,
+        true => match(
+          field_labels.get(usize(0)),
+          .None => Option(String).None,
+          .Some(label) => cond(
+            (label == field_name) => Option(String).Some(object_code),
+            true => Option(String).None
+          )
+        )
+      ),
+      _ => Option(String).None
+    )
+  )
+);
+export(generate_newtype_field_access);
