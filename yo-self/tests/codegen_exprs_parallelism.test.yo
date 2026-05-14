@@ -6,7 +6,12 @@ open(import("std/string"));
 { CodegenContext } :: import("../codegen/context.yo");
 { generate_expr } :: import("../codegen/exprs.yo");
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
-{ generate_yo_thread_set_maximum_threads } :: import("../codegen/exprs/parallelism.yo");
+{
+  generate_yo_thread_set_maximum_threads,
+  format_thread_spawn_call,
+  format_worker_spawn_call,
+  format_spawn_heap_alloc
+} :: import("../codegen/exprs/parallelism.yo");
 make_token :: (fn(kind : TokenKind, value : str) -> Token)(
   Token(
     kind : kind,
@@ -43,5 +48,39 @@ test("generate_yo_thread_set_maximum_threads: missing arg emits error comment", 
     out,
     .None => assert(false, "expected error output"),
     .Some(code) => assert(code.as_str() == "// Error: __yo_thread_set_maximum_threads requires exactly 1 argument", "expected error comment")
+  );
+});
+// ─── pure formatters ────────────────────────────────────────────────────────
+test("format_thread_spawn_call: composes runtime call", {
+  out := format_thread_spawn_call(
+    String.from("__yo_spawn_wrapper_x"),
+    String.from("_thread_closure_data_a")
+  );
+  assert(
+    out == String.from("__yo_thread_spawn(__yo_spawn_wrapper_x, _thread_closure_data_a)"),
+    "thread spawn shape"
+  );
+});
+test("format_worker_spawn_call: same shape, worker name", {
+  out := format_worker_spawn_call(
+    String.from("__yo_spawn_wrapper_y"),
+    String.from("_worker_closure_data_b")
+  );
+  assert(
+    out == String.from("__yo_worker_spawn(__yo_spawn_wrapper_y, _worker_closure_data_b)"),
+    "worker spawn shape"
+  );
+});
+test("format_spawn_heap_alloc: typedef + malloc line", {
+  out := format_spawn_heap_alloc(
+    String.from("__yo_closure_capture_t"),
+    String.from("_h")
+  );
+  assert(
+    out ==
+      String.from(
+        "__yo_closure_capture_t* _h = (__yo_closure_capture_t*)__yo_malloc(sizeof(__yo_closure_capture_t));"
+      ),
+    "heap-alloc line"
   );
 });
