@@ -55,6 +55,14 @@ os_to_str :: (fn(o : Os) -> str)(
     .Emscripten => "emscripten"
   )
 );
+/// 1-to-1 alias of `os_to_str` matching the TS export name. The Yo
+/// `__yo_process_platform()` builtin returns one of these strings.
+/// Mirrors `targetOsToYoString` in `src/target.ts`.
+target_os_to_yo_string :: (fn(o : Os) -> str)(os_to_str(o));
+/// 1-to-1 alias of `arch_to_str` matching the TS export name. The Yo
+/// `__yo_process_arch()` builtin returns one of these strings.
+/// Mirrors `targetArchToYoString` in `src/target.ts`.
+target_arch_to_yo_string :: (fn(a : Arch) -> str)(arch_to_str(a));
 abi_to_str :: (fn(a : Abi) -> str)(
   match(
     a,
@@ -367,6 +375,8 @@ export(
   arch_to_str,
   os_to_str,
   abi_to_str,
+  target_os_to_yo_string,
+  target_arch_to_yo_string,
   parse_arch,
   parse_os,
   parse_abi,
