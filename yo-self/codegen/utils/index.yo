@@ -24,12 +24,19 @@
 //!   enums, returns the inner `Pointer(T)` so the C lowering can use
 //!   the pointer slot with `NULL` standing in for the empty variant.
 //!
-//! Still pending: `get_type_string` (the main type-name lookup),
-//! `get_enum_variant_c_name` (needs the function-cname table),
-//! `get_variable_type_string`, `is_comptime_only_struct_field` (yo-self
-//! Struct doesn't yet carry the per-field `isCompileTimeOnly` flag),
-//! `get_variable_name_for_codegen`, `is_comptime_function`,
+//! Also ported: `get_type_string` (+ `get_type_string_opt`),
+//! `get_variable_type_string` (+ `_str` / `_opt` / `_opt_str`
+//! variants), `get_enum_variant_c_name`, `get_variable_name_for_codegen`,
+//! `get_deferred_dup_target_atom_name`,
+//! `get_deferred_drop_target_atom_name`,
+//! `is_deferred_drop_for_closure_capture`, and
 //! `is_function_value_with_only_builtin_yo_inline_function_call`.
+//!
+//! Still pending (4): `is_comptime_only_struct_field` and
+//! `get_runtime_struct_fields` (yo-self Struct doesn't yet carry the
+//! per-field `isCompileTimeOnly` flag), `is_comptime_function`
+//! (needs `Func.return.isCompileTimeOnly`), `find_returned_async_block`
+//! (async-runtime traversal).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/type.yo");
