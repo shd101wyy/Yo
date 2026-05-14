@@ -1027,7 +1027,7 @@ i32_array.len(); // 5，编译期已知
 slice := i32_array(1:end);  // slice: Slice(i32)
 slice.len(); // 2，运行时已知
 
-full_slice := i32_array(:);  // full_slice: Slice(i32)
+full_slice := i32_array(0..3);  // full_slice: Slice(i32)
 
 slice(0) = 10;  // 通过切片修改
 slice(1) = 20;
@@ -1143,13 +1143,13 @@ assert(old(0) == 5);    // old 保存了之前的值
 ### cond
 
 ```rust
-use_cond :: (fn(x: i32) -> unit)
+use_cond :: (fn(x: i32) -> unit)(
   cond(
     (x == 1) => println("x is 1"),
     (x == 2) => println("x is 2"),
     true => println("x is not 1 or 2")
   )
-;
+);
 ```
 
 > 注意：最后一个条件必须是编译期已知的值 `true`，以充当默认分支。
@@ -1166,14 +1166,14 @@ if :: (fn(
         quote(condition): Expr,
         quote(then): Expr,
         (quote(else): Expr) ?= quote(())
-      ) -> unquote(Expr))
+      ) -> unquote(Expr))(
   quote(
     cond(
       unquote(condition) => unquote(then),
       true => unquote(else)
     )
   )
-;
+);
 
 // 使用
 main :: (fn() -> unit)({
@@ -1708,7 +1708,7 @@ Coin :: enum(
 // 参考：
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-value_in_cents :: (fn(coin: Coin) -> u8)
+value_in_cents :: (fn(coin: Coin) -> u8)(
   match(coin,
     .Penny => {
       printf("Lucky penny!\n");
@@ -1718,7 +1718,7 @@ value_in_cents :: (fn(coin: Coin) -> u8)
     .Dime => 10,
     .Quarter => 25
   )
-;
+);
 
 Shape :: enum(
   Circle(r : i32),
@@ -2142,16 +2142,16 @@ Yo 提供了 `Box` 和 `box` 用于将值类型堆分配并自动进行引用计
 
 ```rust
 // Box 定义在 std/prelude.yo 中
-Box :: (fn(comptime(V) : Type) -> comptime(Type))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))(
   object(
     (*) : V
   )
-;
+);
 
 // box 函数创建一个 Box
-box :: (fn(forall(V : Type), value : V) -> Box(V))
+box :: (fn(forall(V : Type), value : V) -> Box(V))(
   Box(V)(value)
-;
+);
 ```
 
 ### 使用示例
@@ -2594,12 +2594,12 @@ export(test);
 
 // module2.yo
 // 导出类型
-Option :: (fn(comptime(T): Type) -> comptime(Type))
+Option :: (fn(comptime(T): Type) -> comptime(Type))(
   enum(
     Some(value : T),
     None
   )
-;
+);
 export(Option);
 ```
 
@@ -2879,12 +2879,14 @@ quote((0, unquote_splicing(list.get_args()), 4)); // 元组 (0, 1, 2, 3, 4)
 if :: (fn(quote(condition): Expr,
         quote(then): Expr,
         (quote(else): Expr) ?= quote(())
-      ) -> unquote(Expr))
-  quote
-    cond
+      ) -> unquote(Expr))(
+  quote(
+    cond(
       unquote(condition) => unquote(then),
       true => unquote(else)
-;
+    )
+  )
+);
 
 // 用法
 if(true, {
@@ -2906,10 +2908,11 @@ try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr))({
 });
 
 // 自定义宏示例
-unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))
-  quote
+unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
+  quote(
     if(not(unquote(condition)), unquote(do))
-;
+  )
+);
 ```
 
 ## 派生特征（Derive Traits）
@@ -3025,12 +3028,12 @@ MyInt :: i32;               // comptime(Type)
 value := MyInt(100);        // 运行时 i32
 
 // 编译时计算
-factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))
+factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))(
   cond(
     (n <= 1) => 1,
     true => (n * recur(n - 1))
   )
-;
+);
 result :: factorial(5);     // 编译时计算：120
 ```
 
