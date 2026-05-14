@@ -31,6 +31,7 @@ open(import("std/string"));
 { is_newtype_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../value.yo");
 { CodegenContext } :: import("../context.yo");
+{ sanitize_for_c_identifier } :: import("../utils/index.yo");
 /// Emit the C code for `obj.field` when `obj` has a single-field
 /// newtype type and `field_name` matches that field's label.
 /// Returns `.Some(object_code)` (the newtype access is the
@@ -91,4 +92,35 @@ generate_method_field_access :: (
     _ => Option(String).None
   )
 );
-export(generate_newtype_field_access, generate_method_field_access);
+/// Format a pointer dereference: `(*<object_code>)`.
+///
+/// Used when `obj.field` is actually `(*obj)` — the `field` is the
+/// special `"*"` deref marker. Parenthesised to preserve precedence.
+/// Mirrors the TS branch:
+///     if (fieldName === "*") return `(*${objectCode})`;
+format_ptr_deref :: (fn(object_code : String) -> String)({
+  s := String.from("(*");
+  s.push_str(object_code.as_str());
+  s.push_str(")");
+  s
+});
+/// Format a pointer-to-slice field access using arrow notation:
+///   `<object_code>-><sanitized_field_name>`
+///
+/// Used for `obj.field` when `obj` is `*Slice(T)` — C's arrow operator
+/// dereferences-and-accesses in one step. Mirrors the TS branch:
+///     return `${objectCode}->${sanitizeForCIdentifier(fieldName)}`;
+format_ptr_to_slice_field_access :: (
+  fn(object_code : String, field_name : String) -> String
+)({
+  s := String.from(object_code.as_str());
+  s.push_str("->");
+  s.push_string(sanitize_for_c_identifier(field_name));
+  s
+});
+export(
+  generate_newtype_field_access,
+  generate_method_field_access,
+  format_ptr_deref,
+  format_ptr_to_slice_field_access
+);

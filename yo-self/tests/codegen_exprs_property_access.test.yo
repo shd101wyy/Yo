@@ -7,7 +7,9 @@ open(import("std/string"));
 { CodegenContext } :: import("../codegen/context.yo");
 {
   generate_newtype_field_access,
-  generate_method_field_access
+  generate_method_field_access,
+  format_ptr_deref,
+  format_ptr_to_slice_field_access
 } :: import("../codegen/exprs/property_access.yo");
 /// Build a single-field newtype struct with the given field label.
 mk_newtype_struct :: (fn(name : str, field_label : str) -> TypeValue)({
@@ -133,4 +135,34 @@ test("method field access: non-FuncVal → None", {
     generate_method_field_access(EvalValue.UnitVal, &(ctx)).is_none(),
     "UnitVal → None"
   );
+});
+// ─── pointer-deref / pointer-to-slice formatters ────────────────────────────
+test("format_ptr_deref: parenthesises (*obj)", {
+  // The parens matter: `(*ptr)` parses as a primary expression while
+  // `*ptr` could chain with member access incorrectly. Mirrors TS
+  // `return `(*${objectCode})`;`.
+  assert(format_ptr_deref(String.from("p")) == String.from("(*p)"), "simple");
+  assert(
+    format_ptr_deref(String.from("a + b")) == String.from("(*a + b)"),
+    "no inner parens"
+  );
+});
+test("format_ptr_to_slice_field_access: arrow + sanitised name", {
+  // `obj->field` plain identifier case.
+  out := format_ptr_to_slice_field_access(
+    String.from("slc"),
+    String.from("length")
+  );
+  assert(out == String.from("slc->length"), "plain field");
+});
+test("format_ptr_to_slice_field_access: field name with operator chars", {
+  // Sanitisation kicks in for non-identifier chars in the field name.
+  // (e.g. an operator field used in a slice-like binding). Pin that
+  // the formatter routes through sanitize_for_c_identifier.
+  out := format_ptr_to_slice_field_access(
+    String.from("slc"),
+    String.from("+")
+  );
+  // `+` is byte 43 — `sanitize_for_c_identifier` produces `_u43_`.
+  assert(out == String.from("slc->_u43_"), "operator sanitised");
 });
