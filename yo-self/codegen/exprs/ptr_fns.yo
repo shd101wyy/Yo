@@ -1,0 +1,30 @@
+//! Partial 1-to-1 port of `src/codegen/exprs/ptr-fns.ts`.
+//!
+//! Currently exposes one pure formatter:
+//!
+//!   - `format_address_of(arg_code)` — wraps an already-generated C
+//!     expression in the `(&...)` address-of form. This is the tail
+//!     fallback path of `generateAddressOf` (the path that doesn't
+//!     intercept array-index-range / slice-construction / function-
+//!     pointer special cases). Pure string transformation.
+//!
+//! The slice-construction, array-index-range, and function-pointer
+//! paths still depend on `context.sliceStructTypes`, the recursive
+//! `generateExpr` dispatcher, and
+//! `is_function_value_with_only_builtin_yo_inline_function_call` —
+//! none of which are ported yet. The rvalue-spilling path
+//! (taking the address of a function call by spilling to a temp)
+//! depends on `get_variable_type_string` (✓ available) plus a fresh
+//! temp counter that lives on the codegen context (not yet exposed
+//! in yo-self), so it also waits.
+open(import("std/string"));
+/// Format the C address-of expression `(&arg_code)` — TS
+/// `return `(&${argCode})`;` in `generateAddressOf`. Pure string
+/// wrap; no codegen context needed.
+format_address_of :: (fn(arg_code : String) -> String)({
+  s := String.from("(&");
+  s.push_str(arg_code.as_str());
+  s.push_str(")");
+  s
+});
+export(format_address_of);

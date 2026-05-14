@@ -1,0 +1,18 @@
+/// Tests for yo-self/codegen/exprs/ptr_fns.yo (partial port —
+/// pure formatters only).
+open(import("std/string"));
+{ format_address_of } :: import("../codegen/exprs/ptr_fns.yo");
+test("format_address_of: wraps an identifier", {
+  out := format_address_of(String.from("x"));
+  assert(out == String.from("(&x)"), "(&x)");
+});
+test("format_address_of: wraps a struct field access", {
+  out := format_address_of(String.from("self.count"));
+  assert(out == String.from("(&self.count)"), "(&self.count)");
+});
+test("format_address_of: wraps a complex expression verbatim", {
+  // TS does no inner parenthesisation — relies on the caller to
+  // produce a well-formed primary expression. Mirror exactly.
+  out := format_address_of(String.from("foo(bar)"));
+  assert(out == String.from("(&foo(bar))"), "complex passthrough");
+});
