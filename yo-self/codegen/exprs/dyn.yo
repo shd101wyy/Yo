@@ -79,17 +79,18 @@ generate_dyn_for_resolved_inputs :: (
       impl_key.push_string(concrete_c_name);
       impl_key.push_str("_");
       impl_key.push_string(dyn_c_name);
-      // Dedup-register in ctx.dyn_impls. The first emission stores
-      // the (dyn, concrete, data) triple + trait_values; subsequent
-      // emissions are no-ops.
-      if(ctx.*.dyn_impls.get(impl_key).is_none(), {
+      // Dedup-register in ctx.dyn_impls via the canonical helper. The
+      // first emission stores the (dyn, concrete, data) triple +
+      // trait_values; subsequent emissions are no-ops. Mirrors the TS
+      // `context.dynImpls.set(implKey, …)` call in `generateDynCall`.
+      if(ctx.*.get_dyn_impl(impl_key).is_none(), {
         entry := CodegenDynImplEntry(
           dyn_type : dyn_type,
           concrete_type : value_type,
           data_type : value_type,
           trait_values : trait_values
         );
-        _ := ctx.*.dyn_impls.set((&(impl_key)).clone(), entry);
+        ctx.*.register_dyn_impl((&(impl_key)).clone(), entry);
       });
       // Build the C `__yo_vtable_${implKey}` symbol — the vtable's
       // C identifier may contain non-identifier bytes if the impl
