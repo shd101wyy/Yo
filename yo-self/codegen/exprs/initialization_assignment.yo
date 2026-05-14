@@ -1,0 +1,31 @@
+//! Partial 1-to-1 port of
+//! `src/codegen/exprs/initialization-assignment.ts`.
+//!
+//! Currently exposes one pure-AST helper:
+//!
+//!   - `is_skipped_init_lhs(lhs)` — true iff the LHS of `:=` is
+//!     `comptime(x)` or `given(x)` (a 1-arg call), in which case
+//!     the TS handler emits an empty C string (no runtime code).
+//!     Mirrors the two early-returns near the top of TS
+//!     `generateInitializationAssignment`.
+//!
+//! The full `:=` lowering — state-machine variable-load detection,
+//! tag-only enum init, struct compound literals, RC drop/dup of the
+//! consumed RHS — still depends on state-machine variables, the
+//! function-cname registry, and a recursive value-side dispatcher,
+//! none of which is yet exposed in yo-self codegen.
+open(import("std/string"));
+{
+  AstExpr,
+  ast_expr_is_fn_call_of,
+  BK_COMPTIME,
+  BK_GIVEN
+} :: import("../../expr/expr.yo");
+/// True iff `lhs` is the LHS shape `comptime(x)` or `given(x)`
+/// (1-arg call). The TS handler returns an empty C string for these
+/// because they are compile-time-only bindings.
+is_skipped_init_lhs :: (fn(lhs : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(lhs, BK_COMPTIME, Option(usize).Some(usize(1))) ||
+    ast_expr_is_fn_call_of(lhs, BK_GIVEN, Option(usize).Some(usize(1)))
+);
+export(is_skipped_init_lhs);
