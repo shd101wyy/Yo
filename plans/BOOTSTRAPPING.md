@@ -123,9 +123,9 @@ functions, RC machinery beyond bootstrap stubs).
 | `closures.ts`                  | 320      | ⚠️ `closures.yo` (`check_variable_is_closure_captured` + `is_closure_construction`)  | `codegen_exprs_closures.test.yo` (7 tests)                  |
 | `drop-dup.ts`                  | 370      | ⚠️ `drop_dup.yo` (leaf drop + dup emit for Dyn/Object/AtomicObject/Iso)              | `codegen_exprs_drop_dup.test.yo` (15 tests)                 |
 | `rc-fns.ts`                    | 556      | ⚠️ `rc_fns.yo` (5 pure RC-builtin call formatters)                                   | `codegen_exprs_rc_fns.test.yo` (7 tests)                    |
-| `return.ts`                    | 705      | ⚠️ `return_helpers.yo` (4 pure Token/AstExpr helpers)                                | `codegen_exprs_return_helpers.test.yo` (13 tests)           |
+| `return.ts`                    | 705      | ⚠️ `return.yo` (4 pure Token/AstExpr helpers)                                        | `codegen_exprs_return.test.yo` (13 tests)                   |
 | `downcast.ts`                  | 176      | ⚠️ `downcast.yo` (non-boxed-object leaf path)                                        | `codegen_exprs_downcast.test.yo` (6 tests)                  |
-| `match.ts`                     | 1182     | ⚠️ `match_helpers.yo` (4 pure helpers: control-flow / or-pattern / c-literal)        | `codegen_exprs_match_helpers.test.yo` (16 tests)            |
+| `match.ts`                     | 1182     | ⚠️ `match.yo` (4 pure helpers: control-flow / or-pattern / c-literal)                | `codegen_exprs_match.test.yo` (16 tests)                    |
 | `assignment.ts`                | 359      | ⚠️ `assignment.yo` (`is_initialization_assignment_lhs`, `unwrap_initialization_lhs`) | `codegen_exprs_assignment.test.yo` (7 tests)                |
 | `initialization-assignment.ts` | 534      | ⚠️ `initialization_assignment.yo` (`is_skipped_init_lhs`)                            | `codegen_exprs_initialization_assignment.test.yo` (5 tests) |
 | `atom.ts`                      | 545      | ❌                                                                                   |                                                             |
