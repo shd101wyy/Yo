@@ -1,17 +1,27 @@
 //! Partial 1-to-1 port of `src/codegen/exprs/rc-fns.ts`.
 //!
 //! Covers the pure string-formatting wrappers that produce the C call
-//! sites for the RC builtins (`__yo_decr_rc`, `__yo_incr_rc`,
-//! `__yo_rc_own`). These are the formatter primitives that the full
-//! handler ports (`generateYoDecrRc`, `generateYoIncrRc`,
-//! `generateYoRcOwn`) will call after recursively lowering the
-//! argument expression via the main expr dispatcher.
+//! sites for the RC builtins:
+//!
+//!   - `__yo_decr_rc` / `__yo_incr_rc` (non-atomic refcount ops)
+//!   - `__yo_decr_rc_atomic` / `__yo_incr_rc_atomic` (atomic variants
+//!     used by Object types with `atomic` modifier and `Iso(T)`)
+//!   - `__yo_rc_own` (ownership-transfer marker; identity in C)
+//!   - `__yo_dyn_drop` / `__yo_dyn_dup` (Dyn is value-typed; the
+//!     ref-count lives on its `.data` pointer)
+//!
+//! These are the formatter primitives that the full handler ports
+//! (`generateYoDecrRc` / `…IncrRc` / `…RcOwn` / `…DynDrop` / `…DynDup`)
+//! will call after recursively lowering the argument expression via
+//! the main expr dispatcher.
 //!
 //! The array/tuple element variants
 //! (`generateYoDropArrayElement` / `generateYoDupArrayElement`) need
 //! the recursive emitter + `get_drop_function_for_type` /
 //! `get_dup_function_for_type` lookups and stay in the bootstrap
 //! codegen until the type-name + function-cname registries land.
+//! `generateYoSomeTypeDrop` / `generateYoSomeTypeDup` need the typed
+//! AST metadata to branch on `Impl(Future(T))` and similarly defer.
 open(import("std/string"));
 /// Format the C call site `__yo_decr_rc(arg_code)`. Mirrors the body of
 /// TS `generateYoDecrRc` — pure string wrap.
@@ -51,10 +61,34 @@ format_incr_rc_atomic_call :: (fn(arg_code : String) -> String)({
   s.push_str(")");
   s
 });
+/// Format the `__yo_dyn_drop` call site:
+///   `__yo_decr_rc((void*)(arg_code).data)`
+///
+/// Dyn is a value type; the ref-count lives on its `.data` pointer.
+/// Mirrors the body of TS `generateYoDynDrop` — pure string wrap.
+format_dyn_drop_call :: (fn(arg_code : String) -> String)({
+  s := String.from("__yo_decr_rc((void*)(");
+  s.push_str(arg_code.as_str());
+  s.push_str(").data)");
+  s
+});
+/// Format the `__yo_dyn_dup` call site:
+///   `__yo_incr_rc((void*)(arg_code).data)`
+///
+/// Symmetric counterpart to `format_dyn_drop_call`. Mirrors the body
+/// of TS `generateYoDynDup`.
+format_dyn_dup_call :: (fn(arg_code : String) -> String)({
+  s := String.from("__yo_incr_rc((void*)(");
+  s.push_str(arg_code.as_str());
+  s.push_str(").data)");
+  s
+});
 export(
   format_decr_rc_call,
   format_incr_rc_call,
   format_rc_own,
   format_decr_rc_atomic_call,
-  format_incr_rc_atomic_call
+  format_incr_rc_atomic_call,
+  format_dyn_drop_call,
+  format_dyn_dup_call
 );

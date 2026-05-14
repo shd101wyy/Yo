@@ -6,7 +6,9 @@ open(import("std/string"));
   format_incr_rc_call,
   format_rc_own,
   format_decr_rc_atomic_call,
-  format_incr_rc_atomic_call
+  format_incr_rc_atomic_call,
+  format_dyn_drop_call,
+  format_dyn_dup_call
 } :: import("../codegen/exprs/rc_fns.yo");
 test("format_decr_rc_call wraps a simple arg", {
   assert(
@@ -55,4 +57,36 @@ test("formatter pair round-trip: decr/incr produce symmetric strings", {
   b := format_decr_rc_atomic_call(String.from("v"));
   assert(a == String.from("__yo_decr_rc(v)"), "non-atomic");
   assert(b == String.from("__yo_decr_rc_atomic(v)"), "atomic suffix only");
+});
+test("format_dyn_drop_call wraps arg's .data pointer", {
+  // Mirrors TS `generateYoDynDrop`: dyn is a value type whose ref-count
+  // lives on its `.data` pointer.
+  assert(
+    format_dyn_drop_call(String.from("d")) ==
+      String.from("__yo_decr_rc((void*)(d).data)"),
+    "dyn drop"
+  );
+});
+test("format_dyn_dup_call wraps arg's .data pointer", {
+  assert(
+    format_dyn_dup_call(String.from("d")) ==
+      String.from("__yo_incr_rc((void*)(d).data)"),
+    "dyn dup"
+  );
+});
+test("format_dyn_*_call passes complex args verbatim", {
+  // Pin the same passthrough contract as the non-dyn formatters: the
+  // recursive generateExpr emits a well-formed primary expression and
+  // the formatter just wraps it.
+  assert(
+    format_dyn_drop_call(String.from("(*p).field")) ==
+      String.from("__yo_decr_rc((void*)((*p).field).data)"),
+    "dyn drop complex"
+  );
+});
+test("format_dyn_drop / format_dyn_dup are symmetric (decr/incr only differ)", {
+  drop_s := format_dyn_drop_call(String.from("x"));
+  dup_s := format_dyn_dup_call(String.from("x"));
+  assert(drop_s == String.from("__yo_decr_rc((void*)(x).data)"), "drop");
+  assert(dup_s == String.from("__yo_incr_rc((void*)(x).data)"), "dup");
 });
