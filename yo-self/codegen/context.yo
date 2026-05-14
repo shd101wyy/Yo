@@ -77,6 +77,20 @@ CodegenSliceStructEntry :: object(child_type : String);
 /// in `src/codegen/utils/index.ts`:
 ///   `{ childType: string, length: number }`.
 CodegenArrayStructEntry :: object(child_type : String, length : usize);
+/// Codegen state for an extern C function. Mirrors the per-entry
+/// shape of `CodeGenContext.externFunctions` in
+/// `src/codegen/utils/index.ts`:
+///   `{ type: FunctionType, cName: string, cInclude?: string }`.
+///
+/// Keyed by the FunctionType's type id. Populated when codegen
+/// encounters a function declared as `extern "C"` or a `c_include`
+/// directive — the registry lets the emitter dedupe extern decls
+/// and emit `#include` lines in the headers section.
+CodegenExternFunctionEntry :: object(
+  function_type : TypeValue,
+  c_name : String,
+  c_include : Option(String)
+);
 /// Shared mutable context passed to every `generate_*` function.
 ///
 /// Phase 4b/4c fields:
@@ -259,6 +273,14 @@ CodegenContext :: object(
   /// `src/codegen/utils/index.ts`. Same lazy-population +
   /// typedef-emission pattern as `slice_struct_types`.
   array_struct_types : HashMap(String, CodegenArrayStructEntry),
+  /// Extern C functions, keyed by the FunctionType's `id`. Populated
+  /// by the function-collection pass for `extern "C"` declarations and
+  /// `c_include` directives. The emitter walks the map to:
+  ///   (a) emit one `#include` per unique `c_include` value, and
+  ///   (b) emit one `extern <ret> <c_name>(<params>);` per entry.
+  /// Mirrors `CodeGenContext.externFunctions` in
+  /// `src/codegen/utils/index.ts`.
+  extern_functions : HashMap(String, CodegenExternFunctionEntry),
   /// Evidence parameter C names currently in scope for function codegen.
   /// Mirrors the values of `FunctionGenerationContext.currentEvidenceParams`.
   /// Recur calls forward these names to the recursive self-call.
@@ -335,6 +357,7 @@ impl(
       functions : HashMap(String, CodegenFunctionEntry).new(),
       slice_struct_types : HashMap(String, CodegenSliceStructEntry).new(),
       array_struct_types : HashMap(String, CodegenArrayStructEntry).new(),
+      extern_functions : HashMap(String, CodegenExternFunctionEntry).new(),
       current_evidence_param_names : ArrayList(String).new(),
       declared_temp_vars : ArrayList(String).new(),
       current_loop_label : String.new(),
@@ -440,6 +463,34 @@ impl(
   has_array_struct_type : (fn(self : *(Self), array_c_name : String) -> bool)(
     self.*.array_struct_types.get(array_c_name).is_some()
   ),
+  /// Register an extern C function. The key is the FunctionType id —
+  /// this lets duplicate `extern fn foo` declarations across modules
+  /// dedupe naturally. `c_include` is `.None` when no explicit
+  /// `c_include(...)` clause was attached.
+  register_extern_function : (
+    fn(
+      self : *(Self),
+      type_id : String,
+      function_type : TypeValue,
+      c_name : String,
+      c_include : Option(String)
+    ) -> unit
+  )({
+    self.*.extern_functions.set(
+      type_id,
+      CodegenExternFunctionEntry(
+        function_type : function_type,
+        c_name : c_name,
+        c_include : c_include
+      )
+    );
+    ()
+  }),
+  /// Look up the extern-function entry for a FunctionType id. Returns
+  /// `.None` if not yet registered.
+  get_extern_function : (
+    fn(self : *(Self), type_id : String) -> Option(CodegenExternFunctionEntry)
+  )(self.*.extern_functions.get(type_id)),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
   fresh_temp : (fn(self : *(Self)) -> String)({
     n := self.*.temp_count;
@@ -1434,5 +1485,6 @@ export(
   CodegenFunctionEntry,
   CodegenSliceStructEntry,
   CodegenArrayStructEntry,
+  CodegenExternFunctionEntry,
   CodegenContext
 );

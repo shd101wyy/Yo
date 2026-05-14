@@ -8,6 +8,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { CodegenContext, CodegenFunctionEntry } :: import("../codegen/context.yo");
 { EvalValue } :: import("../value.yo");
+{ TypeValue } :: import("../types/type.yo");
 // Build a placeholder EvalValue the registry can store. The registry
 // doesn't inspect the value — it just round-trips through the entry —
 // so a simple `IntLit` stands in for a real `FuncVal` in these tests.
@@ -112,4 +113,51 @@ test("array_struct_types: entry retains child_type and length", {
       assert(entry.length == usize(16), "length");
     }
   );
+});
+// ─── extern_functions ───────────────────────────────────────────────────────
+test("register_extern_function: stores entry retrievable by type_id", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  // The FunctionType TypeValue placeholder doesn't matter for the
+  // registry semantics; we use the unit type to avoid synthesising a
+  // full FunctionType variant.
+  ty := TypeValue.Unit;
+  pctx.*.register_extern_function(
+    String.from("fty_1"),
+    ty,
+    String.from("c_strlen"),
+    Option(String).Some(String.from("<string.h>"))
+  );
+  match(
+    pctx.*.get_extern_function(String.from("fty_1")),
+    .None => assert(false, "expected entry"),
+    .Some(entry) => {
+      assert(entry.c_name == String.from("c_strlen"), "c_name");
+      match(
+        entry.c_include,
+        .None => assert(false, "expected c_include"),
+        .Some(inc) => assert(inc == String.from("<string.h>"), "c_include")
+      );
+    }
+  );
+});
+test("register_extern_function: c_include None is preserved", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.register_extern_function(
+    String.from("fty_1"),
+    TypeValue.Unit,
+    String.from("inline_intrinsic"),
+    Option(String).None
+  );
+  match(
+    pctx.*.get_extern_function(String.from("fty_1")),
+    .None => assert(false, "expected entry"),
+    .Some(entry) => assert(entry.c_include.is_none(), "c_include stays None")
+  );
+});
+test("get_extern_function: unknown id returns None", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  assert(pctx.*.get_extern_function(String.from("nope")).is_none(), "miss");
 });
