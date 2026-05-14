@@ -21,9 +21,14 @@ open(import("std/fmt"));
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr } :: import("./expr/expr.yo");
+{ ExprInfoTable } :: import("./expr/expr_info.yo");
 { TokenKind } :: import("./lexer/token.yo");
 { parse } :: import("./parser/parser.yo");
-{ compile_module_to_c, compile_test_body_to_c, extract_import_path } :: import("./codegen/driver.yo");
+{ Environment } :: import("./env/env.yo");
+{ EvalContext, eval_context_new } :: import("./evaluator/context.yo");
+{ register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
+{ evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
+{ compile_module_to_c, compile_test_body_to_c, extract_import_path, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
 // Temporary binary path used for test execution.
@@ -34,6 +39,45 @@ module_id_from_path :: (fn(path : String) -> String)(
   // path reserved for future use (filename stem extraction)
   String.from("yo_module")
 );
+/// Stream A: try to populate the typed AST metadata table by running the
+/// proper evaluator over the parsed top-level expressions. On any failure
+/// (the evaluator's coverage of real source files is still incomplete),
+/// return `.None` so the codegen dispatcher uses its AST-only bootstrap
+/// heuristics. See `plans/BOOTSTRAPPING.md` Path Forward Stream A.
+try_populate_expr_info_table :: (
+  fn(
+    exprs : ArrayList(AstExpr),
+    module_path : String
+  ) -> Option(ExprInfoTable)
+)({
+  // Local exception handler: on any throw from the evaluator, escape this
+  // helper with `.None`. The handler is scoped to this function so the
+  // outer compile / test pipeline keeps its own top-level handler intact.
+  given(local_exn) := Exception(
+    throw : (
+      (_err) -> escape(Option(ExprInfoTable).None)
+    )
+  );
+  // Build a fresh Environment + EvalContext for this compilation. The
+  // std_path argument is left empty — the proper evaluator's std-resolution
+  // is not yet plumbed in, so modules that depend on prelude / cross-module
+  // lookups will throw and we gracefully fall back.
+  env := Environment.new(module_path);
+  ctx := eval_context_new(String.from(""), module_path);
+  // Wire the proper expression-evaluator function pointer.
+  register_evaluate_expression();
+  // Drive the module body through the proper evaluator. We discard the
+  // returned AnonModuleResult and just keep the table that
+  // `ctx.expr_info_table` accumulated as a side effect.
+  _r := evaluate_anonymous_module_begin_exprs(
+    exprs,
+    env,
+    &(ctx),
+    false,
+    using(local_exn)
+  );
+  Option(ExprInfoTable).Some(ctx.expr_info_table)
+});
 /// Extract the test name string from a `test("name", { body })` expression.
 /// Returns None if the expression is not a 2-arg test call.
 extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
@@ -241,6 +285,13 @@ run_compile :: (
   src := String.from_bytes(src_bytes);
   // Parse with the self-hosted parser
   exprs := parse(src, input_path, using(exn));
+  // Stream A: stage the typed AST metadata slot. Today this is always
+  // .None — the proper evaluator's coverage of real source files is
+  // still incomplete, so we leave the codegen on the AST-only bootstrap
+  // path. Once `try_populate_expr_info_table` runs cleanly on real
+  // programs the call becomes
+  // `set_pipeline_expr_info_table(try_populate_expr_info_table(exprs.clone(), input_path))`.
+  set_pipeline_expr_info_table(Option(ExprInfoTable).None);
   // Generate C11 source
   opt_c := compile_module_to_c(exprs, mod_id.as_str(), "main");
   (c_src : String) = match(
