@@ -7,21 +7,11 @@ open(import("std/string"));
 { AstExpr, ast_expr_id } :: import("../../expr/expr.yo");
 { ExprInfo, has_any_control_flow } :: import("../../expr/expr_info.yo");
 { TypeValue, is_unit_type } :: import("../../types/type.yo");
-{ type_to_string } :: import("../../types/string.yo");
 { is_temp_variable_name } :: import("../../evaluator/utils.yo");
 { CodegenContext } :: import("../context.yo");
-{ type_value_to_c_field } :: import("../types.yo");
+{ get_type_string_opt } :: import("../utils.yo");
 { call_gen_expr } :: import("./expr.yo");
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
-
-begin_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(String))({
-  key := type_to_string(t);
-  match(
-    ctx.*.types.get(key),
-    .Some(entry) => Option(String).Some(entry.c_name),
-    .None => type_value_to_c_field(t)
-  )
-});
 
 begin_indent_inner :: (fn(indent : String) -> String)(String.from(indent.as_str()) + String.from("  "));
 
@@ -194,7 +184,7 @@ generate_begin :: (
         is_returning_value := (!(is_unit_type(value_type)) && !(has_any_control_flow(info.control_flow)));
         if(is_returning_value, {
           match(
-            begin_type_c_name(value_type, ctx),
+            get_type_string_opt(value_type, ctx),
             .None => (),
             .Some(type_name) => {
               ctx.*.emitter.emit_string(indent);
@@ -255,4 +245,4 @@ generate_begin :: (
   )
 );
 
-export(generate_begin, begin_type_c_name, begin_expr_has_metadata);
+export(generate_begin, begin_expr_has_metadata);

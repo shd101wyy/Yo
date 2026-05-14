@@ -35,6 +35,7 @@ open(import("std/string"));
 { TypeValue } :: import("../types/type.yo");
 { is_object_type, is_pointer_type } :: import("../types/guards.yo");
 { type_to_string } :: import("../types/string.yo");
+{ type_value_to_c_field } :: import("./types.yo");
 { CodegenContext } :: import("./context.yo");
 is_c_identifier_byte_ :: (fn(byte : u8) -> bool)(
   ((byte >= u8(65)) && (byte <= u8(90))) ||
@@ -263,6 +264,39 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
     _ => Option(TypeValue).None
   )
 );
+/// Look up the C type name for `t`. First consults the registered
+/// types in `ctx.types` (keyed by `type_to_string(t)` in yo-self), then
+/// falls back to the primitive lowering in `type_value_to_c_field`.
+/// Returns `.None` when neither path succeeds.
+///
+/// `get_type_string` (below) wraps this with the canonical TS
+/// `getTypeString` fallback of `"int32_t"` — use that when the caller
+/// always wants a string.
+get_type_string_opt :: (
+  fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(String)
+)({
+  key := type_to_string(t);
+  match(
+    ctx.*.types.get(key),
+    .Some(entry) => Option(String).Some(entry.c_name),
+    .None => type_value_to_c_field(t)
+  )
+});
+/// Canonical C type name for `t`. 1-to-1 port of `getTypeString` in
+/// `src/codegen/utils/index.ts`, but without the per-variant tag
+/// dispatch — yo-self consults the registry first and only falls back
+/// to the simple primitive lowering. Defaults to `"int32_t"` to match
+/// TS's outer fallback (the same default the TS `if (!type)` guard
+/// uses).
+get_type_string :: (
+  fn(t : TypeValue, ctx : *(CodegenContext)) -> String
+)(
+  match(
+    get_type_string_opt(t, ctx),
+    .Some(s) => s,
+    .None => String.from("int32_t")
+  )
+);
 /// C name for the variant `variant_name` of enum `enum_ty`. Mirrors
 /// TS `getEnumVariantCName` in `src/codegen/utils/index.ts`:
 ///
@@ -294,5 +328,7 @@ export(
   should_avoid_const,
   can_optimize_as_simple_enum,
   can_optimize_as_nullable_pointer,
-  get_enum_variant_c_name
+  get_enum_variant_c_name,
+  get_type_string,
+  get_type_string_opt
 );

@@ -13,8 +13,8 @@ open(import("std/string"));
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
 { generate_expr } :: import("../codegen/exprs.yo");
 { CodegenContext } :: import("../codegen/context.yo");
-{ generate_begin, begin_type_c_name, begin_expr_has_metadata }
-:: import("../codegen/exprs/begin.yo");
+{ generate_begin, begin_expr_has_metadata } :: import("../codegen/exprs/begin.yo");
+{ get_type_string_opt } :: import("../codegen/utils.yo");
 
 mk_token :: (fn(value : str, kind : TokenKind) -> Token)(
   Token(
@@ -68,9 +68,9 @@ set_info :: (
   ctx.*.expr_info_table = Option(typeof(table)).Some(table);
 });
 
-test("begin_type_c_name: resolves primitive type", {
+test("get_type_string_opt: resolves primitive type for begin's return-type lookup", {
   ctx := CodegenContext.new();
-  result := begin_type_c_name(t_i32(), &(ctx));
+  result := get_type_string_opt(t_i32(), &(ctx));
   assert(match(result,.Some(s) => (s == String.from("int32_t")),.None => false), "i32 c name");
 });
 

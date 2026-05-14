@@ -13,10 +13,8 @@ open(import("std/string"));
 { AstExpr, ast_expr_id } :: import("../../expr/expr.yo");
 { ExprInfo } :: import("../../expr/expr_info.yo");
 { TypeValue } :: import("../../types/type.yo");
-{ type_to_string } :: import("../../types/string.yo");
-{ type_value_to_c_field } :: import("../types.yo");
 { CodegenContext } :: import("../context.yo");
-{ can_optimize_as_simple_enum } :: import("../utils.yo");
+{ can_optimize_as_simple_enum, get_type_string_opt } :: import("../utils.yo");
 {
   BF_YO_OP_ADD,
   BF_YO_OP_SUB,
@@ -139,19 +137,10 @@ emit_array_index :: (fn(arr : str, idx : str) -> String)({
   out.push_str("]))");
   out
 });
-/// Look up the C type name for a TypeValue.
-/// Mirrors the `getTypeString` lookup in `src/codegen/exprs/inline-fns.ts`.
-inline_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(String))({
-  key := type_to_string(t);
-  match(
-    ctx.*.types.get(key),
-    .Some(entry) => Option(String).Some(entry.c_name),
-    .None => type_value_to_c_field(t)
-  )
-});
-// `can_optimize_as_simple_enum` lives in `codegen/utils.yo` — the
-// canonical 1-to-1 home for `src/codegen/utils/index.ts` helpers. The
-// import lives at the top of this file alongside the other utility
+// `get_type_string_opt` and `can_optimize_as_simple_enum` both live in
+// `codegen/utils.yo` — the canonical 1-to-1 home for
+// `src/codegen/utils/index.ts` helpers. The imports live at the top of
+// this file alongside the other utility
 // imports.
 /// Emit an index-range slice from an array or slice pointer.
 /// Mirrors `__yo_array_index_range` / `__yo_slice_index_range` variants in
@@ -199,7 +188,7 @@ generate_yo_inline_meta :: (
       expr_info_opt,
       .None => Option(String).None,
       .Some(info) => match(
-        inline_type_c_name(info.ty, ctx),
+        get_type_string_opt(info.ty, ctx),
         .None => Option(String).None,
         .Some(target_c_type) => {
           // Extract str borrow to avoid double-move across cond arms.
@@ -245,7 +234,7 @@ generate_yo_inline_meta :: (
       expr_info_opt,
       .None => Option(String).None,
       .Some(info) => match(
-        inline_type_c_name(info.ty, ctx),
+        get_type_string_opt(info.ty, ctx),
         .None => Option(String).None,
         .Some(slice_c_type) => {
           out := String.from("(");
@@ -264,7 +253,7 @@ generate_yo_inline_meta :: (
       expr_info_opt,
       .None => Option(String).None,
       .Some(info) => match(
-        inline_type_c_name(info.ty, ctx),
+        get_type_string_opt(info.ty, ctx),
         .None => Option(String).None,
         .Some(self_c_type) => {
           uninit_var := (String.from("__yo_uninit_") + ctx.*.fresh_temp());
@@ -283,7 +272,7 @@ generate_yo_inline_meta :: (
       expr_info_opt,
       .None => Option(String).None,
       .Some(info) => match(
-        inline_type_c_name(info.ty, ctx),
+        get_type_string_opt(info.ty, ctx),
         .None => Option(String).None,
         .Some(return_c_type) => {
           out := String.from("((");
@@ -302,7 +291,7 @@ generate_yo_inline_meta :: (
       .Some(info) => match(
         info.ty,
         .Pointer(pointee_box) => match(
-          inline_type_c_name(pointee_box.*, ctx),
+          get_type_string_opt(pointee_box.*, ctx),
           .None => Option(String).None,
           .Some(slice_c_type) => Option(String).Some(
             inline_emit_index_range(arg0, arg1, slice_c_type.as_str(), false)
@@ -318,7 +307,7 @@ generate_yo_inline_meta :: (
       .Some(info) => match(
         info.ty,
         .Pointer(pointee_box) => match(
-          inline_type_c_name(pointee_box.*, ctx),
+          get_type_string_opt(pointee_box.*, ctx),
           .None => Option(String).None,
           .Some(slice_c_type) => Option(String).Some(
             inline_emit_index_range(arg0, arg1, slice_c_type.as_str(), true)

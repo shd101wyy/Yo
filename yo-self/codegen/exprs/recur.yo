@@ -6,21 +6,13 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_to_string } :: import("../../expr/expr.yo");
 { TypeValue, is_unit_type } :: import("../../types/type.yo");
-{ type_to_string } :: import("../../types/string.yo");
 { CodegenContext } :: import("../context.yo");
-{ type_value_to_c_field } :: import("../types.yo");
 { call_gen_expr } :: import("./expr.yo");
-{ sanitize_for_c_identifier } :: import("../utils.yo");
+{
+  sanitize_for_c_identifier,
+  get_type_string_opt
+} :: import("../utils.yo");
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
-
-recur_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(String))({
-  key := type_to_string(t);
-  match(
-    ctx.*.types.get(key),
-    .Some(entry) => Option(String).Some(entry.c_name),
-    .None => type_value_to_c_field(t)
-  )
-});
 
 recur_array_contains_string :: (fn(items : ArrayList(String), needle : String) -> bool)({
   found := false;
@@ -144,7 +136,7 @@ recur_emit_temp_if_needed :: (
       .Some(temp_var) => cond(
         is_unit_type(info.ty) => Option(String).Some(call_code),
         true => match(
-          recur_type_c_name(info.ty, ctx),
+          get_type_string_opt(info.ty, ctx),
           .None => Option(String).Some(call_code),
           .Some(c_type) => {
             temp_var_name := sanitize_for_c_identifier(temp_var);
@@ -202,7 +194,6 @@ generate_recur :: (
 
 export(
   generate_recur,
-  recur_type_c_name,
   recur_args_to_c,
   recur_append_evidence_args,
   recur_emit_deferred_drops,

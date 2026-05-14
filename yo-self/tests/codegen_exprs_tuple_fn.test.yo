@@ -15,9 +15,9 @@ open(import("std/string"));
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
 {
   generate_anonymous_tuple,
-  tuple_type_c_name,
   tuple_variable_type_string
 } :: import("../codegen/exprs/tuple_fn.yo");
+{ get_type_string_opt } :: import("../codegen/utils.yo");
 
 mk_token :: (fn(value : str, kind : TokenKind) -> Token)(
   Token(
@@ -72,12 +72,12 @@ install_tuple_type :: (fn(ctx : *(CodegenContext), ty : TypeValue, c_name : str)
   );
 });
 
-test("tuple_type_c_name: reads tuple C name from context types", {
+test("get_type_string_opt: reads tuple C name from context types", {
   ctx := CodegenContext.new();
   ty := mk_pair_ty();
   install_tuple_type(&(ctx), ty, "__yo_tuple_i32_bool");
   match(
-    tuple_type_c_name(ty, &(ctx)),
+    get_type_string_opt(ty, &(ctx)),
     .None => assert(false, "expected tuple c name"),
     .Some(c_name) => assert(c_name == String.from("__yo_tuple_i32_bool"), "tuple c name")
   );

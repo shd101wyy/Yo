@@ -17,10 +17,10 @@ open(import("std/string"));
 {
   generate_anonymous_array,
   generate_yo_array_fill,
-  array_type_c_name,
   array_variable_type_string,
   extract_array_type_value
 } :: import("../codegen/exprs/array_fns.yo");
+{ get_type_string_opt } :: import("../codegen/utils.yo");
 
 mk_token :: (fn(value : str, kind : TokenKind) -> Token)(
   Token(
@@ -67,12 +67,12 @@ install_array_type :: (fn(ctx : *(CodegenContext), ty : TypeValue, c_name : str)
   );
 });
 
-test("array_type_c_name: reads array C name from context types", {
+test("get_type_string_opt: reads array C name from context types", {
   ctx := CodegenContext.new();
   ty := mk_array_ty(usize(2));
   install_array_type(&(ctx), ty, "__yo_array_i32_2");
   match(
-    array_type_c_name(ty, &(ctx)),
+    get_type_string_opt(ty, &(ctx)),
     .None => assert(false, "expected array c name"),
     .Some(c_name) => assert(c_name == String.from("__yo_array_i32_2"), "array c name")
   );

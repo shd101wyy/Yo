@@ -10,24 +10,12 @@ open(import("std/string"));
 { TypeValue, is_unit_type } :: import("../../types/type.yo");
 { type_to_string } :: import("../../types/string.yo");
 { CodegenContext } :: import("../context.yo");
-{ type_value_to_c_field } :: import("../types.yo");
 { call_gen_expr } :: import("./expr.yo");
 {
   sanitize_for_c_identifier,
-  sanitize_for_c_identifier_str
+  sanitize_for_c_identifier_str,
+  get_type_string_opt
 } :: import("../utils.yo");
-
-/// Best-effort equivalent of TS `getTypeString(type, context)` for the
-/// currently ported yo-self context: first consult `ctx.types`, then fall
-/// back to primitive field-type lowering.
-tuple_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(String))({
-  key := type_to_string(t);
-  match(
-    ctx.*.types.get(key),
-    .Some(entry) => Option(String).Some(entry.c_name),
-    .None => type_value_to_c_field(t)
-  )
-});
 
 /// Build `"<c_type> <sanitized_var_name>"`, mirroring TS
 /// `getVariableTypeString` for tuple temporaries.
@@ -35,7 +23,7 @@ tuple_variable_type_string :: (
   fn(t : TypeValue, var_name : str, ctx : *(CodegenContext)) -> Option(String)
 )(
   match(
-    tuple_type_c_name(t, ctx),
+    get_type_string_opt(t, ctx),
     .None => Option(String).None,
     .Some(c_ty) => {
       san := sanitize_for_c_identifier_str(var_name);
@@ -239,7 +227,7 @@ generate_anonymous_tuple :: (
       true => Option(String).None
     ),
     .Some(info) => match(
-      tuple_type_c_name(info.ty, ctx),
+      get_type_string_opt(info.ty, ctx),
       .None => cond(
         (args.len() == usize(0)) => Option(String).Some(String.from("")),
         true => {
@@ -285,7 +273,6 @@ generate_anonymous_tuple :: (
 
 export(
   generate_anonymous_tuple,
-  tuple_type_c_name,
   tuple_variable_type_string,
   tuple_args_to_c,
   tuple_args_to_c_with_deferred_dup,
