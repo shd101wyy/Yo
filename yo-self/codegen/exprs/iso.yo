@@ -84,7 +84,7 @@ generate_yo_iso_extract :: (
               .Some(rt) => rt
             );
             match(
-              ctx.*.iso_types.get(iso_c_name),
+              ctx.*.get_iso_type(iso_c_name),
               .None => (),
               .Some(entry) => match(
                 entry.option_type_c_name,
@@ -99,7 +99,7 @@ generate_yo_iso_extract :: (
                     extract_generated : entry.extract_generated,
                     dispose_generated : entry.dispose_generated
                   );
-                  ctx.*.iso_types.set(iso_c_name, updated);
+                  ctx.*.register_iso_type(iso_c_name, updated);
                 }
               )
             );
@@ -183,8 +183,8 @@ generate_iso_type_call :: (
               child_type := match(iso_type,.IsoT(child) => child.*, _ => TypeValue.Unit);
               iso_c_name := get_type_string(iso_type, ctx);
               child_c_name := get_type_string(child_type, ctx);
-              if(match(ctx.*.iso_types.get(iso_c_name),.Some(_) => false,.None => true), {
-                ctx.*.iso_types.set(
+              if(ctx.*.get_iso_type(iso_c_name).is_none(), {
+                ctx.*.register_iso_type(
                   iso_c_name,
                   CodegenIsoTypeEntry(
                     child_type_c_name : child_c_name,
