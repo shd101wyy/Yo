@@ -35,6 +35,31 @@ extract_type_value :: (fn(v : EvalValue) -> Option(TypeValue))(
     _ => Option(TypeValue).None
   )
 );
+/// Register a `__yo_typeid_<sanitized>` static-`char` declaration for
+/// `ty` and return the static's C name. If the type has already been
+/// registered (looked up via `type_to_string` key), the existing
+/// static name is returned and no extra declaration is emitted —
+/// matching TS's deduplication via the `typeIdStatics` map.
+///
+/// Used by both `generate_typeid` and the downcast emit so the
+/// typeid-pointer registration is a single source of truth.
+register_typeid_static :: (
+  fn(ty : TypeValue, ctx : *(CodegenContext)) -> String
+)({
+  type_id_str := type_to_string(ty);
+  sanitized := sanitize_for_c_identifier(type_id_str);
+  static_var_name := String.from("__yo_typeid_");
+  static_var_name.push_string(sanitized);
+  already_emitted := ctx.*.type_id_statics.get(type_id_str).is_some();
+  if(!(already_emitted), {
+    _ := ctx.*.type_id_statics.set(type_id_str, (&(static_var_name)).clone());
+    decl := String.from("static const char ");
+    decl.push_string(static_var_name);
+    decl.push_str(" = 0;");
+    ctx.*.emitter.emit_declaration_string_line(decl);
+  });
+  static_var_name
+});
 /// Generate the C expression for a `typeid(T)` call.
 ///
 /// `args` is the call's argument list (length 1: the type expression).
@@ -61,20 +86,7 @@ generate_typeid :: (
             extract_type_value(eval_val),
             .None => Option(String).None,
             .Some(ty) => {
-              type_id_str := type_to_string(ty);
-              sanitized := sanitize_for_c_identifier(type_id_str);
-              static_var_name := String.from("__yo_typeid_");
-              static_var_name.push_string(sanitized);
-              // Deduplicate via `type_id_statics`. The first emission also
-              // writes the static declaration to the declarations section.
-              already_emitted := ctx.*.type_id_statics.get(type_id_str).is_some();
-              if(!(already_emitted), {
-                _ := ctx.*.type_id_statics.set(type_id_str, (&(static_var_name)).clone());
-                decl := String.from("static const char ");
-                decl.push_string(static_var_name);
-                decl.push_str(" = 0;");
-                ctx.*.emitter.emit_declaration_string_line(decl);
-              });
+              static_var_name := register_typeid_static(ty, ctx);
               result := String.from("(uintptr_t)&");
               result.push_string(static_var_name);
               Option(String).Some(result)
@@ -85,4 +97,4 @@ generate_typeid :: (
     )
   )
 );
-export(generate_typeid, extract_type_value);
+export(generate_typeid, extract_type_value, register_typeid_static);

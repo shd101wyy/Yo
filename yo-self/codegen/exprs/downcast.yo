@@ -1,0 +1,136 @@
+//! Partial 1-to-1 port of `src/codegen/exprs/downcast.ts`.
+//!
+//! Covers the non-boxed-object leaf path: when a `Dyn(T)` is
+//! downcast to an object target type that does not require
+//! box-extraction, the emit is pure string composition over
+//! infrastructure that has already landed in yo-self/codegen:
+//!
+//!   - typeid registration via `register_typeid_static`,
+//!   - cast / cName resolution via `get_type_string`,
+//!   - tagged-union construction via `get_enum_variant_c_name`,
+//!   - nullable-pointer fast-path via
+//!     `can_optimize_as_nullable_pointer`,
+//!   - the `__yo_incr_rc((void*)x.data)` call shape from `rc_fns.yo`.
+//!
+//! The boxed-target path (extracting from `Box(T)` via
+//! `context.dynImpls`) and the typed-`getDupFunctionForType` branch
+//! still wait on the `dyn_impls` map + function-cname table landing
+//! in yo-self codegen.
+//!
+//! The entry point takes already-resolved types and the
+//! already-generated dyn-value C string. The AST-to-types glue
+//! (reading `info.ty` and the second arg's `info.value.TypeVal`)
+//! lives one layer up in the eventual full `generate_downcast` and
+//! is therefore not duplicated here.
+open(import("std/string"));
+{ TypeValue } :: import("../../types/type.yo");
+{ is_dyn_type, is_object_type } :: import("../../types/guards.yo");
+{ CodegenContext } :: import("../context.yo");
+{
+  get_type_string,
+  get_enum_variant_c_name,
+  can_optimize_as_nullable_pointer
+} :: import("../utils.yo");
+{ format_incr_rc_call } :: import("./rc_fns.yo");
+{ register_typeid_static } :: import("./typeid.yo");
+/// Emit the C expression for a `downcast(dyn_value, T)` call where the
+/// runtime path is the non-boxed-object branch.
+///
+/// `dyn_code` is the already-generated C expression for the dyn
+/// argument (must evaluate to a value of `dyn_type`).
+/// `dyn_type` is the `Dyn(...)` source type.
+/// `target_type` is the concrete target `T` — must be an object type
+/// (the boxed path is not handled here).
+/// `option_type` is the result `Option(T)` enum — its `Some` /
+/// `None` variants determine whether the nullable-pointer
+/// optimisation applies.
+///
+/// Returns:
+///   - `.Some(c_expr)` on the supported leaf path.
+///   - `.None` when any precondition fails (dyn_type is not actually
+///     a Dyn, target is not an object, option_type's variant tags are
+///     not registered, …). The bootstrap codegen takes over in that
+///     case.
+generate_downcast_for_resolved_types :: (
+  fn(
+    dyn_code : String,
+    dyn_type : TypeValue,
+    target_type : TypeValue,
+    option_type : TypeValue,
+    ctx : *(CodegenContext)
+  ) -> Option(String)
+)(
+  cond(
+    !(is_dyn_type(dyn_type)) => Option(String).None,
+    !(is_object_type(target_type)) => Option(String).None,
+    true => {
+      target_c_name := get_type_string(target_type, ctx);
+      // typeid pointer check: `(dyn_code).vtable->__yo_type_id == (uintptr_t)&__yo_typeid_<sanitized>`
+      static_var := register_typeid_static(target_type, ctx);
+      is_check := String.from("");
+      is_check.push_str(dyn_code.as_str());
+      is_check.push_str(".vtable->__yo_type_id == (uintptr_t)&");
+      is_check.push_string(static_var);
+      // Cast expression: `((target_c_name)__yo_incr_rc((void*)dyn_code.data))`.
+      // The Dyn data pointer aliases the underlying object; dup it so
+      // both the Dyn wrapper's drop and the cast result's drop can
+      // each decrement RC.
+      inner_arg := String.from("(void*)");
+      inner_arg.push_str(dyn_code.as_str());
+      inner_arg.push_str(".data");
+      incr := format_incr_rc_call(inner_arg);
+      cast_expr := String.from("((");
+      cast_expr.push_string(target_c_name);
+      cast_expr.push_str(")");
+      cast_expr.push_string(incr);
+      cast_expr.push_str(")");
+      match(
+        can_optimize_as_nullable_pointer(option_type),
+        // Nullable-pointer fast path: `((is_check) ? cast : NULL)`.
+        .Some(_) => {
+          out := String.from("((");
+          out.push_string(is_check);
+          out.push_str(") ? ");
+          out.push_string(cast_expr);
+          out.push_str(" : NULL)");
+          Option(String).Some(out)
+        },
+        // Tagged-union construction.
+        .None => {
+          option_c_name := get_type_string(option_type, ctx);
+          match(
+            get_enum_variant_c_name(option_type, String.from("Some"), ctx),
+            .None => Option(String).None,
+            .Some(some_tag) => match(
+              get_enum_variant_c_name(option_type, String.from("None"), ctx),
+              .None => Option(String).None,
+              .Some(none_tag) => {
+                some_expr := String.from("(");
+                some_expr.push_string(option_c_name);
+                some_expr.push_str("){ .tag = ");
+                some_expr.push_string(some_tag);
+                some_expr.push_str(", .data = { .Some = { .value = ");
+                some_expr.push_string(cast_expr);
+                some_expr.push_str(" } } }");
+                none_expr := String.from("(");
+                none_expr.push_string(option_c_name);
+                none_expr.push_str("){ .tag = ");
+                none_expr.push_string(none_tag);
+                none_expr.push_str(" }");
+                out := String.from("((");
+                out.push_string(is_check);
+                out.push_str(") ? ");
+                out.push_string(some_expr);
+                out.push_str(" : ");
+                out.push_string(none_expr);
+                out.push_str(")");
+                Option(String).Some(out)
+              }
+            )
+          )
+        }
+      )
+    }
+  )
+);
+export(generate_downcast_for_resolved_types);
