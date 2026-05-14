@@ -1,6 +1,8 @@
 /// Tests for yo-self/codegen/utils.yo.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ Token, TokenKind } :: import("../lexer/token.yo");
+{ AstExpr } :: import("../expr/expr.yo");
 { TypeValue, t_bool, t_i32, t_ptr, t_unit } :: import("../types/type.yo");
 { type_to_string } :: import("../types/string.yo");
 { CodegenContext, CodegenTypeEntry } :: import("../codegen/context.yo");
@@ -14,7 +16,10 @@ open(import("std/string"));
   get_type_string,
   get_type_string_opt,
   get_variable_type_string,
-  get_variable_type_string_str
+  get_variable_type_string_str,
+  get_deferred_dup_target_atom_name,
+  get_deferred_drop_target_atom_name,
+  is_deferred_drop_for_closure_capture
 } :: import("../codegen/utils.yo");
 mk_struct :: (
   fn(
@@ -297,4 +302,162 @@ test("get_variable_type_string: reserved C name is prefixed", {
   ctx := CodegenContext.new();
   out := get_variable_type_string_str(t_i32(), "return", &(ctx));
   assert(out == String.from("int32_t __yo_c_reserved_return"), "reserved");
+});
+/// Build an `Atom` with the given identifier text. Tokens carry zero
+/// row/column/character offsets — the helpers under test only read
+/// `Token.value`.
+mk_atom :: (fn(value : str) -> AstExpr)(
+  AstExpr.Atom(
+    usize(0),
+    Token(
+      kind : TokenKind.Identifier,
+      value : String.from(value),
+      row : usize(0),
+      column : usize(0),
+      character : usize(0),
+      module_path : String.from(""),
+      input : String.from("")
+    )
+  )
+);
+/// Build a 0-or-N-arg FnCall whose func is an atom with name `func_name`.
+mk_call :: (fn(func_name : str, args : ArrayList(AstExpr)) -> AstExpr)(
+  AstExpr.FnCall(
+    usize(0),
+    box(mk_atom(func_name)),
+    args,
+    false,
+    Token(
+      kind : TokenKind.Identifier,
+      value : String.from(func_name),
+      row : usize(0),
+      column : usize(0),
+      character : usize(0),
+      module_path : String.from(""),
+      input : String.from("")
+    )
+  )
+);
+test("get_deferred_dup_target_atom_name: ___dup(x) → Some(x)", {
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom("counter"));
+  expr := mk_call("___dup", args);
+  match(
+    get_deferred_dup_target_atom_name(expr),
+    .Some(s) => assert(s == String.from("counter"), "extracts arg name"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("get_deferred_dup_target_atom_name: (x.___dup)() → Some(x)", {
+  // Inner `.` call: dot_args = [Atom(x), Atom(___dup)].
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(mk_atom("counter"));
+  dot_args.push(mk_atom("___dup"));
+  dot_call := mk_call(".", dot_args);
+  // Outer call: FnCall(func=dot_call, args=[])
+  outer_args := ArrayList(AstExpr).new();
+  outer := AstExpr.FnCall(
+    usize(0),
+    box(dot_call),
+    outer_args,
+    false,
+    Token(
+      kind : TokenKind.Identifier,
+      value : String.from(""),
+      row : usize(0),
+      column : usize(0),
+      character : usize(0),
+      module_path : String.from(""),
+      input : String.from("")
+    )
+  );
+  match(
+    get_deferred_dup_target_atom_name(outer),
+    .Some(s) => assert(s == String.from("counter"), "extracts lhs name"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("get_deferred_dup_target_atom_name: bare atom returns None", {
+  assert(
+    get_deferred_dup_target_atom_name(mk_atom("counter")).is_none(),
+    "atom alone is not a dup expr"
+  );
+});
+test("get_deferred_drop_target_atom_name: ___drop(x) → Some(x)", {
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom("box"));
+  expr := mk_call("___drop", args);
+  match(
+    get_deferred_drop_target_atom_name(expr),
+    .Some(s) => assert(s == String.from("box"), "positional drop"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("get_deferred_drop_target_atom_name: (x.___drop)() → Some(x)", {
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(mk_atom("box"));
+  dot_args.push(mk_atom("___drop"));
+  dot_call := mk_call(".", dot_args);
+  outer_args := ArrayList(AstExpr).new();
+  outer := AstExpr.FnCall(
+    usize(0),
+    box(dot_call),
+    outer_args,
+    false,
+    Token(
+      kind : TokenKind.Identifier,
+      value : String.from(""),
+      row : usize(0),
+      column : usize(0),
+      character : usize(0),
+      module_path : String.from(""),
+      input : String.from("")
+    )
+  );
+  match(
+    get_deferred_drop_target_atom_name(outer),
+    .Some(s) => assert(s == String.from("box"), "method drop"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("get_deferred_drop_target_atom_name: foo(x) (not ___drop) → None", {
+  // A regular function call should not match.
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom("x"));
+  expr := mk_call("foo", args);
+  assert(
+    get_deferred_drop_target_atom_name(expr).is_none(),
+    "non-drop call → None"
+  );
+});
+test("is_deferred_drop_for_closure_capture: captured target → true", {
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom("captured_var"));
+  drop_expr := mk_call("___drop", args);
+  captures := ArrayList(String).new();
+  captures.push(String.from("captured_var"));
+  captures.push(String.from("other"));
+  assert(
+    is_deferred_drop_for_closure_capture(drop_expr, captures),
+    "captured_var present"
+  );
+});
+test("is_deferred_drop_for_closure_capture: uncaptured target → false", {
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom("local_var"));
+  drop_expr := mk_call("___drop", args);
+  captures := ArrayList(String).new();
+  captures.push(String.from("captured_var"));
+  assert(
+    !(is_deferred_drop_for_closure_capture(drop_expr, captures)),
+    "local_var not in captures"
+  );
+});
+test("is_deferred_drop_for_closure_capture: not a drop expr → false", {
+  captures := ArrayList(String).new();
+  captures.push(String.from("x"));
+  assert(
+    !(is_deferred_drop_for_closure_capture(mk_atom("x"), captures)),
+    "atom alone is not a drop expr"
+  );
 });

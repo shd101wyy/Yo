@@ -35,6 +35,15 @@ open(import("std/string"));
 { TypeValue } :: import("../types/type.yo");
 { is_object_type, is_pointer_type } :: import("../types/guards.yo");
 { type_to_string } :: import("../types/string.yo");
+{
+  AstExpr,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  BF_DOT,
+  BF_DROP,
+  BF_DUP
+} :: import("../expr/expr.yo");
 { type_value_to_c_field } :: import("./types.yo");
 { CodegenContext } :: import("./context.yo");
 is_c_identifier_byte_ :: (fn(byte : u8) -> bool)(
@@ -346,6 +355,160 @@ get_enum_variant_c_name :: (
     }
   )
 });
+/// Walk a `___dup`-style expression and extract the variable name it
+/// targets. Two shapes are recognised, matching TS
+/// `getDeferredDupTargetAtomName` in `src/codegen/utils/index.ts`:
+///
+///   1. `___dup(x)`         — pre-evaluation form (positional call).
+///   2. `(x.___dup)()`      — post-evaluation method-style call where
+///                            `x.___dup` is a `(.)` FnCall with two
+///                            atom args (`x`, `___dup`).
+///
+/// Returns the variable name on match, `.None` otherwise. Pure — no
+/// codegen context, env, or evaluator required.
+get_deferred_dup_target_atom_name :: (
+  fn(dup_expr : AstExpr) -> Option(String)
+)(
+  match(
+    dup_expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall({ func, args }) => cond(
+      // Form 1: a positional call with >=1 arg whose first arg is an
+      // atom. Always wins when matched — even if the func happens to
+      // be `.` (no real-world call site shares both forms).
+      (args.len() >= usize(1)) => match(
+        args.get(usize(0)),
+        .None => Option(String).None,
+        .Some(first) => match(
+          first,
+          .Atom({ token }) => Option(String).Some(token.value),
+          .FnCall(_, _, _, _, _) => Option(String).None
+        )
+      ),
+      // Form 2: zero args, func is `(x.___dup)`.
+      (args.len() == usize(0)) => cond(
+        ast_expr_is_fn_call_of(func.*, BF_DOT, Option(usize).Some(usize(2))) => match(
+          func.*,
+          .Atom(_, _) => Option(String).None,
+          .FnCall({ args : dot_args }) => match(
+            dot_args.get(usize(0)),
+            .None => Option(String).None,
+            .Some(lhs) => match(
+              dot_args.get(usize(1)),
+              .None => Option(String).None,
+              .Some(rhs) => match(
+                lhs,
+                .Atom({ token : lhs_tok }) => match(
+                  rhs,
+                  .Atom({ token : rhs_tok }) => cond(
+                    (rhs_tok.value.as_str() == BF_DUP) =>
+                      Option(String).Some(lhs_tok.value),
+                    true => Option(String).None
+                  ),
+                  .FnCall(_, _, _, _, _) => Option(String).None
+                ),
+                .FnCall(_, _, _, _, _) => Option(String).None
+              )
+            )
+          )
+        ),
+        true => Option(String).None
+      ),
+      true => Option(String).None
+    )
+  )
+);
+/// Walk a `___drop`-style expression and extract the variable name it
+/// targets. Two shapes are recognised, matching TS
+/// `getDeferredDropTargetAtomName`:
+///
+///   1. `(x.___drop)()`     — method-style call (checked first so it
+///                            wins when the same shape happens to also
+///                            match form 2 below — TS code orders them
+///                            identically).
+///   2. `___drop(x)`        — positional call.
+///
+/// Returns the variable name on match, `.None` otherwise.
+get_deferred_drop_target_atom_name :: (
+  fn(drop_expr : AstExpr) -> Option(String)
+)(
+  match(
+    drop_expr,
+    .Atom(_, _) => Option(String).None,
+    .FnCall({ func, args }) => cond(
+      // Form 1: method-style `(x.___drop)()`.
+      (
+        (args.len() == usize(0)) &&
+          ast_expr_is_fn_call_of(func.*, BF_DOT, Option(usize).Some(usize(2)))
+      ) => match(
+        func.*,
+        .Atom(_, _) => Option(String).None,
+        .FnCall({ args : dot_args }) => match(
+          dot_args.get(usize(0)),
+          .None => Option(String).None,
+          .Some(lhs) => match(
+            dot_args.get(usize(1)),
+            .None => Option(String).None,
+            .Some(rhs) => match(
+              lhs,
+              .Atom({ token : lhs_tok }) => match(
+                rhs,
+                .Atom({ token : rhs_tok }) => cond(
+                  (rhs_tok.value.as_str() == BF_DROP) =>
+                    Option(String).Some(lhs_tok.value),
+                  true => Option(String).None
+                ),
+                .FnCall(_, _, _, _, _) => Option(String).None
+              ),
+              .FnCall(_, _, _, _, _) => Option(String).None
+            )
+          )
+        )
+      ),
+      // Form 2: positional `___drop(x)`.
+      (
+        ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None) &&
+          (args.len() >= usize(1))
+      ) => match(
+        args.get(usize(0)),
+        .None => Option(String).None,
+        .Some(first) => match(
+          first,
+          .Atom({ token }) => Option(String).Some(token.value),
+          .FnCall(_, _, _, _, _) => Option(String).None
+        )
+      ),
+      true => Option(String).None
+    )
+  )
+);
+/// True iff `drop_expr` targets a variable that the current closure
+/// has captured. Mirrors TS `isDeferredDropForClosureCapture`. The
+/// captures list is supplied by the caller (the enclosing function's
+/// `CodegenContext` carries it during closure-body emission).
+is_deferred_drop_for_closure_capture :: (
+  fn(drop_expr : AstExpr, current_closure_captures : ArrayList(String)) -> bool
+)(
+  match(
+    get_deferred_drop_target_atom_name(drop_expr),
+    .None => false,
+    .Some(target) => {
+      found := false;
+      i := usize(0);
+      while(runtime((i < current_closure_captures.len()) && !(found)), {
+        match(
+          current_closure_captures.get(i),
+          .None => (),
+          .Some(name) => if(name == target, {
+            found = true;
+          })
+        );
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
 export(
   sanitize_for_c_identifier,
   sanitize_for_c_identifier_str,
@@ -356,5 +519,8 @@ export(
   get_type_string,
   get_type_string_opt,
   get_variable_type_string,
-  get_variable_type_string_str
+  get_variable_type_string_str,
+  get_deferred_dup_target_atom_name,
+  get_deferred_drop_target_atom_name,
+  is_deferred_drop_for_closure_capture
 );
