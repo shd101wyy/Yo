@@ -5,6 +5,7 @@ open(import("std/string"));
 { TypeValue } :: import("../types/type.yo");
 { AstExpr, make_err_expr } :: import("../expr.yo");
 { CodegenContext } :: import("../codegen/context.yo");
+{ type_to_string } :: import("../types/string.yo");
 { generate_comptime_value, normalize_float_raw } :: import("../codegen/exprs/comptime_value.yo");
 test("normalize_float_raw: adds .0 when no decimal point", {
   assert(
@@ -130,5 +131,40 @@ test("generate_comptime_value: unregistered FuncVal returns None", {
   assert(
     generate_comptime_value(fv, &(ctx)).is_none(),
     "unregistered → None"
+  );
+});
+// ─── TypeVal handling via types registry ────────────────────────────────────
+test("generate_comptime_value: TypeVal returns registered c_name for type", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  // Register a fake struct type under the same key that
+  // `type_to_string` would produce for it. Use the unit type as a
+  // dummy TypeValue stand-in — `register_type` doesn't inspect the
+  // TypeValue beyond storing it on the entry.
+  ty := TypeValue.Unit;
+  pctx.*.register_type(
+    type_to_string(ty),
+    ty,
+    String.from("__yo_user_struct_42")
+  );
+  tv := EvalValue.TypeVal(box(ty));
+  match(
+    generate_comptime_value(tv, pctx),
+    .Some(s) => assert(s == String.from("__yo_user_struct_42"), "registered c_name"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("generate_comptime_value: unregistered TypeVal returns None", {
+  // Type wasn't registered, so the lookup misses and the handler
+  // defers to None (caller falls back to bootstrap / get_type_string
+  // default).
+  ctx := CodegenContext.new();
+  // Use a primitive-ish stand-in that won't be in the registry by
+  // default. Primitives go through type_value_to_c_field, not the
+  // types registry, so for the registry-miss path we use Unit.
+  tv := EvalValue.TypeVal(box(TypeValue.Unit));
+  assert(
+    generate_comptime_value(tv, &(ctx)).is_none(),
+    "unregistered TypeVal → None"
   );
 });

@@ -18,9 +18,17 @@
 //!         if (cName) return cName;
 //!     and falls back to `.None` when the function has not been
 //!     registered yet (caller defers to the bootstrap path).
+//!   - `TypeVal(box_ty)` → the C type-name string registered for the
+//!     wrapped type, when that type has been registered (typically by
+//!     `generate_type_decl`). Mirrors the TS branch
+//!         if (context.types[type.id]) return context.types[type.id].cName;
+//!     and falls back to `.None` when the type isn't registered.
+//!     Note: TS returns an error-comment string instead of None; yo-self
+//!     prefers None so the caller can fall back to a bootstrap heuristic
+//!     (or to the get_type_string default of `"int32_t"`).
 //!
 //! Complex variants (`EnumVal`, `StructVal`, `TupleVal`, `ArrayVal`,
-//! `PtrVal`, `TypeVal`, …) require codegen-side type-name lookup
+//! `PtrVal`, …) require codegen-side type-name lookup
 //! (`context.types[id]`), nullable-pointer optimisation, and
 //! runtime-type conversion that yo-self's bootstrap codegen does not
 //! yet expose. They return `Option(String).None` so callers can defer
@@ -28,6 +36,8 @@
 //! supporting infrastructure lands.
 open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { CodegenContext } :: import("../context.yo");
 { quote_as_c_string } :: import("./panic.yo");
 /// Normalise a float-literal raw text so the generated C compiles as a
@@ -60,6 +70,7 @@ generate_comptime_value :: (
     ),
     .StrLit(raw) => Option(String).Some(quote_as_c_string(raw)),
     .FuncVal({ func_id }) => ctx.*.get_function_c_name(func_id),
+    .TypeVal(box_ty) => ctx.*.get_type_c_name(type_to_string(box_ty.*)),
     _ => Option(String).None
   )
 );
