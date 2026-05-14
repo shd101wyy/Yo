@@ -79,6 +79,12 @@ generate_binding :: (
 )(
   cond(
     (args.len() < usize(1)) => Option(String).None,
+    // Fallback contract: when no evaluator pass has run, the bootstrap
+    // dispatcher's `handle_bare_colon_decl` is the source of truth — it
+    // also emits C variable declarations for `comptime(x) : T` (the
+    // dispatcher relies on the C variable existing for later
+    // `x = ...` assignments to compile). Return None to defer.
+    ctx.*.expr_info_table.is_none() => Option(String).None,
     true => match(
       args.get(usize(0)),
       .None => Option(String).None,

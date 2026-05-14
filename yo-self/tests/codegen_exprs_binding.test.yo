@@ -6,6 +6,7 @@ open(import("std/fmt"));
 { AstExpr, ast_expr_id } :: import("../expr/expr.yo");
 {
   ExprInfo,
+  ExprInfoTable,
   new_expr_info,
   expr_info_table_new,
   expr_info_table_set
@@ -98,8 +99,11 @@ test("generate_binding: plain `x : i32` emits int32_t x;", {
   code := ctx.emitter.code;
   assert(code.contains(String.from("int32_t x;")), "declaration emitted");
 });
-test("generate_binding: `comptime(x) : T` emits nothing", {
+test("generate_binding: `comptime(x) : T` emits nothing when metadata is present", {
   ctx := CodegenContext.new();
+  // Install an empty ExprInfoTable so generate_binding does not bail
+  // out via the no-evaluator fallback.
+  ctx.expr_info_table = Option(ExprInfoTable).Some(expr_info_table_new());
   inner_args := ArrayList(AstExpr).new();
   inner_args.push(mk_atom(usize(120), "x", TokenKind.Identifier));
   comptime_call := mk_fn_call(usize(121), "comptime", inner_args);
@@ -109,6 +113,21 @@ test("generate_binding: `comptime(x) : T` emits nothing", {
   result := generate_binding(args, &(ctx), String.from(""));
   assert(result.is_some(), "returns unit");
   assert(ctx.emitter.code == String.new(), "no C code emitted");
+});
+test("generate_binding: defers to bootstrap when no evaluator pass has run", {
+  // With no expr_info_table installed, generate_binding returns None so
+  // the dispatcher in `exprs.yo` falls back to `handle_bare_colon_decl`
+  // (which still emits the C declaration for `comptime(x) : T`,
+  // necessary for the subsequent `x = ...` assignment to compile).
+  ctx := CodegenContext.new();
+  inner_args := ArrayList(AstExpr).new();
+  inner_args.push(mk_atom(usize(170), "x", TokenKind.Identifier));
+  comptime_call := mk_fn_call(usize(171), "comptime", inner_args);
+  args := ArrayList(AstExpr).new();
+  args.push(comptime_call);
+  args.push(mk_atom(usize(172), "i32", TokenKind.Identifier));
+  result := generate_binding(args, &(ctx), String.from(""));
+  assert(result.is_none(), "no evaluator → defer to bootstrap");
 });
 test("generate_binding: `given(x) : NonStruct` emits nothing", {
   ctx := CodegenContext.new();
