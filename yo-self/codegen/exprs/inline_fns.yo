@@ -1,17 +1,20 @@
 //! Codegen for inline builtin function calls (operators, pointer ops,
 //! slice helpers, randomness wrappers, sleep, no-op).
 //!
-//! 1-to-1 port of the metadata-independent subset of
-//! `src/codegen/exprs/inline-fns.ts` (`generateYoInlineFunctionCall`).
+//! 1-to-1 port of `src/codegen/exprs/inline-fns.ts`
+//! (`generateYoInlineFunctionCall`), including metadata-dependent branches.
 //!
-//! Operates on already-generated argument C strings, so it does not require
-//! typed `expr.$` metadata.  The metadata-dependent branches in the TS source
-//! (`__yo_as`, `__yo_slice_new`, `__yo_array_index_range*`, `__yo_maybe_uninit_new`,
-//! `__yo_maybe_uninit_as_ptr`) are intentionally NOT ported here — they need
-//! `expr.$.type` / `expr.$.args[i].$.type` which yo-self does not yet expose.
+//! `generate_yo_inline_function_call` handles metadata-independent builtins.
+//! `generate_yo_inline_meta` handles metadata-dependent builtins that need
+//! `expr.$.type` (via `ExprInfoTable`): `__yo_as`, `__yo_slice_new`,
+//! `__yo_maybe_uninit_new`, `__yo_maybe_uninit_as_ptr`, and index-range ops.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr } :: import("../../expr/expr.yo");
+{ AstExpr, ast_expr_id } :: import("../../expr/expr.yo");
+{ ExprInfo } :: import("../../expr/expr_info.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ type_value_to_c_field } :: import("../types.yo");
 { CodegenContext } :: import("../context.yo");
 {
   BF_YO_OP_ADD,
@@ -55,6 +58,14 @@ open(import("std/string"));
   BF_YO_SLICE_INDEX,
   BF_YO_DECR_RC,
   BF_YO_MAYBE_UNINIT_ASSUME_INIT,
+  BF_YO_AS,
+  BF_YO_SLICE_NEW,
+  BF_YO_MAYBE_UNINIT_NEW,
+  BF_YO_MAYBE_UNINIT_AS_PTR,
+  BF_YO_ARRAY_INDEX_RANGE,
+  BF_YO_ARRAY_INDEX_RANGE_INCLUSIVE,
+  BF_YO_SLICE_INDEX_RANGE,
+  BF_YO_SLICE_INDEX_RANGE_INCLUSIVE,
 } :: import("../../expr/expr.yo");
 emit_binop :: (fn(lhs : str, op : str, rhs : str) -> String)({
   out := String.from("((");
@@ -127,6 +138,237 @@ emit_array_index :: (fn(arr : str, idx : str) -> String)({
   out.push_str("]))");
   out
 });
+/// Look up the C type name for a TypeValue.
+/// Mirrors the `getTypeString` lookup in `src/codegen/exprs/inline-fns.ts`.
+inline_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(String))({
+  key := type_to_string(t);
+  match(
+    ctx.*.types.get(key),
+    .Some(entry) => Option(String).Some(entry.c_name),
+    .None => type_value_to_c_field(t)
+  )
+});
+/// True iff enum type `t` has no data in any variant (can be emitted as a plain
+/// C enum rather than a tagged-union struct).
+/// Mirrors `canOptimizeAsSimpleEnum` in `src/codegen/utils/index.ts`.
+inline_can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .EnumT(_, _, _, variant_fields, _, _, _) => {
+      // All variant field lists must be empty and there must be at least one variant.
+      all_empty := true;
+      count := usize(0);
+      i := usize(0);
+      while(runtime(i < variant_fields.len()), {
+        count = (count + usize(1));
+        match(
+          variant_fields.get(i),
+          .None => (),
+          .Some(fields) => {
+            if(fields.len() > usize(0), {
+              all_empty = false;
+            });
+          }
+        );
+        i = (i + usize(1));
+      });
+      (all_empty && (count > usize(0)))
+    },
+    _ => false
+  )
+);
+/// Emit an index-range slice from an array or slice pointer.
+/// Mirrors `__yo_array_index_range` / `__yo_slice_index_range` variants in
+/// `src/codegen/exprs/inline-fns.ts`.
+inline_emit_index_range :: (
+  fn(arr : str, range : str, slice_c_type : str, inclusive : bool) -> String
+)({
+  end_extra := cond(inclusive => String.from(" + 1"), true => String.new());
+  out := String.from("(&(");
+  out.push_str(slice_c_type);
+  out.push_str("){ .data = &((");
+  out.push_str(arr);
+  out.push_str(")->data[(");
+  out.push_str(range);
+  out.push_str(").start]), .length = (");
+  out.push_str(range);
+  out.push_str(").end - (");
+  out.push_str(range);
+  out.push_str(").start");
+  out.push_string(end_extra);
+  out.push_str(" })");
+  out
+});
+/// Look up the C type name for a TypeValue.
+/// Returns `Option.Some(c_code)` when the builtin is handled; `Option.None` otherwise.
+///
+/// Mirrors the metadata-dependent branches of `generateYoInlineFunctionCall`
+/// in `src/codegen/exprs/inline-fns.ts`.
+generate_yo_inline_meta :: (
+  fn(
+    func_name : str,
+    expr : AstExpr,
+    args : ArrayList(AstExpr),
+    arg_codes : ArrayList(String),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)({
+  arg0 := match(arg_codes.get(usize(0)),.None => str(""),.Some(s) => s.as_str());
+  arg1 := match(arg_codes.get(usize(1)),.None => str(""),.Some(s) => s.as_str());
+  expr_info_opt := ctx.*.get_expr_info(ast_expr_id(expr));
+  cond(
+    // __yo_as: cast to target type; for non-simple enums access .tag field.
+    (func_name == BF_YO_AS) => match(
+      expr_info_opt,
+      .None => Option(String).None,
+      .Some(info) => match(
+        inline_type_c_name(info.ty, ctx),
+        .None => Option(String).None,
+        .Some(target_c_type) => {
+          // Extract str borrow to avoid double-move across cond arms.
+          target_c_type_str := target_c_type.as_str();
+          // Check if source is a non-simple enum (tagged union) — need .tag access.
+          source_is_tagged_enum := match(
+            args.get(usize(0)),
+            .None => false,
+            .Some(arg0_expr) => match(
+              ctx.*.get_expr_info(ast_expr_id(arg0_expr)),
+              .None => false,
+              .Some(arg0_info) => match(
+                arg0_info.ty,
+                .EnumT(_, _, _, _, _, _, _) => !(inline_can_optimize_as_simple_enum(arg0_info.ty)),
+                _ => false
+              )
+            )
+          );
+          result := cond(
+            source_is_tagged_enum => {
+              out := String.from("((");
+              out.push_str(target_c_type_str);
+              out.push_str(")((");
+              out.push_str(arg0);
+              out.push_str(").tag))");
+              out
+            },
+            true => {
+              out := String.from("((");
+              out.push_str(target_c_type_str);
+              out.push_str(")(");
+              out.push_str(arg0);
+              out.push_str("))");
+              out
+            }
+          );
+          Option(String).Some(result)
+        }
+      )
+    ),
+    // __yo_slice_new: create a slice fat pointer from a pointer and a length.
+    (func_name == BF_YO_SLICE_NEW) => match(
+      expr_info_opt,
+      .None => Option(String).None,
+      .Some(info) => match(
+        inline_type_c_name(info.ty, ctx),
+        .None => Option(String).None,
+        .Some(slice_c_type) => {
+          out := String.from("(");
+          out.push_string(slice_c_type);
+          out.push_str("){ .data = ");
+          out.push_str(arg0);
+          out.push_str(", .length = ");
+          out.push_str(arg1);
+          out.push_str(" }");
+          Option(String).Some(out)
+        }
+      )
+    ),
+    // __yo_maybe_uninit_new: emit an uninitialized C variable and return its name.
+    (func_name == BF_YO_MAYBE_UNINIT_NEW) => match(
+      expr_info_opt,
+      .None => Option(String).None,
+      .Some(info) => match(
+        inline_type_c_name(info.ty, ctx),
+        .None => Option(String).None,
+        .Some(self_c_type) => {
+          uninit_var := (String.from("__yo_uninit_") + ctx.*.fresh_temp());
+          decl_line := String.from(indent.as_str());
+          decl_line.push_string(self_c_type);
+          decl_line.push_str(" ");
+          decl_line.push_str(uninit_var.as_str());
+          ctx.*.emitter.emit_string(decl_line);
+          ctx.*.emitter.emit_line(";");
+          Option(String).Some(uninit_var)
+        }
+      )
+    ),
+    // __yo_maybe_uninit_as_ptr: transparent pointer cast.
+    (func_name == BF_YO_MAYBE_UNINIT_AS_PTR) => match(
+      expr_info_opt,
+      .None => Option(String).None,
+      .Some(info) => match(
+        inline_type_c_name(info.ty, ctx),
+        .None => Option(String).None,
+        .Some(return_c_type) => {
+          out := String.from("((");
+          out.push_string(return_c_type);
+          out.push_str(")(");
+          out.push_str(arg0);
+          out.push_str("))");
+          Option(String).Some(out)
+        }
+      )
+    ),
+    // __yo_array_index_range / __yo_slice_index_range (exclusive end)
+    ((func_name == BF_YO_ARRAY_INDEX_RANGE) || (func_name == BF_YO_SLICE_INDEX_RANGE)) => match(
+      expr_info_opt,
+      .None => Option(String).None,
+      .Some(info) => match(
+        info.ty,
+        .Pointer(pointee_box) => match(
+          inline_type_c_name(pointee_box.*, ctx),
+          .None => Option(String).None,
+          .Some(slice_c_type) => Option(String).Some(
+            inline_emit_index_range(arg0, arg1, slice_c_type.as_str(), false)
+          )
+        ),
+        _ => Option(String).None
+      )
+    ),
+    // __yo_array_index_range_inclusive / __yo_slice_index_range_inclusive
+    ((func_name == BF_YO_ARRAY_INDEX_RANGE_INCLUSIVE) || (func_name == BF_YO_SLICE_INDEX_RANGE_INCLUSIVE)) => match(
+      expr_info_opt,
+      .None => Option(String).None,
+      .Some(info) => match(
+        info.ty,
+        .Pointer(pointee_box) => match(
+          inline_type_c_name(pointee_box.*, ctx),
+          .None => Option(String).None,
+          .Some(slice_c_type) => Option(String).Some(
+            inline_emit_index_range(arg0, arg1, slice_c_type.as_str(), true)
+          )
+        ),
+        _ => Option(String).None
+      )
+    ),
+    true => Option(String).None
+  )
+});
+/// True iff `func_name` is a metadata-aware inline builtin handled by
+/// `generate_yo_inline_meta`.
+is_yo_inline_meta_builtin :: (fn(func_name : str) -> bool)(
+  cond(
+    (func_name == BF_YO_AS) => true,
+    (func_name == BF_YO_SLICE_NEW) => true,
+    (func_name == BF_YO_MAYBE_UNINIT_NEW) => true,
+    (func_name == BF_YO_MAYBE_UNINIT_AS_PTR) => true,
+    (func_name == BF_YO_ARRAY_INDEX_RANGE) => true,
+    (func_name == BF_YO_ARRAY_INDEX_RANGE_INCLUSIVE) => true,
+    (func_name == BF_YO_SLICE_INDEX_RANGE) => true,
+    (func_name == BF_YO_SLICE_INDEX_RANGE_INCLUSIVE) => true,
+    true => false
+  )
+);
 /// Look up the inline emission for a builtin by C-emitted argument strings.
 /// Returns `Option.Some(c_code)` if `func_name` is a recognised inline
 /// builtin and `args` has the right shape; otherwise `Option.None`.
@@ -262,3 +504,4 @@ is_yo_inline_builtin :: (fn(func_name : str) -> bool)(
   )
 );
 export(generate_yo_inline_function_call, is_yo_inline_builtin);
+export(generate_yo_inline_meta, is_yo_inline_meta_builtin);

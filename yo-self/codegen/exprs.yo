@@ -21,7 +21,7 @@ open(import("std/string"));
 { generate_yo_gc_collect } :: import("./exprs/gc.yo");
 { generate_yo_thread_set_maximum_threads } :: import("./exprs/parallelism.yo");
 { generate_sizeof } :: import("./exprs/sizeof.yo");
-{ generate_yo_inline_function_call, is_yo_inline_builtin } :: import("./exprs/inline_fns.yo");
+{ generate_yo_inline_function_call, is_yo_inline_builtin, generate_yo_inline_meta, is_yo_inline_meta_builtin } :: import("./exprs/inline_fns.yo");
 { generate_typeid } :: import("./exprs/typeid.yo");
 { generate_panic } :: import("./exprs/panic.yo");
 { generate_open } :: import("./exprs/open.yo");
@@ -12584,6 +12584,52 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           register_anon_typeof_impl(args, ctx, indent);
           Option(String).Some(String.from("0"))
         },
+        // Metadata-aware inline builtins: __yo_as, __yo_slice_new, __yo_maybe_uninit_new,
+        // __yo_maybe_uninit_as_ptr, __yo_array_index_range*, __yo_slice_index_range*.
+        // Mirrors the metadata-dependent branches of `generateYoInlineFunctionCall`
+        // in src/codegen/exprs/inline-fns.ts.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => is_yo_inline_meta_builtin(id.as_str())
+          )
+        ) => match(
+          ident_opt,
+          .None => Option(String).None,
+          .Some(meta_id) => {
+            meta_arg_codes := ArrayList(String).new();
+            (i_meta : usize) = usize(0);
+            (n_meta : usize) = args.len();
+            (ok_meta : bool) = true;
+            while(runtime((i_meta < n_meta) && ok_meta), {
+              match(
+                args.get(i_meta),
+                .None => {
+                  ok_meta = false;
+                },
+                .Some(a_expr) => match(
+                  call_gen_expr(a_expr, ctx, indent),
+                  .None => {
+                    ok_meta = false;
+                  },
+                  .Some(a_code) => {
+                    meta_arg_codes.push(a_code);
+                  }
+                )
+              );
+              i_meta = (i_meta + usize(1));
+            });
+            cond(
+              ok_meta => match(
+                generate_yo_inline_meta(meta_id.as_str(), expr, args, meta_arg_codes, ctx, indent),
+                .Some(meta_code) => Option(String).Some(meta_code),
+                .None => handle_regular_call(ident_opt, args, ctx, indent)
+              ),
+              true => Option(String).None
+            )
+          }
+        ),
         (
           (!(is_infix)) && match(
             ident_opt,
