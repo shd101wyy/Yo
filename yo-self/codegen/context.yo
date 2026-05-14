@@ -91,6 +91,32 @@ CodegenExternFunctionEntry :: object(
   c_name : String,
   c_include : Option(String)
 );
+/// Codegen state for an `Impl(Fn(...))` static-dispatch closure entry.
+/// Mirrors the per-entry shape of `CodeGenContext.implClosureCallMap`
+/// in `src/codegen/utils/index.ts`:
+///
+///   { functionCName: string,
+///     callTypeId: TypeId,
+///     callType?: FunctionType,
+///     consumedCaptures?: string[] }
+///
+/// For static-dispatch closures, the runtime value is the
+/// resolved-concrete capture struct. Direct calls dispatch to the
+/// generated closure implementation function for that concrete type,
+/// without a vtable lookup. Used by parallelism handlers
+/// (`__yo_thread_spawn` / `__yo_worker_spawn`) and async closure
+/// codegen.
+///
+/// `call_type` is `.None` when the entry was registered without the
+/// Fn-call type information (rare); `consumed_captures` is `.None`
+/// when no captured field is consumed inside the closure body via
+/// `own(self)`.
+CodegenImplClosureEntry :: object(
+  function_c_name : String,
+  call_type_id : String,
+  call_type : Option(TypeValue),
+  consumed_captures : Option(ArrayList(String))
+);
 /// Shared mutable context passed to every `generate_*` function.
 ///
 /// Phase 4b/4c fields:
@@ -292,6 +318,15 @@ CodegenContext :: object(
   /// Each entry is the literal `#include` operand including angle
   /// brackets or quotes, e.g. `"<stdint.h>"` or `"\"foo.h\""`.
   c_includes : ArrayList(String),
+  /// `Impl(Fn(...))` static-dispatch closure registry, keyed by the
+  /// concrete capture-struct type id. Mirrors
+  /// `CodeGenContext.implClosureCallMap` in
+  /// `src/codegen/utils/index.ts`. Populated by `closures.ts` when it
+  /// generates the closure implementation function; read by
+  /// `parallelism.ts` (`__yo_thread_spawn` / `__yo_worker_spawn`) and
+  /// `async.ts` to dispatch directly to the impl function for a
+  /// concrete closure value.
+  impl_closure_call_map : HashMap(String, CodegenImplClosureEntry),
   /// Evidence parameter C names currently in scope for function codegen.
   /// Mirrors the values of `FunctionGenerationContext.currentEvidenceParams`.
   /// Recur calls forward these names to the recursive self-call.
@@ -370,6 +405,7 @@ impl(
       array_struct_types : HashMap(String, CodegenArrayStructEntry).new(),
       extern_functions : HashMap(String, CodegenExternFunctionEntry).new(),
       c_includes : ArrayList(String).new(),
+      impl_closure_call_map : HashMap(String, CodegenImplClosureEntry).new(),
       current_evidence_param_names : ArrayList(String).new(),
       declared_temp_vars : ArrayList(String).new(),
       current_loop_label : String.new(),
@@ -537,6 +573,36 @@ impl(
       }
     )
   ),
+  /// Register an `Impl(Fn(...))` closure for static dispatch. The key
+  /// is the concrete capture-struct type id; later `__yo_thread_spawn`
+  /// / `__yo_worker_spawn` / async-closure handlers look up
+  /// `function_c_name` to dispatch directly.
+  register_impl_closure : (
+    fn(
+      self : *(Self),
+      concrete_type_id : String,
+      function_c_name : String,
+      call_type_id : String,
+      call_type : Option(TypeValue),
+      consumed_captures : Option(ArrayList(String))
+    ) -> unit
+  )({
+    self.*.impl_closure_call_map.set(
+      concrete_type_id,
+      CodegenImplClosureEntry(
+        function_c_name : function_c_name,
+        call_type_id : call_type_id,
+        call_type : call_type,
+        consumed_captures : consumed_captures
+      )
+    );
+    ()
+  }),
+  /// Look up the impl-closure entry for a concrete type id. Returns
+  /// `.None` if not yet registered.
+  get_impl_closure : (
+    fn(self : *(Self), concrete_type_id : String) -> Option(CodegenImplClosureEntry)
+  )(self.*.impl_closure_call_map.get(concrete_type_id)),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
   fresh_temp : (fn(self : *(Self)) -> String)({
     n := self.*.temp_count;
@@ -1532,5 +1598,6 @@ export(
   CodegenSliceStructEntry,
   CodegenArrayStructEntry,
   CodegenExternFunctionEntry,
+  CodegenImplClosureEntry,
   CodegenContext
 );

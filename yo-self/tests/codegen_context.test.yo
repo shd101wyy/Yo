@@ -190,3 +190,53 @@ test("c_includes: empty by default", {
   (pctx : *(CodegenContext)) = &(ctx);
   assert(pctx.*.c_includes.len() == usize(0), "fresh ctx is empty");
 });
+// ─── impl_closure_call_map ──────────────────────────────────────────────────
+test("register_impl_closure: round-trips function_c_name + call_type_id", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.register_impl_closure(
+    String.from("capture_1"),
+    String.from("__yo_closure_fn_42"),
+    String.from("fn_call_type_7"),
+    Option(TypeValue).None,
+    Option(ArrayList(String)).None
+  );
+  match(
+    pctx.*.get_impl_closure(String.from("capture_1")),
+    .None => assert(false, "expected entry"),
+    .Some(entry) => {
+      assert(entry.function_c_name == String.from("__yo_closure_fn_42"), "fn name");
+      assert(entry.call_type_id == String.from("fn_call_type_7"), "call type id");
+      assert(entry.call_type.is_none(), "call_type defaults None");
+      assert(entry.consumed_captures.is_none(), "consumed_captures defaults None");
+    }
+  );
+});
+test("register_impl_closure: consumed_captures is preserved", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  caps := ArrayList(String).new();
+  caps.push(String.from("a"));
+  caps.push(String.from("b"));
+  pctx.*.register_impl_closure(
+    String.from("capture_1"),
+    String.from("fn1"),
+    String.from("ct"),
+    Option(TypeValue).None,
+    Option(ArrayList(String)).Some(caps)
+  );
+  match(
+    pctx.*.get_impl_closure(String.from("capture_1")),
+    .None => assert(false, "expected entry"),
+    .Some(entry) => match(
+      entry.consumed_captures,
+      .None => assert(false, "expected consumed_captures"),
+      .Some(c) => assert(c.len() == usize(2), "two captures preserved")
+    )
+  );
+});
+test("get_impl_closure: unknown id returns None", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  assert(pctx.*.get_impl_closure(String.from("missing")).is_none(), "miss");
+});
