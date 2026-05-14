@@ -808,10 +808,19 @@ _evaluate_expression_wrapper :: (
   _evaluate_expression(expr, env, ctx, using(exn))
 });
 /// Concrete-signature wrapper for set_evaluate_expression_raw_fn.
-/// Phase 2 bootstrapping: ignores the caller's exn and uses _evaluate_expression_wrapper
-/// (which panics on error). This avoids calling the base (unspecialized) _evaluate_expression
-/// with a runtime void* throw function pointer, which the codegen cannot handle.
-/// Phase 3: replace with a proper exception-forwarding implementation.
+///
+/// Forwards the caller's exception handler directly to the underlying
+/// `_evaluate_expression`. This is what lets `try_populate_expr_info_table`
+/// in `yo-self/main.yo` install a `.None`-escape handler and gracefully
+/// fall back when the proper evaluator hits coverage gaps (Stream A in
+/// `plans/BOOTSTRAPPING.md`).
+///
+/// The previous bootstrap stub delegated to `_evaluate_expression_wrapper`
+/// (which installs its own panic handler), with a comment claiming the
+/// codegen could not handle a runtime `void*` throw function pointer.
+/// Phase 3 verified that the codegen does in fact handle this — the
+/// previous panic was masking real evaluator coverage gaps as crashes
+/// instead of recoverable errors.
 _evaluate_expression_raw_wrapper :: (
   fn(
     expr : AstExpr,
@@ -820,7 +829,7 @@ _evaluate_expression_raw_wrapper :: (
     using(exn : Exception)
   ) -> AstExpr
 )(
-  _evaluate_expression_wrapper(expr, env, ctx)
+  _evaluate_expression(expr, env, ctx, using(exn))
 );
 /// Register the expression evaluator. Call once during evaluator initialization.
 register_evaluate_expression :: (fn() -> unit)({
