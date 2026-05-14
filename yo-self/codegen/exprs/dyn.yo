@@ -25,8 +25,9 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/type.yo");
 { is_dyn_type, is_object_type, is_iso_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../evaluator/value.yo");
+{ extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { CodegenContext, CodegenDynImplEntry } :: import("../context.yo");
-{ get_type_string, sanitize_for_c_identifier } :: import("../utils.yo");
+{ get_type_string, get_type_string_opt, sanitize_for_c_identifier } :: import("../utils.yo");
 /// Emit the C declaration for a `dyn(value)` cast given pre-resolved
 /// types. Returns `.Some(temp_var_name)` on success or `.None` when
 /// any precondition fails.
@@ -57,7 +58,20 @@ generate_dyn_for_resolved_inputs :: (
     (temp_var_name.len() == usize(0)) => Option(String).None,
     true => {
       dyn_c_name := get_type_string(dyn_type, ctx);
-      concrete_c_name := get_type_string(value_type, ctx);
+      // Concrete-type C-name resolution mirrors the IIFE in
+      // generateDynCall: first try the direct registry lookup, then
+      // fall back to the underlying FnTrait's C name (for boxed
+      // closures whose concrete type is the Impl wrapper of an Fn
+      // trait), then to the canonical int32_t default.
+      concrete_c_name := match(
+        get_type_string_opt(value_type, ctx),
+        .Some(name) => name,
+        .None => match(
+          extract_fn_trait_from_type(value_type),
+          .None => String.from("int32_t"),
+          .Some(fn_trait) => get_type_string(fn_trait, ctx)
+        )
+      );
       // Impl key: `${concrete_c_name}_${dyn_c_name}`.
       impl_key := String.new();
       impl_key.push_string(concrete_c_name);
