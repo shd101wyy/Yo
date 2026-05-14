@@ -35,6 +35,7 @@ open(import("std/string"));
 { TypeValue } :: import("../types/type.yo");
 { is_object_type, is_pointer_type } :: import("../types/guards.yo");
 { type_to_string } :: import("../types/string.yo");
+{ Environment, get_variables_from_env } :: import("../env/env.yo");
 {
   AstExpr,
   ast_expr_is_atom,
@@ -355,6 +356,38 @@ get_enum_variant_c_name :: (
     }
   )
 });
+/// Sanitised C name for the variable named `variable_name`. When
+/// `env` is `.Some`, looks up the most-recent binding of that name
+/// and uses its actual `Variable.name` (so `getVariableNameForCodegen`
+/// returns the underlying variable, not a parameter alias). Mirrors
+/// TS `getVariableNameForCodegen` in `src/codegen/utils/index.ts`.
+///
+/// **Divergence note:** TS passes `variable.type.isExtern === "c"` as
+/// the `isExternC` flag so reserved-word remapping is skipped for
+/// extern-C names. yo-self's `TypeValue` does not yet carry the
+/// `is_extern` field, so the canonical mangler always applies the
+/// reserved-word remap. This is documented at the
+/// `sanitize_for_c_identifier` declaration.
+get_variable_name_for_codegen :: (
+  fn(variable_name : String, env : Option(Environment)) -> String
+)(
+  match(
+    env,
+    .None => sanitize_for_c_identifier(variable_name),
+    .Some(e) => {
+      variables := get_variables_from_env(e, variable_name);
+      n := variables.len();
+      cond(
+        (n == usize(0)) => sanitize_for_c_identifier(variable_name),
+        true => match(
+          variables.get(n - usize(1)),
+          .None => sanitize_for_c_identifier(variable_name),
+          .Some(latest) => sanitize_for_c_identifier(latest.name)
+        )
+      )
+    }
+  )
+);
 /// Walk a `___dup`-style expression and extract the variable name it
 /// targets. Two shapes are recognised, matching TS
 /// `getDeferredDupTargetAtomName` in `src/codegen/utils/index.ts`:
@@ -520,6 +553,7 @@ export(
   get_type_string_opt,
   get_variable_type_string,
   get_variable_type_string_str,
+  get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
   is_deferred_drop_for_closure_capture

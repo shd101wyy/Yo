@@ -5,6 +5,8 @@ open(import("std/string"));
 { AstExpr } :: import("../expr/expr.yo");
 { TypeValue, t_bool, t_i32, t_ptr, t_unit } :: import("../types/type.yo");
 { type_to_string } :: import("../types/string.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
+{ Environment, add_variable_to_env } :: import("../env/env.yo");
 { CodegenContext, CodegenTypeEntry } :: import("../codegen/context.yo");
 {
   sanitize_for_c_identifier,
@@ -17,6 +19,7 @@ open(import("std/string"));
   get_type_string_opt,
   get_variable_type_string,
   get_variable_type_string_str,
+  get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
   is_deferred_drop_for_closure_capture
@@ -459,5 +462,67 @@ test("is_deferred_drop_for_closure_capture: not a drop expr → false", {
   assert(
     !(is_deferred_drop_for_closure_capture(mk_atom("x"), captures)),
     "atom alone is not a drop expr"
+  );
+});
+test("get_variable_name_for_codegen: no env → sanitises the raw name", {
+  out := get_variable_name_for_codegen(
+    String.from("foo.bar"),
+    Option(Environment).None
+  );
+  assert(
+    out == String.from("foo_u46_bar"),
+    "no env → direct sanitisation"
+  );
+});
+test("get_variable_name_for_codegen: env hit → uses Variable.name", {
+  env := Environment.new(String.from("test"));
+  placeholder_token := Token(
+    kind : TokenKind.Identifier,
+    value : String.from(""),
+    row : usize(0),
+    column : usize(0),
+    character : usize(0),
+    module_path : String.from(""),
+    input : String.from("")
+  );
+  _r := add_variable_to_env(
+    &(env),
+    String.from("count.cur"),
+    t_i32(),
+    Option(EvalValue).None,
+    false,
+    false,
+    false,
+    false,
+    placeholder_token
+  );
+  out := get_variable_name_for_codegen(
+    String.from("count.cur"),
+    Option(Environment).Some(env)
+  );
+  // `.` (46) → `_u46_`. The helper looks up the latest binding and
+  // sanitises its actual `.name` (which here matches the input).
+  assert(out == String.from("count_u46_cur"), "env hit");
+});
+test("get_variable_name_for_codegen: env miss → sanitises the raw name", {
+  env := Environment.new(String.from("test"));
+  // Don't add any variables — the lookup should miss and fall back.
+  out := get_variable_name_for_codegen(
+    String.from("never_added"),
+    Option(Environment).Some(env)
+  );
+  assert(out == String.from("never_added"), "miss → direct sanitisation");
+});
+test("get_variable_name_for_codegen: reserved-word still gets the prefix", {
+  // The TS counterpart bypasses the reserved-word remap for
+  // extern-C variables, but yo-self's TypeValue doesn't yet carry
+  // that flag — so reserved names always get the prefix.
+  out := get_variable_name_for_codegen(
+    String.from("return"),
+    Option(Environment).None
+  );
+  assert(
+    out == String.from("__yo_c_reserved_return"),
+    "reserved word prefixed"
   );
 });
