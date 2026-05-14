@@ -423,6 +423,182 @@ generate_type_decl :: (
     _ => Option(String).None
   )
 );
+// ===========================================================================
+// Per-type RC helper-function generation (was yo-self/codegen/types.yo)
+//
+// In the TS reference, type-declaration emission and the associated
+// __dispose / __drop / __dup function generation both live in
+// `src/codegen/types/generation.ts`. Keep that grouping here.
+//
+// Phase 4i scope: only types whose fields are all primitive (no
+// heap-allocated RC objects). Semantics for non-RC types:
+//   __dispose(self) — no-op (would recursively dispose RC children)
+//   __drop(self)    — no-op (drops the value; decrements child RCs if any)
+//   __dup(self)     — returns a shallow copy
+//
+// Phase 4i naming uses the type's C name directly:
+//   {c_type_name}___dispose
+//   {c_type_name}___drop
+//   {c_type_name}___dup
+// (The TS compiler uses ID-based names; matching that is a later phase.)
+//
+// Forward declarations go into ctx.emitter.declarations; bodies into
+// ctx.emitter.code.
+// ===========================================================================
+/// The C attribute prefix used on all RC helper functions.
+RC_ATTR :: "static inline __attribute__((always_inline)) ";
+/// Build `{c_type_name}___dispose`.
+rc_dispose_name :: (fn(c_type_name : str) -> String)({
+  n := String.from(c_type_name);
+  n.push_str("___dispose");
+  n
+});
+/// Build `{c_type_name}___drop`.
+rc_drop_name :: (fn(c_type_name : str) -> String)({
+  n := String.from(c_type_name);
+  n.push_str("___drop");
+  n
+});
+/// Build `{c_type_name}___dup`.
+rc_dup_name :: (fn(c_type_name : str) -> String)({
+  n := String.from(c_type_name);
+  n.push_str("___dup");
+  n
+});
+/// Emit forward declarations for RC functions into the declarations section.
+///
+/// For structs (has_dispose=true): dispose + drop + dup
+/// For enums (has_dispose=false): drop + dup only
+emit_rc_forward_decls :: (
+  fn(
+    c_type_name : str,
+    has_dispose : bool,
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
+  if(has_dispose, {
+    d := String.from(RC_ATTR);
+    d.push_str("void ");
+    d.push_string(rc_dispose_name(c_type_name));
+    d.push_str("(");
+    d.push_str(c_type_name);
+    d.push_str(" __yo_self);");
+    ctx.*.emitter.emit_declaration_string_line(d);
+  });
+  dr := String.from(RC_ATTR);
+  dr.push_str("void ");
+  dr.push_string(rc_drop_name(c_type_name));
+  dr.push_str("(");
+  dr.push_str(c_type_name);
+  dr.push_str(" __yo_self);");
+  ctx.*.emitter.emit_declaration_string_line(dr);
+  du := String.from(RC_ATTR);
+  du.push_str(c_type_name);
+  du.push_str(" ");
+  du.push_string(rc_dup_name(c_type_name));
+  du.push_str("(");
+  du.push_str(c_type_name);
+  du.push_str(" __yo_self);");
+  ctx.*.emitter.emit_declaration_string_line(du);
+});
+/// Emit the `__dispose` function body (no-op for non-RC types).
+emit_dispose_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
+  sig := String.from(RC_ATTR);
+  sig.push_str("void ");
+  sig.push_string(rc_dispose_name(c_type_name));
+  sig.push_str("(");
+  sig.push_str(c_type_name);
+  sig.push_str(" __yo_self) {");
+  ctx.*.emitter.emit_line(sig.as_str());
+  ctx.*.emitter.emit_line("}");
+});
+/// Emit the `__drop` function body (no-op for non-RC types).
+emit_drop_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
+  sig := String.from(RC_ATTR);
+  sig.push_str("void ");
+  sig.push_string(rc_drop_name(c_type_name));
+  sig.push_str("(");
+  sig.push_str(c_type_name);
+  sig.push_str(" __yo_self) {");
+  ctx.*.emitter.emit_line(sig.as_str());
+  ctx.*.emitter.emit_line("  return;");
+  ctx.*.emitter.emit_line("}");
+});
+/// Emit the `__dup` function body (shallow copy for non-RC types).
+emit_dup_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
+  sig := String.from(RC_ATTR);
+  sig.push_str(c_type_name);
+  sig.push_str(" ");
+  sig.push_string(rc_dup_name(c_type_name));
+  sig.push_str("(");
+  sig.push_str(c_type_name);
+  sig.push_str(" __yo_self) {");
+  ctx.*.emitter.emit_line(sig.as_str());
+  tmp_decl := String.from("  ");
+  tmp_decl.push_str(c_type_name);
+  tmp_decl.push_str(" __yo_dup_tmp = __yo_self;");
+  ctx.*.emitter.emit_line(tmp_decl.as_str());
+  ctx.*.emitter.emit_line("  return(__yo_dup_tmp);");
+  ctx.*.emitter.emit_line("}");
+});
+/// Generate forward declarations and definitions for the three RC helper
+/// functions for a type with no heap-allocated (RC) fields.
+///
+/// `c_type_name` — the C typedef name as a `str` (e.g., `"__yo_struct_mod_id_2"`)
+/// `has_dispose` — true for struct types, false for enum types
+///
+/// Forward declarations go into `ctx.emitter.declarations`.
+/// Function bodies go into `ctx.emitter.code`.
+generate_rc_fns_trivial :: (
+  fn(
+    c_type_name : str,
+    has_dispose : bool,
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
+  emit_rc_forward_decls(c_type_name, has_dispose, ctx);
+  if(has_dispose, {
+    emit_dispose_fn(c_type_name, ctx);
+  });
+  emit_drop_fn(c_type_name, ctx);
+  emit_dup_fn(c_type_name, ctx);
+});
+/// Generate RC helper functions for a `TypeValue`.
+///
+/// Currently handles:
+///   Struct — with __dispose + __drop + __dup
+///   EnumT  — with __drop + __dup (no __dispose for unit enums)
+///
+/// Returns `true` if RC functions were generated, `false` for unsupported types.
+generate_rc_fns :: (
+  fn(
+    type_val : TypeValue,
+    module_id : str,
+    type_id : usize,
+    ctx : *(CodegenContext)
+  ) -> bool
+)(
+  match(
+    type_val,
+    .Struct(_, _, _, _, _, _, _) => {
+      c_name := String.from("__yo_struct_");
+      c_name.push_str(module_id);
+      c_name.push_str("_id_");
+      c_name.push_string(type_id.to_string());
+      generate_rc_fns_trivial(c_name.as_str(), true, ctx);
+      true
+    },
+    .EnumT(_, _, _, _, _, _, _) => {
+      c_name := String.from("__yo_enum_");
+      c_name.push_str(module_id);
+      c_name.push_str("_id_");
+      c_name.push_string(type_id.to_string());
+      generate_rc_fns_trivial(c_name.as_str(), false, ctx);
+      true
+    },
+    _ => false
+  )
+);
 export(
   type_value_to_c_field,
   struct_c_name,
@@ -431,5 +607,15 @@ export(
   generate_struct_decl,
   emit_simple_enum,
   emit_data_enum,
-  generate_type_decl
+  generate_type_decl,
+  RC_ATTR,
+  rc_dispose_name,
+  rc_drop_name,
+  rc_dup_name,
+  emit_rc_forward_decls,
+  emit_dispose_fn,
+  emit_drop_fn,
+  emit_dup_fn,
+  generate_rc_fns_trivial,
+  generate_rc_fns
 );
