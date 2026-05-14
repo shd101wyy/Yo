@@ -32,24 +32,7 @@ open(import("std/string"));
 { ExprInfo } :: import("../../expr/expr_info.yo");
 { TypeValue, is_struct_type } :: import("../../types/type.yo");
 { CodegenContext } :: import("../context.yo");
-{ type_value_to_c_field } :: import("../types.yo");
-{ sanitize_for_c_identifier_str } :: import("../utils.yo");
-/// Build `"<c_type> <sanitized_var_name>"`. Mirrors TS
-/// `getVariableTypeString` (which after a recent refactor is also just
-/// `${getTypeString(type)} ${sanitizeForCIdentifier(varName)}`).
-get_variable_type_string :: (fn(t : TypeValue, var_name : str) -> String)({
-  c_ty := match(
-    type_value_to_c_field(t),
-    .Some(s) => s,
-    .None => String.from("int32_t")
-  );
-  san := sanitize_for_c_identifier_str(var_name);
-  result := String.new();
-  result.push_string(c_ty);
-  result.push_str(" ");
-  result.push_string(san);
-  result
-});
+{ get_variable_type_string_str } :: import("../utils.yo");
 /// Extract the inner expression token value from a `comptime(x)` or
 /// `given(x)` 1-arg call.
 inner_atom_token_value :: (fn(call_expr : AstExpr) -> Option(String))(
@@ -112,7 +95,7 @@ generate_binding :: (
                   (!(is_struct_type(inner_info.ty))) =>
                     Option(String).Some(String.from("")),
                   true => {
-                    decl := get_variable_type_string(inner_info.ty, inner_name.as_str());
+                    decl := get_variable_type_string_str(inner_info.ty, inner_name.as_str(), ctx);
                     line := String.from(indent.as_str());
                     line.push_string(decl);
                     line.push_str(";");
@@ -132,7 +115,7 @@ generate_binding :: (
             ctx.*.get_expr_info(ast_expr_id(lhs)),
             .None => Option(String).None,
             .Some(lhs_info) => {
-              decl := get_variable_type_string(lhs_info.ty, lhs_tok.value.as_str());
+              decl := get_variable_type_string_str(lhs_info.ty, lhs_tok.value.as_str(), ctx);
               line := String.from(indent.as_str());
               line.push_string(decl);
               line.push_str(";");
@@ -145,4 +128,4 @@ generate_binding :: (
     )
   )
 );
-export(generate_binding, get_variable_type_string, inner_atom_token_value);
+export(generate_binding, inner_atom_token_value);

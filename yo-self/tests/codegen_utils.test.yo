@@ -10,7 +10,11 @@ open(import("std/string"));
   should_avoid_const,
   can_optimize_as_simple_enum,
   can_optimize_as_nullable_pointer,
-  get_enum_variant_c_name
+  get_enum_variant_c_name,
+  get_type_string,
+  get_type_string_opt,
+  get_variable_type_string,
+  get_variable_type_string_str
 } :: import("../codegen/utils.yo");
 mk_struct :: (
   fn(
@@ -238,4 +242,59 @@ test("get_enum_variant_c_name: variant name with snake_case is uppercased", {
     .None => assert(false, "expected Some"),
     .Some(s) => assert(s == String.from("YO_STATUS_NOT_STARTED"), "snake → SCREAMING_SNAKE")
   );
+});
+test("get_type_string: primitive falls through to type_value_to_c_field", {
+  ctx := CodegenContext.new();
+  assert(get_type_string(t_i32(), &(ctx)) == String.from("int32_t"), "i32");
+  assert(get_type_string(t_bool(), &(ctx)) == String.from("bool"), "bool");
+});
+test("get_type_string: unregistered named type falls back to int32_t", {
+  // An unregistered Struct type can't be resolved — the TS canonical
+  // fallback is `int32_t` (matches the `if (!type) return "int32_t";`
+  // guard).
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(ArrayList(TypeValue).new());
+  variants.push(ArrayList(TypeValue).new());
+  ty := mk_enum("UnregisteredEnum", variants);
+  ctx := CodegenContext.new();
+  assert(
+    get_type_string(ty, &(ctx)) == String.from("int32_t"),
+    "unregistered → int32_t"
+  );
+});
+test("get_type_string_opt: unregistered named type returns None", {
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(ArrayList(TypeValue).new());
+  ty := mk_enum("Other", variants);
+  ctx := CodegenContext.new();
+  assert(
+    get_type_string_opt(ty, &(ctx)).is_none(),
+    "unregistered enum opt → None"
+  );
+});
+test("get_variable_type_string: builds `<type> <name>` for primitive", {
+  ctx := CodegenContext.new();
+  out := get_variable_type_string_str(t_i32(), "count", &(ctx));
+  assert(out == String.from("int32_t count"), "i32 count");
+});
+test("get_variable_type_string: sanitises the variable name", {
+  ctx := CodegenContext.new();
+  out := get_variable_type_string_str(t_bool(), "raise.flag", &(ctx));
+  // `.` (byte 46) mangles to `_u46_`.
+  assert(out == String.from("bool raise_u46_flag"), "name sanitised");
+});
+test("get_variable_type_string: registered enum uses registry C name", {
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(ArrayList(TypeValue).new());
+  variants.push(ArrayList(TypeValue).new());
+  ty := mk_enum("Color", variants);
+  ctx := CodegenContext.new();
+  install_enum_type(&(ctx), ty, "yo_color");
+  out := get_variable_type_string_str(ty, "c", &(ctx));
+  assert(out == String.from("yo_color c"), "registry hit");
+});
+test("get_variable_type_string: reserved C name is prefixed", {
+  ctx := CodegenContext.new();
+  out := get_variable_type_string_str(t_i32(), "return", &(ctx));
+  assert(out == String.from("int32_t __yo_c_reserved_return"), "reserved");
 });

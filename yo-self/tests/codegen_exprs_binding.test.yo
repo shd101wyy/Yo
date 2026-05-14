@@ -15,11 +15,8 @@ open(import("std/fmt"));
 { TypeValue, t_i32, t_bool } :: import("../types/type.yo");
 { EvalValue } :: import("../evaluator/value.yo");
 { CodegenContext } :: import("../codegen/context.yo");
-{
-  generate_binding,
-  get_variable_type_string,
-  inner_atom_token_value
-} :: import("../codegen/exprs/binding.yo");
+{ generate_binding, inner_atom_token_value } :: import("../codegen/exprs/binding.yo");
+{ get_variable_type_string, get_variable_type_string_str } :: import("../codegen/utils.yo");
 mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
   AstExpr.Atom(
     id,
@@ -63,11 +60,13 @@ mk_struct_ty :: (fn(name : str) -> TypeValue)(
   )
 );
 test("get_variable_type_string: primitive type", {
-  out := get_variable_type_string(t_i32(), "x");
+  ctx := CodegenContext.new();
+  out := get_variable_type_string_str(t_i32(), "x", &(ctx));
   assert(out == String.from("int32_t x"), "i32 x");
 });
 test("get_variable_type_string: bool type", {
-  out := get_variable_type_string(t_bool(), "flag");
+  ctx := CodegenContext.new();
+  out := get_variable_type_string_str(t_bool(), "flag", &(ctx));
   assert(out == String.from("bool flag"), "bool flag");
 });
 test("inner_atom_token_value: comptime(name) yields name", {

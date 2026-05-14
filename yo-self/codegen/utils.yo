@@ -297,6 +297,30 @@ get_type_string :: (
     .None => String.from("int32_t")
   )
 );
+/// Build `"<c_type> <sanitized_var_name>"` — the declaration prefix
+/// for a C local with type `t` and Yo name `var_name`. Mirrors TS
+/// `getVariableTypeString` in `src/codegen/utils/index.ts`:
+///
+///     `${getTypeString(type, context)} ${sanitizeForCIdentifier(varName)}`
+///
+/// Returns a `String` (TS-canonical shape — `int32_t` fallback inside
+/// `get_type_string`). The two-argument convenience `_str` overload
+/// accepts an already-`str`-typed name.
+get_variable_type_string :: (
+  fn(t : TypeValue, var_name : String, ctx : *(CodegenContext)) -> String
+)({
+  c_ty := get_type_string(t, ctx);
+  san := sanitize_for_c_identifier(var_name);
+  result := String.new();
+  result.push_string(c_ty);
+  result.push_str(" ");
+  result.push_string(san);
+  result
+});
+/// Convenience overload accepting `str` for the variable name.
+get_variable_type_string_str :: (
+  fn(t : TypeValue, var_name : str, ctx : *(CodegenContext)) -> String
+)(get_variable_type_string(t, String.from(var_name), ctx));
 /// C name for the variant `variant_name` of enum `enum_ty`. Mirrors
 /// TS `getEnumVariantCName` in `src/codegen/utils/index.ts`:
 ///
@@ -330,5 +354,7 @@ export(
   can_optimize_as_nullable_pointer,
   get_enum_variant_c_name,
   get_type_string,
-  get_type_string_opt
+  get_type_string_opt,
+  get_variable_type_string,
+  get_variable_type_string_str
 );
