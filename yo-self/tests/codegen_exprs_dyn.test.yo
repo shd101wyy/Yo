@@ -6,7 +6,11 @@ open(import("std/string"));
 { type_to_string } :: import("../types/string.yo");
 { EvalValue } :: import("../value.yo");
 { CodegenContext, CodegenTypeEntry } :: import("../codegen/context.yo");
-{ generate_dyn_for_resolved_inputs } :: import("../codegen/exprs/dyn.yo");
+{
+  generate_dyn_for_resolved_inputs,
+  format_dyn_vtable_name,
+  format_dyn_compound_literal
+} :: import("../codegen/exprs/dyn.yo");
 mk_struct :: (
   fn(name : str, is_reference_semantics : bool) -> TypeValue
 )(
@@ -192,4 +196,40 @@ test("dyn: repeated calls deduplicate impl registration", {
   );
   after := ctx.dyn_impls.len();
   assert(before == after, "second call does not grow dyn_impls");
+});
+// ─── pure formatters ────────────────────────────────────────────────────────
+test("format_dyn_vtable_name: prefixes + sanitises impl_key", {
+  // Simple identifier-only key — no sanitisation needed.
+  out := format_dyn_vtable_name(String.from("Counter_DynShow"));
+  assert(
+    out == String.from("__yo_vtable_Counter_DynShow"),
+    "no sanitisation"
+  );
+});
+test("format_dyn_vtable_name: sanitises non-identifier chars", {
+  // A key with `(`/`)` (e.g. `Box(T)_DynShow`) gets mangled per the
+  // canonical sanitizer so the resulting symbol is a valid C
+  // identifier.
+  out := format_dyn_vtable_name(String.from("Box(T)_DynShow"));
+  // Expected: __yo_vtable_Box_u40_T_u41__DynShow
+  assert(
+    out == String.from("__yo_vtable_Box_u40_T_u41__DynShow"),
+    "parens sanitised"
+  );
+});
+test("format_dyn_compound_literal: assembles dyn value", {
+  // The compound-literal form used in rvalue positions, parallel to
+  // the 4-line named-decl form in `generate_dyn_for_resolved_inputs`.
+  out := format_dyn_compound_literal(
+    String.from("Dyn_Show"),
+    String.from("&local_counter"),
+    String.from("__yo_vtable_Counter_Show")
+  );
+  assert(
+    out ==
+      String.from(
+        "(Dyn_Show){ .data = &local_counter, .vtable = &__yo_vtable_Counter_Show }"
+      ),
+    "compound literal shape"
+  );
 });

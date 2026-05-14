@@ -30,6 +30,39 @@ open(import("std/string"));
 { CodegenContext, CodegenDynImplEntry } :: import("../context.yo");
 { get_type_string, get_type_string_opt, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
+/// Build the C identifier for a dyn vtable: `__yo_vtable_<sanitized(impl_key)>`.
+///
+/// The vtable generator (a separate post-handler pass) consumes
+/// `ctx.dyn_impls` and emits one `static const __yo_vtable_t
+/// __yo_vtable_<key> = { ... };` per entry. Pure string composition;
+/// the impl key is canonical-sanitised so the resulting identifier
+/// is a valid C symbol even if the underlying type-name characters
+/// would not be.
+format_dyn_vtable_name :: (fn(impl_key : String) -> String)({
+  s := String.from("__yo_vtable_");
+  s.push_string(sanitize_for_c_identifier(impl_key));
+  s
+});
+/// Build the C compound-literal for a fully-resolved dyn value:
+///
+///   `(<dyn_c_name>){ .data = <value_code>, .vtable = &<vtable_name> }`
+///
+/// Used inside `generate_dyn_for_resolved_inputs` as a one-line
+/// alternative to the 4-line struct-literal declaration; useful for
+/// rvalue positions (function arguments, return slot) where a
+/// compound literal is preferred over a named temp.
+format_dyn_compound_literal :: (
+  fn(dyn_c_name : String, value_code : String, vtable_name : String) -> String
+)({
+  s := String.from("(");
+  s.push_string(dyn_c_name);
+  s.push_str("){ .data = ");
+  s.push_str(value_code.as_str());
+  s.push_str(", .vtable = &");
+  s.push_string(vtable_name);
+  s.push_str(" }");
+  s
+});
 /// Emit the C declaration for a `dyn(value)` cast given pre-resolved
 /// types. Returns `.Some(temp_var_name)` on success or `.None` when
 /// any precondition fails.
@@ -97,8 +130,7 @@ generate_dyn_for_resolved_inputs :: (
       // key already does (it shouldn't, since type_to_string-driven
       // c_name's are pre-sanitised, but the canonical mangler is
       // safe to apply regardless).
-      vtable_name := String.from("__yo_vtable_");
-      vtable_name.push_string(sanitize_for_c_identifier(impl_key));
+      vtable_name := format_dyn_vtable_name(impl_key);
       san_temp := sanitize_for_c_identifier(temp_var_name);
       // Emit the four-line struct-literal declaration.
       l1 := String.from(indent.as_str());
@@ -199,4 +231,9 @@ generate_dyn_call :: (
     )
   )
 });
-export(generate_dyn_for_resolved_inputs, generate_dyn_call);
+export(
+  generate_dyn_for_resolved_inputs,
+  generate_dyn_call,
+  format_dyn_vtable_name,
+  format_dyn_compound_literal
+);
