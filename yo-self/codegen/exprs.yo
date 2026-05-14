@@ -32,6 +32,7 @@ open(import("std/string"));
 { generate_yo_iso_extract, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call }
 :: import("./exprs/iso.yo");
 { generate_while_loop } :: import("./exprs/while.yo");
+{ generate_op_and, generate_op_or } :: import("./exprs/and_or.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -11487,6 +11488,20 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
       ident_opt := fncall_func_ident(func_box);
       cond(
         // Binary infix arithmetic/comparison/logical: (a OP b)
+        (
+          is_infix && match(
+            op_opt,
+            .None => false,
+            .Some(op) => ((op.as_str() == "&&") || (op.as_str() == "||"))
+          )
+        ) => match(
+          op_opt,
+          .None => Option(String).None,
+          .Some(op) => cond(
+            (op.as_str() == "&&") => generate_op_and(args, indent, ctx),
+            true => generate_op_or(args, indent, ctx)
+          )
+        ),
         (
           is_infix && match(
             op_opt,

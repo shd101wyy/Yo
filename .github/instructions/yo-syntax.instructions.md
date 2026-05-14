@@ -173,6 +173,11 @@ If a `match`/`cond` branch returns an enum variant and the evaluator reports
 "Failed to infer enum variant type", qualify the variant explicitly, e.g.
 `TypeValue.Unit` instead of `.Unit`.
 
+Do not write sibling enum-payload literal patterns such as `.Some(false)` and
+`.Some(true)`. Match the variant once (`.Some(value)`) and branch on `value`
+inside the arm. The self-hosted codegen can otherwise emit duplicate C `case`
+labels for the same enum variant.
+
 When writing large enum matches, avoid binding a pattern variable with the same
 name as a variant field (for example, prefer `struct_field_types` over
 `field_types`). Some self-hosted codegen paths can currently emit invalid C for

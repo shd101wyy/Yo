@@ -81,6 +81,10 @@ if(done, println("done"), println("pending"));
 - Write `escape(value)` or `escape()`; `escape value` is invalid.
 - If a `match`/`cond` branch returns an enum variant and inference fails, qualify
   the variant with its enum type: `TypeValue.Unit` instead of `.Unit`.
+- Do not match enum payload literals directly, e.g. avoid `.Some(false)` and
+  `.Some(true)` as sibling branches. Match `.Some(value)` once, then branch with
+  `if(value, ...)` or `cond(...)` inside the arm; otherwise generated C can
+  contain duplicate enum `case` labels.
 - In large enum matches, avoid binding a pattern variable with the same name as a
   variant field (for example, prefer `struct_field_types` over `field_types`).
   This can currently produce invalid generated C in some self-hosted codegen
