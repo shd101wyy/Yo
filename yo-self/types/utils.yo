@@ -1,35 +1,36 @@
-//! Type utilities — pure subset of `src/types/utils.ts`.
+//! Type utilities — port of `src/types/utils.ts`.
 //!
-//! This file ports only the evaluator-independent functions from utils.ts.
-//! Functions requiring `EvaluatorContext`, `typeImplementsFuture`, `SomeType.resolvedConcreteType`,
-//! or `StructType.isReferenceSemantics` are deferred to Phase 3.
+//! Most of the TS exports are now landed. The handful that remain
+//! deferred do so for one of three reasons:
 //!
-//! Ported functions (Phase 2a):
-//!   * Target pointer size config (`set_target_pointer_size`, `get_target_pointer_size_bits`, …)
-//!   * `get_integer_type_bits`
-//!   * `get_integer_type_range`
-//!   * `can_comptime_int_cast_to`
-//!   * `can_comptime_float_cast_to`
+//!   * `is_comptime_only_type` / `is_runtime_only_type` (env-aware
+//!     versions): live in `evaluator/trait_checking.yo` as
+//!     `type_is_comptime_only_full` / `type_is_runtime_only` because
+//!     they depend on the env-aware `type_implements_comptime`. The
+//!     tag-only fast path is still here as `type_is_comptime_only`.
+//!   * `type_contains_self_type_for_dynamic_dispatch_check` — needs
+//!     `SomeType.resolved_concrete_type` which yo-self's `SomeT` does
+//!     not yet carry.
+//!   * `function_parameter_to_string` / `tuple_field_to_string` —
+//!     depend on the TS `FunctionParameter` / `TupleElement` shapes
+//!     that yo-self models via parallel `ArrayList` fields rather
+//!     than per-field objects.
 //!
-//! Ported functions (Phase 2u):
-//!   * `prohibit_void_type` — throws on Void type
-//!   * `type_requires_comptime_modifier` — implemented (uses type_is_comptime_only tag fast-path)
-//!   * `type_prohibits_comptime_modifier` — implemented (uses tag fast-path for runtime-only types)
-//!   * `type_contains_rc_type` — stub (needs isRcType / typeImplementsFuture, Phase 3)
-//!
-//! Ported functions (Phase 2ac):
-//!   * `type_contains_some_type` — partial (top-level SomeT/TypeAppT only, Phase 3 for recursive)
-//!
-//! Ported functions (Phase 2ao):
-//!   * `get_size_of_type` — primitive/pointer/array cases; Struct/Enum/Union return `.None`
-//!   * `get_alignment_of_type` — primitive/pointer/array cases; Struct/Enum/Union return `.None`
-//!
-//! Deferred to Phase 3 (require evaluator context or missing TypeValue flags):
-//!   * `is_comptime_only_type` / `is_runtime_only_type` — need `typeImplementsComptime`/`typeImplementsRuntime`
-//!   * full `type_contains_rc_type` — needs `typeImplementsFuture`, `isRcType`
-//!   * full `get_size_of_type` / `get_alignment_of_type` — Struct/EnumT/Union cases need `isReferenceSemantics`, `isNewtype`
-//!   * `can_type_form_rc_cycle` — needs `typeImplementsAcyclic`
-//!   * `type_contains_self_type_for_dynamic_dispatch_check` — needs `SomeType.resolvedConcreteType`
+//! Ported (full): set_target_pointer_size,
+//! get_target_pointer_size_{bits,bytes}, get_integer_type_bits,
+//! get_integer_type_range, can_comptime_{int,float}_cast_to,
+//! create_str_type, convert_comptime_type_to_runtime_type (+
+//! `_with_expected` overload), prohibit_void_type, type_is_comptime_only,
+//! type_requires_comptime_modifier, type_prohibits_comptime_modifier,
+//! type_implements_runtime_builtin, type_implements_runtime,
+//! type_contains_rc_type (recursive, with depth-limit cycle guard),
+//! can_type_form_rc_cycle (conservative `false` stub —
+//! `type_implements_acyclic` lives in trait_checking.yo),
+//! type_requires_inference (`false` — yo-self Array length is always
+//! concretely known), type_contains_some_type (top-level only;
+//! recursive descent in `_collect_some_types_into`), get_all_some_types,
+//! get_size_of_type / get_alignment_of_type (primitive/pointer/array;
+//! Struct/EnumT/Union return `.None` for the bootstrap codegen path).
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
