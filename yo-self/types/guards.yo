@@ -126,12 +126,48 @@ is_object_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Struct(_, _, _, _, is_ref, _, _) => is_ref, _ => false)
 );
 // Phase 2b: Struct needs `isAtomicRc` flag.
+// Mirrors `isAtomicObjectType` in `src/types/guards.ts`, which requires
+// BOTH `is_reference_semantics` AND `is_atomic_rc`. A value-semantics
+// struct with `is_atomic_rc = true` is malformed but should not pass.
 is_atomic_object_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct(_, _, _, _, _, is_atomic, _) => is_atomic, _ => false)
+  match(
+    t,
+    .Struct(_, _, _, _, is_ref, is_atomic, _) => (is_ref && is_atomic),
+    _ => false
+  )
 );
 // Phase 2b: Struct needs `isNewtype` flag.
 is_newtype_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Struct(_, _, _, _, _, _, is_nt) => is_nt, _ => false)
+);
+/// True if `t` is the `str` newtype (a `Struct` named "str" with
+/// `is_newtype = true`). Used by `panic` / `fprintf` codegen to choose
+/// between `%s` and `%.*s` format specifiers.
+is_str_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct(_, name, _, _, _, _, is_nt) => (is_nt && (name.as_str() == "str")),
+    _ => false
+  )
+);
+/// True if `t` is `Box(T)` — a single-field reference-semantics Struct
+/// whose name starts with `Box(` and whose only field is labeled `*`.
+/// Used by RC and downcast codegen to look through the Box wrapper.
+is_box_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct(_, name, field_labels, _, is_ref, _, _) => cond(
+      (!(is_ref)) => false,
+      (field_labels.len() != usize(1)) => false,
+      (!(String.from(name.as_str()).starts_with(String.from("Box(")))) => false,
+      true => match(
+        field_labels.get(usize(0)),
+        .Some(label) => (label.as_str() == "*"),
+        .None => false
+      )
+    ),
+    _ => false
+  )
 );
 is_fn_trait_type :: (fn(t : TypeValue) -> bool)(
   match(t,.FnTraitT(base_name : _) => true, _ => false)
@@ -460,6 +496,8 @@ export(
   is_object_type,
   is_atomic_object_type,
   is_newtype_type,
+  is_str_type,
+  is_box_type,
   is_fn_trait_type,
   is_function_type_and_is_type_function,
   is_function_type_and_is_macro_function,
