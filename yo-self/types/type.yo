@@ -543,6 +543,74 @@ is_unit_type :: (fn(t : TypeValue) -> bool)(
 is_bool_type :: (fn(t : TypeValue) -> bool)(
   match(t,.BoolT => true, _ => false)
 );
+/// True if `t` is `IsoT(...)`. Mirrors `isIsoType` in `src/types/guards.ts`.
+is_iso_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.IsoT(_) => true, _ => false)
+);
+/// True if `t` is `DynT(...)`. Mirrors `isDynType` in `src/types/guards.ts`.
+is_dyn_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.DynT(_, _, _, _) => true, _ => false)
+);
+/// True if `t` is an object-semantics Struct (RC pointer). Mirrors
+/// `isObjectType` in `src/types/guards.ts`, modulo the post-refactor
+/// rename where the object/struct distinction is now carried on
+/// `Struct.is_reference_semantics`.
+is_object_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct(_, _, _, _, is_reference_semantics, _, _) => is_reference_semantics,
+    _ => false
+  )
+);
+/// True if `t` is an atomic RC object (`atomic object(...)`). Mirrors
+/// `isAtomicObjectType` in `src/types/guards.ts`.
+is_atomic_object_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct(_, _, _, _, is_reference_semantics, is_atomic_rc, _) =>
+      (is_reference_semantics && is_atomic_rc),
+    _ => false
+  )
+);
+/// True if `t` is a newtype Struct (`newtype(...)`). Mirrors
+/// `isNewtypeType` in `src/types/guards.ts`.
+is_newtype_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct(_, _, _, _, _, _, is_newtype) => is_newtype,
+    _ => false
+  )
+);
+/// True if `t` is the `str` newtype (a `Struct` named "str" with
+/// `is_newtype = true`). Used by `panic`/`fprintf` codegen to decide
+/// between `%s` and `%.*s` format specifiers.
+is_str_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct(_, name, _, _, _, _, is_newtype) =>
+      (is_newtype && (name.as_str() == "str")),
+    _ => false
+  )
+);
+/// True if `t` is `Box(T)` — a single-field object Struct named
+/// "Box(...)" whose only field is labeled "*". Used by RC and downcast
+/// codegen to look through the Box wrapper.
+is_box_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct(_, name, field_labels, _, is_reference_semantics, _, _) => cond(
+      (!(is_reference_semantics)) => false,
+      (field_labels.len() != usize(1)) => false,
+      (!(String.from(name.as_str()).starts_with(String.from("Box(")))) => false,
+      true => match(
+        field_labels.get(usize(0)),
+        .Some(label) => (label.as_str() == "*"),
+        .None => false
+      )
+    ),
+    _ => false
+  )
+);
 export(
   TypeValue,
   type_value_tag,
@@ -613,5 +681,12 @@ export(
   is_union_type,
   is_tuple_type,
   is_unit_type,
-  is_bool_type
+  is_bool_type,
+  is_iso_type,
+  is_dyn_type,
+  is_object_type,
+  is_atomic_object_type,
+  is_newtype_type,
+  is_str_type,
+  is_box_type
 );
