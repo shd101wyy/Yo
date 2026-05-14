@@ -954,6 +954,20 @@ is_unknown_val :: (fn(v : EvalValue) -> bool)(match(v,.UnknownVal(_) => true, _ 
 is_number_val :: (fn(v : EvalValue) -> bool)(
   match(v,.IntLit(_) => true,.FloatLit(_) => true, _ => false)
 );
+/// Check if `v` is a compile-time integer literal (`IntLit`).
+/// Mirrors TS `isComptimeIntValue` in `src/value.ts`. yo-self stores
+/// integer literals as raw text in `IntLit(raw)`; this helper is the
+/// canonical-named alias of `is_int_lit`.
+is_comptime_int_value :: (fn(v : EvalValue) -> bool)(
+  match(v,.IntLit(_) => true, _ => false)
+);
+/// Check if `v` is a compile-time float literal (`FloatLit`).
+/// Mirrors TS `isComptimeFloatValue` in `src/value.ts`. yo-self
+/// stores float literals as raw text in `FloatLit(raw)`; this helper
+/// is the canonical-named alias of `is_float_lit`.
+is_comptime_float_value :: (fn(v : EvalValue) -> bool)(
+  match(v,.FloatLit(_) => true, _ => false)
+);
 /// Check if `v` is a compile-time string literal (`StrLit`). Mirrors
 /// TS `isComptimeStringValue` in `src/value.ts`. yo-self does not
 /// distinguish runtime-`str` from comptime-string at the EvalValue
@@ -1051,6 +1065,11 @@ export(is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_re
 export(is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val);
 export(is_tuple_val, is_array_val, is_slice_val, is_ptr_val, is_trait_val);
 export(is_comptime_list_val, is_expr_val, is_unknown_val);
-export(is_number_val, is_comptime_string_value);
+export(
+  is_number_val,
+  is_comptime_int_value,
+  is_comptime_float_value,
+  is_comptime_string_value
+);
 export(is_type_value, create_unknown_val);
 export(eval_value_eq);
