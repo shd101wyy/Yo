@@ -5,7 +5,8 @@ open(import("std/string"));
 { AstExpr } :: import("../expr.yo");
 {
   is_initialization_assignment_lhs,
-  unwrap_initialization_lhs
+  unwrap_initialization_lhs,
+  is_skipped_assignment_lhs
 } :: import("../codegen/exprs/assignment.yo");
 mk_token :: (fn(value : str) -> Token)(
   Token(
@@ -95,4 +96,60 @@ test("unwrap_initialization_lhs: bare atom is returned unchanged", {
     .Atom({ token }) => assert(token.value == String.from("x"), "x unchanged"),
     .FnCall(_, _, _, _, _) => assert(false, "expected atom")
   );
+});
+test("is_skipped_assignment_lhs: comptime(x) → true", {
+  // assignment.ts skips emit when LHS is `comptime(...)` with any
+  // arity. Build a `comptime(y)` shape via mk_fn_call.
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom("y"));
+  expr := AstExpr.FnCall(
+    usize(0),
+    box(mk_atom("comptime")),
+    args,
+    false,
+    mk_token("comptime")
+  );
+  assert(is_skipped_assignment_lhs(expr) == true, "comptime(y)");
+});
+test("is_skipped_assignment_lhs: given(x) → true", {
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom("ctx"));
+  expr := AstExpr.FnCall(
+    usize(0),
+    box(mk_atom("given")),
+    args,
+    false,
+    mk_token("given")
+  );
+  assert(is_skipped_assignment_lhs(expr) == true, "given(ctx)");
+});
+test("is_skipped_assignment_lhs: plain identifier → false", {
+  // Only `comptime(...)` and `given(...)` call shapes count; bare
+  // identifiers fall through to the normal assignment path.
+  assert(is_skipped_assignment_lhs(mk_atom("x")) == false, "atom x");
+});
+test("is_skipped_assignment_lhs: arity-unrestricted", {
+  // assignment.ts uses `exprIsFunctionCallOf(lhs, "comptime")` without
+  // the arity argument — meaning `comptime()` (zero args) or
+  // `comptime(a, b)` (two args) also skip emit. Pin that contract.
+  no_args := ArrayList(AstExpr).new();
+  zero_arg := AstExpr.FnCall(
+    usize(0),
+    box(mk_atom("comptime")),
+    no_args,
+    false,
+    mk_token("comptime")
+  );
+  assert(is_skipped_assignment_lhs(zero_arg) == true, "comptime()");
+  two_args := ArrayList(AstExpr).new();
+  two_args.push(mk_atom("a"));
+  two_args.push(mk_atom("b"));
+  two_arg := AstExpr.FnCall(
+    usize(0),
+    box(mk_atom("comptime")),
+    two_args,
+    false,
+    mk_token("comptime")
+  );
+  assert(is_skipped_assignment_lhs(two_arg) == true, "comptime(a, b)");
 });
