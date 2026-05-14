@@ -43,6 +43,20 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     e.*.emit_header_line("#include <stdio.h>");
     e.*.emit_header_line("#include <string.h>");
     e.*.emit_header_line("#include <errno.h>");
+    // Record each baseline include in `ctx.c_includes` so downstream
+    // handlers that depend on these headers (e.g. typeid's call to
+    // `add_c_include("<stdint.h>")`) are properly deduplicated against
+    // the always-emitted preamble. Once the preamble itself becomes
+    // demand-driven the explicit `emit_header_line` calls above will
+    // disappear and these registrations will be the source of truth.
+    ctx.*.add_c_include(String.from("<stdbool.h>"));
+    ctx.*.add_c_include(String.from("<stdint.h>"));
+    ctx.*.add_c_include(String.from("<stddef.h>"));
+    ctx.*.add_c_include(String.from("<stdarg.h>"));
+    ctx.*.add_c_include(String.from("<stdlib.h>"));
+    ctx.*.add_c_include(String.from("<stdio.h>"));
+    ctx.*.add_c_include(String.from("<string.h>"));
+    ctx.*.add_c_include(String.from("<errno.h>"));
     e.*.emit_header_line("");
     // Allocator abstraction (libc default)
     e.*.emit_header_line("// Using libc allocator");
@@ -54,6 +68,7 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     // Template string helpers: concatenate and convert-to-string.
     // Used by the self-hosted codegen to implement `\`...${x}...\`` expressions.
     e.*.emit_header_line("#include <inttypes.h>");
+    ctx.*.add_c_include(String.from("<inttypes.h>"));
     e.*.emit_header_line("// Template string helpers");
     e.*.emit_header_line("static inline char* __yo_str_concat(const char* a, const char* b) {");
     e.*.emit_header_line("  size_t la = strlen(a), lb = strlen(b);");
@@ -132,8 +147,10 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     // `ctx.has_slice_struct_type("YoSlice_u8")` instead of hardcoding
     // the name. Mirrors the TS pattern of pre-populating
     // `context.sliceStructTypes` with the always-emitted baselines.
-    ctx.*.register_slice_struct_type(String.from("YoSlice_u8"),
-    String.from("uint8_t"));
+    ctx.*.register_slice_struct_type(
+      String.from("YoSlice_u8"),
+      String.from("uint8_t")
+    );
     e.*.emit_header_line("");
     e.*.emit_header_line("// Bootstrap-only returned array specializations");
     e.*.emit_header_line("typedef struct { int32_t data[1024]; size_t length; } YoArray_i32;");
