@@ -1,4 +1,20 @@
-# Codegen `___drop` references undeclared temp when local `given(exn)` handler escapes
+# Codegen `___drop` references undeclared temp when local `given(exn)` handler escapes (FIXED)
+
+> **Fixed** in commit `d62ff8b2` (`codegen: don't emit caller-scope
+consumed-var drops in ctl handler bodies`). Two related changes:
+> `generateFunctionBody` now resets per-function deferred-drop state at
+> the top so non-begin bodies (synthetic ctl handlers whose body is a
+> bare `escape(...)`) don't inherit stale drops from the previous
+> function's generation. `generateEscape` now suppresses
+> `generateConsumedVarDropsForEscape` when the current function is an
+> `isEffectRecordMemberFunction` — those drops were recorded against
+> variables in the _caller's_ scope, not the handler body's scope, so
+> emitting them inside the handler produced references to undeclared C
+> identifiers. The caller's own drops still execute at the handler
+> installation site after `__yo_effect_escaped` is observed.
+>
+> Stream A's main.yo wiring (commit `c9669a2e`) activates the real
+> `try_populate_expr_info_table(...)` call on top of this fix.
 
 ## Symptom
 
