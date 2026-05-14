@@ -30,7 +30,7 @@ open(import("std/fmt"));
 { TypeValue } :: import("../../types/type.yo");
 { EvalValue } :: import("../../evaluator/value.yo");
 { CodegenContext } :: import("../context.yo");
-{ type_value_to_c_field } :: import("../types.yo");
+{ get_type_string } :: import("../utils.yo");
 { call_gen_expr } :: import("./expr.yo");
 /// Best-effort recovery of a compile-time string value from an `EvalValue`.
 /// In yo-self the analog of TS `ComptimeStringValue` is the `StrLit(raw)`
@@ -49,21 +49,15 @@ extract_comptime_string_value :: (fn(v : EvalValue) -> Option(String))(
 is_str_newtype :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Struct({name, is_newtype}) => (is_newtype && (name.as_str() == "str")),
+    .Struct({ name, is_newtype }) => (is_newtype && (name.as_str() == "str")),
     _ => false
   )
 );
-/// Best-effort C type string for a `TypeValue`, with `int32_t` as the
-/// final fallback to match the TS `getTypeString` shape for unsupported
-/// types. The dummy expression `(*((T*)NULL))` needs *some* C type and
-/// the TS implementation falls back too.
-get_c_type_string :: (fn(t : TypeValue) -> String)(
-  match(
-    type_value_to_c_field(t),
-    .Some(s) => s,
-    .None => String.from("int32_t")
-  )
-);
+// `get_type_string(t, ctx)` lives in `codegen/utils.yo` — the
+// canonical 1-to-1 home for `getTypeString` in
+// `src/codegen/utils/index.ts`. The old `get_c_type_string`
+// helper here did not consult the type registry; the canonical
+// version does. Imported at the top of this file.
 /// Quote `raw` as a C string literal.
 ///
 /// The Yo lexer stores `StringLit` tokens with their surrounding `"` and
@@ -95,12 +89,18 @@ quote_as_c_string :: (fn(raw : String) -> String)({
       while(runtime(i < n), {
         b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
         cond(
-          (b == u8(92)) => buf.push_str("\\\\"), // backslash
-          (b == u8(34)) => buf.push_str("\\\""), // double quote
-          (b == u8(10)) => buf.push_str("\\n"), // newline
-          (b == u8(13)) => buf.push_str("\\r"), // carriage return
-          (b == u8(9)) => buf.push_str("\\t"), // tab
-          (b == u8(0)) => buf.push_str("\\0"), // NUL
+          (b == u8(92)) => buf.push_str("\\\\"),
+          // backslash
+          (b == u8(34)) => buf.push_str("\\\""),
+          // double quote
+          (b == u8(10)) => buf.push_str("\\n"),
+          // newline
+          (b == u8(13)) => buf.push_str("\\r"),
+          // carriage return
+          (b == u8(9)) => buf.push_str("\\t"),
+          // tab
+          (b == u8(0)) => buf.push_str("\\0"),
+          // NUL
           true => buf.push_byte(b)
         );
         i = (i + usize(1));
@@ -218,7 +218,7 @@ generate_panic :: (
         true => ()
       );
       // Return the unreachable dummy expression of the panic's return type.
-      return_c_ty := get_c_type_string(info.ty);
+      return_c_ty := get_type_string(info.ty, ctx);
       dummy := String.from("(*((");
       dummy.push_string(return_c_ty);
       dummy.push_str("*)NULL))");
@@ -230,6 +230,5 @@ export(
   generate_panic,
   extract_comptime_string_value,
   is_str_newtype,
-  get_c_type_string,
   quote_as_c_string
 );
