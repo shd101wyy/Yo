@@ -126,13 +126,15 @@ test("register_extern_function: stores entry retrievable by type_id", {
     String.from("fty_1"),
     ty,
     String.from("c_strlen"),
-    Option(String).Some(String.from("<string.h>"))
+    Option(String).Some(String.from("<string.h>")),
+    String.from("c")
   );
   match(
     pctx.*.get_extern_function(String.from("fty_1")),
     .None => assert(false, "expected entry"),
     .Some(entry) => {
       assert(entry.c_name == String.from("c_strlen"), "c_name");
+      assert(entry.is_extern == String.from("c"), "is_extern flag stored");
       match(
         entry.c_include,
         .None => assert(false, "expected c_include"),
@@ -148,7 +150,8 @@ test("register_extern_function: c_include None is preserved", {
     String.from("fty_1"),
     TypeValue.Unit,
     String.from("inline_intrinsic"),
-    Option(String).None
+    Option(String).None,
+    String.from("yo")
   );
   match(
     pctx.*.get_extern_function(String.from("fty_1")),

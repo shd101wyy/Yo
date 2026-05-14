@@ -86,10 +86,19 @@ CodegenArrayStructEntry :: object(child_type : String, length : usize);
 /// encounters a function declared as `extern "C"` or a `c_include`
 /// directive — the registry lets the emitter dedupe extern decls
 /// and emit `#include` lines in the headers section.
+///
+/// The `is_extern` field is a yo-self-specific extension that
+/// matches the pre-existing `ExternFunctionEntry` in
+/// `codegen/functions/context.yo`. TS encodes the same information
+/// on `FunctionType.isExtern` ("yo" | "c" | undefined); yo-self
+/// stores it on the entry directly so the declaration emitter can
+/// branch on it without re-traversing the function type. Empty
+/// string means "not extern".
 CodegenExternFunctionEntry :: object(
   function_type : TypeValue,
   c_name : String,
-  c_include : Option(String)
+  c_include : Option(String),
+  is_extern : String
 );
 /// Codegen state for an `Impl(Fn(...))` static-dispatch closure entry.
 /// Mirrors the per-entry shape of `CodeGenContext.implClosureCallMap`
@@ -572,7 +581,8 @@ impl(
       type_id : String,
       function_type : TypeValue,
       c_name : String,
-      c_include : Option(String)
+      c_include : Option(String),
+      is_extern : String
     ) -> unit
   )({
     self.*.extern_functions.set(
@@ -580,7 +590,8 @@ impl(
       CodegenExternFunctionEntry(
         function_type : function_type,
         c_name : c_name,
-        c_include : c_include
+        c_include : c_include,
+        is_extern : is_extern
       )
     );
     ()
