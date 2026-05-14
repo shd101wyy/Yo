@@ -1,11 +1,30 @@
 /// Tests for yo-self/codegen/exprs/closures.yo.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ ExprId } :: import("../expr/expr.yo");
+{
+  ExprInfo,
+  ExprInfoTable,
+  expr_info_table_new,
+  expr_info_table_set,
+  new_expr_info
+} :: import("../expr/expr_info.yo");
 { Environment, add_variable_to_env } :: import("../env/env.yo");
 { EvalValue } :: import("../evaluator/value.yo");
-{ TypeValue, t_i32 } :: import("../types/type.yo");
+{
+  TypeValue,
+  t_i32,
+  t_func_simple,
+  t_dyn_simple,
+  t_fn_trait_simple,
+  t_unit
+} :: import("../types/type.yo");
 { Token, TokenKind } :: import("../lexer/token.yo");
-{ check_variable_is_closure_captured } :: import("../codegen/exprs/closures.yo");
+{ CodegenContext } :: import("../codegen/context.yo");
+{
+  check_variable_is_closure_captured,
+  is_closure_construction
+} :: import("../codegen/exprs/closures.yo");
 placeholder_token :: (fn() -> Token)(
   Token(
     kind : TokenKind.Identifier,
@@ -64,5 +83,82 @@ test("check_variable_is_closure_captured: inner-frame var is local, not captured
   assert(
     !(check_variable_is_closure_captured(String.from("inner"), env, usize(0))),
     "inner-frame var is local, not captured by outer closure"
+  );
+});
+/// Build a new ExprInfo with the given `ty` and (optional)
+/// closure_function_value, leaving all other slots at their defaults.
+mk_info :: (
+  fn(env : Environment, ty : TypeValue, cv : Option(EvalValue)) -> ExprInfo
+)({
+  info := new_expr_info(env, ty);
+  info.closure_function_value = cv;
+  info
+});
+test("is_closure_construction: no expr info → false", {
+  env := Environment.new(String.from("test"));
+  ctx := CodegenContext.new();
+  // Without an expr_info_table or matching entry, lookup misses.
+  assert(
+    !(is_closure_construction(usize(99), &(ctx))),
+    "missing info → false"
+  );
+});
+test("is_closure_construction: missing closure_function_value → false", {
+  env := Environment.new(String.from("test"));
+  fn_trait := t_fn_trait_simple(
+    String.from("Fn"),
+    ArrayList(TypeValue).new(),
+    t_i32()
+  );
+  required := ArrayList(TypeValue).new();
+  required.push(fn_trait);
+  fn_ty := t_dyn_simple(required);
+  info := mk_info(env, fn_ty, Option(EvalValue).None);
+  table := expr_info_table_new();
+  expr_info_table_set(table, usize(10), info);
+  ctx := CodegenContext.new();
+  ctx.expr_info_table = Option(typeof(table)).Some(table);
+  // closure_function_value is None → not a closure construction.
+  assert(
+    !(is_closure_construction(usize(10), &(ctx))),
+    "no closure value → false"
+  );
+});
+test("is_closure_construction: Fn trait + closure value → true", {
+  env := Environment.new(String.from("test"));
+  // Construct a `dyn(Fn() -> i32)` type — the Fn-trait check inspects
+  // DynT.required_trait_types for `FnTraitT`.
+  fn_trait := t_fn_trait_simple(
+    String.from("Fn"),
+    ArrayList(TypeValue).new(),
+    t_i32()
+  );
+  required := ArrayList(TypeValue).new();
+  required.push(fn_trait);
+  fn_ty := t_dyn_simple(required);
+  cv := Option(EvalValue).Some(EvalValue.UnitVal);
+  info := mk_info(env, fn_ty, cv);
+  table := expr_info_table_new();
+  expr_info_table_set(table, usize(11), info);
+  ctx := CodegenContext.new();
+  ctx.expr_info_table = Option(typeof(table)).Some(table);
+  assert(
+    is_closure_construction(usize(11), &(ctx)),
+    "Fn type + closure_function_value → true"
+  );
+});
+test("is_closure_construction: non-Fn type + closure value → false", {
+  env := Environment.new(String.from("test"));
+  cv := Option(EvalValue).Some(EvalValue.UnitVal);
+  // i32 doesn't implement Fn, so even with a closure_function_value
+  // the check must return false.
+  info := mk_info(env, t_i32(), cv);
+  table := expr_info_table_new();
+  expr_info_table_set(table, usize(12), info);
+  ctx := CodegenContext.new();
+  ctx.expr_info_table = Option(typeof(table)).Some(table);
+  assert(
+    !(is_closure_construction(usize(12), &(ctx))),
+    "non-Fn type → false"
   );
 });

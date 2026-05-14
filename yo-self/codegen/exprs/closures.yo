@@ -11,9 +11,16 @@
 //! Helpers ported here:
 //!   - `check_variable_is_closure_captured(name, env, capture_frame_level)`
 //!     — mirror of TS `checkVariableIsClosureCaptured`.
+//!   - `is_closure_construction(expr_id, ctx)` — mirror of TS
+//!     `isClosureConstruction`, adapted to read the ExprInfo
+//!     side-table for `closure_function_value` and the Fn-trait
+//!     check via `type_implements_fn`.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ ExprId } :: import("../../expr/expr.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env/env.yo");
+{ type_implements_fn } :: import("../../evaluator/trait_checking.yo");
+{ CodegenContext } :: import("../context.yo");
 /// True if the most recent variable named `name` in `env` was bound at
 /// a frame level shallower than (or equal to) `capture_frame_level` —
 /// i.e. it was captured by an enclosing closure rather than declared
@@ -37,4 +44,25 @@ check_variable_is_closure_captured :: (
     )
   )
 });
-export(check_variable_is_closure_captured);
+/// True iff the `ExprInfo` for `expr_id` represents a closure
+/// construction — that is, the evaluator attached a
+/// `closure_function_value` AND the expression's type implements the
+/// `Fn` trait. Mirrors TS `isClosureConstruction`.
+///
+/// Returns `false` when no `ExprInfo` exists for the id, when the
+/// `closure_function_value` slot is `.None`, or when the expression
+/// type does not implement `Fn`. Pure read against `ctx`'s
+/// ExprInfoTable; no codegen side-state is touched.
+is_closure_construction :: (
+  fn(expr_id : ExprId, ctx : *(CodegenContext)) -> bool
+)(
+  match(
+    ctx.*.get_expr_info(expr_id),
+    .None => false,
+    .Some(info) => cond(
+      info.closure_function_value.is_none() => false,
+      true => type_implements_fn(info.ty)
+    )
+  )
+);
+export(check_variable_is_closure_captured, is_closure_construction);
