@@ -131,8 +131,8 @@ functions, RC machinery beyond bootstrap stubs).
 | `atom.ts`                      | 545      | ❌                                                                                   |                                                             |
 | `dyn.ts`                       | 171      | ⚠️ `dyn.yo` (object/iso underlying-type leaf path + impl registration)               | `codegen_exprs_dyn.test.yo` (7 tests)                       |
 | `asm.ts`                       | 757      | ⚠️ `asm.yo` (`is_register_class`, `resolve_constraint`, `transform_template`)        | `codegen_exprs_asm.test.yo` (15 tests)                      |
-| `property-access.ts`           | 416      | ❌                                                                                   |                                                             |
-| `ptr-fns.ts`                   | 225      | ❌                                                                                   |                                                             |
+| `property-access.ts`           | 416      | ⚠️ `property_access.yo` (`generate_newtype_field_access` leaf)                       | `codegen_exprs_property_access.test.yo` (4 tests)           |
+| `ptr-fns.ts`                   | 225      | ⚠️ `ptr_fns.yo` (`format_address_of`, `format_slice_index_range`)                    | `codegen_exprs_ptr_fns.test.yo` (6 tests)                   |
 | `await.ts`                     | 829      | ❌                                                                                   |                                                             |
 | `async.ts`                     | 1820     | ❌                                                                                   |                                                             |
 | `other-fn-call.ts`             | 2882     | ❌                                                                                   |                                                             |
