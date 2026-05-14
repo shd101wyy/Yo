@@ -65,23 +65,23 @@ by `ExprId`. Codegen reads from this table to produce well-typed C.
 
 ### Components, with port progress
 
-| Component                  | TS lines | Yo status                                                                                                                        |
-| -------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Lexer                      | ~600     | ✅ ported (`yo-self/lexer/`)                                                                                                     |
-| Parser                     | ~3500    | ✅ ported (`yo-self/parser/`)                                                                                                    |
-| AST + ExprInfo             | ~1500    | ✅ ported (`yo-self/expr/`)                                                                                                      |
-| Environment                | ~250     | ✅ ported (`yo-self/env/`)                                                                                                       |
-| Types                      | ~6500    | ⚠️ mostly ported (`yo-self/types/`, `yo-self/evaluator/types/`)                                                                  |
-| Evaluator — proper port    | ~35,000  | ⚠️ partial (`yo-self/evaluator/exprs/_expr.yo` + per-handler files)                                                              |
-| Evaluator — proto (legacy) | n/a      | bootstrap-only `yo-self/evaluator/eval.yo` (8258 lines) — to be retired                                                          |
-| Codegen handlers (35 TS)   | ~16,000  | 19 of 35 ported as `yo-self/codegen/exprs/<name>.yo`; the rest still live in the monolithic bootstrap `yo-self/codegen/exprs.yo` |
-| Codegen — async runtime    | ~15,500  | ❌ not ported — blocks all async / effect tests                                                                                  |
-| Codegen — functions        | ~4500    | ⚠️ partial (`yo-self/codegen/functions/`)                                                                                        |
-| Codegen — utils            | ~1100    | partial; spread across `yo-self/codegen/{context,types,exprs.yo}`                                                                |
-| Doc system                 | ~1500    | ✅ ported (`yo-self/doc/`)                                                                                                       |
-| Build system               | ~1500    | ✅ ported (`yo-self/build/`)                                                                                                     |
-| Dependency / cache         | ~800     | ✅ ported (`yo-self/cache/`, `yo-self/fetch/`)                                                                                   |
-| CLI                        | ~600     | ✅ ported (`yo-self/main.yo`)                                                                                                    |
+| Component                  | TS lines | Yo status                                                                                                                                         |
+| -------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lexer                      | ~600     | ✅ ported (`yo-self/lexer/`)                                                                                                                      |
+| Parser                     | ~3500    | ✅ ported (`yo-self/parser/`)                                                                                                                     |
+| AST + ExprInfo             | ~1500    | ✅ ported (`yo-self/expr/`)                                                                                                                       |
+| Environment                | ~250     | ✅ ported (`yo-self/env/`)                                                                                                                        |
+| Types                      | ~6500    | ⚠️ mostly ported (`yo-self/types/`, `yo-self/evaluator/types/`)                                                                                   |
+| Evaluator — proper port    | ~35,000  | ⚠️ partial (`yo-self/evaluator/exprs/_expr.yo` + per-handler files)                                                                               |
+| Evaluator — proto (legacy) | n/a      | bootstrap-only `yo-self/evaluator/eval.yo` (8258 lines) — to be retired                                                                           |
+| Codegen handlers (35 TS)   | ~16,000  | 19 of 35 ported as `yo-self/codegen/exprs/<name>.yo`; the rest still live in the monolithic bootstrap `yo-self/codegen/exprs.yo`                  |
+| Codegen — async runtime    | ~15,500  | ❌ not ported — blocks all async / effect tests                                                                                                   |
+| Codegen — functions        | ~4500    | ⚠️ partial (`yo-self/codegen/functions/`)                                                                                                         |
+| Codegen — utils            | ~1100    | ⚠️ `yo-self/codegen/utils.yo` hosts `sanitize_for_c_identifier`; rest of `getTypeString` / `canOptimizeAs*` / `getEnumVariantCName` still pending |
+| Doc system                 | ~1500    | ✅ ported (`yo-self/doc/`)                                                                                                                        |
+| Build system               | ~1500    | ✅ ported (`yo-self/build/`)                                                                                                                      |
+| Dependency / cache         | ~800     | ✅ ported (`yo-self/cache/`, `yo-self/fetch/`)                                                                                                    |
+| CLI                        | ~600     | ✅ ported (`yo-self/main.yo`)                                                                                                                     |
 
 ### `./tests/` pass rate under `yo-self/yo-self-bin`
 
