@@ -43,6 +43,26 @@ CodegenDynImplEntry :: object(
   data_type : TypeValue,
   trait_values : ArrayList(EvalValue)
 );
+/// Codegen state for a registered function. Mirrors the per-entry
+/// shape of `CodeGenContext.functions` in `src/codegen/utils/index.ts`:
+///   { value: FunctionValue, cName: string,
+///     effectStateMachineInfo?: unknown }
+///
+/// `value` is the evaluator's `FuncVal` for the function. `c_name`
+/// is the canonical mangled C identifier used everywhere the
+/// function is referenced (call sites, function-pointer values,
+/// `comptime_value` lowering for function values, `__yo_thread_spawn`
+/// closure wrappers, etc.).
+///
+/// `effect_state_machine_info` is the slot TS uses for the effect-
+/// handler state-machine info object. yo-self's effect runtime is
+/// not yet ported, so the slot is left abstract as `Option(EvalValue)`
+/// — concrete shape will land when the effect runtime does.
+CodegenFunctionEntry :: object(
+  value : EvalValue,
+  c_name : String,
+  effect_state_machine_info : Option(EvalValue)
+);
 /// Shared mutable context passed to every `generate_*` function.
 ///
 /// Phase 4b/4c fields:
@@ -204,6 +224,13 @@ CodegenContext :: object(
   /// resolved trait-impl values. Mirrors `CodeGenContext.dynImpls`
   /// in `src/codegen/utils/index.ts`.
   dyn_impls : HashMap(String, CodegenDynImplEntry),
+  /// Registered functions, keyed by `FuncVal.func_id`. The codegen
+  /// reads `.c_name` from this map to resolve function-pointer
+  /// references in `comptime_value` lowering, drop/dup function
+  /// lookups, `__yo_thread_spawn` closure wrappers, dyn vtables, etc.
+  /// Mirrors `CodeGenContext.functions` in
+  /// `src/codegen/utils/index.ts`.
+  functions : HashMap(String, CodegenFunctionEntry),
   /// Evidence parameter C names currently in scope for function codegen.
   /// Mirrors the values of `FunctionGenerationContext.currentEvidenceParams`.
   /// Recur calls forward these names to the recursive self-call.
@@ -277,6 +304,7 @@ impl(
       expr_info_table : Option(ExprInfoTable).None,
       type_id_statics : HashMap(String, String).new(),
       dyn_impls : HashMap(String, CodegenDynImplEntry).new(),
+      functions : HashMap(String, CodegenFunctionEntry).new(),
       current_evidence_param_names : ArrayList(String).new(),
       declared_temp_vars : ArrayList(String).new(),
       current_loop_label : String.new(),
@@ -294,6 +322,50 @@ impl(
       .None => Option(ExprInfo).None,
       .Some(table) => expr_info_table_get(table, id)
     )
+  ),
+  /// Register a function under `func_id` with its assigned C name and
+  /// `FuncVal`. Mirrors the TS pattern of populating
+  /// `context.functions[funcId] = { value, cName, ... }`. Subsequent
+  /// `get_function_c_name(func_id)` lookups return `.Some(c_name)`.
+  ///
+  /// The effect-state-machine slot is initialised to `.None` — the
+  /// effect-runtime port (Stream C) will set it when wiring up
+  /// effect handlers.
+  register_function : (
+    fn(
+      self : *(Self),
+      func_id : String,
+      func_value : EvalValue,
+      c_name : String
+    ) -> unit
+  )({
+    entry := CodegenFunctionEntry(
+      value : func_value,
+      c_name : c_name,
+      effect_state_machine_info : Option(EvalValue).None
+    );
+    self.*.functions.set(func_id, entry);
+    ()
+  }),
+  /// Look up the C name of a previously-registered function by its
+  /// `FuncVal.func_id`. Returns `.None` if the function has not been
+  /// registered yet (caller should fall back to bootstrap heuristics or
+  /// register the function first).
+  ///
+  /// Mirrors the `context.functions[funcId]?.cName` access pattern used
+  /// across `src/codegen/exprs/{atom,drop-dup,comptime-value,async,…}.ts`.
+  get_function_c_name : (fn(self : *(Self), func_id : String) -> Option(String))(
+    match(
+      self.*.functions.get(func_id),
+      .None => Option(String).None,
+      .Some(entry) => Option(String).Some(entry.c_name)
+    )
+  ),
+  /// Look up the full `CodegenFunctionEntry` for `func_id`. Useful for
+  /// callers that need the registered `FuncVal` or the effect-state-
+  /// machine slot in addition to the C name.
+  get_function_entry : (fn(self : *(Self), func_id : String) -> Option(CodegenFunctionEntry))(
+    self.*.functions.get(func_id)
   ),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
   fresh_temp : (fn(self : *(Self)) -> String)({
@@ -1286,5 +1358,6 @@ export(
   CodegenClosureCaptureEntry,
   CodegenIsoTypeEntry,
   CodegenDynImplEntry,
+  CodegenFunctionEntry,
   CodegenContext
 );

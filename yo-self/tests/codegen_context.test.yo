@@ -1,0 +1,75 @@
+/// Tests for the function registry on `CodegenContext` (mirrors
+/// `CodeGenContext.functions` in `src/codegen/utils/index.ts`).
+///
+/// The registry is what call-site handlers, drop-dup lookups, dyn
+/// vtables, and comptime function-value lowering all consult to
+/// resolve `FuncVal.func_id` → C function name.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ CodegenContext, CodegenFunctionEntry } :: import("../codegen/context.yo");
+{ EvalValue } :: import("../value.yo");
+// Build a placeholder EvalValue the registry can store. The registry
+// doesn't inspect the value — it just round-trips through the entry —
+// so a simple `IntLit` stands in for a real `FuncVal` in these tests.
+// (A real FuncVal would require synthesizing 9 fields including an
+// AstExpr body box, which is irrelevant for the registry semantics.)
+make_dummy_value :: (fn() -> EvalValue)(
+  EvalValue.IntLit(String.from("0"))
+);
+test("register_function: new entry shows up in get_function_c_name", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  val := make_dummy_value();
+  pctx.*.register_function(String.from("f1"), val, String.from("fn_my_func"));
+  found := pctx.*.get_function_c_name(String.from("f1"));
+  match(
+    found,
+    .None => assert(false, "expected c_name to be registered"),
+    .Some(name) => assert(name == String.from("fn_my_func"), "c_name matches")
+  );
+});
+test("get_function_c_name: unknown id returns None", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  found := pctx.*.get_function_c_name(String.from("nope"));
+  assert(found.is_none(), "unknown id → None");
+});
+test("register_function: re-registering same id overwrites the c_name", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  val := make_dummy_value();
+  pctx.*.register_function(String.from("f1"), val, String.from("fn_first"));
+  pctx.*.register_function(String.from("f1"), val, String.from("fn_second"));
+  found := pctx.*.get_function_c_name(String.from("f1"));
+  match(
+    found,
+    .None => assert(false, "expected c_name to be registered"),
+    .Some(name) => assert(name == String.from("fn_second"), "second registration wins")
+  );
+});
+test("get_function_entry: returns full entry with FuncVal", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  val := make_dummy_value();
+  pctx.*.register_function(String.from("f1"), val, String.from("fn_x"));
+  found := pctx.*.get_function_entry(String.from("f1"));
+  match(
+    found,
+    .None => assert(false, "expected entry to be present"),
+    .Some(entry) => {
+      assert(entry.c_name == String.from("fn_x"), "entry has c_name");
+      assert(entry.effect_state_machine_info.is_none(), "esmi initialised to None");
+    }
+  );
+});
+test("functions registry is independent of dyn_impls registry", {
+  // Sanity check: registering a function doesn't leak into dyn_impls
+  // and vice-versa — the two registries share the same HashMap
+  // shape but live on different fields.
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  val := make_dummy_value();
+  pctx.*.register_function(String.from("f1"), val, String.from("fn_x"));
+  assert(pctx.*.dyn_impls.len() == usize(0), "dyn_impls untouched");
+  assert(pctx.*.functions.len() == usize(1), "functions has 1 entry");
+});
