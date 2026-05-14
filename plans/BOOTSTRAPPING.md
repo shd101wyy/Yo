@@ -98,45 +98,45 @@ functions, RC machinery beyond bootstrap stubs).
 
 ### Codegen handler port status (per TS file in `src/codegen/exprs/`)
 
-| TS file                        | TS lines | Yo port                                                                             | Test coverage                                     |
-| ------------------------------ | -------- | ----------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `expr.ts`                      | 25       | ✅ `expr.yo`                                                                        | indirect (used everywhere)                        |
-| `gc.ts`                        | 16       | ✅ `gc.yo`                                                                          | `codegen_exprs_gc.test.yo`                        |
-| `sizeof.ts`                    | 17       | ✅ `sizeof.yo`                                                                      | `codegen_exprs_sizeof.test.yo`                    |
-| `consume.ts`                   | 27       | ✅ `consume.yo`                                                                     | `codegen_exprs_consume.test.yo`                   |
-| `typeid.ts`                    | 45       | ✅ `typeid.yo`                                                                      | `codegen_exprs_typeid.test.yo` (7 tests)          |
-| `open.ts`                      | 50       | ✅ `open.yo`                                                                        | `codegen_exprs_open.test.yo` (5 tests)            |
-| `binding.ts`                   | 60       | ✅ `binding.yo`                                                                     | `codegen_exprs_binding.test.yo` (8 tests)         |
-| `panic.ts`                     | 62       | ✅ `panic.yo`                                                                       | `codegen_exprs_panic.test.yo` (8 tests)           |
-| `recur.ts`                     | 99       | ✅ `recur.yo`                                                                       | dedicated test file                               |
-| `tuple-fn.ts`                  | 101      | ✅ `tuple_fn.yo`                                                                    | dedicated test file                               |
-| `array-fns.ts`                 | 118      | ✅ `array_fns.yo`                                                                   | dedicated test file                               |
-| `iso.ts`                       | 123      | ✅ `iso.yo`                                                                         | dedicated test file                               |
-| `async-completion.ts`          | 124      | ✅ `async_completion.yo`                                                            | `codegen_exprs_async_completion.test.yo`          |
-| `inline-fns.ts`                | 277      | ✅ `inline_fns.yo`                                                                  | `codegen_exprs_inline_fns.test.yo`                |
-| `parallelism.ts`               | 294      | ⚠️ `parallelism.yo` (1 of 4 helpers ported, rest need typed AST metadata)           | `codegen_exprs_parallelism.test.yo`               |
-| `begin.ts`                     | 248      | ✅ `begin.yo`                                                                       | dedicated test file                               |
-| `and-or.ts`                    | 310      | ✅ `and_or.yo`                                                                      | dedicated test file                               |
-| `cond.ts`                      | 466      | ✅ `cond.yo`                                                                        | dedicated test file                               |
-| `while.ts`                     | 237      | ✅ `while.yo`                                                                       | dedicated test file                               |
-| `comptime-value.ts`            | 345      | ⚠️ `comptime_value.yo` (numbers / bool / strings; complex variants defer)           | `codegen_exprs_comptime_value.test.yo` (8 tests)  |
-| `closures.ts`                  | 320      | ⚠️ `closures.yo` (`check_variable_is_closure_captured` + `is_closure_construction`) | `codegen_exprs_closures.test.yo` (7 tests)        |
-| `drop-dup.ts`                  | 370      | ⚠️ `drop_dup.yo` (leaf drop + dup emit for Dyn/Object/AtomicObject/Iso)             | `codegen_exprs_drop_dup.test.yo` (15 tests)       |
-| `rc-fns.ts`                    | 556      | ⚠️ `rc_fns.yo` (5 pure RC-builtin call formatters)                                  | `codegen_exprs_rc_fns.test.yo` (7 tests)          |
-| `return.ts`                    | 705      | ⚠️ `return_helpers.yo` (4 pure Token/AstExpr helpers)                               | `codegen_exprs_return_helpers.test.yo` (13 tests) |
-| `downcast.ts`                  | 176      | ⚠️ `downcast.yo` (non-boxed-object leaf path)                                       | `codegen_exprs_downcast.test.yo` (6 tests)        |
-| `match.ts`                     | 1182     | ⚠️ `match_helpers.yo` (4 pure helpers: control-flow / or-pattern / c-literal)       | `codegen_exprs_match_helpers.test.yo` (16 tests)  |
-| `assignment.ts`                | 359      | ❌                                                                                  |                                                   |
-| `initialization-assignment.ts` | 534      | ❌                                                                                  |                                                   |
-| `atom.ts`                      | 545      | ❌                                                                                  |                                                   |
-| `dyn.ts`                       | 171      | ⚠️ `dyn.yo` (object/iso underlying-type leaf path + impl registration)              | `codegen_exprs_dyn.test.yo` (7 tests)             |
-| `asm.ts`                       | 757      | ❌                                                                                  |                                                   |
-| `property-access.ts`           | 416      | ❌                                                                                  |                                                   |
-| `ptr-fns.ts`                   | 225      | ❌                                                                                  |                                                   |
-| `await.ts`                     | 829      | ❌                                                                                  |                                                   |
-| `async.ts`                     | 1820     | ❌                                                                                  |                                                   |
-| `other-fn-call.ts`             | 2882     | ❌                                                                                  |                                                   |
-| `generation.ts`                | 1272     | ❌ (the main per-function emitter; large refactor target)                           |                                                   |
+| TS file                        | TS lines | Yo port                                                                              | Test coverage                                     |
+| ------------------------------ | -------- | ------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| `expr.ts`                      | 25       | ✅ `expr.yo`                                                                         | indirect (used everywhere)                        |
+| `gc.ts`                        | 16       | ✅ `gc.yo`                                                                           | `codegen_exprs_gc.test.yo`                        |
+| `sizeof.ts`                    | 17       | ✅ `sizeof.yo`                                                                       | `codegen_exprs_sizeof.test.yo`                    |
+| `consume.ts`                   | 27       | ✅ `consume.yo`                                                                      | `codegen_exprs_consume.test.yo`                   |
+| `typeid.ts`                    | 45       | ✅ `typeid.yo`                                                                       | `codegen_exprs_typeid.test.yo` (7 tests)          |
+| `open.ts`                      | 50       | ✅ `open.yo`                                                                         | `codegen_exprs_open.test.yo` (5 tests)            |
+| `binding.ts`                   | 60       | ✅ `binding.yo`                                                                      | `codegen_exprs_binding.test.yo` (8 tests)         |
+| `panic.ts`                     | 62       | ✅ `panic.yo`                                                                        | `codegen_exprs_panic.test.yo` (8 tests)           |
+| `recur.ts`                     | 99       | ✅ `recur.yo`                                                                        | dedicated test file                               |
+| `tuple-fn.ts`                  | 101      | ✅ `tuple_fn.yo`                                                                     | dedicated test file                               |
+| `array-fns.ts`                 | 118      | ✅ `array_fns.yo`                                                                    | dedicated test file                               |
+| `iso.ts`                       | 123      | ✅ `iso.yo`                                                                          | dedicated test file                               |
+| `async-completion.ts`          | 124      | ✅ `async_completion.yo`                                                             | `codegen_exprs_async_completion.test.yo`          |
+| `inline-fns.ts`                | 277      | ✅ `inline_fns.yo`                                                                   | `codegen_exprs_inline_fns.test.yo`                |
+| `parallelism.ts`               | 294      | ⚠️ `parallelism.yo` (1 of 4 helpers ported, rest need typed AST metadata)            | `codegen_exprs_parallelism.test.yo`               |
+| `begin.ts`                     | 248      | ✅ `begin.yo`                                                                        | dedicated test file                               |
+| `and-or.ts`                    | 310      | ✅ `and_or.yo`                                                                       | dedicated test file                               |
+| `cond.ts`                      | 466      | ✅ `cond.yo`                                                                         | dedicated test file                               |
+| `while.ts`                     | 237      | ✅ `while.yo`                                                                        | dedicated test file                               |
+| `comptime-value.ts`            | 345      | ⚠️ `comptime_value.yo` (numbers / bool / strings; complex variants defer)            | `codegen_exprs_comptime_value.test.yo` (8 tests)  |
+| `closures.ts`                  | 320      | ⚠️ `closures.yo` (`check_variable_is_closure_captured` + `is_closure_construction`)  | `codegen_exprs_closures.test.yo` (7 tests)        |
+| `drop-dup.ts`                  | 370      | ⚠️ `drop_dup.yo` (leaf drop + dup emit for Dyn/Object/AtomicObject/Iso)              | `codegen_exprs_drop_dup.test.yo` (15 tests)       |
+| `rc-fns.ts`                    | 556      | ⚠️ `rc_fns.yo` (5 pure RC-builtin call formatters)                                   | `codegen_exprs_rc_fns.test.yo` (7 tests)          |
+| `return.ts`                    | 705      | ⚠️ `return_helpers.yo` (4 pure Token/AstExpr helpers)                                | `codegen_exprs_return_helpers.test.yo` (13 tests) |
+| `downcast.ts`                  | 176      | ⚠️ `downcast.yo` (non-boxed-object leaf path)                                        | `codegen_exprs_downcast.test.yo` (6 tests)        |
+| `match.ts`                     | 1182     | ⚠️ `match_helpers.yo` (4 pure helpers: control-flow / or-pattern / c-literal)        | `codegen_exprs_match_helpers.test.yo` (16 tests)  |
+| `assignment.ts`                | 359      | ⚠️ `assignment.yo` (`is_initialization_assignment_lhs`, `unwrap_initialization_lhs`) | `codegen_exprs_assignment.test.yo` (7 tests)      |
+| `initialization-assignment.ts` | 534      | ❌                                                                                   |                                                   |
+| `atom.ts`                      | 545      | ❌                                                                                   |                                                   |
+| `dyn.ts`                       | 171      | ⚠️ `dyn.yo` (object/iso underlying-type leaf path + impl registration)               | `codegen_exprs_dyn.test.yo` (7 tests)             |
+| `asm.ts`                       | 757      | ❌                                                                                   |                                                   |
+| `property-access.ts`           | 416      | ❌                                                                                   |                                                   |
+| `ptr-fns.ts`                   | 225      | ❌                                                                                   |                                                   |
+| `await.ts`                     | 829      | ❌                                                                                   |                                                   |
+| `async.ts`                     | 1820     | ❌                                                                                   |                                                   |
+| `other-fn-call.ts`             | 2882     | ❌                                                                                   |                                                   |
+| `generation.ts`                | 1272     | ❌ (the main per-function emitter; large refactor target)                            |                                                   |
 
 Partial-port handlers (⚠️) export pure helpers extracted from the TS file
 that do not depend on the type-name registry, deferred-dup/drop machinery,
