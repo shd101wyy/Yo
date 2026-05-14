@@ -58,6 +58,14 @@ register_typeid_static :: (
     decl.push_str(" = 0;");
     ctx.*.emitter.emit_declaration_string_line(decl);
   });
+  // typeid expressions resolve to `(uintptr_t)&__yo_typeid_...`, so
+  // the emitted module needs `<stdint.h>` for `uintptr_t`. Mirrors
+  // `context.cIncludes.add("<stdint.h>")` in TS `generateTypeid`.
+  // yo-self's preamble already unconditionally emits `<stdint.h>` so
+  // this is currently a no-op dedup — but wire the call so the
+  // include-tracking infrastructure stays accurate once the preamble
+  // becomes demand-driven.
+  ctx.*.add_c_include(String.from("<stdint.h>"));
   static_var_name
 });
 /// Generate the C expression for a `typeid(T)` call.

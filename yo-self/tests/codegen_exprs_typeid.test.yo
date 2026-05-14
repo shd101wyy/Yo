@@ -146,3 +146,25 @@ test("generate_typeid: deduplicates declaration on repeated calls", {
   });
   assert(count == usize(1), "exactly one declaration emitted across calls");
 });
+test("generate_typeid: adds <stdint.h> to ctx.c_includes", {
+  ctx := CodegenContext.new();
+  table := expr_info_table_new();
+  env := Environment.new(String.from(""));
+  info := new_expr_info(env, t_i32());
+  info.value = Option(EvalValue).Some(EvalValue.TypeVal(box(t_i32())));
+  expr_info_table_set(table, usize(31), info);
+  ctx.expr_info_table = Option(typeof(table)).Some(table);
+  // Before invocation, c_includes is empty (or whatever the preamble
+  // installs — currently empty by default since the preamble's static
+  // includes don't flow through this set).
+  args := ArrayList(AstExpr).new();
+  args.push(mk_atom(usize(31), "i32", TokenKind.Identifier));
+  _ := generate_typeid(args, &(ctx));
+  // After: <stdint.h> is in the set because typeid expressions emit
+  // `(uintptr_t)&...`, which needs the stdint header. Mirrors
+  // `context.cIncludes.add("<stdint.h>")` in TS generateTypeid.
+  assert(
+    ctx.has_c_include(String.from("<stdint.h>")) == true,
+    "<stdint.h> tracked"
+  );
+});
