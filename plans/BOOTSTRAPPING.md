@@ -203,7 +203,13 @@ The remaining work in this stream:
    `_evaluate_expression` sub-handler. Use git log on
    `yo-self/evaluator/exprs/` to see which forms are covered today.
 
-### Stream B — Port the remaining 18 codegen handlers
+### Stream B — Complete the partial codegen handlers + port the 4 missing
+
+17 of the 37 TS codegen-expr handlers are partial-ported (only their
+pure helpers / non-metadata-dependent code paths). Completing them
+to full ports — and porting the 4 remaining ❌ (`atom`, `async`,
+`await`, `generation`) — is Stream B's scope. Rows below list both
+sets; `atom`, `async`, `await`, `generation` are the new-file ports.
 
 | Priority | TS file                        | Approx. effort            | Unblocks                                  |
 | -------- | ------------------------------ | ------------------------- | ----------------------------------------- |
