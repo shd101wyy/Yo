@@ -572,22 +572,6 @@ type_implements_runtime_full :: (fn(ty : TypeValue, env : Environment) -> bool)(
   )
 });
 // ---------------------------------------------------------------------------
-// is_runtime_only_type
-// ---------------------------------------------------------------------------
-/// True iff `ty` implements `Runtime` but NOT `Comptime` — i.e. the
-/// type can only appear at runtime. Mirrors TS `isRuntimeOnlyType` in
-/// `src/types/utils.ts`.
-///
-/// Lives in `trait_checking.yo` (rather than `types/utils.yo`) because
-/// it depends on the env-aware `type_implements_comptime` /
-/// `type_implements_runtime_full`, both of which read the env's trait
-/// registry.
-is_runtime_only_type :: (fn(ty : TypeValue, env : Environment) -> bool)({
-  implements_comptime := type_implements_comptime(ty, env);
-  implements_runtime := type_implements_runtime_full(ty, env);
-  !(implements_comptime) && implements_runtime
-});
-// ---------------------------------------------------------------------------
 // begin/end_send_derivation
 // ---------------------------------------------------------------------------
 /// Mark a type as currently undergoing Send auto-derivation.
@@ -1060,7 +1044,6 @@ export(type_implements_comptime_builtin);
 export(type_implements_trait, type_implements_trait_bool);
 export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
-export(is_runtime_only_type);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_dispose, type_implements_acyclic);
 export(type_implements_fn);
