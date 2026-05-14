@@ -283,3 +283,22 @@ test("scalar flags are writeable", {
   assert(pctx.*.is_library == true, "library flag set");
   assert(pctx.*.current_module_id == String.from("yo_abc"), "module id set");
 });
+// ─── types registry helpers ─────────────────────────────────────────────────
+test("register_type: round-trips c_name via get_type_c_name", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.register_type(
+    String.from("type_id_42"),
+    TypeValue.Unit,
+    String.from("__yo_struct_x")
+  );
+  match(
+    pctx.*.get_type_c_name(String.from("type_id_42")),
+    .None => assert(false, "expected c_name"),
+    .Some(n) => assert(n == String.from("__yo_struct_x"), "c_name matches")
+  );
+});
+test("get_type_c_name: unknown id returns None", {
+  ctx := CodegenContext.new();
+  assert(ctx.types.get(String.from("nope")).is_none(), "miss");
+});

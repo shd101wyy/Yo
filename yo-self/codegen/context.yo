@@ -654,6 +654,67 @@ impl(
   get_impl_closure : (
     fn(self : *(Self), concrete_type_id : String) -> Option(CodegenImplClosureEntry)
   )(self.*.impl_closure_call_map.get(concrete_type_id)),
+  /// Register a type's generated C name. Mirrors the TS pattern of
+  /// `context.types[id] = { type, cName }`. The eventual type
+  /// declaration emitter walks this map once at the end of compilation.
+  register_type : (
+    fn(self : *(Self), type_id : String, type_value : TypeValue, c_name : String) -> unit
+  )({
+    self.*.types.set(
+      type_id,
+      CodegenTypeEntry(type_value : type_value, c_name : c_name)
+    );
+    ()
+  }),
+  /// Look up the C name registered for a given type id. Returns `.None`
+  /// when the type hasn't been registered — caller falls back to
+  /// `get_type_string` derivation or to the bootstrap heuristic.
+  /// Mirrors the TS `context.types[id]?.cName` access.
+  get_type_c_name : (fn(self : *(Self), type_id : String) -> Option(String))(
+    match(
+      self.*.types.get(type_id),
+      .None => Option(String).None,
+      .Some(entry) => Option(String).Some(entry.c_name)
+    )
+  ),
+  /// Register a `dyn(Trait)` impl entry, keyed by impl-key
+  /// `${concrete_c_name}_${dyn_c_name}`. The vtable generator
+  /// consumes this map after all dyn-using handlers have run.
+  /// Mirrors `context.dynImpls.set(...)` in TS.
+  register_dyn_impl : (
+    fn(self : *(Self), impl_key : String, entry : CodegenDynImplEntry) -> unit
+  )({
+    self.*.dyn_impls.set(impl_key, entry);
+    ()
+  }),
+  /// Look up a `dyn(Trait)` impl entry by its impl-key.
+  get_dyn_impl : (
+    fn(self : *(Self), impl_key : String) -> Option(CodegenDynImplEntry)
+  )(self.*.dyn_impls.get(impl_key)),
+  /// Register a closure-to-capture-type mapping. Mirrors
+  /// `context.closureCaptureMap.set(...)` in TS.
+  register_closure_capture : (
+    fn(self : *(Self), closure_type_id : String, entry : CodegenClosureCaptureEntry) -> unit
+  )({
+    self.*.closure_capture_map.set(closure_type_id, entry);
+    ()
+  }),
+  /// Look up the closure-capture entry for a closure type id.
+  get_closure_capture : (
+    fn(self : *(Self), closure_type_id : String) -> Option(CodegenClosureCaptureEntry)
+  )(self.*.closure_capture_map.get(closure_type_id)),
+  /// Register an `Iso(T)` type entry, keyed by the Iso type's C name.
+  /// Mirrors `context.isoTypes.set(...)` in TS.
+  register_iso_type : (
+    fn(self : *(Self), iso_c_name : String, entry : CodegenIsoTypeEntry) -> unit
+  )({
+    self.*.iso_types.set(iso_c_name, entry);
+    ()
+  }),
+  /// Look up an `Iso(T)` type entry by its C name.
+  get_iso_type : (
+    fn(self : *(Self), iso_c_name : String) -> Option(CodegenIsoTypeEntry)
+  )(self.*.iso_types.get(iso_c_name)),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
   fresh_temp : (fn(self : *(Self)) -> String)({
     n := self.*.temp_count;
