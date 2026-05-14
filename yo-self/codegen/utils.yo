@@ -1,23 +1,39 @@
 //! Shared codegen utilities — 1-to-1 partial port of
 //! `src/codegen/utils/index.ts`.
 //!
-//! Currently exposes `sanitize_for_c_identifier`, the canonical
-//! identifier-mangling helper used by every codegen handler that names
-//! a C symbol after a Yo variable / field / type-string. The
-//! implementation mirrors TS:
+//! Currently exposed:
 //!
-//!   - each byte that is not `[A-Za-z0-9_]` is replaced with
-//!     `"_u" + decimal(byte) + "_"` so different special characters do
-//!     not collide (e.g. `Slice(u8)` → `Slice_u40_u8_u41_`);
-//!   - if the resulting string equals a C / C11 reserved word or a
-//!     well-known stdlib macro, the prefix `__yo_c_reserved_` is
-//!     prepended.
+//! * `sanitize_for_c_identifier` / `sanitize_for_c_identifier_str` —
+//!   canonical identifier-mangling helper used by every codegen
+//!   handler that names a C symbol after a Yo variable / field /
+//!   type-string. Each non-`[A-Za-z0-9_]` byte is replaced with
+//!   `"_u" + decimal(byte) + "_"` so different special characters do
+//!   not collide (e.g. `Slice(u8)` → `Slice_u40_u8_u41_`). C / C11
+//!   reserved words and common stdlib macros are prefixed with
+//!   `__yo_c_reserved_`.
 //!
-//! The rest of `getTypeString`, `getEnumVariantCName`,
-//! `canOptimizeAsNullablePointer`, `getVariableTypeString`, … will land
-//! here as the type-name registry + ExprInfo wiring catches up.
+//! * `should_avoid_const` — true for reference-counted object types
+//!   that need RC ops on the refcount field, so emitting `const` is
+//!   wrong even when the value is not mutated.
+//!
+//! * `can_optimize_as_simple_enum` — true for enums whose every
+//!   variant has no data; lowered to a plain C `enum` rather than a
+//!   tagged-union struct.
+//!
+//! * `can_optimize_as_nullable_pointer` — for `Option(*T)`-shaped
+//!   enums, returns the inner `Pointer(T)` so the C lowering can use
+//!   the pointer slot with `NULL` standing in for the empty variant.
+//!
+//! Still pending: `get_type_string` (the main type-name lookup),
+//! `get_enum_variant_c_name` (needs the function-cname table),
+//! `get_variable_type_string`, `is_comptime_only_struct_field` (yo-self
+//! Struct doesn't yet carry the per-field `isCompileTimeOnly` flag),
+//! `get_variable_name_for_codegen`, `is_comptime_function`,
+//! `is_function_value_with_only_builtin_yo_inline_function_call`.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../types/type.yo");
+{ is_object_type, is_pointer_type } :: import("../types/guards.yo");
 is_c_identifier_byte_ :: (fn(byte : u8) -> bool)(
   ((byte >= u8(65)) && (byte <= u8(90))) ||
     (
@@ -139,4 +155,116 @@ sanitize_for_c_identifier :: (fn(value : String) -> String)({
 sanitize_for_c_identifier_str :: (fn(s : str) -> String)(
   sanitize_for_c_identifier(String.from(s))
 );
-export(sanitize_for_c_identifier, sanitize_for_c_identifier_str);
+/// True iff a value of type `t` should NOT be marked `const` in the
+/// emitted C, even when not mutable — because reference-counted object
+/// types need to support RC ops (dup / drop / aliasing) that mutate
+/// the underlying refcount field. Mirrors TS `shouldAvoidConst` in
+/// `src/codegen/utils/index.ts`.
+should_avoid_const :: (fn(t : TypeValue) -> bool)(is_object_type(t));
+/// True iff `t` is an enum whose every variant carries no data — so
+/// it can be lowered to a plain C `enum` instead of a tagged-union
+/// struct. Equivalent to TS `canOptimizeAsSimpleEnum` in
+/// `src/codegen/utils/index.ts`. Non-enum types return false.
+can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .EnumT(_, _, _, variant_fields, _, _, _) => {
+      // All variant field lists must be empty AND there must be at
+      // least one variant.
+      all_empty := true;
+      i := usize(0);
+      while(runtime(i < variant_fields.len()), {
+        match(
+          variant_fields.get(i),
+          .None => (),
+          .Some(fields) => {
+            if(fields.len() > usize(0), {
+              all_empty = false;
+            });
+          }
+        );
+        i = (i + usize(1));
+      });
+      all_empty && (variant_fields.len() > usize(0))
+    },
+    _ => false
+  )
+);
+/// If `t` is an enum that can be represented as a nullable pointer in
+/// C (exactly two variants — one empty, one carrying a single
+/// `Pointer(_)` field), returns `.Some(child_pointer_type)`;
+/// otherwise `.None`. Mirrors TS `canOptimizeAsNullablePointer`.
+///
+/// The Option(T) / Option(*T) family is the canonical example: lowered
+/// to `*T` with `NULL` standing in for `None`.
+can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .EnumT(_, _, _, variant_fields, _, _, _) => cond(
+      (variant_fields.len() != usize(2)) => Option(TypeValue).None,
+      true => {
+        // Track the matched empty / pointer variants. We use sentinel
+        // `Option`s rather than booleans so a malformed shape (e.g.
+        // two empty variants or two pointer variants) is rejected.
+        (empty_found : bool) = false;
+        (pointer_payload : Option(TypeValue)) = Option(TypeValue).None;
+        (bad : bool) = false;
+        (i : usize) = usize(0);
+        while(runtime((i < variant_fields.len()) && !(bad)), {
+          match(
+            variant_fields.get(i),
+            .None => {
+              bad = true;
+            },
+            .Some(fields) => cond(
+              (fields.len() == usize(0)) => cond(
+                empty_found => {
+                  bad = true;
+                },
+                true => {
+                  empty_found = true;
+                }
+              ),
+              (fields.len() == usize(1)) => match(
+                fields.get(usize(0)),
+                .None => {
+                  bad = true;
+                },
+                .Some(child) => cond(
+                  is_pointer_type(child) => cond(
+                    pointer_payload.is_some() => {
+                      bad = true;
+                    },
+                    true => {
+                      pointer_payload = Option(TypeValue).Some(child);
+                    }
+                  ),
+                  true => {
+                    bad = true;
+                  }
+                )
+              ),
+              true => {
+                bad = true;
+              }
+            )
+          );
+          i = (i + usize(1));
+        });
+        cond(
+          bad => Option(TypeValue).None,
+          (empty_found && pointer_payload.is_some()) => pointer_payload,
+          true => Option(TypeValue).None
+        )
+      }
+    ),
+    _ => Option(TypeValue).None
+  )
+);
+export(
+  sanitize_for_c_identifier,
+  sanitize_for_c_identifier_str,
+  should_avoid_const,
+  can_optimize_as_simple_enum,
+  can_optimize_as_nullable_pointer
+);

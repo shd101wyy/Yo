@@ -1,0 +1,183 @@
+/// Tests for yo-self/codegen/utils.yo.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue, t_bool, t_i32, t_ptr, t_unit } :: import("../types/type.yo");
+{
+  sanitize_for_c_identifier,
+  sanitize_for_c_identifier_str,
+  should_avoid_const,
+  can_optimize_as_simple_enum,
+  can_optimize_as_nullable_pointer
+} :: import("../codegen/utils.yo");
+mk_struct :: (
+  fn(
+    name : str,
+    is_reference_semantics : bool,
+    is_atomic_rc : bool
+  ) -> TypeValue
+)(
+  TypeValue.Struct(
+    String.from(""),
+    String.from(name),
+    ArrayList(String).new(),
+    ArrayList(TypeValue).new(),
+    is_reference_semantics,
+    is_atomic_rc,
+    false
+  )
+);
+/// Build an enum with the given list of per-variant field-type lists.
+/// Each inner list is the fields of one variant — pass `[]` for an
+/// empty variant.
+mk_enum :: (
+  fn(name : str, variants : ArrayList(ArrayList(TypeValue))) -> TypeValue
+)({
+  variant_names := ArrayList(String).new();
+  variant_field_labels := ArrayList(ArrayList(String)).new();
+  variant_discriminants := ArrayList(i64).new();
+  i := usize(0);
+  while(runtime(i < variants.len()), {
+    variant_names.push(String.from("V"));
+    variant_field_labels.push(ArrayList(String).new());
+    variant_discriminants.push(i64(0));
+    i = (i + usize(1));
+  });
+  TypeValue.EnumT(
+    String.from(""),
+    String.from(name),
+    variant_names,
+    variants,
+    Option(String).None,
+    variant_field_labels,
+    variant_discriminants
+  )
+});
+test("sanitize: TS-equivalent mangling rejects collisions", {
+  // `Slice(u8)` and `Slice u8 ` both contain non-identifier bytes but
+  // they mangle to different strings under the canonical mangler.
+  a := sanitize_for_c_identifier_str("Slice(u8)");
+  b := sanitize_for_c_identifier_str("Slice u8 ");
+  assert(a != b, "no collision between distinct inputs");
+  assert(a == String.from("Slice_u40_u8_u41_"), "Slice(u8)");
+  assert(b == String.from("Slice_u32_u8_u32_"), "Slice u8 ");
+});
+test("sanitize: reserved word `return` is prefixed", {
+  out := sanitize_for_c_identifier(String.from("return"));
+  assert(out == String.from("__yo_c_reserved_return"), "reserved");
+});
+test("should_avoid_const: object types yes, value types no", {
+  obj := mk_struct("Counter", true, false);
+  val := mk_struct("Point", false, false);
+  assert(should_avoid_const(obj), "object → avoid const");
+  assert(!(should_avoid_const(val)), "value struct → ok with const");
+  assert(!(should_avoid_const(t_i32())), "i32 → ok with const");
+  assert(!(should_avoid_const(t_unit())), "unit → ok with const");
+});
+test("can_optimize_as_simple_enum: data-less enum", {
+  empty := ArrayList(TypeValue).new();
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(empty);
+  variants.push(ArrayList(TypeValue).new());
+  variants.push(ArrayList(TypeValue).new());
+  ty := mk_enum("Color", variants);
+  assert(can_optimize_as_simple_enum(ty), "three empty variants");
+});
+test("can_optimize_as_simple_enum: enum with data is rejected", {
+  empty := ArrayList(TypeValue).new();
+  with_data := ArrayList(TypeValue).new();
+  with_data.push(t_i32());
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(empty);
+  variants.push(with_data);
+  ty := mk_enum("Result", variants);
+  assert(!(can_optimize_as_simple_enum(ty)), "data variant disqualifies");
+});
+test("can_optimize_as_simple_enum: zero-variant enum is rejected", {
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  ty := mk_enum("Empty", variants);
+  assert(!(can_optimize_as_simple_enum(ty)), "no variants → false");
+});
+test("can_optimize_as_simple_enum: non-enum returns false", {
+  assert(!(can_optimize_as_simple_enum(t_i32())), "i32 is not an enum");
+});
+test("can_optimize_as_nullable_pointer: Option(*i32) → Some(*i32)", {
+  // None variant: no fields.
+  // Some variant: one Pointer(i32) field.
+  none_fields := ArrayList(TypeValue).new();
+  some_fields := ArrayList(TypeValue).new();
+  some_fields.push(t_ptr(t_i32()));
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(none_fields);
+  variants.push(some_fields);
+  ty := mk_enum("Option", variants);
+  match(
+    can_optimize_as_nullable_pointer(ty),
+    .None => assert(false, "expected Some pointer type"),
+    .Some(child) => match(
+      child,
+      .Pointer(_) => assert(true, "pointer child"),
+      _ => assert(false, "child must be Pointer")
+    )
+  );
+});
+test("can_optimize_as_nullable_pointer: order does not matter", {
+  // Same as above but with Some first and None second.
+  some_fields := ArrayList(TypeValue).new();
+  some_fields.push(t_ptr(t_bool()));
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(some_fields);
+  variants.push(ArrayList(TypeValue).new());
+  ty := mk_enum("Option", variants);
+  assert(
+    can_optimize_as_nullable_pointer(ty).is_some(),
+    "Some-first also optimisable"
+  );
+});
+test("can_optimize_as_nullable_pointer: payload must be a pointer", {
+  // None + Some(i32) — i32 is not a pointer, so no nullable-pointer opt.
+  some_fields := ArrayList(TypeValue).new();
+  some_fields.push(t_i32());
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(ArrayList(TypeValue).new());
+  variants.push(some_fields);
+  ty := mk_enum("Option", variants);
+  assert(
+    can_optimize_as_nullable_pointer(ty).is_none(),
+    "non-pointer payload rejected"
+  );
+});
+test("can_optimize_as_nullable_pointer: needs exactly two variants", {
+  // 3-variant enum: never optimisable.
+  v1 := ArrayList(TypeValue).new();
+  v2 := ArrayList(TypeValue).new();
+  v2.push(t_ptr(t_i32()));
+  v3 := ArrayList(TypeValue).new();
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(v1);
+  variants.push(v2);
+  variants.push(v3);
+  ty := mk_enum("Three", variants);
+  assert(
+    can_optimize_as_nullable_pointer(ty).is_none(),
+    "three variants → false"
+  );
+});
+test("can_optimize_as_nullable_pointer: two empty variants rejected", {
+  // Two variants both empty — no payload to carry pointer for, rejected.
+  v1 := ArrayList(TypeValue).new();
+  v2 := ArrayList(TypeValue).new();
+  variants := ArrayList(ArrayList(TypeValue)).new();
+  variants.push(v1);
+  variants.push(v2);
+  ty := mk_enum("TwoEmpty", variants);
+  assert(
+    can_optimize_as_nullable_pointer(ty).is_none(),
+    "two empty variants → false"
+  );
+});
+test("can_optimize_as_nullable_pointer: non-enum returns None", {
+  assert(
+    can_optimize_as_nullable_pointer(t_i32()).is_none(),
+    "i32 → None"
+  );
+});

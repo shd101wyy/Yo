@@ -561,8 +561,7 @@ Functions are declared using the `::` operator for compile-time definitions or `
 ```rust
 // Function declaration with explicit type
 // function type is written as fn(args...) -> return_type
-add :: (fn(x : i32, y : i32) -> i32)
-  (x + y)  // Function body
+add :: (fn(x : i32, y : i32) -> i32)(x + y)  // Function body
 ;
 // calling a function type with function body creates a function value
 

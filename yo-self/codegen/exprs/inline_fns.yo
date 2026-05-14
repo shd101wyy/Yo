@@ -16,6 +16,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { type_value_to_c_field } :: import("../types.yo");
 { CodegenContext } :: import("../context.yo");
+{ can_optimize_as_simple_enum } :: import("../utils.yo");
 {
   BF_YO_OP_ADD,
   BF_YO_OP_SUB,
@@ -148,35 +149,10 @@ inline_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(Stri
     .None => type_value_to_c_field(t)
   )
 });
-/// True iff enum type `t` has no data in any variant (can be emitted as a plain
-/// C enum rather than a tagged-union struct).
-/// Mirrors `canOptimizeAsSimpleEnum` in `src/codegen/utils/index.ts`.
-inline_can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
-  match(
-    t,
-    .EnumT(_, _, _, variant_fields, _, _, _) => {
-      // All variant field lists must be empty and there must be at least one variant.
-      all_empty := true;
-      count := usize(0);
-      i := usize(0);
-      while(runtime(i < variant_fields.len()), {
-        count = (count + usize(1));
-        match(
-          variant_fields.get(i),
-          .None => (),
-          .Some(fields) => {
-            if(fields.len() > usize(0), {
-              all_empty = false;
-            });
-          }
-        );
-        i = (i + usize(1));
-      });
-      (all_empty && (count > usize(0)))
-    },
-    _ => false
-  )
-);
+// `can_optimize_as_simple_enum` lives in `codegen/utils.yo` — the
+// canonical 1-to-1 home for `src/codegen/utils/index.ts` helpers. The
+// import lives at the top of this file alongside the other utility
+// imports.
 /// Emit an index-range slice from an array or slice pointer.
 /// Mirrors `__yo_array_index_range` / `__yo_slice_index_range` variants in
 /// `src/codegen/exprs/inline-fns.ts`.
@@ -237,7 +213,7 @@ generate_yo_inline_meta :: (
               .None => false,
               .Some(arg0_info) => match(
                 arg0_info.ty,
-                .EnumT(_, _, _, _, _, _, _) => !(inline_can_optimize_as_simple_enum(arg0_info.ty)),
+                .EnumT(_, _, _, _, _, _, _) => !(can_optimize_as_simple_enum(arg0_info.ty)),
                 _ => false
               )
             )
