@@ -18,10 +18,34 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY, BK_BEGIN } :: import("../expr/expr.yo");
 { TokenKind, Token } :: import("../lexer/token.yo");
+{ ExprInfoTable } :: import("../expr/expr_info.yo");
 { CodegenContext } :: import("./context.yo");
 { type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl, register_generic_struct_template_if_supported, is_primitive_type_cast, generate_expr } :: import("./exprs.yo");
 { generate_function, emit_function_declaration } :: import("./functions.yo");
 { emit_c_preamble, emit_main_wrapper, generate_c_output } :: import("./program.yo");
+// ---------------------------------------------------------------------------
+// Pipeline-scoped ExprInfoTable handoff
+// ---------------------------------------------------------------------------
+/// One-shot slot for the typed AST metadata produced by an evaluator pass.
+/// `compile_module_to_c` (and its `*_with_info_table` variant) reads this
+/// slot, installs the table on its `CodegenContext`, and then clears it
+/// back to `.None` so subsequent compilations start clean.
+///
+/// Mirrors the pattern already used by `g_evaluate_expression` in
+/// `evaluator/exprs/expr.yo` — a module-level function-pointer / state
+/// slot, set by the caller right before invoking the consumer.
+///
+/// Wiring the evaluator into `yo-self/main.yo` is the goal of Stream A
+/// (see `plans/BOOTSTRAPPING.md` Path Forward). Today the slot stays
+/// `.None` for every caller, so codegen continues to use the AST-only
+/// bootstrap heuristics and per-handler ports fall through.
+(g_pipeline_expr_info_table : Option(ExprInfoTable)) =.None;
+/// Set the ExprInfoTable that the next `compile_module_to_c` call will
+/// install on its CodegenContext. The slot is one-shot: `compile_module_to_c`
+/// reads it, installs it, and resets it to `.None` before returning.
+set_pipeline_expr_info_table :: (fn(table : Option(ExprInfoTable)) -> unit)({
+  g_pipeline_expr_info_table = table;
+});
 // ---------------------------------------------------------------------------
 // FnDef — extracted function definition record
 // ---------------------------------------------------------------------------
@@ -4444,6 +4468,11 @@ compile_module_to_c :: (
 )({
   ctx := CodegenContext.new();
   (pctx : *(CodegenContext)) = &(ctx);
+  // One-shot handoff: install the pipeline's ExprInfoTable (if the
+  // caller staged one via `set_pipeline_expr_info_table`) and reset
+  // the slot so the next compilation starts clean.
+  ctx.expr_info_table = g_pipeline_expr_info_table;
+  g_pipeline_expr_info_table = Option(ExprInfoTable).None;
   emit_c_preamble(module_id, pctx);
   n := exprs.len();
   (i : usize) = usize(0);
@@ -4715,7 +4744,7 @@ compile_module_to_c :: (
     }
   )
 });
-export(compile_module_to_c);
+export(compile_module_to_c, set_pipeline_expr_info_table);
 /// An `int main(void)` wrapper calls `fn_test_body()`.
 ///
 /// `assert(cond, msg)` in the body emits `if (!(cond)) { exit(1); }` via
