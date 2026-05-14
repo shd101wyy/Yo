@@ -285,13 +285,10 @@ run_compile :: (
   src := String.from_bytes(src_bytes);
   // Parse with the self-hosted parser
   exprs := parse(src, input_path, using(exn));
-  // Stream A: stage the typed AST metadata slot. Today this is always
-  // .None — the proper evaluator's coverage of real source files is
-  // still incomplete, so we leave the codegen on the AST-only bootstrap
-  // path. Once `try_populate_expr_info_table` runs cleanly on real
-  // programs the call becomes
-  // `set_pipeline_expr_info_table(try_populate_expr_info_table(exprs.clone(), input_path))`.
-  set_pipeline_expr_info_table(Option(ExprInfoTable).None);
+  // Stream A: try to populate the typed AST metadata table from the proper
+  // evaluator. On failure (evaluator coverage gap), fall back to no metadata
+  // so the codegen dispatcher uses its AST-only bootstrap heuristics.
+  set_pipeline_expr_info_table(try_populate_expr_info_table(exprs.clone(), input_path));
   // Generate C11 source
   opt_c := compile_module_to_c(exprs, mod_id.as_str(), "main");
   (c_src : String) = match(
