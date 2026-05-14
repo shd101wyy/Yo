@@ -1,4 +1,14 @@
-# TS codegen elides `parse` function body when `evaluator/exprs/_expr.yo` is imported into `main.yo`
+# TS codegen elides `parse` function body when `evaluator/exprs/_expr.yo` is imported into `main.yo` (FIXED)
+
+> **Fixed** in commit `a75007f9` (`codegen: keep base function emitted
+when no specialized replacement is registered`). The skip rule in
+> `src/codegen/functions/{declarations,generation}.ts` now keeps the
+> base (unspecialized) function emitted unless a _registered_
+> specialized FunctionValue actually shares its `cName` — i.e. unless
+> there is something in `context.functions` that will resolve the call
+> sites that still emit the base name. Importing the evaluator into
+> `yo-self/main.yo` now builds cleanly via `./yo-cli compile`. Stream
+> A's main.yo wiring (commit `36b2434e`) lands on top of this fix.
 
 ## Symptom
 
