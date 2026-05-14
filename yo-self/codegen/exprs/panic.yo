@@ -49,8 +49,7 @@ extract_comptime_string_value :: (fn(v : EvalValue) -> Option(String))(
 is_str_newtype :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Struct(_, name, _, _, _, _, is_newtype) =>
-      (is_newtype && (name.as_str() == "str")),
+    .Struct({name, is_newtype}) => (is_newtype && (name.as_str() == "str")),
     _ => false
   )
 );

@@ -56,12 +56,12 @@ inner_atom_token_value :: (fn(call_expr : AstExpr) -> Option(String))(
   match(
     call_expr,
     .Atom(_, _) => Option(String).None,
-    .FnCall(_, _, inner_args, _, _) => match(
+    .FnCall({args : inner_args}) => match(
       inner_args.get(usize(0)),
       .None => Option(String).None,
       .Some(inner) => match(
         inner,
-        .Atom(_, tok) => Option(String).Some(tok.value),
+        .Atom({token: tok}) => Option(String).Some(tok.value),
         .FnCall(_, _, _, _, _) => Option(String).None
       )
     )
@@ -102,7 +102,7 @@ generate_binding :: (
             // Walk lhs to get the inner atom expr.
             lhs,
             .Atom(_, _) => Option(String).Some(String.from("")),
-            .FnCall(_, _, inner_args, _, _) => match(
+            .FnCall({args: inner_args}) => match(
               inner_args.get(usize(0)),
               .None => Option(String).Some(String.from("")),
               .Some(inner_expr) => match(
@@ -128,7 +128,7 @@ generate_binding :: (
         true => match(
           lhs,
           .FnCall(_, _, _, _, _) => Option(String).None,
-          .Atom(_, lhs_tok) => match(
+          .Atom({token: lhs_tok}) => match(
             ctx.*.get_expr_info(ast_expr_id(lhs)),
             .None => Option(String).None,
             .Some(lhs_info) => {

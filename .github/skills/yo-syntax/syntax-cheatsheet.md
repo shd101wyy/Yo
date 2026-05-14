@@ -262,14 +262,27 @@ text := match(value,
 Three destructuring shapes for arms (mix freely across arms):
 
 ```rust
-Shape :: enum(Circle(radius : i32), Rectangle(width : i32, height : i32));
+Shape :: enum(
+  Circle(radius : i32),
+  Rectangle(width : i32, height : i32),
+  Triangle(base : i32, height : i32, label : str)
+);
 
 match(s,
-  .Circle(r)                       => (r * r),         // positional
-  .Rectangle(width: w, height: h)  => (w * h),         // labeled
-  .Rectangle({width, height: h})   => (width * h)      // curly shorthand
+  // ✅ Preferred — curly shorthand names only the fields you use.
+  .Triangle({base, height: h})  => (base * h),
+
+  // Also OK — labeled (label : var) pairs; order-free, partial matches OK.
+  .Circle(radius: r)             => (r * r),
+
+  // ⚠️ Avoid for 2+ field variants — positional with `_` is brittle when
+  //    a field is added and harder to read (each `_` requires counting).
+  //    OK when the variant has one field, or when every field is named.
+  .Rectangle(w, h)               => (w * h)
 )
 ```
+
+**Preferred form**: `.Variant({label, label: alias})`. Names only the fields the arm binds, so adding a field to the variant later doesn't silently break every arm. `tests/match_curly.test.yo` is the spec.
 
 Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` and empty `{}` are rejected.
 

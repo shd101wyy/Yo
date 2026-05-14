@@ -592,21 +592,30 @@ Match arms support three destructuring shapes for enum variants. All three coexi
 ```rust
 Shape :: enum(
   Circle(radius : i32),
-  Rectangle(width : i32, height : i32)
+  Rectangle(width : i32, height : i32),
+  Triangle(base : i32, height : i32, label : str)
 );
 
 match(s,
-  // 1. Positional — order matches field declaration. Must list all fields.
-  .Rectangle(w, h) => (w * h),
+  // ✅ Preferred — Curly shorthand: `{a, b: c}` names only the fields
+  //    the arm uses. Order-free, partial matches allowed.
+  .Triangle({base, height: h}) => (base * h),
 
-  // 2. Labeled — `(label: var)` pairs. Order-free, supports partial matches.
+  // Also OK — Labeled `(label: var)` pairs. Order-free, partial matches OK.
   .Circle(radius: r) => (r * r),
 
-  // 3. Curly shorthand — `{a, b: c}` is sugar for `(a: a, b: c)`.
-  //    Bare atoms become `name: name`. Order-free, supports partial matches.
-  .Rectangle({width, height: h}) => (width * h)
+  // ⚠️ Avoid for variants with 2+ fields — Positional ordering with `_`
+  //    padding is brittle (adding a field shifts every later position)
+  //    and hard to read (each `_` requires counting fields). Fine when
+  //    every field is named *and* the variant has one or two fields.
+  .Rectangle(w, h) => (w * h)
 )
 ```
+
+**Preferred form: curly shorthand `.Variant({field1, field2: alias})`** —
+names only the fields the arm needs, so adding a new field to the variant
+later does not silently shift positions in every arm. The
+`tests/match_curly.test.yo` spec covers this form end-to-end.
 
 Curly destructuring rules:
 
