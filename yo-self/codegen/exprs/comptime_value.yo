@@ -1,0 +1,56 @@
+//! Generate C code for a compile-time `EvalValue`.
+//!
+//! Partial 1-to-1 port of `src/codegen/exprs/comptime-value.ts`.
+//!
+//! Currently covers the simple value variants:
+//!   - `IntLit(raw)`  → the raw integer text (`123`, `-7`, `0xFF`, …).
+//!   - `FloatLit(raw)`  → the raw float text, normalised to include a
+//!     decimal point so the C compiler treats it as a `double`.
+//!   - `BoolVal(b)`   → `"true"` / `"false"`.
+//!   - `StrLit(raw)`  → the raw text. `StringLit`-token raws already
+//!     include surrounding `"` and the lexer-preserved escape
+//!     sequences, so they're valid C string literals as-is; template
+//!     segments (no surrounding quotes) are wrapped and escaped.
+//!
+//! Complex variants (`EnumVal`, `StructVal`, `TupleVal`, `ArrayVal`,
+//! `PtrVal`, `FuncVal`, `TypeVal`, …) require codegen-side type-name
+//! lookup (`context.types[id]`), nullable-pointer optimisation, and
+//! runtime-type conversion that yo-self's bootstrap codegen does not
+//! yet expose. They return `Option(String).None` so callers can defer
+//! to the existing AST-only path. Each of those will be ported as the
+//! supporting infrastructure lands.
+open(import("std/string"));
+{ EvalValue } :: import("../../evaluator/value.yo");
+{ CodegenContext } :: import("../context.yo");
+{ quote_as_c_string } :: import("./panic.yo");
+/// Normalise a float-literal raw text so the generated C compiles as a
+/// `double`. Adds a `.0` suffix if the raw text has no decimal point
+/// (e.g. `"3"` → `"3.0"`). Existing decimal points are preserved.
+normalize_float_raw :: (fn(raw : String) -> String)({
+  s := raw;
+  if(!(s.contains(String.from("."))), {
+    s.push_str(".0");
+  });
+  s
+});
+/// Generate the C expression for a compile-time `EvalValue`.
+/// Returns `.Some(c_expr)` for the supported variants and
+/// `.None` for variants whose lowering needs the codegen-side type
+/// registry (enums, structs, tuples, arrays, pointers, function
+/// values, type values).
+generate_comptime_value :: (
+  fn(value : EvalValue, ctx : *(CodegenContext)) -> Option(String)
+)(
+  match(
+    value,
+    .IntLit(raw) => Option(String).Some(raw),
+    .FloatLit(raw) => Option(String).Some(normalize_float_raw(raw)),
+    .BoolVal(b) => Option(String).Some(cond(
+      b => String.from("true"),
+      true => String.from("false")
+    )),
+    .StrLit(raw) => Option(String).Some(quote_as_c_string(raw)),
+    _ => Option(String).None
+  )
+);
+export(generate_comptime_value, normalize_float_raw);

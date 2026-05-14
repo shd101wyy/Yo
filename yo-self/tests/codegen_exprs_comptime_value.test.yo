@@ -1,0 +1,94 @@
+/// Tests for yo-self/codegen/exprs/comptime_value.yo.
+open(import("std/string"));
+{ EvalValue } :: import("../evaluator/value.yo");
+{ CodegenContext } :: import("../codegen/context.yo");
+{ generate_comptime_value, normalize_float_raw } :: import("../codegen/exprs/comptime_value.yo");
+test("normalize_float_raw: adds .0 when no decimal point", {
+  assert(
+    normalize_float_raw(String.from("3")) == String.from("3.0"),
+    "3 → 3.0"
+  );
+  assert(
+    normalize_float_raw(String.from("42")) == String.from("42.0"),
+    "42 → 42.0"
+  );
+});
+test("normalize_float_raw: leaves existing decimal points alone", {
+  assert(
+    normalize_float_raw(String.from("3.14")) == String.from("3.14"),
+    "3.14 unchanged"
+  );
+  assert(
+    normalize_float_raw(String.from("0.5")) == String.from("0.5"),
+    "0.5 unchanged"
+  );
+});
+test("generate_comptime_value: IntLit returns raw text", {
+  ctx := CodegenContext.new();
+  match(
+    generate_comptime_value(EvalValue.IntLit(String.from("123")), &(ctx)),
+    .Some(s) => assert(s == String.from("123"), "IntLit 123"),
+    .None => assert(false, "expected Some")
+  );
+  match(
+    generate_comptime_value(EvalValue.IntLit(String.from("0xFF")), &(ctx)),
+    .Some(s) => assert(s == String.from("0xFF"), "IntLit 0xFF"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("generate_comptime_value: FloatLit normalises missing decimal point", {
+  ctx := CodegenContext.new();
+  match(
+    generate_comptime_value(EvalValue.FloatLit(String.from("3")), &(ctx)),
+    .Some(s) => assert(s == String.from("3.0"), "FloatLit 3 → 3.0"),
+    .None => assert(false, "expected Some")
+  );
+  match(
+    generate_comptime_value(EvalValue.FloatLit(String.from("3.14")), &(ctx)),
+    .Some(s) => assert(s == String.from("3.14"), "FloatLit 3.14 unchanged"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("generate_comptime_value: BoolVal returns true/false", {
+  ctx := CodegenContext.new();
+  match(
+    generate_comptime_value(EvalValue.BoolVal(true), &(ctx)),
+    .Some(s) => assert(s == String.from("true"), "BoolVal(true)"),
+    .None => assert(false, "expected Some")
+  );
+  match(
+    generate_comptime_value(EvalValue.BoolVal(false), &(ctx)),
+    .Some(s) => assert(s == String.from("false"), "BoolVal(false)"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("generate_comptime_value: StrLit with surrounding quotes passes through", {
+  ctx := CodegenContext.new();
+  // The Yo lexer emits StringLit raws WITH outer quotes and lexer-preserved
+  // escape sequences, so they are valid C string literals as-is.
+  match(
+    generate_comptime_value(EvalValue.StrLit(String.from("\"hello\"")), &(ctx)),
+    .Some(s) => assert(s == String.from("\"hello\""), "literal passthrough"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("generate_comptime_value: StrLit bare segment is wrapped + escaped", {
+  ctx := CodegenContext.new();
+  // Template-string segments are lexed WITHOUT outer quotes; quote_as_c_string
+  // adds them and escapes special bytes.
+  match(
+    generate_comptime_value(EvalValue.StrLit(String.from("hello")), &(ctx)),
+    .Some(s) => assert(s == String.from("\"hello\""), "bare → quoted"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("generate_comptime_value: complex variants defer (return None)", {
+  ctx := CodegenContext.new();
+  // UnitVal and unknown variants are not yet covered by the partial
+  // port — they return None so callers can fall back to the AST-only
+  // path. This pins down the contract.
+  assert(
+    generate_comptime_value(EvalValue.UnitVal, &(ctx)).is_none(),
+    "UnitVal → None (partial-port deferral)"
+  );
+});
