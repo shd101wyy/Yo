@@ -327,6 +327,50 @@ CodegenContext :: object(
   /// `async.ts` to dispatch directly to the impl function for a
   /// concrete closure value.
   impl_closure_call_map : HashMap(String, CodegenImplClosureEntry),
+  /// `FunctionType` `TypeValue` of the function currently being
+  /// generated. Mirrors `FunctionGenerationContext.currentFunctionType`
+  /// in `src/codegen/functions/context.ts`. Used by drop-dup,
+  /// await, generation, and other-fn-call handlers to find the
+  /// return type (`.return.type`) and parameter list of the enclosing
+  /// function — needed for type-aware drop emission and Future
+  /// return-type lowering.
+  ///
+  /// `.None` when codegen is outside any function body (e.g. emitting
+  /// module-level type declarations).
+  current_function_type : Option(TypeValue),
+  /// True iff codegen is currently inside the body of an async state
+  /// machine. Mirrors `FunctionGenerationContext.inAsyncStateMachine`
+  /// (TS uses an object-or-undefined; yo-self uses bool until the
+  /// futureType payload is needed). Async/await codegen and atom
+  /// codegen both gate state-machine variable resolution on this flag.
+  in_async_state_machine : bool,
+  /// True iff codegen is currently inside the body of an effect state
+  /// machine. Mirrors `FunctionGenerationContext.inEffectStateMachine`
+  /// in `src/codegen/functions/context.ts`. Used alongside
+  /// `in_async_state_machine` to gate state-machine variable resolution.
+  in_effect_state_machine : bool,
+  /// True iff codegen is currently inside a `match` expression — which
+  /// in C compiles to a `switch`, so a bare `break` would break the
+  /// switch instead of an outer loop. Mirrors `CodeGenContext.insideMatch`
+  /// in `src/codegen/utils/index.ts`. cond / match / break / continue
+  /// codegen consult this to decide whether to emit a labelled `goto`
+  /// instead of `break`.
+  inside_match : bool,
+  /// True iff at least one object type can form RC cycles. When `false`,
+  /// the runtime GC infrastructure is omitted: `__yo_ref_header_t` is
+  /// smaller, `__yo_decr_rc` skips cycle-collector checks, and the
+  /// `__yo_gc_*` runtime functions become no-ops. Mirrors
+  /// `CodeGenContext.needsCycleGC` in `src/codegen/utils/index.ts`.
+  needs_cycle_gc : bool,
+  /// True iff compiling as a library (no `main()` wrapper, exported
+  /// functions use plain unmangled names). Mirrors
+  /// `CodeGenContext.isLibrary`.
+  is_library : bool,
+  /// Module ID of the current module being compiled (e.g.
+  /// `"yo3818ce2d"`). Used in library mode to distinguish user-defined
+  /// exports from std library functions. Mirrors
+  /// `CodeGenContext.currentModuleId`. Empty when not yet set.
+  current_module_id : String,
   /// Evidence parameter C names currently in scope for function codegen.
   /// Mirrors the values of `FunctionGenerationContext.currentEvidenceParams`.
   /// Recur calls forward these names to the recursive self-call.
@@ -406,6 +450,13 @@ impl(
       extern_functions : HashMap(String, CodegenExternFunctionEntry).new(),
       c_includes : ArrayList(String).new(),
       impl_closure_call_map : HashMap(String, CodegenImplClosureEntry).new(),
+      current_function_type : Option(TypeValue).None,
+      in_async_state_machine : false,
+      in_effect_state_machine : false,
+      inside_match : false,
+      needs_cycle_gc : false,
+      is_library : false,
+      current_module_id : String.new(),
       current_evidence_param_names : ArrayList(String).new(),
       declared_temp_vars : ArrayList(String).new(),
       current_loop_label : String.new(),

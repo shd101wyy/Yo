@@ -240,3 +240,46 @@ test("get_impl_closure: unknown id returns None", {
   (pctx : *(CodegenContext)) = &(ctx);
   assert(pctx.*.get_impl_closure(String.from("missing")).is_none(), "miss");
 });
+// ─── scalar context flags ───────────────────────────────────────────────────
+test("current_function_type: defaults to None", {
+  ctx := CodegenContext.new();
+  assert(ctx.current_function_type.is_none(), "None initially");
+});
+test("in_async_state_machine: defaults to false", {
+  ctx := CodegenContext.new();
+  assert(ctx.in_async_state_machine == false, "false initially");
+});
+test("in_effect_state_machine: defaults to false", {
+  ctx := CodegenContext.new();
+  assert(ctx.in_effect_state_machine == false, "false initially");
+});
+test("inside_match: defaults to false", {
+  ctx := CodegenContext.new();
+  assert(ctx.inside_match == false, "false initially");
+});
+test("needs_cycle_gc: defaults to false (lean RC mode)", {
+  ctx := CodegenContext.new();
+  assert(ctx.needs_cycle_gc == false, "false initially");
+});
+test("is_library: defaults to false (executable mode)", {
+  ctx := CodegenContext.new();
+  assert(ctx.is_library == false, "false initially");
+});
+test("current_module_id: defaults to empty string", {
+  ctx := CodegenContext.new();
+  assert(ctx.current_module_id == String.new(), "empty initially");
+});
+test("scalar flags are writeable", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.in_async_state_machine = true;
+  pctx.*.inside_match = true;
+  pctx.*.needs_cycle_gc = true;
+  pctx.*.is_library = true;
+  pctx.*.current_module_id = String.from("yo_abc");
+  assert(pctx.*.in_async_state_machine == true, "async flag set");
+  assert(pctx.*.inside_match == true, "match flag set");
+  assert(pctx.*.needs_cycle_gc == true, "gc flag set");
+  assert(pctx.*.is_library == true, "library flag set");
+  assert(pctx.*.current_module_id == String.from("yo_abc"), "module id set");
+});
