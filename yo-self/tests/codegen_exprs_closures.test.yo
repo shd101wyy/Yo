@@ -23,7 +23,8 @@ open(import("std/string"));
 { CodegenContext } :: import("../codegen/context.yo");
 {
   check_variable_is_closure_captured,
-  is_closure_construction
+  is_closure_construction,
+  resolve_some_type_to_concrete
 } :: import("../codegen/exprs/closures.yo");
 placeholder_token :: (fn() -> Token)(
   Token(
@@ -160,5 +161,18 @@ test("is_closure_construction: non-Fn type + closure value → false", {
   assert(
     !(is_closure_construction(usize(12), &(ctx))),
     "non-Fn type → false"
+  );
+});
+test("resolve_some_type_to_concrete: stub returns input unchanged", {
+  // yo-self's SomeT does not yet carry resolved_concrete_type, so
+  // this helper is a no-op until that field is added.
+  input_ty := t_i32();
+  match(
+    resolve_some_type_to_concrete(input_ty),
+    .Int({ bits, signed }) => {
+      assert(bits == u8(32), "i32 bits");
+      assert(signed, "i32 signed");
+    },
+    _ => assert(false, "expected Int variant returned unchanged")
   );
 });

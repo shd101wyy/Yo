@@ -18,6 +18,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { ExprId } :: import("../../expr/expr.yo");
+{ TypeValue } :: import("../../types/type.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env/env.yo");
 { type_implements_fn } :: import("../../evaluator/trait_checking.yo");
 { CodegenContext } :: import("../context.yo");
@@ -65,4 +66,18 @@ is_closure_construction :: (
     )
   )
 );
-export(check_variable_is_closure_captured, is_closure_construction);
+/// Walk a chain of resolved `SomeType`s and return the concrete type
+/// at the end. Mirrors TS `resolveSomeTypeToConcrete` in
+/// `src/codegen/exprs/closures.ts`.
+///
+/// **Stub-as-no-op**: yo-self's `SomeT` does not yet carry the
+/// `resolved_concrete_type` field that TS's loop walks, so this
+/// helper currently returns `t` unchanged. Once that field is added
+/// to `TypeValue.SomeT`, fill in the loop body — the call sites are
+/// already wired through the canonical API.
+resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)(t);
+export(
+  check_variable_is_closure_captured,
+  is_closure_construction,
+  resolve_some_type_to_concrete
+);
