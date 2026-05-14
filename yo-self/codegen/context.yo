@@ -168,7 +168,14 @@ CodegenContext :: object(
   /// Maps the unique string id of a type to the C name of the emitted
   /// `static const char __yo_typeid_<sanitized>_NN = 0;` declaration.
   /// Mirrors `CodeGenContext.typeIdStatics` in `src/codegen/utils/index.ts`.
-  type_id_statics : HashMap(String, String)
+  type_id_statics : HashMap(String, String),
+  /// Evidence parameter C names currently in scope for function codegen.
+  /// Mirrors the values of `FunctionGenerationContext.currentEvidenceParams`.
+  /// Recur calls forward these names to the recursive self-call.
+  current_evidence_param_names : ArrayList(String),
+  /// Temp variable names already declared in the current function body.
+  /// Mirrors `FunctionGenerationContext.declaredTempVars`.
+  declared_temp_vars : ArrayList(String)
 );
 impl(
   CodegenContext,
@@ -226,7 +233,9 @@ impl(
       anon_method_names : ArrayList(String).new(),
       anon_method_body_templates : ArrayList(String).new(),
       expr_info_table : Option(ExprInfoTable).None,
-      type_id_statics : HashMap(String, String).new()
+      type_id_statics : HashMap(String, String).new(),
+      current_evidence_param_names : ArrayList(String).new(),
+      declared_temp_vars : ArrayList(String).new()
     )
   ),
   /// Look up the typed metadata attached to expression `id` (set by the

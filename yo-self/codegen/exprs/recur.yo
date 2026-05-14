@@ -1,0 +1,210 @@
+//! Codegen for `recur(...)`.
+//!
+//! 1-to-1 port of `src/codegen/exprs/recur.ts`, adapted to yo-self's
+//! `ExprInfoTable` side-table for TypeScript `expr.$` metadata.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_id, ast_expr_to_string } :: import("../../expr/expr.yo");
+{ TypeValue, is_unit_type } :: import("../../types/type.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ CodegenContext } :: import("../context.yo");
+{ type_value_to_c_field } :: import("../types.yo");
+{ call_gen_expr } :: import("./expr.yo");
+{ sanitize_for_c_identifier } :: import("./typeid.yo");
+{ tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
+
+recur_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(String))({
+  key := type_to_string(t);
+  match(
+    ctx.*.types.get(key),
+    .Some(entry) => Option(String).Some(entry.c_name),
+    .None => type_value_to_c_field(t)
+  )
+});
+
+recur_array_contains_string :: (fn(items : ArrayList(String), needle : String) -> bool)({
+  found := false;
+  i := usize(0);
+  while(runtime((i < items.len()) && (!(found))), {
+    match(
+      items.get(i),
+      .Some(item) => {
+        found = (item == needle);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+
+recur_args_to_c :: (
+  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+)({
+  out := String.new();
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while(runtime((i < args.len()) && ok), {
+    match(
+      args.get(i),
+      .None => {
+        ok = false;
+      },
+      .Some(arg) => match(
+        call_gen_expr(arg, ctx, indent),
+        .None => {
+          ok = false;
+        },
+        .Some(arg_code) => match(
+          tuple_apply_deferred_dup(arg, arg_code, ctx, indent),
+          .None => {
+            ok = false;
+          },
+          .Some(final_arg_value) => {
+            if(i > usize(0), {
+              out.push_str(", ");
+            });
+            out.push_string(final_arg_value);
+          }
+        )
+      )
+    );
+    i = (i + usize(1));
+  });
+  cond(ok => Option(String).Some(out), true => Option(String).None)
+});
+
+recur_append_evidence_args :: (fn(args_list : String, ctx : *(CodegenContext)) -> String)({
+  out := String.from(args_list.as_str());
+  i := usize(0);
+  while(runtime(i < ctx.*.current_evidence_param_names.len()), {
+    match(
+      ctx.*.current_evidence_param_names.get(i),
+      .Some(ep_name) => {
+        if(out.len() > usize(0), {
+          out.push_str(", ");
+        });
+        out.push_string(ep_name);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+
+recur_emit_deferred_drops :: (
+  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> bool
+)(
+  match(
+    ctx.*.get_expr_info(ast_expr_id(expr)),
+    .None => true,
+    .Some(info) => match(
+      info.deferred_drop_expressions,
+      .None => true,
+      .Some(drops) => {
+        (i : usize) = usize(0);
+        (ok : bool) = true;
+        while(runtime((i < drops.len()) && ok), {
+          match(
+            drops.get(i),
+            .None => {
+              ok = false;
+            },
+            .Some(drop_expr) => match(
+              call_gen_expr(drop_expr, ctx, indent),
+              .None => {
+                ok = false;
+              },
+              .Some(drop_code) => {
+                line := String.from(indent.as_str());
+                line.push_string(drop_code);
+                line.push_str(";");
+                ctx.*.emitter.emit_string_line(line);
+              }
+            )
+          );
+          i = (i + usize(1));
+        });
+        ok
+      }
+    )
+  )
+);
+
+recur_emit_temp_if_needed :: (
+  fn(call_expr : AstExpr, call_code : String, ctx : *(CodegenContext), indent : String) -> Option(String)
+)(
+  match(
+    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    .None => Option(String).Some(call_code),
+    .Some(info) => match(
+      info.variable_name,
+      .None => Option(String).Some(call_code),
+      .Some(temp_var) => cond(
+        is_unit_type(info.ty) => Option(String).Some(call_code),
+        true => match(
+          recur_type_c_name(info.ty, ctx),
+          .None => Option(String).Some(call_code),
+          .Some(c_type) => {
+            temp_var_name := sanitize_for_c_identifier(temp_var.as_str());
+            if(!(recur_array_contains_string(ctx.*.declared_temp_vars, temp_var_name)), {
+              ctx.*.declared_temp_vars.push(temp_var_name);
+              line := String.from(indent.as_str());
+              line.push_string(c_type);
+              line.push_str(" ");
+              line.push_string(temp_var_name);
+              line.push_str(" = ");
+              line.push_string(call_code);
+              line.push_str(";");
+              ctx.*.emitter.emit_string_line(line);
+            });
+            Option(String).Some(temp_var_name)
+          }
+        )
+      )
+    )
+  )
+);
+
+generate_recur :: (
+  fn(call_expr : AstExpr, _args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+)(
+  match(
+    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    .None => Option(String).None,
+    .Some(info) => match(
+      info.runtime_arg_exprs_in_order,
+      .None => {
+        msg := String.from("// Error: No arguments for recur call ");
+        msg.push_string(ast_expr_to_string(call_expr));
+        msg.push_str("\n");
+        Option(String).Some(msg)
+      },
+      .Some(runtime_args) => match(
+        recur_args_to_c(runtime_args, ctx, indent),
+        .None => Option(String).None,
+        .Some(args_list) => {
+          full_args := recur_append_evidence_args(args_list, ctx);
+          call_code := String.from(ctx.*.current_fn_name.as_str());
+          call_code.push_str("(");
+          call_code.push_string(full_args);
+          call_code.push_str(")");
+          cond(
+            (!(recur_emit_deferred_drops(call_expr, ctx, indent))) => Option(String).None,
+            true => recur_emit_temp_if_needed(call_expr, call_code, ctx, indent)
+          )
+        }
+      )
+    )
+  )
+);
+
+export(
+  generate_recur,
+  recur_type_c_name,
+  recur_args_to_c,
+  recur_append_evidence_args,
+  recur_emit_deferred_drops,
+  recur_array_contains_string
+);

@@ -28,6 +28,7 @@ open(import("std/string"));
 { generate_binding } :: import("./exprs/binding.yo");
 { generate_anonymous_tuple } :: import("./exprs/tuple_fn.yo");
 { generate_anonymous_array, generate_yo_array_fill } :: import("./exprs/array_fns.yo");
+{ generate_recur } :: import("./exprs/recur.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -12400,16 +12401,20 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => (id.as_str() == "recur")
           )
         ) => match(
-          gen_arg_list(args, ctx, indent),
-          .None => Option(String).None,
-          .Some(arg_s) => {
-            result := String.new();
-            result.push_string(ctx.*.current_fn_name);
-            result.push_str("(");
-            result.push_string(arg_s);
-            result.push_str(")");
-            Option(String).Some(result)
-          }
+          generate_recur(expr, args, ctx, indent),
+          .Some(recur_code) => Option(String).Some(recur_code),
+          .None => match(
+            gen_arg_list(args, ctx, indent),
+            .None => Option(String).None,
+            .Some(arg_s) => {
+              result := String.new();
+              result.push_string(ctx.*.current_fn_name);
+              result.push_str("(");
+              result.push_string(arg_s);
+              result.push_str(")");
+              Option(String).Some(result)
+            }
+          )
         ),
         // box(arg) — heap-allocate a value and return a typed pointer to it
         (
