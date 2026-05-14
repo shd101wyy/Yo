@@ -161,3 +161,32 @@ test("get_extern_function: unknown id returns None", {
   (pctx : *(CodegenContext)) = &(ctx);
   assert(pctx.*.get_extern_function(String.from("nope")).is_none(), "miss");
 });
+// ─── c_includes ─────────────────────────────────────────────────────────────
+test("add_c_include: makes has_c_include return true", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.add_c_include(String.from("<stdint.h>"));
+  assert(pctx.*.has_c_include(String.from("<stdint.h>")) == true, "added");
+  assert(pctx.*.has_c_include(String.from("<stdio.h>")) == false, "other miss");
+});
+test("add_c_include: idempotent — adding the same include twice keeps len==1", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.add_c_include(String.from("<stdint.h>"));
+  pctx.*.add_c_include(String.from("<stdint.h>"));
+  pctx.*.add_c_include(String.from("<stdint.h>"));
+  assert(pctx.*.c_includes.len() == usize(1), "deduped");
+});
+test("add_c_include: distinct includes accumulate", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.add_c_include(String.from("<stdint.h>"));
+  pctx.*.add_c_include(String.from("<stdbool.h>"));
+  pctx.*.add_c_include(String.from("\"foo.h\""));
+  assert(pctx.*.c_includes.len() == usize(3), "all three present");
+});
+test("c_includes: empty by default", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  assert(pctx.*.c_includes.len() == usize(0), "fresh ctx is empty");
+});

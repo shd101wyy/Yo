@@ -281,6 +281,17 @@ CodegenContext :: object(
   /// Mirrors `CodeGenContext.externFunctions` in
   /// `src/codegen/utils/index.ts`.
   extern_functions : HashMap(String, CodegenExternFunctionEntry),
+  /// C header `#include` lines that need to land in the preamble.
+  /// Populated lazily by handlers like `typeid` and `downcast` that
+  /// depend on `<stdint.h>`, by extern-C declarations that name
+  /// libc headers, and by the C-collection pass. Mirrors
+  /// `CodeGenContext.cIncludes` (a `Set<string>` in TS) — yo-self
+  /// uses an `ArrayList(String)` with a contains-check on insert,
+  /// since `std/collections/hash_set` isn't pulled into codegen yet.
+  ///
+  /// Each entry is the literal `#include` operand including angle
+  /// brackets or quotes, e.g. `"<stdint.h>"` or `"\"foo.h\""`.
+  c_includes : ArrayList(String),
   /// Evidence parameter C names currently in scope for function codegen.
   /// Mirrors the values of `FunctionGenerationContext.currentEvidenceParams`.
   /// Recur calls forward these names to the recursive self-call.
@@ -358,6 +369,7 @@ impl(
       slice_struct_types : HashMap(String, CodegenSliceStructEntry).new(),
       array_struct_types : HashMap(String, CodegenArrayStructEntry).new(),
       extern_functions : HashMap(String, CodegenExternFunctionEntry).new(),
+      c_includes : ArrayList(String).new(),
       current_evidence_param_names : ArrayList(String).new(),
       declared_temp_vars : ArrayList(String).new(),
       current_loop_label : String.new(),
@@ -491,6 +503,40 @@ impl(
   get_extern_function : (
     fn(self : *(Self), type_id : String) -> Option(CodegenExternFunctionEntry)
   )(self.*.extern_functions.get(type_id)),
+  /// True iff `include` is already present in the `c_includes` set.
+  has_c_include : (fn(self : *(Self), include : String) -> bool)({
+    n := self.*.c_includes.len();
+    (i : usize) = usize(0);
+    (found : bool) = false;
+    while(runtime((i < n) && (!(found))), {
+      match(
+        self.*.c_includes.get(i),
+        .None => (),
+        .Some(existing) => {
+          if(existing == include, {
+            found = true;
+          });
+        }
+      );
+      i = (i + usize(1));
+    });
+    found
+  }),
+  /// Add a header to the set of `#include`s the codegen preamble must
+  /// emit. Idempotent — re-adding the same include is a no-op. Mirrors
+  /// `context.cIncludes.add(include)` in TS (which uses `Set<string>`).
+  ///
+  /// `include` should be the literal include operand (`"<stdint.h>"`,
+  /// `"\"foo.h\""`, …) — the emitter wraps it in `#include`.
+  add_c_include : (fn(self : *(Self), include : String) -> unit)(
+    cond(
+      self.has_c_include(include) => (),
+      true => {
+        self.*.c_includes.push(include);
+        ()
+      }
+    )
+  ),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
   fresh_temp : (fn(self : *(Self)) -> String)({
     n := self.*.temp_count;
