@@ -127,9 +127,22 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     e.*.emit_header_line("");
     e.*.emit_header_line("// Bootstrap-only slice specializations");
     e.*.emit_header_line("typedef struct { uint8_t* data; size_t length; } YoSlice_u8;");
+    // Record the baseline slice type in the codegen registry so
+    // downstream handlers can dedupe and reuse it via
+    // `ctx.has_slice_struct_type("YoSlice_u8")` instead of hardcoding
+    // the name. Mirrors the TS pattern of pre-populating
+    // `context.sliceStructTypes` with the always-emitted baselines.
+    ctx.*.register_slice_struct_type(String.from("YoSlice_u8"),
+    String.from("uint8_t"));
     e.*.emit_header_line("");
     e.*.emit_header_line("// Bootstrap-only returned array specializations");
     e.*.emit_header_line("typedef struct { int32_t data[1024]; size_t length; } YoArray_i32;");
+    // Same baseline-registration treatment for the array type.
+    ctx.*.register_array_struct_type(
+      String.from("YoArray_i32"),
+      String.from("int32_t"),
+      usize(1024)
+    );
     e.*.emit_header_line("static inline YoArray_i32 __yo_array_i32_fill(size_t length, int32_t value) {");
     e.*.emit_header_line("  YoArray_i32 result; result.length = length;");
     e.*.emit_header_line("  for (size_t i = 0; i < length && i < 1024; i++) { result.data[i] = value; }");
