@@ -636,7 +636,12 @@ function generateEscape(
       true,
       true
     );
-    generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
+    // Suppress consumed-variable drops in effect-record-member (ctl)
+    // handler bodies — those drops belong to the caller's scope. See the
+    // matching guard below the arg-eval path.
+    if (!functionContext.isEffectRecordMemberFunction) {
+      generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
+    }
     // For functions with non-void return type, return a dummy value
     // (the caller checks __yo_effect_escaped and ignores the return value)
     if (functionContext.currentFunctionType) {
@@ -712,7 +717,16 @@ function generateEscape(
     true,
     true
   );
-  generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
+  // Suppress consumed-variable drops when we are emitting a separate
+  // effect-record-member (ctl) handler function: the drops were recorded
+  // against variables in the *caller's* scope (the function that
+  // installed this handler), not against any variables visible in this
+  // handler body, so emitting them here references undeclared C
+  // identifiers. The caller's own drops still run at the handler
+  // installation site after `__yo_effect_escaped` is observed.
+  if (!functionContext.isEffectRecordMemberFunction) {
+    generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
+  }
   // For effect record members or evidence-passing functions:
   // store escape value in thread-local buffer for retrieval at handler
   // installation site, then return a dummy value.

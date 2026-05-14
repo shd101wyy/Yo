@@ -1050,6 +1050,16 @@ export function generateFunctionBody(
 ): void {
   const emitter = context.emitter;
 
+  // Reset per-function deferred-drop state so escape / early-return paths
+  // inside this body do not pick up drops left over from a previous
+  // function's generation. The begin-block branch below overwrites these
+  // with the current body's drop expressions; non-begin bodies (e.g.
+  // synthetic ctl handlers whose body is a bare `escape(...)`) start
+  // empty, since their drop targets live in the caller's scope, not in
+  // this function's frame.
+  context.pendingDeferredDrops = [];
+  context.consumedVarPendingDrops = [];
+
   if (
     exprIsFunctionCall(expr) &&
     exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
