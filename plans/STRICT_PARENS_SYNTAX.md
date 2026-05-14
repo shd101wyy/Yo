@@ -132,7 +132,7 @@ around prefix operands. This makes the **visual structure** match the
    design is preserved.
 5. **Trivial parser surface.** The parser becomes "callee then `(`" for
    every non-infix application. The greedy "consume comma-list" code path
-   is removed entirely. The self-hosted parser (`yo-self/parser/`) shrinks.
+   is removed entirely. The self-hosted parser (`yo-self/parser.yo`) shrinks.
 6. **Negligible token cost.** `return(x)`, `&(x)`, `!(ok)` are 2 chars
    longer than `return x`, `&x`, `!ok`. LLMs already emit parenthesized
    calls natively across all major models, and the uniform rule reduces
@@ -190,7 +190,7 @@ missed sites at compile time.
 
 ### Phase 3 — Self-hosted compiler
 
-- Update `yo-self/lexer/` and `yo-self/parser/` to enforce the new rule
+- Update `yo-self/lexer.yo` and `yo-self/parser.yo` to enforce the new rule
   (mirror the changes made in Phase 1 to `src/parser.ts`).
 - Update `yo-self/tests/` AST-shape assertions where needed.
 
