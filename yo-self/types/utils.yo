@@ -42,9 +42,12 @@ open(import("std/fmt"));
   is_comptime_float_type,
   is_comptime_string_type,
   is_some_type,
-  is_rc_type
+  is_rc_type,
+  is_u8_type,
+  is_char_type
 }
 :: import("./guards.yo");
+{ is_pointer_type, is_slice_type } :: import("./type.yo");
 { Variable, Environment, get_variables_from_env } :: import("../env/env.yo");
 { EvalValue } :: import("../evaluator/value.yo");
 { Token } :: import("../lexer/token.yo");
@@ -172,13 +175,47 @@ create_str_type :: (fn(env : Environment) -> TypeValue)({
 ///   * `comptime_float`  → `f64`
 ///   * `comptime_string` → `str` (looked up in `env`)
 ///   * otherwise        → unchanged
-convert_comptime_type_to_runtime_type :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
+/// True iff `ty` is `*(u8)` or `*(char)` — the two byte-pointer
+/// shapes that can hold a comptime-string literal. Helper for
+/// `convert_comptime_type_to_runtime_type_with_expected`.
+pointer_target_is_byte_ :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Pointer(pointee) => (is_u8_type(pointee.*) || is_char_type(pointee.*)),
+    _ => false
+  )
+);
+/// `convert_comptime_type_to_runtime_type` plus an optional
+/// `expected_type` hint. When the input is `comptime_string`, TS
+/// special-cases `*(u8)` / `*(char)` / `Slice(T)` expected types and
+/// returns the expected type instead of `str`. Mirrors the full
+/// signature of TS `convertComptimeTypeToRuntimeType`. The TS-side
+/// `expr` parameter (which mutates `expr.$.convertedRuntimeType`) is
+/// not threaded through here — yo-self callers that need the side-
+/// table update will assign through `ExprInfo.converted_runtime_type`
+/// directly.
+convert_comptime_type_to_runtime_type_with_expected :: (
+  fn(ty : TypeValue, expected : Option(TypeValue), env : Environment) -> TypeValue
+)(
   cond(
     is_comptime_int_type(ty) => t_i32(),
     is_comptime_float_type(ty) => t_f64(),
-    is_comptime_string_type(ty) => create_str_type(env),
+    is_comptime_string_type(ty) => match(
+      expected,
+      .None => create_str_type(env),
+      .Some(et) => cond(
+        // *(u8) / *(char) — comptime_string converts to the pointer.
+        (is_pointer_type(et) && pointer_target_is_byte_(et)) => et,
+        // [T] — comptime_string fits a slice value directly.
+        is_slice_type(et) => et,
+        true => create_str_type(env)
+      )
+    ),
     true => ty
   )
+);
+convert_comptime_type_to_runtime_type :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
+  convert_comptime_type_to_runtime_type_with_expected(ty, Option(TypeValue).None, env)
 );
 // ---------------------------------------------------------------------------
 // Phase 2u additions — mirrors functions from src/types/utils.ts
@@ -691,6 +728,7 @@ export(can_comptime_int_cast_to);
 export(can_comptime_float_cast_to);
 export(create_str_type);
 export(convert_comptime_type_to_runtime_type);
+export(convert_comptime_type_to_runtime_type_with_expected);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
