@@ -28,18 +28,12 @@ open(import("std/string"));
 { TypeValue, is_struct_type } :: import("../../types/type.yo");
 { EvalValue } :: import("../../evaluator/value.yo");
 { CodegenContext } :: import("../context.yo");
-{ type_value_to_c_field } :: import("../types.yo");
 { call_gen_expr } :: import("./expr.yo");
-{ sanitize_for_c_identifier } :: import("../utils.yo");
-/// Best-effort C type string for a TypeValue, with `int32_t` as the
-/// fallback to mirror TS `getTypeString`.
-get_field_c_type :: (fn(t : TypeValue) -> String)(
-  match(
-    type_value_to_c_field(t),
-    .Some(s) => s,
-    .None => String.from("int32_t")
-  )
-);
+{ sanitize_for_c_identifier, get_type_string } :: import("../utils.yo");
+// `get_type_string(t, ctx)` (in codegen/utils.yo) replaces the old
+// local `get_field_c_type` helper. The canonical helper consults the
+// type registry first, then falls back to the primitive lowering, then
+// to the TS-canonical `"int32_t"` default.
 /// Generate code for `open(arg_expr)`.
 ///
 /// Reads `expr.runtime_destructurings` and the arg's type/value from the
@@ -85,7 +79,7 @@ generate_open :: (
                       destructurings.get(i),
                       .None => (),
                       .Some(d) => {
-                        field_type := get_field_c_type(d.ty);
+                        field_type := get_type_string(d.ty, ctx);
                         var_name := sanitize_for_c_identifier(d.variable_name);
                         field_label := sanitize_for_c_identifier(d.label);
                         line := String.from(indent.as_str());
@@ -112,4 +106,4 @@ generate_open :: (
     )
   )
 );
-export(generate_open, get_field_c_type);
+export(generate_open);

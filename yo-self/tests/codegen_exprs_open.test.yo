@@ -19,7 +19,8 @@ open(import("std/fmt"));
 { EvalValue } :: import("../evaluator/value.yo");
 { CodegenContext } :: import("../codegen/context.yo");
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
-{ generate_open, get_field_c_type } :: import("../codegen/exprs/open.yo");
+{ generate_open } :: import("../codegen/exprs/open.yo");
+{ get_type_string } :: import("../codegen/utils.yo");
 mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
   AstExpr.Atom(
     id,
@@ -54,16 +55,19 @@ mk_struct_ty :: (fn(name : str, field_labels : ArrayList(String), field_types : 
     false
   )
 );
-test("get_field_c_type: known primitives → C types", {
-  assert(get_field_c_type(t_i32()) == String.from("int32_t"), "i32");
-  assert(get_field_c_type(t_bool()) == String.from("bool"), "bool");
+test("get_type_string: known primitives → C types (open field path)", {
+  ctx := CodegenContext.new();
+  assert(get_type_string(t_i32(), &(ctx)) == String.from("int32_t"), "i32");
+  assert(get_type_string(t_bool(), &(ctx)) == String.from("bool"), "bool");
 });
-test("get_field_c_type: unknown type → int32_t fallback", {
+test("get_type_string: unknown unregistered type → int32_t fallback", {
   fl := ArrayList(String).new();
   ft := ArrayList(TypeValue).new();
   struct_ty := mk_struct_ty("Unknown", fl, ft);
-  // Struct types are not in type_value_to_c_field's mapped set → fallback.
-  assert(get_field_c_type(struct_ty) == String.from("int32_t"), "fallback");
+  ctx := CodegenContext.new();
+  // Struct types are not in type_value_to_c_field's primitive set and
+  // the ctx.types registry is empty → canonical int32_t fallback.
+  assert(get_type_string(struct_ty, &(ctx)) == String.from("int32_t"), "fallback");
 });
 test("generate_open: returns None when call has no metadata", {
   set_generate_expr_fn(stub_generate_expr);
