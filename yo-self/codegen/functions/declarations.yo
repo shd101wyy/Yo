@@ -17,110 +17,7 @@ open(import("std/string"));
   ExternFunctionEntry,
   FunctionGenerationContext
 } :: import("./context.yo");
-
-is_c_identifier_byte_ :: (fn(byte : u8) -> bool)(
-  ((byte >= u8(65)) && (byte <= u8(90))) || (((byte >= u8(97)) && (byte <= u8(122))) || (((byte >= u8(48)) && (byte <= u8(57))) || (byte == u8(95))))
-);
-
-append_string_bytes_ :: (fn(out : ArrayList(u8), value : String) -> unit)({
-  bytes := value.as_bytes();
-  i := usize(0);
-  while(i < bytes.len(), i = (i + usize(1)), {
-    match(
-      bytes.get(i),
-      .Some(byte) => {
-        out.push(byte);
-      },
-      .None => ()
-    );
-  });
-});
-
-is_c_reserved_word_ :: (fn(name : String) -> bool)(
-  cond(
-    (name == String.from("auto")) => true,
-    (name == String.from("break")) => true,
-    (name == String.from("case")) => true,
-    (name == String.from("char")) => true,
-    (name == String.from("const")) => true,
-    (name == String.from("continue")) => true,
-    (name == String.from("default")) => true,
-    (name == String.from("do")) => true,
-    (name == String.from("double")) => true,
-    (name == String.from("else")) => true,
-    (name == String.from("enum")) => true,
-    (name == String.from("extern")) => true,
-    (name == String.from("float")) => true,
-    (name == String.from("for")) => true,
-    (name == String.from("goto")) => true,
-    (name == String.from("if")) => true,
-    (name == String.from("inline")) => true,
-    (name == String.from("int")) => true,
-    (name == String.from("long")) => true,
-    (name == String.from("register")) => true,
-    (name == String.from("restrict")) => true,
-    (name == String.from("return")) => true,
-    (name == String.from("short")) => true,
-    (name == String.from("signed")) => true,
-    (name == String.from("sizeof")) => true,
-    (name == String.from("static")) => true,
-    (name == String.from("struct")) => true,
-    (name == String.from("switch")) => true,
-    (name == String.from("typedef")) => true,
-    (name == String.from("union")) => true,
-    (name == String.from("unsigned")) => true,
-    (name == String.from("void")) => true,
-    (name == String.from("volatile")) => true,
-    (name == String.from("while")) => true,
-    (name == String.from("_Alignas")) => true,
-    (name == String.from("_Alignof")) => true,
-    (name == String.from("_Atomic")) => true,
-    (name == String.from("_Bool")) => true,
-    (name == String.from("_Complex")) => true,
-    (name == String.from("_Generic")) => true,
-    (name == String.from("_Imaginary")) => true,
-    (name == String.from("_Noreturn")) => true,
-    (name == String.from("_Static_assert")) => true,
-    (name == String.from("_Thread_local")) => true,
-    (name == String.from("errno")) => true,
-    (name == String.from("stdin")) => true,
-    (name == String.from("stdout")) => true,
-    (name == String.from("stderr")) => true,
-    (name == String.from("NULL")) => true,
-    (name == String.from("true")) => true,
-    (name == String.from("false")) => true,
-    true => false
-  )
-);
-
-sanitize_for_c_identifier :: (fn(value : String) -> String)({
-  bytes := value.as_bytes();
-  out := ArrayList(u8).with_capacity(bytes.len());
-  i := usize(0);
-  while(i < bytes.len(), i = (i + usize(1)), {
-    match(
-      bytes.get(i),
-      .Some(byte) => cond(
-        is_c_identifier_byte_(byte) => {
-          out.push(byte);
-        },
-        true => {
-          append_string_bytes_(out, String.from("_u"));
-          append_string_bytes_(out, byte.to_string());
-          append_string_bytes_(out, String.from("_"));
-        }
-      ),
-      .None => ()
-    );
-  });
-  sanitized := String.from_bytes(out);
-  return(
-    cond(
-      is_c_reserved_word_(sanitized) => (String.from("__yo_c_reserved_") + sanitized),
-      true => sanitized
-    )
-  );
-});
+{ sanitize_for_c_identifier } :: import("../utils.yo");
 
 copy_path_with_label_ :: (fn(path_prefix : ArrayList(String), label : String) -> ArrayList(String))({
   path := ArrayList(String).new();
@@ -763,7 +660,7 @@ implicit_types_contain_func_type_ :: (fn(implicit_types : ArrayList(TypeValue)) 
     match(
       implicit_types.get(i),
       .Some(it) => {
-        found = match(it, .Func(_, _, _, _, _, _, _, _, _) => true, _ => false);
+        found = match(it,.Func(_, _, _, _, _, _, _, _, _) => true, _ => false);
       },
       .None => ()
     );
@@ -815,7 +712,9 @@ generate_function_declarations :: (fn(ctx : *(FunctionGenerationContext)) -> uni
         is_extern_str := entry.is_extern.as_str();
         cond(
           (is_extern_str == "yo") => {
-            if(is_threading_macro_function_(entry.c_name.as_str()), { return(); });
+            if(is_threading_macro_function_(entry.c_name.as_str()), {
+              return();
+            });
             generate_function_declaration(entry.function_type, entry.c_name, true, base, Option(String).None, Option(TypeValue).None, false);
           },
           ((is_extern_str == "c") && entry.c_include.is_some()) => (),
@@ -862,10 +761,9 @@ generate_function_declarations :: (fn(ctx : *(FunctionGenerationContext)) -> uni
       .Some(entry) => {
         is_user_main := (entry.c_name == String.from("__yo_user_main"));
 
-        if(
-          (!(is_user_main) && (!(entry.is_closure) && (!(entry.is_effect_record_member) && (entry.specialized_function_caches_len > usize(0))))),
-          { return(); }
-        );
+        if(!(is_user_main) && (!(entry.is_closure) && (!(entry.is_effect_record_member) && (entry.specialized_function_caches_len > usize(0)))), {
+          return();
+        });
 
         has_implicit_func_params := match(
           entry.type_value,
@@ -874,44 +772,45 @@ generate_function_declarations :: (fn(ctx : *(FunctionGenerationContext)) -> uni
         );
         has_unresolved_implicit := (
           !(is_user_main) &&
-          !(entry.is_effectful) &&
-          !(entry.is_effect_record_member) &&
-          !(entry.is_closure) &&
-          entry.specialized_type.is_none() &&
-          (entry.specialized_function_caches_len == usize(0)) &&
-          (get_evidence_parameters(entry.type_value).len() == usize(0)) &&
-          has_implicit_func_params
+            !(entry.is_effectful) &&
+              !(entry.is_effect_record_member) &&
+                !(entry.is_closure) &&
+                  entry.specialized_type.is_none() &&
+                    (entry.specialized_function_caches_len == usize(0)) &&
+                      (get_evidence_parameters(entry.type_value).len() == usize(0)) &&
+                        has_implicit_func_params
         );
-        if(has_unresolved_implicit, { return(); });
+        if(has_unresolved_implicit, {
+          return();
+        });
 
-        func_type_for_check := match(entry.specialized_type, .Some(st) => st, .None => entry.type_value);
+        func_type_for_check := match(entry.specialized_type,.Some(st) => st,.None => entry.type_value);
         has_evidence_params := (get_evidence_parameters(func_type_for_check).len() > usize(0));
 
-        if((!(is_user_main) && entry.is_io_async_state_machine_closure), { return(); });
+        if(!(is_user_main) && entry.is_io_async_state_machine_closure, {
+          return();
+        });
 
-        if(
-          (
-            !(is_user_main) &&
-            !(entry.is_effectful) &&
+        if(!(is_user_main) &&
+          !(entry.is_effectful) &&
             !(has_evidence_params) &&
-            !(entry.is_effect_record_member) &&
-            (
-              ((entry.is_hard_generic) && !(entry.is_closure)) ||
-              ((entry.specialized_function_caches_len > usize(0)) && !(entry.is_closure)) ||
-              entry.is_comptime_return ||
-              entry.has_builtin_inline_call ||
-              entry.is_io_async_state_machine_closure
-            )
-          ),
-          { return(); }
-        );
+              !(entry.is_effect_record_member) &&
+                (
+                  ((entry.is_hard_generic) && !(entry.is_closure)) ||
+                    ((entry.specialized_function_caches_len > usize(0)) && !(entry.is_closure)) ||
+                      entry.is_comptime_return ||
+                        entry.has_builtin_inline_call ||
+                          entry.is_io_async_state_machine_closure
+                ), {
+          return();
+        });
 
-        func_type := match(entry.specialized_type, .Some(st) => st, .None => entry.type_value);
+        func_type := match(entry.specialized_type,.Some(st) => st,.None => entry.type_value);
         has_generic_params := match(
           func_type,
           .Func(forall_labels, _, _, param_types, _, _, _, _, _) => (
             (!(entry.is_effectful) && !(entry.is_effect_record_member)) &&
-            ((forall_labels.len() > usize(0)) || field_types_contain_some_type_(param_types))
+              ((forall_labels.len() > usize(0)) || field_types_contain_some_type_(param_types))
           ),
           _ => false
         );
@@ -929,20 +828,19 @@ generate_function_declarations :: (fn(ctx : *(FunctionGenerationContext)) -> uni
           ),
           _ => false
         );
-        if(
-          (has_generic_params || (
-            has_generic_return &&
+        if(has_generic_params || (
+          has_generic_return &&
             !(returns_plain_impl) &&
-            !(entry.is_effect_record_member)
-          )),
-          { return(); }
-        );
+              !(entry.is_effect_record_member)
+        ), {
+          return();
+        });
 
         orig_type_override := cond(
           (
             entry.specialized_type.is_some() &&
-            (get_evidence_parameters(func_type).len() == usize(0)) &&
-            evidence_params_have_forall_(entry.type_value)
+              (get_evidence_parameters(func_type).len() == usize(0)) &&
+                evidence_params_have_forall_(entry.type_value)
           ) => Option(TypeValue).Some(entry.type_value),
           true => Option(TypeValue).None
         );
@@ -979,22 +877,30 @@ generate_specialized_function_declarations :: (fn(ctx : *(FunctionGenerationCont
         more = false;
       },
       .Some(entry) => {
-        if(entry.is_comptime_return, { return(); });
+        if(entry.is_comptime_return, {
+          return();
+        });
 
-        if(entry.specialized_type.is_none(), { return(); });
+        if(entry.specialized_type.is_none(), {
+          return();
+        });
         spec_type := match(
           entry.specialized_type,
           .Some(st) => st,
           .None => entry.type_value
         );
-        if(!(entry.is_generic), { return(); });
+        if(!(entry.is_generic), {
+          return();
+        });
 
         spec_has_forall := match(
           spec_type,
           .Func(forall_labels, _, _, _, _, _, _, _, _) => (forall_labels.len() > usize(0)),
           _ => false
         );
-        if(spec_has_forall, { return(); });
+        if(spec_has_forall, {
+          return();
+        });
 
         spec_has_some_type_params := match(
           spec_type,
@@ -1005,7 +911,7 @@ generate_specialized_function_declarations :: (fn(ctx : *(FunctionGenerationCont
               match(
                 param_types.get(i),
                 .Some(pt) => {
-                  found = match(pt, .SomeT(_, _, _, _, _, _, _, _, _) => true, _ => false);
+                  found = match(pt,.SomeT(_, _, _, _, _, _, _, _, _) => true, _ => false);
                 },
                 .None => ()
               );
@@ -1015,7 +921,9 @@ generate_specialized_function_declarations :: (fn(ctx : *(FunctionGenerationCont
           },
           _ => false
         );
-        if(spec_has_some_type_params, { return(); });
+        if(spec_has_some_type_params, {
+          return();
+        });
 
         has_generic_params := match(
           spec_type,
@@ -1027,17 +935,23 @@ generate_specialized_function_declarations :: (fn(ctx : *(FunctionGenerationCont
           .Func(_, _, _, _, _, _, _, _, result) => type_value_contains_some_type_(result.*),
           _ => false
         );
-        if((has_generic_params || has_generic_return), { return(); });
+        if(has_generic_params || has_generic_return, {
+          return();
+        });
 
-        if(evidence_params_have_forall_(entry.type_value), { return(); });
+        if(evidence_params_have_forall_(entry.type_value), {
+          return();
+        });
 
-        if(generated.contains(entry.value_id), { return(); });
+        if(generated.contains(entry.value_id), {
+          return();
+        });
         generated.add(entry.value_id);
 
         is_rc_fn := (
           entry.c_name.contains(String.from("___drop")) ||
-          entry.c_name.contains(String.from("___dup")) ||
-          entry.c_name.contains(String.from("___dispose"))
+            entry.c_name.contains(String.from("___dup")) ||
+              entry.c_name.contains(String.from("___dispose"))
         );
         prefix := cond(
           is_rc_fn => String.from("static inline __attribute__((always_inline)) "),
@@ -1056,7 +970,6 @@ generate_specialized_function_declarations :: (fn(ctx : *(FunctionGenerationCont
 export(
   FunctionImplicitParameter,
   EvidenceParameter,
-  sanitize_for_c_identifier,
   expand_implicit_parameters,
   get_evidence_parameters,
   generate_function_prototype,

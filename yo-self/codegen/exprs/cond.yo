@@ -12,7 +12,7 @@ open(import("std/string"));
 { CodegenContext } :: import("../context.yo");
 { call_gen_expr } :: import("./expr.yo");
 { begin_type_c_name } :: import("./begin.yo");
-{ sanitize_for_c_identifier } :: import("./typeid.yo");
+{ sanitize_for_c_identifier } :: import("../utils.yo");
 
 /// Extract the arm sub-expressions from a cond arm `(cond => body)`.
 /// Returns `.None` if the arm is an atom (not a function call).
@@ -32,7 +32,7 @@ cond_condition_is_false :: (fn(cond_expr : AstExpr, ctx : *(CodegenContext)) -> 
     .Some(info) => match(
       info.value,
       .None => false,
-      .Some(v) => match(v, .BoolVal(b) => (!(b)), _ => false)
+      .Some(v) => match(v,.BoolVal(b) => (!(b)), _ => false)
     )
   )
 );
@@ -45,7 +45,7 @@ cond_condition_is_true :: (fn(cond_expr : AstExpr, ctx : *(CodegenContext)) -> b
     .Some(info) => match(
       info.value,
       .None => false,
-      .Some(v) => match(v, .BoolVal(b) => b, _ => false)
+      .Some(v) => match(v,.BoolVal(b) => b, _ => false)
     )
   )
 );
@@ -135,7 +135,8 @@ cond_emit_begin_arm :: (
           .None => (),
           .Some(arg_code) => {
             cond(
-              is_last => (), // handled below
+              is_last => (),
+              // handled below
               (arg_code.len() == usize(0)) => (),
               true => {
                 should_emit := match(
@@ -177,7 +178,7 @@ cond_emit_begin_arm :: (
                   temp_var_opt,
                   .None => (),
                   .Some(tv) => {
-                    tv_c := sanitize_for_c_identifier(tv.as_str());
+                    tv_c := sanitize_for_c_identifier(tv);
                     ctx.*.emitter.emit_string(inner);
                     ctx.*.emitter.emit_string(tv_c);
                     ctx.*.emitter.emit(" = ");
@@ -224,7 +225,7 @@ cond_emit_simple_arm :: (
           temp_var_opt,
           .None => (),
           .Some(tv) => {
-            tv_c := sanitize_for_c_identifier(tv.as_str());
+            tv_c := sanitize_for_c_identifier(tv);
             ctx.*.emitter.emit_string(value_indent);
             ctx.*.emitter.emit_string(tv_c);
             ctx.*.emitter.emit(" = ");
@@ -328,20 +329,24 @@ generate_cond :: (
       // Declare the temp variable (non-unit, not direct-optimize).
       // When canOptimizeToDirect the inner expression already has its temp declared.
       if((!(is_unit) && temp_var_opt.is_some()) && (!(can_optimize)), {
-        match(temp_var_opt, .None => (), .Some(tv) => {
-          match(
-            begin_type_c_name(value_type, ctx),
-            .None => (),
-            .Some(c_type) => {
-              tv_c := sanitize_for_c_identifier(tv.as_str());
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit_string(c_type);
-              ctx.*.emitter.emit(" ");
-              ctx.*.emitter.emit_string(tv_c);
-              ctx.*.emitter.emit_line(";");
-            }
-          );
-        });
+        match(
+          temp_var_opt,
+          .None => (),
+          .Some(tv) => {
+            match(
+              begin_type_c_name(value_type, ctx),
+              .None => (),
+              .Some(c_type) => {
+                tv_c := sanitize_for_c_identifier(tv);
+                ctx.*.emitter.emit_string(indent);
+                ctx.*.emitter.emit_string(c_type);
+                ctx.*.emitter.emit(" ");
+                ctx.*.emitter.emit_string(tv_c);
+                ctx.*.emitter.emit_line(";");
+              }
+            );
+          }
+        );
       });
 
       cond(
@@ -371,13 +376,12 @@ generate_cond :: (
               temp_var_opt.is_some() => match(
                 temp_var_opt,
                 .None => String.new(),
-                .Some(tv) => sanitize_for_c_identifier(tv.as_str())
+                .Some(tv) => sanitize_for_c_identifier(tv)
               ),
               true => String.new()
             )
           )
         },
-
         // Full if-else chain path.
         true => {
           (current_indent : String) = String.from(indent.as_str());
@@ -499,7 +503,7 @@ generate_cond :: (
               temp_var_opt.is_some() => match(
                 temp_var_opt,
                 .None => String.new(),
-                .Some(tv) => sanitize_for_c_identifier(tv.as_str())
+                .Some(tv) => sanitize_for_c_identifier(tv)
               ),
               true => String.new()
             )

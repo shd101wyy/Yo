@@ -91,7 +91,7 @@ test("tuple_variable_type_string: sanitizes temp variable name", {
     tuple_variable_type_string(ty, "tmp.value", &(ctx)),
     .None => assert(false, "expected variable type string"),
     .Some(s) => assert(
-      s == String.from("__yo_tuple_i32_bool tmp_value"),
+      s == String.from("__yo_tuple_i32_bool tmp_u46_value"),
       "sanitized variable name"
     )
   );
@@ -194,11 +194,11 @@ test("generate_anonymous_tuple: variable_name emits temp declaration and returns
   match(
     result,
     .None => assert(false, "expected tuple temp"),
-    .Some(code) => assert(code == String.from("tmp_tuple"), "returns sanitized temp")
+    .Some(code) => assert(code == String.from("tmp_u46_tuple"), "returns sanitized temp")
   );
   out := ctx.emitter.code;
   assert(
-    out.contains(String.from("  __yo_tuple_i32_bool tmp_tuple = (__yo_tuple_i32_bool){ ._0 = x, ._1 = true };")),
+    out.contains(String.from("  __yo_tuple_i32_bool tmp_u46_tuple = (__yo_tuple_i32_bool){ ._0 = x, ._1 = true };")),
     "temp declaration emitted"
   );
 });

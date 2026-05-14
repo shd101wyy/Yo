@@ -1,0 +1,142 @@
+//! Shared codegen utilities — 1-to-1 partial port of
+//! `src/codegen/utils/index.ts`.
+//!
+//! Currently exposes `sanitize_for_c_identifier`, the canonical
+//! identifier-mangling helper used by every codegen handler that names
+//! a C symbol after a Yo variable / field / type-string. The
+//! implementation mirrors TS:
+//!
+//!   - each byte that is not `[A-Za-z0-9_]` is replaced with
+//!     `"_u" + decimal(byte) + "_"` so different special characters do
+//!     not collide (e.g. `Slice(u8)` → `Slice_u40_u8_u41_`);
+//!   - if the resulting string equals a C / C11 reserved word or a
+//!     well-known stdlib macro, the prefix `__yo_c_reserved_` is
+//!     prepended.
+//!
+//! The rest of `getTypeString`, `getEnumVariantCName`,
+//! `canOptimizeAsNullablePointer`, `getVariableTypeString`, … will land
+//! here as the type-name registry + ExprInfo wiring catches up.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+is_c_identifier_byte_ :: (fn(byte : u8) -> bool)(
+  ((byte >= u8(65)) && (byte <= u8(90))) ||
+    (
+      ((byte >= u8(97)) && (byte <= u8(122))) ||
+        (((byte >= u8(48)) && (byte <= u8(57))) || (byte == u8(95)))
+    )
+);
+append_string_bytes_ :: (fn(out : ArrayList(u8), value : String) -> unit)({
+  bytes := value.as_bytes();
+  i := usize(0);
+  while(i < bytes.len(), i = (i + usize(1)), {
+    match(
+      bytes.get(i),
+      .Some(byte) => {
+        out.push(byte);
+      },
+      .None => ()
+    );
+  });
+});
+is_c_reserved_word_ :: (fn(name : String) -> bool)(
+  cond(
+    (name == String.from("auto")) => true,
+    (name == String.from("break")) => true,
+    (name == String.from("case")) => true,
+    (name == String.from("char")) => true,
+    (name == String.from("const")) => true,
+    (name == String.from("continue")) => true,
+    (name == String.from("default")) => true,
+    (name == String.from("do")) => true,
+    (name == String.from("double")) => true,
+    (name == String.from("else")) => true,
+    (name == String.from("enum")) => true,
+    (name == String.from("extern")) => true,
+    (name == String.from("float")) => true,
+    (name == String.from("for")) => true,
+    (name == String.from("goto")) => true,
+    (name == String.from("if")) => true,
+    (name == String.from("inline")) => true,
+    (name == String.from("int")) => true,
+    (name == String.from("long")) => true,
+    (name == String.from("register")) => true,
+    (name == String.from("restrict")) => true,
+    (name == String.from("return")) => true,
+    (name == String.from("short")) => true,
+    (name == String.from("signed")) => true,
+    (name == String.from("sizeof")) => true,
+    (name == String.from("static")) => true,
+    (name == String.from("struct")) => true,
+    (name == String.from("switch")) => true,
+    (name == String.from("typedef")) => true,
+    (name == String.from("union")) => true,
+    (name == String.from("unsigned")) => true,
+    (name == String.from("void")) => true,
+    (name == String.from("volatile")) => true,
+    (name == String.from("while")) => true,
+    (name == String.from("_Alignas")) => true,
+    (name == String.from("_Alignof")) => true,
+    (name == String.from("_Atomic")) => true,
+    (name == String.from("_Bool")) => true,
+    (name == String.from("_Complex")) => true,
+    (name == String.from("_Generic")) => true,
+    (name == String.from("_Imaginary")) => true,
+    (name == String.from("_Noreturn")) => true,
+    (name == String.from("_Static_assert")) => true,
+    (name == String.from("_Thread_local")) => true,
+    (name == String.from("errno")) => true,
+    (name == String.from("stdin")) => true,
+    (name == String.from("stdout")) => true,
+    (name == String.from("stderr")) => true,
+    (name == String.from("NULL")) => true,
+    (name == String.from("true")) => true,
+    (name == String.from("false")) => true,
+    true => false
+  )
+);
+/// Mangle `value` into a valid C identifier:
+///   - keep `[A-Za-z0-9_]` bytes;
+///   - replace every other byte with `_u<decimal byte>_`;
+///   - prepend `__yo_c_reserved_` if the result is a C / C11 keyword
+///     or a well-known stdlib macro.
+///
+/// 1-to-1 port of `sanitizeForCIdentifier` in
+/// `src/codegen/utils/index.ts`. The TS version takes an optional
+/// `isExternC` flag that skips the reserved-word remap; the yo-self
+/// callers never need that path, so it is omitted until a caller does.
+sanitize_for_c_identifier :: (fn(value : String) -> String)({
+  bytes := value.as_bytes();
+  out := ArrayList(u8).with_capacity(bytes.len());
+  i := usize(0);
+  while(i < bytes.len(), i = (i + usize(1)), {
+    match(
+      bytes.get(i),
+      .Some(byte) => cond(
+        is_c_identifier_byte_(byte) => {
+          out.push(byte);
+        },
+        true => {
+          append_string_bytes_(out, String.from("_u"));
+          append_string_bytes_(out, byte.to_string());
+          append_string_bytes_(out, String.from("_"));
+        }
+      ),
+      .None => ()
+    );
+  });
+  sanitized := String.from_bytes(out);
+  return(
+    cond(
+      is_c_reserved_word_(sanitized) =>
+        (String.from("__yo_c_reserved_") + sanitized),
+      true => sanitized
+    )
+  );
+});
+/// Convenience overload: when callers already have a `str` slice
+/// (e.g. from `String::as_str`) they can call this instead of wrapping
+/// it in `String::from`. Behaviour is identical.
+sanitize_for_c_identifier_str :: (fn(s : str) -> String)(
+  sanitize_for_c_identifier(String.from(s))
+);
+export(sanitize_for_c_identifier, sanitize_for_c_identifier_str);

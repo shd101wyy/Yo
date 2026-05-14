@@ -167,9 +167,15 @@ test("generate_yo_iso_extract: variable_name emits temp declaration", {
   args.push(mk_atom(usize(50), "iso_value", TokenKind.Identifier));
   call := mk_call(usize(52), BF_YO_ISO_EXTRACT, args);
   result := generate_yo_iso_extract(call, args, &(ctx), String.from("  "));
-  assert(result == String.from("tmp_extract"), "returns temp");
+  // `.` (byte 46) mangles to `_u46_` under the canonical
+  // TS-equivalent `sanitize_for_c_identifier`, so the temp variable
+  // name appears as `tmp_u46_extract` in the generated C — no
+  // collision with bare `tmp_extract`.
+  assert(result == String.from("tmp_u46_extract"), "returns temp");
   assert(
-    ctx.emitter.code.contains(String.from("  int32_t tmp_extract = __yo_iso_extract___yo_iso_i32(iso_value);")),
+    ctx.emitter.code.contains(
+      String.from("  int32_t tmp_u46_extract = __yo_iso_extract___yo_iso_i32(iso_value);")
+    ),
     "temp declaration"
   );
 });

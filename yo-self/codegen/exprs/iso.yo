@@ -12,7 +12,7 @@ open(import("std/string"));
 { CodegenContext, CodegenIsoTypeEntry } :: import("../context.yo");
 { type_value_to_c_field } :: import("../types.yo");
 { call_gen_expr } :: import("./expr.yo");
-{ sanitize_for_c_identifier } :: import("./typeid.yo");
+{ sanitize_for_c_identifier } :: import("../utils.yo");
 
 iso_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> String)({
   key := type_to_string(t);
@@ -22,7 +22,7 @@ iso_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> String)({
     .None => match(
       type_value_to_c_field(t),
       .Some(c_name) => c_name,
-      .None => sanitize_for_c_identifier(key.as_str())
+      .None => sanitize_for_c_identifier(key)
     )
   )
 });
@@ -62,7 +62,7 @@ iso_temp_or_call :: (
       .None => call_code,
       .Some(temp_var) => {
         c_ty := iso_type_c_name(return_type, ctx);
-        temp_name := sanitize_for_c_identifier(temp_var.as_str());
+        temp_name := sanitize_for_c_identifier(temp_var);
         line := String.from(indent.as_str());
         line.push_string(c_ty);
         line.push_str(" ");

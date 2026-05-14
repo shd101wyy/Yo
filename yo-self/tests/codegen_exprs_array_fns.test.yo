@@ -86,7 +86,7 @@ test("array_variable_type_string: sanitizes temp variable name", {
     array_variable_type_string(ty, "tmp.array", &(ctx)),
     .None => assert(false, "expected variable type string"),
     .Some(s) => assert(
-      s == String.from("__yo_array_i32_2 tmp_array"),
+      s == String.from("__yo_array_i32_2 tmp_u46_array"),
       "sanitized variable name"
     )
   );
@@ -151,11 +151,11 @@ test("generate_anonymous_array: variable_name emits temp declaration and returns
   match(
     result,
     .None => assert(false, "expected temp"),
-    .Some(code) => assert(code == String.from("tmp_array"), "returns sanitized temp")
+    .Some(code) => assert(code == String.from("tmp_u46_array"), "returns sanitized temp")
   );
   out := ctx.emitter.code;
   assert(
-    out.contains(String.from("  __yo_array_i32_2 tmp_array = (__yo_array_i32_2){ .data = { x, y } };")),
+    out.contains(String.from("  __yo_array_i32_2 tmp_u46_array = (__yo_array_i32_2){ .data = { x, y } };")),
     "temp declaration emitted"
   );
 });
@@ -196,12 +196,12 @@ test("generate_yo_array_fill: emits declaration, loop, and returns temp", {
   args.push(mk_atom(usize(51), "value", TokenKind.Identifier));
   call := mk_call(usize(52), BF_ARRAY_FILL, args);
   result := generate_yo_array_fill(call, args, &(ctx), String.from("  "));
-  assert(result == String.from("filled_array"), "returns sanitized temp");
+  assert(result == String.from("filled_u46_array"), "returns sanitized temp");
   out := ctx.emitter.code;
-  assert(out.contains(String.from("  __yo_array_i32_3 filled_array;")), "decl");
+  assert(out.contains(String.from("  __yo_array_i32_3 filled_u46_array;")), "decl");
   assert(out.contains(String.from("for (int i_")), "loop var");
   assert(out.contains(String.from(" < 3;")), "length");
-  assert(out.contains(String.from("filled_array.data[")), "assignment lhs");
+  assert(out.contains(String.from("filled_u46_array.data[")), "assignment lhs");
   assert(out.contains(String.from("] = value;")), "assignment rhs");
 });
 

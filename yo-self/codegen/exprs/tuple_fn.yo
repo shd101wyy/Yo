@@ -12,7 +12,10 @@ open(import("std/string"));
 { CodegenContext } :: import("../context.yo");
 { type_value_to_c_field } :: import("../types.yo");
 { call_gen_expr } :: import("./expr.yo");
-{ sanitize_for_c_identifier } :: import("./typeid.yo");
+{
+  sanitize_for_c_identifier,
+  sanitize_for_c_identifier_str
+} :: import("../utils.yo");
 
 /// Best-effort equivalent of TS `getTypeString(type, context)` for the
 /// currently ported yo-self context: first consult `ctx.types`, then fall
@@ -35,7 +38,7 @@ tuple_variable_type_string :: (
     tuple_type_c_name(t, ctx),
     .None => Option(String).None,
     .Some(c_ty) => {
-      san := sanitize_for_c_identifier(var_name);
+      san := sanitize_for_c_identifier_str(var_name);
       out := String.new();
       out.push_string(c_ty);
       out.push_str(" ");
@@ -95,7 +98,7 @@ tuple_apply_deferred_dup :: (
                   .Some(dup_info) => match(
                     dup_info.variable_name,
                     .None => Option(String).Some(arg_code),
-                    .Some(vn) => Option(String).Some(sanitize_for_c_identifier(vn.as_str()))
+                    .Some(vn) => Option(String).Some(sanitize_for_c_identifier(vn))
                   )
                 ),
                 true => Option(String).Some(arg_code)
@@ -210,7 +213,7 @@ tuple_value_or_temp :: (
           line.push_string(tuple_value);
           line.push_str(";");
           ctx.*.emitter.emit_string_line(line);
-          Option(String).Some(sanitize_for_c_identifier(tv.as_str()))
+          Option(String).Some(sanitize_for_c_identifier(tv))
         }
       )
     )

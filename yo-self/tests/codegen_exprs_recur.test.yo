@@ -152,10 +152,10 @@ test("generate_recur: temp variable declaration for non-unit result", {
   match(
     result,
     .None => assert(false, "expected temp"),
-    .Some(code) => assert(code == String.from("tmp_recur"), "returns sanitized temp")
+    .Some(code) => assert(code == String.from("tmp_u46_recur"), "returns sanitized temp")
   );
   out := ctx.emitter.code;
-  assert(out.contains(String.from("  int32_t tmp_recur = fn_loop(next);")), "temp decl");
+  assert(out.contains(String.from("  int32_t tmp_u46_recur = fn_loop(next);")), "temp decl");
 });
 
 test("generate_recur: does not declare temp for unit result", {
@@ -203,7 +203,7 @@ test("generate_recur: emits deferred drops before temp declaration", {
   assert(result.is_some(), "expected code");
   out := ctx.emitter.code;
   assert(
-    out.contains(String.from("  __yo_decr_rc(x);\n  int32_t tmp_recur = fn_loop(next);")),
+    out.contains(String.from("  __yo_decr_rc(x);\n  int32_t tmp_u46_recur = fn_loop(next);")),
     "drop before temp"
   );
 });

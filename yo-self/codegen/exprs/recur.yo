@@ -10,7 +10,7 @@ open(import("std/string"));
 { CodegenContext } :: import("../context.yo");
 { type_value_to_c_field } :: import("../types.yo");
 { call_gen_expr } :: import("./expr.yo");
-{ sanitize_for_c_identifier } :: import("./typeid.yo");
+{ sanitize_for_c_identifier } :: import("../utils.yo");
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
 
 recur_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> Option(String))({
@@ -147,7 +147,7 @@ recur_emit_temp_if_needed :: (
           recur_type_c_name(info.ty, ctx),
           .None => Option(String).Some(call_code),
           .Some(c_type) => {
-            temp_var_name := sanitize_for_c_identifier(temp_var.as_str());
+            temp_var_name := sanitize_for_c_identifier(temp_var);
             if(!(recur_array_contains_string(ctx.*.declared_temp_vars, temp_var_name)), {
               ctx.*.declared_temp_vars.push(temp_var_name);
               line := String.from(indent.as_str());

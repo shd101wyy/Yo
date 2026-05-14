@@ -30,7 +30,7 @@ open(import("std/string"));
 { CodegenContext } :: import("../context.yo");
 { type_value_to_c_field } :: import("../types.yo");
 { call_gen_expr } :: import("./expr.yo");
-{ sanitize_for_c_identifier } :: import("./typeid.yo");
+{ sanitize_for_c_identifier } :: import("../utils.yo");
 /// Best-effort C type string for a TypeValue, with `int32_t` as the
 /// fallback to mirror TS `getTypeString`.
 get_field_c_type :: (fn(t : TypeValue) -> String)(
@@ -86,8 +86,8 @@ generate_open :: (
                       .None => (),
                       .Some(d) => {
                         field_type := get_field_c_type(d.ty);
-                        var_name := sanitize_for_c_identifier(d.variable_name.as_str());
-                        field_label := sanitize_for_c_identifier(d.label.as_str());
+                        var_name := sanitize_for_c_identifier(d.variable_name);
+                        field_label := sanitize_for_c_identifier(d.label);
                         line := String.from(indent.as_str());
                         line.push_string(field_type);
                         line.push_str(" ");

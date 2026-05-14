@@ -21,11 +21,8 @@ open(import("std/fmt"));
 { TypeValue, t_i32 } :: import("../types/type.yo");
 { EvalValue } :: import("../evaluator/value.yo");
 { CodegenContext } :: import("../codegen/context.yo");
-{
-  generate_typeid,
-  sanitize_for_c_identifier,
-  extract_type_value
-} :: import("../codegen/exprs/typeid.yo");
+{ generate_typeid, extract_type_value } :: import("../codegen/exprs/typeid.yo");
+{ sanitize_for_c_identifier_str } :: import("../codegen/utils.yo");
 mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
   AstExpr.Atom(
     id,
@@ -41,16 +38,19 @@ mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
   )
 );
 test("sanitize_for_c_identifier: identifier chars passthrough", {
-  out := sanitize_for_c_identifier("i32");
+  out := sanitize_for_c_identifier_str("i32");
   assert(out == String.from("i32"), "i32 unchanged");
-  out2 := sanitize_for_c_identifier("_yo_foo123");
+  out2 := sanitize_for_c_identifier_str("_yo_foo123");
   assert(out2 == String.from("_yo_foo123"), "underscore + digits passthrough");
 });
-test("sanitize_for_c_identifier: non-identifier chars become underscore", {
-  out := sanitize_for_c_identifier("Slice(u8)");
-  assert(out == String.from("Slice_u8_"), "parens become underscores");
-  out2 := sanitize_for_c_identifier("*(i32)");
-  assert(out2 == String.from("__i32_"), "star and parens become underscores");
+test("sanitize_for_c_identifier: non-identifier chars get _u<code>_ mangled", {
+  // TS-equivalent mangling: `(` (40) → `_u40_`, `)` (41) → `_u41_`,
+  // `*` (42) → `_u42_`. Collisions are avoided because each special
+  // byte produces a distinct decimal-coded mangle.
+  out := sanitize_for_c_identifier_str("Slice(u8)");
+  assert(out == String.from("Slice_u40_u8_u41_"), "parens become _u40_/_u41_");
+  out2 := sanitize_for_c_identifier_str("*(i32)");
+  assert(out2 == String.from("_u42__u40_i32_u41_"), "star + parens");
 });
 test("extract_type_value: TypeVal yields inner type", {
   ev := EvalValue.TypeVal(box(t_i32()));
