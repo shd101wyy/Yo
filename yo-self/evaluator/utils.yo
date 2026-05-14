@@ -17,9 +17,10 @@ open(import("std/string"));
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_atom,
+  ast_expr_to_string,
   make_err_expr
 } :: import("../expr/expr.yo");
-{ ExprInfoTable, expr_info_table_get } :: import("../expr/expr_info.yo");
+{ ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr/expr_info.yo");
 {
   Environment,
   Variable,
@@ -448,6 +449,50 @@ require_expr_not_consumed :: (
     }
   );
 });
+// ---------------------------------------------------------------------------
+// expect_expr_to_have_been_evaluated
+// ---------------------------------------------------------------------------
+/// Unreachable placeholder for `expect_expr_to_have_been_evaluated`'s
+/// `.None` branch. `exn.throw` unwinds before this is hit; the call
+/// only exists so the match arms unify to `ExprInfo`.
+new_expr_info_placeholder_for_unreachable_ :: (fn(_expr : AstExpr) -> ExprInfo)(
+  panic("unreachable: expect_expr_to_have_been_evaluated placeholder")
+);
+/// Throw if `expr` has no `ExprInfo` attached — i.e. the evaluator
+/// has not yet processed this expression. Returns the `ExprInfo` on
+/// success.
+///
+/// Mirrors TS `expectExprToHaveBeenEvaluated` in `src/expr.ts`. The
+/// TS version returns `expr.$` (the side-table entry). The yo-self
+/// version takes a custom `error_message` (empty string ⇒ use the
+/// default) and reads the ExprInfo from `ctx.expr_info_table`.
+expect_expr_to_have_been_evaluated :: (
+  fn(
+    expr : AstExpr,
+    error_message : String,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> ExprInfo
+)(
+  match(
+    expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(expr)),
+    .Some(info) => info,
+    .None => {
+      entries := ArrayList(TokenAndError).new();
+      msg := cond(
+        (error_message.len() > usize(0)) => error_message,
+        true => `Expected expression to have been evaluated, but it has not been evaluated yet:\n${ast_expr_to_string(expr)}`
+      );
+      entries.push(
+        TokenAndError(token : ast_expr_token(expr), error_message : msg)
+      );
+      exn.throw(dyn(format_error_messages(entries, false,.None)));
+      // Unreachable. Provide a placeholder so the type checker is
+      // satisfied.
+      new_expr_info_placeholder_for_unreachable_(expr)
+    }
+  )
+);
 // ---------------------------------------------------------------------------
 // set_expr_as_consumed
 // ---------------------------------------------------------------------------
@@ -1242,7 +1287,8 @@ export(generate_new_temp_variable_name, is_temp_variable_name, random_id);
 export(
   find_rc_value_owner_relationship,
   is_valid_variable_name,
-  set_expr_as_consumed
+  set_expr_as_consumed,
+  expect_expr_to_have_been_evaluated
 );
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
