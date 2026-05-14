@@ -298,8 +298,8 @@ get_type_string_opt :: (
 )({
   key := type_to_string(t);
   match(
-    ctx.*.types.get(key),
-    .Some(entry) => Option(String).Some(entry.c_name),
+    ctx.*.get_type_c_name(key),
+    .Some(c_name) => Option(String).Some(c_name),
     .None => type_value_to_c_field(t)
   )
 });
@@ -382,10 +382,10 @@ get_enum_variant_c_name :: (
 )({
   key := type_to_string(enum_ty);
   match(
-    ctx.*.types.get(key),
+    ctx.*.get_type_c_name(key),
     .None => Option(String).None,
-    .Some(entry) => {
-      result := entry.c_name.to_uppercase();
+    .Some(c_name) => {
+      result := c_name.to_uppercase();
       result.push_str("_");
       result.push_string(variant_name.to_uppercase());
       Option(String).Some(result)
