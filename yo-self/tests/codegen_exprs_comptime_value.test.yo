@@ -1,6 +1,9 @@
 /// Tests for yo-self/codegen/exprs/comptime_value.yo.
 open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 { EvalValue } :: import("../value.yo");
+{ TypeValue } :: import("../types/type.yo");
+{ AstExpr, make_err_expr } :: import("../expr.yo");
 { CodegenContext } :: import("../codegen/context.yo");
 { generate_comptime_value, normalize_float_raw } :: import("../codegen/exprs/comptime_value.yo");
 test("normalize_float_raw: adds .0 when no decimal point", {
@@ -90,5 +93,42 @@ test("generate_comptime_value: complex variants defer (return None)", {
   assert(
     generate_comptime_value(EvalValue.UnitVal, &(ctx)).is_none(),
     "UnitVal → None (partial-port deferral)"
+  );
+});
+// ─── FuncVal handling via functions registry ────────────────────────────────
+make_func_val_with_id :: (fn(id : str) -> EvalValue)(
+  EvalValue.FuncVal(
+    forall_names : ArrayList(String).new(),
+    params : ArrayList(String).new(),
+    param_type_names : ArrayList(String).new(),
+    evidence_params : ArrayList(String).new(),
+    body : box(make_err_expr()),
+    cap_names : ArrayList(String).new(),
+    cap_tys : ArrayList(TypeValue).new(),
+    cap_vals : ArrayList(EvalValue).new(),
+    func_id : String.from(id)
+  )
+);
+test("generate_comptime_value: FuncVal returns registered c_name", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  fv := make_func_val_with_id("f1");
+  pctx.*.register_function(String.from("f1"), fv, String.from("fn_my_func"));
+  match(
+    generate_comptime_value(fv, pctx),
+    .Some(s) => assert(s == String.from("fn_my_func"), "registered c_name"),
+    .None => assert(false, "expected Some")
+  );
+});
+test("generate_comptime_value: unregistered FuncVal returns None", {
+  // When the function value has not been registered yet (e.g. the
+  // evaluator visited it but codegen hasn't reached its definition),
+  // the comptime-value handler returns None so the caller can fall
+  // back to the bootstrap path. Mirrors the TS `??` short-circuit.
+  ctx := CodegenContext.new();
+  fv := make_func_val_with_id("never_registered");
+  assert(
+    generate_comptime_value(fv, &(ctx)).is_none(),
+    "unregistered → None"
   );
 });

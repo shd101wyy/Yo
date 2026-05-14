@@ -11,10 +11,17 @@
 //!     include surrounding `"` and the lexer-preserved escape
 //!     sequences, so they're valid C string literals as-is; template
 //!     segments (no surrounding quotes) are wrapped and escaped.
+//!   - `FuncVal(...)` → the registered C function name, when the
+//!     function has been registered via `ctx.register_function`.
+//!     Mirrors the TS branch
+//!         const cName = context.functions[value.funcId]?.cName;
+//!         if (cName) return cName;
+//!     and falls back to `.None` when the function has not been
+//!     registered yet (caller defers to the bootstrap path).
 //!
 //! Complex variants (`EnumVal`, `StructVal`, `TupleVal`, `ArrayVal`,
-//! `PtrVal`, `FuncVal`, `TypeVal`, …) require codegen-side type-name
-//! lookup (`context.types[id]`), nullable-pointer optimisation, and
+//! `PtrVal`, `TypeVal`, …) require codegen-side type-name lookup
+//! (`context.types[id]`), nullable-pointer optimisation, and
 //! runtime-type conversion that yo-self's bootstrap codegen does not
 //! yet expose. They return `Option(String).None` so callers can defer
 //! to the existing AST-only path. Each of those will be ported as the
@@ -45,11 +52,14 @@ generate_comptime_value :: (
     value,
     .IntLit(raw) => Option(String).Some(raw),
     .FloatLit(raw) => Option(String).Some(normalize_float_raw(raw)),
-    .BoolVal(b) => Option(String).Some(cond(
-      b => String.from("true"),
-      true => String.from("false")
-    )),
+    .BoolVal(b) => Option(String).Some(
+      cond(
+        b => String.from("true"),
+        true => String.from("false")
+      )
+    ),
     .StrLit(raw) => Option(String).Some(quote_as_c_string(raw)),
+    .FuncVal({ func_id }) => ctx.*.get_function_c_name(func_id),
     _ => Option(String).None
   )
 );
