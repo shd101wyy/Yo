@@ -28,7 +28,8 @@ open(import("std/string"));
   get_variables_from_env,
   make_err_variable,
   generate_variable_id,
-  add_variable_to_begin_block_frame
+  add_variable_to_begin_block_frame,
+  update_existing_variable
 } :: import("../env/env.yo");
 { Token, TokenKind } :: import("../lexer/token.yo");
 { EvalContext } :: import("./context.yo");
@@ -40,7 +41,7 @@ open(import("std/string"));
   YoError
 } :: import("../error/error.yo");
 { Exception } :: import("std/error");
-{ EvalValue, is_unknown_val, is_var_ref } :: import("./value.yo");
+{ EvalValue, is_unknown_val, is_type_value, is_var_ref } :: import("./value.yo");
 { TypeValue } :: import("../types/type.yo");
 { are_types_compatible } :: import("../types/compatibility.yo");
 { type_contains_rc_type } :: import("../types/utils.yo");
@@ -445,6 +446,97 @@ require_expr_not_consumed :: (
         }
       );
     }
+  );
+});
+// ---------------------------------------------------------------------------
+// set_expr_as_consumed
+// ---------------------------------------------------------------------------
+/// Mark the variable backing `expr` as consumed in `env`. Mirrors
+/// TS `setExprAsConsumed` in `src/expr.ts`:
+///
+///   1. If `expr.$.value` is a `TypeVal`, type values are reusable —
+///      return without marking.
+///   2. If `expr.$.variable_name` is `.None`, there is no temp/named
+///      variable to consume — return.
+///   3. Look up the most-recent binding of that name in `env`. If
+///      the name resolves to no variable, throw a use-before-define
+///      error.
+///   4. If the variable was already consumed AND `allow_consume_again`
+///      is `false`, throw a `use of moved value` error pointing both
+///      at this expression and at the prior consumption point.
+///   5. Otherwise mutate the variable's `consumed_at_token` to this
+///      expression's token.
+set_expr_as_consumed :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    allow_consume_again : bool,
+    ctx : *(EvalContext),
+    using(exn : Exception)
+  ) -> unit
+)({
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  match(
+    info_opt,
+    .None => (),
+    .Some(info) => cond(
+      // Step 1: type values are reusable, never consumed.
+      is_type_value(info.value) => (),
+      true => match(
+        info.variable_name,
+        // Step 2: no variable name → nothing to consume.
+        .None => (),
+        .Some(name) => {
+          vars := get_variables_from_env(env, name);
+          // Step 3: unknown variable.
+          if(vars.len() == usize(0), {
+            entries := ArrayList(TokenAndError).new();
+            entries.push(
+              TokenAndError(
+                token : ast_expr_token(expr),
+                error_message : `Variable "${name}" is not defined.`
+              )
+            );
+            exn.throw(dyn(format_error_messages(entries, false,.None)));
+          });
+          v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(env));
+          match(
+            v.consumed_at_token,
+            // Step 5: not yet consumed → mark now.
+            .None => {
+              new_var := v;
+              new_var.consumed_at_token = Option(Token).Some(ast_expr_token(expr));
+              update_existing_variable(env, v, new_var);
+            },
+            .Some(consumed_tok) => cond(
+              // Allowed to re-consume — overwrite the consumption point.
+              allow_consume_again => {
+                new_var := v;
+                new_var.consumed_at_token = Option(Token).Some(ast_expr_token(expr));
+                update_existing_variable(env, v, new_var);
+              },
+              // Step 4: throw `use of moved value`.
+              true => {
+                entries := ArrayList(TokenAndError).new();
+                entries.push(
+                  TokenAndError(
+                    token : ast_expr_token(expr),
+                    error_message : `use of moved value: \`${name}\``
+                  )
+                );
+                entries.push(
+                  TokenAndError(
+                    token : consumed_tok,
+                    error_message : String.from("value moved here")
+                  )
+                );
+                exn.throw(dyn(format_error_messages(entries, false,.None)));
+              }
+            )
+          );
+        }
+      )
+    )
   );
 });
 // ---------------------------------------------------------------------------
@@ -1147,7 +1239,11 @@ parse_raw_float :: (fn(raw : String) -> Option(f64))({
   )
 });
 export(generate_new_temp_variable_name, is_temp_variable_name, random_id);
-export(find_rc_value_owner_relationship, is_valid_variable_name);
+export(
+  find_rc_value_owner_relationship,
+  is_valid_variable_name,
+  set_expr_as_consumed
+);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(set_expr_as_needs_to_call_dup);
