@@ -63,6 +63,20 @@ CodegenFunctionEntry :: object(
   c_name : String,
   effect_state_machine_info : Option(EvalValue)
 );
+/// Codegen state for a generated `Slice_<elem>` struct type. Mirrors
+/// the per-entry shape of `CodeGenContext.sliceStructTypes` in
+/// `src/codegen/utils/index.ts`: `{ childType: string }`.
+///
+/// `child_type` is the C type string of the slice element (e.g.
+/// `"int32_t"` for `Slice_i32`). The slice-type generator emits a
+/// `typedef struct { childType* data; size_t length; } sliceTypeName;`
+/// for every entry in this map.
+CodegenSliceStructEntry :: object(child_type : String);
+/// Codegen state for a generated `Array_<elem>_<len>` struct type.
+/// Mirrors the per-entry shape of `CodeGenContext.arrayStructTypes`
+/// in `src/codegen/utils/index.ts`:
+///   `{ childType: string, length: number }`.
+CodegenArrayStructEntry :: object(child_type : String, length : usize);
 /// Shared mutable context passed to every `generate_*` function.
 ///
 /// Phase 4b/4c fields:
@@ -231,6 +245,20 @@ CodegenContext :: object(
   /// Mirrors `CodeGenContext.functions` in
   /// `src/codegen/utils/index.ts`.
   functions : HashMap(String, CodegenFunctionEntry),
+  /// Generated slice-struct types, keyed by the slice's C type name
+  /// (`Slice_<sanitized_elem>`). Populated lazily by `&`-of-array-
+  /// range, `&`-of-slice-range, slice-result type lowering, and
+  /// extern-C slice receivers. Consumed by the type-declaration
+  /// emitter, which emits one `typedef struct { … } sliceTypeName;`
+  /// per entry. Mirrors `CodeGenContext.sliceStructTypes` in
+  /// `src/codegen/utils/index.ts`.
+  slice_struct_types : HashMap(String, CodegenSliceStructEntry),
+  /// Generated array-struct types, keyed by the array's C type name
+  /// (`Array_<sanitized_elem>_<len>`). Mirrors
+  /// `CodeGenContext.arrayStructTypes` in
+  /// `src/codegen/utils/index.ts`. Same lazy-population +
+  /// typedef-emission pattern as `slice_struct_types`.
+  array_struct_types : HashMap(String, CodegenArrayStructEntry),
   /// Evidence parameter C names currently in scope for function codegen.
   /// Mirrors the values of `FunctionGenerationContext.currentEvidenceParams`.
   /// Recur calls forward these names to the recursive self-call.
@@ -305,6 +333,8 @@ impl(
       type_id_statics : HashMap(String, String).new(),
       dyn_impls : HashMap(String, CodegenDynImplEntry).new(),
       functions : HashMap(String, CodegenFunctionEntry).new(),
+      slice_struct_types : HashMap(String, CodegenSliceStructEntry).new(),
+      array_struct_types : HashMap(String, CodegenArrayStructEntry).new(),
       current_evidence_param_names : ArrayList(String).new(),
       declared_temp_vars : ArrayList(String).new(),
       current_loop_label : String.new(),
@@ -366,6 +396,49 @@ impl(
   /// machine slot in addition to the C name.
   get_function_entry : (fn(self : *(Self), func_id : String) -> Option(CodegenFunctionEntry))(
     self.*.functions.get(func_id)
+  ),
+  /// Register a slice-struct type by its C type name (e.g. `Slice_i32`)
+  /// and the C type string of its element. Idempotent — re-registering
+  /// the same name keeps the most-recent `child_type`. Mirrors the TS
+  /// pattern of
+  ///   if (!context.sliceStructTypes.has(name)) {
+  ///     context.sliceStructTypes.set(name, { childType: … });
+  ///   }
+  /// at every call-site that emits a slice value.
+  register_slice_struct_type : (
+    fn(self : *(Self), slice_c_name : String, child_type : String) -> unit
+  )({
+    self.*.slice_struct_types.set(
+      slice_c_name,
+      CodegenSliceStructEntry(child_type : child_type)
+    );
+    ()
+  }),
+  /// Look up the element type of a previously-registered slice-struct
+  /// type. Returns `.None` if the slice type hasn't been seen yet.
+  has_slice_struct_type : (fn(self : *(Self), slice_c_name : String) -> bool)(
+    self.*.slice_struct_types.get(slice_c_name).is_some()
+  ),
+  /// Register an array-struct type. See `register_slice_struct_type`
+  /// for the idempotency / mirroring rationale.
+  register_array_struct_type : (
+    fn(
+      self : *(Self),
+      array_c_name : String,
+      child_type : String,
+      length : usize
+    ) -> unit
+  )({
+    self.*.array_struct_types.set(
+      array_c_name,
+      CodegenArrayStructEntry(child_type : child_type, length : length)
+    );
+    ()
+  }),
+  /// True iff an array-struct type with this C name is already
+  /// registered.
+  has_array_struct_type : (fn(self : *(Self), array_c_name : String) -> bool)(
+    self.*.array_struct_types.get(array_c_name).is_some()
   ),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
   fresh_temp : (fn(self : *(Self)) -> String)({
@@ -1359,5 +1432,7 @@ export(
   CodegenIsoTypeEntry,
   CodegenDynImplEntry,
   CodegenFunctionEntry,
+  CodegenSliceStructEntry,
+  CodegenArrayStructEntry,
   CodegenContext
 );

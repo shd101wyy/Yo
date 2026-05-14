@@ -73,3 +73,43 @@ test("functions registry is independent of dyn_impls registry", {
   assert(pctx.*.dyn_impls.len() == usize(0), "dyn_impls untouched");
   assert(pctx.*.functions.len() == usize(1), "functions has 1 entry");
 });
+// ─── slice_struct_types ─────────────────────────────────────────────────────
+test("register_slice_struct_type: makes has_slice_struct_type return true", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.register_slice_struct_type(String.from("Slice_i32"), String.from("int32_t"));
+  assert(pctx.*.has_slice_struct_type(String.from("Slice_i32")) == true, "present");
+  assert(
+    pctx.*.has_slice_struct_type(String.from("Slice_u8")) == false,
+    "unrelated name → false"
+  );
+});
+test("slice_struct_types: empty by default", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  assert(pctx.*.slice_struct_types.len() == usize(0), "fresh ctx is empty");
+});
+// ─── array_struct_types ─────────────────────────────────────────────────────
+test("register_array_struct_type: makes has_array_struct_type return true", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.register_array_struct_type(String.from("Array_u8_4"), String.from("uint8_t"), usize(4));
+  assert(pctx.*.has_array_struct_type(String.from("Array_u8_4")) == true, "present");
+  assert(
+    pctx.*.has_array_struct_type(String.from("Array_i32_8")) == false,
+    "unrelated key → false"
+  );
+});
+test("array_struct_types: entry retains child_type and length", {
+  ctx := CodegenContext.new();
+  (pctx : *(CodegenContext)) = &(ctx);
+  pctx.*.register_array_struct_type(String.from("A"), String.from("uint8_t"), usize(16));
+  match(
+    pctx.*.array_struct_types.get(String.from("A")),
+    .None => assert(false, "expected entry"),
+    .Some(entry) => {
+      assert(entry.child_type == String.from("uint8_t"), "child_type");
+      assert(entry.length == usize(16), "length");
+    }
+  );
+});
