@@ -8,6 +8,7 @@ open(import("std/string"));
 { TypeValue } :: import("../types/type.yo");
 { ExprId } :: import("../expr/expr.yo");
 { ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr/expr_info.yo");
+{ EvalValue } :: import("../evaluator/value.yo");
 { Emitter } :: import("./emitter.yo");
 CodegenTypeEntry :: object(
   type_value : TypeValue,
@@ -27,6 +28,20 @@ CodegenIsoTypeEntry :: object(
   create_generated : bool,
   extract_generated : bool,
   dispose_generated : bool
+);
+/// Codegen state for a registered `dyn(Trait)` impl. Mirrors the
+/// per-entry shape of `CodeGenContext.dynImpls` in
+/// `src/codegen/exprs/dyn.ts`: dynType is the wrapper `Dyn(Trait)`
+/// type, concreteType is the underlying concrete (e.g. `Dog`),
+/// dataType is what the runtime `.data` slot points at (the
+/// concrete type itself for object types, or a `Box(...)` for
+/// boxed value types). traitValues holds the evaluator's resolved
+/// trait-impl values that the vtable generator needs.
+CodegenDynImplEntry :: object(
+  dyn_type : TypeValue,
+  concrete_type : TypeValue,
+  data_type : TypeValue,
+  trait_values : ArrayList(EvalValue)
 );
 /// Shared mutable context passed to every `generate_*` function.
 ///
@@ -181,6 +196,14 @@ CodegenContext :: object(
   /// `static const char __yo_typeid_<sanitized>_NN = 0;` declaration.
   /// Mirrors `CodeGenContext.typeIdStatics` in `src/codegen/utils/index.ts`.
   type_id_statics : HashMap(String, String),
+  /// Registered `dyn(Trait)` impls, keyed by the impl-key
+  /// `${concrete_type_c_name}_${dyn_type_c_name}`. The vtable
+  /// generator consumes this map after all dyn-using handlers have
+  /// run, so the table only needs uniqueness on the key — the entry
+  /// value carries the dyn/concrete/data types and the evaluator's
+  /// resolved trait-impl values. Mirrors `CodeGenContext.dynImpls`
+  /// in `src/codegen/utils/index.ts`.
+  dyn_impls : HashMap(String, CodegenDynImplEntry),
   /// Evidence parameter C names currently in scope for function codegen.
   /// Mirrors the values of `FunctionGenerationContext.currentEvidenceParams`.
   /// Recur calls forward these names to the recursive self-call.
@@ -253,6 +276,7 @@ impl(
       anon_method_body_templates : ArrayList(String).new(),
       expr_info_table : Option(ExprInfoTable).None,
       type_id_statics : HashMap(String, String).new(),
+      dyn_impls : HashMap(String, CodegenDynImplEntry).new(),
       current_evidence_param_names : ArrayList(String).new(),
       declared_temp_vars : ArrayList(String).new(),
       current_loop_label : String.new(),
@@ -1257,4 +1281,10 @@ impl(
     result
   })
 );
-export(CodegenTypeEntry, CodegenClosureCaptureEntry, CodegenIsoTypeEntry, CodegenContext);
+export(
+  CodegenTypeEntry,
+  CodegenClosureCaptureEntry,
+  CodegenIsoTypeEntry,
+  CodegenDynImplEntry,
+  CodegenContext
+);

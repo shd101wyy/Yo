@@ -1,0 +1,109 @@
+//! Partial 1-to-1 port of `src/codegen/exprs/dyn.ts`.
+//!
+//! Covers the leaf path of `generate_dyn_for_resolved_inputs`: when
+//! the dyn wrapper type and the underlying object type are already
+//! resolved (no boxed-closure or async-state-machine special cases),
+//! the emit is a pure registration + struct-literal pair:
+//!
+//!   1. Compute the impl key
+//!        `${concrete_type_c_name}_${dyn_type_c_name}`.
+//!   2. Register an entry in `ctx.dyn_impls` (deduplicated by impl
+//!      key) so the post-handler vtable emitter can later generate
+//!      the matching `__yo_vtable_${implKey}` definition.
+//!   3. Emit a C compound literal:
+//!        `${DynCName} ${tempVar} = { .data = <code>, .vtable = &__yo_vtable_<key> };`
+//!      and return the temp-var name as the dyn value's C expression.
+//!
+//! The full `generate_dyn_call` (which walks the AST, resolves
+//! types from `ExprInfo`, handles boxed-closure auto-extraction, and
+//! routes around the async state machine's SM-field slots) is still
+//! pending — it needs evaluator-side `runtime_arg_exprs_in_order`
+//! plus state-machine variables that yo-self's codegen does not yet
+//! expose.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../../types/type.yo");
+{ is_dyn_type, is_object_type, is_iso_type } :: import("../../types/guards.yo");
+{ EvalValue } :: import("../../evaluator/value.yo");
+{ CodegenContext, CodegenDynImplEntry } :: import("../context.yo");
+{ get_type_string, sanitize_for_c_identifier } :: import("../utils.yo");
+/// Emit the C declaration for a `dyn(value)` cast given pre-resolved
+/// types. Returns `.Some(temp_var_name)` on success or `.None` when
+/// any precondition fails.
+///
+/// Preconditions:
+///   - `dyn_type` is a `Dyn(Trait)` type.
+///   - `data_type` is an `Object` or `Iso` type (the runtime data
+///     slot must be a single reference). Boxed value types (which
+///     auto-extract from `Box(T)`) are not handled here — the full
+///     port will route them through the `dyn_impls` map's
+///     `data_type` field.
+///   - `temp_var_name` is non-empty.
+generate_dyn_for_resolved_inputs :: (
+  fn(
+    value_code : String,
+    value_type : TypeValue,
+    dyn_type : TypeValue,
+    trait_values : ArrayList(EvalValue),
+    temp_var_name : String,
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)(
+  cond(
+    !(is_dyn_type(dyn_type)) => Option(String).None,
+    (!(is_object_type(value_type)) && !(is_iso_type(value_type))) =>
+      Option(String).None,
+    (temp_var_name.len() == usize(0)) => Option(String).None,
+    true => {
+      dyn_c_name := get_type_string(dyn_type, ctx);
+      concrete_c_name := get_type_string(value_type, ctx);
+      // Impl key: `${concrete_c_name}_${dyn_c_name}`.
+      impl_key := String.new();
+      impl_key.push_string(concrete_c_name);
+      impl_key.push_str("_");
+      impl_key.push_string(dyn_c_name);
+      // Dedup-register in ctx.dyn_impls. The first emission stores
+      // the (dyn, concrete, data) triple + trait_values; subsequent
+      // emissions are no-ops.
+      if(ctx.*.dyn_impls.get(impl_key).is_none(), {
+        entry := CodegenDynImplEntry(
+          dyn_type : dyn_type,
+          concrete_type : value_type,
+          data_type : value_type,
+          trait_values : trait_values
+        );
+        _ := ctx.*.dyn_impls.set((&(impl_key)).clone(), entry);
+      });
+      // Build the C `__yo_vtable_${implKey}` symbol — the vtable's
+      // C identifier may contain non-identifier bytes if the impl
+      // key already does (it shouldn't, since type_to_string-driven
+      // c_name's are pre-sanitised, but the canonical mangler is
+      // safe to apply regardless).
+      vtable_name := String.from("__yo_vtable_");
+      vtable_name.push_string(sanitize_for_c_identifier(impl_key));
+      san_temp := sanitize_for_c_identifier(temp_var_name);
+      // Emit the four-line struct-literal declaration.
+      l1 := String.from(indent.as_str());
+      l1.push_string(dyn_c_name);
+      l1.push_str(" ");
+      l1.push_string(san_temp);
+      l1.push_str(" = {");
+      ctx.*.emitter.emit_string_line(l1);
+      l2 := String.from(indent.as_str());
+      l2.push_str("  .data = ");
+      l2.push_str(value_code.as_str());
+      l2.push_str(",");
+      ctx.*.emitter.emit_string_line(l2);
+      l3 := String.from(indent.as_str());
+      l3.push_str("  .vtable = &");
+      l3.push_string(vtable_name);
+      ctx.*.emitter.emit_string_line(l3);
+      l4 := String.from(indent.as_str());
+      l4.push_str("};");
+      ctx.*.emitter.emit_string_line(l4);
+      Option(String).Some(san_temp)
+    }
+  )
+);
+export(generate_dyn_for_resolved_inputs);
