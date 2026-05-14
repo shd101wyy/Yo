@@ -1,0 +1,58 @@
+/// Tests for yo-self/codegen/exprs/rc_fns.yo (partial port —
+/// pure RC-builtin call-site formatters).
+open(import("std/string"));
+{
+  format_decr_rc_call,
+  format_incr_rc_call,
+  format_rc_own,
+  format_decr_rc_atomic_call,
+  format_incr_rc_atomic_call
+} :: import("../codegen/exprs/rc_fns.yo");
+test("format_decr_rc_call wraps a simple arg", {
+  assert(
+    format_decr_rc_call(String.from("x")) == String.from("__yo_decr_rc(x)"),
+    "decr simple"
+  );
+});
+test("format_incr_rc_call wraps a simple arg", {
+  assert(
+    format_incr_rc_call(String.from("y")) == String.from("__yo_incr_rc(y)"),
+    "incr simple"
+  );
+});
+test("format_decr_rc_call passes complex args verbatim", {
+  // The TS handler does not parenthesise — it relies on the recursive
+  // generateExpr to produce a well-formed primary expression. Mirror
+  // that behaviour faithfully.
+  assert(
+    format_decr_rc_call(String.from("(void*)(p.data)")) ==
+      String.from("__yo_decr_rc((void*)(p.data))"),
+    "complex passthrough"
+  );
+});
+test("format_rc_own is identity (ownership-transfer marker)", {
+  arg := String.from("some_local");
+  assert(format_rc_own(arg) == String.from("some_local"), "identity");
+});
+test("format_decr_rc_atomic_call wraps a simple arg", {
+  assert(
+    format_decr_rc_atomic_call(String.from("z")) ==
+      String.from("__yo_decr_rc_atomic(z)"),
+    "atomic decr"
+  );
+});
+test("format_incr_rc_atomic_call wraps a simple arg", {
+  assert(
+    format_incr_rc_atomic_call(String.from("w")) ==
+      String.from("__yo_incr_rc_atomic(w)"),
+    "atomic incr"
+  );
+});
+test("formatter pair round-trip: decr/incr produce symmetric strings", {
+  // Pin the contract that the atomic and non-atomic variants share the
+  // same call-shape — only the function name differs.
+  a := format_decr_rc_call(String.from("v"));
+  b := format_decr_rc_atomic_call(String.from("v"));
+  assert(a == String.from("__yo_decr_rc(v)"), "non-atomic");
+  assert(b == String.from("__yo_decr_rc_atomic(v)"), "atomic suffix only");
+});
