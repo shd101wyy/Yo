@@ -34,6 +34,7 @@ open(import("std/string"));
 { generate_while_loop } :: import("./exprs/while.yo");
 { generate_op_and, generate_op_or } :: import("./exprs/and_or.yo");
 { generate_begin } :: import("./exprs/begin.yo");
+{ generate_cond } :: import("./exprs/cond.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -12036,7 +12037,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           ident_opt,
           .None => false,
           .Some(id) => (id.as_str() == "cond")
-        ) => handle_cond(args, ctx, indent),
+        ) => match(
+          generate_cond(expr, args, ctx, indent),
+          .Some(result) => Option(String).Some(result),
+          .None => handle_cond(args, ctx, indent)
+        ),
         // match(scrut, pat => body, …) — value-pattern ternary chain or data-enum switch
         match(
           ident_opt,
