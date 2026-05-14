@@ -1,19 +1,23 @@
 //! Partial 1-to-1 port of `src/codegen/exprs/drop-dup.ts`.
 //!
-//! Covers the leaf-type drop emit: for `Dyn`, atomic-`Object`,
-//! `Object`, and `Iso` values, the generated C string is a pure
-//! `__yo_decr_rc[_atomic]((void*)x[.data])` and needs no type-name
-//! registry or emitter. Returns `Option(String).Some(...)` for those
-//! four shapes and `Option(String).None` for everything else so the
-//! bootstrap codegen can keep handling the remaining cases (struct /
-//! enum drops via `___drop`, array/tuple recursive drops via the C
-//! emitter, dup paths that need `getTypeString`).
+//! Covers the leaf-type drop AND dup emit: for `Dyn`,
+//! atomic-`Object`, `Object`, and `Iso` values, the generated C
+//! string follows TS exactly:
 //!
-//! Full ports of `generateDupCodeForValue`, the array / tuple
-//! recursion, and `getDropFunctionForType` /
-//! `getDupFunctionForType` (which look up
-//! `context.functions[funcId].cName`) wait on the type-name registry +
-//! function-cname table landing in yo-self codegen.
+//!   - drop emits `__yo_decr_rc[_atomic]((void*)x[.data])`;
+//!   - dup emits `((TypeCName)__yo_incr_rc[_atomic]((void*)x))` or
+//!     for Dyn `((TypeCName){ .data = __yo_incr_rc(...), .vtable = ... })`.
+//!
+//! Returns `Option(String).Some(...)` for those four shapes and
+//! `Option(String).None` for everything else so the bootstrap codegen
+//! can keep handling the remaining cases (struct / enum drops via
+//! `___drop`, array/tuple recursive drops via the C emitter, and
+//! struct/enum dups via `___dup`).
+//!
+//! Full ports of the array / tuple recursion and
+//! `getDropFunctionForType` / `getDupFunctionForType` (which look up
+//! `context.functions[funcId].cName`) wait on the
+//! function-cname registry landing in yo-self codegen.
 open(import("std/string"));
 { TypeValue } :: import("../../types/type.yo");
 {
@@ -22,9 +26,13 @@ open(import("std/string"));
   is_object_type,
   is_iso_type
 } :: import("../../types/guards.yo");
+{ CodegenContext } :: import("../context.yo");
+{ get_type_string } :: import("../utils.yo");
 {
   format_decr_rc_call,
-  format_decr_rc_atomic_call
+  format_decr_rc_atomic_call,
+  format_incr_rc_call,
+  format_incr_rc_atomic_call
 } :: import("./rc_fns.yo");
 /// Emit the C drop expression for a leaf RC type shape, given the
 /// already-generated `value_code` and its static `ty`.
@@ -74,4 +82,86 @@ generate_drop_code_for_leaf_type :: (
     true => Option(String).None
   )
 );
-export(generate_drop_code_for_leaf_type);
+/// Emit the C dup expression for a leaf RC type shape, given the
+/// already-generated `value_code`, its static `ty`, and the codegen
+/// context (used to resolve the type's C name).
+///
+/// Returns:
+///   - `Some("((TypeCName){ .data = __yo_incr_rc((void*)(x).data), .vtable = (x).vtable })")`
+///     for `Dyn(T)`
+///   - `Some("((TypeCName)__yo_incr_rc_atomic((void*)(x)))")` for
+///     atomic object types and `Iso(T)`
+///   - `Some("((TypeCName)__yo_incr_rc((void*)(x)))")` for non-atomic
+///     object types
+///   - `None` for everything else (the bootstrap codegen handles these)
+///
+/// Matches the four leaf cases of `generateDupCodeForValue` in TS,
+/// post-`resolveSomeType` filtering. The struct/enum branch (which
+/// calls `getDupFunctionForType` for the per-type `___dup` function)
+/// is intentionally not handled here — it needs the function-cname
+/// registry.
+generate_dup_code_for_leaf_type :: (
+  fn(value_code : String, ty : TypeValue, ctx : *(CodegenContext)) -> Option(String)
+)(
+  cond(
+    is_dyn_type(ty) => {
+      dyn_c_name := get_type_string(ty, ctx);
+      // Build the inner incr_rc call: __yo_incr_rc((void*)(x).data).
+      inner_arg := String.from("(void*)(");
+      inner_arg.push_str(value_code.as_str());
+      inner_arg.push_str(").data");
+      incr := format_incr_rc_call(inner_arg);
+      // Assemble: ((DynCName){ .data = <incr>, .vtable = (x).vtable })
+      out := String.from("((");
+      out.push_string(dyn_c_name);
+      out.push_str("){ .data = ");
+      out.push_string(incr);
+      out.push_str(", .vtable = (");
+      out.push_str(value_code.as_str());
+      out.push_str(").vtable })");
+      Option(String).Some(out)
+    },
+    // Atomic object check MUST precede the general object check.
+    is_atomic_object_type(ty) => {
+      c_name := get_type_string(ty, ctx);
+      inner_arg := String.from("(void*)(");
+      inner_arg.push_str(value_code.as_str());
+      inner_arg.push_str(")");
+      incr := format_incr_rc_atomic_call(inner_arg);
+      out := String.from("((");
+      out.push_string(c_name);
+      out.push_str(")");
+      out.push_string(incr);
+      out.push_str(")");
+      Option(String).Some(out)
+    },
+    is_object_type(ty) => {
+      c_name := get_type_string(ty, ctx);
+      inner_arg := String.from("(void*)(");
+      inner_arg.push_str(value_code.as_str());
+      inner_arg.push_str(")");
+      incr := format_incr_rc_call(inner_arg);
+      out := String.from("((");
+      out.push_string(c_name);
+      out.push_str(")");
+      out.push_string(incr);
+      out.push_str(")");
+      Option(String).Some(out)
+    },
+    is_iso_type(ty) => {
+      c_name := get_type_string(ty, ctx);
+      inner_arg := String.from("(void*)(");
+      inner_arg.push_str(value_code.as_str());
+      inner_arg.push_str(")");
+      incr := format_incr_rc_atomic_call(inner_arg);
+      out := String.from("((");
+      out.push_string(c_name);
+      out.push_str(")");
+      out.push_string(incr);
+      out.push_str(")");
+      Option(String).Some(out)
+    },
+    true => Option(String).None
+  )
+);
+export(generate_drop_code_for_leaf_type, generate_dup_code_for_leaf_type);

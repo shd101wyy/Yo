@@ -1,9 +1,14 @@
 /// Tests for yo-self/codegen/exprs/drop_dup.yo (partial port —
-/// leaf drop-code emit only).
+/// leaf drop and dup code emit).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_i32, t_bool } :: import("../types/type.yo");
-{ generate_drop_code_for_leaf_type } :: import("../codegen/exprs/drop_dup.yo");
+{ type_to_string } :: import("../types/string.yo");
+{ CodegenContext, CodegenTypeEntry } :: import("../codegen/context.yo");
+{
+  generate_drop_code_for_leaf_type,
+  generate_dup_code_for_leaf_type
+} :: import("../codegen/exprs/drop_dup.yo");
 mk_struct :: (
   fn(
     name : str,
@@ -114,6 +119,107 @@ test("leaf drop: complex value_code expressions are wrapped in parens", {
     .Some(s) => assert(
       s == String.from("__yo_decr_rc((void*)(a + b))"),
       "complex expr wrapped"
+    ),
+    .None => assert(false, "expected Some")
+  );
+});
+/// Helper: register `ty` under `c_name` in `ctx.types`, mirroring how
+/// the bootstrap codegen populates the registry for object / iso / dyn
+/// types before lookups occur.
+install_type :: (
+  fn(ctx : *(CodegenContext), ty : TypeValue, c_name : str) -> unit
+)({
+  entry := CodegenTypeEntry(type_value : ty, c_name : String.from(c_name));
+  _ := ctx.*.types.set(type_to_string(ty), entry);
+});
+test("leaf dup: non-atomic Object emits cast + incr_rc", {
+  obj := mk_struct("Counter", true, false, false);
+  ctx := CodegenContext.new();
+  install_type(&(ctx), obj, "yo_counter");
+  out := generate_dup_code_for_leaf_type(String.from("y"), obj, &(ctx));
+  match(
+    out,
+    .Some(s) => assert(
+      s == String.from("((yo_counter)__yo_incr_rc((void*)(y)))"),
+      "object dup"
+    ),
+    .None => assert(false, "expected Some")
+  );
+});
+test("leaf dup: atomic Object emits cast + atomic incr_rc", {
+  atom := mk_struct("AtomicCell", true, true, false);
+  ctx := CodegenContext.new();
+  install_type(&(ctx), atom, "yo_atomic_cell");
+  out := generate_dup_code_for_leaf_type(String.from("z"), atom, &(ctx));
+  match(
+    out,
+    .Some(s) => assert(
+      s == String.from("((yo_atomic_cell)__yo_incr_rc_atomic((void*)(z)))"),
+      "atomic dup"
+    ),
+    .None => assert(false, "expected Some")
+  );
+});
+test("leaf dup: Iso(T) emits cast + atomic incr_rc", {
+  iso_ty := TypeValue.IsoT(box(t_i32()));
+  ctx := CodegenContext.new();
+  install_type(&(ctx), iso_ty, "__yo_iso_i32");
+  out := generate_dup_code_for_leaf_type(String.from("w"), iso_ty, &(ctx));
+  match(
+    out,
+    .Some(s) => assert(
+      s == String.from("((__yo_iso_i32)__yo_incr_rc_atomic((void*)(w)))"),
+      "iso dup"
+    ),
+    .None => assert(false, "expected Some")
+  );
+});
+test("leaf dup: Dyn(T) emits struct literal with .data and .vtable", {
+  dyn_ty := mk_dyn();
+  ctx := CodegenContext.new();
+  install_type(&(ctx), dyn_ty, "yo_dyn_trait");
+  out := generate_dup_code_for_leaf_type(String.from("d"), dyn_ty, &(ctx));
+  match(
+    out,
+    .Some(s) => assert(
+      s == String.from("((yo_dyn_trait){ .data = __yo_incr_rc((void*)(d).data), .vtable = (d).vtable })"),
+      "dyn dup struct literal"
+    ),
+    .None => assert(false, "expected Some")
+  );
+});
+test("leaf dup: value-semantics struct returns None (defer)", {
+  val := mk_struct("Point", false, false, false);
+  ctx := CodegenContext.new();
+  assert(
+    generate_dup_code_for_leaf_type(String.from("p"), val, &(ctx)).is_none(),
+    "value struct → None"
+  );
+});
+test("leaf dup: primitive types return None (defer)", {
+  ctx := CodegenContext.new();
+  assert(
+    generate_dup_code_for_leaf_type(String.from("n"), t_i32(), &(ctx)).is_none(),
+    "i32 → None"
+  );
+  assert(
+    generate_dup_code_for_leaf_type(String.from("b"), t_bool(), &(ctx)).is_none(),
+    "bool → None"
+  );
+});
+test("leaf dup: unregistered Object falls back to int32_t cast", {
+  // The canonical `get_type_string` uses `int32_t` as its fallback
+  // when neither the registry nor `type_value_to_c_field` matches.
+  // For an unregistered object type this gives a (technically wrong)
+  // `((int32_t)__yo_incr_rc((void*)(x)))` — same as TS getTypeString.
+  obj := mk_struct("Unregistered", true, false, false);
+  ctx := CodegenContext.new();
+  out := generate_dup_code_for_leaf_type(String.from("u"), obj, &(ctx));
+  match(
+    out,
+    .Some(s) => assert(
+      s == String.from("((int32_t)__yo_incr_rc((void*)(u)))"),
+      "fallback to int32_t cast"
     ),
     .None => assert(false, "expected Some")
   );
