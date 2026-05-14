@@ -1,13 +1,11 @@
-//! Pure helpers extracted from `src/codegen/exprs/match.ts`.
+//! Match expression C code generation for the self-hosted Yo compiler.
 //!
-//! 1-to-1 partial port. These four helpers are pure functions over
-//! `String` / `AstExpr` / `EvalValue` and do not depend on the codegen
-//! context, emitter, or evaluator side-state. The full
+//! 1-to-1 partial port of `src/codegen/exprs/match.ts`. The full
 //! `generateMatchExpression` port (1182 lines in TS) is still pending
 //! because it needs the function-generation context (pending deferred
 //! drops, consumed-var pending drops, inside-match flag, ...).
 //!
-//! Helpers ported:
+//! Pure helpers (no codegen context):
 //!   - `is_control_flow_code(c)` — true iff the emitted C string
 //!     represents an unconditional control-flow exit (empty,
 //!     `break`, `continue`, a `goto`, or a `return` keyword).
@@ -18,6 +16,35 @@
 //!   - `c_literal_from_eval_value(v)` — emit the C literal text for
 //!     a `BoolVal` / `IntLit` `EvalValue` (`true`, `false`, `42`,
 //!     etc.). Returns `.None` for any other shape.
+//!
+//! Switch-statement generators (require `CodegenContext`):
+//!
+//!   generate_match_simple — for unit-only enums; uses `switch (scrutinee)`.
+//!   generate_match_data   — for data enums; uses `switch ((scrutinee).tag)`.
+//!
+//! C output pattern (simple enum):
+//!   ResultType _temp;
+//!   switch (scrutinee) {
+//!   case __YO_ENUM_MOD_ID_N_RED: {
+//!     _temp = body;
+//!     break;
+//!   }
+//!   ...
+//!   }
+//!   // caller uses _temp as the expression value
+//!
+//! C output pattern (data enum):
+//!   ResultType _temp;
+//!   switch ((scrutinee).tag) {
+//!   case __YO_ENUM_MOD_ID_N_CIRCLE: {
+//!     int32_t r = scrutinee.data.Circle.r;
+//!     _temp = body;
+//!     break;
+//!   }
+//!   ...
+//!   }
+//!
+//! Wildcard arms (tag_const = "") emit a `default:` case.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -26,6 +53,7 @@ open(import("std/string"));
   ast_expr_is_fn_call_of
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
+{ CodegenContext } :: import("../context.yo");
 /// True iff `byte` is part of a C identifier (`[A-Za-z0-9_]`).
 is_c_word_byte_ :: (fn(byte : u8) -> bool)(
   ((byte >= u8(65)) && (byte <= u8(90))) ||
@@ -187,9 +215,237 @@ c_literal_from_eval_value :: (fn(v : EvalValue) -> Option(String))(
     _ => Option(String).None
   )
 );
+// ---------------------------------------------------------------------------
+// Data structures for resolved match arms
+// ---------------------------------------------------------------------------
+/// A single field binding inside a data-enum arm.
+///
+/// E.g., in `.Circle(r) => body`:
+///   var_name  = "r"
+///   field_path = "data.Circle.r"   (C field path within the scrutinee value)
+///   type_c    = "int32_t"
+DataBinding :: struct(
+  var_name : String,
+  field_path : String,
+  type_c : String
+);
+/// A single arm in a simple (unit-variant-only) match.
+SimpleArm :: struct(
+  /// The C tag constant, e.g., `"__YO_ENUM_MOD_ID_N_RED"`.
+  /// Empty string means wildcard (`_ =>`) → emits `default:`.
+  tag_const : String,
+  /// The arm body AST node.
+  body : AstExpr
+);
+/// A single arm in a data-enum match (may also be unit if bindings is empty).
+DataArm :: struct(
+  /// The C tag constant.  Empty string means wildcard → `default:`.
+  tag_const : String,
+  /// Field bindings (empty for unit variants or wildcards).
+  bindings : ArrayList(DataBinding),
+  /// The arm body AST node.
+  body : AstExpr
+);
+// ---------------------------------------------------------------------------
+// Shared emitter helpers (require CodegenContext)
+// ---------------------------------------------------------------------------
+/// Indent string for one extra level inside the switch body.
+SWITCH_INDENT :: "  ";
+/// Emit `ResultType tempname;\n` into the code section.
+emit_match_temp_decl :: (
+  fn(
+    result_type_c : str,
+    temp_name : str,
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
+  decl := String.from(result_type_c);
+  decl.push_str(" ");
+  decl.push_str(temp_name);
+  decl.push_str(";");
+  ctx.*.emitter.emit_line(decl.as_str());
+});
+/// Emit `switch (scrutinee_c) {` or `switch ((scrutinee_c).tag) {`.
+emit_switch_open :: (
+  fn(
+    scrutinee_c : str,
+    use_tag_field : bool,
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
+  line := String.from("switch (");
+  if(use_tag_field, {
+    line.push_str("(");
+    line.push_str(scrutinee_c);
+    line.push_str(").tag");
+  }, {
+    line.push_str(scrutinee_c);
+  });
+  line.push_str(") {");
+  ctx.*.emitter.emit_line(line.as_str());
+});
+/// Emit `case TAG: {` or `default: {`.
+emit_case_open :: (fn(tag_const : str, ctx : *(CodegenContext)) -> unit)({
+  line := if(tag_const == "", String.from("default: {"), {
+    s := String.from("case ");
+    s.push_str(tag_const);
+    s.push_str(": {");
+    s
+  });
+  ctx.*.emitter.emit_line(line.as_str());
+});
+/// Emit `  temp_name = body_c;\n  break;\n}`.
+emit_case_body :: (
+  fn(
+    temp_name : str,
+    body_c : str,
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
+  assign := String.from("  ");
+  assign.push_str(temp_name);
+  assign.push_str(" = ");
+  assign.push_str(body_c);
+  assign.push_str(";");
+  ctx.*.emitter.emit_line(assign.as_str());
+  ctx.*.emitter.emit_line("  break;");
+  ctx.*.emitter.emit_line("}");
+});
+// ---------------------------------------------------------------------------
+// Simple match (unit enums)
+// ---------------------------------------------------------------------------
+/// Generate a `switch` statement for a unit-only enum match.
+///
+/// `scrutinee_c`  — the C expression for the value being matched
+/// `result_type_c` — the C return type of the match expression
+/// `temp_name`     — the name of the temp variable that captures each arm result
+/// `arms`          — the resolved arm list (tag_const + body AstExpr)
+/// `gen_body`      — callback to compile an arm body: `(body, ctx, indent) -> Option(String)`
+///
+/// Returns the temp variable name (callers use it as the expression value).
+generate_match_simple :: (
+  fn(
+    scrutinee_c : str,
+    result_type_c : str,
+    temp_name : str,
+    arms : ArrayList(SimpleArm),
+    gen_body : (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)),
+    ctx : *(CodegenContext),
+    indent : str
+  ) -> unit
+)({
+  emit_match_temp_decl(result_type_c, temp_name, ctx);
+  emit_switch_open(scrutinee_c, false, ctx);
+  (i : usize) = usize(0);
+  n := arms.len();
+  while(runtime(i < n), {
+    arm_opt := arms.get(i);
+    match(
+      arm_opt,
+      .Some(arm) => {
+        emit_case_open(arm.tag_const.as_str(), ctx);
+        body_c_opt := gen_body(arm.body, ctx, String.from(indent));
+        match(
+          body_c_opt,
+          .Some(body_c) => emit_case_body(temp_name, body_c.as_str(), ctx),
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  ctx.*.emitter.emit_line("}");
+});
+// ---------------------------------------------------------------------------
+// Data match (data enums with field bindings)
+// ---------------------------------------------------------------------------
+/// Emit field binding declarations for a data enum arm.
+///
+/// For each binding:
+///   `type_c var_name = scrutinee_c.field_path;`
+emit_data_bindings :: (
+  fn(
+    scrutinee_c : str,
+    bindings : ArrayList(DataBinding),
+    ctx : *(CodegenContext)
+  ) -> unit
+)({
+  (i : usize) = usize(0);
+  n := bindings.len();
+  while(runtime(i < n), {
+    b_opt := bindings.get(i);
+    match(
+      b_opt,
+      .Some(b) => {
+        decl := String.from("  ");
+        decl.push_string(b.type_c);
+        decl.push_str(" ");
+        decl.push_string(b.var_name);
+        decl.push_str(" = ");
+        decl.push_str(scrutinee_c);
+        decl.push_str(".");
+        decl.push_string(b.field_path);
+        decl.push_str(";");
+        ctx.*.emitter.emit_line(decl.as_str());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Generate a `switch ((scrutinee).tag)` statement for a data enum match.
+///
+/// Works for enums that may have a mix of unit variants (no bindings) and
+/// data variants (with bindings).  Wildcards use an empty `tag_const`.
+generate_match_data :: (
+  fn(
+    scrutinee_c : str,
+    result_type_c : str,
+    temp_name : str,
+    arms : ArrayList(DataArm),
+    gen_body : (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)),
+    ctx : *(CodegenContext),
+    indent : str
+  ) -> unit
+)({
+  emit_match_temp_decl(result_type_c, temp_name, ctx);
+  emit_switch_open(scrutinee_c, true, ctx);
+  (i : usize) = usize(0);
+  n := arms.len();
+  while(runtime(i < n), {
+    arm_opt := arms.get(i);
+    match(
+      arm_opt,
+      .Some(arm) => {
+        emit_case_open(arm.tag_const.as_str(), ctx);
+        emit_data_bindings(scrutinee_c, arm.bindings, ctx);
+        body_c_opt := gen_body(arm.body, ctx, String.from(indent));
+        match(
+          body_c_opt,
+          .Some(body_c) => emit_case_body(temp_name, body_c.as_str(), ctx),
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  ctx.*.emitter.emit_line("}");
+});
 export(
   is_control_flow_code,
   is_or_pattern,
   flatten_or_pattern,
-  c_literal_from_eval_value
+  c_literal_from_eval_value,
+  DataBinding,
+  SimpleArm,
+  DataArm,
+  emit_match_temp_decl,
+  emit_switch_open,
+  emit_case_open,
+  emit_case_body,
+  emit_data_bindings,
+  generate_match_simple,
+  generate_match_data
 );
