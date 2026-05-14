@@ -33,6 +33,7 @@ open(import("std/string"));
 :: import("./exprs/iso.yo");
 { generate_while_loop } :: import("./exprs/while.yo");
 { generate_op_and, generate_op_or } :: import("./exprs/and_or.yo");
+{ generate_begin } :: import("./exprs/begin.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -11894,7 +11895,11 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           ident_opt,
           .None => false,
           .Some(id) => (id.as_str() == BK_BEGIN)
-        ) => handle_begin(args, ctx, indent),
+        ) => match(
+          generate_begin(expr, args, ctx, indent),
+          .Some(code) => Option(String).Some(code),
+          .None => handle_begin(args, ctx, indent)
+        ),
         // return(expr) — emit `return(expr);\n` and return "0" sentinel
         (
           (!(is_infix)) && match(
