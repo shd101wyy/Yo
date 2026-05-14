@@ -3,6 +3,7 @@
 open(import("std/string"));
 {
   format_address_of,
+  format_address_of_compound_literal,
   format_slice_index_range
 } :: import("../codegen/exprs/ptr_fns.yo");
 test("format_address_of: wraps an identifier", {
@@ -58,5 +59,34 @@ test("format_slice_index_range: complex start/end expressions wrap correctly", {
   assert(
     out == String.from("(S){ .data = &a.data[i + 1], .length = (n - 1) - (i + 1) }"),
     "complex expressions"
+  );
+});
+test("format_address_of_compound_literal: numeric value", {
+  // `&1` is not valid C; the literal must be wrapped in a compound
+  // literal with an explicit type. Pin the exact shape that TS emits
+  // (`(&(int32_t){1})`) — note the outer parens around `&...`.
+  out := format_address_of_compound_literal(
+    String.from("int32_t"),
+    String.from("1")
+  );
+  assert(out == String.from("(&(int32_t){1})"), "numeric compound literal");
+});
+test("format_address_of_compound_literal: boolean value", {
+  out := format_address_of_compound_literal(
+    String.from("bool"),
+    String.from("true")
+  );
+  assert(out == String.from("(&(bool){true})"), "boolean compound literal");
+});
+test("format_address_of_compound_literal: complex type / arg", {
+  // The formatter doesn't inspect inputs — it just wraps. Pin the
+  // passthrough contract for callers that pre-sanitize.
+  out := format_address_of_compound_literal(
+    String.from("uint64_t"),
+    String.from("(x + 1) * 2")
+  );
+  assert(
+    out == String.from("(&(uint64_t){(x + 1) * 2})"),
+    "passthrough composition"
   );
 });

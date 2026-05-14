@@ -6,17 +6,24 @@
 //!     expression in the `(&...)` address-of form. The tail fallback
 //!     path of TS `generateAddressOf`.
 //!
+//!   - `format_address_of_compound_literal(type_c, arg_code)` — wraps
+//!     a literal value in a C compound-literal `(&(<type>){<value>})`
+//!     so we can take its address. Mirrors the compile-time-value path
+//!     of `generateAddressOf` for `isNumberValue` / `isBooleanValue`
+//!     arguments — &1 is not valid C, so we emit `&(int32_t){1}`.
+//!
 //!   - `format_slice_index_range(slice_c_type, array_code, start_code,
 //!     end_code, inclusive)` — builds a slice-value compound literal
 //!     `(SliceCType){ .data = &<array>.data[<start>], .length = <end> - <start>[+ 1] }`.
 //!     Used by the array-range path in `generateAddressOf` for the
 //!     forms `*(arr(start..end))` / `*(arr(start..=end))`.
 //!
-//! Both helpers are pure string transformations — no codegen context,
-//! emitter, or AST dispatch required. The remaining specialised
-//! paths in `generateAddressOf` (slice/range-target detection,
-//! function-pointer extraction, rvalue spill-to-temp) still depend
-//! on `context.sliceStructTypes`, the recursive `generateExpr`
+//! All three helpers are pure string transformations — no codegen
+//! context, emitter, or AST dispatch required. The remaining
+//! specialised paths in `generateAddressOf` (slice/range-target
+//! detection, function-pointer extraction, rvalue spill-to-temp,
+//! Index-trait `&`-of, comptime-string-conversion `&` form) still
+//! depend on `context.sliceStructTypes`, the recursive `generateExpr`
 //! dispatcher, and the function-cname registry — none yet exposed
 //! in yo-self codegen.
 open(import("std/string"));
@@ -27,6 +34,20 @@ format_address_of :: (fn(arg_code : String) -> String)({
   s := String.from("(&");
   s.push_str(arg_code.as_str());
   s.push_str(")");
+  s
+});
+/// Format a C compound-literal address-of:
+///   `(&(<type_c>){<arg_code>})`
+///
+/// Used when the argument is a compile-time numeric or boolean value
+/// — in C, `&1` is not valid, but `&(int32_t){1}` is. Mirrors the
+/// `isNumberValue` / `isBooleanValue` branch of TS `generateAddressOf`.
+format_address_of_compound_literal :: (fn(type_c : String, arg_code : String) -> String)({
+  s := String.from("(&(");
+  s.push_str(type_c.as_str());
+  s.push_str("){");
+  s.push_str(arg_code.as_str());
+  s.push_str("})");
   s
 });
 /// Build a slice-value compound literal for an array-range expression:
@@ -62,4 +83,4 @@ format_slice_index_range :: (
   out.push_str(" }");
   out
 });
-export(format_address_of, format_slice_index_range);
+export(format_address_of, format_address_of_compound_literal, format_slice_index_range);
