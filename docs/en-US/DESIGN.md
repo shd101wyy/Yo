@@ -561,8 +561,9 @@ Functions are declared using the `::` operator for compile-time definitions or `
 ```rust
 // Function declaration with explicit type
 // function type is written as fn(args...) -> return_type
-add :: (fn(x : i32, y : i32) -> i32)(x + y)  // Function body
-;
+add :: (fn(x : i32, y : i32) -> i32)(
+  x + y // Function body
+);
 // calling a function type with function body creates a function value
 
 // Or define type first, then implementation
@@ -578,9 +579,7 @@ multiply :: (fn(x : i32, y : i32) -> i32)({
 });
 
 // Last expression is the return value
-divide :: (fn(x : i32, y : i32) -> i32)
-  (x / y)
-;
+divide :: (fn(x : i32, y : i32) -> i32)(x / y);
 
 // Function can take `comptime` parameter and can return `comptime` value, like Type:
 Point :: (fn(comptime(T) : Type) -> comptime(Type))({
@@ -661,12 +660,12 @@ compare_and_add :: (fn(
     y: T,
     z: T,
     where(T <: (Add(T), Eq(T)))
-  ) -> T)
+  ) -> T)(
   cond(
     (x == y) => (x + z),
     true => (y + z)
   )
-;
+);
 ```
 
 ### Trait Method Disambiguation
@@ -718,7 +717,7 @@ Partial application works **only** on comptime functions (functions whose return
 IntResult :: Result(_, i32);    // kind: Type -> Type
 
 // Comptime value functions (return comptime(i32), comptime(bool), etc.):
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
 add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
 result :: add1(i32(2));   // 3
 ```
@@ -793,23 +792,25 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```rust
-  (fn(x : u32, acc : u32) -> u32)
-    if x == 1, then:
-      acc
-    else:
-      recur(x - 1, acc * x)
-  ;
+  (fn(x : u32, acc : u32) -> u32)(
+    if(x == 1,
+      then: acc,
+      else:
+        recur(x - 1, acc * x)
+    )
+  );
   ```
 
 - Without tail-call optimization
 
   ```rust
-  (fn(x : u32) -> u32)
-    if x == 1, then:
-      1
-    else:
-      x * recur(x - 1)
-  ;
+  (fn(x : u32) -> u32)(
+    if(x == 1,
+      then: 1,
+      else:
+        x * recur(x - 1)
+    )
+  );
   ```
 
 ### Object Types and Memory Management
@@ -1032,7 +1033,7 @@ slice(0) = 10;  // Modify through slice
 slice(1) = 20;
 // i32_array: [1, 10, 20, 4, 5]
 
-slice_of_slice := slice(0:2);  // Slice from slice
+slice_of_slice := slice(0..2);  // Slice from slice
 ```
 
 ### Range with `..`

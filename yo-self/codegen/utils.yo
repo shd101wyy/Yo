@@ -34,6 +34,8 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../types/type.yo");
 { is_object_type, is_pointer_type } :: import("../types/guards.yo");
+{ type_to_string } :: import("../types/string.yo");
+{ CodegenContext } :: import("./context.yo");
 is_c_identifier_byte_ :: (fn(byte : u8) -> bool)(
   ((byte >= u8(65)) && (byte <= u8(90))) ||
     (
@@ -261,10 +263,36 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
     _ => Option(TypeValue).None
   )
 );
+/// C name for the variant `variant_name` of enum `enum_ty`. Mirrors
+/// TS `getEnumVariantCName` in `src/codegen/utils/index.ts`:
+///
+///     `${UPPER(enumCName)}_${UPPER(variant_name)}`
+///
+/// Returns `.None` when the enum is not yet registered in
+/// `ctx.types` (the TS counterpart throws; yo-self defers to the
+/// caller so the bootstrap path can recover). The registry is keyed
+/// by `type_to_string(enum_ty)` in yo-self (TS keys by `enum.id`); the
+/// payload's `c_name` field carries the canonical lower-case form.
+get_enum_variant_c_name :: (
+  fn(enum_ty : TypeValue, variant_name : String, ctx : *(CodegenContext)) -> Option(String)
+)({
+  key := type_to_string(enum_ty);
+  match(
+    ctx.*.types.get(key),
+    .None => Option(String).None,
+    .Some(entry) => {
+      result := entry.c_name.to_uppercase();
+      result.push_str("_");
+      result.push_string(variant_name.to_uppercase());
+      Option(String).Some(result)
+    }
+  )
+});
 export(
   sanitize_for_c_identifier,
   sanitize_for_c_identifier_str,
   should_avoid_const,
   can_optimize_as_simple_enum,
-  can_optimize_as_nullable_pointer
+  can_optimize_as_nullable_pointer,
+  get_enum_variant_c_name
 );

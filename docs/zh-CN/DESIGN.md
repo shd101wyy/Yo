@@ -561,8 +561,9 @@ x = 1; // x : i32，已初始化
 ```rust
 // 带显式类型的函数声明
 // 函数类型写作 fn(args...) -> return_type
-add :: (fn(x : i32, y : i32) -> i32)(x + y)  // 函数体
-;
+add :: (fn(x : i32, y : i32) -> i32)(
+  x + y // 函数体
+);
 // 用函数体调用函数类型可以创建一个函数值
 
 // 或者先定义类型，再实现
@@ -578,9 +579,7 @@ multiply :: (fn(x : i32, y : i32) -> i32)({
 });
 
 // 最后一个表达式即为返回值
-divide :: (fn(x : i32, y : i32) -> i32)
-  (x / y)
-;
+divide :: (fn(x : i32, y : i32) -> i32)(x / y);
 
 // 函数可以接受 `comptime` 参数并返回 `comptime` 值，如 Type：
 Point :: (fn(comptime(T) : Type) -> comptime(Type))({
@@ -661,12 +660,12 @@ compare_and_add :: (fn(
     y: T,
     z: T,
     where(T <: (Add(T), Eq(T)))
-  ) -> T)
+  ) -> T)(
   cond(
     (x == y) => (x + z),
     true => (y + z)
   )
-;
+);
 ```
 
 ### Trait 方法消歧义
@@ -718,7 +717,7 @@ StrOkResult :: Result(str, _);  // kind: Type -> Type
 IntResult :: Result(_, i32);    // kind: Type -> Type
 
 // 编译期值函数（返回 comptime(i32)、comptime(bool) 等）：
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
 add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
 result :: add1(i32(2));   // 3
 ```
@@ -793,23 +792,25 @@ p.set_x(10);  // 自动转换为 &(p).set_x(10)
 - 带尾调用优化
 
   ```rust
-  (fn(x : u32, acc : u32) -> u32)
-    if x == 1, then:
-      acc
-    else:
-      recur(x - 1, acc * x)
-  ;
+  (fn(x : u32, acc : u32) -> u32)(
+    if(x == 1,
+      then: acc,
+      else:
+        recur(x - 1, acc * x)
+    )
+  );
   ```
 
 - 不带尾调用优化
 
   ```rust
-  (fn(x : u32) -> u32)
-    if x == 1, then:
-      1
-    else:
-      x * recur(x - 1)
-  ;
+  (fn(x : u32) -> u32)(
+    if(x == 1,
+      then: 1,
+      else:
+        x * recur(x - 1)
+    )
+  );
   ```
 
 ### 对象类型与内存管理
@@ -1032,7 +1033,7 @@ slice(0) = 10;  // 通过切片修改
 slice(1) = 20;
 // i32_array: [1, 10, 20, 4, 5]
 
-slice_of_slice := slice(0:2);  // 从切片创建切片
+slice_of_slice := slice(0..2);  // 从切片创建切片
 ```
 
 ### 使用 `..` 的范围
