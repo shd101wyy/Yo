@@ -393,6 +393,13 @@ run_test :: (
       }
     );
   });
+  // Stream A: populate the typed AST metadata table for the test
+  // module (dep declarations + the test file). The codegen dispatcher
+  // reads this table from `g_pipeline_expr_info_table` set inside
+  // `set_pipeline_expr_info_table`; on evaluator-coverage failure the
+  // helper returns .None and the dispatcher falls back to its AST-only
+  // bootstrap heuristics. See `plans/BOOTSTRAPPING.md` Stream A.
+  set_pipeline_expr_info_table(try_populate_expr_info_table(all_module_exprs.clone(), input_path));
   // Extract all test declarations
   n := exprs.len();
   (i : usize) = usize(0);
