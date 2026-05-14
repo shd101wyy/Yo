@@ -477,6 +477,7 @@ test("generate_expr: begin block emits non-last stmts", {
   expr := make_begin_expr(stmts);
   ctx := run_gen_with_ctx(expr);
   output := ctx.emitter.print();
+  println(output.as_str());
   assert(
     output.contains(String.from("1;")),
     "expected '1;' emitted for first stmt"
@@ -577,16 +578,21 @@ test("generate_expr: if one-branch", {
   );
 });
 test("generate_expr: while emits loop and returns 0", {
-  // while runtime(x), y  -> emits "while (x) {\n  y;\n}\n", result is "0"
+  // while runtime(x), y  -> emits TypeScript-style while(true) + condition break.
   cond_e := make_runtime_cond(make_atom_expr(TokenKind.Identifier, "running"));
   body_e := make_atom_expr(TokenKind.Identifier, "step");
   expr := make_while_expr(cond_e, body_e);
   ctx := run_gen_with_ctx(expr);
   output := ctx.emitter.print();
   assert(
-    output.contains(String.from("while (running)")),
-    "expected 'while (running)' in output"
+    output.contains(String.from("while (true)")),
+    "expected 'while (true)' in output"
   );
+  assert(
+    output.contains(String.from("if (!(")),
+    "expected condition break check in output"
+  );
+  assert(output.contains(String.from("running")), "expected condition in output");
   assert(
     output.contains(String.from("step;")),
     "expected 'step;' emitted inside loop"

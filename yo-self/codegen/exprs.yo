@@ -31,6 +31,7 @@ open(import("std/string"));
 { generate_recur } :: import("./exprs/recur.yo");
 { generate_yo_iso_extract, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call }
 :: import("./exprs/iso.yo");
+{ generate_while_loop } :: import("./exprs/while.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -11462,6 +11463,17 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
     expr,
     // --- Atom expressions ---
     .Atom(_, tok) => cond(
+      ((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "continue")) => Option(String).Some(
+        cond(
+          (ctx.*.current_continue_label.len() > usize(0)) => {
+            continue_code := String.from("goto ");
+            continue_code.push_string(ctx.*.current_continue_label);
+            continue_code
+          },
+          true => String.from("continue")
+        )
+      ),
+      ((tok.kind == TokenKind.Identifier) && (tok.value.as_str() == "break")) => Option(String).Some(String.from("break")),
       (tok.kind == TokenKind.Integer) =>.Some(gen_integer_lit(tok.value)),
       (tok.kind == TokenKind.Float) =>.Some(gen_float_lit(tok.value)),
       (tok.kind == TokenKind.Bool) =>.Some(gen_bool_lit(tok.value.as_str())),
@@ -11990,7 +12002,13 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           )
         ) => {
           ctx.*.emitter.emit_string(indent);
-          ctx.*.emitter.emit_line("continue;");
+          if(ctx.*.current_continue_label.len() > usize(0), {
+            ctx.*.emitter.emit("goto ");
+            ctx.*.emitter.emit_string(ctx.*.current_continue_label);
+            ctx.*.emitter.emit_line(";");
+          }, {
+            ctx.*.emitter.emit_line("continue;");
+          });
           .Some(String.from("0"))
         },
         // cond(arm1, arm2, …)
@@ -12013,7 +12031,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           ident_opt,
           .None => false,
           .Some(id) => (id.as_str() == "while")
-        ) => handle_while(args, ctx, indent),
+        ) => generate_while_loop(expr, args, ctx, indent),
         // for iter_expr, (param) => { body } — iterator for-loop macro
         match(
           ident_opt,

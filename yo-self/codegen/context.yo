@@ -187,7 +187,13 @@ CodegenContext :: object(
   current_evidence_param_names : ArrayList(String),
   /// Temp variable names already declared in the current function body.
   /// Mirrors `FunctionGenerationContext.declaredTempVars`.
-  declared_temp_vars : ArrayList(String)
+  declared_temp_vars : ArrayList(String),
+  /// Label after the current generated loop body.
+  /// Mirrors `CodeGenContext.currentLoopLabel`.
+  current_loop_label : String,
+  /// Label for the current generated loop's continue target.
+  /// Mirrors `CodeGenContext.currentContinueLabel`.
+  current_continue_label : String
 );
 impl(
   CodegenContext,
@@ -248,7 +254,9 @@ impl(
       expr_info_table : Option(ExprInfoTable).None,
       type_id_statics : HashMap(String, String).new(),
       current_evidence_param_names : ArrayList(String).new(),
-      declared_temp_vars : ArrayList(String).new()
+      declared_temp_vars : ArrayList(String).new(),
+      current_loop_label : String.new(),
+      current_continue_label : String.new()
     )
   ),
   /// Look up the typed metadata attached to expression `id` (set by the
