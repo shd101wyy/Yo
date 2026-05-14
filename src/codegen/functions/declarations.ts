@@ -132,13 +132,29 @@ export function generateFunctionDeclarations(
     // MUST still be emitted in their unspecialized form — their body is simple (escape)
     // and the unspecialized name is stored as a void* function pointer in async capture
     // structs by emitEffectRecordInjection in await.ts.
+    //
+    // Second exception: if the base's cName is still referenced by at least one
+    // call site emitted into the C output (the call-site codegen uses
+    // `context.functions[funcId].cName`, which is the base's name when no
+    // matching specialized FunctionValue is registered in `context.functions`),
+    // skipping the base leaves those call sites unresolved. Detect this by
+    // checking whether any *registered* specialized FunctionValue shares the
+    // base's cName — in that case the specialized entry has replaced the base
+    // and we can safely skip; otherwise emit the base declaration too.
     if (
       !isUserMain &&
       !value.type.isClosure &&
       !value.isEffectRecordMember &&
       value.specializedFunctionCaches?.length > 0
     ) {
-      continue;
+      const baseCName = cName;
+      const hasRegisteredReplacement = Object.values(context.functions).some(
+        (entry) =>
+          entry !== context.functions[funcId] && entry.cName === baseCName
+      );
+      if (hasRegisteredReplacement) {
+        continue;
+      }
     }
 
     const hasUnresolvedFunctionImplicitParams =
