@@ -1,0 +1,236 @@
+//! Codegen for Iso builtins and Iso type constructor calls.
+//!
+//! 1-to-1 port of `src/codegen/exprs/iso.ts`, adapted to yo-self's
+//! `ExprInfoTable` side-table for TypeScript `expr.$` metadata.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_id } :: import("../../expr/expr.yo");
+{ TypeValue } :: import("../../types/type.yo");
+{ is_iso_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ EvalValue } :: import("../../evaluator/value.yo");
+{ CodegenContext, CodegenIsoTypeEntry } :: import("../context.yo");
+{ type_value_to_c_field } :: import("../types.yo");
+{ call_gen_expr } :: import("./expr.yo");
+{ sanitize_for_c_identifier } :: import("./typeid.yo");
+
+iso_type_c_name :: (fn(t : TypeValue, ctx : *(CodegenContext)) -> String)({
+  key := type_to_string(t);
+  match(
+    ctx.*.types.get(key),
+    .Some(entry) => entry.c_name,
+    .None => match(
+      type_value_to_c_field(t),
+      .Some(c_name) => c_name,
+      .None => sanitize_for_c_identifier(key.as_str())
+    )
+  )
+});
+
+iso_expr_type :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(TypeValue))(
+  match(
+    ctx.*.get_expr_info(ast_expr_id(expr)),
+    .None => Option(TypeValue).None,
+    .Some(info) => Option(TypeValue).Some(info.ty)
+  )
+);
+
+iso_expr_value_type :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(TypeValue))(
+  match(
+    ctx.*.get_expr_info(ast_expr_id(expr)),
+    .None => Option(TypeValue).None,
+    .Some(info) => match(
+      info.value,
+      .None => Option(TypeValue).None,
+      .Some(value) => match(
+        value,
+        .TypeVal(ty) => Option(TypeValue).Some(ty.*),
+        _ => Option(TypeValue).None
+      )
+    )
+  )
+);
+
+iso_temp_or_call :: (
+  fn(call_expr : AstExpr, call_code : String, return_type : TypeValue, ctx : *(CodegenContext), indent : String) -> String
+)(
+  match(
+    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    .None => call_code,
+    .Some(info) => match(
+      info.variable_name,
+      .None => call_code,
+      .Some(temp_var) => {
+        c_ty := iso_type_c_name(return_type, ctx);
+        temp_name := sanitize_for_c_identifier(temp_var.as_str());
+        line := String.from(indent.as_str());
+        line.push_string(c_ty);
+        line.push_str(" ");
+        line.push_string(temp_name);
+        line.push_str(" = ");
+        line.push_string(call_code);
+        line.push_str(";");
+        ctx.*.emitter.emit_string_line(line);
+        temp_name
+      }
+    )
+  )
+);
+
+generate_yo_iso_extract :: (
+  fn(call_expr : AstExpr, args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> String
+)(
+  match(
+    args.get(usize(0)),
+    .None => String.from("// Error: __yo_iso_extract requires exactly 1 argument"),
+    .Some(self_arg) => match(
+      call_gen_expr(self_arg, ctx, indent),
+      .None => String.from("// Error: __yo_iso_extract failed to generate self argument"),
+      .Some(self_code) => match(
+        iso_expr_type(self_arg, ctx),
+        .None => String.from("// Error: __yo_iso_extract requires an Iso type"),
+        .Some(self_type) => cond(
+          (!(is_iso_type(self_type))) => String.from("// Error: __yo_iso_extract requires an Iso type"),
+          true => {
+            iso_c_name := iso_type_c_name(self_type, ctx);
+            return_type := match(
+              iso_expr_type(call_expr, ctx),
+              .None => TypeValue.Unit,
+              .Some(rt) => rt
+            );
+            match(
+              ctx.*.iso_types.get(iso_c_name),
+              .None => (),
+              .Some(entry) => match(
+                entry.option_type_c_name,
+                .Some(_) => (),
+                .None => {
+                  updated := CodegenIsoTypeEntry(
+                    child_type_c_name : entry.child_type_c_name,
+                    iso_type : entry.iso_type,
+                    option_type_c_name : Option(String).Some(iso_type_c_name(return_type, ctx)),
+                    struct_generated : entry.struct_generated,
+                    create_generated : entry.create_generated,
+                    extract_generated : entry.extract_generated,
+                    dispose_generated : entry.dispose_generated
+                  );
+                  ctx.*.iso_types.set(iso_c_name, updated);
+                }
+              )
+            );
+            call := String.from("__yo_iso_extract_");
+            call.push_string(iso_c_name);
+            call.push_str("(");
+            call.push_string(self_code);
+            call.push_str(")");
+            iso_temp_or_call(call_expr, call, return_type, ctx, indent)
+          }
+        )
+      )
+    )
+  )
+);
+
+generate_yo_iso_dispose :: (
+  fn(_call_expr : AstExpr, args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> String
+)(
+  match(
+    args.get(usize(0)),
+    .None => String.from("// Error: __yo_iso_dispose requires exactly 1 argument"),
+    .Some(self_arg) => match(
+      call_gen_expr(self_arg, ctx, indent),
+      .None => String.from("// Error: __yo_iso_dispose failed to generate self argument"),
+      .Some(self_code) => match(
+        iso_expr_type(self_arg, ctx),
+        .None => String.from("// Error: __yo_iso_dispose requires an Iso type"),
+        .Some(self_type) => cond(
+          (!(is_iso_type(self_type))) => String.from("// Error: __yo_iso_dispose requires an Iso type"),
+          true => {
+            iso_c_name := iso_type_c_name(self_type, ctx);
+            call := String.from("__yo_iso_dispose_");
+            call.push_string(iso_c_name);
+            call.push_str("(");
+            call.push_string(self_code);
+            call.push_str(")");
+            call
+          }
+        )
+      )
+    )
+  )
+);
+
+is_iso_type_call :: (fn(call_expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
+  match(
+    call_expr,
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, args, is_infix, _) => cond(
+      is_infix => false,
+      (args.len() != usize(1)) => false,
+      true => match(
+        iso_expr_value_type(func_box.*, ctx),
+        .Some(ty) => is_iso_type(ty),
+        .None => false
+      )
+    )
+  )
+);
+
+generate_iso_type_call :: (
+  fn(call_expr : AstExpr, args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+)(
+  cond(
+    (!(is_iso_type_call(call_expr, ctx))) =>
+      Option(String).Some(String.from("/* Error: generateIsoTypeCall called on non-Iso type call */")),
+    true => match(
+      call_expr,
+      .Atom(_, _) => Option(String).None,
+      .FnCall(_, func_box, _, _, _) => match(
+        iso_expr_value_type(func_box.*, ctx),
+        .None => Option(String).None,
+        .Some(iso_type) => match(
+          args.get(usize(0)),
+          .None => Option(String).None,
+          .Some(value_arg) => match(
+            call_gen_expr(value_arg, ctx, indent),
+            .None => Option(String).None,
+            .Some(value_code) => {
+              child_type := match(iso_type,.IsoT(child) => child.*, _ => TypeValue.Unit);
+              iso_c_name := iso_type_c_name(iso_type, ctx);
+              child_c_name := iso_type_c_name(child_type, ctx);
+              if(match(ctx.*.iso_types.get(iso_c_name),.Some(_) => false,.None => true), {
+                ctx.*.iso_types.set(
+                  iso_c_name,
+                  CodegenIsoTypeEntry(
+                    child_type_c_name : child_c_name,
+                    iso_type : iso_type,
+                    option_type_c_name : Option(String).None,
+                    struct_generated : false,
+                    create_generated : false,
+                    extract_generated : false,
+                    dispose_generated : false
+                  )
+                );
+              });
+              call := String.from("__yo_create_iso_");
+              call.push_string(iso_c_name);
+              call.push_str("(");
+              call.push_string(value_code);
+              call.push_str(")");
+              Option(String).Some(call)
+            }
+          )
+        )
+      )
+    )
+  )
+);
+
+export(
+  generate_yo_iso_extract,
+  generate_yo_iso_dispose,
+  is_iso_type_call,
+  generate_iso_type_call,
+  iso_type_c_name,
+  iso_expr_value_type
+);

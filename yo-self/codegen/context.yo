@@ -19,6 +19,15 @@ CodegenClosureCaptureEntry :: object(
   capture_type : TypeValue,
   capture_c_name : String
 );
+CodegenIsoTypeEntry :: object(
+  child_type_c_name : String,
+  iso_type : TypeValue,
+  option_type_c_name : Option(String),
+  struct_generated : bool,
+  create_generated : bool,
+  extract_generated : bool,
+  dispose_generated : bool
+);
 /// Shared mutable context passed to every `generate_*` function.
 ///
 /// Phase 4b/4c fields:
@@ -53,6 +62,9 @@ CodegenContext :: object(
   // Closure-to-capture type mapping for capture-specific dispose declarations.
   // Mirrors `CodeGenContext.closureCaptureMap`.
   closure_capture_map : HashMap(String, CodegenClosureCaptureEntry),
+  // Iso type registry keyed by Iso type C name.
+  // Mirrors `CodeGenContext.isoTypes`.
+  iso_types : HashMap(String, CodegenIsoTypeEntry),
   emitter : Emitter,
   temp_count : usize,
   defined_fns : ArrayList(String),
@@ -184,6 +196,7 @@ impl(
     Self(
       types : HashMap(String, CodegenTypeEntry).new(),
       closure_capture_map : HashMap(String, CodegenClosureCaptureEntry).new(),
+      iso_types : HashMap(String, CodegenIsoTypeEntry).new(),
       emitter : Emitter.new(),
       temp_count : usize(0),
       defined_fns : ArrayList(String).new(),
@@ -1236,4 +1249,4 @@ impl(
     result
   })
 );
-export(CodegenTypeEntry, CodegenClosureCaptureEntry, CodegenContext);
+export(CodegenTypeEntry, CodegenClosureCaptureEntry, CodegenIsoTypeEntry, CodegenContext);

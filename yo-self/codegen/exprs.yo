@@ -29,6 +29,8 @@ open(import("std/string"));
 { generate_anonymous_tuple } :: import("./exprs/tuple_fn.yo");
 { generate_anonymous_array, generate_yo_array_fill } :: import("./exprs/array_fns.yo");
 { generate_recur } :: import("./exprs/recur.yo");
+{ generate_yo_iso_extract, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call }
+:: import("./exprs/iso.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — one per kind of C literal/expression
 // ---------------------------------------------------------------------------
@@ -11511,6 +11513,9 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           .Some(tuple_code) => Option(String).Some(tuple_code),
           .None => handle_tuple_literal(args, ctx, indent)
         ),
+        // Iso(T)(value) — metadata-aware Iso value constructor.
+        // Mirrors `src/codegen/exprs/generation.ts` Iso type call dispatch.
+        ((!(is_infix)) && is_iso_type_call(expr, ctx)) => generate_iso_type_call(expr, args, ctx, indent),
         // Labeled anonymous struct: { field1: val1, field2: val2 }
         // Generates a C compound literal with __typeof__ for type inference.
         // This is the expression form; `x := { ... }` is handled in handle_define.
@@ -12342,6 +12347,24 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => (id.as_str() == "__yo_array_fill")
           )
         ) => Option(String).Some(generate_yo_array_fill(expr, args, ctx, indent)),
+        // __yo_iso_extract(iso_value) — extract inner value from Iso wrapper.
+        // Mirrors `src/codegen/exprs/generation.ts` BuiltinFunctions.__yo_iso_extract dispatch.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "__yo_iso_extract")
+          )
+        ) => Option(String).Some(generate_yo_iso_extract(expr, args, ctx, indent)),
+        // __yo_iso_dispose(iso_value) — dispose Iso wrapper.
+        // Mirrors `src/codegen/exprs/generation.ts` BuiltinFunctions.__yo_iso_dispose dispatch.
+        (
+          (!(is_infix)) && match(
+            ident_opt,
+            .None => false,
+            .Some(id) => (id.as_str() == "__yo_iso_dispose")
+          )
+        ) => Option(String).Some(generate_yo_iso_dispose(expr, args, ctx, indent)),
         // open(struct_value) — emit runtime destructuring declarations when
         // typed metadata records `runtime_destructurings`.
         // Mirrors `src/codegen/exprs/generation.ts` BuiltinKeywords.open dispatch.
