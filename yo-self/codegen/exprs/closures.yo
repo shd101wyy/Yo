@@ -118,11 +118,47 @@ format_dyn_closure_construction :: (
   s.push_str(")");
   s
 });
+/// Build the closure-capture temp variable name:
+///   `__capture_<closure_type_id>_<unique_suffix>`
+///
+/// Mirrors the TS line in `allocateClosureCapture`:
+///     `__capture_${closureTypeId}_${uniqueSuffix}`
+/// The caller provides `unique_suffix` (typically from a counter or
+/// `random_id` call) — the formatter just does the string composition.
+format_closure_capture_temp_var :: (
+  fn(closure_type_id : String, unique_suffix : String) -> String
+)({
+  s := String.from("__capture_");
+  s.push_string(closure_type_id);
+  s.push_str("_");
+  s.push_string(unique_suffix);
+  s
+});
+/// Format a stack-allocated closure capture initialisation:
+///   `<capture_c_name> <capture_temp_var> = <capture_data_code>;`
+///
+/// Used by `allocateClosureCapture` when `useStackAllocation` is true
+/// (Impl(Fn(...)) closures with no escape past the current frame).
+/// Pure string composition; the heap-alloc counterpart is
+/// `format_spawn_heap_alloc` in parallelism.yo.
+format_closure_stack_alloc :: (
+  fn(capture_c_name : String, capture_temp_var : String, capture_data_code : String) -> String
+)({
+  s := String.from(capture_c_name.as_str());
+  s.push_str(" ");
+  s.push_str(capture_temp_var.as_str());
+  s.push_str(" = ");
+  s.push_str(capture_data_code.as_str());
+  s.push_str(";");
+  s
+});
 export(
   check_variable_is_closure_captured,
   is_closure_construction,
   resolve_some_type_to_concrete,
   format_closure_constructor_name,
   format_closure_dispose_name,
-  format_dyn_closure_construction
+  format_dyn_closure_construction,
+  format_closure_capture_temp_var,
+  format_closure_stack_alloc
 );

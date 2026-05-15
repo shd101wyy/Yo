@@ -27,7 +27,9 @@ open(import("std/string"));
   resolve_some_type_to_concrete,
   format_closure_constructor_name,
   format_closure_dispose_name,
-  format_dyn_closure_construction
+  format_dyn_closure_construction,
+  format_closure_capture_temp_var,
+  format_closure_stack_alloc
 } :: import("../codegen/exprs/closures.yo");
 placeholder_token :: (fn() -> Token)(
   Token(
@@ -215,5 +217,26 @@ test("format_dyn_closure_construction: without captures uses NULL", {
     out ==
       String.from("__yo_create_Idle(NULL, __yo_dispose_Idle, (call_fn_t)idle_impl)"),
     "without captures"
+  );
+});
+test("format_closure_capture_temp_var: __capture_<id>_<suffix>", {
+  out := format_closure_capture_temp_var(
+    String.from("Closure42"),
+    String.from("rand_abc")
+  );
+  assert(
+    out == String.from("__capture_Closure42_rand_abc"),
+    "capture temp name"
+  );
+});
+test("format_closure_stack_alloc: capture-type name + temp + init", {
+  out := format_closure_stack_alloc(
+    String.from("Cap"),
+    String.from("_cap_tmp"),
+    String.from("(Cap){ .x = 1 }")
+  );
+  assert(
+    out == String.from("Cap _cap_tmp = (Cap){ .x = 1 };"),
+    "stack alloc shape"
   );
 });
