@@ -68,7 +68,96 @@ open(import("std/fmt"));
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("../../token.yo");
+// ---------------------------------------------------------------------------
+// Macro side-tables (folded from former
+// `evaluator/types/macro_registry.yo`).
+//
+// In src/, macro-ness is stored as flags on FunctionType:
+//   * `parameter.isQuote: boolean` — for `quote(name) : Expr` parameters
+//   * `returnType.isUnquote: boolean` — for `unquote(Expr)` return types
+//
+// yo-self's TypeValue.Func does not carry those flags, so we side-table
+// the information keyed by `func_id`. A function is treated as a macro
+// if EITHER its return type is `unquote(...)` OR it has at least one
+// quoted parameter.
+// ---------------------------------------------------------------------------
+/// Map from func_id → list of parameter indices that are quoted.
+/// Absent entry means no quoted parameters.
+(g_macro_quoted_param_indices : HashMap(String, ArrayList(usize))) =
+  HashMap(String, ArrayList(usize)).new();
+/// Map from func_id → true if return type is `unquote(...)`.
+/// Absent entry means return is not an unquote.
+(g_macro_return_is_unquote : HashMap(String, bool)) =
+  HashMap(String, bool).new();
+/// Register the list of quoted parameter indices for a function.
+/// Idempotent: repeated calls overwrite the previous entry.
+register_macro_quoted_params :: (fn(func_id : String, indices : ArrayList(usize)) -> unit)({
+  cond(
+    (indices.len() > usize(0)) => {
+      ___ := g_macro_quoted_param_indices.set((&(func_id)).clone(), indices);
+    },
+    true => ()
+  );
+});
+/// Mark a function as having an `unquote(...)` return type. Idempotent.
+register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
+  ___ := g_macro_return_is_unquote.set((&(func_id)).clone(), true);
+});
+/// Returns the list of quoted parameter indices, or an empty list if none.
+get_macro_quoted_param_indices :: (fn(func_id : str) -> ArrayList(usize))(
+  match(
+    g_macro_quoted_param_indices.get(String.from(func_id)),
+    .Some(idxs) => idxs,
+    .None => ArrayList(usize).new()
+  )
+);
+/// Returns true if the function's return type is `unquote(...)`.
+macro_return_is_unquote :: (fn(func_id : str) -> bool)(
+  match(
+    g_macro_return_is_unquote.get(String.from(func_id)),
+    .Some(_) => true,
+    .None => false
+  )
+);
+/// Returns true if the function is a macro (quoted params OR unquote return).
+is_macro_fn :: (fn(func_id : str) -> bool)(
+  cond(
+    macro_return_is_unquote(func_id) => true,
+    true => match(
+      g_macro_quoted_param_indices.get(String.from(func_id)),
+      .Some(idxs) => (idxs.len() > usize(0)),
+      .None => false
+    )
+  )
+);
+/// Returns true if the parameter at `param_index` is quoted for `func_id`.
+is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
+  match(
+    g_macro_quoted_param_indices.get(String.from(func_id)),
+    .Some(idxs) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      n := idxs.len();
+      while(runtime((i < n) && !(found)), {
+        match(
+          idxs.get(i),
+          .Some(idx) => cond(
+            (idx == param_index) => {
+              found = true;
+            },
+            true => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    .None => false
+  )
+);
 // ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
@@ -3076,3 +3165,11 @@ export(evaluate_function_parameter_type_again);
 export(evaluate_function_return_type_again);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
 export(_add_where_clause_constraint, _trait_has_receiver);
+export(
+  register_macro_quoted_params,
+  register_macro_return_is_unquote,
+  get_macro_quoted_param_indices,
+  macro_return_is_unquote,
+  is_macro_fn,
+  is_param_quoted
+);
