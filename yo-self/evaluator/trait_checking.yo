@@ -49,7 +49,7 @@ open(import("std/string"));
 { Token } :: import("../token.yo");
 { YoError, ErrorKind, format_error_message } :: import("../error.yo");
 { find_matching_generic_impl, set_type_implements_trait_fn }
-:: import("./values/generic_impl_registry.yo");
+:: import("./values/impl.yo");
 // ---------------------------------------------------------------------------
 // Auto-derived trait registry (folded from former
 // `evaluator/types/trait_registry.yo`).
@@ -1079,7 +1079,7 @@ mark_concrete_impl_being_registered :: (fn(_type_id : String, _trait_id : String
 /// `src/evaluator/trait-checking.ts`.
 unmark_concrete_impl_being_registered :: (fn(_type_id : String, _trait_id : String) -> unit)(());
 // Install type_implements_trait_bool as the function pointer used by
-// generic_impl_registry.yo's try_match_generic_impl for where-clause checking.
+// impl.yo's try_match_generic_impl for where-clause checking.
 // This breaks the circular dependency between the two modules.
 _trait_checking_init := (fn() -> bool)({
   set_type_implements_trait_fn(type_implements_trait_bool);
