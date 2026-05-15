@@ -217,6 +217,28 @@ all_unit_variants :: (fn(variant_fields : ArrayList(ArrayList(TypeValue))) -> bo
   });
   all_unit
 });
+/// Format the simple-enum header line:
+///   `typedef enum { // <human_name> (optimized as simple enum)`
+/// Used by `emit_simple_enum`. The trailing parenthetical marker
+/// distinguishes the simple-enum optimisation from the data-enum tag
+/// type in the generated C.
+format_simple_enum_header :: (fn(human_name : String) -> String)({
+  s := String.from("typedef enum { // ");
+  s.push_string(human_name);
+  s.push_str(" (optimized as simple enum)");
+  s
+});
+/// Format the `__dup` body's local copy line:
+///   `  <c_type_name> __yo_dup_tmp = __yo_self;`
+/// Used by `emit_dup_fn` to make a shallow copy of `__yo_self` before
+/// returning it (so the compiler is free to optimise the copy when the
+/// type is by-value).
+format_rc_dup_tmp_decl :: (fn(c_type_name : str) -> String)({
+  s := String.from("  ");
+  s.push_str(c_type_name);
+  s.push_str(" __yo_dup_tmp = __yo_self;");
+  s
+});
 /// Format an enum variant entry line:
 ///   `  <tag_prefix>_<VNAME_UPPER> = <disc_val>[,]`
 /// Used by both `emit_simple_enum` and the tag-enum block of
@@ -307,10 +329,7 @@ emit_simple_enum :: (
   c_name := enum_c_name(module_id, type_id);
   tag_prefix := enum_tag_prefix(module_id, type_id);
   // Header: typedef enum { // Name (optimized as simple enum)
-  hdr := String.from("typedef enum { // ");
-  hdr.push_string(name);
-  hdr.push_str(" (optimized as simple enum)");
-  ctx.*.emitter.emit_declaration_string_line(hdr);
+  ctx.*.emitter.emit_declaration_string_line(format_simple_enum_header(name));
   // Variant entries: __YO_ENUM_..._VARIANTNAME = N,
   n := variant_names.len();
   (i : usize) = usize(0);
@@ -608,10 +627,7 @@ emit_drop_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
 /// Emit the `__dup` function body (shallow copy for non-RC types).
 emit_dup_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
   ctx.*.emitter.emit_line(format_rc_dup_sig(rc_dup_name(c_type_name), c_type_name).as_str());
-  tmp_decl := String.from("  ");
-  tmp_decl.push_str(c_type_name);
-  tmp_decl.push_str(" __yo_dup_tmp = __yo_self;");
-  ctx.*.emitter.emit_line(tmp_decl.as_str());
+  ctx.*.emitter.emit_line(format_rc_dup_tmp_decl(c_type_name).as_str());
   ctx.*.emitter.emit_line("  return(__yo_dup_tmp);");
   ctx.*.emitter.emit_line("}");
 });
@@ -655,18 +671,12 @@ generate_rc_fns :: (
   match(
     type_val,
     .Struct(_, _, _, _, _, _, _) => {
-      c_name := String.from("__yo_struct_");
-      c_name.push_str(module_id);
-      c_name.push_str("_id_");
-      c_name.push_string(type_id.to_string());
+      c_name := struct_c_name(module_id, type_id);
       generate_rc_fns_trivial(c_name.as_str(), true, ctx);
       true
     },
     .EnumT(_, _, _, _, _, _, _) => {
-      c_name := String.from("__yo_enum_");
-      c_name.push_str(module_id);
-      c_name.push_str("_id_");
-      c_name.push_string(type_id.to_string());
+      c_name := enum_c_name(module_id, type_id);
       generate_rc_fns_trivial(c_name.as_str(), false, ctx);
       true
     },
@@ -703,5 +713,7 @@ export(
   format_rc_void_forward_decl,
   format_rc_dup_forward_decl,
   format_rc_void_sig,
-  format_rc_dup_sig
+  format_rc_dup_sig,
+  format_simple_enum_header,
+  format_rc_dup_tmp_decl
 );
