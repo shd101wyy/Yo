@@ -10,6 +10,36 @@
 //! ASAN note: `generate_expr` is large but far below the ~700-variable
 //! threshold that forced `evaluate()` to use the `g_eval_fn` pointer trick.
 //! All Phase 4c control-flow helpers are factored into module-level functions.
+//!
+//! **Structural mapping vs src/**: this file is the **bootstrap codegen
+//! dispatch** — the AST-walking counterpart to `evaluator/eval.yo`. It
+//! pattern-matches the raw `AstExpr` AST and emits C, *without using the
+//! evaluator*. src/ has no equivalent file: production codegen lives in
+//! `src/codegen/{exprs,functions,types}/*.ts` and consumes the typed AST
+//! from the evaluator, never the raw AST.
+//!
+//! Phases A.8.1-A.8.5 extracted the **genuinely 1-to-1 portable pieces**
+//! into their proper src/-mirroring homes:
+//!   * `codegen/exprs/atom.yo`     (Phase A.8.1) — `gen_*_lit`, `sanitize_c_ident`,
+//!                                  `is_*_op`, `gen_binary_op`, `gen_unary_op`
+//!   * `codegen/exprs/closures.yo` (Phase A.8.2) — `is_lambda_expr`,
+//!                                  `extract_lambda_param_names`
+//!   * `codegen/exprs/begin.yo`    (Phase A.8.3) — `emit_as_stmt`,
+//!                                  `is_begin_block`, `is_stmt_body_expr`
+//!   * `codegen/exprs/tuple_fn.yo` (Phase A.8.4) — `handle_tuple_literal`
+//!   * `codegen/exprs/match.yo`    (Phase A.8.5) — match AST predicates
+//!
+//! The remaining ~12.7K lines here are **bootstrap-specific**: helpers
+//! that have no src/ counterpart (e.g. `_split_csv` for CSV-encoded field
+//! lists, `register_box_var`/`register_array_var` C-aggregate-shape
+//! heuristics, generic-struct-instance-on-demand machinery, and the
+//! giant `generate_expr` AST-pattern-matching dispatch). All of this
+//! will be deleted once yo-self can use its own typed AST (the typed-AST
+//! pivot, roadmap Phase 13at).
+//!
+//! Like `codegen/driver.yo` (A.6) and `evaluator/eval.yo` (A.7), the
+//! remainder of this file is an **acceptable divergence
+//! (bootstrap-specific)** with no further 1-to-1 decomposition target.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_BEGIN, BK_ANON_STRUCT, BK_TUPLE } :: import("../expr.yo");
