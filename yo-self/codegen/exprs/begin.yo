@@ -14,7 +14,8 @@ open(import("std/string"));
   indent_plus_two,
   format_typed_init_line,
   format_typed_var_name,
-  format_typed_decl_line
+  format_typed_decl_line,
+  format_indented_line
 } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
@@ -43,11 +44,11 @@ format_begin_assignment_line :: (
   format_typed_init_line(indent, lhs, rhs)
 );
 /// Format the begin-block open header: `<indent>{ // begin block`.
-format_begin_block_open :: (fn(indent : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("{ // begin block");
-  s
-});
+/// Composed via `format_indented_line` for the literal block-open
+/// shape.
+format_begin_block_open :: (fn(indent : String) -> String)(
+  format_indented_line(indent, "{ // begin block")
+);
 
 begin_emit_statement :: (fn(code : String, ctx : *(CodegenContext), indent : String) -> unit)({
   ctx.*.emitter.emit_string(indent);
