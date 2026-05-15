@@ -16,7 +16,14 @@ open(import("std/string"));
 {
   generate_step_expression,
   generate_while_loop,
-  strip_comptime_condition
+  strip_comptime_condition,
+  format_while_true_open,
+  format_while_if_negate,
+  format_while_break_line,
+  format_while_break_close,
+  format_while_close,
+  format_while_label_line,
+  format_while_step_line
 } :: import("../codegen/exprs/while.yo");
 
 mk_token :: (fn(value : str, kind : TokenKind) -> Token)(
@@ -200,4 +207,33 @@ test("generate_while_loop: comptime unrolled bodies emit sequentially", {
   assert(!(output.contains(String.from("while (true)"))), "no loop for unrolled bodies");
   assert(output.contains(String.from("body_one;")), "first body emitted");
   assert(output.contains(String.from("body_two;")), "second body emitted");
+});
+// ─── pure string formatters ─────────────────────────────────────────────────
+test("format_while_true_open: prepends indent before `while (true) {`", {
+  out := format_while_true_open(String.from("  "));
+  assert(out == String.from("  while (true) {"), "while true open shape");
+});
+test("format_while_if_negate: composes `<indent>  if (!(<cond>)) {`", {
+  out := format_while_if_negate(String.from(""), String.from("x < y"));
+  assert(out == String.from("  if (!(x < y)) {"), "if-negate shape");
+});
+test("format_while_break_line: emits 4-space-indented break;", {
+  out := format_while_break_line(String.from(""));
+  assert(out == String.from("    break;"), "break line shape");
+});
+test("format_while_break_close: emits 2-space-indented closing brace", {
+  out := format_while_break_close(String.from(""));
+  assert(out == String.from("  }"), "break close shape");
+});
+test("format_while_close: emits closing `<indent>}`", {
+  out := format_while_close(String.from("  "));
+  assert(out == String.from("  }"), "while close shape");
+});
+test("format_while_label_line: composes `<indent><label>:;`", {
+  out := format_while_label_line(String.from("    "), String.from("loop_42"));
+  assert(out == String.from("    loop_42:;"), "label line shape");
+});
+test("format_while_step_line: emits 2-space-indented step + semicolon", {
+  out := format_while_step_line(String.from(""), String.from("i = i + 1"));
+  assert(out == String.from("  i = i + 1;"), "step line shape");
 });

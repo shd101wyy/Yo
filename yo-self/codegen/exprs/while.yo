@@ -10,6 +10,67 @@ open(import("std/string"));
 { CodegenContext } :: import("../context.yo");
 { call_gen_expr } :: import("./expr.yo");
 
+/// Format `<indent>while (true) {` — the opening header of every
+/// generated `while` lowering (both 2-arg and 3-arg forms).
+format_while_true_open :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("while (true) {");
+  s
+});
+/// Format the inner break-on-condition-false header:
+///   `<indent>  if (!(<cond_code>)) {`
+/// Note the embedded 2-space inner indent — the break/close lines
+/// follow the same pattern via `format_while_break_line` and
+/// `format_while_break_close`.
+format_while_if_negate :: (fn(indent : String, cond_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("  if (!(");
+  s.push_string(cond_code);
+  s.push_str(")) {");
+  s
+});
+/// Format the inner break line of the negated-condition guard:
+///   `<indent>    break;`
+format_while_break_line :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("    break;");
+  s
+});
+/// Format the closing brace of the negated-condition guard block:
+///   `<indent>  }`
+format_while_break_close :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("  }");
+  s
+});
+/// Format `<indent>}` — the closing brace of the outer `while (true)`
+/// block.
+format_while_close :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("}");
+  s
+});
+/// Format a C goto label line: `<indent><label>:;`. Used to emit the
+/// outer `loop_<id>:;` continuation point and the inner
+/// `continue_<id>:;` step-expression target.
+format_while_label_line :: (fn(indent : String, label : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_string(label);
+  s.push_str(":;");
+  s
+});
+/// Format the step-expression line inside a 3-arg `while` body:
+///   `<indent>  <step_code>;`
+/// The 2-space inner indent matches the inside of the `while (true) {`
+/// block. `step_code` is the C-emitted step expression — typically a
+/// chain of compound assignments built by `generate_step_expression`.
+format_while_step_line :: (fn(indent : String, step_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("  ");
+  s.push_string(step_code);
+  s.push_str(";");
+  s
+});
 expr_is_function_call_of :: (fn(expr : AstExpr, name : str, arity : usize) -> bool)(
   match(
     expr,
@@ -245,27 +306,18 @@ generate_while_loop :: (
           saved_loop_label := ctx.*.current_loop_label;
           loop_label := fresh_loop_label("loop_");
           ctx.*.current_loop_label = loop_label;
-          ctx.*.emitter.emit_string(indent);
-          ctx.*.emitter.emit_line("while (true) {");
+          ctx.*.emitter.emit_string_line(format_while_true_open(indent));
           condition_code := match(
             call_gen_expr(condition_expr, ctx, String.from(indent.as_str()) + String.from("  ")),
             .None => String.from("0"),
             .Some(code) => code
           );
-          ctx.*.emitter.emit_string(indent);
-          ctx.*.emitter.emit("  if (!(");
-          ctx.*.emitter.emit_string(condition_code);
-          ctx.*.emitter.emit_line(")) {");
-          ctx.*.emitter.emit_string(indent);
-          ctx.*.emitter.emit_line("    break;");
-          ctx.*.emitter.emit_string(indent);
-          ctx.*.emitter.emit_line("  }");
+          ctx.*.emitter.emit_string_line(format_while_if_negate(indent, condition_code));
+          ctx.*.emitter.emit_string_line(format_while_break_line(indent));
+          ctx.*.emitter.emit_string_line(format_while_break_close(indent));
           generate_loop_body(body_expr, String.from(indent.as_str()) + String.from("  "), ctx);
-          ctx.*.emitter.emit_string(indent);
-          ctx.*.emitter.emit_line("}");
-          ctx.*.emitter.emit_string(indent);
-          ctx.*.emitter.emit_string(loop_label);
-          ctx.*.emitter.emit_line(":;");
+          ctx.*.emitter.emit_string_line(format_while_close(indent));
+          ctx.*.emitter.emit_string_line(format_while_label_line(indent, loop_label));
           ctx.*.current_loop_label = saved_loop_label;
           Option(String).Some(String.new())
         }
@@ -288,35 +340,21 @@ generate_while_loop :: (
             continue_label := fresh_loop_label("continue_");
             ctx.*.current_loop_label = loop_label;
             ctx.*.current_continue_label = continue_label;
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit_line("while (true) {");
+            ctx.*.emitter.emit_string_line(format_while_true_open(indent));
             condition_code := match(
               call_gen_expr(condition_expr, ctx, String.from(indent.as_str()) + String.from("  ")),
               .None => String.from("0"),
               .Some(code) => code
             );
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit("  if (!(");
-            ctx.*.emitter.emit_string(condition_code);
-            ctx.*.emitter.emit_line(")) {");
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit_line("    break;");
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit_line("  }");
+            ctx.*.emitter.emit_string_line(format_while_if_negate(indent, condition_code));
+            ctx.*.emitter.emit_string_line(format_while_break_line(indent));
+            ctx.*.emitter.emit_string_line(format_while_break_close(indent));
             generate_loop_body(body_expr, String.from(indent.as_str()) + String.from("  "), ctx);
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit_string(continue_label);
-            ctx.*.emitter.emit_line(":;");
+            ctx.*.emitter.emit_string_line(format_while_label_line(indent, continue_label));
             step_code := generate_step_expression(step_expr, ctx);
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit("  ");
-            ctx.*.emitter.emit_string(step_code);
-            ctx.*.emitter.emit_line(";");
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit_line("}");
-            ctx.*.emitter.emit_string(indent);
-            ctx.*.emitter.emit_string(loop_label);
-            ctx.*.emitter.emit_line(":;");
+            ctx.*.emitter.emit_string_line(format_while_step_line(indent, step_code));
+            ctx.*.emitter.emit_string_line(format_while_close(indent));
+            ctx.*.emitter.emit_string_line(format_while_label_line(indent, loop_label));
             ctx.*.current_loop_label = saved_loop_label;
             ctx.*.current_continue_label = saved_continue_label;
             Option(String).Some(String.new())
@@ -339,5 +377,12 @@ export(
   generate_loop_body,
   generate_while_loop,
   strip_comptime_condition,
-  expr_is_function_call_of
+  expr_is_function_call_of,
+  format_while_true_open,
+  format_while_if_negate,
+  format_while_break_line,
+  format_while_break_close,
+  format_while_close,
+  format_while_label_line,
+  format_while_step_line
 );
