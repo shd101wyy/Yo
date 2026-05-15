@@ -15,6 +15,7 @@ open(import("std/string"));
   format_indented_line,
   format_indented_stmt
 } :: import("../utils/index.yo");
+
 { call_gen_expr } :: import("./expr.yo");
 
 /// Format `<indent>while (true) {` — the opening header of every
@@ -199,9 +200,7 @@ emit_loop_body_deferred_drops :: (fn(body_expr : AstExpr, indent : String, ctx :
               call_gen_expr(drop_expr, ctx, indent),
               .None => (),
               .Some(drop_code) => if(drop_code.len() > usize(0), {
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit_string(drop_code);
-                ctx.*.emitter.emit_line(";");
+                ctx.*.emitter.emit_string_line(format_indented_stmt(indent, drop_code));
               })
             )
           );
@@ -227,9 +226,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, ctx : *(CodegenC
               call_gen_expr(arg, ctx, indent),
               .None => (),
               .Some(arg_code) => if(arg_code.len() > usize(0), {
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit_string(arg_code);
-                ctx.*.emitter.emit_line(";");
+                ctx.*.emitter.emit_string_line(format_indented_stmt(indent, arg_code));
               })
             )
           );
@@ -243,9 +240,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, ctx : *(CodegenC
       call_gen_expr(body_expr, ctx, indent),
       .None => (),
       .Some(body_code) => if(body_code.len() > usize(0), {
-        ctx.*.emitter.emit_string(indent);
-        ctx.*.emitter.emit_string(body_code);
-        ctx.*.emitter.emit_line(";");
+        ctx.*.emitter.emit_string_line(format_indented_stmt(indent, body_code));
       })
     );
   });
