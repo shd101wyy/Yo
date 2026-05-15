@@ -278,6 +278,51 @@ and confirming `./yo-cli compile yo-self/main.yo --release` succeeds):
 
 ## 2. Compiler-core: missing files (no yo-self counterpart at all)
 
+### Status summary
+
+After Phase A.9 work, the remaining §2 entries fall into four
+categories:
+
+1. **Structural divergences (TS tagged-union → Yo ADT)** — documented
+   below. Three small files (`unit-value.ts`, `type-value.ts`,
+   `value-tag.ts`) are absorbed into `EvalValue` in `value.yo`. No
+   action — creating mirror files would be empty shims.
+
+2. **Typed-AST-gated** — the file would port mechanically but the
+   ported functions iterate `context.types[].type.cInclude`,
+   `context.functions[].value.specializedType`, etc. — fields
+   populated only by the typed-AST evaluator path. Since that path is
+   currently blocked (see
+   `issues/yo-self-bin-rebuild-segfaults-after-may14-src-codegen-changes.md`)
+   the ports would be dead code until it's unblocked. Includes:
+   `codegen/c/collection.ts` (142), `codegen/shared/suspension-codegen.ts`
+   (199), `codegen/parallelism/runtime.ts` (466),
+   `codegen/types/{collection,dyn}.ts` (556+238),
+   `codegen/functions/{collection,dyn,generation}.ts` (692+536+2339),
+   `codegen/exprs/{async,await,generation}.ts` (1820+829+1286).
+
+3. **Interconnected subsystems** — the async runtime
+   (`codegen/async/*` — 9 files totalling ~17K lines) cross-imports
+   heavily; porting just `runtime.ts` (the 69-line entry) creates a
+   non-compiling stub. Must be ported as one unit or not at all.
+
+4. **Genuine standalone ports remaining** — only two:
+   - `formatter.ts` (1334 lines) — standalone (`yo fmt` source
+     formatter), depends only on parser + token. Multi-day port.
+   - `test-runner.ts` (1529 lines) — flagged as standalone earlier,
+     but on closer inspection it imports `compiler-utils`, `env`,
+     `error`, `evaluator/index`, `expr`, `module-manager`, `target`,
+     `value` — deep into the type pipeline. Not actually standalone.
+
+So **`formatter.yo`** is the only genuine, well-scoped §2 port
+remaining. Everything else is gated or already addressed.
+
+### Completed in this session
+
+- **`expr_traversal.yo`** (commit 320a27ea) — created mirroring
+  `src/expr-traversal.ts`; relocated 3 functions from `expr.yo` and
+  `expr_info.yo` to their proper home. 14 tests pass.
+
 ### Structural divergences (TS tagged-union → Yo ADT)
 
 The src/ codebase splits its tagged-union value types across multiple
