@@ -82,6 +82,56 @@ format_typed_incr_rc_cast :: (
   out.push_str(")");
   out
 });
+/// Format the Dyn typeid runtime check:
+///   `<dyn_code>.vtable->__yo_type_id == (uintptr_t)&<static_var>`
+/// Mirrors the inline `is_check` build in `generate_downcast_for_resolved_types`.
+format_dyn_typeid_check :: (fn(dyn_code : String, static_var : String) -> String)({
+  s := String.from(dyn_code.as_str());
+  s.push_str(".vtable->__yo_type_id == (uintptr_t)&");
+  s.push_string(static_var);
+  s
+});
+/// Format a C ternary expression: `((<cond>) ? <then> : <else>)`.
+/// Used by the nullable-pointer and tagged-union branches of
+/// `generate_downcast_for_resolved_types`.
+format_ternary_expr :: (
+  fn(cond_code : String, then_code : String, else_code : String) -> String
+)({
+  s := String.from("((");
+  s.push_string(cond_code);
+  s.push_str(") ? ");
+  s.push_string(then_code);
+  s.push_str(" : ");
+  s.push_string(else_code);
+  s.push_str(")");
+  s
+});
+/// Format the `Option.Some({ value : v })` construction:
+///   `(<option_c_name>){ .tag = <some_tag>, .data = { .Some = { .value = <value_code> } } }`
+format_option_some_construction :: (
+  fn(option_c_name : String, some_tag : String, value_code : String) -> String
+)({
+  s := String.from("(");
+  s.push_string(option_c_name);
+  s.push_str("){ .tag = ");
+  s.push_string(some_tag);
+  s.push_str(", .data = { .Some = { .value = ");
+  s.push_string(value_code);
+  s.push_str(" } } }");
+  s
+});
+/// Format the `Option.None` construction:
+///   `(<option_c_name>){ .tag = <none_tag> }`
+format_option_none_construction :: (
+  fn(option_c_name : String, none_tag : String) -> String
+)({
+  s := String.from("(");
+  s.push_string(option_c_name);
+  s.push_str("){ .tag = ");
+  s.push_string(none_tag);
+  s.push_str(" }");
+  s
+});
 /// Emit the C expression for a `downcast(dyn_value, T)` call where the
 /// runtime path is the non-boxed-object branch.
 ///
@@ -116,10 +166,7 @@ generate_downcast_for_resolved_types :: (
       target_c_name := get_type_string(target_type, ctx);
       // typeid pointer check: `(dyn_code).vtable->__yo_type_id == (uintptr_t)&__yo_typeid_<sanitized>`
       static_var := register_typeid_static(target_type, ctx);
-      is_check := String.from("");
-      is_check.push_str(dyn_code.as_str());
-      is_check.push_str(".vtable->__yo_type_id == (uintptr_t)&");
-      is_check.push_string(static_var);
+      is_check := format_dyn_typeid_check(dyn_code, static_var);
       // Cast expression: `((target_c_name)__yo_incr_rc((void*)dyn_code.data))`.
       // The Dyn data pointer aliases the underlying object; dup it so
       // both the Dyn wrapper's drop and the cast result's drop can
@@ -130,14 +177,9 @@ generate_downcast_for_resolved_types :: (
       match(
         can_optimize_as_nullable_pointer(option_type),
         // Nullable-pointer fast path: `((is_check) ? cast : NULL)`.
-        .Some(_) => {
-          out := String.from("((");
-          out.push_string(is_check);
-          out.push_str(") ? ");
-          out.push_string(cast_expr);
-          out.push_str(" : NULL)");
-          Option(String).Some(out)
-        },
+        .Some(_) => Option(String).Some(
+          format_ternary_expr(is_check, cast_expr, String.from("NULL"))
+        ),
         // Tagged-union construction.
         .None => {
           option_c_name := get_type_string(option_type, ctx);
@@ -148,26 +190,9 @@ generate_downcast_for_resolved_types :: (
               get_enum_variant_c_name(option_type, String.from("None"), ctx),
               .None => Option(String).None,
               .Some(none_tag) => {
-                some_expr := String.from("(");
-                some_expr.push_string(option_c_name);
-                some_expr.push_str("){ .tag = ");
-                some_expr.push_string(some_tag);
-                some_expr.push_str(", .data = { .Some = { .value = ");
-                some_expr.push_string(cast_expr);
-                some_expr.push_str(" } } }");
-                none_expr := String.from("(");
-                none_expr.push_string(option_c_name);
-                none_expr.push_str("){ .tag = ");
-                none_expr.push_string(none_tag);
-                none_expr.push_str(" }");
-                out := String.from("((");
-                out.push_string(is_check);
-                out.push_str(") ? ");
-                out.push_string(some_expr);
-                out.push_str(" : ");
-                out.push_string(none_expr);
-                out.push_str(")");
-                Option(String).Some(out)
+                some_expr := format_option_some_construction(option_c_name, some_tag, cast_expr);
+                none_expr := format_option_none_construction(option_c_name, none_tag);
+                Option(String).Some(format_ternary_expr(is_check, some_expr, none_expr))
               }
             )
           )
@@ -241,5 +266,9 @@ export(
   generate_downcast_for_resolved_types,
   generate_downcast_call,
   format_box_extract,
-  format_typed_incr_rc_cast
+  format_typed_incr_rc_cast,
+  format_dyn_typeid_check,
+  format_ternary_expr,
+  format_option_some_construction,
+  format_option_none_construction
 );

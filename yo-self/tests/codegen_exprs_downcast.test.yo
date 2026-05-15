@@ -8,7 +8,11 @@ open(import("std/string"));
 {
   generate_downcast_for_resolved_types,
   format_box_extract,
-  format_typed_incr_rc_cast
+  format_typed_incr_rc_cast,
+  format_dyn_typeid_check,
+  format_ternary_expr,
+  format_option_some_construction,
+  format_option_none_construction
 } :: import("../codegen/exprs/downcast.yo");
 mk_struct :: (
   fn(
@@ -218,5 +222,48 @@ test("format_typed_incr_rc_cast: atomic variant", {
   assert(
     out == String.from("((AtomicCounter)__yo_incr_rc_atomic((void*)dv.data))"),
     "atomic shape"
+  );
+});
+// ─── pure string formatters ─────────────────────────────────────────────────
+test("format_dyn_typeid_check: composes typeid equality check", {
+  out := format_dyn_typeid_check(
+    String.from("dyn_v"),
+    String.from("__yo_typeid_Counter")
+  );
+  assert(
+    out == String.from("dyn_v.vtable->__yo_type_id == (uintptr_t)&__yo_typeid_Counter"),
+    "typeid check shape"
+  );
+});
+test("format_ternary_expr: composes `((<c>) ? <t> : <e>)`", {
+  out := format_ternary_expr(
+    String.from("x > 0"),
+    String.from("yes"),
+    String.from("no")
+  );
+  assert(out == String.from("((x > 0) ? yes : no)"), "ternary shape");
+});
+test("format_option_some_construction: composes Some compound literal", {
+  out := format_option_some_construction(
+    String.from("Option_Counter"),
+    String.from("Option_Counter_Some"),
+    String.from("cv")
+  );
+  assert(
+    out ==
+      String.from(
+        "(Option_Counter){ .tag = Option_Counter_Some, .data = { .Some = { .value = cv } } }"
+      ),
+    "Some construction shape"
+  );
+});
+test("format_option_none_construction: composes None compound literal", {
+  out := format_option_none_construction(
+    String.from("Option_Counter"),
+    String.from("Option_Counter_None")
+  );
+  assert(
+    out == String.from("(Option_Counter){ .tag = Option_Counter_None }"),
+    "None construction shape"
   );
 });
