@@ -282,6 +282,87 @@ generate_anonymous_tuple :: (
   )
 );
 
+/// Emit an anonymous tuple literal using C99 compound-literal syntax with
+/// `__typeof__` field types: `(struct { __typeof__(v0) _0; __typeof__(v1) _1; ... }){
+/// ._0 = v0, ._1 = v1, ... }`.
+///
+/// Used by the bootstrap codegen for `tuple(...)` expressions where the
+/// element types are not known up-front; `__typeof__` defers to the C
+/// compiler. Moved here from `codegen/exprs.yo` in Phase A.8.4.
+handle_tuple_literal :: (
+  fn(
+    args : ArrayList(AstExpr),
+    ctx : *(CodegenContext),
+    indent : String
+  ) -> Option(String)
+)({
+  n := args.len();
+  // Generate codes for each element first.
+  arg_codes := ArrayList(String).new();
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while(runtime((i < n) && ok), {
+    match(
+      args.get(i),
+      .None => {
+        ok = false;
+      },
+      .Some(ae) => match(
+        call_gen_expr(ae, ctx, indent),
+        .None => {
+          ok = false;
+        },
+        .Some(ac) => {
+          arg_codes.push(ac);
+        }
+      )
+    );
+    i = (i + usize(1));
+  });
+  cond(
+    (!(ok)) => Option(String).None,
+    true => {
+      result := String.from("(struct { ");
+      // struct fields: __typeof__(val) _0; __typeof__(val) _1; …
+      (j : usize) = usize(0);
+      while(runtime(j < n), {
+        match(
+          arg_codes.get(j),
+          .None => (),
+          .Some(ac) => {
+            result.push_str("__typeof__(");
+            result.push_string(ac);
+            result.push_str(") _");
+            result.push_string(j.to_string());
+            result.push_str("; ");
+          }
+        );
+        j = (j + usize(1));
+      });
+      result.push_str("}){");
+      // initialiser: ._0 = a, ._1 = b, …
+      (k : usize) = usize(0);
+      while(runtime(k < n), {
+        match(
+          arg_codes.get(k),
+          .None => (),
+          .Some(ac) => {
+            if(k > usize(0), {
+              result.push_str(", ");
+            });
+            result.push_str("._");
+            result.push_string(k.to_string());
+            result.push_str(" = ");
+            result.push_string(ac);
+          }
+        );
+        k = (k + usize(1));
+      });
+      result.push_str("}");
+      Option(String).Some(result)
+    }
+  )
+});
 export(
   generate_anonymous_tuple,
   tuple_args_to_c,
@@ -290,5 +371,6 @@ export(
   format_tuple_compound_literal,
   format_tuple_field_assignment,
   format_tuple_indented_stmt,
-  format_tuple_temp_init
+  format_tuple_temp_init,
+  handle_tuple_literal
 );

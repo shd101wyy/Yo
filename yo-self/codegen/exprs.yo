@@ -26,7 +26,7 @@ open(import("std/string"));
 { generate_panic } :: import("./exprs/panic.yo");
 { generate_open } :: import("./exprs/open.yo");
 { generate_binding } :: import("./exprs/binding.yo");
-{ generate_anonymous_tuple } :: import("./exprs/tuple_fn.yo");
+{ generate_anonymous_tuple, handle_tuple_literal } :: import("./exprs/tuple_fn.yo");
 { generate_anonymous_array, generate_yo_array_fill } :: import("./exprs/array_fns.yo");
 { generate_recur } :: import("./exprs/recur.yo");
 { generate_yo_iso_extract, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call }
@@ -10988,80 +10988,7 @@ is_uppercase_start :: (fn(s : String) -> bool)(
 ///
 /// Field names use the `_N` (underscore-prefix) convention that matches the
 /// full Yo code-gen output (tuple fields are `_0`, `_1`, …).
-handle_tuple_literal :: (
-  fn(
-    args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
-    indent : String
-  ) -> Option(String)
-)({
-  n := args.len();
-  // Generate codes for each element first.
-  arg_codes := ArrayList(String).new();
-  (i : usize) = usize(0);
-  (ok : bool) = true;
-  while(runtime((i < n) && ok), {
-    match(
-      args.get(i),
-      .None => {
-        ok = false;
-      },
-      .Some(ae) => match(
-        call_gen_expr(ae, ctx, indent),
-        .None => {
-          ok = false;
-        },
-        .Some(ac) => {
-          arg_codes.push(ac);
-        }
-      )
-    );
-    i = (i + usize(1));
-  });
-  cond(
-    (!(ok)) => Option(String).None,
-    true => {
-      result := String.from("(struct { ");
-      // struct fields: __typeof__(val) _0; __typeof__(val) _1; …
-      (j : usize) = usize(0);
-      while(runtime(j < n), {
-        match(
-          arg_codes.get(j),
-          .None => (),
-          .Some(ac) => {
-            result.push_str("__typeof__(");
-            result.push_string(ac);
-            result.push_str(") _");
-            result.push_string(j.to_string());
-            result.push_str("; ");
-          }
-        );
-        j = (j + usize(1));
-      });
-      result.push_str("}){");
-      // initialiser: ._0 = a, ._1 = b, …
-      (k : usize) = usize(0);
-      while(runtime(k < n), {
-        match(
-          arg_codes.get(k),
-          .None => (),
-          .Some(ac) => {
-            if(k > usize(0), {
-              result.push_str(", ");
-            });
-            result.push_str("._");
-            result.push_string(k.to_string());
-            result.push_str(" = ");
-            result.push_string(ac);
-          }
-        );
-        k = (k + usize(1));
-      });
-      result.push_str("}");
-      Option(String).Some(result)
-    }
-  )
-});
+// Phase A.8.4: `handle_tuple_literal` was relocated to `./exprs/tuple_fn.yo`.
 /// → `(TypeName){.field1 = val1, .field2 = val2}`.
 ///
 /// All args must be labeled (`:` infix). The type name must start with an
