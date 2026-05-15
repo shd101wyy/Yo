@@ -107,7 +107,7 @@ open(import("std/fmt"));
   is_expr_val,
   value_to_string
 } :: import("../value.yo");
-{ random_id } :: import("./utils.yo");
+{ random_id, parse_raw_int, parse_raw_float } :: import("./utils.yo");
 {
   register_macro_quoted_params,
   register_macro_return_is_unquote,
@@ -562,97 +562,10 @@ try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty 
       )
   )
 );
-// ---------------------------------------------------------------------------
-// Integer parsing helpers (Phase 3c — comptime integer folding)
-// ---------------------------------------------------------------------------
-/// Get the numeric value of byte `b` as a digit in the given numeric base
-/// (2, 8, 10, or 16). Returns `None` if `b` is not a valid digit for that base.
-digit_value :: (fn(b : u8, base : i64) -> Option(i64))(
-  cond(
-    ((b >= u8(48)) && (b <= u8(57))) => {
-      // '0'-'9'
-      d := (i64(b) - i64(48));
-      cond((d < base) =>.Some(d), true =>.None)
-    },
-    ((b >= u8(97)) && (b <= u8(102))) => {
-      // 'a'-'f'
-      d := ((i64(b) - i64(97)) + i64(10));
-      cond((d < base) =>.Some(d), true =>.None)
-    },
-    ((b >= u8(65)) && (b <= u8(70))) => {
-      // 'A'-'F'
-      d := ((i64(b) - i64(65)) + i64(10));
-      cond((d < base) =>.Some(d), true =>.None)
-    },
-    true =>.None
-  )
-);
-/// Parse `bytes[start..]` as a non-negative integer in the given base.
-/// Returns `None` if the slice is empty or contains an invalid digit.
-parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> Option(i64))({
-  n := bytes.len();
-  cond(
-    (start >= n) =>.None,
-    true => {
-      (result : i64) = i64(0);
-      (i : usize) = start;
-      (ok : bool) = true;
-      while(runtime((i < n) && ok), {
-        match(
-          bytes.get(i),
-          .Some(b) =>
-            match(
-              digit_value(b, base),
-              .Some(d) => {
-                result = ((result * base) + d);
-              },
-              .None => {
-                ok = false;
-              }
-            ),
-          .None => {
-            ok = false;
-          }
-        );
-        i = (i + usize(1));
-      });
-      cond(ok =>.Some(result), true =>.None)
-    }
-  )
-});
-/// Parse a raw integer token string to `i64`.
-///
-/// Handles:
-/// - Decimal integers (default)
-/// - Hex integers with `0x` / `0X` prefix
-/// - Binary integers with `0b` / `0B` prefix
-/// - Octal integers with `0o` / `0O` prefix
-/// - Underscore separators (e.g. `1_000_000`)
-///
-/// Returns `None` if the raw string cannot be parsed.
-parse_raw_int :: (fn(raw : String) -> Option(i64))({
-  stripped := raw.replace_all(`_`, ``);
-  cond(
-    ((stripped.starts_with(`0x`)) || (stripped.starts_with(`0X`))) =>
-      parse_prefixed_int(stripped.as_bytes(), usize(2), i64(16)),
-    ((stripped.starts_with(`0b`)) || (stripped.starts_with(`0B`))) =>
-      parse_prefixed_int(stripped.as_bytes(), usize(2), i64(2)),
-    ((stripped.starts_with(`0o`)) || (stripped.starts_with(`0O`))) =>
-      parse_prefixed_int(stripped.as_bytes(), usize(2), i64(8)),
-    true => stripped.parse_i64()
-  )
-});
-/// Parse a raw float string (e.g. `"3.14"`, `"1e-5"`) into an `f64`.
-/// Uses `atof` from the C standard library.
-/// Returns `None` if the string has no valid C-string representation.
-parse_raw_float :: (fn(raw : String) -> Option(f64))({
-  cs := raw.to_cstr();
-  match(
-    cs.ptr(),
-    .Some(ptr) =>.Some(atof(*(char)(ptr))),
-    .None =>.None
-  )
-});
+// Integer / float literal parsing helpers (parse_raw_int, parse_raw_float,
+// digit_value, parse_prefixed_int) were deduplicated in Phase A.4.3 —
+// the canonical definitions live in `yo-self/evaluator/utils.yo` and are
+// imported at the top of this file.
 // ---------------------------------------------------------------------------
 // Main evaluator — Phase 3b/3c/3d forms are inlined so `recur` can be used for
 // recursive evaluation without forward-reference issues.
