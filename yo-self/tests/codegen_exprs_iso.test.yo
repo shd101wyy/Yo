@@ -19,7 +19,9 @@ open(import("std/string"));
   generate_yo_iso_dispose,
   is_iso_type_call,
   generate_iso_type_call,
-  iso_expr_value_type
+  iso_expr_value_type,
+  format_iso_dispose_call,
+  format_iso_create_call
 } :: import("../codegen/exprs/iso.yo");
 { get_type_string } :: import("../codegen/utils/index.yo");
 
@@ -210,4 +212,37 @@ test("generate_yo_iso_extract: rejects non-Iso self type", {
   call := mk_call(usize(72), BF_YO_ISO_EXTRACT, args);
   result := generate_yo_iso_extract(call, args, &(ctx), String.from(""));
   assert(result == String.from("// Error: __yo_iso_extract requires an Iso type"), "diagnostic");
+});
+// ─── pure formatters ────────────────────────────────────────────────────────
+test("format_iso_dispose_call: composes __yo_iso_dispose_<c>(<self>)", {
+  out := format_iso_dispose_call(
+    String.from("Iso_String"),
+    String.from("local_x")
+  );
+  assert(
+    out == String.from("__yo_iso_dispose_Iso_String(local_x)"),
+    "dispose call shape"
+  );
+});
+test("format_iso_create_call: composes __yo_create_iso_<c>(<value>)", {
+  out := format_iso_create_call(
+    String.from("Iso_String"),
+    String.from("\"hello\"")
+  );
+  assert(
+    out == String.from("__yo_create_iso_Iso_String(\"hello\")"),
+    "create call shape"
+  );
+});
+test("format_iso_*_call: complex value passes through", {
+  // The formatter doesn't escape or paren-wrap — caller is expected
+  // to produce a well-formed primary expression.
+  out := format_iso_create_call(
+    String.from("Iso_Counter"),
+    String.from("Counter { count : 0 }")
+  );
+  assert(
+    out == String.from("__yo_create_iso_Iso_Counter(Counter { count : 0 })"),
+    "complex value passthrough"
+  );
 });
