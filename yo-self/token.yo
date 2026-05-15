@@ -115,7 +115,7 @@ string_is_operator :: (fn(s : str) -> bool)({
   )
 });
 /// True iff `s` is a valid identifier under the regex
-/// `^[_a-zA-Z\xA0-￿][_a-zA-Z0-9\xA0-￿]*[!?]?$`. Mirrors
+/// `^[_a-zA-Z\xA0-￿][_a-zA-Z0-9\xA0-￿]*$`. Mirrors
 /// `IdentifierRegex.test(s)` in `src/token.ts`.
 is_valid_identifier :: (fn(s : String) -> bool)({
   chars := ArrayList(rune).new();
@@ -143,24 +143,11 @@ is_valid_identifier :: (fn(s : String) -> bool)({
         true => {
           (i : usize) = usize(1);
           (ok : bool) = true;
-          (saw_trailing : bool) = false;
           while(runtime((i < n) && ok), {
             ch := match(chars.get(i),.Some(c) => c, .None => rune(u32(0)));
-            // Last char may be `!` or `?` (trailing)
-            is_last := (i == (n - usize(1)));
-            cond(
-              saw_trailing => {
-                // Anything after a trailing `!?` is invalid
-                ok = false;
-              },
-              (is_last && ((ch.char == u32(0x21)) || (ch.char == u32(0x3F)))) => {
-                saw_trailing = true;
-              },
-              (!(is_identifier_continue(ch))) => {
-                ok = false;
-              },
-              true => ()
-            );
+            if(!(is_identifier_continue(ch)), {
+              ok = false;
+            });
             i = (i + usize(1));
           });
           ok

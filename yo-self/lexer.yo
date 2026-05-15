@@ -585,13 +585,6 @@ tokenize :: (
           id_sb.write_rune(cj);
           j = (j + usize(1));
         });
-        // Trailing '!' or '?' is part of the identifier (Yo allows `panic!`,
-        // `unwrap?`, etc. — mirrors `IdentifierRegex` in `src/token.ts`).
-        trailing := chars.get(j).unwrap_or(null_rune);
-        if((trailing.char == u32(0x21)) || (trailing.char == u32(0x3F)), {
-          id_sb.write_rune(trailing);
-          j = (j + usize(1));
-        });
         id_str := id_sb.to_string();
         kind := cond(
           (id_str == `true`) => TokenKind.Bool,

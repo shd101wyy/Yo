@@ -132,8 +132,7 @@ export function stringIsOperator(str: string): boolean {
   return isOperator;
 }
 
-export const IdentifierRegex =
-  /^[_a-zA-Z\xA0-\uFFFF][_a-zA-Z0-9\xA0-\uFFFF]*[!?]?$/;
+export const IdentifierRegex = /^[_a-zA-Z\xA0-\uFFFF][_a-zA-Z0-9\xA0-\uFFFF]*$/;
 
 /**
  * Finds the index of the matching right bracket (closing bracket) for a left bracket (opening bracket)
