@@ -13,7 +13,13 @@ open(import("std/string"));
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
 { generate_expr } :: import("../codegen/exprs.yo");
 { CodegenContext } :: import("../codegen/context.yo");
-{ generate_begin, begin_expr_has_metadata } :: import("../codegen/exprs/begin.yo");
+{
+  generate_begin,
+  begin_expr_has_metadata,
+  format_begin_temp_decl,
+  format_begin_assignment_line,
+  format_begin_block_open
+} :: import("../codegen/exprs/begin.yo");
 { get_type_string_opt } :: import("../codegen/utils/index.yo");
 
 mk_token :: (fn(value : str, kind : TokenKind) -> Token)(
@@ -153,4 +159,25 @@ test("generate_begin: statement form emits block and drops", {
   assert(match(result,.Some(s) => (s.len() == usize(0)),.None => false), "empty statement result");
   assert(output.contains(String.from("stmt;")), "statement emitted");
   assert(output.contains(String.from("drop_tmp;")), "drop emitted");
+});
+// ─── pure string formatters ─────────────────────────────────────────────────
+test("format_begin_temp_decl: composes indented `<type> <name>;`", {
+  out := format_begin_temp_decl(
+    String.from("  "),
+    String.from("int32_t"),
+    String.from("tmp")
+  );
+  assert(out == String.from("  int32_t tmp;"), "begin temp decl shape");
+});
+test("format_begin_assignment_line: composes `<lhs> = <rhs>;`", {
+  out := format_begin_assignment_line(
+    String.from("    "),
+    String.from("tmp"),
+    String.from("value")
+  );
+  assert(out == String.from("    tmp = value;"), "begin assignment shape");
+});
+test("format_begin_block_open: emits `<indent>{ // begin block`", {
+  out := format_begin_block_open(String.from(""));
+  assert(out == String.from("{ // begin block"), "begin block open shape");
 });

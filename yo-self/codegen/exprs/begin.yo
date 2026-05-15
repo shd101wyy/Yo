@@ -14,6 +14,38 @@ open(import("std/string"));
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
 
 begin_indent_inner :: (fn(indent : String) -> String)(String.from(indent.as_str()) + String.from("  "));
+/// Format a bare temp variable declaration line:
+///   `<indent><type_name> <var_name>;`
+/// Used by `generate_begin` to declare the result-temp before opening
+/// the `{ // begin block` brace. Pure string composition.
+format_begin_temp_decl :: (
+  fn(indent : String, type_name : String, var_name : String) -> String
+)({
+  s := String.from(indent.as_str());
+  s.push_string(type_name);
+  s.push_str(" ");
+  s.push_string(var_name);
+  s.push_str(";");
+  s
+});
+/// Format an assignment line: `<indent><lhs> = <rhs>;`. Used to assign
+/// the begin-block's final expression into the result-temp.
+format_begin_assignment_line :: (
+  fn(indent : String, lhs : String, rhs : String) -> String
+)({
+  s := String.from(indent.as_str());
+  s.push_string(lhs);
+  s.push_str(" = ");
+  s.push_string(rhs);
+  s.push_str(";");
+  s
+});
+/// Format the begin-block open header: `<indent>{ // begin block`.
+format_begin_block_open :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("{ // begin block");
+  s
+});
 
 begin_emit_statement :: (fn(code : String, ctx : *(CodegenContext), indent : String) -> unit)({
   ctx.*.emitter.emit_string(indent);
@@ -186,17 +218,12 @@ generate_begin :: (
           match(
             get_type_string_opt(value_type, ctx),
             .None => (),
-            .Some(type_name) => {
-              ctx.*.emitter.emit_string(indent);
-              ctx.*.emitter.emit_string(type_name);
-              ctx.*.emitter.emit(" ");
-              ctx.*.emitter.emit_string(temp_variable_name);
-              ctx.*.emitter.emit_line(";");
-            }
+            .Some(type_name) => ctx.*.emitter.emit_string_line(
+              format_begin_temp_decl(indent, type_name, temp_variable_name)
+            )
           );
         });
-        ctx.*.emitter.emit_string(indent);
-        ctx.*.emitter.emit_line("{ // begin block");
+        ctx.*.emitter.emit_string_line(format_begin_block_open(indent));
         args_code_opt := begin_generate_args_immediate(args, value_type, info, ctx, indent);
         match(
           args_code_opt,
@@ -210,13 +237,13 @@ generate_begin :: (
                 match(
                   begin_apply_return_deferred_dup(last_arg, last_arg_code, ctx, begin_indent_inner(indent)),
                   .None => (),
-                  .Some(final_last_arg_code) => {
-                    ctx.*.emitter.emit_string(begin_indent_inner(indent));
-                    ctx.*.emitter.emit_string(temp_variable_name);
-                    ctx.*.emitter.emit(" = ");
-                    ctx.*.emitter.emit_string(final_last_arg_code);
-                    ctx.*.emitter.emit_line(";");
-                  }
+                  .Some(final_last_arg_code) => ctx.*.emitter.emit_string_line(
+                    format_begin_assignment_line(
+                      begin_indent_inner(indent),
+                      temp_variable_name,
+                      final_last_arg_code
+                    )
+                  )
                 );
               }
             );
@@ -245,4 +272,10 @@ generate_begin :: (
   )
 );
 
-export(generate_begin, begin_expr_has_metadata);
+export(
+  generate_begin,
+  begin_expr_has_metadata,
+  format_begin_temp_decl,
+  format_begin_assignment_line,
+  format_begin_block_open
+);
