@@ -41,6 +41,15 @@ format_c_function_call :: (fn(fn_name : str, args_code : String) -> String)({
   s.push_str(")");
   s
 });
+/// Format an indented C statement line: `<indent><code>;`. Used by
+/// `recur_emit_deferred_drops` to emit each drop expression as its
+/// own statement before the recur call.
+format_indented_stmt_line :: (fn(indent : String, code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_string(code);
+  s.push_str(";");
+  s
+});
 recur_array_contains_string :: (fn(items : ArrayList(String), needle : String) -> bool)({
   found := false;
   i := usize(0);
@@ -135,12 +144,9 @@ recur_emit_deferred_drops :: (
               .None => {
                 ok = false;
               },
-              .Some(drop_code) => {
-                line := String.from(indent.as_str());
-                line.push_string(drop_code);
-                line.push_str(";");
-                ctx.*.emitter.emit_string_line(line);
-              }
+              .Some(drop_code) => ctx.*.emitter.emit_string_line(
+                format_indented_stmt_line(indent, drop_code)
+              )
             )
           );
           i = (i + usize(1));
@@ -218,5 +224,6 @@ export(
   recur_emit_deferred_drops,
   recur_array_contains_string,
   format_typed_temp_assignment,
-  format_c_function_call
+  format_c_function_call,
+  format_indented_stmt_line
 );
