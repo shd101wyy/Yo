@@ -54,6 +54,7 @@ open(import("std/string"));
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { CodegenContext } :: import("../context.yo");
+{ format_typed_init_line, format_typed_var_name } :: import("../utils/index.yo");
 /// True iff `byte` is part of a C identifier (`[A-Za-z0-9_]`).
 is_c_word_byte_ :: (fn(byte : u8) -> bool)(
   ((byte >= u8(65)) && (byte <= u8(90))) ||
@@ -261,16 +262,11 @@ SWITCH_INDENT :: "  ";
 format_data_binding_decl :: (
   fn(type_c : str, var_name : str, scrutinee_c : str, field_path : str) -> String
 )({
-  out := String.from("  ");
-  out.push_str(type_c);
-  out.push_str(" ");
-  out.push_str(var_name);
-  out.push_str(" = ");
-  out.push_str(scrutinee_c);
-  out.push_str(".");
-  out.push_str(field_path);
-  out.push_str(";");
-  out
+  type_and_name := format_typed_var_name(String.from(type_c), String.from(var_name));
+  field_access := String.from(scrutinee_c);
+  field_access.push_str(".");
+  field_access.push_str(field_path);
+  format_typed_init_line(String.from("  "), type_and_name, field_access)
 });
 /// Format the match-result temp declaration line:
 ///   `<result_type_c> <temp_name>;`
