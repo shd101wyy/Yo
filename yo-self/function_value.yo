@@ -1,0 +1,82 @@
+//! function_value.yo — FunctionValue-adjacent helpers for the self-hosted compiler.
+//!
+//! 1-to-1 port of `src/function-value.ts`.
+//!
+//! In TypeScript, `FunctionValue` is an interface with fields like
+//! `isControlFunction` and `definitionSiteEnclosingFunctionType`. In yo-self
+//! the corresponding shape is the `EvalValue.FuncVal` variant defined in
+//! `value.yo`, which doesn't currently carry those two optional fields.
+//!
+//! This file holds the side-table machinery that emulates those fields:
+//!   * `mark_as_control_fn` / `is_control_fn`           — backs `isControlFunction`
+//!   * `register_definition_site_return`                — backs
+//!     `definitionSiteEnclosingFunctionType.return.type`
+//!   * `get_definition_site_return`                     — accessor with
+//!     `t_unit()` fallback (mirrors the `?? createUnitType()` pattern in
+//!     `evaluateCtlFunctionBodyInline` at `src/evaluator/calls/helper.ts`)
+//!
+//! Both registries are keyed by `func_id : String` (the unique
+//! `FuncValueId` from src/function-value.ts).
+open(import("std/string"));
+{ HashMap } :: import("std/collections/hash_map");
+{ TypeValue, t_unit } :: import("./types/type.yo");
+// ---------------------------------------------------------------------------
+// isControlFunction side-table
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` → `true` (only entries for control functions exist).
+(g_control_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Mark a function as a control function (uses `escape`).
+/// Idempotent: calling multiple times with the same id is safe.
+///
+/// Mirrors setting `functionValue.isControlFunction = true` in TypeScript.
+mark_as_control_fn :: (fn(func_id : String) -> unit)({
+  ___ := g_control_fn_registry.set((&(func_id)).clone(), true);
+});
+/// Returns true if the function identified by `func_id` is a control function.
+///
+/// Mirrors reading `functionValue.isControlFunction` in TypeScript.
+is_control_fn :: (fn(func_id : str) -> bool)(
+  match(
+    g_control_fn_registry.get(String.from(func_id)),
+    .Some(_) => true,
+    .None => false
+  )
+);
+// ---------------------------------------------------------------------------
+// definitionSiteEnclosingFunctionType side-table
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` → return type of the enclosing function at the
+/// definition site. Only the return-type portion is stored, since that is
+/// the only field used by `evaluateCtlFunctionBodyInline`:
+///   `originalFunction.definitionSiteEnclosingFunctionType?.return.type ?? createUnitType()`
+(g_definition_site_return_registry : HashMap(String, TypeValue)) =
+  HashMap(String, TypeValue).new();
+/// Register the enclosing function's return type at a function's definition site.
+///
+/// Called when creating a FuncVal (in `evaluator/values/anonymous_function.yo`)
+/// if the function is defined inside another function body.
+///
+/// Mirrors setting `functionValue.definitionSiteEnclosingFunctionType = ...`
+/// in `src/evaluator/values/anonymous-function.ts`.
+register_definition_site_return :: (fn(func_id : String, return_ty : TypeValue) -> unit)({
+  ___ := g_definition_site_return_registry.set((&(func_id)).clone(), return_ty);
+});
+/// Get the enclosing function's return type at a function's definition site.
+/// Returns `t_unit()` if the function was not defined inside another function
+/// body (e.g., top-level definitions, handlers defined in test blocks).
+///
+/// Mirrors the `?? createUnitType()` fallback in
+/// `src/evaluator/calls/helper.ts:evaluateCtlFunctionBodyInline`.
+get_definition_site_return :: (fn(func_id : str) -> TypeValue)(
+  match(
+    g_definition_site_return_registry.get(String.from(func_id)),
+    .Some(ty) => ty,
+    .None => t_unit()
+  )
+);
+export(
+  mark_as_control_fn,
+  is_control_fn,
+  register_definition_site_return,
+  get_definition_site_return
+);
