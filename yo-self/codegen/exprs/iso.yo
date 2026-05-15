@@ -14,7 +14,8 @@ open(import("std/string"));
   sanitize_for_c_identifier,
   get_type_string,
   format_typed_var_name,
-  format_typed_init_line
+  format_typed_init_line,
+  format_c_function_call
 } :: import("../utils/index.yo");
 /// Format the iso dispose call site:
 ///   `__yo_iso_dispose_<iso_type_c_name>(<self_code>)`
@@ -23,28 +24,24 @@ open(import("std/string"));
 /// composition.
 format_iso_dispose_call :: (
   fn(iso_type_c_name : String, self_code : String) -> String
-)({
-  s := String.from("__yo_iso_dispose_");
-  s.push_string(iso_type_c_name);
-  s.push_str("(");
-  s.push_str(self_code.as_str());
-  s.push_str(")");
-  s
-});
+)(
+  format_c_function_call(
+    (String.from("__yo_iso_dispose_") + iso_type_c_name).as_str(),
+    self_code
+  )
+);
 /// Format the iso constructor call site:
 ///   `__yo_create_iso_<iso_type_c_name>(<value_code>)`
 ///
 /// Mirrors the return of `generateIsoTypeCall` in TS.
 format_iso_create_call :: (
   fn(iso_type_c_name : String, value_code : String) -> String
-)({
-  s := String.from("__yo_create_iso_");
-  s.push_string(iso_type_c_name);
-  s.push_str("(");
-  s.push_str(value_code.as_str());
-  s.push_str(")");
-  s
-});
+)(
+  format_c_function_call(
+    (String.from("__yo_create_iso_") + iso_type_c_name).as_str(),
+    value_code
+  )
+);
 /// Format the iso-extract call site:
 ///   `__yo_iso_extract_<iso_type_c_name>(<self_code>)`
 ///
@@ -53,14 +50,12 @@ format_iso_create_call :: (
 /// emit a temp declaration or return the call as the expression value.
 format_iso_extract_call :: (
   fn(iso_type_c_name : String, self_code : String) -> String
-)({
-  s := String.from("__yo_iso_extract_");
-  s.push_string(iso_type_c_name);
-  s.push_str("(");
-  s.push_str(self_code.as_str());
-  s.push_str(")");
-  s
-});
+)(
+  format_c_function_call(
+    (String.from("__yo_iso_extract_") + iso_type_c_name).as_str(),
+    self_code
+  )
+);
 // `format_iso_temp_assignment` was a local divergence — body identical
 // to `format_typed_init_line(indent, format_typed_var_name(c_type, name), value)`
 // composed from the canonical helpers in `codegen/utils/index.yo`.

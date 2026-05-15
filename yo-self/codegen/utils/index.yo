@@ -261,6 +261,18 @@ format_indented_close_brace :: (fn(indent : String) -> String)({
   s.push_str("}");
   s
 });
+/// Format a C function call: `<fn_name>(<args_code>)`. The args
+/// payload is pre-joined by the caller (commas for multi-arg).
+/// Used by recur (`<current_fn>(<args>)`), parallelism
+/// (`__yo_thread_spawn(...)`), iso (`__yo_iso_*`), and many other
+/// builtin-call emitters.
+format_c_function_call :: (fn(fn_name : str, args_code : String) -> String)({
+  s := String.from(fn_name);
+  s.push_str("(");
+  s.push_string(args_code);
+  s.push_str(")");
+  s
+});
 /// Format an if-statement opening: `<indent>if (<cond_code>) {`. Shared
 /// by cond's first-runtime-arm header and and-or's intermediate-AND
 /// chain header.
@@ -776,6 +788,7 @@ export(
   format_indented_close_brace,
   format_if_open,
   format_if_negate_open,
+  format_c_function_call,
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
