@@ -63,6 +63,53 @@ format_dyn_compound_literal :: (
   s.push_str(" }");
   s
 });
+/// Format the dyn-impl dedup key: `<concrete_c_name>_<dyn_c_name>`.
+/// The first `dyn(value)` lowering registers this key in `ctx.dyn_impls`;
+/// subsequent lowerings of the same (concrete, dyn) pair are deduped.
+format_dyn_impl_key :: (fn(concrete_c_name : String, dyn_c_name : String) -> String)({
+  s := String.from(concrete_c_name.as_str());
+  s.push_str("_");
+  s.push_string(dyn_c_name);
+  s
+});
+/// Format the dyn struct-literal declaration header:
+///   `<indent><dyn_c_name> <temp> = {`
+/// First line of the 4-line dyn temp declaration emitted by
+/// `generate_dyn_for_resolved_inputs`.
+format_dyn_struct_decl_header :: (
+  fn(indent : String, dyn_c_name : String, temp_name : String) -> String
+)({
+  s := String.from(indent.as_str());
+  s.push_string(dyn_c_name);
+  s.push_str(" ");
+  s.push_string(temp_name);
+  s.push_str(" = {");
+  s
+});
+/// Format the dyn struct-literal `.data = ...` line:
+///   `<indent>  .data = <value_code>,`
+format_dyn_data_init :: (fn(indent : String, value_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("  .data = ");
+  s.push_str(value_code.as_str());
+  s.push_str(",");
+  s
+});
+/// Format the dyn struct-literal `.vtable = &...` line:
+///   `<indent>  .vtable = &<vtable_name>`
+format_dyn_vtable_init :: (fn(indent : String, vtable_name : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("  .vtable = &");
+  s.push_string(vtable_name);
+  s
+});
+/// Format the closing line of the dyn struct-literal declaration:
+///   `<indent>};`
+format_dyn_struct_decl_close :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("};");
+  s
+});
 /// Emit the C declaration for a `dyn(value)` cast given pre-resolved
 /// types. Returns `.Some(temp_var_name)` on success or `.None` when
 /// any precondition fails.
@@ -108,10 +155,7 @@ generate_dyn_for_resolved_inputs :: (
         )
       );
       // Impl key: `${concrete_c_name}_${dyn_c_name}`.
-      impl_key := String.new();
-      impl_key.push_string(concrete_c_name);
-      impl_key.push_str("_");
-      impl_key.push_string(dyn_c_name);
+      impl_key := format_dyn_impl_key(concrete_c_name, dyn_c_name);
       // Dedup-register in ctx.dyn_impls via the canonical helper. The
       // first emission stores the (dyn, concrete, data) triple +
       // trait_values; subsequent emissions are no-ops. Mirrors the TS
@@ -133,24 +177,12 @@ generate_dyn_for_resolved_inputs :: (
       vtable_name := format_dyn_vtable_name(impl_key);
       san_temp := sanitize_for_c_identifier(temp_var_name);
       // Emit the four-line struct-literal declaration.
-      l1 := String.from(indent.as_str());
-      l1.push_string(dyn_c_name);
-      l1.push_str(" ");
-      l1.push_string(san_temp);
-      l1.push_str(" = {");
-      ctx.*.emitter.emit_string_line(l1);
-      l2 := String.from(indent.as_str());
-      l2.push_str("  .data = ");
-      l2.push_str(value_code.as_str());
-      l2.push_str(",");
-      ctx.*.emitter.emit_string_line(l2);
-      l3 := String.from(indent.as_str());
-      l3.push_str("  .vtable = &");
-      l3.push_string(vtable_name);
-      ctx.*.emitter.emit_string_line(l3);
-      l4 := String.from(indent.as_str());
-      l4.push_str("};");
-      ctx.*.emitter.emit_string_line(l4);
+      ctx.*.emitter.emit_string_line(
+        format_dyn_struct_decl_header(indent, dyn_c_name, san_temp)
+      );
+      ctx.*.emitter.emit_string_line(format_dyn_data_init(indent, value_code));
+      ctx.*.emitter.emit_string_line(format_dyn_vtable_init(indent, vtable_name));
+      ctx.*.emitter.emit_string_line(format_dyn_struct_decl_close(indent));
       Option(String).Some(san_temp)
     }
   )
@@ -235,5 +267,10 @@ export(
   generate_dyn_for_resolved_inputs,
   generate_dyn_call,
   format_dyn_vtable_name,
-  format_dyn_compound_literal
+  format_dyn_compound_literal,
+  format_dyn_impl_key,
+  format_dyn_struct_decl_header,
+  format_dyn_data_init,
+  format_dyn_vtable_init,
+  format_dyn_struct_decl_close
 );

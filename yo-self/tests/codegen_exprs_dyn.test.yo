@@ -9,7 +9,12 @@ open(import("std/string"));
 {
   generate_dyn_for_resolved_inputs,
   format_dyn_vtable_name,
-  format_dyn_compound_literal
+  format_dyn_compound_literal,
+  format_dyn_impl_key,
+  format_dyn_struct_decl_header,
+  format_dyn_data_init,
+  format_dyn_vtable_init,
+  format_dyn_struct_decl_close
 } :: import("../codegen/exprs/dyn.yo");
 mk_struct :: (
   fn(name : str, is_reference_semantics : bool) -> TypeValue
@@ -232,4 +237,29 @@ test("format_dyn_compound_literal: assembles dyn value", {
       ),
     "compound literal shape"
   );
+});
+// ─── struct-literal-line formatters ─────────────────────────────────────────
+test("format_dyn_impl_key: joins concrete and dyn with underscore", {
+  out := format_dyn_impl_key(String.from("Counter"), String.from("Dyn_Show"));
+  assert(out == String.from("Counter_Dyn_Show"), "impl key shape");
+});
+test("format_dyn_struct_decl_header: composes `<indent><dyn> <temp> = {`", {
+  out := format_dyn_struct_decl_header(
+    String.from("  "),
+    String.from("Dyn_Show"),
+    String.from("tmp_dyn")
+  );
+  assert(out == String.from("  Dyn_Show tmp_dyn = {"), "struct decl header shape");
+});
+test("format_dyn_data_init: composes `<indent>  .data = <value>,`", {
+  out := format_dyn_data_init(String.from(""), String.from("&counter"));
+  assert(out == String.from("  .data = &counter,"), "data init shape");
+});
+test("format_dyn_vtable_init: composes `<indent>  .vtable = &<name>`", {
+  out := format_dyn_vtable_init(String.from(""), String.from("__yo_vtable_x"));
+  assert(out == String.from("  .vtable = &__yo_vtable_x"), "vtable init shape");
+});
+test("format_dyn_struct_decl_close: emits `<indent>};`", {
+  out := format_dyn_struct_decl_close(String.from("  "));
+  assert(out == String.from("  };"), "struct decl close shape");
 });
