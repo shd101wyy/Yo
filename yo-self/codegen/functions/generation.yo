@@ -12,6 +12,7 @@ open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
 { CodegenContext } :: import("../context.yo");
 { generate_expr, build_typed_decl, ensure_arraylist_c_type, ensure_impl_fn_c_type } :: import("../exprs.yo");
+{ format_indented_stmt } :: import("../utils/index.yo");
 /// Format a C function forward declaration line:
 ///   `static <ret_type> <name>(<param_list>);`
 ///
@@ -47,20 +48,14 @@ format_function_def_open :: (
   s
 });
 /// Format a body-tail statement line for void functions: `  <code>;`.
-format_function_body_stmt :: (fn(code : String) -> String)({
-  s := String.from("  ");
-  s.push_string(code);
-  s.push_str(";");
-  s
-});
+format_function_body_stmt :: (fn(code : String) -> String)(
+  format_indented_stmt(String.from("  "), code)
+);
 /// Format a body-tail return line for non-void functions:
 ///   `  return <code>;`
-format_function_return_stmt :: (fn(code : String) -> String)({
-  s := String.from("  return ");
-  s.push_string(code);
-  s.push_str(";");
-  s
-});
+format_function_return_stmt :: (fn(code : String) -> String)(
+  format_indented_stmt(String.from("  "), String.from("return ") + code)
+);
 build_param_list :: (
   fn(params : ArrayList(String), param_tys : ArrayList(String)) -> String
 )({
