@@ -24,7 +24,8 @@ open(import("std/string"));
 { CodegenContext } :: import("../context.yo");
 {
   format_typed_init_line,
-  format_typed_var_name
+  format_typed_var_name,
+  format_c_function_call
 } :: import("../utils/index.yo");
 /// True if the most recent variable named `name` in `env` was bound at
 /// a frame level shallower than (or equal to) `capture_frame_level` —
@@ -111,16 +112,13 @@ format_closure_dispose_name :: (fn(closure_c_name : String) -> String)({
 format_dyn_closure_construction :: (
   fn(closure_c_name : String, capture_arg : String, cast_call_function : String) -> String
 )({
-  s := String.from("__yo_create_");
-  s.push_string(closure_c_name);
-  s.push_str("(");
-  s.push_str(capture_arg.as_str());
-  s.push_str(", __yo_dispose_");
-  s.push_string(closure_c_name);
-  s.push_str(", ");
-  s.push_str(cast_call_function.as_str());
-  s.push_str(")");
-  s
+  // Pre-build the comma-joined args: <capture>, __yo_dispose_<name>, <cast>
+  args := String.from(capture_arg.as_str());
+  args.push_str(", __yo_dispose_");
+  args.push_string(closure_c_name);
+  args.push_str(", ");
+  args.push_str(cast_call_function.as_str());
+  format_c_function_call(format_closure_constructor_name(closure_c_name).as_str(), args)
 });
 /// Build the closure-capture temp variable name:
 ///   `__capture_<closure_type_id>_<unique_suffix>`
