@@ -165,15 +165,15 @@ join_runtime_args :: (
 ///   `<indent>bool <var> = <value>;`
 /// Used at the top of both `emit_if_chain_for_and` (with `false`) and
 /// `emit_if_chain_for_or` (with `true`). Pure string composition.
-format_and_or_bool_init :: (fn(indent : String, var : String, value : str) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("bool ");
-  s.push_string(var);
-  s.push_str(" = ");
-  s.push_str(value);
-  s.push_str(";");
-  s
-});
+format_and_or_bool_init :: (fn(indent : String, var : String, value : str) -> String)(
+  // Compose via canonical typed-init helper:
+  //   indent + ("bool " + var) + " = " + value + ";"
+  format_typed_init_line(
+    indent,
+    String.from("bool ") + var,
+    String.from(value)
+  )
+);
 // `format_and_or_if_open` / `format_and_or_if_negate_open` were local
 // divergences — bodies identical to canonical helpers
 // `format_if_open` / `format_if_negate_open` in
