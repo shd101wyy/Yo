@@ -9,7 +9,8 @@ open(import("std/string"));
   is_control_flow_code,
   is_or_pattern,
   flatten_or_pattern,
-  c_literal_from_eval_value
+  c_literal_from_eval_value,
+  format_data_binding_decl
 } :: import("../codegen/exprs/match.yo");
 mk_token :: (fn(value : str) -> Token)(
   Token(
@@ -136,4 +137,15 @@ test("c_literal_from_eval_value: UnitVal / other variants → None", {
     c_literal_from_eval_value(EvalValue.StrLit(String.from("\"x\""))).is_none(),
     "StrLit → None"
   );
+});
+test("format_data_binding_decl: composes indented decl from arm payload", {
+  out := format_data_binding_decl("int32_t", "x", "(*scrut)", "_data._Some._0");
+  assert(
+    out == String.from("  int32_t x = (*scrut)._data._Some._0;"),
+    "data binding decl shape"
+  );
+});
+test("format_data_binding_decl: handles bare scrutinee + simple field", {
+  out := format_data_binding_decl("uint8_t", "tag", "v", "tag");
+  assert(out == String.from("  uint8_t tag = v.tag;"), "simple binding shape");
 });

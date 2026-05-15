@@ -252,6 +252,26 @@ DataArm :: struct(
 /// Indent string for one extra level inside the switch body.
 SWITCH_INDENT :: "  ";
 /// Emit `ResultType tempname;\n` into the code section.
+/// Format a single data-arm binding declaration:
+///   `  <type_c> <var_name> = <scrutinee_c>.<field_path>;`
+///
+/// The leading two-space indent matches the in-case nesting level
+/// used by `emit_data_bindings`. Mirrors the inline composition in TS
+/// `emitDataBindings`.
+format_data_binding_decl :: (
+  fn(type_c : str, var_name : str, scrutinee_c : str, field_path : str) -> String
+)({
+  out := String.from("  ");
+  out.push_str(type_c);
+  out.push_str(" ");
+  out.push_str(var_name);
+  out.push_str(" = ");
+  out.push_str(scrutinee_c);
+  out.push_str(".");
+  out.push_str(field_path);
+  out.push_str(";");
+  out
+});
 emit_match_temp_decl :: (
   fn(
     result_type_c : str,
@@ -378,15 +398,12 @@ emit_data_bindings :: (
     match(
       b_opt,
       .Some(b) => {
-        decl := String.from("  ");
-        decl.push_string(b.type_c);
-        decl.push_str(" ");
-        decl.push_string(b.var_name);
-        decl.push_str(" = ");
-        decl.push_str(scrutinee_c);
-        decl.push_str(".");
-        decl.push_string(b.field_path);
-        decl.push_str(";");
+        decl := format_data_binding_decl(
+          b.type_c.as_str(),
+          b.var_name.as_str(),
+          scrutinee_c,
+          b.field_path.as_str()
+        );
         ctx.*.emitter.emit_line(decl.as_str());
       },
       .None => ()
@@ -446,6 +463,7 @@ export(
   emit_case_open,
   emit_case_body,
   emit_data_bindings,
+  format_data_binding_decl,
   generate_match_simple,
   generate_match_data
 );
