@@ -31,7 +31,7 @@ open(import("std/fmt"));
 { is_str_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../value.yo");
 { CodegenContext } :: import("../context.yo");
-{ get_type_string } :: import("../utils/index.yo");
+{ get_type_string, format_indented_line } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 /// Best-effort recovery of a compile-time string value from an `EvalValue`.
 /// In yo-self the analog of TS `ComptimeStringValue` is the `StrLit(raw)`
@@ -105,11 +105,9 @@ quote_as_c_string :: (fn(raw : String) -> String)({
 });
 /// Format the `<indent>abort();` line emitted at the tail of every
 /// `panic(...)` lowering. Pure string composition.
-format_panic_abort_line :: (fn(indent : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("abort();");
-  s
-});
+format_panic_abort_line :: (fn(indent : String) -> String)(
+  format_indented_line(indent, "abort();")
+);
 /// Format the C `fprintf(stderr, "%s\n", <msg>);` line for the plain
 /// C-string panic message path (compile-time literal or non-`str`
 /// runtime expression). Pure string composition.
