@@ -15,7 +15,8 @@ open(import("std/string"));
   format_typed_init_line,
   format_typed_var_name,
   format_typed_decl_line,
-  format_indented_line
+  format_indented_line,
+  format_indented_stmt
 } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
@@ -51,9 +52,7 @@ format_begin_block_open :: (fn(indent : String) -> String)(
 );
 
 begin_emit_statement :: (fn(code : String, ctx : *(CodegenContext), indent : String) -> unit)({
-  ctx.*.emitter.emit_string(indent);
-  ctx.*.emitter.emit_string(code);
-  ctx.*.emitter.emit_line(";");
+  ctx.*.emitter.emit_string_line(format_indented_stmt(indent, code));
 });
 
 begin_expr_has_metadata :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
@@ -253,8 +252,7 @@ generate_begin :: (
           })
         );
         begin_emit_deferred_drops(info, ctx, begin_indent_inner(indent));
-        ctx.*.emitter.emit_string(indent);
-        ctx.*.emitter.emit_line("} // end begin block");
+        ctx.*.emitter.emit_string_line(format_indented_line(indent, "} // end begin block"));
         Option(String).Some(
           cond(
             (is_unit_type(value_type) || has_any_control_flow(info.control_flow)) => String.new(),
@@ -263,12 +261,10 @@ generate_begin :: (
         )
       },
       .None => {
-        ctx.*.emitter.emit_string(indent);
-        ctx.*.emitter.emit_line("{ // begin block");
+        ctx.*.emitter.emit_string_line(format_begin_block_open(indent));
         _args_code := begin_generate_statement_args(args, ctx, indent);
         begin_emit_deferred_drops(info, ctx, begin_indent_inner(indent));
-        ctx.*.emitter.emit_string(indent);
-        ctx.*.emitter.emit_line("} // end begin block");
+        ctx.*.emitter.emit_string_line(format_indented_line(indent, "} // end begin block"));
         Option(String).Some(String.new())
       }
     )
