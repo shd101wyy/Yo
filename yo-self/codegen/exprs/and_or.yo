@@ -7,7 +7,12 @@ open(import("std/string"));
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { CodegenContext } :: import("../context.yo");
-{ indent_plus_two, indent_minus_two } :: import("../utils/index.yo");
+{
+  indent_plus_two,
+  indent_minus_two,
+  format_typed_init_line,
+  format_indented_close_brace
+} :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 
 expr_bool_value :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(bool))(
@@ -185,24 +190,16 @@ format_and_or_if_negate_open :: (fn(indent : String, cond_code : String) -> Stri
   s.push_str(")) {");
   s
 });
-/// Format an assignment line: `<indent><var> = <value_code>;`. Used by
-/// both chains for the final-arm short-circuit assignment into the
-/// result temp.
-format_and_or_assignment :: (fn(indent : String, var : String, value_code : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_string(var);
-  s.push_str(" = ");
-  s.push_string(value_code);
-  s.push_str(";");
-  s
-});
-/// Format the closing brace line: `<indent>}`. Used by both chains to
-/// close intermediate-arm if-blocks during depth unwind.
-format_and_or_close_brace :: (fn(indent : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("}");
-  s
-});
+// `format_and_or_assignment` and `format_and_or_close_brace` were local
+// divergences — bodies identical to canonical helpers in
+// `codegen/utils/index.yo`. Re-exported as aliases for backward
+// compatibility with the test imports.
+format_and_or_assignment :: (fn(indent : String, var : String, value_code : String) -> String)(
+  format_typed_init_line(indent, var, value_code)
+);
+format_and_or_close_brace :: (fn(indent : String) -> String)(
+  format_indented_close_brace(indent)
+);
 
 emit_if_chain_for_and :: (
   fn(args : ArrayList(AstExpr), indent : String, ctx : *(CodegenContext)) -> Option(String)
