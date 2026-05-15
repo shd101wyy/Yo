@@ -1,0 +1,224 @@
+//! Source formatter for Yo — 1-to-1 port of `src/formatter.ts`.
+//!
+//! Entry points:
+//!   * `format_yo_source(input, module_path) -> String` — pure formatter.
+//!   * `find_yo_format_files(target_path) -> ArrayList(String)` — directory walker.
+//!   * `format_yo_files(target_path, options) -> FormatYoFilesResult` — apply to
+//!     all matching files (with optional `--check` mode).
+//!
+//! Status (Phase A.10): foundations + small helpers. The main
+//! `format_yo_source` pipeline is stubbed (returns the input unchanged) and
+//! will be filled in by successive commits.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Token, TokenKind } :: import("./token.yo");
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+/// Number of spaces per indentation level. Mirrors `INDENT_SIZE` in
+/// `src/formatter.ts`.
+INDENT_SIZE :: usize(2);
+// ---------------------------------------------------------------------------
+// Token-kind classifiers
+// ---------------------------------------------------------------------------
+// In TypeScript these are `Set<TokenType>` constants tested with `.has(...)`.
+// In yo-self the variant kinds are an enum, so a simple predicate is more
+// idiomatic than a HashSet of enum values.
+/// True iff `kind` is any comment token (single-line, block, doc-line,
+/// inner-doc-line, doc-block, inner-doc-block). Mirrors `COMMENT_TOKEN_TYPES`.
+is_comment_token :: (fn(kind : TokenKind) -> bool)(
+  cond(
+    (kind == TokenKind.SingleLineComment) => true,
+    (kind == TokenKind.MultiLineComment) => true,
+    (kind == TokenKind.DocLineComment) => true,
+    (kind == TokenKind.InnerDocLineComment) => true,
+    (kind == TokenKind.DocBlockComment) => true,
+    (kind == TokenKind.InnerDocBlockComment) => true,
+    true => false
+  )
+);
+/// True iff `kind` is a single-line comment variant. Mirrors
+/// `LINE_COMMENT_TOKEN_TYPES`.
+is_line_comment_token :: (fn(kind : TokenKind) -> bool)(
+  cond(
+    (kind == TokenKind.SingleLineComment) => true,
+    (kind == TokenKind.DocLineComment) => true,
+    (kind == TokenKind.InnerDocLineComment) => true,
+    true => false
+  )
+);
+/// True iff `kind` is an atom-like token (Identifier / Integer / Float /
+/// Bool / StringLit / CharLit / TemplateString). Mirrors `ATOM_LIKE_TOKEN_TYPES`.
+is_atom_like_token :: (fn(kind : TokenKind) -> bool)(
+  cond(
+    (kind == TokenKind.Identifier) => true,
+    (kind == TokenKind.Integer) => true,
+    (kind == TokenKind.Float) => true,
+    (kind == TokenKind.Bool) => true,
+    (kind == TokenKind.StringLit) => true,
+    (kind == TokenKind.CharLit) => true,
+    (kind == TokenKind.TemplateString) => true,
+    true => false
+  )
+);
+/// True iff `name` is a directory the formatter should skip when walking
+/// `format_yo_files`. Mirrors `IGNORED_FORMAT_DIRS`.
+is_ignored_format_dir :: (fn(name : str) -> bool)(
+  cond(
+    (name == ".git") => true,
+    (name == ".yo-cache") => true,
+    (name == "node_modules") => true,
+    (name == "out") => true,
+    (name == "yo-out") => true,
+    true => false
+  )
+);
+// ---------------------------------------------------------------------------
+// Public option / result records
+// ---------------------------------------------------------------------------
+/// Options passed to `format_yo_files`. Mirrors `FormatYoFilesOptions` in
+/// `src/formatter.ts`. `check` = true switches to dry-run mode (no writes,
+/// `changed` lists files that WOULD be rewritten). `cwd` is the directory
+/// from which relative paths are resolved.
+FormatYoFilesOptions :: struct(
+  check : bool,
+  cwd : String
+);
+/// Result of `format_yo_files`. `files` is every file visited, `changed` is
+/// the subset that was rewritten (or would be in `check` mode). Mirrors
+/// `FormatYoFilesResult` in `src/formatter.ts`.
+FormatYoFilesResult :: struct(
+  files : ArrayList(String),
+  changed : ArrayList(String)
+);
+// ---------------------------------------------------------------------------
+// Small helpers (mostly from src/formatter.ts lines 1093-1334)
+// ---------------------------------------------------------------------------
+/// True iff `previous` (the token immediately before `(`) makes the paren a
+/// call delimiter — i.e. the paren follows an rvalue-end. Mirrors
+/// `parenIsCallDelimiter`.
+paren_is_call_delimiter :: (fn(previous : Option(Token)) -> bool)(
+  match(
+    previous,
+    .None => false,
+    .Some(p) => (
+      is_atom_like_token(p.kind) || (
+        (p.kind == TokenKind.RParen) || (
+          (p.kind == TokenKind.RBracket) || (p.kind == TokenKind.RCurlyBracket)
+        )
+      )
+    )
+  )
+);
+/// True iff `operator` is one of `:=`, `::`, `=`, `:`, `=>`, `->` — operators
+/// whose right-hand side does not require parenthesisation. Mirrors
+/// `operatorAllowsUngroupedRhs`.
+operator_allows_ungrouped_rhs :: (fn(op : str) -> bool)(
+  cond(
+    (op == ":=") => true,
+    (op == "::") => true,
+    (op == "=") => true,
+    (op == ":") => true,
+    (op == "=>") => true,
+    (op == "->") => true,
+    true => false
+  )
+);
+/// True iff `value` is one of the function-type keywords (`fn` or
+/// `unsafe_fn`). Mirrors `isFunctionTypeKeyword`.
+is_function_type_keyword :: (fn(value : str) -> bool)(
+  cond(
+    (value == "fn") => true,
+    (value == "unsafe_fn") => true,
+    true => false
+  )
+);
+/// True iff inserting an atom right after `previous` requires a leading
+/// space (so the tokens don't run together). Mirrors `needsSpaceBeforeAtom`.
+needs_space_before_atom :: (fn(previous : Option(Token)) -> bool)(
+  match(
+    previous,
+    .None => false,
+    .Some(p) => (
+      is_atom_like_token(p.kind) || (
+        (p.kind == TokenKind.RParen) || (
+          (p.kind == TokenKind.RBracket) || (p.kind == TokenKind.RCurlyBracket)
+        )
+      )
+    )
+  )
+);
+/// True iff `token` (a prefix operator like `!`, `-`, `&`, `~`) needs a
+/// leading space to separate from `previous`. Specifically:
+///   * After a comma — yes.
+///   * After another operator (except `.`) — yes, otherwise the lexer would
+///     merge them into one token (e.g. `||!` or `+!`).
+///   * Exception: `...` followed by `#` does not need a space.
+///
+/// Mirrors `prefixOperatorNeedsLeadingSpace`.
+prefix_operator_needs_leading_space :: (fn(token : Token, previous : Option(Token)) -> bool)(
+  match(
+    previous,
+    .None => false,
+    .Some(p) => cond(
+      (((p.kind == TokenKind.Operator) && (p.value.as_str() == "...")) && (token.value.as_str() == "#")) => false,
+      (p.kind == TokenKind.Comma) => true,
+      ((p.kind == TokenKind.Operator) && (p.value.as_str() != ".")) => true,
+      true => false
+    )
+  )
+);
+/// Count the leading `[ \t]*` characters of `line`. Mirrors
+/// `leadingWhitespaceLength`.
+leading_whitespace_length :: (fn(line : str) -> usize)({
+  bytes := line.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  (done : bool) = false;
+  while(runtime((i < n) && (!(done))), {
+    b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+    cond(
+      (b == u8(32)) => {
+        i = (i + usize(1));
+      },
+      (b == u8(9)) => {
+        i = (i + usize(1));
+      },
+      true => {
+        done = true;
+      }
+    );
+  });
+  i
+});
+// ---------------------------------------------------------------------------
+// Public entry — `format_yo_source`
+// ---------------------------------------------------------------------------
+/// Format the given Yo source text and return the rewritten output.
+///
+/// 1-to-1 port of `formatYoSource` in `src/formatter.ts`. Throws via the
+/// implicit `Exception` handler on parse errors (matches TS `throw`).
+///
+/// **Phase A.10 status**: stub — currently returns the input unchanged.
+/// The full pipeline (token classification, paren/bracket/curly stack
+/// management, multiline detection, comment normalisation, indentation) will
+/// be filled in by subsequent commits.
+format_yo_source :: (fn(input : String, _module_path : String) -> String)(
+  input
+);
+export(
+  INDENT_SIZE,
+  is_comment_token,
+  is_line_comment_token,
+  is_atom_like_token,
+  is_ignored_format_dir,
+  FormatYoFilesOptions,
+  FormatYoFilesResult,
+  paren_is_call_delimiter,
+  operator_allows_ungrouped_rhs,
+  is_function_type_keyword,
+  needs_space_before_atom,
+  prefix_operator_needs_leading_space,
+  leading_whitespace_length,
+  format_yo_source
+);
