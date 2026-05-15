@@ -12,7 +12,8 @@ open(import("std/string"));
   indent_plus_two,
   format_indented_close_brace,
   format_if_negate_open,
-  format_indented_line
+  format_indented_line,
+  format_indented_stmt
 } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 
@@ -55,12 +56,11 @@ format_while_close :: (fn(indent : String) -> String)(
 /// Format a C goto label line: `<indent><label>:;`. Used to emit the
 /// outer `loop_<id>:;` continuation point and the inner
 /// `continue_<id>:;` step-expression target.
-format_while_label_line :: (fn(indent : String, label : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_string(label);
-  s.push_str(":;");
-  s
-});
+// `format_while_label_line` is `<indent><label>:;` — composable via
+// `format_indented_line` with the `<label>:;` body.
+format_while_label_line :: (fn(indent : String, label : String) -> String)(
+  format_indented_line(indent, (label + String.from(":;")).as_str())
+);
 /// Format a bare C assignment expression: `<lhs> = <rhs>`. Used by
 /// `append_step_assignment` to compose the comma-joined step list
 /// inside a 3-arg `while`'s step expression. No leading indent and no
@@ -77,13 +77,11 @@ format_while_assignment_expr :: (fn(lhs : String, rhs : String) -> String)({
 /// The 2-space inner indent matches the inside of the `while (true) {`
 /// block. `step_code` is the C-emitted step expression — typically a
 /// chain of compound assignments built by `generate_step_expression`.
-format_while_step_line :: (fn(indent : String, step_code : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("  ");
-  s.push_string(step_code);
-  s.push_str(";");
-  s
-});
+// `format_while_step_line` is `<indent>  <step>;` — composable via
+// `format_indented_stmt` with a 2-space-deeper indent.
+format_while_step_line :: (fn(indent : String, step_code : String) -> String)(
+  format_indented_stmt(indent_plus_two(indent), step_code)
+);
 expr_is_function_call_of :: (fn(expr : AstExpr, name : str, arity : usize) -> bool)(
   match(
     expr,
