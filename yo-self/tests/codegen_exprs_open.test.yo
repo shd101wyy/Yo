@@ -19,7 +19,10 @@ open(import("std/fmt"));
 { EvalValue } :: import("../value.yo");
 { CodegenContext } :: import("../codegen/context.yo");
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
-{ generate_open } :: import("../codegen/exprs/open.yo");
+{
+  generate_open,
+  format_destructure_field_decl
+} :: import("../codegen/exprs/open.yo");
 { get_type_string } :: import("../codegen/utils/index.yo");
 mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
   AstExpr.Atom(
@@ -201,4 +204,27 @@ test("generate_open: skips emission when arg has compile-time value", {
   assert(result.is_some(), "Some result even when skipped");
   code := ctx.emitter.code;
   assert(!(code.contains(String.from("int32_t x ="))), "no decl emitted for comptime value");
+});
+test("format_destructure_field_decl: composes indented decl with field access", {
+  out := format_destructure_field_decl(
+    String.from("  "),
+    String.from("int32_t"),
+    String.from("x"),
+    String.from("s"),
+    String.from("x")
+  );
+  assert(
+    out == String.from("  int32_t x = s.x;"),
+    "destructure field decl shape"
+  );
+});
+test("format_destructure_field_decl: works without indent", {
+  out := format_destructure_field_decl(
+    String.from(""),
+    String.from("bool"),
+    String.from("flag"),
+    String.from("opt"),
+    String.from("present")
+  );
+  assert(out == String.from("bool flag = opt.present;"), "no indent");
 });

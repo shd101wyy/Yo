@@ -34,6 +34,35 @@ open(import("std/string"));
 // local `get_field_c_type` helper. The canonical helper consults the
 // type registry first, then falls back to the primitive lowering, then
 // to the TS-canonical `"int32_t"` default.
+/// Format a destructuring-field declaration line:
+///   `<indent><field_type> <var_name> = <struct_code>.<field_label>;`
+///
+/// Pure string composition — mirrors the inline build inside the
+/// `runtime_destructurings` loop in `generate_open`. The variant in
+/// `match.yo`'s `format_data_binding_decl` bakes in a `"  "` indent
+/// for case-block nesting; this version is indent-parameterized so
+/// runtime callers (the destructuring loop) can pass through the
+/// caller's emit indent.
+format_destructure_field_decl :: (
+  fn(
+    indent : String,
+    field_type : String,
+    var_name : String,
+    struct_code : String,
+    field_label : String
+  ) -> String
+)({
+  s := String.from(indent.as_str());
+  s.push_string(field_type);
+  s.push_str(" ");
+  s.push_string(var_name);
+  s.push_str(" = ");
+  s.push_string(struct_code);
+  s.push_str(".");
+  s.push_string(field_label);
+  s.push_str(";");
+  s
+});
 /// Generate code for `open(arg_expr)`.
 ///
 /// Reads `expr.runtime_destructurings` and the arg's type/value from the
@@ -82,16 +111,15 @@ generate_open :: (
                         field_type := get_type_string(d.ty, ctx);
                         var_name := sanitize_for_c_identifier(d.variable_name);
                         field_label := sanitize_for_c_identifier(d.label);
-                        line := String.from(indent.as_str());
-                        line.push_string(field_type);
-                        line.push_str(" ");
-                        line.push_string(var_name);
-                        line.push_str(" = ");
-                        line.push_string(struct_code);
-                        line.push_str(".");
-                        line.push_string(field_label);
-                        line.push_str(";");
-                        ctx.*.emitter.emit_string_line(line);
+                        ctx.*.emitter.emit_string_line(
+                          format_destructure_field_decl(
+                            indent,
+                            field_type,
+                            var_name,
+                            struct_code,
+                            field_label
+                          )
+                        );
                       }
                     );
                     i = (i + usize(1));
@@ -106,4 +134,4 @@ generate_open :: (
     )
   )
 );
-export(generate_open);
+export(generate_open, format_destructure_field_decl);
