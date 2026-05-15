@@ -137,6 +137,41 @@ emit_array_index :: (fn(arr : str, idx : str) -> String)({
   out.push_str("]))");
   out
 });
+/// Emit a plain C cast expression: `((<target>)(<value>))`. Mirrors the
+/// non-tagged-enum branch of `__yo_as` and the body of
+/// `__yo_maybe_uninit_as_ptr`. Pure string composition.
+emit_cast :: (fn(target_c_type : str, value : str) -> String)({
+  out := String.from("((");
+  out.push_str(target_c_type);
+  out.push_str(")(");
+  out.push_str(value);
+  out.push_str("))");
+  out
+});
+/// Emit a tag-extracting cast: `((<target>)((<scrutinee>).tag))`. Used
+/// by the tagged-enum branch of `__yo_as` when the source is a
+/// non-simple enum and we need to grab the discriminant.
+emit_cast_enum_tag :: (fn(target_c_type : str, scrutinee : str) -> String)({
+  out := String.from("((");
+  out.push_str(target_c_type);
+  out.push_str(")((");
+  out.push_str(scrutinee);
+  out.push_str(").tag))");
+  out
+});
+/// Emit a slice fat-pointer compound literal:
+///   `(<slice_c_type>){ .data = <ptr>, .length = <len> }`
+/// Mirrors the body of `__yo_slice_new` in TS inline-fns.
+emit_slice_construction :: (fn(slice_c_type : str, ptr : str, len : str) -> String)({
+  out := String.from("(");
+  out.push_str(slice_c_type);
+  out.push_str("){ .data = ");
+  out.push_str(ptr);
+  out.push_str(", .length = ");
+  out.push_str(len);
+  out.push_str(" }");
+  out
+});
 // `get_type_string_opt` and `can_optimize_as_simple_enum` both live in
 // `codegen/utils/index.yo` — the canonical 1-to-1 home for
 // `src/codegen/utils/index.ts` helpers. The imports live at the top of
@@ -208,22 +243,8 @@ generate_yo_inline_meta :: (
             )
           );
           result := cond(
-            source_is_tagged_enum => {
-              out := String.from("((");
-              out.push_str(target_c_type_str);
-              out.push_str(")((");
-              out.push_str(arg0);
-              out.push_str(").tag))");
-              out
-            },
-            true => {
-              out := String.from("((");
-              out.push_str(target_c_type_str);
-              out.push_str(")(");
-              out.push_str(arg0);
-              out.push_str("))");
-              out
-            }
+            source_is_tagged_enum => emit_cast_enum_tag(target_c_type_str, arg0),
+            true => emit_cast(target_c_type_str, arg0)
           );
           Option(String).Some(result)
         }
@@ -236,16 +257,9 @@ generate_yo_inline_meta :: (
       .Some(info) => match(
         get_type_string_opt(info.ty, ctx),
         .None => Option(String).None,
-        .Some(slice_c_type) => {
-          out := String.from("(");
-          out.push_string(slice_c_type);
-          out.push_str("){ .data = ");
-          out.push_str(arg0);
-          out.push_str(", .length = ");
-          out.push_str(arg1);
-          out.push_str(" }");
-          Option(String).Some(out)
-        }
+        .Some(slice_c_type) => Option(String).Some(
+          emit_slice_construction(slice_c_type.as_str(), arg0, arg1)
+        )
       )
     ),
     // __yo_maybe_uninit_new: emit an uninitialized C variable and return its name.
@@ -274,14 +288,9 @@ generate_yo_inline_meta :: (
       .Some(info) => match(
         get_type_string_opt(info.ty, ctx),
         .None => Option(String).None,
-        .Some(return_c_type) => {
-          out := String.from("((");
-          out.push_string(return_c_type);
-          out.push_str(")(");
-          out.push_str(arg0);
-          out.push_str("))");
-          Option(String).Some(out)
-        }
+        .Some(return_c_type) => Option(String).Some(
+          emit_cast(return_c_type.as_str(), arg0)
+        )
       )
     ),
     // __yo_array_index_range / __yo_slice_index_range (exclusive end)
@@ -470,3 +479,4 @@ is_yo_inline_builtin :: (fn(func_name : str) -> bool)(
 );
 export(generate_yo_inline_function_call, is_yo_inline_builtin);
 export(generate_yo_inline_meta, is_yo_inline_meta_builtin);
+export(emit_cast, emit_cast_enum_tag, emit_slice_construction);

@@ -7,7 +7,10 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
   generate_yo_inline_function_call,
-  is_yo_inline_builtin
+  is_yo_inline_builtin,
+  emit_cast,
+  emit_cast_enum_tag,
+  emit_slice_construction
 } :: import("../codegen/exprs/inline_fns.yo");
 mk_args1 :: (fn(a0 : str) -> ArrayList(String))({
   out := ArrayList(String).new();
@@ -78,4 +81,20 @@ test("is_yo_inline_builtin: unknown names return false", {
   assert(!(is_yo_inline_builtin("printf")), "printf is not inline");
   assert(!(is_yo_inline_builtin("__yo_typeid_register")), "typeid_register is not inline");
   assert(!(is_yo_inline_builtin("foo_bar")), "foo_bar is not inline");
+});
+// ─── pure cast / slice-construction emitters ────────────────────────────────
+test("emit_cast: wraps target type and value", {
+  out := emit_cast("int32_t", "x");
+  assert(out == String.from("((int32_t)(x))"), "cast shape");
+});
+test("emit_cast_enum_tag: extracts .tag from scrutinee", {
+  out := emit_cast_enum_tag("int32_t", "color");
+  assert(out == String.from("((int32_t)((color).tag))"), "tag-cast shape");
+});
+test("emit_slice_construction: composes (Type){ .data = <p>, .length = <n> }", {
+  out := emit_slice_construction("Slice_u8", "buf", "len");
+  assert(
+    out == String.from("(Slice_u8){ .data = buf, .length = len }"),
+    "slice construction"
+  );
 });
