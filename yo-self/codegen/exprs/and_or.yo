@@ -152,6 +152,55 @@ join_runtime_args :: (
 });
 
 indent_plus_two :: (fn(indent : String) -> String)(String.from(indent.as_str()) + String.from("  "));
+/// Format a bool short-circuit init line:
+///   `<indent>bool <var> = <value>;`
+/// Used at the top of both `emit_if_chain_for_and` (with `false`) and
+/// `emit_if_chain_for_or` (with `true`). Pure string composition.
+format_and_or_bool_init :: (fn(indent : String, var : String, value : str) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("bool ");
+  s.push_string(var);
+  s.push_str(" = ");
+  s.push_str(value);
+  s.push_str(";");
+  s
+});
+/// Format an if-open line: `<indent>if (<cond_code>) {`. Used by the
+/// AND chain's intermediate-arm header.
+format_and_or_if_open :: (fn(indent : String, cond_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("if (");
+  s.push_string(cond_code);
+  s.push_str(") {");
+  s
+});
+/// Format a negated-if-open line: `<indent>if (!(<cond_code>)) {`.
+/// Used by the OR chain's intermediate-arm header.
+format_and_or_if_negate_open :: (fn(indent : String, cond_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("if (!(");
+  s.push_string(cond_code);
+  s.push_str(")) {");
+  s
+});
+/// Format an assignment line: `<indent><var> = <value_code>;`. Used by
+/// both chains for the final-arm short-circuit assignment into the
+/// result temp.
+format_and_or_assignment :: (fn(indent : String, var : String, value_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_string(var);
+  s.push_str(" = ");
+  s.push_string(value_code);
+  s.push_str(";");
+  s
+});
+/// Format the closing brace line: `<indent>}`. Used by both chains to
+/// close intermediate-arm if-blocks during depth unwind.
+format_and_or_close_brace :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("}");
+  s
+});
 
 indent_minus_two :: (fn(indent : String) -> String)(
   cond(
@@ -164,10 +213,7 @@ emit_if_chain_for_and :: (
   fn(args : ArrayList(AstExpr), indent : String, ctx : *(CodegenContext)) -> Option(String)
 )({
   sc_var := ctx.*.fresh_temp();
-  ctx.*.emitter.emit_string(indent);
-  ctx.*.emitter.emit("bool ");
-  ctx.*.emitter.emit_string(sc_var);
-  ctx.*.emitter.emit_line(" = false;");
+  ctx.*.emitter.emit_string_line(format_and_or_bool_init(indent, sc_var, "false"));
   current_indent := String.from(indent.as_str());
   i := usize(0);
   ok := true;
@@ -184,19 +230,12 @@ emit_if_chain_for_and :: (
         },
         .Some(arg_code) => cond(
           (i < (args.len() - usize(1))) => {
-            ctx.*.emitter.emit_string(current_indent);
-            ctx.*.emitter.emit("if (");
-            ctx.*.emitter.emit_string(arg_code);
-            ctx.*.emitter.emit_line(") {");
+            ctx.*.emitter.emit_string_line(format_and_or_if_open(current_indent, arg_code));
             current_indent = indent_plus_two(current_indent);
           },
-          true => {
-            ctx.*.emitter.emit_string(current_indent);
-            ctx.*.emitter.emit_string(sc_var);
-            ctx.*.emitter.emit(" = ");
-            ctx.*.emitter.emit_string(arg_code);
-            ctx.*.emitter.emit_line(";");
-          }
+          true => ctx.*.emitter.emit_string_line(
+            format_and_or_assignment(current_indent, sc_var, arg_code)
+          )
         )
       )
     );
@@ -206,8 +245,7 @@ emit_if_chain_for_and :: (
   j := usize(0);
   while(runtime(j < depth), {
     current_indent = indent_minus_two(current_indent);
-    ctx.*.emitter.emit_string(current_indent);
-    ctx.*.emitter.emit_line("}");
+    ctx.*.emitter.emit_string_line(format_and_or_close_brace(current_indent));
     j = (j + usize(1));
   });
   cond(ok => Option(String).Some(sc_var), true => Option(String).None)
@@ -217,10 +255,7 @@ emit_if_chain_for_or :: (
   fn(args : ArrayList(AstExpr), indent : String, ctx : *(CodegenContext)) -> Option(String)
 )({
   sc_var := ctx.*.fresh_temp();
-  ctx.*.emitter.emit_string(indent);
-  ctx.*.emitter.emit("bool ");
-  ctx.*.emitter.emit_string(sc_var);
-  ctx.*.emitter.emit_line(" = true;");
+  ctx.*.emitter.emit_string_line(format_and_or_bool_init(indent, sc_var, "true"));
   current_indent := String.from(indent.as_str());
   i := usize(0);
   ok := true;
@@ -237,19 +272,14 @@ emit_if_chain_for_or :: (
         },
         .Some(arg_code) => cond(
           (i < (args.len() - usize(1))) => {
-            ctx.*.emitter.emit_string(current_indent);
-            ctx.*.emitter.emit("if (!(");
-            ctx.*.emitter.emit_string(arg_code);
-            ctx.*.emitter.emit_line(")) {");
+            ctx.*.emitter.emit_string_line(
+              format_and_or_if_negate_open(current_indent, arg_code)
+            );
             current_indent = indent_plus_two(current_indent);
           },
-          true => {
-            ctx.*.emitter.emit_string(current_indent);
-            ctx.*.emitter.emit_string(sc_var);
-            ctx.*.emitter.emit(" = ");
-            ctx.*.emitter.emit_string(arg_code);
-            ctx.*.emitter.emit_line(";");
-          }
+          true => ctx.*.emitter.emit_string_line(
+            format_and_or_assignment(current_indent, sc_var, arg_code)
+          )
         )
       )
     );
@@ -259,8 +289,7 @@ emit_if_chain_for_or :: (
   j := usize(0);
   while(runtime(j < depth), {
     current_indent = indent_minus_two(current_indent);
-    ctx.*.emitter.emit_string(current_indent);
-    ctx.*.emitter.emit_line("}");
+    ctx.*.emitter.emit_string_line(format_and_or_close_brace(current_indent));
     j = (j + usize(1));
   });
   cond(ok => Option(String).Some(sc_var), true => Option(String).None)
@@ -312,4 +341,14 @@ generate_op_or :: (
   )
 );
 
-export(generate_op_and, generate_op_or, expr_bool_value, expr_may_have_side_effects);
+export(
+  generate_op_and,
+  generate_op_or,
+  expr_bool_value,
+  expr_may_have_side_effects,
+  format_and_or_bool_init,
+  format_and_or_if_open,
+  format_and_or_if_negate_open,
+  format_and_or_assignment,
+  format_and_or_close_brace
+);

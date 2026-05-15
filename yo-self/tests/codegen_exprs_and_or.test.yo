@@ -14,8 +14,17 @@ open(import("std/string"));
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
 { generate_expr } :: import("../codegen/exprs.yo");
 { CodegenContext } :: import("../codegen/context.yo");
-{ generate_op_and, generate_op_or, expr_bool_value, expr_may_have_side_effects }
-:: import("../codegen/exprs/and_or.yo");
+{
+  generate_op_and,
+  generate_op_or,
+  expr_bool_value,
+  expr_may_have_side_effects,
+  format_and_or_bool_init,
+  format_and_or_if_open,
+  format_and_or_if_negate_open,
+  format_and_or_assignment,
+  format_and_or_close_brace
+} :: import("../codegen/exprs/and_or.yo");
 
 mk_token :: (fn(value : str, kind : TokenKind) -> Token)(
   Token(
@@ -148,4 +157,31 @@ test("generate_expr: infix && dispatches through split handler", {
   expr := mk_infix(usize(72), "&&", args);
   result := generate_expr(expr, &(ctx), String.from(""));
   assert(match(result,.Some(s) => (s == String.from("(a && b)")),.None => false), "central dispatch");
+});
+// ─── pure string formatters ─────────────────────────────────────────────────
+test("format_and_or_bool_init: composes `<indent>bool <var> = <value>;`", {
+  out := format_and_or_bool_init(String.from("  "), String.from("sc"), "false");
+  assert(out == String.from("  bool sc = false;"), "AND bool init");
+  out2 := format_and_or_bool_init(String.from(""), String.from("sc"), "true");
+  assert(out2 == String.from("bool sc = true;"), "OR bool init");
+});
+test("format_and_or_if_open: composes `<indent>if (<cond>) {`", {
+  out := format_and_or_if_open(String.from("  "), String.from("a"));
+  assert(out == String.from("  if (a) {"), "if open shape");
+});
+test("format_and_or_if_negate_open: composes `<indent>if (!(<cond>)) {`", {
+  out := format_and_or_if_negate_open(String.from(""), String.from("b"));
+  assert(out == String.from("if (!(b)) {"), "if-negate open shape");
+});
+test("format_and_or_assignment: composes `<indent><var> = <value>;`", {
+  out := format_and_or_assignment(
+    String.from("    "),
+    String.from("sc"),
+    String.from("(x && y)")
+  );
+  assert(out == String.from("    sc = (x && y);"), "assignment shape");
+});
+test("format_and_or_close_brace: emits `<indent>}`", {
+  out := format_and_or_close_brace(String.from("  "));
+  assert(out == String.from("  }"), "close brace shape");
 });
