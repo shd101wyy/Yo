@@ -25,7 +25,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { EvalValue } :: import("../../value.yo");
 { CodegenContext } :: import("../context.yo");
-{ sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ sanitize_for_c_identifier, format_typed_init_line } :: import("../utils/index.yo");
 /// Format the typeid static variable name:
 ///   `__yo_typeid_<sanitized>`
 /// Mirrors the prefix-then-append composition used by
@@ -39,12 +39,15 @@ format_typeid_static_name :: (fn(sanitized : String) -> String)({
 ///   `static const char <name> = 0;`
 /// Emitted into the declarations section the first time a given type
 /// is encountered. Pure string composition.
-format_typeid_static_decl :: (fn(name : String) -> String)({
-  s := String.from("static const char ");
-  s.push_string(name);
-  s.push_str(" = 0;");
-  s
-});
+format_typeid_static_decl :: (fn(name : String) -> String)(
+  // Composes `static const char <name> = 0;` via the canonical
+  // typed-init helper — treats `static const char <name>` as the LHS.
+  format_typed_init_line(
+    String.new(),
+    String.from("static const char ") + name,
+    String.from("0")
+  )
+);
 /// Format the typeid expression: `(uintptr_t)&<name>`. This is the C
 /// value of a `typeid(T)` call — a stable pointer cast to `uintptr_t`
 /// for use as a unique integer identifier.
