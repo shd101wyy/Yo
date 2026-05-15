@@ -2014,72 +2014,29 @@ handle_match_data :: (
           // It is NOT correct when `Some` has been registered as a real
           // data-enum variant — in that case `generate_match_data` must drive
           // the dispatch through the tagged union.
-          // First, scan the arms — if any of them is `.None` / `.Err` / `_`
-          // (wildcard), we cannot use the simplified-Some path because the
-          // match needs to actually dispatch on the scrutinee. Without this
-          // pre-check, a `match(opt, .Some(_) => ..., .None => ...)` would
-          // emit only the `.Some` body unconditionally, ignoring `.None`.
-          has_none_or_wild_arm := {
-            (hi : usize) = usize(1);
-            (found : bool) = false;
-            while(runtime((hi < n) && (!(found))), {
-              match(
-                args.get(hi),
-                .None => (),
-                .Some(arm_expr_h) => match(
-                  get_arm_args(arm_expr_h),
-                  .None => (),
-                  .Some(arm_args_h) => match(
-                    arm_args_h.get(usize(0)),
-                    .None => (),
-                    .Some(pat_h) => cond(
-                      _is_atom_value(pat_h, "_") => {
-                        found = true;
-                      },
-                      true => match(
-                        data_arm_variant_name(pat_h),
-                        .None => (),
-                        .Some(vn_h) => cond(
-                          ((vn_h.as_str() == "None") || (vn_h.as_str() == "Err")) => {
-                            found = true;
-                          },
-                          true => ()
-                        )
-                      )
-                    )
-                  )
-                )
-              );
-              hi = (hi + usize(1));
-            });
-            found
-          };
-          can_simplify_some_match := cond(
-            has_none_or_wild_arm => false,
-            true => match(
-              ctx.*.get_enum_for_variant("Some"),
-              .Some(_) => false,
-              .None => match(
-                ctx.*.get_var_type(scrut_code.as_str()),
-                .None => true,
-                .Some(vt) => cond(
-                  (vt.as_str() == "__auto_type") => true,
-                  (vt.as_str() == "int8_t") => true,
-                  (vt.as_str() == "int16_t") => true,
-                  (vt.as_str() == "int32_t") => true,
-                  (vt.as_str() == "int64_t") => true,
-                  (vt.as_str() == "uint8_t") => true,
-                  (vt.as_str() == "uint16_t") => true,
-                  (vt.as_str() == "uint32_t") => true,
-                  (vt.as_str() == "uint64_t") => true,
-                  (vt.as_str() == "size_t") => true,
-                  (vt.as_str() == "isize") => true,
-                  (vt.as_str() == "double") => true,
-                  (vt.as_str() == "float") => true,
-                  (vt.as_str() == "bool") => true,
-                  (vt.as_str() == "const char*") => true,
-                  true => false
-                )
+          can_simplify_some_match := match(
+            ctx.*.get_enum_for_variant("Some"),
+            .Some(_) => false,
+            .None => match(
+              ctx.*.get_var_type(scrut_code.as_str()),
+              .None => true,
+              .Some(vt) => cond(
+                (vt.as_str() == "__auto_type") => true,
+                (vt.as_str() == "int8_t") => true,
+                (vt.as_str() == "int16_t") => true,
+                (vt.as_str() == "int32_t") => true,
+                (vt.as_str() == "int64_t") => true,
+                (vt.as_str() == "uint8_t") => true,
+                (vt.as_str() == "uint16_t") => true,
+                (vt.as_str() == "uint32_t") => true,
+                (vt.as_str() == "uint64_t") => true,
+                (vt.as_str() == "size_t") => true,
+                (vt.as_str() == "isize") => true,
+                (vt.as_str() == "double") => true,
+                (vt.as_str() == "float") => true,
+                (vt.as_str() == "bool") => true,
+                (vt.as_str() == "const char*") => true,
+                true => false
               )
             )
           );
