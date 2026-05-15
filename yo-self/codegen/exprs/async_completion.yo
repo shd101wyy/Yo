@@ -3,6 +3,7 @@
 //! 1-to-1 port of `src/codegen/exprs/async-completion.ts`.
 open(import("std/string"));
 { Emitter } :: import("../../emitter.yo");
+{ indent_plus_two } :: import("../utils/index.yo");
 AsyncCompletionOptions :: object(
   emitter : *(Emitter),
   indent : String,
@@ -71,7 +72,7 @@ emit_async_future_completion :: (fn(opts : AsyncCompletionOptions) -> unit)({
     .None => (),
     .Some(debug_label2) => opts.emitter.*.emit_string_line(
       format_async_debug_line(
-        String.from(opts.indent.as_str()) + String.from("  "),
+        indent_plus_two(opts.indent),
         debug_label2,
         ": Spawning continuation: resume_fn=%p, sm=%p\\n\", (void*)continuation_fn, continuation_sm);"
       )
@@ -128,7 +129,7 @@ emit_async_future_escape :: (fn(opts : AsyncCompletionOptions) -> unit)({
     .None => (),
     .Some(debug_label2) => opts.emitter.*.emit_string_line(
       format_async_debug_line(
-        String.from(opts.indent.as_str()) + String.from("  "),
+        indent_plus_two(opts.indent),
         debug_label2,
         ": Spawning continuation for escaped future: resume_fn=%p, sm=%p\\n\", (void*)continuation_fn, continuation_sm);"
       )

@@ -185,6 +185,23 @@ sanitize_for_c_identifier_str :: (fn(s : str) -> String)(
 /// the underlying refcount field. Mirrors TS `shouldAvoidConst` in
 /// `src/codegen/utils/index.ts`.
 should_avoid_const :: (fn(t : TypeValue) -> bool)(is_object_type(t));
+/// Return `indent + "  "` — a fresh String that is two spaces wider
+/// than `indent`. The standard one-level deeper indent used by every
+/// block-style codegen (cond arms, begin blocks, while bodies, async
+/// continuations, …). Pure string composition.
+indent_plus_two :: (fn(indent : String) -> String)(
+  String.from(indent.as_str()) + String.from("  ")
+);
+/// Return `indent` with the trailing two spaces removed (or the empty
+/// string when `indent` is shorter than 2). Mirror of
+/// `indent_plus_two`. Used by depth-unwind loops in the AND/OR if-chain
+/// emitters.
+indent_minus_two :: (fn(indent : String) -> String)(
+  cond(
+    (indent.len() >= usize(2)) => indent.substring(usize(0), indent.len() - usize(2)),
+    true => String.new()
+  )
+);
 /// True iff `t` is an enum whose every variant carries no data — so
 /// it can be lowered to a plain C `enum` instead of a tagged-union
 /// struct. Equivalent to TS `canOptimizeAsSimpleEnum` in
@@ -671,6 +688,8 @@ export(
   get_variable_type_string_opt,
   get_variable_type_string_opt_str,
   format_typed_var_name,
+  indent_plus_two,
+  indent_minus_two,
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,

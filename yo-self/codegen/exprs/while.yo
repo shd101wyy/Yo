@@ -8,6 +8,7 @@ open(import("std/string"));
 { TokenKind } :: import("../../token.yo");
 { random_id } :: import("../../evaluator/utils.yo");
 { CodegenContext } :: import("../context.yo");
+{ indent_plus_two } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 
 /// Format `<indent>while (true) {` — the opening header of every
@@ -317,14 +318,14 @@ generate_while_loop :: (
           ctx.*.current_loop_label = loop_label;
           ctx.*.emitter.emit_string_line(format_while_true_open(indent));
           condition_code := match(
-            call_gen_expr(condition_expr, ctx, String.from(indent.as_str()) + String.from("  ")),
+            call_gen_expr(condition_expr, ctx, indent_plus_two(indent)),
             .None => String.from("0"),
             .Some(code) => code
           );
           ctx.*.emitter.emit_string_line(format_while_if_negate(indent, condition_code));
           ctx.*.emitter.emit_string_line(format_while_break_line(indent));
           ctx.*.emitter.emit_string_line(format_while_break_close(indent));
-          generate_loop_body(body_expr, String.from(indent.as_str()) + String.from("  "), ctx);
+          generate_loop_body(body_expr, indent_plus_two(indent), ctx);
           ctx.*.emitter.emit_string_line(format_while_close(indent));
           ctx.*.emitter.emit_string_line(format_while_label_line(indent, loop_label));
           ctx.*.current_loop_label = saved_loop_label;
@@ -351,14 +352,14 @@ generate_while_loop :: (
             ctx.*.current_continue_label = continue_label;
             ctx.*.emitter.emit_string_line(format_while_true_open(indent));
             condition_code := match(
-              call_gen_expr(condition_expr, ctx, String.from(indent.as_str()) + String.from("  ")),
+              call_gen_expr(condition_expr, ctx, indent_plus_two(indent)),
               .None => String.from("0"),
               .Some(code) => code
             );
             ctx.*.emitter.emit_string_line(format_while_if_negate(indent, condition_code));
             ctx.*.emitter.emit_string_line(format_while_break_line(indent));
             ctx.*.emitter.emit_string_line(format_while_break_close(indent));
-            generate_loop_body(body_expr, String.from(indent.as_str()) + String.from("  "), ctx);
+            generate_loop_body(body_expr, indent_plus_two(indent), ctx);
             ctx.*.emitter.emit_string_line(format_while_label_line(indent, continue_label));
             step_code := generate_step_expression(step_expr, ctx);
             ctx.*.emitter.emit_string_line(format_while_step_line(indent, step_code));

@@ -7,6 +7,7 @@ open(import("std/string"));
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { CodegenContext } :: import("../context.yo");
+{ indent_plus_two, indent_minus_two } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 
 expr_bool_value :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(bool))(
@@ -151,7 +152,8 @@ join_runtime_args :: (
   cond(ok => Option(String).Some(out), true => Option(String).None)
 });
 
-indent_plus_two :: (fn(indent : String) -> String)(String.from(indent.as_str()) + String.from("  "));
+// `indent_plus_two` / `indent_minus_two` moved to `codegen/utils/index.yo`
+// for sharing across handlers — re-imported at the top of this file.
 /// Format a bool short-circuit init line:
 ///   `<indent>bool <var> = <value>;`
 /// Used at the top of both `emit_if_chain_for_and` (with `false`) and
@@ -201,13 +203,6 @@ format_and_or_close_brace :: (fn(indent : String) -> String)({
   s.push_str("}");
   s
 });
-
-indent_minus_two :: (fn(indent : String) -> String)(
-  cond(
-    (indent.len() >= usize(2)) => indent.substring(usize(0), indent.len() - usize(2)),
-    true => String.new()
-  )
-);
 
 emit_if_chain_for_and :: (
   fn(args : ArrayList(AstExpr), indent : String, ctx : *(CodegenContext)) -> Option(String)
