@@ -68,59 +68,58 @@ function findStringLiteral(
   return null;
 }
 
-// Parse all test("name", () => { ... }); blocks
+// Parse all test("name", () => { ... }); blocks.
+//
+// Anchor matching on `test("name", () => {` so we don't mistake
+// `test("name", { … })` substrings that appear inside test source/expected
+// template literals (e.g. test 7's source includes a literal
+// `test("format effect", { … })`). The `() =>` arrow distinguishes a real
+// top-level `test()` call from the inner content.
 type TestCase = { name: string; source: string; expected: string };
 const cases: TestCase[] = [];
+const skipped: { name: string; reason: string }[] = [];
 
-let i = 0;
-while (i < source.length) {
-  const idx = source.indexOf('test("', i);
-  if (idx === -1) break;
-
-  // Extract test name
-  const nameStart = idx + 6;
-  const nameEnd = source.indexOf('"', nameStart);
-  if (nameEnd === -1) {
-    i = idx + 1;
-    continue;
-  }
-  const name = source.slice(nameStart, nameEnd);
-
-  // Skip past ", () => {"
-  let p = source.indexOf("=> {", nameEnd);
-  if (p === -1) {
-    i = idx + 1;
-    continue;
-  }
-  p += 4;
+const testStartRe = /test\("([^"]+)",\s*\(\s*\)\s*=>\s*\{/g;
+let m: RegExpExecArray | null;
+while ((m = testStartRe.exec(source)) !== null) {
+  const name = m[1];
+  const p = m.index + m[0].length;
 
   // Find `const source = `...`;`
   const srcMarker = "const source = ";
   const srcIdx = source.indexOf(srcMarker, p);
   if (srcIdx === -1) {
-    i = idx + 1;
+    skipped.push({ name, reason: "no `const source = `" });
     continue;
   }
   const srcLitStart = srcIdx + srcMarker.length;
   const srcLit = findStringLiteral(source, srcLitStart);
   if (!srcLit) {
-    i = idx + 1;
+    skipped.push({ name, reason: "source is not a string literal" });
     continue;
   }
 
-  // Find `expect(formatYoSource(source)).toBe(`
+  // Find the first `.toBe(` after the source declaration. Most tests use
+  // `expect(formatYoSource(source)).toBe(`<literal>`)` but some use the
+  // intermediate `const once = formatYoSource(source); expect(once).toBe(`<literal>`)`
+  // form — both are caught here because the first `.toBe(` carries the
+  // literal. Tests that compare two identifiers (e.g. `expect(twice).toBe(once)`
+  // for idempotency-only checks) have no literal to compare and are skipped.
   const expMarker = ".toBe(";
   const expIdx = source.indexOf(expMarker, srcLit.end);
   if (expIdx === -1) {
-    i = idx + 1;
+    skipped.push({ name, reason: "no `.toBe(` after source" });
     continue;
   }
   let expLitStart = expIdx + expMarker.length;
-  // Skip whitespace after `(`
   while (/\s/.test(source[expLitStart])) expLitStart++;
   const expLit = findStringLiteral(source, expLitStart);
   if (!expLit) {
-    i = idx + 1;
+    skipped.push({
+      name,
+      reason:
+        "`.toBe(` argument is not a string literal (idempotency-only test?)",
+    });
     continue;
   }
 
@@ -131,16 +130,22 @@ while (i < source.length) {
     srcValue = eval(srcLit.value);
     expectedValue = eval(expLit.value);
   } catch (e) {
-    console.error(`Failed to eval literals for ${name}: ${e}`);
-    i = expLit.end;
+    skipped.push({ name, reason: `eval failed: ${e}` });
     continue;
   }
   cases.push({ name, source: srcValue, expected: expectedValue });
-
-  i = expLit.end;
 }
 
-console.log(`Extracted ${cases.length} test cases.\n`);
+console.log(
+  `Extracted ${cases.length} test cases; skipped ${skipped.length}.\n`
+);
+if (skipped.length > 0) {
+  console.log("Skipped:");
+  for (const s of skipped) {
+    console.log(`  - ${s.name}: ${s.reason}`);
+  }
+  console.log();
+}
 
 // Run each through yo-self-bin
 let pass = 0,
