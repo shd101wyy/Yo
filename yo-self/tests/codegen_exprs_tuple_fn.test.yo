@@ -13,7 +13,11 @@ open(import("std/string"));
 { type_to_string } :: import("../types/string.yo");
 { CodegenContext, CodegenTypeEntry } :: import("../codegen/context.yo");
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
-{ generate_anonymous_tuple } :: import("../codegen/exprs/tuple_fn.yo");
+{
+  generate_anonymous_tuple,
+  format_tuple_compound_literal,
+  format_tuple_field_assignment
+} :: import("../codegen/exprs/tuple_fn.yo");
 {
   get_type_string_opt,
   get_variable_type_string_opt_str
@@ -222,4 +226,25 @@ test("generate_anonymous_tuple: missing registered type emits diagnostic comment
     .None => assert(false, "expected diagnostic"),
     .Some(code) => assert(code.contains(String.from("tuple type not found")), "diagnostic comment")
   );
+});
+// ─── pure string formatters ─────────────────────────────────────────────────
+test("format_tuple_compound_literal: composes (Type){ <args> }", {
+  out := format_tuple_compound_literal(
+    String.from("Pair_i32_bool"),
+    String.from("._0 = 1, ._1 = true")
+  );
+  assert(
+    out == String.from("(Pair_i32_bool){ ._0 = 1, ._1 = true }"),
+    "tuple compound literal"
+  );
+});
+test("format_tuple_compound_literal: empty args list", {
+  out := format_tuple_compound_literal(String.from("Unit"), String.from(""));
+  assert(out == String.from("(Unit){  }"), "empty payload");
+});
+test("format_tuple_field_assignment: ._<i> = <value>", {
+  out := format_tuple_field_assignment(usize(0), String.from("x"));
+  assert(out == String.from("._0 = x"), "index 0");
+  out2 := format_tuple_field_assignment(usize(3), String.from("expr"));
+  assert(out2 == String.from("._3 = expr"), "index 3");
 });

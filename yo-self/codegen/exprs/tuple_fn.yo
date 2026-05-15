@@ -20,6 +20,30 @@ open(import("std/string"));
 // `tuple_variable_type_string` was a local divergence — its body
 // is the canonical `get_variable_type_string_opt_str` in utils.yo.
 // Callers are migrated to use the canonical helper directly.
+/// Format an anonymous tuple compound literal:
+///   `(<c_name>){ <args_list> }`
+///
+/// `args_list` is the pre-joined `._0 = a, ._1 = b, …` payload. Pure
+/// string composition — mirrors the inline build of `tupleValue` in
+/// TS `generateAnonymousTuple`.
+format_tuple_compound_literal :: (fn(c_name : String, args_list : String) -> String)({
+  s := String.from("(");
+  s.push_string(c_name);
+  s.push_str("){ ");
+  s.push_string(args_list);
+  s.push_str(" }");
+  s
+});
+/// Format a single tuple-field designated initializer: `._<i> = <value>`.
+/// Used by `tuple_args_to_c` / `tuple_args_to_c_with_deferred_dup` while
+/// building the comma-separated argument list. Pure string composition.
+format_tuple_field_assignment :: (fn(index : usize, value_code : String) -> String)({
+  s := String.from("._");
+  s.push_string(index.to_string());
+  s.push_str(" = ");
+  s.push_string(value_code);
+  s
+});
 /// If an argument has deferred dup expressions, emit them and use the first
 /// dup expression's temp variable as the final field value, matching the TS
 /// handler's `generateDeferredDupExpressions(...); return dupExpr.$.variableName`.
@@ -109,10 +133,7 @@ tuple_args_to_c_with_deferred_dup :: (
             if(i > usize(0), {
               out.push_str(", ");
             });
-            out.push_str("._");
-            out.push_string(i.to_string());
-            out.push_str(" = ");
-            out.push_string(final_arg_value);
+            out.push_string(format_tuple_field_assignment(i, final_arg_value));
           }
         )
       )
@@ -143,10 +164,7 @@ tuple_args_to_c :: (
           if(i > usize(0), {
             out.push_str(", ");
           });
-          out.push_str("._");
-          out.push_string(i.to_string());
-          out.push_str(" = ");
-          out.push_string(arg_code);
+          out.push_string(format_tuple_field_assignment(i, arg_code));
         }
       )
     );
@@ -165,11 +183,7 @@ tuple_value_or_temp :: (
     indent : String
   ) -> Option(String)
 )({
-  tuple_value := String.from("(");
-  tuple_value.push_string(c_name);
-  tuple_value.push_str("){ ");
-  tuple_value.push_string(args_list);
-  tuple_value.push_str(" }");
+  tuple_value := format_tuple_compound_literal(c_name, args_list);
   match(
     temp_var,
     .None => Option(String).Some(tuple_value),
@@ -259,5 +273,7 @@ export(
   generate_anonymous_tuple,
   tuple_args_to_c,
   tuple_args_to_c_with_deferred_dup,
-  tuple_apply_deferred_dup
+  tuple_apply_deferred_dup,
+  format_tuple_compound_literal,
+  format_tuple_field_assignment
 );
