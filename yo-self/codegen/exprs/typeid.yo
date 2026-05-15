@@ -26,6 +26,33 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { CodegenContext } :: import("../context.yo");
 { sanitize_for_c_identifier } :: import("../utils/index.yo");
+/// Format the typeid static variable name:
+///   `__yo_typeid_<sanitized>`
+/// Mirrors the prefix-then-append composition used by
+/// `register_typeid_static`. Pure string composition.
+format_typeid_static_name :: (fn(sanitized : String) -> String)({
+  s := String.from("__yo_typeid_");
+  s.push_string(sanitized);
+  s
+});
+/// Format the typeid static declaration line:
+///   `static const char <name> = 0;`
+/// Emitted into the declarations section the first time a given type
+/// is encountered. Pure string composition.
+format_typeid_static_decl :: (fn(name : String) -> String)({
+  s := String.from("static const char ");
+  s.push_string(name);
+  s.push_str(" = 0;");
+  s
+});
+/// Format the typeid expression: `(uintptr_t)&<name>`. This is the C
+/// value of a `typeid(T)` call — a stable pointer cast to `uintptr_t`
+/// for use as a unique integer identifier.
+format_typeid_address_expr :: (fn(name : String) -> String)({
+  s := String.from("(uintptr_t)&");
+  s.push_string(name);
+  s
+});
 /// Extract the `TypeValue` from a `.TypeVal(box)` `EvalValue`, returning
 /// `.None` for any other shape.
 extract_type_value :: (fn(v : EvalValue) -> Option(TypeValue))(
@@ -48,15 +75,11 @@ register_typeid_static :: (
 )({
   type_id_str := type_to_string(ty);
   sanitized := sanitize_for_c_identifier(type_id_str);
-  static_var_name := String.from("__yo_typeid_");
-  static_var_name.push_string(sanitized);
+  static_var_name := format_typeid_static_name(sanitized);
   already_emitted := ctx.*.type_id_statics.get(type_id_str).is_some();
   if(!(already_emitted), {
     _ := ctx.*.type_id_statics.set(type_id_str, (&(static_var_name)).clone());
-    decl := String.from("static const char ");
-    decl.push_string(static_var_name);
-    decl.push_str(" = 0;");
-    ctx.*.emitter.emit_declaration_string_line(decl);
+    ctx.*.emitter.emit_declaration_string_line(format_typeid_static_decl(static_var_name));
   });
   // typeid expressions resolve to `(uintptr_t)&__yo_typeid_...`, so
   // the emitted module needs `<stdint.h>` for `uintptr_t`. Mirrors
@@ -95,9 +118,7 @@ generate_typeid :: (
             .None => Option(String).None,
             .Some(ty) => {
               static_var_name := register_typeid_static(ty, ctx);
-              result := String.from("(uintptr_t)&");
-              result.push_string(static_var_name);
-              Option(String).Some(result)
+              Option(String).Some(format_typeid_address_expr(static_var_name))
             }
           )
         )
@@ -105,4 +126,11 @@ generate_typeid :: (
     )
   )
 );
-export(generate_typeid, extract_type_value, register_typeid_static);
+export(
+  generate_typeid,
+  extract_type_value,
+  register_typeid_static,
+  format_typeid_static_name,
+  format_typeid_static_decl,
+  format_typeid_address_expr
+);

@@ -21,7 +21,13 @@ open(import("std/fmt"));
 { TypeValue, t_i32 } :: import("../types/type.yo");
 { EvalValue } :: import("../value.yo");
 { CodegenContext } :: import("../codegen/context.yo");
-{ generate_typeid, extract_type_value } :: import("../codegen/exprs/typeid.yo");
+{
+  generate_typeid,
+  extract_type_value,
+  format_typeid_static_name,
+  format_typeid_static_decl,
+  format_typeid_address_expr
+} :: import("../codegen/exprs/typeid.yo");
 { sanitize_for_c_identifier_str } :: import("../codegen/utils/index.yo");
 mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
   AstExpr.Atom(
@@ -167,4 +173,20 @@ test("generate_typeid: adds <stdint.h> to ctx.c_includes", {
     ctx.has_c_include(String.from("<stdint.h>")) == true,
     "<stdint.h> tracked"
   );
+});
+// ─── pure string formatters ─────────────────────────────────────────────────
+test("format_typeid_static_name: prepends __yo_typeid_ to sanitized id", {
+  out := format_typeid_static_name(String.from("i32"));
+  assert(out == String.from("__yo_typeid_i32"), "static name shape");
+});
+test("format_typeid_static_decl: emits `static const char <name> = 0;`", {
+  out := format_typeid_static_decl(String.from("__yo_typeid_i32"));
+  assert(
+    out == String.from("static const char __yo_typeid_i32 = 0;"),
+    "static decl shape"
+  );
+});
+test("format_typeid_address_expr: emits `(uintptr_t)&<name>`", {
+  out := format_typeid_address_expr(String.from("__yo_typeid_i32"));
+  assert(out == String.from("(uintptr_t)&__yo_typeid_i32"), "address expr shape");
 });
