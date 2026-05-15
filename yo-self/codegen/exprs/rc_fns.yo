@@ -29,7 +29,7 @@
 //! The concrete-`___drop` dispatch branch of `generateYoSomeTypeDrop`
 //! similarly waits on the trait fields' `assigned_value` slot.
 open(import("std/string"));
-{ format_c_function_call } :: import("../utils/index.yo");
+{ format_c_function_call, format_void_ptr_data_cast } :: import("../utils/index.yo");
 /// Format the C call site `__yo_decr_rc(arg_code)`. Mirrors the body of
 /// TS `generateYoDecrRc` — pure string wrap.
 format_decr_rc_call :: (fn(arg_code : String) -> String)(
@@ -61,23 +61,17 @@ format_incr_rc_atomic_call :: (fn(arg_code : String) -> String)(
 ///
 /// Dyn is a value type; the ref-count lives on its `.data` pointer.
 /// Mirrors the body of TS `generateYoDynDrop` — pure string wrap.
-format_dyn_drop_call :: (fn(arg_code : String) -> String)({
-  s := String.from("__yo_decr_rc((void*)(");
-  s.push_str(arg_code.as_str());
-  s.push_str(").data)");
-  s
-});
+format_dyn_drop_call :: (fn(arg_code : String) -> String)(
+  format_decr_rc_call(format_void_ptr_data_cast(arg_code))
+);
 /// Format the `__yo_dyn_dup` call site:
 ///   `__yo_incr_rc((void*)(arg_code).data)`
 ///
 /// Symmetric counterpart to `format_dyn_drop_call`. Mirrors the body
 /// of TS `generateYoDynDup`.
-format_dyn_dup_call :: (fn(arg_code : String) -> String)({
-  s := String.from("__yo_incr_rc((void*)(");
-  s.push_str(arg_code.as_str());
-  s.push_str(").data)");
-  s
-});
+format_dyn_dup_call :: (fn(arg_code : String) -> String)(
+  format_incr_rc_call(format_void_ptr_data_cast(arg_code))
+);
 /// Format the non-atomic `rc(x)` read site:
 ///   `((__yo_ref_header_t*)(arg_code))->ref_count`
 ///

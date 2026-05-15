@@ -27,30 +27,20 @@ open(import("std/string"));
   is_iso_type
 } :: import("../../types/guards.yo");
 { CodegenContext } :: import("../context.yo");
-{ get_type_string } :: import("../utils/index.yo");
+{
+  get_type_string,
+  format_void_ptr_cast,
+  format_void_ptr_data_cast
+} :: import("../utils/index.yo");
 {
   format_decr_rc_call,
   format_decr_rc_atomic_call,
   format_incr_rc_call,
   format_incr_rc_atomic_call
 } :: import("./rc_fns.yo");
-/// Format the C cast `(void*)(<value_code>)`. Used 6 times across the
-/// drop/dup leaf emitters. Pure string composition.
-format_void_ptr_cast :: (fn(value_code : String) -> String)({
-  s := String.from("(void*)(");
-  s.push_str(value_code.as_str());
-  s.push_str(")");
-  s
-});
-/// Format the C cast `(void*)(<value_code>).data`. Used by the Dyn
-/// drop/dup paths to extract the data pointer from a fat-pointer Dyn
-/// value before passing it to `__yo_decr_rc` / `__yo_incr_rc`.
-format_void_ptr_data_cast :: (fn(value_code : String) -> String)({
-  s := String.from("(void*)(");
-  s.push_str(value_code.as_str());
-  s.push_str(").data");
-  s
-});
+// `format_void_ptr_cast` and `format_void_ptr_data_cast` moved to
+// `codegen/utils/index.yo` for sharing with rc_fns.yo. Re-imported at
+// the top of this file.
 /// Format the typed-cast wrap `((<c_name>)<value_code>)`. Used by the
 /// dup paths for non-Dyn shapes to cast the void* returned by
 /// `__yo_incr_rc[_atomic]` back to the value's concrete C type.
@@ -162,8 +152,6 @@ generate_dup_code_for_leaf_type :: (
 export(
   generate_drop_code_for_leaf_type,
   generate_dup_code_for_leaf_type,
-  format_void_ptr_cast,
-  format_void_ptr_data_cast,
   format_typed_rc_cast,
   format_dyn_dup_rebuild
 );

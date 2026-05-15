@@ -273,6 +273,25 @@ format_c_function_call :: (fn(fn_name : str, args_code : String) -> String)({
   s.push_str(")");
   s
 });
+/// Format a C cast to `void*`: `(void*)(<value_code>)`. The standard
+/// way to pass any pointer-bearing value through the RC runtime
+/// (`__yo_*_rc[_atomic]`). Used heavily in drop/dup paths.
+format_void_ptr_cast :: (fn(value_code : String) -> String)({
+  s := String.from("(void*)(");
+  s.push_str(value_code.as_str());
+  s.push_str(")");
+  s
+});
+/// Format a Dyn-data cast: `(void*)(<value_code>).data`. Dyn is a
+/// fat-pointer struct; the RC-bearing pointer lives on its `.data`
+/// field. Used by `format_dyn_drop_call`, `format_dyn_dup_call`, and
+/// the Dyn drop/dup leaf emitters.
+format_void_ptr_data_cast :: (fn(value_code : String) -> String)({
+  s := String.from("(void*)(");
+  s.push_str(value_code.as_str());
+  s.push_str(").data");
+  s
+});
 /// Format an if-statement opening: `<indent>if (<cond_code>) {`. Shared
 /// by cond's first-runtime-arm header and and-or's intermediate-AND
 /// chain header.
@@ -789,6 +808,8 @@ export(
   format_if_open,
   format_if_negate_open,
   format_c_function_call,
+  format_void_ptr_cast,
+  format_void_ptr_data_cast,
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
