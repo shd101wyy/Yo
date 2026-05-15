@@ -3,7 +3,11 @@
 //! 1-to-1 port of `src/codegen/exprs/async-completion.ts`.
 open(import("std/string"));
 { Emitter } :: import("../../emitter.yo");
-{ indent_plus_two, format_indented_line } :: import("../utils/index.yo");
+{
+  indent_plus_two,
+  format_indented_line,
+  format_typed_init_line
+} :: import("../utils/index.yo");
 AsyncCompletionOptions :: object(
   emitter : *(Emitter),
   indent : String,
@@ -14,13 +18,12 @@ AsyncCompletionOptions :: object(
 // imported at the top of this file. The existing export list keeps the
 // name available so existing test imports continue to work.
 /// Compose the `sm->result = <code>;` assignment with leading indent.
-format_async_result_assign :: (fn(indent : String, result_code : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("sm->result = ");
-  s.push_string(result_code);
-  s.push_str(";");
-  s
-});
+/// Routed through the canonical `format_typed_init_line` helper —
+/// the LHS is the literal `sm->result` (no real type, just the
+/// state-machine result field).
+format_async_result_assign :: (fn(indent : String, result_code : String) -> String)(
+  format_typed_init_line(indent, String.from("sm->result"), result_code)
+);
 /// Compose an ASYNC_DEBUG log line: `<indent>ASYNC_DEBUG("<label><tail>`
 /// where `tail` is the verbatim text following the label — including
 /// the closing `");` and any printf-style argument list. Indent is
