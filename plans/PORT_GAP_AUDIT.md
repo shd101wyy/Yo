@@ -15,21 +15,48 @@ These `yo-self/` files have **no `src/` counterpart** and consolidate
 logic that belongs in per-file modules per the strict-1-to-1 rule
 ([[bootstrap-strict-1to1]]):
 
-| yo-self/ monolith                                                                                 | lines | absorbs (src/)                                                                                              |
-| ------------------------------------------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------- |
-| `codegen/exprs.yo`                                                                                | 13135 | `codegen/exprs/*.ts` (37 files, ~10K lines) + much of `codegen/exprs/generation.ts`                         |
-| `codegen/driver.yo`                                                                               | 5130  | `codegen/index.ts` (775) + parts of `codegen/codegen-c.ts` (311), top-level orchestration                   |
-| `codegen/context.yo`                                                                              | 1720  | `codegen/functions/context.ts` (207) + scattered context logic                                              |
-| `codegen/program.yo`                                                                              | 229   | overlaps with `codegen/index.ts`                                                                            |
-| `evaluator/eval.yo`                                                                               | 8258  | parts of `evaluator/index.ts` (239) + per-handler dispatch logic that should live in `evaluator/exprs/*.yo` |
-| `evaluator/utils.yo`                                                                              | 1300  | `evaluator/utils.ts` (82) + likely absorbs `expr-traversal.ts` (336) and other helpers                      |
-| `evaluator/types/{control_fn_registry,definition_site_registry,macro_registry,trait_registry}.yo` | ~250  | registries that should be folded into `env.ts` / `definitions.ts`                                           |
-| `evaluator/values/generic_impl_registry.yo`                                                       | ?     | similar — fold into `env.ts`                                                                                |
-| `types/{string,substitution,type}.yo`                                                             | ?     | consolidates `creators.ts` + `definitions.ts`                                                               |
+| yo-self/ monolith                             | lines | absorbs (src/)                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `codegen/exprs.yo`                            | 13135 | `codegen/exprs/*.ts` (37 files, ~10K lines) + much of `codegen/exprs/generation.ts`                                                                                                                                                                                                                                          |
+| `codegen/driver.yo`                           | 5130  | `codegen/index.ts` (775) + parts of `codegen/codegen-c.ts` (311), top-level orchestration                                                                                                                                                                                                                                    |
+| `codegen/context.yo`                          | 1720  | `codegen/functions/context.ts` (207) + scattered context logic                                                                                                                                                                                                                                                               |
+| `codegen/program.yo`                          | 229   | overlaps with `codegen/index.ts`                                                                                                                                                                                                                                                                                             |
+| `evaluator/eval.yo`                           | 8258  | parts of `evaluator/index.ts` (239) + per-handler dispatch logic that should live in `evaluator/exprs/*.yo`                                                                                                                                                                                                                  |
+| `evaluator/utils.yo`                          | 1300  | `evaluator/utils.ts` (82) + likely absorbs `expr-traversal.ts` (336) and other helpers                                                                                                                                                                                                                                       |
+| `evaluator/types/trait_registry.yo`           | 59    | fold into `evaluator/trait_checking.yo` — primary consumer, and utils.yo (where `register_type_trait` is called) already imports trait_checking.yo, so no new import cycle. (src/ sets trait info on TypeValue directly during construction; yo-self needs a side-table because TypeValue can't carry the field cleanly yet) |
+| `evaluator/types/control_fn_registry.yo`      | 33    | fold into new `yo-self/function_value.yo` (mirrors `isControlFunction` field on FunctionValue in `src/function-value.ts`)                                                                                                                                                                                                    |
+| `evaluator/types/definition_site_registry.yo` | 46    | fold into new `yo-self/function_value.yo` (mirrors `definitionSiteEnclosingFunctionType` field on FunctionValue in `src/function-value.ts`)                                                                                                                                                                                  |
+| `evaluator/types/macro_registry.yo`           | 114   | fold into `yo-self/evaluator/types/function.yo` (mirrors `parameter.isQuote` / `returnType.isUnquote` fields on FunctionType in `src/evaluator/types/function.ts`)                                                                                                                                                           |
+| `evaluator/values/generic_impl_registry.yo`   | 439   | identify src/ counterpart (likely `src/evaluator/values/` or `src/evaluator/calls/helper.ts`) and fold; largest of the five, schedule last                                                                                                                                                                                   |
+| `types/{string,substitution,type}.yo`         | ?     | consolidates `creators.ts` + `definitions.ts`                                                                                                                                                                                                                                                                                |
 
 **Action**: progressively decompose the monoliths so each function lives
 in the file that mirrors its `src/` location. Start with the smallest
 (`evaluator/types/*registry.yo`) and work toward `codegen/exprs.yo`.
+
+### Phase A.1 — registry decomposition (current focus)
+
+Each of the five registry files is a side-table that emulates a field on
+a value type which exists in `src/` but couldn't be added directly to
+yo-self's value records. Folding each registry into the file that holds
+its primary caller (or into the new file that should mirror the
+field-bearing TS file) brings us closer to 1-to-1 without requiring a
+deep refactor of the value-type machinery.
+
+Order (smallest first; each step verified by rebuilding `bun run build`
+and confirming `./yo-cli compile yo-self/main.yo --release` succeeds):
+
+1. **`trait_registry.yo` → `evaluator/trait_checking.yo`** (59 lines).
+   No new file. Safe: `utils.yo` already imports `trait_checking.yo`, and
+   `trait_checking.yo` does not import `utils.yo`, so moving the registry
+   into `trait_checking.yo` and having utils.yo import `register_type_trait`
+   from there introduces no cycle.
+2. **`control_fn_registry.yo` + `definition_site_registry.yo` → new
+   `yo-self/function_value.yo`** (33+46=79 lines). Creates a new top-level
+   file that mirrors `src/function-value.ts` — also closes a §2 gap.
+3. **`macro_registry.yo` → `evaluator/types/function.yo`** (114 lines).
+4. **`generic_impl_registry.yo` → TBD** (439 lines, requires its own
+   investigation).
 
 ## 2. Compiler-core: missing files (no yo-self counterpart at all)
 

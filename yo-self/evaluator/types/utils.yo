@@ -9,7 +9,7 @@
 //!   * `autoDeriveTraitsForUnionType`
 //!
 //! Traits auto-derived here (stored in `g_type_trait_registry` in
-//! `evaluator/types/trait_registry.yo`):
+//! `evaluator/trait_checking.yo`):
 //!   - Send:     struct (value) if all fields Send; object only if atomic
 //!   - Rc:       object (reference-semantics) types only
 //!   - Acyclic:  struct if all fields Acyclic; object if not a cycle root
@@ -26,14 +26,14 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/type.yo");
 { Environment } :: import("../../env.yo");
-{ register_type_trait } :: import("./trait_registry.yo");
 {
   begin_send_derivation,
   end_send_derivation,
   type_implements_send,
   type_implements_acyclic,
   type_implements_comptime,
-  type_implements_runtime_full
+  type_implements_runtime_full,
+  register_type_trait
 } :: import("../trait_checking.yo");
 { can_type_form_rc_cycle } :: import("../../types/utils.yo");
 // ---------------------------------------------------------------------------

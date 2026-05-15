@@ -20,6 +20,7 @@
 //!     propagation is not yet implemented (returns original env unchanged).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 {
   TypeValue,
@@ -47,9 +48,57 @@ open(import("std/string"));
 { Environment } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { YoError, ErrorKind, format_error_message } :: import("../error.yo");
-{ is_type_registered_as_trait } :: import("./types/trait_registry.yo");
 { find_matching_generic_impl, set_type_implements_trait_fn }
 :: import("./values/generic_impl_registry.yo");
+// ---------------------------------------------------------------------------
+// Auto-derived trait registry (folded from former
+// `evaluator/types/trait_registry.yo`).
+//
+// In `src/`, auto-derived trait info is set as a field on the TypeValue
+// directly at struct/enum/union construction in `src/evaluator/types/utils.ts`.
+// In yo-self this is stored as a side-table keyed by type id, registered
+// at the same construction sites (callers in `evaluator/types/utils.yo`)
+// and queried by `type_implements_trait` step 4 below.
+// ---------------------------------------------------------------------------
+/// Maps type id → list of trait names auto-derived for that type.
+(g_type_trait_registry : HashMap(String, ArrayList(String))) =
+  HashMap(String, ArrayList(String)).new();
+/// Register that the type with `type_id` auto-derives the trait named `trait_name`.
+/// Called during struct/enum/union construction by `evaluator/types/utils.yo`.
+register_type_trait :: (fn(type_id : String, trait_name : str) -> unit)({
+  match(
+    g_type_trait_registry.get(type_id),
+    .Some(list) => {
+      _push := list.push(String.from(trait_name));
+    },
+    .None => {
+      new_list := ArrayList(String).new();
+      _push2 := new_list.push(String.from(trait_name));
+      _set := g_type_trait_registry.set(type_id, new_list);
+    }
+  );
+});
+/// Check whether `type_id` is registered as implementing the trait named `trait_name`.
+/// Called from `type_implements_trait` step 4 below.
+is_type_registered_as_trait :: (fn(type_id : String, trait_name : str) -> bool)(
+  match(
+    g_type_trait_registry.get(type_id),
+    .None => false,
+    .Some(list) => {
+      n := list.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while(runtime((i < n) && !(found)), {
+        name := match(list.get(i),.Some(n2) => n2,.None => String.from(""));
+        if(name.as_str() == trait_name, {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
 // ---------------------------------------------------------------------------
 // TraitCheckResult — mirrors { implemented: boolean; env: Environment }
 // ---------------------------------------------------------------------------
@@ -1054,3 +1103,4 @@ export(type_is_comptime_only_full, type_is_runtime_only);
 export(validate_type_availability);
 export(find_some_type_missing_comptime_constraint);
 export(mark_concrete_impl_being_registered, unmark_concrete_impl_being_registered);
+export(register_type_trait, is_type_registered_as_trait);
