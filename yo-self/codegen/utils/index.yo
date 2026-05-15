@@ -214,6 +214,17 @@ format_indented_stmt :: (fn(indent : String, code : String) -> String)({
   s.push_str(";");
   s
 });
+/// Format an indented C line *without* a trailing semicolon:
+///   `<indent><body>`
+/// Used by async-completion emitters that produce already-complete
+/// statements (the body string is expected to include its own `;` or
+/// is itself a block-shape line like `if (...) {`). Pure string
+/// composition.
+format_indented_line :: (fn(indent : String, body : str) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str(body);
+  s
+});
 /// Format a typed C variable-init line:
 ///   `<indent><type_and_name> = <value_code>;`
 /// `type_and_name` is the pre-joined "C-type C-name" string (produced
@@ -759,6 +770,7 @@ export(
   indent_plus_two,
   indent_minus_two,
   format_indented_stmt,
+  format_indented_line,
   format_typed_init_line,
   format_typed_decl_line,
   format_indented_close_brace,

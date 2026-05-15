@@ -3,21 +3,16 @@
 //! 1-to-1 port of `src/codegen/exprs/async-completion.ts`.
 open(import("std/string"));
 { Emitter } :: import("../../emitter.yo");
-{ indent_plus_two } :: import("../utils/index.yo");
+{ indent_plus_two, format_indented_line } :: import("../utils/index.yo");
 AsyncCompletionOptions :: object(
   emitter : *(Emitter),
   indent : String,
   result_code : Option(String),
   debug_label : Option(String)
 );
-/// Compose an indented line: `<indent><body>`. Pure string composition;
-/// the dozens of inline `String.from(indent.as_str()); push_str(body)`
-/// sequences in this file collapse to a single call to this helper.
-format_indented_line :: (fn(indent : String, body : str) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str(body);
-  s
-});
+// `format_indented_line` is now defined in `codegen/utils/index.yo` and
+// imported at the top of this file. The existing export list keeps the
+// name available so existing test imports continue to work.
 /// Compose the `sm->result = <code>;` assignment with leading indent.
 format_async_result_assign :: (fn(indent : String, result_code : String) -> String)({
   s := String.from(indent.as_str());
