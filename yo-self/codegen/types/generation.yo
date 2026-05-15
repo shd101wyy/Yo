@@ -217,6 +217,75 @@ all_unit_variants :: (fn(variant_fields : ArrayList(ArrayList(TypeValue))) -> bo
   });
   all_unit
 });
+/// Format an enum variant entry line:
+///   `  <tag_prefix>_<VNAME_UPPER> = <disc_val>[,]`
+/// Used by both `emit_simple_enum` and the tag-enum block of
+/// `emit_data_enum`. The `with_comma` flag controls whether the
+/// trailing comma is appended (true for all but the last variant).
+format_enum_variant_entry :: (
+  fn(tag_prefix : String, vname_upper : String, disc_val : String, with_comma : bool) -> String
+)({
+  s := String.from("  ");
+  s.push_string(tag_prefix);
+  s.push_str("_");
+  s.push_string(vname_upper);
+  s.push_str(" = ");
+  s.push_string(disc_val);
+  if(with_comma, {
+    s.push_str(",");
+  });
+  s
+});
+/// Format an enum close-and-typedef line:
+///   `} <c_name><suffix>;`
+/// where `suffix` is `""` for the simple-enum close, `"_tag"` for the
+/// data-enum's tag-type close, and `"_data"` for the union-type close.
+format_enum_close_line :: (fn(c_name : String, suffix : str) -> String)({
+  s := String.from("} ");
+  s.push_string(c_name);
+  s.push_str(suffix);
+  s.push_str(";");
+  s
+});
+/// Format a tag-or-data struct field line for the combined enum
+/// struct: `  <c_name>_<sub_type> <field_name>;`
+///
+/// `sub_type` is `tag` or `data`; `field_name` is also `tag` or `data`
+/// (matching the type-suffix). Used twice in `emit_data_enum`.
+format_enum_struct_subfield :: (
+  fn(c_name : String, sub_type : str, field_name : str) -> String
+)({
+  s := String.from("  ");
+  s.push_string(c_name);
+  s.push_str("_");
+  s.push_str(sub_type);
+  s.push_str(" ");
+  s.push_str(field_name);
+  s.push_str(";");
+  s
+});
+/// Format a data-enum variant's positional union-field line:
+///   `    <c_type> _f<index>;`
+/// Used per-field inside the inner `struct { ... }` of each variant in
+/// the data union.
+format_enum_union_field :: (fn(c_type : String, index : usize) -> String)({
+  s := String.from("    ");
+  s.push_string(c_type);
+  s.push_str(" _f");
+  s.push_string(index.to_string());
+  s.push_str(";");
+  s
+});
+/// Format a data-enum variant's union-member closing line:
+///   `  } <variant_name>;`
+/// Closes the inner positional-fields struct and names it after the
+/// variant.
+format_enum_variant_member :: (fn(variant_name : String) -> String)({
+  s := String.from("  } ");
+  s.push_string(variant_name);
+  s.push_str(";");
+  s
+});
 /// Emit a simple enum (all unit variants) into `ctx.emitter.declarations`.
 ///
 /// ```c
@@ -255,26 +324,15 @@ emit_simple_enum :: (
           .Some(d) => d.to_string(),
           .None => i64(i).to_string()
         );
-        entry := String.from("  ");
-        entry.push_string(tag_prefix);
-        entry.push_str("_");
-        entry.push_string(vname.to_uppercase());
-        entry.push_str(" = ");
-        entry.push_string(disc_val);
-        // Comma for all but last variant
-        if(i < (n - usize(1)), {
-          entry.push_str(",");
-        });
-        ctx.*.emitter.emit_declaration_string_line(entry);
+        ctx.*.emitter.emit_declaration_string_line(
+          format_enum_variant_entry(tag_prefix, vname.to_uppercase(), disc_val, i < (n - usize(1)))
+        );
       }
     );
     i = (i + usize(1));
   });
   // Closing: } __yo_enum_...;
-  closing := String.from("} ");
-  closing.push_string(c_name);
-  closing.push_str(";");
-  ctx.*.emitter.emit_declaration_string_line(closing);
+  ctx.*.emitter.emit_declaration_string_line(format_enum_close_line(c_name, ""));
   c_name
 });
 /// Emit a data enum (at least one variant has fields) into
@@ -304,16 +362,10 @@ emit_data_enum :: (
 )({
   c_name := enum_c_name(module_id, type_id);
   tag_prefix := enum_tag_prefix(module_id, type_id);
-  // Forward declaration
-  fwd := String.from("typedef struct ");
-  fwd.push_string(c_name);
-  fwd.push_str("_struct ");
-  fwd.push_string(c_name);
-  fwd.push_str("; // Forward declaration");
-  ctx.*.emitter.emit_declaration_string_line(fwd);
-  // Tag enum
-  tag_hdr := String.from("typedef enum {");
-  ctx.*.emitter.emit_declaration_string_line(tag_hdr);
+  // Forward declaration.
+  ctx.*.emitter.emit_declaration_string_line(format_struct_forward_decl(c_name));
+  // Tag enum.
+  ctx.*.emitter.emit_declaration_line("typedef enum {");
   n := variant_names.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {
@@ -321,29 +373,19 @@ emit_data_enum :: (
       variant_names.get(i),
       .None => (),
       .Some(vname) => {
-        entry := String.from("  ");
-        entry.push_string(tag_prefix);
-        entry.push_str("_");
-        entry.push_string(vname.to_uppercase());
-        entry.push_str(" = ");
         disc_val_de := match(
           variant_discriminants.get(i),
           .Some(d) => d.to_string(),
           .None => i64(i).to_string()
         );
-        entry.push_string(disc_val_de);
-        if(i < (n - usize(1)), {
-          entry.push_str(",");
-        });
-        ctx.*.emitter.emit_declaration_string_line(entry);
+        ctx.*.emitter.emit_declaration_string_line(
+          format_enum_variant_entry(tag_prefix, vname.to_uppercase(), disc_val_de, i < (n - usize(1)))
+        );
       }
     );
     i = (i + usize(1));
   });
-  tag_ty := String.from("} ");
-  tag_ty.push_string(c_name);
-  tag_ty.push_str("_tag;");
-  ctx.*.emitter.emit_declaration_string_line(tag_ty);
+  ctx.*.emitter.emit_declaration_string_line(format_enum_close_line(c_name, "_tag"));
   // Data union
   ctx.*.emitter.emit_declaration_line("typedef union {");
   (j : usize) = usize(0);
@@ -368,47 +410,25 @@ emit_data_enum :: (
                 .Some(fty) => match(
                   type_value_to_c_field(fty),
                   .None => (),
-                  .Some(c_fty) => {
-                    // Field name: _f0, _f1, ...  (anonymous positional fields)
-                    fline := String.from("    ");
-                    fline.push_string(c_fty);
-                    fline.push_str(" _f");
-                    fline.push_string(fi.to_string());
-                    fline.push_str(";");
-                    ctx.*.emitter.emit_declaration_string_line(fline);
-                  }
+                  .Some(c_fty) => ctx.*.emitter.emit_declaration_string_line(
+                    format_enum_union_field(c_fty, fi)
+                  )
                 )
               );
               fi = (fi + usize(1));
             });
           }
         );
-        member := String.from("  } ");
-        member.push_string(vname);
-        member.push_str(";");
-        ctx.*.emitter.emit_declaration_string_line(member);
+        ctx.*.emitter.emit_declaration_string_line(format_enum_variant_member(vname));
       }
     );
     j = (j + usize(1));
   });
-  union_ty := String.from("} ");
-  union_ty.push_string(c_name);
-  union_ty.push_str("_data;");
-  ctx.*.emitter.emit_declaration_string_line(union_ty);
-  // Combined struct
-  struct_hdr := String.from("struct ");
-  struct_hdr.push_string(c_name);
-  struct_hdr.push_str("_struct { // ");
-  struct_hdr.push_string(name);
-  ctx.*.emitter.emit_declaration_string_line(struct_hdr);
-  tag_field := String.from("  ");
-  tag_field.push_string(c_name);
-  tag_field.push_str("_tag tag;");
-  ctx.*.emitter.emit_declaration_string_line(tag_field);
-  data_field := String.from("  ");
-  data_field.push_string(c_name);
-  data_field.push_str("_data data;");
-  ctx.*.emitter.emit_declaration_string_line(data_field);
+  ctx.*.emitter.emit_declaration_string_line(format_enum_close_line(c_name, "_data"));
+  // Combined struct.
+  ctx.*.emitter.emit_declaration_string_line(format_struct_def_header(c_name, name));
+  ctx.*.emitter.emit_declaration_string_line(format_enum_struct_subfield(c_name, "tag", "tag"));
+  ctx.*.emitter.emit_declaration_string_line(format_enum_struct_subfield(c_name, "data", "data"));
   ctx.*.emitter.emit_declaration_line("};");
   c_name
 });
@@ -655,5 +675,10 @@ export(
   generate_rc_fns,
   format_struct_forward_decl,
   format_struct_def_header,
-  format_struct_field_line
+  format_struct_field_line,
+  format_enum_variant_entry,
+  format_enum_close_line,
+  format_enum_struct_subfield,
+  format_enum_union_field,
+  format_enum_variant_member
 );
