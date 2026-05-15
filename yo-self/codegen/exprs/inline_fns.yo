@@ -14,7 +14,11 @@ open(import("std/string"));
 { ExprInfo } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/type.yo");
 { CodegenContext } :: import("../context.yo");
-{ can_optimize_as_simple_enum, get_type_string_opt } :: import("../utils/index.yo");
+{
+  can_optimize_as_simple_enum,
+  get_type_string_opt,
+  format_c_function_call
+} :: import("../utils/index.yo");
 {
   BF_YO_OP_ADD,
   BF_YO_OP_SUB,
@@ -102,32 +106,22 @@ emit_field :: (fn(base : str, field : str) -> String)({
   out.push_str(")");
   out
 });
-emit_call_1 :: (fn(name : str, a0 : str) -> String)({
-  out := String.from(name);
-  out.push_str("(");
-  out.push_str(a0);
-  out.push_str(")");
-  out
-});
+emit_call_1 :: (fn(name : str, a0 : str) -> String)(
+  format_c_function_call(name, String.from(a0))
+);
 emit_call_2 :: (fn(name : str, a0 : str, a1 : str) -> String)({
-  out := String.from(name);
-  out.push_str("(");
-  out.push_str(a0);
-  out.push_str(", ");
-  out.push_str(a1);
-  out.push_str(")");
-  out
+  args := String.from(a0);
+  args.push_str(", ");
+  args.push_str(a1);
+  format_c_function_call(name, args)
 });
 emit_call_3 :: (fn(name : str, a0 : str, a1 : str, a2 : str) -> String)({
-  out := String.from(name);
-  out.push_str("(");
-  out.push_str(a0);
-  out.push_str(", ");
-  out.push_str(a1);
-  out.push_str(", ");
-  out.push_str(a2);
-  out.push_str(")");
-  out
+  args := String.from(a0);
+  args.push_str(", ");
+  args.push_str(a1);
+  args.push_str(", ");
+  args.push_str(a2);
+  format_c_function_call(name, args)
 });
 emit_array_index :: (fn(arr : str, idx : str) -> String)({
   out := String.from("(&((");
