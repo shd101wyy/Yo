@@ -84,6 +84,22 @@ by `ExprId`. Codegen reads from this table to produce well-typed C.
 | Dependency / cache         | ~800     | ✅ ported (`yo-self/cache.yo`, `yo-self/fetch.yo`, `yo-self/lock_file.yo`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | CLI                        | ~600     | ✅ ported (`yo-self/main.yo`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
+### Current blocker (May 15, 2026)
+
+`./yo-cli compile yo-self/main.yo --release` produces a binary that
+segfaults on non-trivial test input. The regression appears tied to
+May 14's `src/codegen` commits (`d62ff8b2`, `a75007f9`) — the previous
+working `yo-self/yo-self-bin` was built earlier that day against a
+different `yo-self/` directory layout (Phase 13as has since
+restructured `yo-self/expr/`, `yo-self/codegen/types/`, …). Reverting
+the src/codegen commits alone produces missing-forward-declaration
+errors during clang compile. Detailed investigation in
+`issues/yo-self-bin-rebuild-segfaults-after-may14-src-codegen-changes.md`.
+
+Until this is unblocked, end-to-end yo-self validation is unavailable.
+Per-handler unit tests in `yo-self/tests/codegen_exprs_*.test.yo` all
+pass (48 in `codegen_exprs.test.yo`, plus per-handler suites green).
+
 ### `./tests/` pass rate under `yo-self/yo-self-bin`
 
 | Status             | Test files (representative)                                                                                                                                                                                                       |
