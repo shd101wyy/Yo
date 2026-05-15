@@ -103,6 +103,49 @@ quote_as_c_string :: (fn(raw : String) -> String)({
     }
   )
 });
+/// Format the `<indent>abort();` line emitted at the tail of every
+/// `panic(...)` lowering. Pure string composition.
+format_panic_abort_line :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("abort();");
+  s
+});
+/// Format the C `fprintf(stderr, "%s\n", <msg>);` line for the plain
+/// C-string panic message path (compile-time literal or non-`str`
+/// runtime expression). Pure string composition.
+format_panic_fprintf_cstr :: (fn(indent : String, msg_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("fprintf(stderr, \"%s\\n\", ");
+  s.push_string(msg_code);
+  s.push_str(");");
+  s
+});
+/// Format the C `fprintf(stderr, "%.*s\n", (int)x.length, x.data);`
+/// line used when the panic message argument is a `str` newtype
+/// (`Slice(u8)` under the hood). `msg_code` is emitted twice — once
+/// for `.length` and once for `.data` — so the caller should pass a
+/// side-effect-free expression.
+format_panic_fprintf_str_newtype :: (
+  fn(indent : String, msg_code : String) -> String
+)({
+  s := String.from(indent.as_str());
+  s.push_str("fprintf(stderr, \"%.*s\\n\", (int)");
+  s.push_string(msg_code);
+  s.push_str(".length, ");
+  s.push_string(msg_code);
+  s.push_str(".data);");
+  s
+});
+/// Format the unreachable dummy expression of the panic call's return
+/// type: `(*((<type>*)NULL))`. `panic` never returns, but the
+/// surrounding C expression still needs a typed sub-expression — this
+/// is the canonical placeholder used by TS `generatePanic`.
+format_panic_unreachable_dummy :: (fn(return_c_type : String) -> String)({
+  s := String.from("(*((");
+  s.push_string(return_c_type);
+  s.push_str("*)NULL))");
+  s
+});
 /// Generate the C expression for a `panic(...)` call.
 ///
 /// `call_expr` is the full `panic(...)` AST node (used to look up the
@@ -129,9 +172,7 @@ generate_panic :: (
       cond(
         (n == usize(0)) => {
           // panic() — just abort.
-          line := String.from(indent.as_str());
-          line.push_str("abort();");
-          ctx.*.emitter.emit_string_line(line);
+          ctx.*.emitter.emit_string_line(format_panic_abort_line(indent));
         },
         (n == usize(1)) => {
           match(
@@ -146,16 +187,12 @@ generate_panic :: (
                   call_gen_expr(message_arg, ctx, indent),
                   .None => (),
                   .Some(msg_code) => {
-                    fprintf_line := String.from(indent.as_str());
-                    fprintf_line.push_str("fprintf(stderr, \"%s\\n\", ");
-                    fprintf_line.push_string(msg_code);
-                    fprintf_line.push_str(");");
-                    ctx.*.emitter.emit_string_line(fprintf_line);
+                    ctx.*.emitter.emit_string_line(
+                      format_panic_fprintf_cstr(indent, msg_code)
+                    );
                   }
                 );
-                abort_line := String.from(indent.as_str());
-                abort_line.push_str("abort();");
-                ctx.*.emitter.emit_string_line(abort_line);
+                ctx.*.emitter.emit_string_line(format_panic_abort_line(indent));
               },
               .Some(msg_info) => {
                 comptime_str_opt := match(
@@ -167,14 +204,10 @@ generate_panic :: (
                   comptime_str_opt,
                   .Some(raw) => {
                     quoted := quote_as_c_string(raw);
-                    fprintf_line := String.from(indent.as_str());
-                    fprintf_line.push_str("fprintf(stderr, \"%s\\n\", ");
-                    fprintf_line.push_string(quoted);
-                    fprintf_line.push_str(");");
-                    ctx.*.emitter.emit_string_line(fprintf_line);
-                    abort_line := String.from(indent.as_str());
-                    abort_line.push_str("abort();");
-                    ctx.*.emitter.emit_string_line(abort_line);
+                    ctx.*.emitter.emit_string_line(
+                      format_panic_fprintf_cstr(indent, quoted)
+                    );
+                    ctx.*.emitter.emit_string_line(format_panic_abort_line(indent));
                   },
                   .None => match(
                     call_gen_expr(message_arg, ctx, indent),
@@ -182,25 +215,13 @@ generate_panic :: (
                     .Some(msg_code) => {
                       // Distinguish str newtype (Slice(u8) under the hood)
                       // from a plain C string.
-                      fprintf_line := String.from(indent.as_str());
-                      cond(
-                        is_str_type(msg_info.ty) => {
-                          fprintf_line.push_str("fprintf(stderr, \"%.*s\\n\", (int)");
-                          fprintf_line.push_string(msg_code);
-                          fprintf_line.push_str(".length, ");
-                          fprintf_line.push_string(msg_code);
-                          fprintf_line.push_str(".data);");
-                        },
-                        true => {
-                          fprintf_line.push_str("fprintf(stderr, \"%s\\n\", ");
-                          fprintf_line.push_string(msg_code);
-                          fprintf_line.push_str(");");
-                        }
+                      line := cond(
+                        is_str_type(msg_info.ty) =>
+                          format_panic_fprintf_str_newtype(indent, msg_code),
+                        true => format_panic_fprintf_cstr(indent, msg_code)
                       );
-                      ctx.*.emitter.emit_string_line(fprintf_line);
-                      abort_line := String.from(indent.as_str());
-                      abort_line.push_str("abort();");
-                      ctx.*.emitter.emit_string_line(abort_line);
+                      ctx.*.emitter.emit_string_line(line);
+                      ctx.*.emitter.emit_string_line(format_panic_abort_line(indent));
                     }
                   )
                 );
@@ -212,15 +233,16 @@ generate_panic :: (
       );
       // Return the unreachable dummy expression of the panic's return type.
       return_c_ty := get_type_string(info.ty, ctx);
-      dummy := String.from("(*((");
-      dummy.push_string(return_c_ty);
-      dummy.push_str("*)NULL))");
-      Option(String).Some(dummy)
+      Option(String).Some(format_panic_unreachable_dummy(return_c_ty))
     }
   )
 });
 export(
   generate_panic,
   extract_comptime_string_value,
-  quote_as_c_string
+  quote_as_c_string,
+  format_panic_abort_line,
+  format_panic_fprintf_cstr,
+  format_panic_fprintf_str_newtype,
+  format_panic_unreachable_dummy
 );
