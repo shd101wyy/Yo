@@ -44,6 +44,28 @@ format_tuple_field_assignment :: (fn(index : usize, value_code : String) -> Stri
   s.push_string(value_code);
   s
 });
+/// Format an indented C statement line: `<indent><code>;`. Used by
+/// `tuple_apply_deferred_dup` to emit each dup expression as its own
+/// statement before the tuple literal is built.
+format_tuple_indented_stmt :: (fn(indent : String, code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_string(code);
+  s.push_str(";");
+  s
+});
+/// Format the tuple-temp initialisation line:
+///   `<indent><type_and_name> = <value_code>;`
+/// `type_and_name` is the result of `get_variable_type_string_opt_str`.
+format_tuple_temp_init :: (
+  fn(indent : String, type_and_name : String, value_code : String) -> String
+)({
+  s := String.from(indent.as_str());
+  s.push_string(type_and_name);
+  s.push_str(" = ");
+  s.push_string(value_code);
+  s.push_str(";");
+  s
+});
 /// If an argument has deferred dup expressions, emit them and use the first
 /// dup expression's temp variable as the final field value, matching the TS
 /// handler's `generateDeferredDupExpressions(...); return dupExpr.$.variableName`.
@@ -72,12 +94,9 @@ tuple_apply_deferred_dup :: (
                 .None => {
                   ok = false;
                 },
-                .Some(dup_code) => {
-                  line := String.from(indent.as_str());
-                  line.push_string(dup_code);
-                  line.push_str(";");
-                  ctx.*.emitter.emit_string_line(line);
-                }
+                .Some(dup_code) => ctx.*.emitter.emit_string_line(
+                  format_tuple_indented_stmt(indent, dup_code)
+                )
               )
             );
             i = (i + usize(1));
@@ -193,12 +212,9 @@ tuple_value_or_temp :: (
         get_variable_type_string_opt_str(tuple_ty, tv.as_str(), ctx),
         .None => Option(String).Some(tuple_value),
         .Some(var_type_and_name) => {
-          line := String.from(indent.as_str());
-          line.push_string(var_type_and_name);
-          line.push_str(" = ");
-          line.push_string(tuple_value);
-          line.push_str(";");
-          ctx.*.emitter.emit_string_line(line);
+          ctx.*.emitter.emit_string_line(
+            format_tuple_temp_init(indent, var_type_and_name, tuple_value)
+          );
           Option(String).Some(sanitize_for_c_identifier(tv))
         }
       )
@@ -275,5 +291,7 @@ export(
   tuple_args_to_c_with_deferred_dup,
   tuple_apply_deferred_dup,
   format_tuple_compound_literal,
-  format_tuple_field_assignment
+  format_tuple_field_assignment,
+  format_tuple_indented_stmt,
+  format_tuple_temp_init
 );
