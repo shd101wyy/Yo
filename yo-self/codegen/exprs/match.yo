@@ -272,6 +272,17 @@ format_data_binding_decl :: (
   out.push_str(";");
   out
 });
+/// Format the match-result temp declaration line:
+///   `<result_type_c> <temp_name>;`
+/// No leading indent — match emits at column 0 since it's a
+/// top-level lowering (the surrounding scope owns the indent).
+format_match_temp_decl_line :: (fn(result_type_c : str, temp_name : str) -> String)({
+  s := String.from(result_type_c);
+  s.push_str(" ");
+  s.push_str(temp_name);
+  s.push_str(";");
+  s
+});
 emit_match_temp_decl :: (
   fn(
     result_type_c : str,
@@ -279,11 +290,46 @@ emit_match_temp_decl :: (
     ctx : *(CodegenContext)
   ) -> unit
 )({
-  decl := String.from(result_type_c);
-  decl.push_str(" ");
-  decl.push_str(temp_name);
-  decl.push_str(";");
-  ctx.*.emitter.emit_line(decl.as_str());
+  ctx.*.emitter.emit_line(format_match_temp_decl_line(result_type_c, temp_name).as_str());
+});
+/// Format the C switch header line:
+///   - `switch (<scrutinee_c>) {`              (use_tag_field=false)
+///   - `switch ((<scrutinee_c>).tag) {`        (use_tag_field=true)
+/// The tagged form is used for data enums where the scrutinee is the
+/// compound (tag + payload) struct.
+format_match_switch_open :: (fn(scrutinee_c : str, use_tag_field : bool) -> String)({
+  s := String.from("switch (");
+  if(use_tag_field, {
+    s.push_str("(");
+    s.push_str(scrutinee_c);
+    s.push_str(").tag");
+  }, {
+    s.push_str(scrutinee_c);
+  });
+  s.push_str(") {");
+  s
+});
+/// Format a case header line:
+///   - `default: {`                  when `tag_const` is the empty string
+///   - `case <tag_const>: {`         otherwise
+format_match_case_open :: (fn(tag_const : str) -> String)(
+  if(tag_const == "", String.from("default: {"), {
+    s := String.from("case ");
+    s.push_str(tag_const);
+    s.push_str(": {");
+    s
+  })
+);
+/// Format the case-arm assignment line: `  <temp_name> = <body_c>;`.
+/// The `  ` prefix matches the case-block indent — the arm value
+/// gets written into the result temp before the trailing `break;`.
+format_match_case_assignment :: (fn(temp_name : str, body_c : str) -> String)({
+  s := String.from("  ");
+  s.push_str(temp_name);
+  s.push_str(" = ");
+  s.push_str(body_c);
+  s.push_str(";");
+  s
 });
 /// Emit `switch (scrutinee_c) {` or `switch ((scrutinee_c).tag) {`.
 emit_switch_open :: (
@@ -293,26 +339,11 @@ emit_switch_open :: (
     ctx : *(CodegenContext)
   ) -> unit
 )({
-  line := String.from("switch (");
-  if(use_tag_field, {
-    line.push_str("(");
-    line.push_str(scrutinee_c);
-    line.push_str(").tag");
-  }, {
-    line.push_str(scrutinee_c);
-  });
-  line.push_str(") {");
-  ctx.*.emitter.emit_line(line.as_str());
+  ctx.*.emitter.emit_line(format_match_switch_open(scrutinee_c, use_tag_field).as_str());
 });
 /// Emit `case TAG: {` or `default: {`.
 emit_case_open :: (fn(tag_const : str, ctx : *(CodegenContext)) -> unit)({
-  line := if(tag_const == "", String.from("default: {"), {
-    s := String.from("case ");
-    s.push_str(tag_const);
-    s.push_str(": {");
-    s
-  });
-  ctx.*.emitter.emit_line(line.as_str());
+  ctx.*.emitter.emit_line(format_match_case_open(tag_const).as_str());
 });
 /// Emit `  temp_name = body_c;\n  break;\n}`.
 emit_case_body :: (
@@ -322,12 +353,7 @@ emit_case_body :: (
     ctx : *(CodegenContext)
   ) -> unit
 )({
-  assign := String.from("  ");
-  assign.push_str(temp_name);
-  assign.push_str(" = ");
-  assign.push_str(body_c);
-  assign.push_str(";");
-  ctx.*.emitter.emit_line(assign.as_str());
+  ctx.*.emitter.emit_line(format_match_case_assignment(temp_name, body_c).as_str());
   ctx.*.emitter.emit_line("  break;");
   ctx.*.emitter.emit_line("}");
 });
@@ -464,6 +490,10 @@ export(
   emit_case_body,
   emit_data_bindings,
   format_data_binding_decl,
+  format_match_temp_decl_line,
+  format_match_switch_open,
+  format_match_case_open,
+  format_match_case_assignment,
   generate_match_simple,
   generate_match_data
 );
