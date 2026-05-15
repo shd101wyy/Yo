@@ -19,7 +19,7 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 | --------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `codegen/exprs.yo`                            | 13135 | `codegen/exprs/*.ts` (37 files, ~10K lines) + much of `codegen/exprs/generation.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `codegen/driver.yo`                           | 5130  | `codegen/index.ts` (775) + parts of `codegen/codegen-c.ts` (311), top-level orchestration                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `codegen/context.yo`                          | 1720  | `codegen/functions/context.ts` (207) + scattered context logic                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `codegen/context.yo`                          | 1720  | **acceptable divergence (Yo idiom + bootstrap-specific)** — CodegenContext struct + 9 entry types (~390 lines) + impl block of ~60 helper methods (~1300 lines). In src/ the analog (`FunctionGenerationContext` in `src/codegen/functions/context.ts`) is data-only; operations are scattered functions. yo-self's idiom bundles them in `impl(...)`. Most helpers (`register_box_var`, `register_const_var`, `register_generic_struct_template`, etc.) are bootstrap-only heuristics that don't exist in src/'s typed-AST codegen at all.                       |
 | `evaluator/eval.yo`                           | 8258  | parts of `evaluator/index.ts` (239) + per-handler dispatch logic that should live in `evaluator/exprs/*.yo`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `evaluator/utils.yo`                          | 1235  | **acceptable divergence (cycle-forced)** — after Phase A.4.1 the residual content ports helpers whose src/ homes are split across `src/evaluator/utils.ts` (3 funcs), `src/expr.ts` (7 funcs incl. the 397-line `merge_and_check_envs`), and `src/value.ts` (`are_values_equal`). Splitting back into those three files creates `expr.yo` ↔ `env.yo` ↔ `value.yo` import cycles which yo-self's eager destructuring import cannot tolerate. TypeScript only avoids the cycle because module loading is lazy. The full mapping is documented in the file header. |
 | `evaluator/types/trait_registry.yo`           | 59    | fold into `evaluator/trait_checking.yo` — primary consumer, and utils.yo (where `register_type_trait` is called) already imports trait_checking.yo, so no new import cycle. (src/ sets trait info on TypeValue directly during construction; yo-self needs a side-table because TypeValue can't carry the field cleanly yet)                                                                                                                                                                                                                                      |
@@ -33,6 +33,41 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 **Action**: progressively decompose the monoliths so each function lives
 in the file that mirrors its `src/` location. Start with the smallest
 (`evaluator/types/*registry.yo`) and work toward `codegen/exprs.yo`.
+
+### Phase A.5 — `codegen/context.yo` reclassification (**COMPLETED** 2026-05-15)
+
+Investigated `codegen/context.yo` (1720 lines). Structure breakdown:
+
+- Lines 1-390: CodegenContext struct + 9 entry struct types.
+- Lines 392-1707: `impl(CodegenContext, ...)` block with ~60 helper
+  methods (e.g. `register_fn`, `register_array_var`, `is_box_var`,
+  `register_const_var`, `register_generic_struct_template`, etc.).
+
+In src/, the analog (`FunctionGenerationContext` in
+`src/codegen/functions/context.ts`) is a data-only TS interface;
+operations on it are scattered standalone functions across many src/
+files. yo-self's idiom is to bundle struct methods inside an `impl()`
+block — there is no language-level alternative.
+
+Most of the ~60 methods are **bootstrap-specific heuristics** that have
+no src/ counterpart at all (they track things like "this variable was
+declared as a C array" or "this name was emitted as a `__auto_type`
+constant" which exist only because the bootstrap codegen runs
+AST-only and lacks full type info). Once the typed-AST pivot lands
+those heuristics disappear.
+
+Decision: reclassify `codegen/context.yo` as an **acceptable divergence
+(Yo idiom + bootstrap-specific)**. Splitting would require either
+breaking the Yo idiom (scatter methods as standalone fns, fight the
+language) or completing the typed-AST pivot (~13at on the roadmap) —
+neither in scope today. File header updated to document the rationale.
+
+Net result of Phase A.5: §1 active-decomposition list drops to 3
+entries:
+
+- `codegen/exprs.yo` (13135)
+- `evaluator/eval.yo` (8147)
+- `codegen/driver.yo` (5130)
 
 ### Phase A.4 — `evaluator/utils.yo` decomposition (**PARTIAL** 2026-05-15)
 

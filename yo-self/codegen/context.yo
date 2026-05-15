@@ -1,7 +1,28 @@
-//! Minimal code-generation context for the self-hosted Yo C code generator.
+//! Code-generation context for the self-hosted Yo C code generator.
 //!
-//! Holds the `Emitter` and any mutable state that expression/statement
-//! generators need to share.  More fields will be added in Phases 4c–4i.
+//! Holds the `Emitter` and the mutable state that expression/statement
+//! generators need to share.
+//!
+//! **Structural mapping vs src/**: `CodegenContext` is the rough analog of
+//! `FunctionGenerationContext` in `src/codegen/functions/context.ts` (which
+//! itself extends `CodeGenContext` in `src/codegen/utils/index.ts`). The TS
+//! interface is data-only — operations on the context are scattered
+//! standalone functions across many src/ files. yo-self's idiom is to
+//! bundle struct methods inside an `impl(...)` block, which is why this
+//! file consolidates both the data definition and the ~60 helper methods
+//! (`register_fn`, `register_array_var`, `is_box_var`, …).
+//!
+//! Most of those helper methods are **bootstrap-specific heuristics** with
+//! no src/ counterpart at all — they exist because the bootstrap codegen
+//! has not yet adopted the typed-AST pipeline, so it must track things
+//! like "this variable was declared as a C array" or "this name was
+//! emitted as a `__auto_type` constant" out of band. Once the typed AST
+//! pivot lands those heuristics go away.
+//!
+//! Accordingly, `codegen/context.yo` is an **acceptable divergence**: the
+//! 1-to-1 with src/ would require either (a) breaking the Yo idiom and
+//! scattering the methods, or (b) waiting for the bootstrap codegen to
+//! migrate to typed AST. Neither is in scope today.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
