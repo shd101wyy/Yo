@@ -21,7 +21,9 @@ open(import("std/string"));
   generate_iso_type_call,
   iso_expr_value_type,
   format_iso_dispose_call,
-  format_iso_create_call
+  format_iso_create_call,
+  format_iso_extract_call,
+  format_iso_temp_assignment
 } :: import("../codegen/exprs/iso.yo");
 { get_type_string } :: import("../codegen/utils/index.yo");
 
@@ -244,5 +246,28 @@ test("format_iso_*_call: complex value passes through", {
   assert(
     out == String.from("__yo_create_iso_Iso_Counter(Counter { count : 0 })"),
     "complex value passthrough"
+  );
+});
+test("format_iso_extract_call: composes __yo_iso_extract_<name>(<self>)", {
+  out := format_iso_extract_call(
+    String.from("Iso_Foo"),
+    String.from("self")
+  );
+  assert(
+    out == String.from("__yo_iso_extract_Iso_Foo(self)"),
+    "extract call shape"
+  );
+});
+test("format_iso_temp_assignment: composes indented typed assignment", {
+  out := format_iso_temp_assignment(
+    String.from("  "),
+    String.from("Option_int32_t"),
+    String.from("tmp_extract"),
+    String.from("__yo_iso_extract_Iso_Foo(self)")
+  );
+  assert(
+    out ==
+      String.from("  Option_int32_t tmp_extract = __yo_iso_extract_Iso_Foo(self);"),
+    "iso temp assignment shape"
   );
 });

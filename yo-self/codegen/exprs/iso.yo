@@ -40,6 +40,38 @@ format_iso_create_call :: (
   s.push_str(")");
   s
 });
+/// Format the iso-extract call site:
+///   `__yo_iso_extract_<iso_type_c_name>(<self_code>)`
+///
+/// Mirrors the inner-call construction in `generateYoIsoExtract` in
+/// TS — the result is then wrapped by `iso_temp_or_call` to either
+/// emit a temp declaration or return the call as the expression value.
+format_iso_extract_call :: (
+  fn(iso_type_c_name : String, self_code : String) -> String
+)({
+  s := String.from("__yo_iso_extract_");
+  s.push_string(iso_type_c_name);
+  s.push_str("(");
+  s.push_str(self_code.as_str());
+  s.push_str(")");
+  s
+});
+/// Format a typed-temp assignment line:
+///   `<indent><c_type> <name> = <value_code>;`
+/// Used by `iso_temp_or_call` to declare and initialise the
+/// `__yo_iso_extract` result temp. Pure string composition.
+format_iso_temp_assignment :: (
+  fn(indent : String, c_type : String, name : String, value_code : String) -> String
+)({
+  s := String.from(indent.as_str());
+  s.push_string(c_type);
+  s.push_str(" ");
+  s.push_string(name);
+  s.push_str(" = ");
+  s.push_string(value_code);
+  s.push_str(";");
+  s
+});
 iso_expr_type :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(TypeValue))(
   match(
     ctx.*.get_expr_info(ast_expr_id(expr)),
@@ -76,14 +108,9 @@ iso_temp_or_call :: (
       .Some(temp_var) => {
         c_ty := get_type_string(return_type, ctx);
         temp_name := sanitize_for_c_identifier(temp_var);
-        line := String.from(indent.as_str());
-        line.push_string(c_ty);
-        line.push_str(" ");
-        line.push_string(temp_name);
-        line.push_str(" = ");
-        line.push_string(call_code);
-        line.push_str(";");
-        ctx.*.emitter.emit_string_line(line);
+        ctx.*.emitter.emit_string_line(
+          format_iso_temp_assignment(indent, c_ty, temp_name, call_code)
+        );
         temp_name
       }
     )
@@ -131,11 +158,7 @@ generate_yo_iso_extract :: (
                 }
               )
             );
-            call := String.from("__yo_iso_extract_");
-            call.push_string(iso_c_name);
-            call.push_str("(");
-            call.push_string(self_code);
-            call.push_str(")");
+            call := format_iso_extract_call(iso_c_name, self_code);
             iso_temp_or_call(call_expr, call, return_type, ctx, indent)
           }
         )
@@ -236,5 +259,7 @@ export(
   generate_iso_type_call,
   iso_expr_value_type,
   format_iso_dispose_call,
-  format_iso_create_call
+  format_iso_create_call,
+  format_iso_extract_call,
+  format_iso_temp_assignment
 );
