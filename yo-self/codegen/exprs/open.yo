@@ -29,7 +29,12 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { CodegenContext } :: import("../context.yo");
 { call_gen_expr } :: import("./expr.yo");
-{ sanitize_for_c_identifier, get_type_string } :: import("../utils/index.yo");
+{
+  sanitize_for_c_identifier,
+  get_type_string,
+  format_typed_var_name,
+  format_typed_init_line
+} :: import("../utils/index.yo");
 // `get_type_string(t, ctx)` (in codegen/utils/index.yo) replaces the old
 // local `get_field_c_type` helper. The canonical helper consults the
 // type registry first, then falls back to the primitive lowering, then
@@ -52,16 +57,13 @@ format_destructure_field_decl :: (
     field_label : String
   ) -> String
 )({
-  s := String.from(indent.as_str());
-  s.push_string(field_type);
-  s.push_str(" ");
-  s.push_string(var_name);
-  s.push_str(" = ");
-  s.push_string(struct_code);
-  s.push_str(".");
-  s.push_string(field_label);
-  s.push_str(";");
-  s
+  // Compose `<type> <var>` then `<struct>.<field>` then route through
+  // the canonical typed-init line formatter.
+  type_and_name := format_typed_var_name(field_type, var_name);
+  field_access := String.from(struct_code.as_str());
+  field_access.push_str(".");
+  field_access.push_string(field_label);
+  format_typed_init_line(indent, type_and_name, field_access)
 });
 /// Generate code for `open(arg_expr)`.
 ///
