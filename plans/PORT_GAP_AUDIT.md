@@ -27,7 +27,6 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 | `evaluator/types/definition_site_registry.yo` | 46    | fold into new `yo-self/function_value.yo` (mirrors `definitionSiteEnclosingFunctionType` field on FunctionValue in `src/function-value.ts`)                                                                                                                                                                                  |
 | `evaluator/types/macro_registry.yo`           | 114   | fold into `yo-self/evaluator/types/function.yo` (mirrors `parameter.isQuote` / `returnType.isUnquote` fields on FunctionType in `src/evaluator/types/function.ts`)                                                                                                                                                           |
 | `evaluator/values/generic_impl_registry.yo`   | 439   | identify src/ counterpart (likely `src/evaluator/values/` or `src/evaluator/calls/helper.ts`) and fold; largest of the five, schedule last                                                                                                                                                                                   |
-| `types/type.yo`                               | 619   | consolidates `definitions.ts` (lines 1-227 — TypeValue enum), `creators.ts` (lines 228-405 — `t_*` constructors), and `guards.ts`-equivalent predicates (lines 471-619). 211 importers. Phase A.3.3 (deferred).                                                                                                              |
 | `types/substitution.yo`                       | 324   | **acceptable divergence**: yo-self-only substitution engine (`Substitution` data structure + walker). No direct src/ counterpart — TS uses `getValueOfSomeTypeFromEnv` + `substituteSomeTypesFromEnv` (in `src/evaluator/values/anonymous-function.ts:112`) without an explicit substitution map.                            |
 | `types/string.yo`                             | 279   | **acceptable divergence**: holds `type_to_string` (mirrors `typeToString` at `src/types/utils.ts:773`). Cannot be folded into yo-self's `types/utils.yo` because that would create an import cycle (`value.yo` → `utils.yo` → `env.yo` → `value.yo`). TypeScript tolerates the same shape because module loading is lazy.    |
 
@@ -52,15 +51,17 @@ Investigated three yo-self-only files under `types/`:
   walker. No direct src/ counterpart (TS uses `substituteSomeTypesFromEnv`
   in `src/evaluator/values/anonymous-function.ts:112` without an explicit
   map). **Decision**: acceptable divergence.
-- **`types/type.yo`** — consolidates parts of three TS files. Splitting
-  has very high blast radius (211 importers). **Decision**: deferred to
-  Phase A.3.3.
+- **`types/type.yo`** — split (Phase A.3.3, commit c3a3bb8f):
+  - `definitions.yo` (new file, mirrors `src/types/definitions.ts`) — TypeValue enum, `derive(Clone)`.
+  - `creators.yo` (renamed from `type.yo`, mirrors `src/types/creators.ts`) — `g_some_type_id_counter`, `generate_some_type_id`, 51 `t_*` constructors, `type_value_tag`.
+  - 205 importer files updated to pull from the right split target.
+  - No env-cycle risk because both files only depend on leaf modules
+    (`tags.yo` for TypeTag, std/collections, std/string).
 
-Net result of Phase A.3: §1 updated with refined descriptions of the
-three files; only one (`type.yo`) remains a 1-to-1 violation requiring
-work; the other two (`string.yo`, `substitution.yo`) are now
-documented as acceptable divergences caused by yo-self's stricter import
-semantics or by yo-self-specific design.
+Net result of Phase A.3: all three yo-self-only `types/*.yo` files
+have been addressed. `string.yo` and `substitution.yo` are documented
+acceptable divergences; `type.yo` is now properly split into the two
+src/-mirroring files.
 
 ### Phase A.2 — `codegen/program.yo` → `codegen/codegen_c.yo` (**COMPLETED** 2026-05-15)
 
