@@ -1086,6 +1086,342 @@ find_multiline_paren_indices :: (
   multiline_indices
 });
 // ---------------------------------------------------------------------------
+// Tightly-bound operator + comment-normalisation helpers
+// ---------------------------------------------------------------------------
+/// True iff `token` (an Operator like `*`, `!`, `?`) is tightly bound to a
+/// following `(` — i.e. should render as a prefix operator without a space
+/// before the paren (e.g. `*(T)`, `!(x)`). Mirrors `isTightlyBoundOperator`.
+is_tightly_bound_operator :: (
+  fn(token : Token, previous : Option(Token), next : Option(Token)) -> bool
+)({
+  // After a dot, always tight (e.g. ptr.*(x), ptr.&(x))
+  prev_is_dot := match(previous,.None => false,.Some(p) => (p.kind == TokenKind.Dot));
+  cond(
+    prev_is_dot => true,
+    true => {
+      next_is_lparen := match(next,.None => false,.Some(n) => (n.kind == TokenKind.LParen));
+      cond(
+        (!(next_is_lparen)) => false,
+        true => {
+          // Tight only when both:
+          //   (1) no whitespace between operator and '('
+          //   (2) the previous token is not an rvalue-end
+          no_space := match(
+            next,
+            .None => false,
+            .Some(n) => (
+              (n.row == token.row) &&
+              (n.column == (token.column + token.value.len()))
+            )
+          );
+          cond(
+            (!(no_space)) => false,
+            true => {
+              prev_is_rvalue_end := match(
+                previous,
+                .None => false,
+                .Some(p) => (
+                  is_atom_like_token(p.kind) || (
+                    (p.kind == TokenKind.RParen) || (
+                      (p.kind == TokenKind.RBracket) ||
+                      (p.kind == TokenKind.RCurlyBracket)
+                    )
+                  )
+                )
+              );
+              !(prev_is_rvalue_end)
+            }
+          )
+        }
+      )
+    }
+  )
+});
+/// Split a block-comment string by newlines and trim trailing whitespace.
+/// If indented continuation lines share a common indent, strip it. Mirrors
+/// `normalizeMultilineBlockComment`.
+normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
+  // Split raw on '\n', trim each line's trailing horizontal whitespace.
+  lines := ArrayList(String).new();
+  {
+    bytes := raw.as_bytes();
+    n := bytes.len();
+    (i : usize) = usize(0);
+    (line_start : usize) = usize(0);
+    while(runtime(i < n), {
+      b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+      if(b == u8(10), {
+        // Emit line: bytes[line_start..i] with trailing whitespace trimmed.
+        (end_idx : usize) = i;
+        while(runtime(end_idx > line_start), {
+          eb := match(bytes.get(end_idx - usize(1)),.Some(x) => x,.None => u8(0));
+          if((eb == u8(32)) || (eb == u8(9)), {
+            end_idx = (end_idx - usize(1));
+          }, {
+            // break by setting end_idx <= line_start to exit
+            line_start = end_idx;
+            // Note: this trick mimics break; restore line_start after.
+          });
+          if((eb == u8(32)) || (eb == u8(9)), (), {
+            // Force loop exit on next iteration
+            end_idx = line_start;
+          });
+        });
+        // Reset line_start to original (we corrupted it above for break)
+        // Reconstruct: scan again to find real trimmed bound.
+        (real_end : usize) = i;
+        while(runtime(real_end > usize(0)), {
+          eb2 := match(bytes.get(real_end - usize(1)),.Some(x) => x,.None => u8(0));
+          if(((eb2 == u8(32)) || (eb2 == u8(9))) && (real_end > usize(0)), {
+            real_end = (real_end - usize(1));
+          }, {
+            real_end = usize(0);
+          });
+        });
+        // Simpler restart: use index search
+        ()
+      });
+      i = (i + usize(1));
+    });
+    // Always emit final segment after last '\n' (or whole string if no '\n').
+    ()
+  };
+  // Fallback simple impl: split on '\n' and trim each. Avoids the
+  // mutate-while-iterate gymnastics above — replace with a straightforward
+  // two-pass approach.
+  lines = ArrayList(String).new();
+  {
+    bytes := raw.as_bytes();
+    n := bytes.len();
+    (i : usize) = usize(0);
+    (start : usize) = usize(0);
+    while(runtime(i <= n), {
+      is_end := cond((i == n) => true, true => false);
+      is_nl := cond(
+        is_end => false,
+        true => {
+          b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+          (b == u8(10))
+        }
+      );
+      if(is_end || is_nl, {
+        // Compute trimmed end
+        (end_idx : usize) = i;
+        (trimming : bool) = true;
+        while(runtime(trimming && (end_idx > start)), {
+          eb := match(bytes.get(end_idx - usize(1)),.Some(x) => x,.None => u8(0));
+          if((eb == u8(32)) || (eb == u8(9)), {
+            end_idx = (end_idx - usize(1));
+          }, {
+            trimming = false;
+          });
+        });
+        // Slice bytes[start..end_idx] into a String
+        (line_str : String) = String.new();
+        (k : usize) = start;
+        while(runtime(k < end_idx), {
+          match(
+            bytes.get(k),
+            .Some(byte_val) => {
+              line_str.push_byte(byte_val);
+            },
+            .None => ()
+          );
+          k = (k + usize(1));
+        });
+        _r := lines.push(line_str);
+        start = (i + usize(1));
+      });
+      i = (i + usize(1));
+    });
+  };
+  // Determine common indent among lines[1..]
+  (n_lines : usize) = lines.len();
+  cond(
+    (n_lines <= usize(1)) => lines,
+    true => {
+      (common_indent : Option(usize)) = Option(usize).None;
+      (li : usize) = usize(1);
+      while(runtime(li < n_lines), {
+        match(
+          lines.get(li),
+          .None => (),
+          .Some(line) => {
+            // Skip blank lines
+            stripped_len := {
+              ll_bytes := line.as_bytes();
+              ll_n := ll_bytes.len();
+              (lk : usize) = usize(0);
+              (ll_done : bool) = false;
+              while(runtime((lk < ll_n) && (!(ll_done))), {
+                lb := match(ll_bytes.get(lk),.Some(x) => x,.None => u8(0));
+                if((lb == u8(32)) || (lb == u8(9)), {
+                  lk = (lk + usize(1));
+                }, {
+                  ll_done = true;
+                });
+              });
+              cond((lk == ll_n) => usize(0), true => (ll_n - lk))
+            };
+            if(stripped_len > usize(0), {
+              indent := leading_whitespace_length(line.as_str());
+              common_indent = match(
+                common_indent,
+                .None => Option(usize).Some(indent),
+                .Some(ci) => cond(
+                  (indent < ci) => Option(usize).Some(indent),
+                  true => Option(usize).Some(ci)
+                )
+              );
+            });
+          }
+        );
+        li = (li + usize(1));
+      });
+      match(
+        common_indent,
+        .None => lines,
+        .Some(ci) => cond(
+          (ci == usize(0)) => lines,
+          true => {
+            // Build new list: keep lines[0], strip ci from lines[1..]
+            out := ArrayList(String).new();
+            match(
+              lines.get(usize(0)),
+              .Some(first) => {
+                _r := out.push(first);
+              },
+              .None => ()
+            );
+            (oi : usize) = usize(1);
+            while(runtime(oi < n_lines), {
+              match(
+                lines.get(oi),
+                .None => (),
+                .Some(line) => {
+                  ll_bytes := line.as_bytes();
+                  ll_n := ll_bytes.len();
+                  // If line is blank → ""
+                  (lk : usize) = usize(0);
+                  (only_ws : bool) = true;
+                  while(runtime((lk < ll_n) && only_ws), {
+                    lb := match(ll_bytes.get(lk),.Some(x) => x,.None => u8(0));
+                    if((lb == u8(32)) || (lb == u8(9)), {
+                      lk = (lk + usize(1));
+                    }, {
+                      only_ws = false;
+                    });
+                  });
+                  if(only_ws, {
+                    _r := out.push(String.from(""));
+                  }, {
+                    // Drop the first `ci` bytes
+                    new_line := String.new();
+                    (sk : usize) = ci;
+                    while(runtime(sk < ll_n), {
+                      match(
+                        ll_bytes.get(sk),
+                        .Some(byte_val) => {
+                          new_line.push_byte(byte_val);
+                        },
+                        .None => ()
+                      );
+                      sk = (sk + usize(1));
+                    });
+                    _r := out.push(new_line);
+                  });
+                }
+              );
+              oi = (oi + usize(1));
+            });
+            out
+          }
+        )
+      )
+    }
+  )
+});
+/// Read a backtick template-string starting at byte offset `start` in `input`,
+/// returning the literal slice from `` ` `` to the matching closing `` ` ``.
+/// Mirrors `readRawTemplateString`.
+read_raw_template_string :: (fn(input : String, start : usize) -> String)({
+  bytes := input.as_bytes();
+  n := bytes.len();
+  (index : usize) = (start + usize(1));
+  (brace_depth : usize) = usize(0);
+  (end_index : usize) = n; // default: until EOF
+  (done : bool) = false;
+  while(runtime((index < n) && (!(done))), {
+    char_byte := match(bytes.get(index),.Some(x) => x,.None => u8(0));
+    cond(
+      (char_byte == u8(92)) => {
+        // backslash: skip next byte
+        index = (index + usize(2));
+      },
+      ((brace_depth == usize(0)) && (char_byte == u8(96))) => {
+        // closing backtick
+        end_index = (index + usize(1));
+        done = true;
+      },
+      ((brace_depth == usize(0)) && (char_byte == u8(36))) => {
+        // '$' check if followed by '{'
+        next_byte := match(bytes.get(index + usize(1)),.Some(x) => x,.None => u8(0));
+        cond(
+          (next_byte == u8(123)) => {
+            brace_depth = usize(1);
+            index = (index + usize(2));
+          },
+          true => {
+            index = (index + usize(1));
+          }
+        );
+      },
+      (brace_depth > usize(0)) => {
+        cond(
+          (char_byte == u8(123)) => {
+            brace_depth = (brace_depth + usize(1));
+          },
+          (char_byte == u8(125)) => {
+            brace_depth = (brace_depth - usize(1));
+          },
+          true => ()
+        );
+        index = (index + usize(1));
+      },
+      true => {
+        index = (index + usize(1));
+      }
+    );
+  });
+  // Slice bytes[start..end_index]
+  result := String.new();
+  (k : usize) = start;
+  while(runtime(k < end_index), {
+    match(
+      bytes.get(k),
+      .Some(byte_val) => {
+        result.push_byte(byte_val);
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  result
+});
+/// Return the raw source text for token `tokens[index]`. For template strings
+/// this re-reads from `input` (the lexer normalises template-string `value`s).
+/// Mirrors `rawTokenValue`.
+raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize) -> String)(
+  match(
+    tokens.get(index),
+    .None => String.new(),
+    .Some(t) => cond(
+      (t.kind == TokenKind.TemplateString) => read_raw_template_string(input, t.character),
+      true => t.value
+    )
+  )
+);
+// ---------------------------------------------------------------------------
 // Public entry — `format_yo_source`
 // ---------------------------------------------------------------------------
 /// Format the given Yo source text and return the rewritten output.
@@ -1136,5 +1472,9 @@ export(
   paren_removal_would_expose_operator_rhs_infix,
   find_redundant_grouping_paren_indices,
   find_multiline_paren_indices,
+  is_tightly_bound_operator,
+  normalize_multiline_block_comment,
+  read_raw_template_string,
+  raw_token_value,
   format_yo_source
 );
