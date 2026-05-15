@@ -7,29 +7,82 @@
 //! comment. The full implementations will be added once the relevant TypeValue
 //! variants and field flags are wired in.
 //!
-//! Guards already defined in `type.yo` (is_int_type, is_float_type, …) are
-//! re-exported from here so callers can import from a single module.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{
-  TypeValue,
-  type_value_tag,
-  is_int_type,
-  is_float_type,
-  is_signed_int_type,
-  is_numeric_type,
-  is_pointer_type,
-  is_slice_type,
-  is_array_type,
-  is_function_type,
-  is_trait_type,
-  is_module_type,
-  is_some_type,
-  is_struct_type,
-  is_enum_type,
-  is_unit_type,
-  is_bool_type
-} :: import("./type.yo");
+{ TypeValue, type_value_tag } :: import("./type.yo");
+// ---------------------------------------------------------------------------
+// Variant-shape predicates — were in `type.yo` before Phase A.3.2; relocated
+// here to mirror `src/types/guards.ts`. These are one-line wrappers around a
+// `match` on the TypeValue variant, used pervasively by callers that want a
+// boolean test rather than a tag enum comparison.
+// ---------------------------------------------------------------------------
+is_int_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Int(_, _) => true, _ => false)
+);
+is_float_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Float(_) => true, _ => false)
+);
+is_signed_int_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Int(_, signed) => signed,
+    .Isize => true,
+    _ => false
+  )
+);
+is_numeric_type :: (fn(t : TypeValue) -> bool)(
+  cond(
+    is_int_type(t) => true,
+    is_float_type(t) => true,
+    true => match(
+      t,
+      .Usize => true,
+      .Isize => true,
+      .ComptimeInt => true,
+      .ComptimeFloat => true,
+      _ => false
+    )
+  )
+);
+is_pointer_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Pointer(_) => true, _ => false)
+);
+is_slice_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Slice(_) => true, _ => false)
+);
+is_array_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Array(_, _) => true, _ => false)
+);
+is_function_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Func(result : _) => true, _ => false)
+);
+is_some_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.SomeT(name : _) => true, _ => false)
+);
+is_trait_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .TraitT(name : _) => true,
+    .FnTraitT(base_name : _) => true,
+    .FutureTraitT(base_name : _) => true,
+    _ => false
+  )
+);
+is_module_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.ModuleT(_, _, _, _) => true, _ => false)
+);
+is_struct_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Struct(_, _, _, _, _, _, _) => true, _ => false)
+);
+is_enum_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.EnumT(_, _, _, _, _, _, _) => true, _ => false)
+);
+is_unit_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Unit => true, _ => false)
+);
+is_bool_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.BoolT => true, _ => false)
+);
 // ---------------------------------------------------------------------------
 // Basic primitive guards
 // ---------------------------------------------------------------------------
@@ -453,10 +506,10 @@ is_effects_row_type :: (fn(t : TypeValue) -> bool)(
   match(t,.EffectsRowT(implicit_labels : _) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
-// Re-exports of guards already defined in type.yo
+// Exports
 // ---------------------------------------------------------------------------
 export(
-  // Re-exports from type.yo
+  // Variant-shape predicates (relocated from type.yo in Phase A.3.2)
   is_int_type,
   is_float_type,
   is_signed_int_type,

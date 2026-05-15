@@ -27,11 +27,40 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 | `evaluator/types/definition_site_registry.yo` | 46    | fold into new `yo-self/function_value.yo` (mirrors `definitionSiteEnclosingFunctionType` field on FunctionValue in `src/function-value.ts`)                                                                                                                                                                                  |
 | `evaluator/types/macro_registry.yo`           | 114   | fold into `yo-self/evaluator/types/function.yo` (mirrors `parameter.isQuote` / `returnType.isUnquote` fields on FunctionType in `src/evaluator/types/function.ts`)                                                                                                                                                           |
 | `evaluator/values/generic_impl_registry.yo`   | 439   | identify src/ counterpart (likely `src/evaluator/values/` or `src/evaluator/calls/helper.ts`) and fold; largest of the five, schedule last                                                                                                                                                                                   |
-| `types/{string,substitution,type}.yo`         | ?     | consolidates `creators.ts` + `definitions.ts`                                                                                                                                                                                                                                                                                |
+| `types/type.yo`                               | 619   | consolidates `definitions.ts` (lines 1-227 — TypeValue enum), `creators.ts` (lines 228-405 — `t_*` constructors), and `guards.ts`-equivalent predicates (lines 471-619). 211 importers. Phase A.3.3 (deferred).                                                                                                              |
+| `types/substitution.yo`                       | 324   | **acceptable divergence**: yo-self-only substitution engine (`Substitution` data structure + walker). No direct src/ counterpart — TS uses `getValueOfSomeTypeFromEnv` + `substituteSomeTypesFromEnv` (in `src/evaluator/values/anonymous-function.ts:112`) without an explicit substitution map.                            |
+| `types/string.yo`                             | 279   | **acceptable divergence**: holds `type_to_string` (mirrors `typeToString` at `src/types/utils.ts:773`). Cannot be folded into yo-self's `types/utils.yo` because that would create an import cycle (`value.yo` → `utils.yo` → `env.yo` → `value.yo`). TypeScript tolerates the same shape because module loading is lazy.    |
 
 **Action**: progressively decompose the monoliths so each function lives
 in the file that mirrors its `src/` location. Start with the smallest
 (`evaluator/types/*registry.yo`) and work toward `codegen/exprs.yo`.
+
+### Phase A.3 — `types/` decomposition (**PARTIAL** 2026-05-15)
+
+Investigated three yo-self-only files under `types/`:
+
+- **`types/string.yo`** — attempt to fold into `types/utils.yo` was reverted:
+  the merge created an import cycle (`value.yo` → `utils.yo` → `env.yo` →
+  `value.yo`) because `utils.yo` legitimately depends on `env.yo` for
+  several functions, and `value.yo` needs `type_to_string` from this file.
+  TypeScript tolerates this same shape because module loading is lazy;
+  yo-self's eager destructuring imports do not. **Decision**: leave
+  `string.yo` as a standalone file and document it as an acceptable
+  divergence in §1. A future refactor could move the env-dependent
+  helpers out of `utils.yo` first, then fold `string.yo` in safely.
+- **`types/substitution.yo`** — yo-self-only Substitution data-structure +
+  walker. No direct src/ counterpart (TS uses `substituteSomeTypesFromEnv`
+  in `src/evaluator/values/anonymous-function.ts:112` without an explicit
+  map). **Decision**: acceptable divergence.
+- **`types/type.yo`** — consolidates parts of three TS files. Splitting
+  has very high blast radius (211 importers). **Decision**: deferred to
+  Phase A.3.3.
+
+Net result of Phase A.3: §1 updated with refined descriptions of the
+three files; only one (`type.yo`) remains a 1-to-1 violation requiring
+work; the other two (`string.yo`, `substitution.yo`) are now
+documented as acceptable divergences caused by yo-self's stricter import
+semantics or by yo-self-specific design.
 
 ### Phase A.2 — `codegen/program.yo` → `codegen/codegen_c.yo` (**COMPLETED** 2026-05-15)
 
