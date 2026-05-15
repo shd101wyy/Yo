@@ -169,13 +169,58 @@ types)` for the validation pass — the result is purely a function
 Both env-flag profilers are zero-cost when their respective flag is
 unset.
 
+## Minimal repro (2026-05-16)
+
+A standalone repro lives under `perf-repros/ts-nested-tostring/`:
+
+- `baseline.yo` — defines a wide `TyShape` enum and a
+  `type_to_string`-shaped wide `ty_to_str` stringifier, but **no**
+  consumer function that uses it in a template literal.
+- `slow.yo` — adds a `get_variable_info(v : Variable) -> String`
+  whose body is one template-string with several
+  `${ty_to_str(v.ty)}` interpolations + `${...to_string()}` flags.
+
+Run both back-to-back with the profiler:
+
+```
+./perf-repros/run.sh ts-nested-tostring
+```
+
+Current numbers on this machine:
+
+```
+=== baseline ===
+real 2.47
+[CALL PROFILE] tryToCallFunctionWithArguments: 20,871 calls
+[CALL PROFILE] Total self-time inside tryToCall: 1,766 ms
+
+=== slow ===
+real 4.00
+[CALL PROFILE] tryToCallFunctionWithArguments: 33,528 calls
+[CALL PROFILE] Total self-time inside tryToCall: 3,281 ms
+  fn_yoa98c08fb_id_259_+:               712 ms / 4,123 calls (172.9 µs/call)   <- String '+'
+  fn_yo8245ee87_id_102_to_string:       415 ms / 2,750 calls (151.2 µs/call)   <- String.to_string
+  fn_yo8245ee87_id_108_to_string:       340 ms / 5,532 calls ( 61.6 µs/call)   <- str.to_string
+```
+
+Properties of the repro:
+
+- **The 3 dominant callees in `yo-self/main.yo`'s profile reappear
+  unchanged here** (String `+`, String.to_string, str.to_string) —
+  same per-call costs (~170 µs / 150 µs / 60 µs), same proportion of
+  self-time. The repro is faithful.
+- **~200x faster to iterate on** than full yo-self
+  (4s vs ~8m). A fix that takes `slow.yo` self-time toward
+  `baseline.yo` (~1.5s delta) should translate to a similar
+  proportional win on yo-self.
+- **No yo-self dependency** — uses only `std/string`, `std/fmt`,
+  and `std/collections/array_list`. Survives renames in
+  `yo-self/types/string.yo` / `yo-self/value.yo`.
+
 ## Next steps
 
-1. Build a minimal in-process reproduction (single-file Yo source
-   that exhibits the explosion) so the fix can be benchmarked without
-   rerunning the full ~8m yo-self compile each iteration.
-2. Patch `tryToCallFunctionWithArguments` along one of the fix
-   directions above, measuring both the synthetic repro and
-   `yo-self/main.yo`.
-3. Once the underlying perf is fixed, restore the rich
+1. Patch `tryToCallFunctionWithArguments` along one of the fix
+   directions above, measuring against `perf-repros/run.sh
+ts-nested-tostring` first, then `yo-self/main.yo`.
+2. Once the underlying perf is fixed, restore the rich
    `get_variable_info` body shown in the symptom section.
