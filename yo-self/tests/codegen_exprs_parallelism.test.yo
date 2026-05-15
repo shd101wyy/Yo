@@ -10,7 +10,8 @@ open(import("std/string"));
   generate_yo_thread_set_maximum_threads,
   format_thread_spawn_call,
   format_worker_spawn_call,
-  format_spawn_heap_alloc
+  format_spawn_heap_alloc,
+  format_thread_set_max_call
 } :: import("../codegen/exprs/parallelism.yo");
 make_token :: (fn(kind : TokenKind, value : str) -> Token)(
   Token(
@@ -82,5 +83,12 @@ test("format_spawn_heap_alloc: typedef + malloc line", {
         "__yo_closure_capture_t* _h = (__yo_closure_capture_t*)__yo_malloc(sizeof(__yo_closure_capture_t));"
       ),
     "heap-alloc line"
+  );
+});
+test("format_thread_set_max_call: composes __yo_thread_set_maximum_threads(<n>)", {
+  out := format_thread_set_max_call(String.from("4"));
+  assert(
+    out == String.from("__yo_thread_set_maximum_threads(4)"),
+    "thread set max shape"
   );
 });
