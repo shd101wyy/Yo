@@ -107,6 +107,36 @@ type_value_to_c_field :: (fn(t : TypeValue) -> Option(String))(
 /// ```
 ///
 /// Fields whose types cannot be mapped are silently skipped.
+/// Format the struct forward declaration line:
+///   `typedef struct <c_name>_struct <c_name>; // Forward declaration`
+format_struct_forward_decl :: (fn(c_name : String) -> String)({
+  s := String.from("typedef struct ");
+  s.push_string(c_name);
+  s.push_str("_struct ");
+  s.push_string(c_name);
+  s.push_str("; // Forward declaration");
+  s
+});
+/// Format the struct-definition opening header line:
+///   `struct <c_name>_struct { // <human_name>`
+format_struct_def_header :: (fn(c_name : String, human_name : String) -> String)({
+  s := String.from("struct ");
+  s.push_string(c_name);
+  s.push_str("_struct { // ");
+  s.push_string(human_name);
+  s
+});
+/// Format a struct-field declaration line: `  <c_type> <label>;`.
+/// Pure string composition — used by `generate_struct_decl` and (via a
+/// parallel inline build) by the data-enum-variant emitter.
+format_struct_field_line :: (fn(c_type : String, label : String) -> String)({
+  s := String.from("  ");
+  s.push_string(c_type);
+  s.push_str(" ");
+  s.push_string(label);
+  s.push_str(";");
+  s
+});
 /// Returns the C name for the struct type (for use as a field type elsewhere).
 generate_struct_decl :: (
   fn(
@@ -121,19 +151,10 @@ generate_struct_decl :: (
 )({
   c_name := struct_c_name(module_id, type_id);
   registered_fields := get_struct_fields(struct_id);
-  // Forward declaration: typedef struct __yo_struct_..._struct __yo_struct_...;
-  fwd := String.from("typedef struct ");
-  fwd.push_string(c_name);
-  fwd.push_str("_struct ");
-  fwd.push_string(c_name);
-  fwd.push_str("; // Forward declaration");
-  ctx.*.emitter.emit_declaration_string_line(fwd);
-  // Struct definition header
-  def_hdr := String.from("struct ");
-  def_hdr.push_string(c_name);
-  def_hdr.push_str("_struct { // ");
-  def_hdr.push_string(name);
-  ctx.*.emitter.emit_declaration_string_line(def_hdr);
+  // Forward declaration.
+  ctx.*.emitter.emit_declaration_string_line(format_struct_forward_decl(c_name));
+  // Struct definition header.
+  ctx.*.emitter.emit_declaration_string_line(format_struct_def_header(c_name, name));
   // Fields
   n := cond(
     (field_labels.len() < field_types.len()) => field_labels.len(),
@@ -162,14 +183,9 @@ generate_struct_decl :: (
           .Some(ty) => match(
             type_value_to_c_field(ty),
             .None => (),
-            .Some(c_ty) => {
-              field_line := String.from("  ");
-              field_line.push_string(c_ty);
-              field_line.push_str(" ");
-              field_line.push_string(label);
-              field_line.push_str(";");
-              ctx.*.emitter.emit_declaration_string_line(field_line);
-            }
+            .Some(c_ty) => ctx.*.emitter.emit_declaration_string_line(
+              format_struct_field_line(c_ty, label)
+            )
           )
         )
       );
@@ -636,5 +652,8 @@ export(
   emit_drop_fn,
   emit_dup_fn,
   generate_rc_fns_trivial,
-  generate_rc_fns
+  generate_rc_fns,
+  format_struct_forward_decl,
+  format_struct_def_header,
+  format_struct_field_line
 );
