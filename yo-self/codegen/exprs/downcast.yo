@@ -35,6 +35,7 @@ open(import("std/string"));
   can_optimize_as_nullable_pointer
 } :: import("../utils/index.yo");
 { format_incr_rc_call, format_incr_rc_atomic_call } :: import("./rc_fns.yo");
+{ format_typed_rc_cast } :: import("./drop_dup.yo");
 { register_typeid_static, extract_type_value } :: import("./typeid.yo");
 { call_gen_expr } :: import("./expr.yo");
 /// Format the box-extraction subexpression
@@ -75,12 +76,7 @@ format_typed_incr_rc_cast :: (
     atomic => format_incr_rc_atomic_call(void_arg),
     true => format_incr_rc_call(void_arg)
   );
-  out := String.from("((");
-  out.push_string(target_c_name);
-  out.push_str(")");
-  out.push_string(incr);
-  out.push_str(")");
-  out
+  format_typed_rc_cast(target_c_name, incr)
 });
 /// Format the Dyn typeid runtime check:
 ///   `<dyn_code>.vtable->__yo_type_id == (uintptr_t)&<static_var>`
