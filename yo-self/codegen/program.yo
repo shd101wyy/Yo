@@ -17,6 +17,7 @@
 //!   6. generate_c_output(ctx) -> full C source
 open(import("std/string"));
 { CodegenContext } :: import("./context.yo");
+{ format_indented_stmt } :: import("./utils/index.yo");
 // ---------------------------------------------------------------------------
 // Preamble
 // ---------------------------------------------------------------------------
@@ -33,12 +34,11 @@ format_module_id_comment :: (fn(module_id : str) -> String)({
 /// Format the C `main()` body's user-main call line:
 ///   `  <user_main_c_name>();`
 /// Emitted between `int main(void) {` and `  return(0);`.
-format_main_call_line :: (fn(user_main_c_name : str) -> String)({
-  s := String.from("  ");
-  s.push_str(user_main_c_name);
-  s.push_str("();");
-  s
-});
+format_main_call_line :: (fn(user_main_c_name : str) -> String)(
+  // Compose via canonical typed-stmt helper:
+  //   "  " + <user_main_c_name> + "()" + ";"
+  format_indented_stmt(String.from("  "), String.from(user_main_c_name) + String.from("()"))
+);
 /// Emits into the headers section:
 ///   - `#define _DEFAULT_SOURCE` / `_GNU_SOURCE`
 ///   - Standard C headers
