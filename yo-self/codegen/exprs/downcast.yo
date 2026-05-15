@@ -40,7 +40,11 @@ open(import("std/string"));
   format_enum_tag_construction,
   format_enum_data_construction
 } :: import("./comptime_value.yo");
-{ register_typeid_static, extract_type_value } :: import("./typeid.yo");
+{
+  register_typeid_static,
+  extract_type_value,
+  format_typeid_address_expr
+} :: import("./typeid.yo");
 { call_gen_expr } :: import("./expr.yo");
 /// Format the box-extraction subexpression
 ///   `((<box_c_name>*)<dyn_code>.data)-><box_field_name>`
@@ -86,9 +90,10 @@ format_typed_incr_rc_cast :: (
 ///   `<dyn_code>.vtable->__yo_type_id == (uintptr_t)&<static_var>`
 /// Mirrors the inline `is_check` build in `generate_downcast_for_resolved_types`.
 format_dyn_typeid_check :: (fn(dyn_code : String, static_var : String) -> String)({
+  // Reuse format_typeid_address_expr for the `(uintptr_t)&<name>` RHS.
   s := String.from(dyn_code.as_str());
-  s.push_str(".vtable->__yo_type_id == (uintptr_t)&");
-  s.push_string(static_var);
+  s.push_str(".vtable->__yo_type_id == ");
+  s.push_string(format_typeid_address_expr(static_var));
   s
 });
 /// Format a C ternary expression: `((<cond>) ? <then> : <else>)`.
