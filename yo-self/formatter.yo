@@ -559,6 +559,533 @@ find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_cur
   multiline_indices
 });
 // ---------------------------------------------------------------------------
+// Multiline / paren-removal predicates
+// ---------------------------------------------------------------------------
+/// True iff `previous` is an Operator AND the paren range
+/// `(left_index, right_index)` contains a top-level curly. In that case
+/// the operator's RHS must render as a block (multiline). Mirrors
+/// `shouldForceOperatorRhsBlock`.
+should_force_operator_rhs_block :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, previous : Option(Token)) -> bool
+)(
+  match(
+    previous,
+    .None => false,
+    .Some(p) => (
+      (p.kind == TokenKind.Operator) &&
+      has_any_token(tokens, left_index, right_index, TokenKind.LCurlyBracket)
+    )
+  )
+);
+/// True iff the paren follows a control-flow identifier (`cond`, `if`,
+/// `match`) and contains a top-level curly. Forces the paren range to
+/// render multiline. Mirrors `shouldForceControlFlowMultiline`.
+should_force_control_flow_multiline :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, previous : Option(Token)) -> bool
+)(
+  match(
+    previous,
+    .None => false,
+    .Some(p) => cond(
+      (p.kind != TokenKind.Identifier) => false,
+      true => {
+        v := p.value.as_str();
+        ((v == "cond") || ((v == "if") || (v == "match"))) &&
+        has_top_level_token(tokens, left_index, right_index, TokenKind.LCurlyBracket)
+      }
+    )
+  )
+);
+/// True iff the paren range contains a top-level curly that follows a
+/// top-level comma (i.e. a curly-bracketed argument like `f(x, { … })`).
+/// Mirrors `hasTopLevelCurlyArgument`.
+has_top_level_curly_argument :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)({
+  (paren_depth : usize) = usize(0);
+  (bracket_depth : usize) = usize(0);
+  (curly_depth : usize) = usize(0);
+  (previous_top_level : Option(Token)) = Option(Token).None;
+  (found : bool) = false;
+  (i : usize) = (left_index + usize(1));
+  while(runtime((i < right_index) && (!(found))), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        is_comment_token(t.kind) => (),
+        true => {
+          at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
+          // Check curly-after-comma BEFORE depth updates
+          if((t.kind == TokenKind.LCurlyBracket) && at_top_level, {
+            match(
+              previous_top_level,
+              .None => (),
+              .Some(p) => if(p.kind == TokenKind.Comma, {
+                found = true;
+              })
+            );
+          });
+          // Update depths
+          cond(
+            (t.kind == TokenKind.LParen) => {
+              paren_depth = (paren_depth + usize(1));
+            },
+            ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+              paren_depth = (paren_depth - usize(1));
+            },
+            (t.kind == TokenKind.LBracket) => {
+              bracket_depth = (bracket_depth + usize(1));
+            },
+            ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+              bracket_depth = (bracket_depth - usize(1));
+            },
+            (t.kind == TokenKind.LCurlyBracket) => {
+              curly_depth = (curly_depth + usize(1));
+            },
+            ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+              curly_depth = (curly_depth - usize(1));
+            },
+            true => ()
+          );
+          if(at_top_level, {
+            previous_top_level = Option(Token).Some(t);
+          });
+        }
+      )
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True iff the paren range contains a top-level `:` operator (a struct-
+/// field-style label) followed by a top-level curly. Mirrors
+/// `hasTopLevelFieldBlock`.
+has_top_level_field_block :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)({
+  (paren_depth : usize) = usize(0);
+  (bracket_depth : usize) = usize(0);
+  (curly_depth : usize) = usize(0);
+  (saw_top_level_colon : bool) = false;
+  (found : bool) = false;
+  (i : usize) = (left_index + usize(1));
+  while(runtime((i < right_index) && (!(found))), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        is_comment_token(t.kind) => (),
+        true => {
+          at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
+          cond(
+            (((t.kind == TokenKind.Operator) && (t.value.as_str() == ":")) && at_top_level) => {
+              saw_top_level_colon = true;
+            },
+            (((t.kind == TokenKind.LCurlyBracket) && (bracket_depth == usize(0))) && saw_top_level_colon) => {
+              found = true;
+            },
+            true => ()
+          );
+          cond(
+            (t.kind == TokenKind.LParen) => {
+              paren_depth = (paren_depth + usize(1));
+            },
+            ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+              paren_depth = (paren_depth - usize(1));
+            },
+            (t.kind == TokenKind.LBracket) => {
+              bracket_depth = (bracket_depth + usize(1));
+            },
+            ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+              bracket_depth = (bracket_depth - usize(1));
+            },
+            (t.kind == TokenKind.LCurlyBracket) => {
+              curly_depth = (curly_depth + usize(1));
+            },
+            ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+              curly_depth = (curly_depth - usize(1));
+            },
+            true => ()
+          );
+        }
+      )
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True iff the paren range contains a top-level closure (anything that
+/// matches `(...) => body` or `(...) -> body` at the paren's top level)
+/// followed by a curly. Used to detect `xs.iter(x => { ... })`-style
+/// calls so they're rendered inline. Mirrors `hasDirectTopLevelClosureArgument`.
+has_direct_top_level_closure_argument :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, previous : Option(Token)) -> bool
+)({
+  // Control-flow keywords have their own multiline rules — bail out.
+  prev_is_control := match(
+    previous,
+    .None => false,
+    .Some(p) => cond(
+      (p.kind != TokenKind.Identifier) => false,
+      true => {
+        v := p.value.as_str();
+        (v == "cond") || ((v == "if") || ((v == "match") || ((v == "test") || (v == "while"))))
+      }
+    )
+  );
+  cond(
+    prev_is_control => false,
+    true => {
+      (paren_depth : usize) = usize(0);
+      (bracket_depth : usize) = usize(0);
+      (curly_depth : usize) = usize(0);
+      (saw_top_level_colon : bool) = false;
+      (saw_closure_operator : bool) = false;
+      (found : bool) = false;
+      (i : usize) = (left_index + usize(1));
+      while(runtime((i < right_index) && (!(found))), {
+        match(
+          tokens.get(i),
+          .None => (),
+          .Some(t) => cond(
+            is_comment_token(t.kind) => (),
+            true => {
+              at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
+              cond(
+                ((t.kind == TokenKind.Operator) && at_top_level) => {
+                  v := t.value.as_str();
+                  cond(
+                    (v == ":") => {
+                      saw_top_level_colon = true;
+                    },
+                    ((!(saw_top_level_colon)) && ((v == "=>") || (v == "->"))) => {
+                      saw_closure_operator = true;
+                    },
+                    true => ()
+                  );
+                },
+                (((t.kind == TokenKind.LCurlyBracket) && at_top_level) && saw_closure_operator) => {
+                  found = true;
+                },
+                true => ()
+              );
+              cond(
+                (t.kind == TokenKind.LParen) => {
+                  paren_depth = (paren_depth + usize(1));
+                },
+                ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+                  paren_depth = (paren_depth - usize(1));
+                },
+                (t.kind == TokenKind.LBracket) => {
+                  bracket_depth = (bracket_depth + usize(1));
+                },
+                ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+                  bracket_depth = (bracket_depth - usize(1));
+                },
+                (t.kind == TokenKind.LCurlyBracket) => {
+                  curly_depth = (curly_depth + usize(1));
+                },
+                ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+                  curly_depth = (curly_depth - usize(1));
+                },
+                true => ()
+              );
+            }
+          )
+        );
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+});
+/// True iff the paren range is `(.X)` (a parenthesised dot-dereference,
+/// e.g. `ptr.*(x)`). Mirrors `isParenthesizedDotDeref`.
+is_parenthesized_dot_deref :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)({
+  previous := previous_meaningful_token(tokens, left_index);
+  (inner_token : Option(Token)) = Option(Token).None;
+  (inner_count : usize) = usize(0);
+  (early_exit : bool) = false;
+  (i : usize) = (left_index + usize(1));
+  while(runtime((i < right_index) && (!(early_exit))), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        is_comment_token(t.kind) => (),
+        true => {
+          inner_token = Option(Token).Some(t);
+          inner_count = (inner_count + usize(1));
+          if(inner_count > usize(1), {
+            early_exit = true;
+          });
+        }
+      )
+    );
+    i = (i + usize(1));
+  });
+  cond(
+    early_exit => false,
+    true => match(
+      previous,
+      .None => false,
+      .Some(prev) => cond(
+        (prev.kind != TokenKind.Dot) => false,
+        true => match(
+          inner_token,
+          .None => false,
+          .Some(inner) => (
+            (inner.kind == TokenKind.Operator) &&
+            ((inner.value.as_str() == "*") && (inner_count == usize(1)))
+          )
+        )
+      )
+    )
+  )
+});
+/// True iff the paren range is a redundant grouping paren (e.g.
+/// `(x)` around a single sub-expression that doesn't need protection).
+/// Mirrors `isRedundantGroupingParen`.
+is_redundant_grouping_paren :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)(
+  cond(
+    (right_index == (left_index + usize(1))) => false,
+    true => {
+      previous := previous_meaningful_token(tokens, left_index);
+      next := next_meaningful_token(tokens, right_index, tokens.len());
+      first_inner := next_meaningful_token(tokens, left_index, right_index);
+      cond(
+        match(first_inner,.None => true,.Some(_) => false) => false,
+        token_range_has_comment(tokens, (left_index + usize(1)), right_index) => false,
+        paren_is_call_delimiter(previous) => false,
+        true => {
+          // Operator predecessor + not in the allow-list → cannot remove
+          prev_blocks := match(
+            previous,
+            .None => false,
+            .Some(p) => (
+              (p.kind == TokenKind.Operator) &&
+              (!(operator_allows_ungrouped_rhs(p.value.as_str())))
+            )
+          );
+          cond(
+            prev_blocks => false,
+            true => {
+              paren_dot_deref := is_parenthesized_dot_deref(tokens, left_index, right_index);
+              // Dot-prefix without being a parenthesised dot-deref blocks removal
+              prev_is_dot_blocks := match(
+                previous,
+                .None => false,
+                .Some(p) => ((p.kind == TokenKind.Dot) && (!(paren_dot_deref)))
+              );
+              cond(
+                prev_is_dot_blocks => false,
+                true => {
+                  // Following operator/dot/lparen blocks removal
+                  next_blocks := match(
+                    next,
+                    .None => false,
+                    .Some(nx) => (
+                      (((nx.kind == TokenKind.Operator) && (!(paren_dot_deref))) ||
+                        ((nx.kind == TokenKind.Dot) && (!(paren_dot_deref)))) ||
+                      (nx.kind == TokenKind.LParen)
+                    )
+                  );
+                  cond(
+                    next_blocks => false,
+                    true => {
+                      // `fn(` / `unsafe_fn(` is a function-type expression
+                      first_inner_blocks := match(
+                        first_inner,
+                        .None => false,
+                        .Some(fi) => (
+                          (fi.kind == TokenKind.Identifier) &&
+                          is_function_type_keyword(fi.value.as_str())
+                        )
+                      );
+                      cond(
+                        first_inner_blocks => false,
+                        has_top_level_token(tokens, left_index, right_index, TokenKind.Comma) => false,
+                        has_top_level_token(tokens, left_index, right_index, TokenKind.Semicolon) => false,
+                        true => true
+                      )
+                    }
+                  )
+                }
+              )
+            }
+          )
+        }
+      )
+    }
+  )
+);
+/// True iff removing the redundant grouping paren at `(left_index,
+/// right_index)` would expose the inner operator to a surrounding
+/// operator that would then re-parse the meaning incorrectly. Mirrors
+/// `parenRemovalWouldExposeOperatorRhsInfix`.
+paren_removal_would_expose_operator_rhs_infix :: (
+  fn(
+    tokens : ArrayList(Token),
+    left_index : usize,
+    right_index : usize,
+    parent_parens : HashMap(usize, usize),
+    candidate_left_indices : HashSet(usize)
+  ) -> bool
+)({
+  previous := previous_meaningful_token(tokens, left_index);
+  match(
+    previous,
+    .None => {
+      // Walk up the parent chain
+      parent_left_opt := parent_parens.get(left_index);
+      match(
+        parent_left_opt,
+        .None => false,
+        .Some(parent_left) => cond(
+          (!(candidate_left_indices.contains(parent_left))) => false,
+          true => match(
+            previous_meaningful_token(tokens, parent_left),
+            .None => false,
+            .Some(pp) => (
+              (pp.kind == TokenKind.Operator) &&
+              has_top_level_operator(tokens, left_index, right_index)
+            )
+          )
+        )
+      )
+    },
+    .Some(prev) => cond(
+      (prev.kind == TokenKind.Operator) => has_top_level_operator(tokens, left_index, right_index),
+      true => {
+        parent_left_opt := parent_parens.get(left_index);
+        match(
+          parent_left_opt,
+          .None => false,
+          .Some(parent_left) => cond(
+            (!(candidate_left_indices.contains(parent_left))) => false,
+            true => match(
+              previous_meaningful_token(tokens, parent_left),
+              .None => false,
+              .Some(pp) => (
+                (pp.kind == TokenKind.Operator) &&
+                has_top_level_operator(tokens, left_index, right_index)
+              )
+            )
+          )
+        )
+      }
+    )
+  )
+});
+/// Compute the set of paren indices that should be elided as redundant
+/// grouping parens. Mirrors `findRedundantGroupingParenIndices`.
+find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
+  skipped_indices := HashSet(usize).new();
+  matching_parens := find_matching_paren_indices(tokens);
+  parent_parens := find_parent_paren_indices(tokens);
+  candidate_left_indices := HashSet(usize).new();
+  // Pass 1: collect all candidates (those that look redundant in isolation).
+  n := tokens.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(i), {
+        right_idx := match(matching_parens.get(i),.Some(x) => x,.None => i);
+        if(is_redundant_grouping_paren(tokens, i, right_idx), {
+          _add := candidate_left_indices.add(i);
+        });
+      })
+    );
+    i = (i + usize(1));
+  });
+  // Pass 2: filter out candidates whose removal would change operator parsing.
+  // We need to iterate candidate_left_indices — HashSet doesn't have iterate
+  // so re-walk tokens.
+  (j : usize) = usize(0);
+  while(runtime(j < n), {
+    if(candidate_left_indices.contains(j), {
+      right_idx := match(matching_parens.get(j),.Some(x) => x,.None => j);
+      keep_candidate := !(paren_removal_would_expose_operator_rhs_infix(
+        tokens,
+        j,
+        right_idx,
+        parent_parens,
+        candidate_left_indices
+      ));
+      if(keep_candidate, {
+        _add1 := skipped_indices.add(j);
+        _add2 := skipped_indices.add(right_idx);
+      });
+    });
+    j = (j + usize(1));
+  });
+  skipped_indices
+});
+/// Compute the set of paren indices that should render on multiple
+/// lines. Mirrors `findMultilineParenIndices`.
+find_multiline_paren_indices :: (
+  fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize)) -> HashSet(usize)
+)({
+  multiline_indices := HashSet(usize).new();
+  matching_parens := find_matching_paren_indices(tokens);
+  n := tokens.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(i), {
+        right_idx := match(matching_parens.get(i),.Some(x) => x,.None => i);
+        cond(
+          (skipped_indices.contains(i) || skipped_indices.contains(right_idx)) => (),
+          true => {
+            previous := previous_meaningful_token(tokens, i);
+            force_multiline := (
+              should_force_control_flow_multiline(tokens, i, right_idx, previous) ||
+              (has_top_level_field_block(tokens, i, right_idx) ||
+                should_force_operator_rhs_block(tokens, i, right_idx, previous))
+            );
+            // Token row check
+            left_tok := t;
+            right_tok := match(tokens.get(right_idx),.Some(rt) => rt,.None => left_tok);
+            spans_rows := (right_tok.row > left_tok.row);
+            cond(
+              ((!(force_multiline)) && (!(spans_rows))) => (),
+              true => {
+                first_inner := next_meaningful_token(tokens, i, right_idx);
+                first_is_curly := match(
+                  first_inner,
+                  .None => false,
+                  .Some(fi) => (fi.kind == TokenKind.LCurlyBracket)
+                );
+                skip := (
+                  first_is_curly ||
+                  (has_top_level_curly_argument(tokens, i, right_idx) ||
+                    (paren_is_call_delimiter(previous) &&
+                      has_direct_top_level_closure_argument(tokens, i, right_idx, previous)))
+                );
+                if(!(skip), {
+                  _add1 := multiline_indices.add(i);
+                  _add2 := multiline_indices.add(right_idx);
+                });
+              }
+            );
+          }
+        );
+      })
+    );
+    i = (i + usize(1));
+  });
+  multiline_indices
+});
+// ---------------------------------------------------------------------------
 // Public entry — `format_yo_source`
 // ---------------------------------------------------------------------------
 /// Format the given Yo source text and return the rewritten output.
@@ -599,5 +1126,15 @@ export(
   find_inline_curly_indices,
   find_multiline_bracket_indices,
   find_multiline_inline_curly_indices,
+  should_force_operator_rhs_block,
+  should_force_control_flow_multiline,
+  has_top_level_curly_argument,
+  has_top_level_field_block,
+  has_direct_top_level_closure_argument,
+  is_parenthesized_dot_deref,
+  is_redundant_grouping_paren,
+  paren_removal_would_expose_operator_rhs_infix,
+  find_redundant_grouping_paren_indices,
+  find_multiline_paren_indices,
   format_yo_source
 );
