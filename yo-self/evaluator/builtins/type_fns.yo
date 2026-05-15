@@ -662,6 +662,34 @@ _ti_escape_str :: (fn(s : String) -> String)({
   s2 := s.replace(String.from("\\"), String.from("\\\\"));
   s2.replace(String.from("\""), String.from("\\\""))
 });
+/// Format the Yo source for a `TypeFieldInfo("label", ty_var)` call:
+///   `TypeFieldInfo("<escaped_label>", <ty_var_name>)`
+/// Used by `_ti_build_type_field_info` to build the code string passed
+/// to `_ti_eval_code`. Pure string composition.
+format_type_field_info_call :: (
+  fn(escaped_label : String, ty_var_name : String) -> String
+)(
+  (((String.from("TypeFieldInfo(\"") + escaped_label) + String.from("\", ")) + ty_var_name) +
+    String.from(")")
+);
+/// Format the Yo source for a `VariantInfo("name", fl, et, usize(idx))` call:
+///   `VariantInfo("<escaped_name>", <fl_var>, <et_var>, usize(<idx>))`
+/// Used by `_ti_build_variant_info` to build the code string passed to
+/// `_ti_eval_code`. Pure string composition.
+format_variant_info_call :: (
+  fn(escaped_name : String, fl_var_name : String, et_var_name : String, idx_str : String) -> String
+)(
+  (
+    (
+      (
+        (
+          (((String.from("VariantInfo(\"") + escaped_name) + String.from("\", ")) + fl_var_name) +
+            String.from(", ")
+        ) + et_var_name
+      ) + String.from(", usize(")
+    ) + idx_str
+  ) + String.from("))")
+);
 /// Bind a TypeValue to a fresh comptime temp variable in the env.
 /// Mutates env in place via pointer; returns the generated variable name.
 _ti_bind_type :: (
@@ -769,7 +797,7 @@ _ti_build_type_field_info :: (
 )({
   ty_name := _ti_bind_type(env_ptr, field_ty, ctx);
   escaped_label := _ti_escape_str(label);
-  code := ((((String.from("TypeFieldInfo(\"") + escaped_label) + String.from("\", ")) + ty_name) + String.from(")"));
+  code := format_type_field_info_call(escaped_label, ty_name);
   match(
     _ti_eval_code(env_ptr, code, ctx, using(exn)),
     .Some(v) => v,
@@ -817,7 +845,7 @@ _ti_build_variant_info :: (
   fl_name := _ti_bind_type_field_list(env_ptr, v_field_labels, v_field_types, ctx, using(exn));
   escaped_name := _ti_escape_str(v_name);
   idx_str := v_idx.to_string();
-  code := ((((((((String.from("VariantInfo(\"") + escaped_name) + String.from("\", ")) + fl_name) + String.from(", ")) + et_name) + String.from(", usize(")) + idx_str) + String.from("))"));
+  code := format_variant_info_call(escaped_name, fl_name, et_name, idx_str);
   match(
     _ti_eval_code(env_ptr, code, ctx, using(exn)),
     .Some(v) => v,
@@ -1767,5 +1795,7 @@ export(
   evaluate_comptime_eval,
   evaluate_comptime_string_to_expr,
   evaluate_type_join_fields,
-  evaluate_type_map_variants
+  evaluate_type_map_variants,
+  format_type_field_info_call,
+  format_variant_info_call
 );
