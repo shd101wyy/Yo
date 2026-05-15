@@ -33,7 +33,7 @@ open(import("std/string"));
 :: import("./exprs/iso.yo");
 { generate_while_loop } :: import("./exprs/while.yo");
 { generate_op_and, generate_op_or } :: import("./exprs/and_or.yo");
-{ generate_begin } :: import("./exprs/begin.yo");
+{ generate_begin, emit_as_stmt, is_begin_block, is_stmt_body_expr } :: import("./exprs/begin.yo");
 { generate_cond } :: import("./exprs/cond.yo");
 // Phase A.8.1: atom/op helpers (gen_*_lit, sanitize_c_ident, is_*_op,
 // gen_binary_op, gen_unary_op) extracted to ./exprs/atom.yo.
@@ -226,28 +226,8 @@ extract_op :: (fn(func_box : Box(AstExpr)) -> Option(String))(
 // ---------------------------------------------------------------------------
 // Phase 4c helpers — control flow
 // ---------------------------------------------------------------------------
-/// Emit a single expression as a C statement: `{indent}{expr_code};\n`.
-/// Returns unit; used internally to emit non-last statements in begin blocks.
-emit_as_stmt :: (fn(code : String, ctx : *(CodegenContext), indent : String) -> unit)({
-  ctx.*.emitter.emit_string(indent);
-  ctx.*.emitter.emit_string(code);
-  ctx.*.emitter.emit_line(";");
-});
-/// Returns true if `expr` is a begin block (`{ ... }`), i.e. a FnCall whose
-/// func is an Atom with value `BK_BEGIN`.  These blocks contain statement-level
-/// side-effects (break / continue / return) that must NOT appear inside a C
-/// ternary operand — they need a C `if` statement instead.
-is_begin_block :: (fn(expr : AstExpr) -> bool)(
-  match(
-    expr,
-    .Atom(_, _) => false,
-    .FnCall(_, func_box, _, _, _) => match(
-      func_box.*,
-      .FnCall(_, _, _, _, _) => false,
-      .Atom(_, ftok) => (ftok.value.as_str() == BK_BEGIN)
-    )
-  )
-);
+// Phase A.8.3: emit_as_stmt + is_begin_block + is_stmt_body_expr were
+// relocated to `./exprs/begin.yo`.
 /// Generate a `begin` block.
 ///
 /// Emits all statements except the last into `ctx.emitter` and returns the
@@ -307,64 +287,6 @@ handle_begin :: (
     }
   )
 });
-/// True if `expr` requires statement-level emission and cannot appear
-/// inside a C ternary operand.
-///
-/// Matches: `continue`, `break`, `return(expr)`, and begin blocks
-/// that contain any statement-level expression (e.g. `{ x = 1; break; }`).
-///
-/// Note: the Yo parser appends a trailing `tuple()` sentinel to begin blocks
-/// that end with `;`, so we scan ALL elements (not just the last) to detect
-/// `break`/`continue`/`return` hidden before the sentinel.
-is_stmt_body_expr :: (fn(expr : AstExpr) -> bool)(
-  match(
-    expr,
-    .Atom(_, tok) => cond(
-      (tok.kind != TokenKind.Identifier) => false,
-      (tok.value.as_str() == "continue") => true,
-      (tok.value.as_str() == "break") => true,
-      true => false
-    ),
-    .FnCall(_, func_box, args, _, _) => {
-      is_ret := match(
-        func_box.*,
-        .FnCall(_, _, _, _, _) => false,
-        .Atom(_, ftok) => ((ftok.kind == TokenKind.Identifier) && (ftok.value.as_str() == "return"))
-      );
-      is_begin := match(
-        func_box.*,
-        .FnCall(_, _, _, _, _) => false,
-        .Atom(_, ftok) => (ftok.value.as_str() == BK_BEGIN)
-      );
-      cond(
-        is_ret => true,
-        is_begin => {
-          // Scan ALL elements — parser may add trailing tuple() before closing }
-          na := args.len();
-          cond(
-            (na == usize(0)) => false,
-            true => {
-              (found : bool) = false;
-              (k : usize) = usize(0);
-              while(runtime((k < na) && (!(found))), {
-                match(
-                  args.get(k),
-                  .None => (),
-                  .Some(e) => {
-                    found = recur(e);
-                  }
-                );
-                k = (k + usize(1));
-              });
-              found
-            }
-          )
-        },
-        true => false
-      )
-    }
-  )
-);
 /// Extract the arm args from a `cond` arm (which is `FnCall("=>", [c, b], true)`).
 get_arm_args :: (fn(arm : AstExpr) -> Option(ArrayList(AstExpr)))(
   match(
