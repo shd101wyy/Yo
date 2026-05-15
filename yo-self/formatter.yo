@@ -1649,21 +1649,476 @@ format_yo_source :: (
                 index = (index + usize(1));
               },
               true => {
-                // ---- Phase A.10 token-dispatch stub ----
-                // Non-comment branch: full TokenKind switch is implemented in
-                // a follow-up commit. For now we emit the raw value verbatim
-                // (with minimal spacing) so the file compiles end-to-end and
-                // the comment path can be tested in isolation.
-                if(at_line_start, {
-                  (sp4 : usize) = usize(0);
-                  space_count4 := (indent_level * INDENT_SIZE);
-                  while(runtime(sp4 < space_count4), {
-                    result.push_str(" ");
-                    sp4 = (sp4 + usize(1));
-                  });
-                  at_line_start = false;
-                });
-                result.push_string(raw);
+                // ---- TokenKind dispatch ----
+                cond(
+                  (token.kind == TokenKind.LCurlyBracket) => {
+                    cond(
+                      inline_curly_indices.contains(index) => {
+                        is_multiline := multiline_inline_curly_indices.contains(index);
+                        _r1 := curly_stack_inline.push(true);
+                        _r2 := curly_stack_multiline.push(is_multiline);
+                        curly_depth = (curly_depth + usize(1));
+                        inline_curly_depth = (inline_curly_depth + usize(1));
+                        cond(
+                          is_multiline => {
+                            // write("{")
+                            if(at_line_start, {
+                              (sp : usize) = usize(0);
+                              count := (indent_level * INDENT_SIZE);
+                              while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                              at_line_start = false;
+                            });
+                            result.push_str("{");
+                            indent_level = (indent_level + usize(1));
+                            next_is_rcurly := match(next,.None => false,.Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
+                            if((!(next_is_rcurly)) && match(next,.None => false,.Some(_) => true), {
+                              if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                              at_line_start = true;
+                            });
+                          },
+                          true => {
+                            if(at_line_start, {
+                              (sp : usize) = usize(0);
+                              count := (indent_level * INDENT_SIZE);
+                              while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                              at_line_start = false;
+                            });
+                            result.push_str("{");
+                            next_is_rcurly := match(next,.None => false,.Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
+                            if(((!(next_is_rcurly)) && match(next,.None => false,.Some(_) => true)) && ((!(at_line_start)) && (!(result.ends_with(String.from(" "))))), {
+                              result.push_str(" ");
+                            });
+                          }
+                        );
+                      },
+                      true => {
+                        _r1 := curly_stack_inline.push(false);
+                        _r2 := curly_stack_multiline.push(false);
+                        if(at_line_start, {
+                          (sp : usize) = usize(0);
+                          count := (indent_level * INDENT_SIZE);
+                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          at_line_start = false;
+                        });
+                        result.push_str("{");
+                        curly_depth = (curly_depth + usize(1));
+                        indent_level = (indent_level + usize(1));
+                        if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                        at_line_start = true;
+                      }
+                    );
+                  },
+                  (token.kind == TokenKind.RCurlyBracket) => {
+                    // Pop frame
+                    cur_inline := cond(
+                      (curly_stack_inline.len() > usize(0)) => match(curly_stack_inline.get(curly_stack_inline.len() - usize(1)),.Some(x) => x,.None => false),
+                      true => false
+                    );
+                    cur_multiline := cond(
+                      (curly_stack_multiline.len() > usize(0)) => match(curly_stack_multiline.get(curly_stack_multiline.len() - usize(1)),.Some(x) => x,.None => false),
+                      true => false
+                    );
+                    if(curly_stack_inline.len() > usize(0), {
+                      _p1 := curly_stack_inline.pop();
+                      _p2 := curly_stack_multiline.pop();
+                    });
+                    cond(
+                      cur_inline => {
+                        if(inline_curly_depth > usize(0), { inline_curly_depth = (inline_curly_depth - usize(1)); });
+                        cond(
+                          cur_multiline => {
+                            if(!(at_line_start), {
+                              if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                              at_line_start = true;
+                            });
+                            if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                            if(at_line_start, {
+                              (sp : usize) = usize(0);
+                              count := (indent_level * INDENT_SIZE);
+                              while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                              at_line_start = false;
+                            });
+                            result.push_str("}");
+                          },
+                          true => {
+                            prev_is_lcurly := match(previous,.None => false,.Some(p) => (p.kind == TokenKind.LCurlyBracket));
+                            if((!(at_line_start)) && (!(prev_is_lcurly)), {
+                              if((!(result.ends_with(String.from(" ")))) && (!(result.ends_with(String.from("\n")))), {
+                                result.push_str(" ");
+                              });
+                            });
+                            if(at_line_start, {
+                              (sp : usize) = usize(0);
+                              count := (indent_level * INDENT_SIZE);
+                              while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                              at_line_start = false;
+                            });
+                            result.push_str("}");
+                          }
+                        );
+                      },
+                      true => {
+                        if(!(at_line_start), {
+                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          at_line_start = true;
+                        });
+                        if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                        if(at_line_start, {
+                          (sp : usize) = usize(0);
+                          count := (indent_level * INDENT_SIZE);
+                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          at_line_start = false;
+                        });
+                        result.push_str("}");
+                      }
+                    );
+                    if(curly_depth > usize(0), { curly_depth = (curly_depth - usize(1)); });
+                  },
+                  (token.kind == TokenKind.LParen) => {
+                    is_multiline := multiline_paren_indices.contains(index);
+                    if(at_line_start, {
+                      (sp : usize) = usize(0);
+                      count := (indent_level * INDENT_SIZE);
+                      while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                      at_line_start = false;
+                    });
+                    result.push_str("(");
+                    _r1 := paren_stack_indices.push(index);
+                    _r2 := paren_stack_multiline.push(is_multiline);
+                    paren_depth = (paren_depth + usize(1));
+                    if(is_multiline, {
+                      indent_level = (indent_level + usize(1));
+                      next_is_rparen := match(next,.None => false,.Some(nx) => (nx.kind == TokenKind.RParen));
+                      if((!(next_is_rparen)) && match(next,.None => false,.Some(_) => true), {
+                        if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                        at_line_start = true;
+                      });
+                    });
+                  },
+                  (token.kind == TokenKind.LBracket) => {
+                    is_multiline := multiline_bracket_indices.contains(index);
+                    _r := bracket_stack_multiline.push(is_multiline);
+                    bracket_depth = (bracket_depth + usize(1));
+                    if(at_line_start, {
+                      (sp : usize) = usize(0);
+                      count := (indent_level * INDENT_SIZE);
+                      while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                      at_line_start = false;
+                    });
+                    result.push_str("[");
+                    if(is_multiline, {
+                      indent_level = (indent_level + usize(1));
+                      next_is_rbracket := match(next,.None => false,.Some(nx) => (nx.kind == TokenKind.RBracket));
+                      if((!(next_is_rbracket)) && match(next,.None => false,.Some(_) => true), {
+                        if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                        at_line_start = true;
+                      });
+                    });
+                  },
+                  (token.kind == TokenKind.RParen) => {
+                    // close_operator_continuations
+                    (closing_done : bool) = false;
+                    while(runtime((continuation_paren.len() > usize(0)) && (!(closing_done))), {
+                      top_idx := (continuation_paren.len() - usize(1));
+                      top_p := match(continuation_paren.get(top_idx),.Some(x) => x,.None => usize(0));
+                      top_b := match(continuation_bracket.get(top_idx),.Some(x) => x,.None => usize(0));
+                      top_c := match(continuation_curly.get(top_idx),.Some(x) => x,.None => usize(0));
+                      cond(
+                        ((paren_depth > top_p) || ((bracket_depth > top_b) || (curly_depth > top_c))) => {
+                          closing_done = true;
+                        },
+                        true => {
+                          _p1 := continuation_paren.pop();
+                          _p2 := continuation_bracket.pop();
+                          _p3 := continuation_curly.pop();
+                          if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                        }
+                      );
+                    });
+                    is_multiline := cond(
+                      (paren_stack_multiline.len() > usize(0)) => match(paren_stack_multiline.get(paren_stack_multiline.len() - usize(1)),.Some(x) => x,.None => false),
+                      true => false
+                    );
+                    if(paren_stack_multiline.len() > usize(0), {
+                      _p1 := paren_stack_indices.pop();
+                      _p2 := paren_stack_multiline.pop();
+                    });
+                    cond(
+                      is_multiline => {
+                        if(!(at_line_start), {
+                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          at_line_start = true;
+                        });
+                        if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                        if(at_line_start, {
+                          (sp : usize) = usize(0);
+                          count := (indent_level * INDENT_SIZE);
+                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          at_line_start = false;
+                        });
+                        result.push_str(")");
+                      },
+                      true => {
+                        result.push_str(")");
+                      }
+                    );
+                    if(paren_depth > usize(0), { paren_depth = (paren_depth - usize(1)); });
+                  },
+                  (token.kind == TokenKind.RBracket) => {
+                    // close_operator_continuations
+                    (closing_done2 : bool) = false;
+                    while(runtime((continuation_paren.len() > usize(0)) && (!(closing_done2))), {
+                      top_idx := (continuation_paren.len() - usize(1));
+                      top_p := match(continuation_paren.get(top_idx),.Some(x) => x,.None => usize(0));
+                      top_b := match(continuation_bracket.get(top_idx),.Some(x) => x,.None => usize(0));
+                      top_c := match(continuation_curly.get(top_idx),.Some(x) => x,.None => usize(0));
+                      cond(
+                        ((paren_depth > top_p) || ((bracket_depth > top_b) || (curly_depth > top_c))) => {
+                          closing_done2 = true;
+                        },
+                        true => {
+                          _p1 := continuation_paren.pop();
+                          _p2 := continuation_bracket.pop();
+                          _p3 := continuation_curly.pop();
+                          if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                        }
+                      );
+                    });
+                    is_multiline_b := cond(
+                      (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.get(bracket_stack_multiline.len() - usize(1)),.Some(x) => x,.None => false),
+                      true => false
+                    );
+                    if(bracket_stack_multiline.len() > usize(0), { _p := bracket_stack_multiline.pop(); });
+                    if(bracket_depth > usize(0), { bracket_depth = (bracket_depth - usize(1)); });
+                    cond(
+                      is_multiline_b => {
+                        if(!(at_line_start), {
+                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          at_line_start = true;
+                        });
+                        if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                        if(at_line_start, {
+                          (sp : usize) = usize(0);
+                          count := (indent_level * INDENT_SIZE);
+                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          at_line_start = false;
+                        });
+                        result.push_str("]");
+                      },
+                      true => {
+                        result.push_str("]");
+                      }
+                    );
+                  },
+                  (token.kind == TokenKind.Comma) => {
+                    // close_operator_continuations
+                    (closing_done3 : bool) = false;
+                    while(runtime((continuation_paren.len() > usize(0)) && (!(closing_done3))), {
+                      top_idx := (continuation_paren.len() - usize(1));
+                      top_p := match(continuation_paren.get(top_idx),.Some(x) => x,.None => usize(0));
+                      top_b := match(continuation_bracket.get(top_idx),.Some(x) => x,.None => usize(0));
+                      top_c := match(continuation_curly.get(top_idx),.Some(x) => x,.None => usize(0));
+                      cond(
+                        ((paren_depth > top_p) || ((bracket_depth > top_b) || (curly_depth > top_c))) => {
+                          closing_done3 = true;
+                        },
+                        true => {
+                          _p1 := continuation_paren.pop();
+                          _p2 := continuation_bracket.pop();
+                          _p3 := continuation_curly.pop();
+                          if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                        }
+                      );
+                    });
+                    result.push_str(",");
+                    next_is_closer := match(next,.None => false,.Some(nx) => (
+                      ((nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket)) || (nx.kind == TokenKind.RCurlyBracket)
+                    ));
+                    if((!(next_is_closer)) && match(next,.None => false,.Some(_) => true), {
+                      cur_bracket_ml := cond(
+                        (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.get(bracket_stack_multiline.len() - usize(1)),.Some(x) => x,.None => false),
+                        true => false
+                      );
+                      cur_curly_inline := cond(
+                        (curly_stack_inline.len() > usize(0)) => match(curly_stack_inline.get(curly_stack_inline.len() - usize(1)),.Some(x) => x,.None => false),
+                        true => false
+                      );
+                      cur_curly_ml := cond(
+                        (curly_stack_multiline.len() > usize(0)) => match(curly_stack_multiline.get(curly_stack_multiline.len() - usize(1)),.Some(x) => x,.None => false),
+                        true => false
+                      );
+                      cur_paren_ml := cond(
+                        (paren_stack_multiline.len() > usize(0)) => match(paren_stack_multiline.get(paren_stack_multiline.len() - usize(1)),.Some(x) => x,.None => false),
+                        true => false
+                      );
+                      cond(
+                        cur_bracket_ml => {
+                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          at_line_start = true;
+                        },
+                        (cur_curly_inline && cur_curly_ml) => {
+                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          at_line_start = true;
+                        },
+                        ((bracket_stack_multiline.len() > usize(0)) || (cur_curly_inline && (!(cur_curly_ml)))) => {
+                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                        },
+                        cur_paren_ml => {
+                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          at_line_start = true;
+                        },
+                        true => {
+                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                        }
+                      );
+                    });
+                  },
+                  (token.kind == TokenKind.Semicolon) => {
+                    next_is_not_rbracket := match(next,.None => false,.Some(nx) => (nx.kind != TokenKind.RBracket));
+                    next_is_not_comment := match(next,.None => true,.Some(nx) => (!(is_comment_token(nx.kind))));
+                    cond(
+                      ((bracket_depth > usize(0)) && (next_is_not_rbracket && next_is_not_comment)) => {
+                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                        result.push_str(";");
+                        result.push_str(" ");
+                      },
+                      true => {
+                        // close_operator_continuations
+                        (closing_done4 : bool) = false;
+                        while(runtime((continuation_paren.len() > usize(0)) && (!(closing_done4))), {
+                          top_idx := (continuation_paren.len() - usize(1));
+                          top_p := match(continuation_paren.get(top_idx),.Some(x) => x,.None => usize(0));
+                          top_b := match(continuation_bracket.get(top_idx),.Some(x) => x,.None => usize(0));
+                          top_c := match(continuation_curly.get(top_idx),.Some(x) => x,.None => usize(0));
+                          cond(
+                            ((paren_depth > top_p) || ((bracket_depth > top_b) || (curly_depth > top_c))) => {
+                              closing_done4 = true;
+                            },
+                            true => {
+                              _p1 := continuation_paren.pop();
+                              _p2 := continuation_bracket.pop();
+                              _p3 := continuation_curly.pop();
+                              if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                            }
+                          );
+                        });
+                        result.push_str(";");
+                        emit_newline := match(
+                          next,
+                          .None => false,
+                          .Some(nx) => ((!(is_comment_token(nx.kind))) || (nx.row > token.row))
+                        );
+                        if(emit_newline, {
+                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          at_line_start = true;
+                          // Preserve at most one blank line between statements
+                          next_row_diff := match(next,.None => usize(0),.Some(nx) => cond((nx.row > token.row) => (nx.row - token.row), true => usize(0)));
+                          if(next_row_diff >= usize(2), { result.push_str("\n"); });
+                        });
+                      }
+                    );
+                  },
+                  (token.kind == TokenKind.Dot) => {
+                    result.push_str(".");
+                  },
+                  (token.kind == TokenKind.Operator) => {
+                    // Operator-handling cascade matches TS lines 386-426
+                    is_colon_in_inline_curly := ((token.value.as_str() == ":") && (inline_curly_depth > usize(0)));
+                    cond(
+                      is_colon_in_inline_curly => {
+                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                        result.push_str(":");
+                        next_on_next_row := match(next,.None => false,.Some(nx) => (nx.row > token.row));
+                        cond(
+                          next_on_next_row => {
+                            // start_operator_continuation
+                            if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                            at_line_start = true;
+                            indent_level = (indent_level + usize(1));
+                            _r1 := continuation_paren.push(paren_depth);
+                            _r2 := continuation_bracket.push(bracket_depth);
+                            _r3 := continuation_curly.push(curly_depth);
+                          },
+                          true => {
+                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                          }
+                        );
+                      },
+                      is_tightly_bound_operator(token, previous, next) => {
+                        cond(
+                          prefix_operator_needs_leading_space(token, previous) => {
+                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                          },
+                          true => ()
+                        );
+                        if(at_line_start, {
+                          (sp : usize) = usize(0);
+                          count := (indent_level * INDENT_SIZE);
+                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          at_line_start = false;
+                        });
+                        result.push_string(token.value);
+                      },
+                      true => {
+                        prev_is_open_bracket := match(
+                          previous,
+                          .None => false,
+                          .Some(p) => (
+                            (p.kind == TokenKind.LParen) ||
+                            ((p.kind == TokenKind.LBracket) || (p.kind == TokenKind.LCurlyBracket))
+                          )
+                        );
+                        if(!(prev_is_open_bracket), {
+                          prev_on_earlier_row := match(previous,.None => false,.Some(p) => (token.row > p.row));
+                          cond(
+                            prev_on_earlier_row => {
+                              if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                              at_line_start = true;
+                            },
+                            true => {
+                              if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                            }
+                          );
+                        });
+                        if(at_line_start, {
+                          (sp : usize) = usize(0);
+                          count := (indent_level * INDENT_SIZE);
+                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          at_line_start = false;
+                        });
+                        result.push_string(token.value);
+                        next_on_next_row2 := match(next,.None => false,.Some(nx) => (nx.row > token.row));
+                        cond(
+                          next_on_next_row2 => {
+                            // start_operator_continuation
+                            if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                            at_line_start = true;
+                            indent_level = (indent_level + usize(1));
+                            _r1 := continuation_paren.push(paren_depth);
+                            _r2 := continuation_bracket.push(bracket_depth);
+                            _r3 := continuation_curly.push(curly_depth);
+                          },
+                          true => {
+                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                          }
+                        );
+                      }
+                    );
+                  },
+                  is_atom_like_token(token.kind) => {
+                    if(needs_space_before_atom(previous), {
+                      if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                    });
+                    if(at_line_start, {
+                      (sp : usize) = usize(0);
+                      count := (indent_level * INDENT_SIZE);
+                      while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                      at_line_start = false;
+                    });
+                    result.push_string(raw);
+                  },
+                  true => () // Whitespace already filtered; unreachable
+                );
                 previous_token = Option(Token).Some(token);
                 index = (index + usize(1));
               }
