@@ -48,6 +48,7 @@ open(import("std/string"));
   gen_binary_op,
   gen_unary_op
 } :: import("./exprs/atom.yo");
+{ is_lambda_expr, extract_lambda_param_names } :: import("./exprs/closures.yo");
 // ---------------------------------------------------------------------------
 // Phase 4b helpers — infix/prefix sub-expression generation
 // ---------------------------------------------------------------------------
@@ -7074,77 +7075,9 @@ register_anon_typeof_impl :: (
 /// e.g. `(u) -> (u + 1)` — single param parsed as bare Atom after grouping.
 /// e.g. `(u, v) -> (u + v)` — multi-param parsed as a TUPLE FnCall.
 /// As opposed to a function-type annotation `fn(u:i32) -> i32`.
-is_lambda_expr :: (fn(expr : AstExpr) -> bool)(
-  match(
-    expr,
-    .Atom(_, _) => false,
-    .FnCall(_, lf, largs, lis_infix, _) => cond(
-      (!(lis_infix)) => false,
-      (largs.len() != usize(2)) => false,
-      true => match(
-        lf.*,
-        .FnCall(_, _, _, _, _) => false,
-        .Atom(_, lt) => cond(
-          !((lt.value.as_str() == "->") || (lt.value.as_str() == "=>")) => false,
-          true => match(
-            largs.get(usize(0)),
-            .None => false,
-            .Some(lhs) => match(
-              lhs,
-              // Single param: `(u)` is parsed as bare Atom("u") after grouping.
-              .Atom(_, lat) => (lat.kind == TokenKind.Identifier),
-              // Multi-param tuple: `(u, v)` parsed as FnCall(Atom("tuple"), ...).
-              .FnCall(_, llf, _, llis, _) => (
-                (!(llis)) && match(
-                  llf.*,
-                  .FnCall(_, _, _, _, _) => false,
-                  .Atom(_, llt) => (llt.value.as_str() == BK_TUPLE)
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-);
-/// Extract parameter names from a lambda params expression.
-/// Handles both single bare identifier `(u)` → ["u"] and TUPLE `(u, v)` → ["u", "v"].
-extract_lambda_param_names :: (fn(params_expr : AstExpr) -> ArrayList(String))(
-  match(
-    params_expr,
-    // Single param: `(u)` is parsed as bare Atom("u") after grouping.
-    .Atom(_, ptok) => {
-      names := ArrayList(String).new();
-      if(ptok.kind == TokenKind.Identifier, {
-        names.push(sanitize_c_ident(ptok.value.as_str()));
-      });
-      names
-    },
-    .FnCall(_, _, pargs, _, _) => {
-      names := ArrayList(String).new();
-      np := pargs.len();
-      (pi : usize) = usize(0);
-      while(runtime(pi < np), {
-        match(
-          pargs.get(pi),
-          .None => (),
-          .Some(pe) => match(
-            pe,
-            .FnCall(_, _, _, _, _) => (),
-            .Atom(_, ptok) => {
-              if(ptok.kind == TokenKind.Identifier, {
-                names.push(sanitize_c_ident(ptok.value.as_str()));
-              });
-            }
-          )
-        );
-        pi = (pi + usize(1));
-      });
-      names
-    }
-  )
-);
+// Phase A.8.2: `is_lambda_expr` and `extract_lambda_param_names` were
+// relocated to `./exprs/closures.yo`. `lift_non_capturing_lambda` remains
+// here because it depends on `build_typed_decl` and `_split_c_params`.
 /// Split a C params string like `"int32_t, bool"` by `, ` or `,` into a list.
 /// Handles simple types only (no nested function pointer params).
 _split_c_params :: (fn(params_str : str) -> ArrayList(String))({
