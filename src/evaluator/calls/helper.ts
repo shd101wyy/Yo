@@ -700,7 +700,13 @@ type CallProfilerGlobalState = {
     cacheMissCount: number;
     specializeNames: Map<string, number>;
     tryCallNames: Map<string, number>;
+    /** Cumulative ns spent inside tryToCallFunctionWithArguments per function. */
+    tryCallNs: Map<string, bigint>;
+    /** Current re-entrancy depth, so nested calls don't double-count their parents' time. */
+    tryCallDepth: number;
   };
+  /** Scratch counter used by the self-time profiler to subtract nested-call time. */
+  __yoNestedNs?: bigint;
 };
 
 const _g: typeof globalThis & CallProfilerGlobalState = globalThis;
@@ -713,6 +719,8 @@ const _callProfilerState =
     cacheMissCount: 0,
     specializeNames: new Map<string, number>(),
     tryCallNames: new Map<string, number>(),
+    tryCallNs: new Map<string, bigint>(),
+    tryCallDepth: 0,
   });
 export function _printCallProfile() {
   if (!isCallProfilerEnabled) {
@@ -731,6 +739,29 @@ export function _printCallProfile() {
   for (const [name, count] of sorted.slice(0, 30)) {
     console.log(`  ${name}: ${count}`);
   }
+  // Self-time ranking — counts the wall-clock spent in tryToCall's own body
+  // (i.e. excluding nested re-entrancy). Reveals which function definitions
+  // are actually expensive to validate/execute, vs which are merely called
+  // many cheap times.
+  const totalSelfNs = [..._callProfilerState.tryCallNs.values()].reduce(
+    (acc, v) => acc + v,
+    0n
+  );
+  console.log(
+    `[CALL PROFILE] Total self-time inside tryToCall: ${Number(totalSelfNs / 1000000n)} ms`
+  );
+  const byNs = [..._callProfilerState.tryCallNs.entries()].sort((a, b) =>
+    b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0
+  );
+  console.log(`[CALL PROFILE] Top tryToCall by self-time (ms):`);
+  for (const [name, ns] of byNs.slice(0, 30)) {
+    const calls = _callProfilerState.tryCallNames.get(name) ?? 0;
+    const ms = Number(ns / 1000000n);
+    const usPerCall = calls > 0 ? Number(ns / BigInt(calls)) / 1000 : 0;
+    console.log(
+      `  ${name}: ${ms} ms / ${calls} calls (${usPerCall.toFixed(1)} µs/call)`
+    );
+  }
   const sortedSpec = [..._callProfilerState.specializeNames.entries()].sort(
     (a: [string, number], b: [string, number]) => b[1] - a[1]
   );
@@ -744,7 +775,63 @@ export function _printCallProfile() {
  * NOTE: This function will push new frame to the function env,
  * but will not pop frame.
  */
-export function tryToCallFunctionWithArguments({
+type TryToCallArgs = {
+  functionValue?: FunctionValue;
+  functionType: FunctionType;
+  expr?: Expr;
+  functionCalleeExpr?: Expr;
+  argExprs: Expr[];
+  callerEnv: Environment;
+  context: EvaluatorContext;
+  isMethodCall: boolean;
+  skipSpecialization?: boolean;
+  skipCtfeExecution?: boolean;
+};
+
+export function tryToCallFunctionWithArguments(
+  args: TryToCallArgs
+): FunctionCallResult {
+  if (!isCallProfilerEnabled) {
+    return _tryToCallFunctionWithArgumentsImpl(args);
+  }
+  // Profile self-time: subtract the time spent in nested re-entrant calls
+  // (the inner call already accounts for its own ns).
+  let _tcName = "(unknown)";
+  if (
+    args.functionValue &&
+    "funcName" in args.functionValue &&
+    args.functionValue.funcName
+  ) {
+    _tcName = args.functionValue.funcName;
+  } else if (args.functionValue && "funcId" in args.functionValue) {
+    _tcName = String(args.functionValue.funcId);
+  } else if (args.functionCalleeExpr) {
+    _tcName = exprToString(args.functionCalleeExpr).slice(0, 60);
+  }
+  const depth = _callProfilerState.tryCallDepth;
+  const startNs = process.hrtime.bigint();
+  // Track nested time so we can subtract it from our own elapsed.
+  const childNsBefore = _g.__yoNestedNs ?? 0n;
+  _g.__yoNestedNs = 0n;
+  _callProfilerState.tryCallDepth = depth + 1;
+  try {
+    return _tryToCallFunctionWithArgumentsImpl(args);
+  } finally {
+    const endNs = process.hrtime.bigint();
+    const elapsed = endNs - startNs;
+    const childNsInThis = _g.__yoNestedNs ?? 0n;
+    const selfNs = elapsed - childNsInThis;
+    _callProfilerState.tryCallNs.set(
+      _tcName,
+      (_callProfilerState.tryCallNs.get(_tcName) ?? 0n) + selfNs
+    );
+    // Restore parent's nested-ns accumulator and add my elapsed time to it.
+    _g.__yoNestedNs = childNsBefore + elapsed;
+    _callProfilerState.tryCallDepth = depth;
+  }
+}
+
+function _tryToCallFunctionWithArgumentsImpl({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   expr,
   functionValue,

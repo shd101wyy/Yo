@@ -95,19 +95,87 @@ analysis path. The cheap workaround at the yo-self side is to drop
 loses some debug fidelity vs the TS `getVariableInfo` but restores the
 sub-minute build.
 
+## Profiler dive (2026-05-16)
+
+Self-time profiling was added to `tryToCallFunctionWithArguments` (now
+emitted by `_printCallProfile()` when `YO_DEBUG_CALL_PROFILE=1`).
+Compile of `yo-self/main.yo` with the heavy `get_variable_info` body:
+
+```
+[CALL PROFILE] tryToCallFunctionWithArguments: 3,466,837 calls
+[CALL PROFILE] createSpecializedFunctionInline:    3,248 calls (cache hit: 3,004, miss: 244)
+[CALL PROFILE] Total self-time inside tryToCall: 480,809 ms
+[CALL PROFILE] Top tryToCall by self-time (ms):
+  fn_yoa98c08fb_id_259_+:               214,945 ms / 1,056,016 calls (203.5 µs/call)   <- String '+'
+  fn_yo8245ee87_id_102_to_string:       128,279 ms /   703,768 calls (182.3 µs/call)   <- String.to_string
+  fn_yo8245ee87_id_108_to_string:        97,186 ms / 1,408,586 calls ( 69.0 µs/call)   <- str.to_string
+  ___drop:                                9,573 ms /    64,644 calls (148.1 µs/call)
+  type_to_string:                         7,572 ms /    66,915 calls (113.2 µs/call)
+  ...
+```
+
+Findings:
+
+- **The bottleneck is `tryToCallFunctionWithArguments` itself**, not
+  any single hot Yo function. 3.47M invocations total; the top three
+  callees (`+`, `String.to_string`, `str.to_string`) account for
+  ~440 of the 497 wall-clock seconds.
+- **`analyzeCtfeCapability` is not the culprit.** All 375 CTFE
+  analyses complete in ~0 ms each (instrumented under
+  `YO_DEBUG_CTFE_ANALYZE=1`). The cost is in normal type-check /
+  specialization, not in CTFE try-evaluation.
+- **Specialization cache is healthy** (92% hit rate, 3,004 hits vs
+  244 misses). Re-specialization isn't the issue.
+- **Per-call cost is high** (~200 µs for `+`, ~180 µs for
+  `String.to_string`). For trivial operators this is far more than
+  it should cost; even cutting the per-call overhead in half would
+  recover ~4 minutes.
+- The 1.4M / 700K to_string counts and 1M `+` counts strongly suggest
+  the evaluator is **walking the desugared `${…}` chain
+  (`a.to_string() + b.to_string() + …`) recursively for every nested
+  function call**. Each outer call walks its callee body; each callee
+  body has its own `${…}` chain that walks its callees; the cost
+  compounds multiplicatively, which matches the observed +30s / +80s
+  / +340s steps seen when adding one extra interpolation at a time.
+
+## Likely fix location
+
+`src/evaluator/calls/helper.ts:tryToCallFunctionWithArguments` (3,100
+LoC). When invoked with `isValidatingFunctionDefinition: true` and the
+callee has a fixed signature, the function still walks the callee body
+to compute deferred-drop and effect information. Candidate
+improvements:
+
+1. Skip the body walk when validating a caller's definition and the
+   callee's signature is already known. Reuse cached
+   `specializedFunctionCaches` entries by signature alone when no
+   compile-time args differ.
+2. Memoize the per-callee body walk keyed by `(funcId, parameter
+types)` for the validation pass — the result is purely a function
+   of those inputs.
+3. Reduce per-call setup cost. Most of the 200 µs is going to env
+   cloning, parameter matching, and forall-arg / implicit-arg
+   bookkeeping that is unnecessary for plain monomorphic calls (e.g.
+   `String.+(String)`).
+
+## Tooling left in place
+
+- `YO_DEBUG_CALL_PROFILE=1 ./yo-cli compile …` now prints a top-30 list
+  of callees by both invocation count and self-time-ns inside
+  `tryToCallFunctionWithArguments`.
+- `YO_DEBUG_CTFE_ANALYZE=1 ./yo-cli compile …` prints a line per
+  `analyzeCtfeCapability` invocation with elapsed ms.
+
+Both env-flag profilers are zero-cost when their respective flag is
+unset.
+
 ## Next steps
 
-1. Decide whether to absorb the slowdown (this hits _every_ yo-self
-   rebuild — currently ~8m vs ~50s) or simplify `get_variable_info`
-   until the TS evaluator is fixed.
-2. Profile `src/evaluator/calls/` against a minimal reproduction
-   (`get_variable_info` alone, exported from a tiny test module).
-   Likely candidates:
-   - Repeated full-body specialization on each `${…}` site instead of
-     once per callee.
-   - Trait-resolution loop that retries `ToString` against every
-     monomorphized callee.
-3. Add a guardrail: print a warning when type-checking a single
-   function body exceeds some threshold (e.g. 5s), to catch future
-   regressions at the offending source location rather than blaming
-   the top-level driver.
+1. Build a minimal in-process reproduction (single-file Yo source
+   that exhibits the explosion) so the fix can be benchmarked without
+   rerunning the full ~8m yo-self compile each iteration.
+2. Patch `tryToCallFunctionWithArguments` along one of the fix
+   directions above, measuring both the synthetic repro and
+   `yo-self/main.yo`.
+3. Once the underlying perf is fixed, restore the rich
+   `get_variable_info` body shown in the symptom section.

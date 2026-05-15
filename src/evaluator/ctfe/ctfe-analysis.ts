@@ -72,6 +72,25 @@ export function analyzeCtfeCapability(
   env: Environment,
   context: EvaluatorContext
 ): FunctionValue | undefined {
+  if (process.env["YO_DEBUG_CTFE_ANALYZE"] === "1") {
+    const name = functionValue.funcName ?? functionValue.funcId;
+    const start = process.hrtime.bigint();
+    const result = _analyzeCtfeCapabilityInner(functionValue, env, context);
+    const ms = Number((process.hrtime.bigint() - start) / 1000000n);
+    // eslint-disable-next-line no-console
+    console.log(
+      `[CTFE ANALYZE] ${name} -> ${result ? "ok" : "skip"} (${ms} ms)`
+    );
+    return result;
+  }
+  return _analyzeCtfeCapabilityInner(functionValue, env, context);
+}
+
+function _analyzeCtfeCapabilityInner(
+  functionValue: FunctionValue,
+  env: Environment,
+  context: EvaluatorContext
+): FunctionValue | undefined {
   // Skip if the function is already a compile-time function
   if (functionValue.type.return.isCompileTimeOnly) {
     return undefined;

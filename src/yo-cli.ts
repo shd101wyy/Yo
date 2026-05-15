@@ -7,6 +7,7 @@ import packageJson from "../package.json";
 import { runBuild } from "./build-runner";
 import { getGlobalCacheDir } from "./cache";
 import { CodeGenerator } from "./codegen";
+import { _printCallProfile } from "./evaluator/calls/helper";
 import { findAvailableCompiler } from "./compiler-utils";
 import {
   clearBuildRegistry,
@@ -450,6 +451,7 @@ yo --version                     Show version number
           staticLibrary: argv.staticLibrary as boolean,
           cflags: argv.cflags as string | undefined,
         });
+        _printCallProfile();
       }
     )
     .command(
