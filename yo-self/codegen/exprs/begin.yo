@@ -9,7 +9,11 @@ open(import("std/string"));
 { TypeValue, is_unit_type } :: import("../../types/type.yo");
 { is_temp_variable_name } :: import("../../evaluator/utils.yo");
 { CodegenContext } :: import("../context.yo");
-{ get_type_string_opt, indent_plus_two } :: import("../utils/index.yo");
+{
+  get_type_string_opt,
+  indent_plus_two,
+  format_typed_init_line
+} :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
 
@@ -31,18 +35,15 @@ format_begin_temp_decl :: (
   s.push_str(";");
   s
 });
-/// Format an assignment line: `<indent><lhs> = <rhs>;`. Used to assign
-/// the begin-block's final expression into the result-temp.
+// `format_begin_assignment_line` was a local divergence — body identical
+// to the canonical `format_typed_init_line` in `codegen/utils/index.yo`.
+// Re-exported as an alias for backward compatibility with the test
+// import.
 format_begin_assignment_line :: (
   fn(indent : String, lhs : String, rhs : String) -> String
-)({
-  s := String.from(indent.as_str());
-  s.push_string(lhs);
-  s.push_str(" = ");
-  s.push_string(rhs);
-  s.push_str(";");
-  s
-});
+)(
+  format_typed_init_line(indent, lhs, rhs)
+);
 /// Format the begin-block open header: `<indent>{ // begin block`.
 format_begin_block_open :: (fn(indent : String) -> String)({
   s := String.from(indent.as_str());

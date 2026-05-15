@@ -14,7 +14,8 @@ open(import("std/string"));
 {
   sanitize_for_c_identifier,
   get_type_string_opt,
-  indent_plus_two
+  indent_plus_two,
+  format_typed_init_line
 } :: import("../utils/index.yo");
 
 /// Extract the arm sub-expressions from a cond arm `(cond => body)`.
@@ -93,19 +94,14 @@ format_cond_temp_decl :: (fn(indent : String, c_type : String, name : String) ->
   s.push_str(";");
   s
 });
-/// Format an assignment line:
-///   `<indent><lhs> = <rhs>;`
-/// Used by both `cond_emit_simple_arm` and the last-expression branch
-/// of `cond_emit_begin_arm` to assign the arm's value into the
-/// pre-declared temp.
-format_cond_assignment_line :: (fn(indent : String, lhs : String, rhs : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_string(lhs);
-  s.push_str(" = ");
-  s.push_string(rhs);
-  s.push_str(";");
-  s
-});
+// `format_cond_assignment_line` was a local divergence — body identical
+// to the canonical `format_typed_init_line` in `codegen/utils/index.yo`
+// (the parameters happen to be named `type_and_name`/`value` over there
+// but the resulting shape is `<indent><lhs> = <rhs>;`). Re-exported as
+// an alias for backward compatibility with the test import.
+format_cond_assignment_line :: (fn(indent : String, lhs : String, rhs : String) -> String)(
+  format_typed_init_line(indent, lhs, rhs)
+);
 /// Format `<indent>if (<cond_code>) {`. Used in two sites:
 ///   1. The first runtime arm header.
 ///   2. A nested `else if (...)` inside a subsequent else-block.
