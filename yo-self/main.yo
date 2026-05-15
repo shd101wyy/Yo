@@ -29,9 +29,6 @@ open(import("std/fmt"));
 { register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { compile_module_to_c, compile_test_body_to_c, extract_import_path, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
-// Placeholder import for the in-progress formatter port (Phase A.10). Forces
-// formatter.yo to be parsed by `yo compile` so the port is validated as it
-// grows. The `fmt` subcommand will use this import when wired up.
 { format_yo_source } :: import("./formatter.yo");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -479,6 +476,54 @@ run_test :: (
     exn.throw(dyn(`test: ${failed} test(s) failed`));
   });
 });
+/// Run the `fmt` subcommand: format a single .yo file in place.
+///
+/// Usage: `yo-self fmt <file.yo> [--check]`
+///   * Without `--check`: rewrites the file with the formatted output.
+///   * With `--check`: prints whether the file would change but doesn't write.
+///     Exits non-zero if any file would change.
+///
+/// 1-to-1-equivalent of the per-file portion of `formatYoFiles` in
+/// `src/formatter.ts`. The directory-walk path (`findYoFormatFiles` +
+/// `collectYoFiles`) is deferred — most callers use the per-file form.
+run_fmt :: (
+  fn(
+    argv : ArrayList(String),
+    using(io : IO, exn : Exception)
+  ) -> unit
+)({
+  if(argv.len() < usize(3), {
+    exn.throw(dyn(`fmt: missing input file. Usage: yo-self fmt <file.yo> [--check]`));
+  });
+  input_path := argv.get(usize(2)).unwrap();
+  (check_mode : bool) = false;
+  if(argv.len() >= usize(4), {
+    flag := argv.get(usize(3)).unwrap();
+    if(flag.as_str() == "--check", {
+      check_mode = true;
+    });
+  });
+  // Read the input file.
+  src_bytes := io.await(read_file(Path.new(input_path)));
+  original := String.from_bytes(src_bytes);
+  // Format.
+  formatted := format_yo_source(original, input_path, using(exn));
+  // Compare + write or report.
+  changed := (formatted.as_str() != original.as_str());
+  cond(
+    check_mode => {
+      if(changed, {
+        println(`would format: ${input_path}`);
+        exit(int(1));
+      });
+    },
+    changed => {
+      io.await(write_file(Path.new(input_path), formatted));
+      println(`formatted: ${input_path}`);
+    },
+    true => () // no change, silent
+  );
+});
 main :: (fn(using(io : IO)) -> unit)({
   given(exn) := Exception(
     throw : (
@@ -497,7 +542,8 @@ main :: (fn(using(io : IO)) -> unit)({
   cond(
     (subcmd.as_str() == "compile") => run_compile(argv, using(io, exn)),
     (subcmd.as_str() == "test") => run_test(argv, using(io, exn)),
-    true => exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test> ...`))
+    (subcmd.as_str() == "fmt") => run_fmt(argv, using(io, exn)),
+    true => exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt> ...`))
   );
 });
 export(main);
