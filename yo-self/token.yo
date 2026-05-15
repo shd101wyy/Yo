@@ -70,6 +70,132 @@ is_identifier_start :: (fn(c : rune) -> bool)(
 is_identifier_continue :: (fn(c : rune) -> bool)(
   (is_identifier_start(c)) || c.is_digit()
 );
+/// True iff every char of `s` is an operator char. Mirrors
+/// `stringIsOperator` in `src/token.ts`.
+string_is_operator :: (fn(s : str) -> bool)({
+  n := s.len();
+  cond(
+    (n == usize(0)) => false,
+    true => {
+      (i : usize) = usize(0);
+      (ok : bool) = true;
+      while(runtime((i < n) && ok), {
+        b := s.bytes(i);
+        // Operator chars: same set as is_operator_char, but on bytes
+        is_op := cond(
+          (b == u8(61)) => true,  // =
+          (b == u8(43)) => true,  // +
+          (b == u8(45)) => true,  // -
+          (b == u8(42)) => true,  // *
+          (b == u8(47)) => true,  // /
+          (b == u8(60)) => true,  // <
+          (b == u8(62)) => true,  // >
+          (b == u8(64)) => true,  // @
+          (b == u8(36)) => true,  // $
+          (b == u8(126)) => true, // ~
+          (b == u8(38)) => true,  // &
+          (b == u8(37)) => true,  // %
+          (b == u8(124)) => true, // |
+          (b == u8(33)) => true,  // !
+          (b == u8(63)) => true,  // ?
+          (b == u8(94)) => true,  // ^
+          (b == u8(46)) => true,  // .
+          (b == u8(58)) => true,  // :
+          (b == u8(92)) => true,  // \
+          (b == u8(35)) => true,  // #
+          true => false
+        );
+        if(!(is_op), {
+          ok = false;
+        });
+        i = (i + usize(1));
+      });
+      ok
+    }
+  )
+});
+/// True iff `s` is a valid identifier under the regex
+/// `^[_a-zA-Z\xA0-￿][_a-zA-Z0-9\xA0-￿]*[!?]?$`. Mirrors
+/// `IdentifierRegex.test(s)` in `src/token.ts`.
+is_valid_identifier :: (fn(s : String) -> bool)({
+  chars := ArrayList(rune).new();
+  {
+    c_iter := s.chars();
+    while(runtime(true), {
+      match(
+        &(c_iter).next(),
+        .None => {
+          break;
+        },
+        .Some(r) => {
+          chars.push(r);
+        }
+      );
+    });
+  };
+  n := chars.len();
+  cond(
+    (n == usize(0)) => false,
+    true => {
+      first := match(chars.get(usize(0)),.Some(c) => c, .None => rune(u32(0)));
+      cond(
+        (!(is_identifier_start(first))) => false,
+        true => {
+          (i : usize) = usize(1);
+          (ok : bool) = true;
+          (saw_trailing : bool) = false;
+          while(runtime((i < n) && ok), {
+            ch := match(chars.get(i),.Some(c) => c, .None => rune(u32(0)));
+            // Last char may be `!` or `?` (trailing)
+            is_last := (i == (n - usize(1)));
+            cond(
+              saw_trailing => {
+                // Anything after a trailing `!?` is invalid
+                ok = false;
+              },
+              (is_last && ((ch.char == u32(0x21)) || (ch.char == u32(0x3F)))) => {
+                saw_trailing = true;
+              },
+              (!(is_identifier_continue(ch))) => {
+                ok = false;
+              },
+              true => ()
+            );
+            i = (i + usize(1));
+          });
+          ok
+        }
+      )
+    }
+  )
+});
+/// Synthetic placeholder token used as a sentinel position when constructing
+/// AST nodes that have no real source location. Mirrors `PlaceholderToken`
+/// in `src/token.ts`.
+placeholder_token :: (fn() -> Token)(
+  Token(
+    kind : TokenKind.Identifier,
+    value : String.from("_"),
+    row : usize(0),
+    column : usize(0),
+    character : usize(0),
+    module_path : String.from("_"),
+    input : String.from("_")
+  )
+);
+/// Synthetic token used for `drop` (RAII) markers attached to compiler-generated
+/// drop expressions. Mirrors `RAIIToken` in `src/token.ts`.
+raii_token :: (fn() -> Token)(
+  Token(
+    kind : TokenKind.Identifier,
+    value : String.from("drop"),
+    row : usize(0),
+    column : usize(0),
+    character : usize(0),
+    module_path : String.from("drop"),
+    input : String.from("drop")
+  )
+);
 find_matching_bracket :: (fn(tokens : ArrayList(Token), start : usize) -> Option(usize))({
   n := tokens.len();
   if(start >= n, {
@@ -121,4 +247,15 @@ find_matching_bracket :: (fn(tokens : ArrayList(Token), start : usize) -> Option
   });
   .None
 });
-export(TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue, find_matching_bracket);
+export(
+  TokenKind,
+  Token,
+  is_operator_char,
+  is_identifier_start,
+  is_identifier_continue,
+  string_is_operator,
+  is_valid_identifier,
+  placeholder_token,
+  raii_token,
+  find_matching_bracket
+);

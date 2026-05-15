@@ -74,9 +74,15 @@ tokenize :: (
           dot_sb.write_rune(cj);
           j = (j + usize(1));
         });
-        // Check for trailing '=' to form '..='
+        // Check for trailing '=' to form '..=' (inclusive range)
         next_after_dots := chars.get(j).unwrap_or(null_rune);
         if(((j - i) == usize(2)) && (next_after_dots.char == u32(0x3D)), {
+          dot_sb.write_rune(next_after_dots);
+          j = (j + usize(1));
+        });
+        // Check for trailing '#' to form '...#' (unquote_splicing).
+        // Only the 3-dot form gets the `#` suffix; `..#` is two tokens.
+        if(((j - i) == usize(3)) && (next_after_dots.char == u32(0x23)), {
           dot_sb.write_rune(next_after_dots);
           j = (j + usize(1));
         });
@@ -349,6 +355,21 @@ tokenize :: (
                   ts_sb.write_rune(rune(u32(0x00)));
                   k = (k + usize(2));
                 },
+                // \b → backspace (0x08)
+                (nck.char == u32(0x62)) => {
+                  ts_sb.write_rune(rune(u32(0x08)));
+                  k = (k + usize(2));
+                },
+                // \f → form feed (0x0C)
+                (nck.char == u32(0x66)) => {
+                  ts_sb.write_rune(rune(u32(0x0C)));
+                  k = (k + usize(2));
+                },
+                // \v → vertical tab (0x0B)
+                (nck.char == u32(0x76)) => {
+                  ts_sb.write_rune(rune(u32(0x0B)));
+                  k = (k + usize(2));
+                },
                 true => {
                   ts_sb.write_rune(ck);
                   ts_sb.write_rune(nck);
@@ -562,6 +583,13 @@ tokenize :: (
             break;
           });
           id_sb.write_rune(cj);
+          j = (j + usize(1));
+        });
+        // Trailing '!' or '?' is part of the identifier (Yo allows `panic!`,
+        // `unwrap?`, etc. — mirrors `IdentifierRegex` in `src/token.ts`).
+        trailing := chars.get(j).unwrap_or(null_rune);
+        if((trailing.char == u32(0x21)) || (trailing.char == u32(0x3F)), {
+          id_sb.write_rune(trailing);
           j = (j + usize(1));
         });
         id_str := id_sb.to_string();
