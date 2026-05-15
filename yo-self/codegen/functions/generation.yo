@@ -12,6 +12,55 @@ open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
 { CodegenContext } :: import("../context.yo");
 { generate_expr, build_typed_decl, ensure_arraylist_c_type, ensure_impl_fn_c_type } :: import("../exprs.yo");
+/// Format a C function forward declaration line:
+///   `static <ret_type> <name>(<param_list>);`
+///
+/// `param_list` is the comma-joined parameter list produced by
+/// `build_param_list`. Pure string composition.
+format_function_forward_decl :: (
+  fn(ret_type : str, name : str, param_list : String) -> String
+)({
+  s := String.from("static ");
+  s.push_str(ret_type);
+  s.push_str(" ");
+  s.push_str(name);
+  s.push_str("(");
+  s.push_string(param_list);
+  s.push_str(");");
+  s
+});
+/// Format the function-definition opening line:
+///   `static <ret_type> <name>(<param_list>) {`
+///
+/// Symmetric to `format_function_forward_decl` but with `) {` instead
+/// of `);`.
+format_function_def_open :: (
+  fn(ret_type : str, name : str, param_list : String) -> String
+)({
+  s := String.from("static ");
+  s.push_str(ret_type);
+  s.push_str(" ");
+  s.push_str(name);
+  s.push_str("(");
+  s.push_string(param_list);
+  s.push_str(") {");
+  s
+});
+/// Format a body-tail statement line for void functions: `  <code>;`.
+format_function_body_stmt :: (fn(code : String) -> String)({
+  s := String.from("  ");
+  s.push_string(code);
+  s.push_str(";");
+  s
+});
+/// Format a body-tail return line for non-void functions:
+///   `  return <code>;`
+format_function_return_stmt :: (fn(code : String) -> String)({
+  s := String.from("  return ");
+  s.push_string(code);
+  s.push_str(";");
+  s
+});
 build_param_list :: (
   fn(params : ArrayList(String), param_tys : ArrayList(String)) -> String
 )({
@@ -60,13 +109,9 @@ emit_function_declaration :: (
     });
   };
   param_list := build_param_list(params, param_tys);
-  ctx.*.emitter.emit_declaration("static ");
-  ctx.*.emitter.emit_declaration(ret_type);
-  ctx.*.emitter.emit_declaration(" ");
-  ctx.*.emitter.emit_declaration(name);
-  ctx.*.emitter.emit_declaration("(");
-  ctx.*.emitter.emit_declaration_string(param_list);
-  ctx.*.emitter.emit_declaration_line(");");
+  ctx.*.emitter.emit_declaration_string_line(
+    format_function_forward_decl(ret_type, name, param_list)
+  );
 });
 /// Emit a complete C function definition into `ctx.emitter.code`.
 ///
@@ -141,13 +186,7 @@ generate_function :: (
   ctx.*.current_fn_name = String.from(name);
   ctx.*.current_fn_return_type = String.from(ret_type);
   // Emit: static ret_type name(params) {
-  ctx.*.emitter.emit("static ");
-  ctx.*.emitter.emit(ret_type);
-  ctx.*.emitter.emit(" ");
-  ctx.*.emitter.emit(name);
-  ctx.*.emitter.emit("(");
-  ctx.*.emitter.emit_string(param_list);
-  ctx.*.emitter.emit_line(") {");
+  ctx.*.emitter.emit_string_line(format_function_def_open(ret_type, name, param_list));
   // Generate body — side-effect statements go into ctx.emitter automatically
   indent := String.from("  ");
   body_val := generate_expr(body, ctx, indent);
@@ -159,11 +198,7 @@ generate_function :: (
       .Some(last) => cond(
         // "0" is the sentinel for "nothing meaningful" — skip for void
         (last == String.from("0")) => (),
-        true => {
-          ctx.*.emitter.emit("  ");
-          ctx.*.emitter.emit_string(last);
-          ctx.*.emitter.emit_line(";");
-        }
+        true => ctx.*.emitter.emit_string_line(format_function_body_stmt(last))
       )
     ),
     true => match(
@@ -174,14 +209,17 @@ generate_function :: (
         // explicit `return` statement).  Skip the trailing `return(0);` — it would be
         // a type error for non-void return types, and the explicit return already ran.
         (last.as_str() == "0") => (),
-        true => {
-          ctx.*.emitter.emit("  return ");
-          ctx.*.emitter.emit_string(last);
-          ctx.*.emitter.emit_line(";");
-        }
+        true => ctx.*.emitter.emit_string_line(format_function_return_stmt(last))
       )
     )
   );
   ctx.*.emitter.emit_line("}");
 });
-export(generate_function, emit_function_declaration);
+export(
+  generate_function,
+  emit_function_declaration,
+  format_function_forward_decl,
+  format_function_def_open,
+  format_function_body_stmt,
+  format_function_return_stmt
+);
