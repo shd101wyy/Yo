@@ -278,40 +278,65 @@ and confirming `./yo-cli compile yo-self/main.yo --release` succeeds):
 
 ## 2. Compiler-core: missing files (no yo-self counterpart at all)
 
-| `src/` file                            | lines | notes                                     |
-| -------------------------------------- | ----- | ----------------------------------------- |
-| `codegen/async/runtime-io-windows.ts`  | 4228  | Windows IOCP backend                      |
-| `codegen/async/state-machine.ts`       | 2651  | CPS state-machine codegen                 |
-| `codegen/async/state-code-gen.ts`      | 2136  | async state emitter                       |
-| `codegen/async/runtime-io-macos.ts`    | 1779  | kqueue backend                            |
-| `codegen/async/runtime-io-common.ts`   | 1717  | shared async IO                           |
-| `codegen/async/runtime-io-linux.ts`    | 1696  | io_uring backend                          |
-| `codegen/async/runtime-io-wasm.ts`     | 797   | wasm backend                              |
-| `codegen/async/runtime-core.ts`        | 382   | runtime startup                           |
-| `codegen/async/runtime.ts`             | 69    | runtime entry                             |
-| `codegen/exprs/async.ts`               | 1820  | async-fn lowering                         |
-| `codegen/exprs/await.ts`               | 829   | await lowering                            |
-| `codegen/exprs/atom.ts`                | 545   | atom emitter                              |
-| `codegen/exprs/generation.ts`          | 1286  | top-level codegen entry                   |
-| `codegen/functions/collection.ts`      | 692   | collection types codegen                  |
-| `codegen/functions/dyn.ts`             | 536   | dyn dispatch codegen                      |
-| `codegen/functions/generation.ts`      | 2339  | function codegen entry                    |
-| `codegen/types/collection.ts`          | 556   | collection type emit                      |
-| `codegen/types/dyn.ts`                 | 238   | dyn type emit                             |
-| `codegen/parallelism/runtime.ts`       | 466   | parallelism runtime                       |
-| `codegen/shared/suspension-codegen.ts` | 199   | shared suspension                         |
-| `codegen/c/collection.ts`              | 142   | C collection helpers                      |
-| `codegen/index.ts`                     | 775   | codegen entry point                       |
-| `codegen/codegen-c.ts`                 | 311   | C codegen orchestrator                    |
-| `formatter.ts`                         | 1334  | source formatter                          |
-| `test-runner.ts`                       | 1529  | `yo test` runner                          |
-| `function-value.ts`                    | 195   | runtime function value                    |
-| `module-manager.ts`                    | 447   | partially in `main.yo`                    |
-| `value-tag.ts`                         | 32    | value tag enum                            |
-| `type-value.ts`                        | 23    | type-as-value                             |
-| `unit-value.ts`                        | 13    | unit                                      |
-| `utils.ts`                             | 96    | top-level utils                           |
-| `expr-traversal.ts`                    | 336   | likely absorbed into `evaluator/utils.yo` |
+### Structural divergences (TS tagged-union → Yo ADT)
+
+The src/ codebase splits its tagged-union value types across multiple
+files (one file per variant), each defining a TypeScript interface keyed
+off a shared `ValueTag` enum. yo-self uses Yo's native `enum` (algebraic
+data type) for the same shape: every variant lives inside a single ADT
+declaration in `yo-self/value.yo`'s `EvalValue` enum, and the variant
+constructor (`.UnitVal`, `.TypeVal`, …) IS the discriminator. Creating
+near-empty `yo-self/{unit_value,type_value,value_tag}.yo` files just to
+mirror src/'s file layout would either duplicate the type definitions
+that already live in `value.yo` or be empty re-export shims — neither
+serves the port. Accordingly these three src/ files are **acceptable
+divergences (TS tagged-union → Yo ADT)**:
+
+| src/ file                  | yo-self home                             | mapping                                                                                                 |
+| -------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `unit-value.ts` (14 lines) | `value.yo`                               | `EvalValue.UnitVal` variant + `VUnit` singleton has no analog (any `.UnitVal` is value-identical in Yo) |
+| `type-value.ts` (24 lines) | `value.yo`                               | `EvalValue.TypeVal(Box(TypeValue))` variant; the `value` and `type` fields fold into the boxed payload  |
+| `value-tag.ts` (33 lines)  | (absorbed into `EvalValue` constructors) | Yo's variant constructors ARE the discriminator — no separate `ValueTag` enum needed                    |
+
+The same pattern applies inside `types/definitions.yo` already (the
+TypeValue enum absorbs `StructType` / `EnumType` / `FunctionType` /
+etc. interfaces that were per-file in TS) — but that file mirrors
+`src/types/definitions.ts` by name, so it's already 1-to-1 at the file
+level even though the internal layout differs.
+
+| `src/` file                            | lines | notes                                                                                                                                                                                                                                                                          |
+| -------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `codegen/async/runtime-io-windows.ts`  | 4228  | Windows IOCP backend                                                                                                                                                                                                                                                           |
+| `codegen/async/state-machine.ts`       | 2651  | CPS state-machine codegen                                                                                                                                                                                                                                                      |
+| `codegen/async/state-code-gen.ts`      | 2136  | async state emitter                                                                                                                                                                                                                                                            |
+| `codegen/async/runtime-io-macos.ts`    | 1779  | kqueue backend                                                                                                                                                                                                                                                                 |
+| `codegen/async/runtime-io-common.ts`   | 1717  | shared async IO                                                                                                                                                                                                                                                                |
+| `codegen/async/runtime-io-linux.ts`    | 1696  | io_uring backend                                                                                                                                                                                                                                                               |
+| `codegen/async/runtime-io-wasm.ts`     | 797   | wasm backend                                                                                                                                                                                                                                                                   |
+| `codegen/async/runtime-core.ts`        | 382   | runtime startup                                                                                                                                                                                                                                                                |
+| `codegen/async/runtime.ts`             | 69    | runtime entry                                                                                                                                                                                                                                                                  |
+| `codegen/exprs/async.ts`               | 1820  | async-fn lowering                                                                                                                                                                                                                                                              |
+| `codegen/exprs/await.ts`               | 829   | await lowering                                                                                                                                                                                                                                                                 |
+| `codegen/exprs/atom.ts`                | 545   | atom emitter                                                                                                                                                                                                                                                                   |
+| `codegen/exprs/generation.ts`          | 1286  | top-level codegen entry                                                                                                                                                                                                                                                        |
+| `codegen/functions/collection.ts`      | 692   | collection types codegen                                                                                                                                                                                                                                                       |
+| `codegen/functions/dyn.ts`             | 536   | dyn dispatch codegen                                                                                                                                                                                                                                                           |
+| `codegen/functions/generation.ts`      | 2339  | function codegen entry                                                                                                                                                                                                                                                         |
+| `codegen/types/collection.ts`          | 556   | collection type emit                                                                                                                                                                                                                                                           |
+| `codegen/types/dyn.ts`                 | 238   | dyn type emit                                                                                                                                                                                                                                                                  |
+| `codegen/parallelism/runtime.ts`       | 466   | parallelism runtime                                                                                                                                                                                                                                                            |
+| `codegen/shared/suspension-codegen.ts` | 199   | shared suspension                                                                                                                                                                                                                                                              |
+| `codegen/c/collection.ts`              | 142   | C collection helpers                                                                                                                                                                                                                                                           |
+| `codegen/index.ts`                     | 775   | codegen entry point                                                                                                                                                                                                                                                            |
+| `codegen/codegen-c.ts`                 | 311   | C codegen orchestrator                                                                                                                                                                                                                                                         |
+| `formatter.ts`                         | 1334  | source formatter                                                                                                                                                                                                                                                               |
+| `test-runner.ts`                       | 1529  | `yo test` runner                                                                                                                                                                                                                                                               |
+| `function-value.ts`                    | 195   | **partial port** — `yo-self/function_value.yo` created in Phase A.1 covers the side-table registries (`isControlFunction`, `definitionSiteEnclosingFunctionType`); the `FunctionValue` shape itself is `EvalValue.FuncVal` in `value.yo` (TS tagged-union → Yo ADT divergence) |
+| `module-manager.ts`                    | 447   | partially in `main.yo`                                                                                                                                                                                                                                                         |
+| `value-tag.ts`                         | 32    | **structural divergence** — absorbed into `EvalValue` variants in `value.yo` (Yo ADT vs TS tagged-union); see §2 introduction                                                                                                                                                  |
+| `type-value.ts`                        | 23    | **structural divergence** — absorbed as `EvalValue.TypeVal` in `value.yo`                                                                                                                                                                                                      |
+| `unit-value.ts`                        | 13    | **structural divergence** — absorbed as `EvalValue.UnitVal` in `value.yo`                                                                                                                                                                                                      |
+| `utils.ts`                             | 96    | top-level utils                                                                                                                                                                                                                                                                |
 
 Async (`codegen/async/`, `codegen/exprs/{async,await}`) is the single
 largest unported subsystem — ~17K TS lines. It can be deferred until
