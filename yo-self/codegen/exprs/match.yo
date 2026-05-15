@@ -54,7 +54,11 @@ open(import("std/string"));
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { CodegenContext } :: import("../context.yo");
-{ format_typed_init_line, format_typed_var_name } :: import("../utils/index.yo");
+{
+  format_typed_init_line,
+  format_typed_var_name,
+  format_typed_decl_line
+} :: import("../utils/index.yo");
 /// True iff `byte` is part of a C identifier (`[A-Za-z0-9_]`).
 is_c_word_byte_ :: (fn(byte : u8) -> bool)(
   ((byte >= u8(65)) && (byte <= u8(90))) ||
@@ -272,13 +276,13 @@ format_data_binding_decl :: (
 ///   `<result_type_c> <temp_name>;`
 /// No leading indent — match emits at column 0 since it's a
 /// top-level lowering (the surrounding scope owns the indent).
-format_match_temp_decl_line :: (fn(result_type_c : str, temp_name : str) -> String)({
-  s := String.from(result_type_c);
-  s.push_str(" ");
-  s.push_str(temp_name);
-  s.push_str(";");
-  s
-});
+/// Composed from canonical helpers (wrapping `str` params to `String`).
+format_match_temp_decl_line :: (fn(result_type_c : str, temp_name : str) -> String)(
+  format_typed_decl_line(
+    String.new(),
+    format_typed_var_name(String.from(result_type_c), String.from(temp_name))
+  )
+);
 emit_match_temp_decl :: (
   fn(
     result_type_c : str,
@@ -319,14 +323,10 @@ format_match_case_open :: (fn(tag_const : str) -> String)(
 /// Format the case-arm assignment line: `  <temp_name> = <body_c>;`.
 /// The `  ` prefix matches the case-block indent — the arm value
 /// gets written into the result temp before the trailing `break;`.
-format_match_case_assignment :: (fn(temp_name : str, body_c : str) -> String)({
-  s := String.from("  ");
-  s.push_str(temp_name);
-  s.push_str(" = ");
-  s.push_str(body_c);
-  s.push_str(";");
-  s
-});
+/// Composed from `format_typed_init_line` (wrapping `str` to `String`).
+format_match_case_assignment :: (fn(temp_name : str, body_c : str) -> String)(
+  format_typed_init_line(String.from("  "), String.from(temp_name), String.from(body_c))
+);
 /// Emit `switch (scrutinee_c) {` or `switch ((scrutinee_c).tag) {`.
 emit_switch_open :: (
   fn(
