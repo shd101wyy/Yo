@@ -8,7 +8,11 @@ open(import("std/string"));
 { TokenKind } :: import("../../token.yo");
 { random_id } :: import("../../evaluator/utils.yo");
 { CodegenContext } :: import("../context.yo");
-{ indent_plus_two, format_indented_close_brace } :: import("../utils/index.yo");
+{
+  indent_plus_two,
+  format_indented_close_brace,
+  format_if_negate_open
+} :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 
 /// Format `<indent>while (true) {` — the opening header of every
@@ -23,13 +27,12 @@ format_while_true_open :: (fn(indent : String) -> String)({
 /// Note the embedded 2-space inner indent — the break/close lines
 /// follow the same pattern via `format_while_break_line` and
 /// `format_while_break_close`.
-format_while_if_negate :: (fn(indent : String, cond_code : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("  if (!(");
-  s.push_string(cond_code);
-  s.push_str(")) {");
-  s
-});
+// `format_while_if_negate` is the same shape as `format_if_negate_open`
+// but with an extra 2-space inner indent (the if-guard nests inside
+// the `while (true) {` block). Compose via `indent_plus_two`.
+format_while_if_negate :: (fn(indent : String, cond_code : String) -> String)(
+  format_if_negate_open(indent_plus_two(indent), cond_code)
+);
 /// Format the inner break line of the negated-condition guard:
 ///   `<indent>    break;`
 format_while_break_line :: (fn(indent : String) -> String)({
