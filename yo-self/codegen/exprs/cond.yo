@@ -80,6 +80,31 @@ cond_emit_stmt :: (fn(code : String, ctx : *(CodegenContext), indent : String) -
   ctx.*.emitter.emit_string(code);
   ctx.*.emitter.emit_line(";");
 });
+/// Format a bare C variable declaration line:
+///   `<indent><c_type> <name>;`
+/// Used by `generate_cond` to declare the arm-result temp before the
+/// if/else chain emits the body. Pure string composition.
+format_cond_temp_decl :: (fn(indent : String, c_type : String, name : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_string(c_type);
+  s.push_str(" ");
+  s.push_string(name);
+  s.push_str(";");
+  s
+});
+/// Format an assignment line:
+///   `<indent><lhs> = <rhs>;`
+/// Used by both `cond_emit_simple_arm` and the last-expression branch
+/// of `cond_emit_begin_arm` to assign the arm's value into the
+/// pre-declared temp.
+format_cond_assignment_line :: (fn(indent : String, lhs : String, rhs : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_string(lhs);
+  s.push_str(" = ");
+  s.push_string(rhs);
+  s.push_str(";");
+  s
+});
 
 /// Emit all `deferred_drop_expressions` from `info`.
 cond_emit_deferred_drops :: (fn(info : ExprInfo, ctx : *(CodegenContext), indent : String) -> unit)({
@@ -181,11 +206,9 @@ cond_emit_begin_arm :: (
                   .None => (),
                   .Some(tv) => {
                     tv_c := sanitize_for_c_identifier(tv);
-                    ctx.*.emitter.emit_string(inner);
-                    ctx.*.emitter.emit_string(tv_c);
-                    ctx.*.emitter.emit(" = ");
-                    ctx.*.emitter.emit_string(last_code);
-                    ctx.*.emitter.emit_line(";");
+                    ctx.*.emitter.emit_string_line(
+                      format_cond_assignment_line(inner, tv_c, last_code)
+                    );
                   }
                 ),
                 true => ()
@@ -228,11 +251,9 @@ cond_emit_simple_arm :: (
           .None => (),
           .Some(tv) => {
             tv_c := sanitize_for_c_identifier(tv);
-            ctx.*.emitter.emit_string(value_indent);
-            ctx.*.emitter.emit_string(tv_c);
-            ctx.*.emitter.emit(" = ");
-            ctx.*.emitter.emit_string(value_code);
-            ctx.*.emitter.emit_line(";");
+            ctx.*.emitter.emit_string_line(
+              format_cond_assignment_line(value_indent, tv_c, value_code)
+            );
           }
         ),
         true => ()
@@ -340,11 +361,9 @@ generate_cond :: (
               .None => (),
               .Some(c_type) => {
                 tv_c := sanitize_for_c_identifier(tv);
-                ctx.*.emitter.emit_string(indent);
-                ctx.*.emitter.emit_string(c_type);
-                ctx.*.emitter.emit(" ");
-                ctx.*.emitter.emit_string(tv_c);
-                ctx.*.emitter.emit_line(";");
+                ctx.*.emitter.emit_string_line(
+                  format_cond_temp_decl(indent, c_type, tv_c)
+                );
               }
             );
           }
@@ -516,4 +535,4 @@ generate_cond :: (
   )
 );
 
-export(generate_cond);
+export(generate_cond, format_cond_temp_decl, format_cond_assignment_line);
