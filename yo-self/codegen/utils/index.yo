@@ -229,6 +229,19 @@ format_typed_init_line :: (
   s.push_str(";");
   s
 });
+/// Format a bare C variable-decl line (no initializer):
+///   `<indent><type_and_name>;`
+/// `type_and_name` is the pre-joined "C-type C-name" string. Used by
+/// the binding-form codegen for `name : T` declarations and by the
+/// cond/begin/match result-temp pre-declarations.
+format_typed_decl_line :: (
+  fn(indent : String, type_and_name : String) -> String
+)({
+  s := String.from(indent.as_str());
+  s.push_string(type_and_name);
+  s.push_str(";");
+  s
+});
 /// True iff `t` is an enum whose every variant carries no data — so
 /// it can be lowered to a plain C `enum` instead of a tagged-union
 /// struct. Equivalent to TS `canOptimizeAsSimpleEnum` in
@@ -719,6 +732,7 @@ export(
   indent_minus_two,
   format_indented_stmt,
   format_typed_init_line,
+  format_typed_decl_line,
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,

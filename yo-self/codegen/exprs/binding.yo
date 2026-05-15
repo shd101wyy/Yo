@@ -32,19 +32,20 @@ open(import("std/string"));
 { ExprInfo } :: import("../../expr_info.yo");
 { TypeValue, is_struct_type } :: import("../../types/type.yo");
 { CodegenContext } :: import("../context.yo");
-{ get_variable_type_string_str } :: import("../utils/index.yo");
+{ get_variable_type_string_str, format_typed_decl_line } :: import("../utils/index.yo");
 /// Format a bare C variable declaration line:
 ///   `<indent><type_and_name>;`
 ///
 /// `type_and_name` is the result of `get_variable_type_string_str`
 /// — already a single space-separated "C-type C-name" string. Mirrors
 /// the two inline composition sites in `generate_binding`.
-format_variable_decl_line :: (fn(indent : String, type_and_name : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_string(type_and_name);
-  s.push_str(";");
-  s
-});
+// `format_variable_decl_line` was a local divergence — body identical
+// to the canonical `format_typed_decl_line` in `codegen/utils/index.yo`.
+// Re-exported as an alias for backward compatibility with the test
+// import.
+format_variable_decl_line :: (fn(indent : String, type_and_name : String) -> String)(
+  format_typed_decl_line(indent, type_and_name)
+);
 /// Extract the inner expression token value from a `comptime(x)` or
 /// `given(x)` 1-arg call.
 inner_atom_token_value :: (fn(call_expr : AstExpr) -> Option(String))(
