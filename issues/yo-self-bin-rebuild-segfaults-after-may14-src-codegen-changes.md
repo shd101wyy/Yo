@@ -60,6 +60,46 @@ git checkout origin/bootstrap/phase-4
 
 Each rebuild is ~7 minutes on M1, so a full bisect is ~30 minutes.
 
+## Investigation in May 15 session
+
+Reverting just the two src/codegen commits (keeping current yo-self/)
+_doesn't_ unblock the build — instead clang fails with missing forward
+declarations:
+
+```
+fn_yodb87f9d4_id_525_parse: implicit declaration
+fn_yo70489165_id_10__evaluate_expression: implicit declaration
+```
+
+Suggests the current `yo-self/main.yo` _depends_ on the new behaviour
+introduced by d62ff8b2 / a75007f9 (specifically the change that
+"keep base function emitted when no specialized replacement is
+registered"). With the old codegen, those base functions are elided
+and the call sites that reference them produce implicit-declaration
+errors.
+
+Likewise, attempting `git checkout 41535d46` (the previous-working
+state from May 14 13:02) drops back to a different yo-self/ directory
+layout (`yo-self/expr/expr.yo` vs current `yo-self/expr.yo`,
+`yo-self/codegen/types.yo` vs current `yo-self/codegen/types/generation.yo`,
+…). So the May 14 binary was built against substantially different
+yo-self/ sources — restoring "the working state" isn't a clean
+revert.
+
+Conclusion: this is _not_ a simple regression to fix by reverting one
+commit. The May 14 src/codegen change moved the goal posts; yo-self
+needs to evolve to match the new behaviour. The realistic fix path:
+
+1. Identify which yo-self call site produces an undeclared-function
+   reference in the _current_ generated C output. The yo-self
+   bootstrap dispatcher (`yo-self/codegen/exprs.yo`) likely needs to
+   emit a forward declaration that the new TS codegen relies on.
+2. OR adjust `yo-self/codegen/driver.yo`'s hoisting / forward-decl
+   pass to cover the additional cases.
+
+That's a non-trivial debug session against the 250K-line generated C
+output.
+
 ## Impact
 
 Blocks the Stream A integration loop documented in BOOTSTRAPPING.md
