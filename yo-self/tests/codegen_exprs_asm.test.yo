@@ -4,7 +4,8 @@ open(import("std/string"));
 {
   is_register_class,
   resolve_constraint,
-  transform_template
+  transform_template,
+  format_asm_placeholder
 } :: import("../codegen/exprs/asm.yo");
 test("is_register_class: known classes", {
   assert(is_register_class("reg"), "reg");
@@ -124,4 +125,21 @@ test("transform_template: unclosed `{` is copied as-is", {
     transform_template("foo {") == String.from("foo {"),
     "unclosed brace"
   );
+});
+// ─── format_asm_placeholder ─────────────────────────────────────────────────
+test("format_asm_placeholder: positional, no modifier → %<n>", {
+  out := format_asm_placeholder(Option(str).None, String.from("0"), true);
+  assert(out == String.from("%0"), "positional bare");
+});
+test("format_asm_placeholder: positional + modifier → %<m><n>", {
+  out := format_asm_placeholder(Option(str).Some("k"), String.from("0"), true);
+  assert(out == String.from("%k0"), "positional w/ modifier");
+});
+test("format_asm_placeholder: named, no modifier → %[<ref>]", {
+  out := format_asm_placeholder(Option(str).None, String.from("reg"), false);
+  assert(out == String.from("%[reg]"), "named bare");
+});
+test("format_asm_placeholder: named + modifier → %<m>[<ref>]", {
+  out := format_asm_placeholder(Option(str).Some("k"), String.from("reg"), false);
+  assert(out == String.from("%k[reg]"), "named w/ modifier");
 });

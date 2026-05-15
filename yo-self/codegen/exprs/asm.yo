@@ -178,6 +178,33 @@ all_decimal_digits_ :: (fn(s : str) -> bool)({
     }
   )
 });
+/// Format a single GCC inline-asm operand placeholder. Combines the
+/// four branches that `transform_template` distinguishes:
+///
+///   - positional + no modifier      → `%<ref>`         (e.g. `%0`)
+///   - positional + modifier `m`     → `%<m><ref>`      (e.g. `%k0`)
+///   - named + no modifier           → `%[<ref>]`       (e.g. `%[reg]`)
+///   - named + modifier `m`          → `%<m>[<ref>]`    (e.g. `%k[reg]`)
+///
+/// Pure string composition.
+format_asm_placeholder :: (
+  fn(modifier_opt : Option(str), ref : String, is_positional : bool) -> String
+)({
+  s := String.from("%");
+  match(
+    modifier_opt,
+    .Some(m) => s.push_str(m),
+    .None => ()
+  );
+  if(!(is_positional), {
+    s.push_str("[");
+  });
+  s.push_string(ref);
+  if(!(is_positional), {
+    s.push_str("]");
+  });
+  s
+});
 /// Rewrite a Yo asm template into GCC's inline-asm operand syntax:
 ///   `{name}`      → `%[name]`
 ///   `{0}`         → `%0`
@@ -284,35 +311,7 @@ transform_template :: (fn(template : str) -> String)({
                   true => Option(str).None
                 );
                 is_positional := all_decimal_digits_(ref.as_str());
-                cond(
-                  is_positional => match(
-                    gcc_mod_opt,
-                    .Some(m_str) => {
-                      result.push_str("%");
-                      result.push_str(m_str);
-                      result.push_string(ref);
-                    },
-                    .None => {
-                      result.push_str("%");
-                      result.push_string(ref);
-                    }
-                  ),
-                  true => match(
-                    gcc_mod_opt,
-                    .Some(m_str) => {
-                      result.push_str("%");
-                      result.push_str(m_str);
-                      result.push_str("[");
-                      result.push_string(ref);
-                      result.push_str("]");
-                    },
-                    .None => {
-                      result.push_str("%[");
-                      result.push_string(ref);
-                      result.push_str("]");
-                    }
-                  )
-                );
+                result.push_string(format_asm_placeholder(gcc_mod_opt, ref, is_positional));
                 i = (close_idx + usize(1));
               }
             );
@@ -344,5 +343,6 @@ transform_template :: (fn(template : str) -> String)({
 export(
   is_register_class,
   resolve_constraint,
-  transform_template
+  transform_template,
+  format_asm_placeholder
 );
