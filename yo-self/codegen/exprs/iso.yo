@@ -10,7 +10,12 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { CodegenContext, CodegenIsoTypeEntry } :: import("../context.yo");
 { call_gen_expr } :: import("./expr.yo");
-{ sanitize_for_c_identifier, get_type_string } :: import("../utils/index.yo");
+{
+  sanitize_for_c_identifier,
+  get_type_string,
+  format_typed_var_name,
+  format_typed_init_line
+} :: import("../utils/index.yo");
 /// Format the iso dispose call site:
 ///   `__yo_iso_dispose_<iso_type_c_name>(<self_code>)`
 ///
@@ -56,22 +61,16 @@ format_iso_extract_call :: (
   s.push_str(")");
   s
 });
-/// Format a typed-temp assignment line:
-///   `<indent><c_type> <name> = <value_code>;`
-/// Used by `iso_temp_or_call` to declare and initialise the
-/// `__yo_iso_extract` result temp. Pure string composition.
+// `format_iso_temp_assignment` was a local divergence — body identical
+// to `format_typed_init_line(indent, format_typed_var_name(c_type, name), value)`
+// composed from the canonical helpers in `codegen/utils/index.yo`.
+// Re-exported as an alias for backward compatibility with the test
+// import.
 format_iso_temp_assignment :: (
   fn(indent : String, c_type : String, name : String, value_code : String) -> String
-)({
-  s := String.from(indent.as_str());
-  s.push_string(c_type);
-  s.push_str(" ");
-  s.push_string(name);
-  s.push_str(" = ");
-  s.push_string(value_code);
-  s.push_str(";");
-  s
-});
+)(
+  format_typed_init_line(indent, format_typed_var_name(c_type, name), value_code)
+);
 iso_expr_type :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(TypeValue))(
   match(
     ctx.*.get_expr_info(ast_expr_id(expr)),

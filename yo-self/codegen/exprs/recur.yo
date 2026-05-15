@@ -11,27 +11,22 @@ open(import("std/string"));
 {
   sanitize_for_c_identifier,
   get_type_string_opt,
-  format_indented_stmt
+  format_indented_stmt,
+  format_typed_var_name,
+  format_typed_init_line
 } :: import("../utils/index.yo");
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
 
-/// Format a typed-temp assignment line:
-///   `<indent><c_type> <name> = <value_code>;`
-///
-/// Pure string composition — mirrors the inline build of the
-/// "declare-and-init the result temp" line in `recur_emit_temp_if_needed`.
+// `format_typed_temp_assignment` was a local divergence — body
+// identical to `format_typed_init_line(indent, format_typed_var_name(c_type, name), value)`
+// composed from the canonical helpers in `codegen/utils/index.yo`.
+// Re-exported as an alias for backward compatibility with the test
+// import.
 format_typed_temp_assignment :: (
   fn(indent : String, c_type : String, name : String, value_code : String) -> String
-)({
-  s := String.from(indent.as_str());
-  s.push_string(c_type);
-  s.push_str(" ");
-  s.push_string(name);
-  s.push_str(" = ");
-  s.push_string(value_code);
-  s.push_str(";");
-  s
-});
+)(
+  format_typed_init_line(indent, format_typed_var_name(c_type, name), value_code)
+);
 /// Format a plain C function call: `<fn_name>(<args_code>)`. The args
 /// payload is passed pre-joined (callers control the comma-separated
 /// argument list). Pure string composition.
