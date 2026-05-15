@@ -1,17 +1,47 @@
 //! evaluator/utils — shared helpers used by multiple evaluator handlers.
 //!
-//! Ports two utility modules from TypeScript:
-//!   - `src/evaluator/utils.ts` → `find_rc_value_owner_relationship`,
-//!                                 `throw_expr_is_implicit_variable_error`,
-//!                                 `is_valid_variable_name`
-//!   - `src/expr.ts`            → `require_expr_not_consumed`,
-//!                                 `set_expr_as_needs_to_call_dup` (stub),
-//!                                 `attach_temp_variable_to_expr` (stub),
-//!                                 `set_expr_as_consumed`
+//! In `src/`, the helpers in this file are split across **three** TS
+//! modules: `src/evaluator/utils.ts`, `src/expr.ts`, and `src/value.ts`.
+//! yo-self can't reproduce that split because the eager destructuring of
+//! `import("…")` would turn `expr.yo` ↔ `env.yo` ↔ `value.yo` (the natural
+//! homes for the env-aware helpers) into a hard import cycle. TypeScript
+//! tolerates the same shape only because module loading is lazy.
+//!
+//! As a result, this file is an **acceptable divergence** from src/: it
+//! consolidates helpers that should structurally live in three different
+//! files but cannot in yo-self today. The mapping is recorded here for
+//! reference.
+//!
+//! Ports (by src/ home):
+//!
+//!   `src/evaluator/utils.ts`:
+//!     - is_valid_variable_name
+//!     - find_rc_value_owner_relationship
+//!     - throw_expr_is_implicit_variable_error
+//!
+//!   `src/expr.ts` (would create expr.yo ↔ env.yo ↔ value.yo cycle):
+//!     - attach_temp_variable_to_expr
+//!     - require_expr_not_consumed
+//!     - set_expr_as_consumed
+//!     - set_expr_as_needs_to_call_dup
+//!     - expect_expr_to_have_been_evaluated
+//!     - merge_and_check_envs
+//!     - consume_case_body_temp_var
+//!
+//!   `src/value.ts` (would create value.yo ↔ env.yo cycle):
+//!     - are_values_equal (+ private helpers `_try_resolve_last_var`,
+//!       `_get_last_var_type`)
+//!
+//!   yo-self-only (no src/ counterpart — TS inlines this at evaluation
+//!   sites in `src/evaluator/exprs/_expr.ts`):
+//!     - parse_raw_int, parse_raw_float, `_digit_value`, `_parse_prefixed_int`
+//!     - new_expr_info_placeholder_for_unreachable_
+//!     - doc_comment_lookup_key_from_token
 //!
 //! Phase A.4.1: top-level utilities (`generate_new_temp_variable_name`,
 //! `is_temp_variable_name`, `random_id`, `generate_temp_variable_name_prefix`)
-//! were relocated to `yo-self/utils.yo` so the latter mirrors `src/utils.ts`.
+//! were relocated to `yo-self/utils.yo` (mirroring `src/utils.ts`) — that
+//! split was safe because those helpers have no env/value dependencies.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
