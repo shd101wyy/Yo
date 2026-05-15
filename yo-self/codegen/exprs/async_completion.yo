@@ -9,146 +9,149 @@ AsyncCompletionOptions :: object(
   result_code : Option(String),
   debug_label : Option(String)
 );
+/// Compose an indented line: `<indent><body>`. Pure string composition;
+/// the dozens of inline `String.from(indent.as_str()); push_str(body)`
+/// sequences in this file collapse to a single call to this helper.
+format_indented_line :: (fn(indent : String, body : str) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str(body);
+  s
+});
+/// Compose the `sm->result = <code>;` assignment with leading indent.
+format_async_result_assign :: (fn(indent : String, result_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("sm->result = ");
+  s.push_string(result_code);
+  s.push_str(";");
+  s
+});
+/// Compose an ASYNC_DEBUG log line: `<indent>ASYNC_DEBUG("<label><tail>`
+/// where `tail` is the verbatim text following the label — including
+/// the closing `");` and any printf-style argument list. Indent is
+/// prepended verbatim, so callers pass extra spaces (`"  "`) when the
+/// debug line is nested inside the `if (continuation_fn != NULL)` block.
+format_async_debug_line :: (fn(indent : String, label : String, tail : str) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("ASYNC_DEBUG(\"");
+  s.push_string(label);
+  s.push_str(tail);
+  s
+});
 emit_async_future_completion :: (fn(opts : AsyncCompletionOptions) -> unit)({
   match(
     opts.result_code,
     .None => (),
-    .Some(result_code) => {
-      line := String.from(opts.indent.as_str());
-      line.push_str("sm->result = ");
-      line.push_string(result_code);
-      line.push_str(";");
-      opts.emitter.*.emit_string_line(line);
-    }
+    .Some(result_code) => opts.emitter.*.emit_string_line(
+      format_async_result_assign(opts.indent, result_code)
+    )
   );
   match(
     opts.debug_label,
     .None => (),
-    .Some(debug_label) => {
-      line := String.from(opts.indent.as_str());
-      line.push_str("ASYNC_DEBUG(\"");
-      line.push_string(debug_label);
-      line.push_str(": Setting state to COMPLETED\\n\");");
-      opts.emitter.*.emit_string_line(line);
-    }
+    .Some(debug_label) => opts.emitter.*.emit_string_line(
+      format_async_debug_line(opts.indent, debug_label, ": Setting state to COMPLETED\\n\");")
+    )
   );
-  line_state := String.from(opts.indent.as_str());
-  line_state.push_str("sm->state = -1;  // -1 = completed");
-  opts.emitter.*.emit_string_line(line_state);
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "sm->state = -1;  // -1 = completed")
+  );
   opts.emitter.*.emit_line("");
-  line_cont_fn := String.from(opts.indent.as_str());
-  line_cont_fn.push_str("void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;");
-  opts.emitter.*.emit_string_line(line_cont_fn);
-  line_cont_sm := String.from(opts.indent.as_str());
-  line_cont_sm.push_str("void* continuation_sm = sm->continuation_sm;");
-  opts.emitter.*.emit_string_line(line_cont_sm);
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;")
+  );
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "void* continuation_sm = sm->continuation_sm;")
+  );
   opts.emitter.*.emit_line("");
-  line_if := String.from(opts.indent.as_str());
-  line_if.push_str("if (continuation_fn != NULL) {");
-  opts.emitter.*.emit_string_line(line_if);
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "if (continuation_fn != NULL) {")
+  );
   match(
     opts.debug_label,
     .None => (),
-    .Some(debug_label2) => {
-      line := String.from(opts.indent.as_str());
-      line.push_str("  ASYNC_DEBUG(\"");
-      line.push_string(debug_label2);
-      line.push_str(": Spawning continuation: resume_fn=%p, sm=%p\\n\", (void*)continuation_fn, continuation_sm);");
-      opts.emitter.*.emit_string_line(line);
-    }
+    .Some(debug_label2) => opts.emitter.*.emit_string_line(
+      format_async_debug_line(
+        String.from(opts.indent.as_str()) + String.from("  "),
+        debug_label2,
+        ": Spawning continuation: resume_fn=%p, sm=%p\\n\", (void*)continuation_fn, continuation_sm);"
+      )
+    )
   );
   opts.emitter.*.emit_line("");
-  line_clear_fn := String.from(opts.indent.as_str());
-  line_clear_fn.push_str("  sm->continuation_fn = NULL;");
-  opts.emitter.*.emit_string_line(line_clear_fn);
-  line_clear_sm := String.from(opts.indent.as_str());
-  line_clear_sm.push_str("  sm->continuation_sm = NULL;");
-  opts.emitter.*.emit_string_line(line_clear_sm);
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_fn = NULL;"));
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_sm = NULL;"));
   opts.emitter.*.emit_line("");
-  line_spawn := String.from(opts.indent.as_str());
-  line_spawn.push_str("  __yo_async_spawn_task(continuation_fn, continuation_sm);");
-  opts.emitter.*.emit_string_line(line_spawn);
-  line_close := String.from(opts.indent.as_str());
-  line_close.push_str("}");
-  opts.emitter.*.emit_string_line(line_close);
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "  __yo_async_spawn_task(continuation_fn, continuation_sm);")
+  );
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "}"));
   opts.emitter.*.emit_line("");
-  line_drop := String.from(opts.indent.as_str());
-  line_drop.push_str("__yo_decr_rc((void*)sm);");
-  opts.emitter.*.emit_string_line(line_drop);
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "__yo_decr_rc((void*)sm);"));
   opts.emitter.*.emit_line("");
-  line_return := String.from(opts.indent.as_str());
-  line_return.push_str("return;");
-  opts.emitter.*.emit_string_line(line_return);
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "return;"));
 });
 emit_async_future_escape :: (fn(opts : AsyncCompletionOptions) -> unit)({
   match(
     opts.result_code,
     .None => (),
-    .Some(result_code) => {
-      line := String.from(opts.indent.as_str());
-      line.push_str("sm->result = ");
-      line.push_string(result_code);
-      line.push_str(";");
-      opts.emitter.*.emit_string_line(line);
-    }
+    .Some(result_code) => opts.emitter.*.emit_string_line(
+      format_async_result_assign(opts.indent, result_code)
+    )
   );
   match(
     opts.debug_label,
     .None => (),
-    .Some(debug_label) => {
-      line := String.from(opts.indent.as_str());
-      line.push_str("ASYNC_DEBUG(\"");
-      line.push_string(debug_label);
-      line.push_str(": Setting state to ESCAPED (effect handler escape)\\n\");");
-      opts.emitter.*.emit_string_line(line);
-    }
+    .Some(debug_label) => opts.emitter.*.emit_string_line(
+      format_async_debug_line(
+        opts.indent,
+        debug_label,
+        ": Setting state to ESCAPED (effect handler escape)\\n\");"
+      )
+    )
   );
-  line_state := String.from(opts.indent.as_str());
-  line_state.push_str("sm->state = -2;  // -2 = escaped");
-  opts.emitter.*.emit_string_line(line_state);
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "sm->state = -2;  // -2 = escaped")
+  );
   opts.emitter.*.emit_line("");
-  line_cont_fn := String.from(opts.indent.as_str());
-  line_cont_fn.push_str("void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;");
-  opts.emitter.*.emit_string_line(line_cont_fn);
-  line_cont_sm := String.from(opts.indent.as_str());
-  line_cont_sm.push_str("void* continuation_sm = sm->continuation_sm;");
-  opts.emitter.*.emit_string_line(line_cont_sm);
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;")
+  );
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "void* continuation_sm = sm->continuation_sm;")
+  );
   opts.emitter.*.emit_line("");
-  line_if := String.from(opts.indent.as_str());
-  line_if.push_str("if (continuation_fn != NULL) {");
-  opts.emitter.*.emit_string_line(line_if);
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "if (continuation_fn != NULL) {")
+  );
   match(
     opts.debug_label,
     .None => (),
-    .Some(debug_label2) => {
-      line := String.from(opts.indent.as_str());
-      line.push_str("  ASYNC_DEBUG(\"");
-      line.push_string(debug_label2);
-      line.push_str(": Spawning continuation for escaped future: resume_fn=%p, sm=%p\\n\", (void*)continuation_fn, continuation_sm);");
-      opts.emitter.*.emit_string_line(line);
-    }
+    .Some(debug_label2) => opts.emitter.*.emit_string_line(
+      format_async_debug_line(
+        String.from(opts.indent.as_str()) + String.from("  "),
+        debug_label2,
+        ": Spawning continuation for escaped future: resume_fn=%p, sm=%p\\n\", (void*)continuation_fn, continuation_sm);"
+      )
+    )
   );
   opts.emitter.*.emit_line("");
-  line_clear_fn := String.from(opts.indent.as_str());
-  line_clear_fn.push_str("  sm->continuation_fn = NULL;");
-  opts.emitter.*.emit_string_line(line_clear_fn);
-  line_clear_sm := String.from(opts.indent.as_str());
-  line_clear_sm.push_str("  sm->continuation_sm = NULL;");
-  opts.emitter.*.emit_string_line(line_clear_sm);
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_fn = NULL;"));
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_sm = NULL;"));
   opts.emitter.*.emit_line("");
-  line_spawn := String.from(opts.indent.as_str());
-  line_spawn.push_str("  __yo_async_spawn_task(continuation_fn, continuation_sm);");
-  opts.emitter.*.emit_string_line(line_spawn);
-  line_close := String.from(opts.indent.as_str());
-  line_close.push_str("}");
-  opts.emitter.*.emit_string_line(line_close);
+  opts.emitter.*.emit_string_line(
+    format_indented_line(opts.indent, "  __yo_async_spawn_task(continuation_fn, continuation_sm);")
+  );
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "}"));
   opts.emitter.*.emit_line("");
-  line_drop := String.from(opts.indent.as_str());
-  line_drop.push_str("__yo_decr_rc((void*)sm);");
-  opts.emitter.*.emit_string_line(line_drop);
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "__yo_decr_rc((void*)sm);"));
   opts.emitter.*.emit_line("");
-  line_return := String.from(opts.indent.as_str());
-  line_return.push_str("return;");
-  opts.emitter.*.emit_string_line(line_return);
+  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "return;"));
 });
-export(AsyncCompletionOptions, emit_async_future_completion, emit_async_future_escape);
+export(
+  AsyncCompletionOptions,
+  emit_async_future_completion,
+  emit_async_future_escape,
+  format_indented_line,
+  format_async_result_assign,
+  format_async_debug_line
+);
