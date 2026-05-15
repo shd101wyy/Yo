@@ -171,12 +171,11 @@ prefix_operator_needs_leading_space :: (fn(token : Token, previous : Option(Toke
 /// Count the leading `[ \t]*` characters of `line`. Mirrors
 /// `leadingWhitespaceLength`.
 leading_whitespace_length :: (fn(line : str) -> usize)({
-  bytes := line.as_bytes();
-  n := bytes.len();
+  n := line.len();
   (i : usize) = usize(0);
   (done : bool) = false;
   while(runtime((i < n) && (!(done))), {
-    b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+    b := line.bytes(i);
     cond(
       (b == u8(32)) => {
         i = (i + usize(1));
@@ -191,6 +190,151 @@ leading_whitespace_length :: (fn(line : str) -> usize)({
   });
   i
 });
+// ---------------------------------------------------------------------------
+// Token-iteration helpers
+// ---------------------------------------------------------------------------
+/// Walk past comment tokens (anything matching `is_comment_token`) before
+/// `index`, returning the nearest non-comment predecessor. Mirrors
+/// `previousMeaningfulToken`.
+previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Option(Token))({
+  if(index == usize(0), {
+    return(Option(Token).None);
+  });
+  (i : usize) = (index - usize(1));
+  (result : Option(Token)) = Option(Token).None;
+  (done : bool) = false;
+  while(runtime(!(done)), {
+    match(
+      tokens.get(i),
+      .None => {
+        done = true;
+      },
+      .Some(t) => cond(
+        is_comment_token(t.kind) => (),
+        true => {
+          result = Option(Token).Some(t);
+          done = true;
+        }
+      )
+    );
+    if((!(done)) && (i == usize(0)), {
+      done = true;
+    }, {
+      if(!(done), {
+        i = (i - usize(1));
+      });
+    });
+  });
+  result
+});
+/// Walk past comment tokens (anything matching `is_comment_token`) after
+/// `index`, returning the nearest non-comment successor within
+/// `[index+1, end_exclusive)`. Mirrors `nextMeaningfulToken`.
+next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclusive : usize) -> Option(Token))({
+  (i : usize) = (index + usize(1));
+  (result : Option(Token)) = Option(Token).None;
+  (done : bool) = false;
+  while(runtime((i < end_exclusive) && (!(done))), {
+    match(
+      tokens.get(i),
+      .None => {
+        done = true;
+      },
+      .Some(t) => cond(
+        is_comment_token(t.kind) => (),
+        true => {
+          result = Option(Token).Some(t);
+          done = true;
+        }
+      )
+    );
+    i = (i + usize(1));
+  });
+  result
+});
+/// True iff any token in `[start_inclusive, end_exclusive)` is a comment.
+/// Mirrors `tokenRangeHasComment`.
+token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usize, end_exclusive : usize) -> bool)({
+  (i : usize) = start_inclusive;
+  (found : bool) = false;
+  while(runtime((i < end_exclusive) && (!(found))), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => if(is_comment_token(t.kind), {
+        found = true;
+      })
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True iff any token in `(left_index, right_index)` (exclusive both ends)
+/// has the given kind. No bracket nesting awareness. Mirrors `hasAnyToken`.
+has_any_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
+  (i : usize) = (left_index + usize(1));
+  (found : bool) = false;
+  while(runtime((i < right_index) && (!(found))), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => if(t.kind == kind, {
+        found = true;
+      })
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True iff there is a top-level (no nesting) token of `kind` in
+/// `(left_index, right_index)`. Skips comments and tracks paren / bracket /
+/// curly depth so e.g. a comma inside an inner paren doesn't count.
+/// Mirrors `hasTopLevelToken`.
+has_top_level_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
+  (paren_depth : usize) = usize(0);
+  (bracket_depth : usize) = usize(0);
+  (curly_depth : usize) = usize(0);
+  (i : usize) = (left_index + usize(1));
+  (found : bool) = false;
+  while(runtime((i < right_index) && (!(found))), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        is_comment_token(t.kind) => (),
+        ((t.kind == kind) && (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)))) => {
+          found = true;
+        },
+        (t.kind == TokenKind.LParen) => {
+          paren_depth = (paren_depth + usize(1));
+        },
+        ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+          paren_depth = (paren_depth - usize(1));
+        },
+        (t.kind == TokenKind.LBracket) => {
+          bracket_depth = (bracket_depth + usize(1));
+        },
+        ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+          bracket_depth = (bracket_depth - usize(1));
+        },
+        (t.kind == TokenKind.LCurlyBracket) => {
+          curly_depth = (curly_depth + usize(1));
+        },
+        ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+          curly_depth = (curly_depth - usize(1));
+        },
+        true => ()
+      )
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True iff any top-level (no nesting) token in `(left_index, right_index)`
+/// is an Operator. Skips comments. Mirrors `hasTopLevelOperator`.
+has_top_level_operator :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool)(
+  has_top_level_token(tokens, left_index, right_index, TokenKind.Operator)
+);
 // ---------------------------------------------------------------------------
 // Public entry — `format_yo_source`
 // ---------------------------------------------------------------------------
@@ -220,5 +364,11 @@ export(
   needs_space_before_atom,
   prefix_operator_needs_leading_space,
   leading_whitespace_length,
+  previous_meaningful_token,
+  next_meaningful_token,
+  token_range_has_comment,
+  has_any_token,
+  has_top_level_token,
+  has_top_level_operator,
   format_yo_source
 );
