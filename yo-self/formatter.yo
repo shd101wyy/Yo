@@ -176,6 +176,31 @@ prefix_operator_needs_leading_space :: (fn(token : Token, previous : Option(Toke
     )
   )
 );
+/// Strip trailing space / tab characters from `s` and return the trimmed
+/// string. Newlines and other whitespace are preserved.
+///
+/// Mirrors `trimTrailingHorizontalWhitespace` in `src/formatter.ts` (which
+/// mutates `result` via `replace(/[ \t]+$/u, "")`). Used before emitting
+/// closing delimiters and statement terminators to absorb the placeholder
+/// space added by `ensureSpace`-style helpers.
+_trim_trailing_h_ws :: (fn(s : String) -> String)({
+  bytes := s.as_bytes();
+  n := bytes.len();
+  (i : usize) = n;
+  (done : bool) = false;
+  while(runtime((i > usize(0)) && (!(done))), {
+    b := match(bytes.get(i - usize(1)),.Some(x) => x,.None => u8(0));
+    if((b == u8(32)) || (b == u8(9)), {
+      i = (i - usize(1));
+    }, {
+      done = true;
+    });
+  });
+  cond(
+    (i == n) => s,
+    true => s.substring(usize(0), i)
+  )
+});
 /// Count the leading `[ \t]*` characters of `line`. Mirrors
 /// `leadingWhitespaceLength`.
 leading_whitespace_length :: (fn(line : str) -> usize)({
@@ -1871,6 +1896,7 @@ format_yo_source :: (
                         result.push_str(")");
                       },
                       true => {
+                        result = _trim_trailing_h_ws(result);
                         result.push_str(")");
                       }
                     );
@@ -1918,6 +1944,7 @@ format_yo_source :: (
                         result.push_str("]");
                       },
                       true => {
+                        result = _trim_trailing_h_ws(result);
                         result.push_str("]");
                       }
                     );
@@ -1942,6 +1969,7 @@ format_yo_source :: (
                         }
                       );
                     });
+                    result = _trim_trailing_h_ws(result);
                     result.push_str(",");
                     next_is_closer := match(next,.None => false,.Some(nx) => (
                       ((nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket)) || (nx.kind == TokenKind.RCurlyBracket)
@@ -2014,6 +2042,7 @@ format_yo_source :: (
                             }
                           );
                         });
+                        result = _trim_trailing_h_ws(result);
                         result.push_str(";");
                         emit_newline := match(
                           next,
@@ -2061,7 +2090,9 @@ format_yo_source :: (
                           prefix_operator_needs_leading_space(token, previous) => {
                             if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
                           },
-                          true => ()
+                          true => {
+                            result = _trim_trailing_h_ws(result);
+                          }
                         );
                         if(at_line_start, {
                           (sp : usize) = usize(0);
