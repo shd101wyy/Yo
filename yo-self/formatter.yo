@@ -11,8 +11,12 @@
 //! will be filled in by successive commits.
 open(import("std/string"));
 open(import("std/error"));
+open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
+{ Path } :: import("std/path");
+{ read_file, write_file, is_file, is_dir, exists } :: import("std/fs/file");
+{ DirEntry, FileType, read_dir } :: import("std/fs/dir");
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("./token.yo");
 { tokenize } :: import("./lexer.yo");
@@ -2134,6 +2138,126 @@ format_yo_source :: (
     }
   )
 );
+// ---------------------------------------------------------------------------
+// Directory walking + batch formatting
+// ---------------------------------------------------------------------------
+/// Recursively collect every `*.yo` file under `target_path` into `files`.
+/// Skips directories named in `is_ignored_format_dir`. Mirrors `collectYoFiles`.
+collect_yo_files :: (
+  fn(
+    target_path : Path,
+    files : ArrayList(String),
+    using(io : IO, exn : Exception)
+  ) -> unit
+)({
+  is_file_p := io.await(is_file(target_path));
+  cond(
+    is_file_p => {
+      path_str := target_path.to_string();
+      if(path_str.ends_with(String.from(".yo")), {
+        _r := files.push(path_str);
+      });
+    },
+    true => {
+      is_dir_p := io.await(is_dir(target_path));
+      if(is_dir_p, {
+        entries := io.await(read_dir(target_path));
+        en := entries.len();
+        (ei : usize) = usize(0);
+        while(runtime(ei < en), {
+          match(
+            entries.get(ei),
+            .None => (),
+            .Some(entry) => {
+              entry_name := entry.name;
+              skip := match(
+                entry.file_type,
+                .Directory => is_ignored_format_dir(entry_name.as_str()),
+                _ => false
+              );
+              if(!(skip), {
+                child_path := target_path.join(Path.new((&(entry_name)).clone()));
+                recur(child_path, files, using(io, exn));
+              });
+            }
+          );
+          ei = (ei + usize(1));
+        });
+      });
+    }
+  );
+});
+/// Resolve `input_paths` to a list of `.yo` file paths. If `input_paths` is
+/// empty, defaults to ["."]. Throws via `exn` if any input path does not
+/// exist. Mirrors `findYoFormatFiles`.
+find_yo_format_files :: (
+  fn(
+    input_paths : ArrayList(String),
+    using(io : IO, exn : Exception)
+  ) -> ArrayList(String)
+)({
+  files := ArrayList(String).new();
+  paths_to_format := cond(
+    (input_paths.len() == usize(0)) => {
+      defaults := ArrayList(String).new();
+      _r := defaults.push(String.from("."));
+      defaults
+    },
+    true => input_paths
+  );
+  pn := paths_to_format.len();
+  (pi : usize) = usize(0);
+  while(runtime(pi < pn), {
+    match(
+      paths_to_format.get(pi),
+      .None => (),
+      .Some(p) => {
+        path_obj := Path.new(p);
+        path_exists := io.await(exists(path_obj));
+        if(!(path_exists), {
+          exn.throw(dyn(`Path does not exist: ${p}`));
+        });
+        collect_yo_files(path_obj, files, using(io, exn));
+      }
+    );
+    pi = (pi + usize(1));
+  });
+  files
+});
+/// Format every `.yo` file found under `input_paths`. Returns the list of
+/// files visited and the subset whose content would change. In `check` mode
+/// no file is written. Mirrors `formatYoFiles`.
+format_yo_files :: (
+  fn(
+    input_paths : ArrayList(String),
+    options : FormatYoFilesOptions,
+    using(io : IO, exn : Exception)
+  ) -> FormatYoFilesResult
+)({
+  files := find_yo_format_files(input_paths, using(io, exn));
+  changed := ArrayList(String).new();
+  fn := files.len();
+  (fi : usize) = usize(0);
+  while(runtime(fi < fn), {
+    match(
+      files.get(fi),
+      .None => (),
+      .Some(file) => {
+        bytes := io.await(read_file(Path.new(file)));
+        original := String.from_bytes(bytes);
+        formatted := format_yo_source(original, file, using(exn));
+        if(formatted.as_str() != original.as_str(), {
+          _r := changed.push(file);
+          if(!(options.check), {
+            io.await(write_file(Path.new(file), formatted));
+          });
+        });
+      }
+    );
+    fi = (fi + usize(1));
+  });
+  FormatYoFilesResult(files : files, changed : changed)
+});
 export(
   INDENT_SIZE,
   is_comment_token,
@@ -2174,5 +2298,8 @@ export(
   normalize_multiline_block_comment,
   read_raw_template_string,
   raw_token_value,
-  format_yo_source
+  format_yo_source,
+  collect_yo_files,
+  find_yo_format_files,
+  format_yo_files
 );

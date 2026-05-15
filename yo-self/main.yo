@@ -29,7 +29,7 @@ open(import("std/fmt"));
 { register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { compile_module_to_c, compile_test_body_to_c, extract_import_path, set_pipeline_expr_info_table } :: import("./codegen/driver.yo");
-{ format_yo_source } :: import("./formatter.yo");
+{ format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
 // Temporary binary path used for test execution.
@@ -476,52 +476,70 @@ run_test :: (
     exn.throw(dyn(`test: ${failed} test(s) failed`));
   });
 });
-/// Run the `fmt` subcommand: format a single .yo file in place.
+/// Run the `fmt` subcommand: format one or more `.yo` files in place.
 ///
-/// Usage: `yo-self fmt <file.yo> [--check]`
-///   * Without `--check`: rewrites the file with the formatted output.
-///   * With `--check`: prints whether the file would change but doesn't write.
-///     Exits non-zero if any file would change.
+/// Usage: `yo-self fmt [paths...] [--check]`
+///   * Each path is either a file (formatted directly) or a directory
+///     (walked recursively, all `.yo` files found are formatted).
+///   * If no paths are given, defaults to `.` (current directory).
+///   * Without `--check`: rewrites each file with the formatted output and
+///     prints a one-line summary listing changed files.
+///   * With `--check`: prints "would format: <file>" for each file that
+///     would change, then exits non-zero if any did.
 ///
-/// 1-to-1-equivalent of the per-file portion of `formatYoFiles` in
-/// `src/formatter.ts`. The directory-walk path (`findYoFormatFiles` +
-/// `collectYoFiles`) is deferred — most callers use the per-file form.
+/// 1-to-1 port of `formatYoFiles` in `src/formatter.ts`.
 run_fmt :: (
   fn(
     argv : ArrayList(String),
     using(io : IO, exn : Exception)
   ) -> unit
 )({
-  if(argv.len() < usize(3), {
-    exn.throw(dyn(`fmt: missing input file. Usage: yo-self fmt <file.yo> [--check]`));
-  });
-  input_path := argv.get(usize(2)).unwrap();
+  // Parse arguments — collect positional paths, detect --check flag.
+  input_paths := ArrayList(String).new();
   (check_mode : bool) = false;
-  if(argv.len() >= usize(4), {
-    flag := argv.get(usize(3)).unwrap();
-    if(flag.as_str() == "--check", {
-      check_mode = true;
-    });
+  (ai : usize) = usize(2); // skip program name + "fmt"
+  while(runtime(ai < argv.len()), {
+    arg := argv.get(ai).unwrap();
+    cond(
+      (arg.as_str() == "--check") => {
+        check_mode = true;
+      },
+      true => {
+        _r := input_paths.push(arg);
+      }
+    );
+    ai = (ai + usize(1));
   });
-  // Read the input file.
-  src_bytes := io.await(read_file(Path.new(input_path)));
-  original := String.from_bytes(src_bytes);
-  // Format.
-  formatted := format_yo_source(original, input_path, using(exn));
-  // Compare + write or report.
-  changed := (formatted.as_str() != original.as_str());
+  options := FormatYoFilesOptions(check : check_mode, cwd : String.from("."));
+  result := format_yo_files(input_paths, options, using(io, exn));
+  // Report.
+  cn := result.changed.len();
   cond(
     check_mode => {
-      if(changed, {
-        println(`would format: ${input_path}`);
+      (cidx : usize) = usize(0);
+      while(runtime(cidx < cn), {
+        match(
+          result.changed.get(cidx),
+          .Some(c) => println(`would format: ${c}`),
+          .None => ()
+        );
+        cidx = (cidx + usize(1));
+      });
+      if(cn > usize(0), {
         exit(int(1));
       });
     },
-    changed => {
-      io.await(write_file(Path.new(input_path), formatted));
-      println(`formatted: ${input_path}`);
-    },
-    true => () // no change, silent
+    true => {
+      (cidx : usize) = usize(0);
+      while(runtime(cidx < cn), {
+        match(
+          result.changed.get(cidx),
+          .Some(c) => println(`formatted: ${c}`),
+          .None => ()
+        );
+        cidx = (cidx + usize(1));
+      });
+    }
   );
 });
 main :: (fn(using(io : IO)) -> unit)({
