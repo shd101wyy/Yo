@@ -59,6 +59,17 @@ format_while_label_line :: (fn(indent : String, label : String) -> String)({
   s.push_str(":;");
   s
 });
+/// Format a bare C assignment expression: `<lhs> = <rhs>`. Used by
+/// `append_step_assignment` to compose the comma-joined step list
+/// inside a 3-arg `while`'s step expression. No leading indent and no
+/// trailing semicolon — the caller is appending into a larger comma
+/// expression.
+format_while_assignment_expr :: (fn(lhs : String, rhs : String) -> String)({
+  s := String.from(lhs.as_str());
+  s.push_str(" = ");
+  s.push_string(rhs);
+  s
+});
 /// Format the step-expression line inside a 3-arg `while` body:
 ///   `<indent>  <step_code>;`
 /// The 2-space inner indent matches the inside of the `while (true) {`
@@ -121,9 +132,7 @@ append_step_assignment :: (
               if(!(first.*), {
                 out.*.push_str(", ");
               });
-              out.*.push_string(lhs_code);
-              out.*.push_str(" = ");
-              out.*.push_string(rhs_code);
+              out.*.push_string(format_while_assignment_expr(lhs_code, rhs_code));
               first.* = false;
             }
           )
@@ -384,5 +393,6 @@ export(
   format_while_break_close,
   format_while_close,
   format_while_label_line,
-  format_while_step_line
+  format_while_step_line,
+  format_while_assignment_expr
 );
