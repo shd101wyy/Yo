@@ -7,7 +7,11 @@ open(import("std/string"));
 { CodegenContext, CodegenTypeEntry } :: import("../codegen/context.yo");
 {
   generate_drop_code_for_leaf_type,
-  generate_dup_code_for_leaf_type
+  generate_dup_code_for_leaf_type,
+  format_void_ptr_cast,
+  format_void_ptr_data_cast,
+  format_typed_rc_cast,
+  format_dyn_dup_rebuild
 } :: import("../codegen/exprs/drop_dup.yo");
 mk_struct :: (
   fn(
@@ -222,5 +226,40 @@ test("leaf dup: unregistered Object falls back to int32_t cast", {
       "fallback to int32_t cast"
     ),
     .None => assert(false, "expected Some")
+  );
+});
+// ─── pure string formatters ─────────────────────────────────────────────────
+test("format_void_ptr_cast: wraps value in `(void*)(...)`", {
+  out := format_void_ptr_cast(String.from("x"));
+  assert(out == String.from("(void*)(x)"), "void-ptr cast shape");
+});
+test("format_void_ptr_data_cast: appends `.data` after void-ptr cast", {
+  out := format_void_ptr_data_cast(String.from("dyn_v"));
+  assert(out == String.from("(void*)(dyn_v).data"), "void-ptr data cast shape");
+});
+test("format_typed_rc_cast: wraps incr_rc result in `((T)incr)`", {
+  out := format_typed_rc_cast(
+    String.from("MyObj"),
+    String.from("__yo_incr_rc((void*)(x))")
+  );
+  assert(
+    out == String.from("((MyObj)__yo_incr_rc((void*)(x)))"),
+    "typed-rc-cast wrap shape"
+  );
+  out2 := format_typed_rc_cast(String.from("T"), String.from("R"));
+  assert(out2 == String.from("((T)R)"), "minimal typed cast shape");
+});
+test("format_dyn_dup_rebuild: composes Dyn compound literal with vtable", {
+  out := format_dyn_dup_rebuild(
+    String.from("DynFoo"),
+    String.from("__yo_incr_rc((void*)(x).data)"),
+    String.from("x")
+  );
+  assert(
+    out ==
+      String.from(
+        "((DynFoo){ .data = __yo_incr_rc((void*)(x).data), .vtable = (x).vtable })"
+      ),
+    "dyn dup rebuild shape"
   );
 });

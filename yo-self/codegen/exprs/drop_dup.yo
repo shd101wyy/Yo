@@ -34,6 +34,49 @@ open(import("std/string"));
   format_incr_rc_call,
   format_incr_rc_atomic_call
 } :: import("./rc_fns.yo");
+/// Format the C cast `(void*)(<value_code>)`. Used 6 times across the
+/// drop/dup leaf emitters. Pure string composition.
+format_void_ptr_cast :: (fn(value_code : String) -> String)({
+  s := String.from("(void*)(");
+  s.push_str(value_code.as_str());
+  s.push_str(")");
+  s
+});
+/// Format the C cast `(void*)(<value_code>).data`. Used by the Dyn
+/// drop/dup paths to extract the data pointer from a fat-pointer Dyn
+/// value before passing it to `__yo_decr_rc` / `__yo_incr_rc`.
+format_void_ptr_data_cast :: (fn(value_code : String) -> String)({
+  s := String.from("(void*)(");
+  s.push_str(value_code.as_str());
+  s.push_str(").data");
+  s
+});
+/// Format the typed-cast wrap `((<c_name>)<value_code>)`. Used by the
+/// dup paths for non-Dyn shapes to cast the void* returned by
+/// `__yo_incr_rc[_atomic]` back to the value's concrete C type.
+format_typed_rc_cast :: (fn(c_name : String, value_code : String) -> String)({
+  s := String.from("((");
+  s.push_string(c_name);
+  s.push_str(")");
+  s.push_string(value_code);
+  s.push_str(")");
+  s
+});
+/// Format the Dyn dup rebuild compound literal:
+///   `((<dyn_c_name>){ .data = <incr>, .vtable = (<value_code>).vtable })`
+/// Reconstructs a Dyn fat-pointer after dup'ing only the data side.
+format_dyn_dup_rebuild :: (
+  fn(dyn_c_name : String, incr : String, value_code : String) -> String
+)({
+  s := String.from("((");
+  s.push_string(dyn_c_name);
+  s.push_str("){ .data = ");
+  s.push_string(incr);
+  s.push_str(", .vtable = (");
+  s.push_str(value_code.as_str());
+  s.push_str(").vtable })");
+  s
+});
 /// Emit the C drop expression for a leaf RC type shape, given the
 /// already-generated `value_code` and its static `ty`.
 ///
@@ -53,32 +96,20 @@ generate_drop_code_for_leaf_type :: (
   fn(value_code : String, ty : TypeValue) -> Option(String)
 )(
   cond(
-    is_dyn_type(ty) => {
-      arg := String.from("(void*)(");
-      arg.push_str(value_code.as_str());
-      arg.push_str(").data");
-      Option(String).Some(format_decr_rc_call(arg))
-    },
+    is_dyn_type(ty) => Option(String).Some(
+      format_decr_rc_call(format_void_ptr_data_cast(value_code))
+    ),
     // Atomic object check MUST precede the general object check
     // because `is_atomic_object_type` is the more specific predicate.
-    is_atomic_object_type(ty) => {
-      arg := String.from("(void*)(");
-      arg.push_str(value_code.as_str());
-      arg.push_str(")");
-      Option(String).Some(format_decr_rc_atomic_call(arg))
-    },
-    is_object_type(ty) => {
-      arg := String.from("(void*)(");
-      arg.push_str(value_code.as_str());
-      arg.push_str(")");
-      Option(String).Some(format_decr_rc_call(arg))
-    },
-    is_iso_type(ty) => {
-      arg := String.from("(void*)(");
-      arg.push_str(value_code.as_str());
-      arg.push_str(")");
-      Option(String).Some(format_decr_rc_atomic_call(arg))
-    },
+    is_atomic_object_type(ty) => Option(String).Some(
+      format_decr_rc_atomic_call(format_void_ptr_cast(value_code))
+    ),
+    is_object_type(ty) => Option(String).Some(
+      format_decr_rc_call(format_void_ptr_cast(value_code))
+    ),
+    is_iso_type(ty) => Option(String).Some(
+      format_decr_rc_atomic_call(format_void_ptr_cast(value_code))
+    ),
     true => Option(String).None
   )
 );
@@ -106,62 +137,33 @@ generate_dup_code_for_leaf_type :: (
   cond(
     is_dyn_type(ty) => {
       dyn_c_name := get_type_string(ty, ctx);
-      // Build the inner incr_rc call: __yo_incr_rc((void*)(x).data).
-      inner_arg := String.from("(void*)(");
-      inner_arg.push_str(value_code.as_str());
-      inner_arg.push_str(").data");
-      incr := format_incr_rc_call(inner_arg);
-      // Assemble: ((DynCName){ .data = <incr>, .vtable = (x).vtable })
-      out := String.from("((");
-      out.push_string(dyn_c_name);
-      out.push_str("){ .data = ");
-      out.push_string(incr);
-      out.push_str(", .vtable = (");
-      out.push_str(value_code.as_str());
-      out.push_str(").vtable })");
-      Option(String).Some(out)
+      incr := format_incr_rc_call(format_void_ptr_data_cast(value_code));
+      Option(String).Some(format_dyn_dup_rebuild(dyn_c_name, incr, value_code))
     },
     // Atomic object check MUST precede the general object check.
     is_atomic_object_type(ty) => {
       c_name := get_type_string(ty, ctx);
-      inner_arg := String.from("(void*)(");
-      inner_arg.push_str(value_code.as_str());
-      inner_arg.push_str(")");
-      incr := format_incr_rc_atomic_call(inner_arg);
-      out := String.from("((");
-      out.push_string(c_name);
-      out.push_str(")");
-      out.push_string(incr);
-      out.push_str(")");
-      Option(String).Some(out)
+      incr := format_incr_rc_atomic_call(format_void_ptr_cast(value_code));
+      Option(String).Some(format_typed_rc_cast(c_name, incr))
     },
     is_object_type(ty) => {
       c_name := get_type_string(ty, ctx);
-      inner_arg := String.from("(void*)(");
-      inner_arg.push_str(value_code.as_str());
-      inner_arg.push_str(")");
-      incr := format_incr_rc_call(inner_arg);
-      out := String.from("((");
-      out.push_string(c_name);
-      out.push_str(")");
-      out.push_string(incr);
-      out.push_str(")");
-      Option(String).Some(out)
+      incr := format_incr_rc_call(format_void_ptr_cast(value_code));
+      Option(String).Some(format_typed_rc_cast(c_name, incr))
     },
     is_iso_type(ty) => {
       c_name := get_type_string(ty, ctx);
-      inner_arg := String.from("(void*)(");
-      inner_arg.push_str(value_code.as_str());
-      inner_arg.push_str(")");
-      incr := format_incr_rc_atomic_call(inner_arg);
-      out := String.from("((");
-      out.push_string(c_name);
-      out.push_str(")");
-      out.push_string(incr);
-      out.push_str(")");
-      Option(String).Some(out)
+      incr := format_incr_rc_atomic_call(format_void_ptr_cast(value_code));
+      Option(String).Some(format_typed_rc_cast(c_name, incr))
     },
     true => Option(String).None
   )
 );
-export(generate_drop_code_for_leaf_type, generate_dup_code_for_leaf_type);
+export(
+  generate_drop_code_for_leaf_type,
+  generate_dup_code_for_leaf_type,
+  format_void_ptr_cast,
+  format_void_ptr_data_cast,
+  format_typed_rc_cast,
+  format_dyn_dup_rebuild
+);
