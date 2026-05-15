@@ -17,7 +17,8 @@ open(import("std/string"));
 {
   generate_anonymous_array,
   generate_yo_array_fill,
-  extract_array_type_value
+  extract_array_type_value,
+  format_array_compound_literal
 } :: import("../codegen/exprs/array_fns.yo");
 {
   get_type_string_opt,
@@ -218,5 +219,28 @@ test("generate_yo_array_fill: rejects non-TypeVal first argument", {
   assert(
     result == String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"),
     "diagnostic"
+  );
+});
+// ─── format_array_compound_literal ──────────────────────────────────────────
+test("format_array_compound_literal: composes (Type){ .data = { ... } }", {
+  out := format_array_compound_literal(
+    String.from("Array_i32_3"),
+    String.from("1, 2, 3")
+  );
+  assert(
+    out == String.from("(Array_i32_3){ .data = { 1, 2, 3 } }"),
+    "array compound literal"
+  );
+});
+test("format_array_compound_literal: empty args list", {
+  // Edge case — a zero-element array still has the `.data = { }`
+  // shape so the C compiler emits a valid (but empty) initialiser.
+  out := format_array_compound_literal(
+    String.from("Array_u8_0"),
+    String.from("")
+  );
+  assert(
+    out == String.from("(Array_u8_0){ .data = {  } }"),
+    "empty args list"
   );
 });

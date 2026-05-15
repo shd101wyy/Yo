@@ -19,6 +19,22 @@ open(import("std/string"));
 // `array_variable_type_string` was a local divergence — its body
 // is the canonical `get_variable_type_string_opt_str` in utils.yo.
 // Callers are migrated to use the canonical helper directly.
+/// Format an array compound literal:
+///   `(<array_type_name>){ .data = { <args_list> } }`
+///
+/// `args_list` is a single pre-joined string of comma-separated
+/// element expressions. Mirrors the tail return of TS
+/// `generateAnonymousArray` — pure string composition.
+format_array_compound_literal :: (
+  fn(array_type_name : String, args_list : String) -> String
+)({
+  s := String.from("(");
+  s.push_string(array_type_name);
+  s.push_str("){ .data = { ");
+  s.push_str(args_list.as_str());
+  s.push_str(" } }");
+  s
+});
 array_apply_deferred_dup :: (
   fn(arg : AstExpr, arg_code : String, ctx : *(CodegenContext), indent : String) -> Option(String)
 )(
@@ -122,11 +138,7 @@ array_value_or_temp :: (
     indent : String
   ) -> Option(String)
 )({
-  array_value := String.from("(");
-  array_value.push_string(array_type_name);
-  array_value.push_str("){ .data = { ");
-  array_value.push_string(args_list);
-  array_value.push_str(" } }");
+  array_value := format_array_compound_literal(array_type_name, args_list);
   match(
     temp_var,
     .None => Option(String).Some(array_value),
@@ -289,5 +301,6 @@ export(
   generate_anonymous_array,
   generate_yo_array_fill,
   array_args_to_c_with_deferred_dup,
-  extract_array_type_value
+  extract_array_type_value,
+  format_array_compound_literal
 );
