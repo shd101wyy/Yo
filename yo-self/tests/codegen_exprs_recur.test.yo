@@ -15,7 +15,9 @@ open(import("std/string"));
 {
   generate_recur,
   recur_append_evidence_args,
-  recur_array_contains_string
+  recur_array_contains_string,
+  format_typed_temp_assignment,
+  format_c_function_call
 } :: import("../codegen/exprs/recur.yo");
 
 mk_token :: (fn(value : str, kind : TokenKind) -> Token)(
@@ -206,4 +208,28 @@ test("generate_recur: emits deferred drops before temp declaration", {
     out.contains(String.from("  __yo_decr_rc(x);\n  int32_t tmp_u46_recur = fn_loop(next);")),
     "drop before temp"
   );
+});
+// ─── pure string formatters ─────────────────────────────────────────────────
+test("format_typed_temp_assignment: composes indented decl + initializer", {
+  out := format_typed_temp_assignment(
+    String.from("  "),
+    String.from("int32_t"),
+    String.from("tmp_u46_recur"),
+    String.from("fn_loop(next)")
+  );
+  assert(
+    out == String.from("  int32_t tmp_u46_recur = fn_loop(next);"),
+    "typed temp assignment shape"
+  );
+});
+test("format_c_function_call: composes fn-name with pre-joined args", {
+  out := format_c_function_call("fn_loop", String.from("next, evidence"));
+  assert(
+    out == String.from("fn_loop(next, evidence)"),
+    "function call shape"
+  );
+});
+test("format_c_function_call: empty args yields fn-name + ()", {
+  out := format_c_function_call("fn_zero", String.from(""));
+  assert(out == String.from("fn_zero()"), "empty args shape");
 });

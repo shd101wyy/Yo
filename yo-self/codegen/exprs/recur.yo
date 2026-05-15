@@ -14,6 +14,33 @@ open(import("std/string"));
 } :: import("../utils/index.yo");
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
 
+/// Format a typed-temp assignment line:
+///   `<indent><c_type> <name> = <value_code>;`
+///
+/// Pure string composition — mirrors the inline build of the
+/// "declare-and-init the result temp" line in `recur_emit_temp_if_needed`.
+format_typed_temp_assignment :: (
+  fn(indent : String, c_type : String, name : String, value_code : String) -> String
+)({
+  s := String.from(indent.as_str());
+  s.push_string(c_type);
+  s.push_str(" ");
+  s.push_string(name);
+  s.push_str(" = ");
+  s.push_string(value_code);
+  s.push_str(";");
+  s
+});
+/// Format a plain C function call: `<fn_name>(<args_code>)`. The args
+/// payload is passed pre-joined (callers control the comma-separated
+/// argument list). Pure string composition.
+format_c_function_call :: (fn(fn_name : str, args_code : String) -> String)({
+  s := String.from(fn_name);
+  s.push_str("(");
+  s.push_string(args_code);
+  s.push_str(")");
+  s
+});
 recur_array_contains_string :: (fn(items : ArrayList(String), needle : String) -> bool)({
   found := false;
   i := usize(0);
@@ -142,14 +169,9 @@ recur_emit_temp_if_needed :: (
             temp_var_name := sanitize_for_c_identifier(temp_var);
             if(!(recur_array_contains_string(ctx.*.declared_temp_vars, temp_var_name)), {
               ctx.*.declared_temp_vars.push(temp_var_name);
-              line := String.from(indent.as_str());
-              line.push_string(c_type);
-              line.push_str(" ");
-              line.push_string(temp_var_name);
-              line.push_str(" = ");
-              line.push_string(call_code);
-              line.push_str(";");
-              ctx.*.emitter.emit_string_line(line);
+              ctx.*.emitter.emit_string_line(
+                format_typed_temp_assignment(indent, c_type, temp_var_name, call_code)
+              );
             });
             Option(String).Some(temp_var_name)
           }
@@ -178,10 +200,7 @@ generate_recur :: (
         .None => Option(String).None,
         .Some(args_list) => {
           full_args := recur_append_evidence_args(args_list, ctx);
-          call_code := String.from(ctx.*.current_fn_name.as_str());
-          call_code.push_str("(");
-          call_code.push_string(full_args);
-          call_code.push_str(")");
+          call_code := format_c_function_call(ctx.*.current_fn_name.as_str(), full_args);
           cond(
             (!(recur_emit_deferred_drops(call_expr, ctx, indent))) => Option(String).None,
             true => recur_emit_temp_if_needed(call_expr, call_code, ctx, indent)
@@ -197,5 +216,7 @@ export(
   recur_args_to_c,
   recur_append_evidence_args,
   recur_emit_deferred_drops,
-  recur_array_contains_string
+  recur_array_contains_string,
+  format_typed_temp_assignment,
+  format_c_function_call
 );
