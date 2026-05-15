@@ -14,7 +14,8 @@ open(import("std/string"));
   sanitize_for_c_identifier,
   sanitize_for_c_identifier_str,
   get_type_string_opt,
-  get_variable_type_string_opt_str
+  get_variable_type_string_opt_str,
+  format_indented_stmt
 } :: import("../utils/index.yo");
 // `array_variable_type_string` was a local divergence — its body
 // is the canonical `get_variable_type_string_opt_str` in utils.yo.
@@ -35,15 +36,13 @@ format_array_compound_literal :: (
   s.push_str(" } }");
   s
 });
-/// Format an indented C statement line: `<indent><code>;`. Used by
-/// `array_apply_deferred_dup` to emit each dup expression as its own
-/// statement before the array literal is built.
-format_array_indented_stmt :: (fn(indent : String, code : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_string(code);
-  s.push_str(";");
-  s
-});
+// `format_array_indented_stmt` was a local divergence — body identical
+// to the canonical `format_indented_stmt` in `codegen/utils/index.yo`.
+// Re-exported as an alias for backward compatibility with the test
+// import; new callers should import `format_indented_stmt` directly.
+format_array_indented_stmt :: (fn(indent : String, code : String) -> String)(
+  format_indented_stmt(indent, code)
+);
 /// Format the array-temp initialisation line:
 ///   `<indent><type_and_name> = <value_code>;`
 /// `type_and_name` is the result of `get_variable_type_string_opt_str`

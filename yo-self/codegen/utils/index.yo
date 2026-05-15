@@ -202,6 +202,18 @@ indent_minus_two :: (fn(indent : String) -> String)(
     true => String.new()
   )
 );
+/// Format an indented C statement line: `<indent><code>;`. The canonical
+/// shape used by virtually every codegen handler when emitting a
+/// runtime statement (drop calls, dup calls, side-effecting begin-arm
+/// args, etc.). Pure string composition; no semicolon-checking — the
+/// caller is responsible for ensuring `code` is a valid C expression
+/// rather than a statement (and thus needs its own trailing `;`).
+format_indented_stmt :: (fn(indent : String, code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_string(code);
+  s.push_str(";");
+  s
+});
 /// True iff `t` is an enum whose every variant carries no data — so
 /// it can be lowered to a plain C `enum` instead of a tagged-union
 /// struct. Equivalent to TS `canOptimizeAsSimpleEnum` in
@@ -690,6 +702,7 @@ export(
   format_typed_var_name,
   indent_plus_two,
   indent_minus_two,
+  format_indented_stmt,
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,

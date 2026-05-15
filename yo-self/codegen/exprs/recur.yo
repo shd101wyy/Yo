@@ -10,7 +10,8 @@ open(import("std/string"));
 { call_gen_expr } :: import("./expr.yo");
 {
   sanitize_for_c_identifier,
-  get_type_string_opt
+  get_type_string_opt,
+  format_indented_stmt
 } :: import("../utils/index.yo");
 { tuple_apply_deferred_dup } :: import("./tuple_fn.yo");
 
@@ -41,15 +42,13 @@ format_c_function_call :: (fn(fn_name : str, args_code : String) -> String)({
   s.push_str(")");
   s
 });
-/// Format an indented C statement line: `<indent><code>;`. Used by
-/// `recur_emit_deferred_drops` to emit each drop expression as its
-/// own statement before the recur call.
-format_indented_stmt_line :: (fn(indent : String, code : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_string(code);
-  s.push_str(";");
-  s
-});
+// `format_indented_stmt_line` was a local divergence — body identical
+// to the canonical `format_indented_stmt` in `codegen/utils/index.yo`.
+// Re-exported as an alias for backward compatibility with the test
+// import; new callers should import `format_indented_stmt` directly.
+format_indented_stmt_line :: (fn(indent : String, code : String) -> String)(
+  format_indented_stmt(indent, code)
+);
 recur_array_contains_string :: (fn(items : ArrayList(String), needle : String) -> bool)({
   found := false;
   i := usize(0);
