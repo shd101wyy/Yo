@@ -6,6 +6,14 @@ open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
 { CodegenContext } :: import("../context.yo");
 { call_gen_expr } :: import("./expr.yo");
+/// Format the C `sizeof(<arg>)` expression. Pure string composition;
+/// mirrors the tail of TS `generateSizeOf`.
+format_sizeof_call :: (fn(arg_code : String) -> String)({
+  s := String.from("sizeof(");
+  s.push_string(arg_code);
+  s.push_str(")");
+  s
+});
 /// Generate C code for a `sizeof(expr)` call.
 ///
 /// Mirrors `generateSizeOf` in `src/codegen/exprs/sizeof.ts`.
@@ -18,13 +26,8 @@ generate_sizeof :: (
     .Some(arg_expr) => match(
       call_gen_expr(arg_expr, ctx, indent),
       .None => Option(String).None,
-      .Some(arg_code) => {
-        result := String.from("sizeof(");
-        result.push_string(arg_code);
-        result.push_str(")");
-        Option(String).Some(result)
-      }
+      .Some(arg_code) => Option(String).Some(format_sizeof_call(arg_code))
     )
   )
 );
-export(generate_sizeof);
+export(generate_sizeof, format_sizeof_call);

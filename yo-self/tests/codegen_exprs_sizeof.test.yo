@@ -9,7 +9,7 @@ open(import("std/string"));
 { CodegenContext } :: import("../codegen/context.yo");
 { generate_expr } :: import("../codegen/exprs.yo");
 { set_generate_expr_fn } :: import("../codegen/exprs/expr.yo");
-{ generate_sizeof } :: import("../codegen/exprs/sizeof.yo");
+{ generate_sizeof, format_sizeof_call } :: import("../codegen/exprs/sizeof.yo");
 make_token :: (fn(kind : TokenKind, value : str) -> Token)(
   Token(
     kind : kind,
@@ -47,4 +47,8 @@ test("generate_sizeof: missing argument returns None", {
     .None => assert(true, "expected no output"),
     .Some(_) => assert(false, "expected no output")
   );
+});
+test("format_sizeof_call: wraps argument in sizeof(...)", {
+  out := format_sizeof_call(String.from("Color"));
+  assert(out == String.from("sizeof(Color)"), "sizeof call shape");
 });
