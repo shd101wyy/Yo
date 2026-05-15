@@ -20,7 +20,7 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 | `codegen/exprs.yo`                            | 13135 | `codegen/exprs/*.ts` (37 files, ~10K lines) + much of `codegen/exprs/generation.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `codegen/driver.yo`                           | 5134  | **acceptable divergence (bootstrap-specific)** — the yo-self bootstrap codegen pipeline. Pattern-matches raw AstExpr (`extract_fn_def`, `extract_struct_def`, `extract_enum_def`, `emit_*_to_c`, …) without using the evaluator. src/ has no equivalent: the production compiler always runs `evaluator → codegen-c.ts` on the typed AST. Will be deleted once yo-self adopts its own typed AST (roadmap Phase 13at).                                                                                                                                             |
 | `codegen/context.yo`                          | 1720  | **acceptable divergence (Yo idiom + bootstrap-specific)** — CodegenContext struct + 9 entry types (~390 lines) + impl block of ~60 helper methods (~1300 lines). In src/ the analog (`FunctionGenerationContext` in `src/codegen/functions/context.ts`) is data-only; operations are scattered functions. yo-self's idiom bundles them in `impl(...)`. Most helpers (`register_box_var`, `register_const_var`, `register_generic_struct_template`, etc.) are bootstrap-only heuristics that don't exist in src/'s typed-AST codegen at all.                       |
-| `evaluator/eval.yo`                           | 8258  | parts of `evaluator/index.ts` (239) + per-handler dispatch logic that should live in `evaluator/exprs/*.yo`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `evaluator/eval.yo`                           | 8147  | **acceptable divergence (bootstrap-specific)** — yo-self's bootstrap proto-evaluator. `evaluator/index.yo` (which mirrors `src/evaluator/index.ts` 1-to-1) delegates here while the proper typed-AST evaluator path is broken (see `issues/yo-self-bin-rebuild-segfaults-after-may14-src-codegen-changes.md`). The 23 proper per-handler files (`evaluator/exprs/*.yo` mirroring `src/evaluator/exprs/*.ts`) already exist alongside this file. Once the proper evaluator path is unblocked, eval.yo's `evaluate` dispatch moves into the per-handler files.      |
 | `evaluator/utils.yo`                          | 1235  | **acceptable divergence (cycle-forced)** — after Phase A.4.1 the residual content ports helpers whose src/ homes are split across `src/evaluator/utils.ts` (3 funcs), `src/expr.ts` (7 funcs incl. the 397-line `merge_and_check_envs`), and `src/value.ts` (`are_values_equal`). Splitting back into those three files creates `expr.yo` ↔ `env.yo` ↔ `value.yo` import cycles which yo-self's eager destructuring import cannot tolerate. TypeScript only avoids the cycle because module loading is lazy. The full mapping is documented in the file header. |
 | `evaluator/types/trait_registry.yo`           | 59    | fold into `evaluator/trait_checking.yo` — primary consumer, and utils.yo (where `register_type_trait` is called) already imports trait_checking.yo, so no new import cycle. (src/ sets trait info on TypeValue directly during construction; yo-self needs a side-table because TypeValue can't carry the field cleanly yet)                                                                                                                                                                                                                                      |
 | `evaluator/types/control_fn_registry.yo`      | 33    | fold into new `yo-self/function_value.yo` (mirrors `isControlFunction` field on FunctionValue in `src/function-value.ts`)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -33,6 +33,45 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 **Action**: progressively decompose the monoliths so each function lives
 in the file that mirrors its `src/` location. Start with the smallest
 (`evaluator/types/*registry.yo`) and work toward `codegen/exprs.yo`.
+
+### Phase A.7 — `evaluator/eval.yo` reclassification (**COMPLETED** 2026-05-15)
+
+Investigated `evaluator/eval.yo` (8147 lines). Discovery:
+
+- `evaluator/index.yo` (208 lines, 1-to-1 with `src/evaluator/index.ts`
+  at 239 lines) imports `evaluate_module_body` + `set_module_loader`
+  from eval.yo and delegates the actual evaluation work to it.
+- eval.yo's giant `evaluate` function (~3000 lines starting at line 5107) is a parallel implementation of the entire evaluator pipeline
+  in a single pattern-matching dispatch.
+- The 23 proper per-handler files (`evaluator/exprs/*.yo` mirroring
+  `src/evaluator/exprs/*.ts`) already exist as the 1-to-1 ports of
+  src/'s split.
+
+The bootstrap path:
+main.yo → codegen/driver.yo (AST-walking codegen, Phase A.6) + bypass of try_populate_expr_info_table (returns .None)
+
+vs proper path (currently blocked by segfault):
+main.yo → try_populate_expr_info_table → evaluator/index.yo →
+evaluator/exprs/\* (the per-handler files)
+
+Same pattern as `codegen/driver.yo` (A.6) and `codegen/context.yo` (A.5):
+this is a yo-self-bootstrap-only file with no src/ counterpart. It
+will be deleted (or reduced to a thin re-exporter) once the proper
+evaluator path is unblocked.
+
+Decision: reclassify as **acceptable divergence (bootstrap-specific)**.
+File header updated.
+
+Net result of Phase A.7: §1 active-decomposition list drops to **1
+entry**:
+
+- `codegen/exprs.yo` (13135 lines — 37 src files to split into)
+
+This is the single remaining real 1-to-1 decomposition task. Like all
+the other genuinely-large splits we've completed in this session, the
+mechanical work is straightforward (per-handler extraction + import
+rewrites for ~37 destination files) but high blast-radius and requires
+its own dedicated session.
 
 ### Phase A.6 — `codegen/driver.yo` reclassification (**COMPLETED** 2026-05-15)
 

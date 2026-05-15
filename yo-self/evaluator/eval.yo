@@ -1,5 +1,23 @@
 //! Core evaluator dispatch — Phase 3a + 3b + 3c + 3d + 3e + 3f + 3g + 3h + 3i + 3j + 3n + 3aj + 3ak + 3al + 3am + 3an + 3ao + 3ap + 3aq.
 //!
+//! **Structural mapping vs src/**: this file is the yo-self **bootstrap
+//! proto-evaluator**. `evaluator/index.yo` (the 1-to-1 port of
+//! `src/evaluator/index.ts`) delegates to `evaluate_module_body` and
+//! `evaluate` here as a workaround until the typed-AST evaluator path
+//! works end-to-end. The proper-evaluator counterpart files
+//! (`evaluator/exprs/*.yo` × 23 — each mirroring `src/evaluator/exprs/*.ts`)
+//! already exist alongside this file but are not yet wired into
+//! `main.yo`'s pipeline — see
+//! `issues/yo-self-bin-rebuild-segfaults-after-may14-src-codegen-changes.md`.
+//!
+//! Like `codegen/driver.yo`, this file is an **acceptable divergence
+//! (bootstrap-specific)**: its giant `evaluate` dispatch is a parallel
+//! implementation that has no src/ counterpart; src/ always dispatches
+//! through `evaluator/exprs/*.ts` from the start. Once the proper
+//! evaluator path is unblocked, the bulk of this file's logic moves to
+//! `evaluator/exprs/*.yo` (where the empty/stub handlers live) and this
+//! file becomes a thin re-exporter.
+//!
 //! `evaluate` is the main entry point. It handles:
 //!   - Literal atoms  (Bool, Integer, Float, StringLit, TemplateString, CharLit)
 //!   - Identifier atoms (returns stored compile-time value when available,
