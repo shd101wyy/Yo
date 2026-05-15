@@ -36,6 +36,7 @@ open(import("std/string"));
 } :: import("../utils/index.yo");
 { format_incr_rc_call, format_incr_rc_atomic_call } :: import("./rc_fns.yo");
 { format_typed_rc_cast } :: import("./drop_dup.yo");
+{ format_enum_tag_construction } :: import("./comptime_value.yo");
 { register_typeid_static, extract_type_value } :: import("./typeid.yo");
 { call_gen_expr } :: import("./expr.yo");
 /// Format the box-extraction subexpression
@@ -118,16 +119,16 @@ format_option_some_construction :: (
 });
 /// Format the `Option.None` construction:
 ///   `(<option_c_name>){ .tag = <none_tag> }`
+// `format_option_none_construction` was a local divergence — the shape
+// `(<option>){ .tag = <tag> }` is identical to the canonical
+// `format_enum_tag_construction` in `comptime_value.yo`. Re-exported
+// here as an alias for the test import; new callers should use the
+// canonical name.
 format_option_none_construction :: (
   fn(option_c_name : String, none_tag : String) -> String
-)({
-  s := String.from("(");
-  s.push_string(option_c_name);
-  s.push_str("){ .tag = ");
-  s.push_string(none_tag);
-  s.push_str(" }");
-  s
-});
+)(
+  format_enum_tag_construction(option_c_name, none_tag)
+);
 /// Emit the C expression for a `downcast(dyn_value, T)` call where the
 /// runtime path is the non-boxed-object branch.
 ///
