@@ -17,15 +17,13 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr } :: import("../../expr.yo");
 { CodegenContext } :: import("../context.yo");
+{ format_c_function_call } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 /// Format `__yo_thread_set_maximum_threads(<num_code>)`. Pure string
 /// composition — the runtime call site for the 1-arg builtin.
-format_thread_set_max_call :: (fn(num_code : String) -> String)({
-  s := String.from("__yo_thread_set_maximum_threads(");
-  s.push_string(num_code);
-  s.push_str(")");
-  s
-});
+format_thread_set_max_call :: (fn(num_code : String) -> String)(
+  format_c_function_call("__yo_thread_set_maximum_threads", num_code)
+);
 generate_yo_thread_set_maximum_threads :: (
   fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
 )(
@@ -43,25 +41,21 @@ generate_yo_thread_set_maximum_threads :: (
 /// tail return of TS `generateThreadSpawnCall`. Pure string wrap; the
 /// wrapper-fn name and heap-data variable are produced by the
 /// (still-pending) closure heap-alloc machinery.
-format_thread_spawn_call :: (fn(wrapper_fn : String, heap_data : String) -> String)({
-  s := String.from("__yo_thread_spawn(");
-  s.push_str(wrapper_fn.as_str());
-  s.push_str(", ");
-  s.push_str(heap_data.as_str());
-  s.push_str(")");
-  s
-});
+format_thread_spawn_call :: (fn(wrapper_fn : String, heap_data : String) -> String)(
+  format_c_function_call(
+    "__yo_thread_spawn",
+    (wrapper_fn + String.from(", ")) + heap_data
+  )
+);
 /// Format `__yo_worker_spawn(wrapper_fn, heap_data)`. Symmetric to
 /// `format_thread_spawn_call` — the only difference is the runtime
 /// function name. Mirrors TS `generateWorkerSpawnCall`'s emit line.
-format_worker_spawn_call :: (fn(wrapper_fn : String, heap_data : String) -> String)({
-  s := String.from("__yo_worker_spawn(");
-  s.push_str(wrapper_fn.as_str());
-  s.push_str(", ");
-  s.push_str(heap_data.as_str());
-  s.push_str(")");
-  s
-});
+format_worker_spawn_call :: (fn(wrapper_fn : String, heap_data : String) -> String)(
+  format_c_function_call(
+    "__yo_worker_spawn",
+    (wrapper_fn + String.from(", ")) + heap_data
+  )
+);
 /// Format the heap-allocation line:
 ///   `<capture_c_name>* <heap_var> = (<capture_c_name>*)__yo_malloc(sizeof(<capture_c_name>));`
 ///
