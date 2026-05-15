@@ -11,6 +11,8 @@
 //! will be filled in by successive commits.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("./token.yo");
 // ---------------------------------------------------------------------------
 // Constants
@@ -336,6 +338,227 @@ has_top_level_operator :: (fn(tokens : ArrayList(Token), left_index : usize, rig
   has_top_level_token(tokens, left_index, right_index, TokenKind.Operator)
 );
 // ---------------------------------------------------------------------------
+// Set/Map computation helpers
+// ---------------------------------------------------------------------------
+/// Walk past tokens whose index is in `skipped_indices`, returning the
+/// nearest non-skipped successor. Mirrors `nextToken`.
+next_token :: (fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize), index : usize) -> Option(Token))({
+  n := tokens.len();
+  (next_index : usize) = (index + usize(1));
+  (result : Option(Token)) = Option(Token).None;
+  (done : bool) = false;
+  while(runtime((next_index < n) && (!(done))), {
+    cond(
+      skipped_indices.contains(next_index) => (),
+      true => {
+        result = tokens.get(next_index);
+        done = true;
+      }
+    );
+    next_index = (next_index + usize(1));
+  });
+  result
+});
+/// Build a map of each `LParen` index → its matching `RParen` index.
+/// Mirrors `findMatchingParenIndices`.
+find_matching_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, usize))({
+  pairs := HashMap(usize, usize).new();
+  stack := ArrayList(usize).new();
+  n := tokens.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        (t.kind == TokenKind.LParen) => {
+          _r := stack.push(i);
+        },
+        (t.kind == TokenKind.RParen) => {
+          if(stack.len() > usize(0), {
+            left := match(stack.get(stack.len() - usize(1)),.Some(x) => x,.None => usize(0));
+            _r := stack.pop();
+            _r2 := pairs.set(left, i);
+          });
+        },
+        true => ()
+      )
+    );
+    i = (i + usize(1));
+  });
+  pairs
+});
+/// Build a map of each inner `LParen` index → its parent `LParen` index.
+/// Top-level parens are absent. Mirrors `findParentParenIndices`.
+find_parent_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, usize))({
+  parents := HashMap(usize, usize).new();
+  stack := ArrayList(usize).new();
+  n := tokens.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        (t.kind == TokenKind.LParen) => {
+          if(stack.len() > usize(0), {
+            parent := match(stack.get(stack.len() - usize(1)),.Some(x) => x,.None => usize(0));
+            _r := parents.set(i, parent);
+          });
+          _r2 := stack.push(i);
+        },
+        (t.kind == TokenKind.RParen) => {
+          if(stack.len() > usize(0), {
+            _r := stack.pop();
+          });
+        },
+        true => ()
+      )
+    );
+    i = (i + usize(1));
+  });
+  parents
+});
+/// Compute the set of `LCurlyBracket` and matching `RCurlyBracket` indices
+/// that should render on a single line (no top-level semicolons inside).
+/// Mirrors `findInlineCurlyIndices`. Stack frames track per-frame
+/// `paren_depth` / `bracket_depth` so semicolons inside nested calls don't
+/// trigger multiline mode for the enclosing curly.
+find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
+  inline_indices := HashSet(usize).new();
+  stack_indices := ArrayList(usize).new();
+  stack_paren_depths := ArrayList(usize).new();
+  stack_bracket_depths := ArrayList(usize).new();
+  stack_has_top_level_semi := ArrayList(bool).new();
+  (paren_depth : usize) = usize(0);
+  (bracket_depth : usize) = usize(0);
+  n := tokens.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        (t.kind == TokenKind.LCurlyBracket) => {
+          _r1 := stack_indices.push(i);
+          _r2 := stack_paren_depths.push(paren_depth);
+          _r3 := stack_bracket_depths.push(bracket_depth);
+          _r4 := stack_has_top_level_semi.push(false);
+        },
+        (t.kind == TokenKind.Semicolon) => {
+          if(stack_indices.len() > usize(0), {
+            top := (stack_indices.len() - usize(1));
+            frame_paren := match(stack_paren_depths.get(top),.Some(x) => x,.None => usize(0));
+            frame_bracket := match(stack_bracket_depths.get(top),.Some(x) => x,.None => usize(0));
+            if((frame_paren == paren_depth) && (frame_bracket == bracket_depth), {
+              // pop+push to update top-of-stack (ArrayList has no set-at-index)
+              _p := stack_has_top_level_semi.pop();
+              _r := stack_has_top_level_semi.push(true);
+            });
+          });
+        },
+        (t.kind == TokenKind.RCurlyBracket) => {
+          if(stack_indices.len() > usize(0), {
+            top := (stack_indices.len() - usize(1));
+            left_idx := match(stack_indices.get(top),.Some(x) => x,.None => usize(0));
+            has_semi := match(stack_has_top_level_semi.get(top),.Some(x) => x,.None => false);
+            _p1 := stack_indices.pop();
+            _p2 := stack_paren_depths.pop();
+            _p3 := stack_bracket_depths.pop();
+            _p4 := stack_has_top_level_semi.pop();
+            if(!(has_semi), {
+              _add1 := inline_indices.add(left_idx);
+              _add2 := inline_indices.add(i);
+            });
+          });
+        },
+        (t.kind == TokenKind.LParen) => {
+          paren_depth = (paren_depth + usize(1));
+        },
+        ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+          paren_depth = (paren_depth - usize(1));
+        },
+        (t.kind == TokenKind.LBracket) => {
+          bracket_depth = (bracket_depth + usize(1));
+        },
+        ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+          bracket_depth = (bracket_depth - usize(1));
+        },
+        true => ()
+      )
+    );
+    i = (i + usize(1));
+  });
+  inline_indices
+});
+/// Compute indices of `LBracket` / `RBracket` pairs that span multiple
+/// source rows. Mirrors `findMultilineBracketIndices`.
+find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
+  multiline_indices := HashSet(usize).new();
+  stack := ArrayList(usize).new();
+  n := tokens.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        (t.kind == TokenKind.LBracket) => {
+          _r := stack.push(i);
+        },
+        (t.kind == TokenKind.RBracket) => {
+          if(stack.len() > usize(0), {
+            left_idx := match(stack.get(stack.len() - usize(1)),.Some(x) => x,.None => usize(0));
+            _p := stack.pop();
+            left_tok := match(tokens.get(left_idx),.Some(lt) => lt, .None => t);
+            if(t.row > left_tok.row, {
+              _add1 := multiline_indices.add(left_idx);
+              _add2 := multiline_indices.add(i);
+            });
+          });
+        },
+        true => ()
+      )
+    );
+    i = (i + usize(1));
+  });
+  multiline_indices
+});
+/// Compute indices of `LCurlyBracket` / `RCurlyBracket` pairs that are
+/// marked inline-eligible (by `find_inline_curly_indices`) but actually
+/// span multiple rows in the source. Mirrors `findMultilineInlineCurlyIndices`.
+find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_curly_indices : HashSet(usize)) -> HashSet(usize))({
+  multiline_indices := HashSet(usize).new();
+  stack := ArrayList(usize).new();
+  n := tokens.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        (t.kind == TokenKind.LCurlyBracket) => {
+          _r := stack.push(i);
+        },
+        (t.kind == TokenKind.RCurlyBracket) => {
+          if(stack.len() > usize(0), {
+            left_idx := match(stack.get(stack.len() - usize(1)),.Some(x) => x,.None => usize(0));
+            _p := stack.pop();
+            left_tok := match(tokens.get(left_idx),.Some(lt) => lt, .None => t);
+            if(inline_curly_indices.contains(left_idx) && (t.row > left_tok.row), {
+              _add1 := multiline_indices.add(left_idx);
+              _add2 := multiline_indices.add(i);
+            });
+          });
+        },
+        true => ()
+      )
+    );
+    i = (i + usize(1));
+  });
+  multiline_indices
+});
+// ---------------------------------------------------------------------------
 // Public entry — `format_yo_source`
 // ---------------------------------------------------------------------------
 /// Format the given Yo source text and return the rewritten output.
@@ -370,5 +593,11 @@ export(
   has_any_token,
   has_top_level_token,
   has_top_level_operator,
+  next_token,
+  find_matching_paren_indices,
+  find_parent_paren_indices,
+  find_inline_curly_indices,
+  find_multiline_bracket_indices,
+  find_multiline_inline_curly_indices,
   format_yo_source
 );
