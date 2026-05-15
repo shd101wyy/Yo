@@ -15,7 +15,11 @@ open(import("std/fmt"));
 { TypeValue, t_i32, t_bool } :: import("../types/type.yo");
 { EvalValue } :: import("../value.yo");
 { CodegenContext } :: import("../codegen/context.yo");
-{ generate_binding, inner_atom_token_value } :: import("../codegen/exprs/binding.yo");
+{
+  generate_binding,
+  inner_atom_token_value,
+  format_variable_decl_line
+} :: import("../codegen/exprs/binding.yo");
 { get_variable_type_string, get_variable_type_string_str } :: import("../codegen/utils/index.yo");
 mk_atom :: (fn(id : usize, value : str, kind : TokenKind) -> AstExpr)(
   AstExpr.Atom(
@@ -178,4 +182,18 @@ test("generate_binding: returns None when LHS has no metadata", {
   args.push(mk_atom(usize(151), "i32", TokenKind.Identifier));
   result := generate_binding(args, &(ctx), String.from(""));
   assert(result.is_none(), "no metadata → None");
+});
+test("format_variable_decl_line: appends ; to indented type-and-name", {
+  out := format_variable_decl_line(
+    String.from("  "),
+    String.from("int32_t x")
+  );
+  assert(out == String.from("  int32_t x;"), "indented decl line");
+});
+test("format_variable_decl_line: empty indent yields bare decl", {
+  out := format_variable_decl_line(
+    String.from(""),
+    String.from("Color c")
+  );
+  assert(out == String.from("Color c;"), "no indent");
 });

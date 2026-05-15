@@ -33,6 +33,18 @@ open(import("std/string"));
 { TypeValue, is_struct_type } :: import("../../types/type.yo");
 { CodegenContext } :: import("../context.yo");
 { get_variable_type_string_str } :: import("../utils/index.yo");
+/// Format a bare C variable declaration line:
+///   `<indent><type_and_name>;`
+///
+/// `type_and_name` is the result of `get_variable_type_string_str`
+/// — already a single space-separated "C-type C-name" string. Mirrors
+/// the two inline composition sites in `generate_binding`.
+format_variable_decl_line :: (fn(indent : String, type_and_name : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_string(type_and_name);
+  s.push_str(";");
+  s
+});
 /// Extract the inner expression token value from a `comptime(x)` or
 /// `given(x)` 1-arg call.
 inner_atom_token_value :: (fn(call_expr : AstExpr) -> Option(String))(
@@ -96,10 +108,7 @@ generate_binding :: (
                     Option(String).Some(String.from("")),
                   true => {
                     decl := get_variable_type_string_str(inner_info.ty, inner_name.as_str(), ctx);
-                    line := String.from(indent.as_str());
-                    line.push_string(decl);
-                    line.push_str(";");
-                    ctx.*.emitter.emit_string_line(line);
+                    ctx.*.emitter.emit_string_line(format_variable_decl_line(indent, decl));
                     Option(String).Some(String.from(""))
                   }
                 )
@@ -116,10 +125,7 @@ generate_binding :: (
             .None => Option(String).None,
             .Some(lhs_info) => {
               decl := get_variable_type_string_str(lhs_info.ty, lhs_tok.value.as_str(), ctx);
-              line := String.from(indent.as_str());
-              line.push_string(decl);
-              line.push_str(";");
-              ctx.*.emitter.emit_string_line(line);
+              ctx.*.emitter.emit_string_line(format_variable_decl_line(indent, decl));
               Option(String).Some(String.from(""))
             }
           )
@@ -128,4 +134,4 @@ generate_binding :: (
     )
   )
 );
-export(generate_binding, inner_atom_token_value);
+export(generate_binding, inner_atom_token_value, format_variable_decl_line);
