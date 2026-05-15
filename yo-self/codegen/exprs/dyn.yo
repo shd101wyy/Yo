@@ -28,7 +28,12 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { CodegenContext, CodegenDynImplEntry } :: import("../context.yo");
-{ get_type_string, get_type_string_opt, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{
+  get_type_string,
+  get_type_string_opt,
+  sanitize_for_c_identifier,
+  format_indented_line
+} :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 /// Build the C identifier for a dyn vtable: `__yo_vtable_<sanitized(impl_key)>`.
 ///
@@ -105,11 +110,9 @@ format_dyn_vtable_init :: (fn(indent : String, vtable_name : String) -> String)(
 });
 /// Format the closing line of the dyn struct-literal declaration:
 ///   `<indent>};`
-format_dyn_struct_decl_close :: (fn(indent : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("};");
-  s
-});
+format_dyn_struct_decl_close :: (fn(indent : String) -> String)(
+  format_indented_line(indent, "};")
+);
 /// Emit the C declaration for a `dyn(value)` cast given pre-resolved
 /// types. Returns `.Some(temp_var_name)` on success or `.None` when
 /// any precondition fails.
