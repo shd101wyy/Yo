@@ -7,7 +7,11 @@
 open(import("std/string"));
 {
   format_cond_temp_decl,
-  format_cond_assignment_line
+  format_cond_assignment_line,
+  format_cond_if_open,
+  format_cond_else_open,
+  format_cond_block_open,
+  format_cond_block_close
 } :: import("../codegen/exprs/cond.yo");
 test("format_cond_temp_decl: composes indented `<type> <name>;`", {
   out := format_cond_temp_decl(
@@ -49,4 +53,20 @@ test("format_cond_assignment_line: handles compound RHS expression", {
     out == String.from("dest = (int32_t)(x + 1);"),
     "compound RHS"
   );
+});
+test("format_cond_if_open: composes `<indent>if (<cond>) {`", {
+  out := format_cond_if_open(String.from("  "), String.from("x > 0"));
+  assert(out == String.from("  if (x > 0) {"), "if open shape");
+});
+test("format_cond_else_open: emits `<indent>else {`", {
+  out := format_cond_else_open(String.from("  "));
+  assert(out == String.from("  else {"), "else open shape");
+});
+test("format_cond_block_open: emits `<indent>{`", {
+  out := format_cond_block_open(String.from(""));
+  assert(out == String.from("{"), "block open shape");
+});
+test("format_cond_block_close: emits `<indent>}`", {
+  out := format_cond_block_close(String.from("    "));
+  assert(out == String.from("    }"), "block close shape");
 });

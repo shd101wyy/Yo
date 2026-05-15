@@ -105,6 +105,37 @@ format_cond_assignment_line :: (fn(indent : String, lhs : String, rhs : String) 
   s.push_str(";");
   s
 });
+/// Format `<indent>if (<cond_code>) {`. Used in two sites:
+///   1. The first runtime arm header.
+///   2. A nested `else if (...)` inside a subsequent else-block.
+/// Pure string composition.
+format_cond_if_open :: (fn(indent : String, cond_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("if (");
+  s.push_string(cond_code);
+  s.push_str(") {");
+  s
+});
+/// Format `<indent>else {`. Subsequent arms in the if-else chain.
+format_cond_else_open :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("else {");
+  s
+});
+/// Format `<indent>{`. Used by the first-arm-with-compile-time-true
+/// branch to open a plain block without an `if` header.
+format_cond_block_open :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("{");
+  s
+});
+/// Format `<indent>}`. Used at multiple close sites in the if-else
+/// chain unwind.
+format_cond_block_close :: (fn(indent : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("}");
+  s
+});
 
 /// Emit all `deferred_drop_expressions` from `info`.
 cond_emit_deferred_drops :: (fn(info : ExprInfo, ctx : *(CodegenContext), indent : String) -> unit)({
@@ -438,28 +469,19 @@ generate_cond :: (
 
                             // Emit the if/else header for this arm.
                             cond(
-                              (!(has_emitted) && is_ct_true) => {
-                                // First arm with compile-time true — just open a block.
-                                ctx.*.emitter.emit_string(current_indent);
-                                ctx.*.emitter.emit_line("{");
-                              },
-                              (!(has_emitted)) => {
-                                // First arm with runtime condition.
-                                match(
-                                  call_gen_expr(cond_expr, ctx, current_indent),
-                                  .None => (),
-                                  .Some(c_code) => {
-                                    ctx.*.emitter.emit_string(current_indent);
-                                    ctx.*.emitter.emit("if (");
-                                    ctx.*.emitter.emit_string(c_code);
-                                    ctx.*.emitter.emit_line(") {");
-                                  }
-                                );
-                              },
+                              (!(has_emitted) && is_ct_true) => ctx.*.emitter.emit_string_line(
+                                format_cond_block_open(current_indent)
+                              ),
+                              (!(has_emitted)) => match(
+                                call_gen_expr(cond_expr, ctx, current_indent),
+                                .None => (),
+                                .Some(c_code) => ctx.*.emitter.emit_string_line(
+                                  format_cond_if_open(current_indent, c_code)
+                                )
+                              ),
                               true => {
                                 // Subsequent arm: wrap in `else {`.
-                                ctx.*.emitter.emit_string(current_indent);
-                                ctx.*.emitter.emit_line("else {");
+                                ctx.*.emitter.emit_string_line(format_cond_else_open(current_indent));
                                 else_depth = (else_depth + usize(1));
                                 current_indent.push_str("  ");
                                 if(!(is_ct_true), {
@@ -467,12 +489,9 @@ generate_cond :: (
                                   match(
                                     call_gen_expr(cond_expr, ctx, current_indent),
                                     .None => (),
-                                    .Some(c_code) => {
-                                      ctx.*.emitter.emit_string(current_indent);
-                                      ctx.*.emitter.emit("if (");
-                                      ctx.*.emitter.emit_string(c_code);
-                                      ctx.*.emitter.emit_line(") {");
-                                    }
+                                    .Some(c_code) => ctx.*.emitter.emit_string_line(
+                                      format_cond_if_open(current_indent, c_code)
+                                    )
                                   );
                                 });
                               }
@@ -495,8 +514,7 @@ generate_cond :: (
                             // the enclosing else block is closed by the else-depth loop below.
                             needs_closing := !(is_ct_true);
                             if(needs_closing, {
-                              ctx.*.emitter.emit_string(current_indent);
-                              ctx.*.emitter.emit_line("}");
+                              ctx.*.emitter.emit_string_line(format_cond_block_close(current_indent));
                             });
                           }
                         );
@@ -513,8 +531,7 @@ generate_cond :: (
           (k : usize) = usize(0);
           while(runtime(k < else_depth), {
             current_indent = current_indent.substring(usize(0), current_indent.len() - usize(2));
-            ctx.*.emitter.emit_string(current_indent);
-            ctx.*.emitter.emit_line("}");
+            ctx.*.emitter.emit_string_line(format_cond_block_close(current_indent));
             k = (k + usize(1));
           });
 
@@ -535,4 +552,12 @@ generate_cond :: (
   )
 );
 
-export(generate_cond, format_cond_temp_decl, format_cond_assignment_line);
+export(
+  generate_cond,
+  format_cond_temp_decl,
+  format_cond_assignment_line,
+  format_cond_if_open,
+  format_cond_else_open,
+  format_cond_block_open,
+  format_cond_block_close
+);
