@@ -1642,7 +1642,15 @@ format_yo_source :: (
                           at_line_start = false;
                         });
                         result.push_string(raw);
-                        if(((!(at_line_start)) && (!(result.ends_with(String.from(" "))))) && (!(result.ends_with(String.from("\n")))), {
+                        // Only add trailing space if the next token is on the
+                        // same row (otherwise the upcoming newline would just
+                        // trim it).
+                        next_on_same_row := match(
+                          next,
+                          .None => false,
+                          .Some(nx) => (nx.row == token.row)
+                        );
+                        if(next_on_same_row && (((!(at_line_start)) && (!(result.ends_with(String.from(" "))))) && (!(result.ends_with(String.from("\n"))))), {
                           result.push_str(" ");
                         });
                       }
