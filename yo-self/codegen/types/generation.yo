@@ -502,6 +502,57 @@ generate_type_decl :: (
 // ===========================================================================
 /// The C attribute prefix used on all RC helper functions.
 RC_ATTR :: "static inline __attribute__((always_inline)) ";
+/// Format an RC void-function forward declaration:
+///   `<RC_ATTR>void <fn_name>(<c_type_name> __yo_self);`
+/// Used for both `__dispose` and `__drop` forward decls (they share
+/// the same shape).
+format_rc_void_forward_decl :: (fn(fn_name : String, c_type_name : str) -> String)({
+  s := String.from(RC_ATTR);
+  s.push_str("void ");
+  s.push_string(fn_name);
+  s.push_str("(");
+  s.push_str(c_type_name);
+  s.push_str(" __yo_self);");
+  s
+});
+/// Format the `__dup` function's forward declaration:
+///   `<RC_ATTR><c_type_name> <fn_name>(<c_type_name> __yo_self);`
+/// `__dup` returns the type itself rather than `void`, so this needs a
+/// separate formatter from the void variant.
+format_rc_dup_forward_decl :: (fn(fn_name : String, c_type_name : str) -> String)({
+  s := String.from(RC_ATTR);
+  s.push_str(c_type_name);
+  s.push_str(" ");
+  s.push_string(fn_name);
+  s.push_str("(");
+  s.push_str(c_type_name);
+  s.push_str(" __yo_self);");
+  s
+});
+/// Format an RC void-function definition's signature line:
+///   `<RC_ATTR>void <fn_name>(<c_type_name> __yo_self) {`
+/// Same shape as `format_rc_void_forward_decl` but with `{` instead of `;`.
+format_rc_void_sig :: (fn(fn_name : String, c_type_name : str) -> String)({
+  s := String.from(RC_ATTR);
+  s.push_str("void ");
+  s.push_string(fn_name);
+  s.push_str("(");
+  s.push_str(c_type_name);
+  s.push_str(" __yo_self) {");
+  s
+});
+/// Format the `__dup` definition's signature line:
+///   `<RC_ATTR><c_type_name> <fn_name>(<c_type_name> __yo_self) {`
+format_rc_dup_sig :: (fn(fn_name : String, c_type_name : str) -> String)({
+  s := String.from(RC_ATTR);
+  s.push_str(c_type_name);
+  s.push_str(" ");
+  s.push_string(fn_name);
+  s.push_str("(");
+  s.push_str(c_type_name);
+  s.push_str(" __yo_self) {");
+  s
+});
 /// Build `{c_type_name}___dispose`.
 rc_dispose_name :: (fn(c_type_name : str) -> String)({
   n := String.from(c_type_name);
@@ -532,63 +583,31 @@ emit_rc_forward_decls :: (
   ) -> unit
 )({
   if(has_dispose, {
-    d := String.from(RC_ATTR);
-    d.push_str("void ");
-    d.push_string(rc_dispose_name(c_type_name));
-    d.push_str("(");
-    d.push_str(c_type_name);
-    d.push_str(" __yo_self);");
-    ctx.*.emitter.emit_declaration_string_line(d);
+    ctx.*.emitter.emit_declaration_string_line(
+      format_rc_void_forward_decl(rc_dispose_name(c_type_name), c_type_name)
+    );
   });
-  dr := String.from(RC_ATTR);
-  dr.push_str("void ");
-  dr.push_string(rc_drop_name(c_type_name));
-  dr.push_str("(");
-  dr.push_str(c_type_name);
-  dr.push_str(" __yo_self);");
-  ctx.*.emitter.emit_declaration_string_line(dr);
-  du := String.from(RC_ATTR);
-  du.push_str(c_type_name);
-  du.push_str(" ");
-  du.push_string(rc_dup_name(c_type_name));
-  du.push_str("(");
-  du.push_str(c_type_name);
-  du.push_str(" __yo_self);");
-  ctx.*.emitter.emit_declaration_string_line(du);
+  ctx.*.emitter.emit_declaration_string_line(
+    format_rc_void_forward_decl(rc_drop_name(c_type_name), c_type_name)
+  );
+  ctx.*.emitter.emit_declaration_string_line(
+    format_rc_dup_forward_decl(rc_dup_name(c_type_name), c_type_name)
+  );
 });
 /// Emit the `__dispose` function body (no-op for non-RC types).
 emit_dispose_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
-  sig := String.from(RC_ATTR);
-  sig.push_str("void ");
-  sig.push_string(rc_dispose_name(c_type_name));
-  sig.push_str("(");
-  sig.push_str(c_type_name);
-  sig.push_str(" __yo_self) {");
-  ctx.*.emitter.emit_line(sig.as_str());
+  ctx.*.emitter.emit_line(format_rc_void_sig(rc_dispose_name(c_type_name), c_type_name).as_str());
   ctx.*.emitter.emit_line("}");
 });
 /// Emit the `__drop` function body (no-op for non-RC types).
 emit_drop_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
-  sig := String.from(RC_ATTR);
-  sig.push_str("void ");
-  sig.push_string(rc_drop_name(c_type_name));
-  sig.push_str("(");
-  sig.push_str(c_type_name);
-  sig.push_str(" __yo_self) {");
-  ctx.*.emitter.emit_line(sig.as_str());
+  ctx.*.emitter.emit_line(format_rc_void_sig(rc_drop_name(c_type_name), c_type_name).as_str());
   ctx.*.emitter.emit_line("  return;");
   ctx.*.emitter.emit_line("}");
 });
 /// Emit the `__dup` function body (shallow copy for non-RC types).
 emit_dup_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
-  sig := String.from(RC_ATTR);
-  sig.push_str(c_type_name);
-  sig.push_str(" ");
-  sig.push_string(rc_dup_name(c_type_name));
-  sig.push_str("(");
-  sig.push_str(c_type_name);
-  sig.push_str(" __yo_self) {");
-  ctx.*.emitter.emit_line(sig.as_str());
+  ctx.*.emitter.emit_line(format_rc_dup_sig(rc_dup_name(c_type_name), c_type_name).as_str());
   tmp_decl := String.from("  ");
   tmp_decl.push_str(c_type_name);
   tmp_decl.push_str(" __yo_dup_tmp = __yo_self;");
@@ -680,5 +699,9 @@ export(
   format_enum_close_line,
   format_enum_struct_subfield,
   format_enum_union_field,
-  format_enum_variant_member
+  format_enum_variant_member,
+  format_rc_void_forward_decl,
+  format_rc_dup_forward_decl,
+  format_rc_void_sig,
+  format_rc_dup_sig
 );
