@@ -20,7 +20,8 @@ open(import("std/string"));
   format_typed_decl_line,
   format_indented_close_brace,
   format_if_open,
-  format_indented_line
+  format_indented_line,
+  format_indented_stmt
 } :: import("../utils/index.yo");
 
 /// Extract the arm sub-expressions from a cond arm `(cond => body)`.
@@ -81,11 +82,10 @@ cond_has_control_flow :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
   )
 );
 
-/// Emit `indent + code + ";\n"` as a C statement.
+/// Emit `indent + code + ";\n"` as a C statement. Routes through the
+/// canonical `format_indented_stmt` helper.
 cond_emit_stmt :: (fn(code : String, ctx : *(CodegenContext), indent : String) -> unit)({
-  ctx.*.emitter.emit_string(indent);
-  ctx.*.emitter.emit_string(code);
-  ctx.*.emitter.emit_line(";");
+  ctx.*.emitter.emit_string_line(format_indented_stmt(indent, code));
 });
 // `format_cond_temp_decl` was a local divergence — body identical to
 // `format_typed_decl_line(indent, format_typed_var_name(c_type, name))`
