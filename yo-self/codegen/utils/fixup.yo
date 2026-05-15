@@ -20,6 +20,7 @@ open(import("std/string"));
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { CodegenContext, CodegenDynImplEntry } :: import("../context.yo");
 { get_type_string_opt } :: import("./index.yo");
+{ format_dyn_impl_key } :: import("../exprs/dyn.yo");
 /// Compute the impl-key form `${concrete_c_name}_${dyn_c_name}` for a
 /// registered `dyn_impls` entry. Uses the canonical
 /// `get_type_string_opt` chain (registry → primitive → None) and
@@ -45,11 +46,7 @@ _impl_key_for_entry :: (fn(entry : CodegenDynImplEntry, ctx : *(CodegenContext))
       )
     )
   );
-  result := String.new();
-  result.push_string(concrete_c_name);
-  result.push_str("_");
-  result.push_string(dyn_c_name);
-  result
+  format_dyn_impl_key(concrete_c_name, dyn_c_name)
 });
 /// Walk every entry in `ctx.dyn_impls`, compute its new key via
 /// `_impl_key_for_entry`, and append to the parallel `out_keys` /
