@@ -250,6 +250,26 @@ format_indented_close_brace :: (fn(indent : String) -> String)({
   s.push_str("}");
   s
 });
+/// Format an if-statement opening: `<indent>if (<cond_code>) {`. Shared
+/// by cond's first-runtime-arm header and and-or's intermediate-AND
+/// chain header.
+format_if_open :: (fn(indent : String, cond_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("if (");
+  s.push_string(cond_code);
+  s.push_str(") {");
+  s
+});
+/// Format a negated-if-statement opening: `<indent>if (!(<cond_code>)) {`.
+/// Used by and-or's intermediate-OR chain header and while's
+/// break-on-condition-false guard.
+format_if_negate_open :: (fn(indent : String, cond_code : String) -> String)({
+  s := String.from(indent.as_str());
+  s.push_str("if (!(");
+  s.push_string(cond_code);
+  s.push_str(")) {");
+  s
+});
 /// True iff `t` is an enum whose every variant carries no data — so
 /// it can be lowered to a plain C `enum` instead of a tagged-union
 /// struct. Equivalent to TS `canOptimizeAsSimpleEnum` in
@@ -742,6 +762,8 @@ export(
   format_typed_init_line,
   format_typed_decl_line,
   format_indented_close_brace,
+  format_if_open,
+  format_if_negate_open,
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,

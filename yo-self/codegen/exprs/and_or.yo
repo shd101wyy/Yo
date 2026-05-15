@@ -11,7 +11,9 @@ open(import("std/string"));
   indent_plus_two,
   indent_minus_two,
   format_typed_init_line,
-  format_indented_close_brace
+  format_indented_close_brace,
+  format_if_open,
+  format_if_negate_open
 } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 
@@ -172,24 +174,17 @@ format_and_or_bool_init :: (fn(indent : String, var : String, value : str) -> St
   s.push_str(";");
   s
 });
-/// Format an if-open line: `<indent>if (<cond_code>) {`. Used by the
-/// AND chain's intermediate-arm header.
-format_and_or_if_open :: (fn(indent : String, cond_code : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("if (");
-  s.push_string(cond_code);
-  s.push_str(") {");
-  s
-});
-/// Format a negated-if-open line: `<indent>if (!(<cond_code>)) {`.
-/// Used by the OR chain's intermediate-arm header.
-format_and_or_if_negate_open :: (fn(indent : String, cond_code : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("if (!(");
-  s.push_string(cond_code);
-  s.push_str(")) {");
-  s
-});
+// `format_and_or_if_open` / `format_and_or_if_negate_open` were local
+// divergences — bodies identical to canonical helpers
+// `format_if_open` / `format_if_negate_open` in
+// `codegen/utils/index.yo`. Re-exported as aliases for backward
+// compatibility with the test imports.
+format_and_or_if_open :: (fn(indent : String, cond_code : String) -> String)(
+  format_if_open(indent, cond_code)
+);
+format_and_or_if_negate_open :: (fn(indent : String, cond_code : String) -> String)(
+  format_if_negate_open(indent, cond_code)
+);
 // `format_and_or_assignment` and `format_and_or_close_brace` were local
 // divergences — bodies identical to canonical helpers in
 // `codegen/utils/index.yo`. Re-exported as aliases for backward
