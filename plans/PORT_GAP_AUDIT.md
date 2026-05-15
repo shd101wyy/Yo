@@ -34,7 +34,19 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 in the file that mirrors its `src/` location. Start with the smallest
 (`evaluator/types/*registry.yo`) and work toward `codegen/exprs.yo`.
 
-### Phase A.1 — registry decomposition (current focus)
+### Phase A.1 — registry decomposition (**COMPLETED** 2026-05-15)
+
+All five registry files have been folded into their src/-mirroring
+homes. The yo-self/ tree no longer has any `*registry.yo` files that
+lack a src/ counterpart:
+
+- trait_registry → `evaluator/trait_checking.yo` (commit 8866e02a)
+- control_fn_registry → `function_value.yo` (new file, commit 19401cda)
+- definition_site_registry → `function_value.yo` (commit 19401cda)
+- macro_registry → `evaluator/types/function.yo` (commit 6af5f276)
+- generic_impl_registry → `evaluator/values/impl.yo` (commit 2307d8b1)
+
+### Original Phase A.1 plan (historical reference)
 
 Each of the five registry files is a side-table that emulates a field on
 a value type which exists in `src/` but couldn't be added directly to
