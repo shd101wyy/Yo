@@ -14,6 +14,17 @@
 //!   - Only simple atomic type names (i32, u8, bool, unit, str, …) are mapped.
 //!   - `using(…)` evidence params are emitted as `void*`.
 //!   - No type declarations, RC helpers, or async support yet.
+//!
+//! **Structural mapping vs src/**: this file is the **bootstrap codegen
+//! pipeline** — it pattern-matches the raw `AstExpr` AST directly and emits
+//! C, *without going through the evaluator*. src/ has no equivalent: the
+//! production compiler always runs `evaluator → codegen-c.ts` on the typed
+//! AST, with codegen logic spread across `src/codegen/{functions,types,exprs}/`.
+//! Every `extract_*_def` / `emit_*_to_c` function here is a yo-self-only
+//! AST-walker that will be deleted once yo-self can use its own typed AST
+//! (the typed-AST pivot, roadmap Phase 13at). Until then, `driver.yo` is
+//! an **acceptable divergence (bootstrap-specific)** with no src/
+//! counterpart to align against.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY, BK_BEGIN } :: import("../expr.yo");

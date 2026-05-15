@@ -18,7 +18,7 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 | yo-self/ monolith                             | lines | absorbs (src/)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | --------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `codegen/exprs.yo`                            | 13135 | `codegen/exprs/*.ts` (37 files, ~10K lines) + much of `codegen/exprs/generation.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `codegen/driver.yo`                           | 5130  | `codegen/index.ts` (775) + parts of `codegen/codegen-c.ts` (311), top-level orchestration                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `codegen/driver.yo`                           | 5134  | **acceptable divergence (bootstrap-specific)** — the yo-self bootstrap codegen pipeline. Pattern-matches raw AstExpr (`extract_fn_def`, `extract_struct_def`, `extract_enum_def`, `emit_*_to_c`, …) without using the evaluator. src/ has no equivalent: the production compiler always runs `evaluator → codegen-c.ts` on the typed AST. Will be deleted once yo-self adopts its own typed AST (roadmap Phase 13at).                                                                                                                                             |
 | `codegen/context.yo`                          | 1720  | **acceptable divergence (Yo idiom + bootstrap-specific)** — CodegenContext struct + 9 entry types (~390 lines) + impl block of ~60 helper methods (~1300 lines). In src/ the analog (`FunctionGenerationContext` in `src/codegen/functions/context.ts`) is data-only; operations are scattered functions. yo-self's idiom bundles them in `impl(...)`. Most helpers (`register_box_var`, `register_const_var`, `register_generic_struct_template`, etc.) are bootstrap-only heuristics that don't exist in src/'s typed-AST codegen at all.                       |
 | `evaluator/eval.yo`                           | 8258  | parts of `evaluator/index.ts` (239) + per-handler dispatch logic that should live in `evaluator/exprs/*.yo`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `evaluator/utils.yo`                          | 1235  | **acceptable divergence (cycle-forced)** — after Phase A.4.1 the residual content ports helpers whose src/ homes are split across `src/evaluator/utils.ts` (3 funcs), `src/expr.ts` (7 funcs incl. the 397-line `merge_and_check_envs`), and `src/value.ts` (`are_values_equal`). Splitting back into those three files creates `expr.yo` ↔ `env.yo` ↔ `value.yo` import cycles which yo-self's eager destructuring import cannot tolerate. TypeScript only avoids the cycle because module loading is lazy. The full mapping is documented in the file header. |
@@ -33,6 +33,43 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 **Action**: progressively decompose the monoliths so each function lives
 in the file that mirrors its `src/` location. Start with the smallest
 (`evaluator/types/*registry.yo`) and work toward `codegen/exprs.yo`.
+
+### Phase A.6 — `codegen/driver.yo` reclassification (**COMPLETED** 2026-05-15)
+
+Investigated `codegen/driver.yo` (5134 lines). Audit's earlier guess
+that it absorbs `codegen/index.ts` + parts of `codegen-c.ts` was
+incorrect: those src/ files drive clang invocation and orchestrate the
+typed-AST codegen pipeline. `driver.yo` instead does pattern-matching
+on the **raw `AstExpr` AST** and emits C directly, bypassing the
+evaluator entirely.
+
+Functions in driver.yo:
+
+- `extract_fn_def`, `extract_struct_def`, `extract_enum_def`,
+  `extract_union_def`, `extract_newtype_def`, `extract_const_def`,
+  `extract_impl_fns`, `extract_colon_fn_def` — AST extractors.
+- `emit_struct_to_c`, `emit_union_to_c`, `emit_newtype_to_c`,
+  `emit_const_to_c`, `emit_enum_to_c` — direct AST→C emitters.
+- Helper structs `FnDef`, `StructDef`, `EnumDef`, `UnionDef` —
+  yo-self-only IR; src/ uses TypeValue / FunctionValue from the
+  evaluator instead.
+
+In src/, the production compiler ALWAYS runs the evaluator first and
+then the typed-AST codegen in `codegen-c.ts`. There is no AST-walking
+shortcut. So driver.yo's entire surface area is yo-self-bootstrap-only
+code that will be deleted once yo-self can use its own typed AST.
+
+Decision: reclassify as **acceptable divergence (bootstrap-specific)**,
+matching the same pattern as `codegen/context.yo` (A.5) and the
+bootstrap-only methods inside it. File header updated.
+
+Net result of Phase A.6: §1 active-decomposition list drops to 2
+entries:
+
+- `codegen/exprs.yo` (13135 lines — actual 37-file mapping)
+- `evaluator/eval.yo` (8147 lines — handler-dispatch decomposition)
+
+These are the genuinely large 1-to-1 split tasks remaining.
 
 ### Phase A.5 — `codegen/context.yo` reclassification (**COMPLETED** 2026-05-15)
 
