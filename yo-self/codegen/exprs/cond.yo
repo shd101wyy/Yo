@@ -19,7 +19,8 @@ open(import("std/string"));
   format_typed_var_name,
   format_typed_decl_line,
   format_indented_close_brace,
-  format_if_open
+  format_if_open,
+  format_indented_line
 } :: import("../utils/index.yo");
 
 /// Extract the arm sub-expressions from a cond arm `(cond => body)`.
@@ -108,19 +109,15 @@ format_cond_assignment_line :: (fn(indent : String, lhs : String, rhs : String) 
 format_cond_if_open :: (fn(indent : String, cond_code : String) -> String)(
   format_if_open(indent, cond_code)
 );
-/// Format `<indent>else {`. Subsequent arms in the if-else chain.
-format_cond_else_open :: (fn(indent : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("else {");
-  s
-});
-/// Format `<indent>{`. Used by the first-arm-with-compile-time-true
-/// branch to open a plain block without an `if` header.
-format_cond_block_open :: (fn(indent : String) -> String)({
-  s := String.from(indent.as_str());
-  s.push_str("{");
-  s
-});
+// `format_cond_else_open` and `format_cond_block_open` are now
+// expressed via `format_indented_line` for the literal `else {` /
+// `{` block-open shapes — both are just `<indent><literal>`.
+format_cond_else_open :: (fn(indent : String) -> String)(
+  format_indented_line(indent, "else {")
+);
+format_cond_block_open :: (fn(indent : String) -> String)(
+  format_indented_line(indent, "{")
+);
 // `format_cond_block_close` was a local divergence — body identical to
 // the canonical `format_indented_close_brace` in `codegen/utils/index.yo`.
 // Re-exported as an alias for backward compatibility with the test
