@@ -372,10 +372,10 @@ generate_while_loop :: (
       )
     ),
     true => {
-      ctx.*.emitter.emit_string(indent);
-      ctx.*.emitter.emit("/* Error: while loop expects 2 or 3 arguments, got ");
-      ctx.*.emitter.emit_string(args.len().to_string());
-      ctx.*.emitter.emit_line(" */");
+      err_msg := String.from("/* Error: while loop expects 2 or 3 arguments, got ");
+      err_msg.push_string(args.len().to_string());
+      err_msg.push_str(" */");
+      ctx.*.emitter.emit_string_line(format_indented_line(indent, err_msg.as_str()));
       Option(String).Some(String.new())
     }
   )
