@@ -327,16 +327,23 @@ get_type_string :: (
 /// Returns a `String` (TS-canonical shape — `int32_t` fallback inside
 /// `get_type_string`). The two-argument convenience `_str` overload
 /// accepts an already-`str`-typed name.
+/// Format `<c_type> <sanitized_name>` — the canonical
+/// declaration-fragment shape used by both `get_variable_type_string`
+/// (always-Some) and `get_variable_type_string_opt` (defers when the
+/// type is unresolved).
+format_typed_var_name :: (fn(c_type : String, sanitized_name : String) -> String)({
+  s := String.new();
+  s.push_string(c_type);
+  s.push_str(" ");
+  s.push_string(sanitized_name);
+  s
+});
 get_variable_type_string :: (
   fn(t : TypeValue, var_name : String, ctx : *(CodegenContext)) -> String
 )({
   c_ty := get_type_string(t, ctx);
   san := sanitize_for_c_identifier(var_name);
-  result := String.new();
-  result.push_string(c_ty);
-  result.push_str(" ");
-  result.push_string(san);
-  result
+  format_typed_var_name(c_ty, san)
 });
 /// Convenience overload accepting `str` for the variable name.
 get_variable_type_string_str :: (
@@ -353,14 +360,9 @@ get_variable_type_string_opt :: (
   match(
     get_type_string_opt(t, ctx),
     .None => Option(String).None,
-    .Some(c_ty) => {
-      san := sanitize_for_c_identifier(var_name);
-      out := String.new();
-      out.push_string(c_ty);
-      out.push_str(" ");
-      out.push_string(san);
-      Option(String).Some(out)
-    }
+    .Some(c_ty) => Option(String).Some(
+      format_typed_var_name(c_ty, sanitize_for_c_identifier(var_name))
+    )
   )
 );
 /// Convenience `str` overload of `get_variable_type_string_opt`.
@@ -668,6 +670,7 @@ export(
   get_variable_type_string_str,
   get_variable_type_string_opt,
   get_variable_type_string_opt_str,
+  format_typed_var_name,
   get_variable_name_for_codegen,
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
