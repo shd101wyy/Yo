@@ -1,9 +1,15 @@
-//! Top-level C program assembly for the self-hosted Yo compiler.
+//! codegen_c — top-level C program assembly for the self-hosted Yo compiler.
 //!
-//! Phase 4j: combine C preamble + type declarations + RC helpers +
-//! function definitions into a compilable C11 file.
+//! Partial 1-to-1 port of `src/codegen/codegen-c.ts` (the `CodeGeneratorC`
+//! class). Currently covers the preamble + main-wrapper + output-print
+//! responsibilities; the full `compileModule` orchestration (function/type
+//! collection, declaration passes, deferred async, library-init, etc.) is
+//! still spread across `yo-self/codegen/driver.yo` and the per-handler
+//! files and will migrate here as the corresponding TS dependencies
+//! (`functions/generation.ts`, `types/generation.ts`, `c/collection.ts`)
+//! gain their yo-self counterparts.
 //!
-//! Key entry points:
+//! Key entry points (today):
 //!   emit_c_preamble(module_id, ctx)    — headers section (#include, typedefs, allocator)
 //!   emit_main_wrapper(fn_name, ctx)    — int main() { fn_name(); return 0; }
 //!   generate_c_output(ctx) -> String   — call ctx.emitter.print()

@@ -20,7 +20,6 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 | `codegen/exprs.yo`                            | 13135 | `codegen/exprs/*.ts` (37 files, ~10K lines) + much of `codegen/exprs/generation.ts`                                                                                                                                                                                                                                          |
 | `codegen/driver.yo`                           | 5130  | `codegen/index.ts` (775) + parts of `codegen/codegen-c.ts` (311), top-level orchestration                                                                                                                                                                                                                                    |
 | `codegen/context.yo`                          | 1720  | `codegen/functions/context.ts` (207) + scattered context logic                                                                                                                                                                                                                                                               |
-| `codegen/program.yo`                          | 229   | overlaps with `codegen/index.ts`                                                                                                                                                                                                                                                                                             |
 | `evaluator/eval.yo`                           | 8258  | parts of `evaluator/index.ts` (239) + per-handler dispatch logic that should live in `evaluator/exprs/*.yo`                                                                                                                                                                                                                  |
 | `evaluator/utils.yo`                          | 1300  | `evaluator/utils.ts` (82) + likely absorbs `expr-traversal.ts` (336) and other helpers                                                                                                                                                                                                                                       |
 | `evaluator/types/trait_registry.yo`           | 59    | fold into `evaluator/trait_checking.yo` — primary consumer, and utils.yo (where `register_type_trait` is called) already imports trait_checking.yo, so no new import cycle. (src/ sets trait info on TypeValue directly during construction; yo-self needs a side-table because TypeValue can't carry the field cleanly yet) |
@@ -33,6 +32,21 @@ logic that belongs in per-file modules per the strict-1-to-1 rule
 **Action**: progressively decompose the monoliths so each function lives
 in the file that mirrors its `src/` location. Start with the smallest
 (`evaluator/types/*registry.yo`) and work toward `codegen/exprs.yo`.
+
+### Phase A.2 — `codegen/program.yo` → `codegen/codegen_c.yo` (**COMPLETED** 2026-05-15)
+
+Renamed `yo-self/codegen/program.yo` (229 lines) to
+`yo-self/codegen/codegen_c.yo` so the file structurally mirrors
+`src/codegen/codegen-c.ts`. Updated 8 importers (1 production:
+`codegen/driver.yo`; 7 codegen test files). No behavior change. The new
+file covers ~26% of `codegen-c.ts` — the rest (function/type-decl
+generation, deferred async, library-init, dyn box plumbing) is currently
+in `codegen/driver.yo` and per-handler files; it will migrate here as
+the dependent src/ files (`functions/generation.ts`,
+`types/generation.ts`, `c/collection.ts`) gain yo-self counterparts.
+
+This means `codegen_c.yo` moves from §1 (1-to-1 violation) to §3
+(partial port).
 
 ### Phase A.1 — registry decomposition (**COMPLETED** 2026-05-15)
 
@@ -117,30 +131,31 @@ in the bootstrap compile pipeline needs to emit async code yet.
 Files that exist but are far shorter than their `src/` counterpart —
 function-for-function porting needed. Lines = yo-self / src.
 
-| File                                         | yo-self / src | gap notes                                            |
-| -------------------------------------------- | ------------- | ---------------------------------------------------- |
-| `env.yo`                                     | 693 / 2232    | **major** — ~31% complete; type & symbol environment |
-| `expr.yo` + `expr_info.yo`                   | 1493 / 2582   | ~58%; missing many `Expr` constructors / helpers     |
-| `evaluator/values/`                          | 3707 / 7100   | ~52%; value-system gap                               |
-| `codegen/exprs/other_fn_call.yo`             | 110 / 2882    | ~4%; (most logic in `exprs.yo` monolith)             |
-| `codegen/exprs/match.yo`                     | 495 / 1182    | ~42%; (rest in monolith)                             |
-| `codegen/exprs/return.yo`                    | 101 / 705     | ~14%                                                 |
-| `codegen/exprs/rc_fns.yo`                    | 137 / 556     | ~25%                                                 |
-| `codegen/exprs/initialization_assignment.yo` | 79 / 534      | ~15%                                                 |
-| `codegen/exprs/cond.yo`                      | 552 / 466     | over (likely covers more than ts file)               |
-| `codegen/exprs/closures.yo`                  | 166 / 320     | ~52%                                                 |
-| `codegen/exprs/drop_dup.yo`                  | 157 / 370     | ~42%                                                 |
-| `codegen/exprs/asm.yo`                       | 348 / 757     | ~46%                                                 |
-| `codegen/exprs/assignment.yo`                | 83 / 359      | ~23%                                                 |
-| `codegen/functions/declarations.yo`          | 1030 / 788    | over                                                 |
-| `codegen/functions/generation.yo`            | 220 / 2339    | ~9% (most in monolith)                               |
-| `codegen/types/generation.yo`                | 719 / 1303    | ~55%                                                 |
-| `codegen/codegen-c → constants.yo`           | 132 / 100     | unclear mapping                                      |
-| `lexer.yo`                                   | 585 / 738     | ~79%                                                 |
-| `parser.yo`                                  | 1448 / 1569   | ~92%                                                 |
-| `token.yo`                                   | 124 / 195     | ~63%                                                 |
-| `compiler_utils.yo`                          | 235 / 322     | ~73%                                                 |
-| `evaluator/ctfe/ctfe_analysis.yo`            | **17** / 194  | **stub**                                             |
+| File                                         | yo-self / src | gap notes                                                                                         |
+| -------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------- |
+| `env.yo`                                     | 693 / 2232    | **major** — ~31% complete; type & symbol environment                                              |
+| `expr.yo` + `expr_info.yo`                   | 1493 / 2582   | ~58%; missing many `Expr` constructors / helpers                                                  |
+| `evaluator/values/`                          | 3707 / 7100   | ~52%; value-system gap                                                                            |
+| `codegen/exprs/other_fn_call.yo`             | 110 / 2882    | ~4%; (most logic in `exprs.yo` monolith)                                                          |
+| `codegen/exprs/match.yo`                     | 495 / 1182    | ~42%; (rest in monolith)                                                                          |
+| `codegen/exprs/return.yo`                    | 101 / 705     | ~14%                                                                                              |
+| `codegen/exprs/rc_fns.yo`                    | 137 / 556     | ~25%                                                                                              |
+| `codegen/exprs/initialization_assignment.yo` | 79 / 534      | ~15%                                                                                              |
+| `codegen/exprs/cond.yo`                      | 552 / 466     | over (likely covers more than ts file)                                                            |
+| `codegen/exprs/closures.yo`                  | 166 / 320     | ~52%                                                                                              |
+| `codegen/exprs/drop_dup.yo`                  | 157 / 370     | ~42%                                                                                              |
+| `codegen/exprs/asm.yo`                       | 348 / 757     | ~46%                                                                                              |
+| `codegen/exprs/assignment.yo`                | 83 / 359      | ~23%                                                                                              |
+| `codegen/functions/declarations.yo`          | 1030 / 788    | over                                                                                              |
+| `codegen/functions/generation.yo`            | 220 / 2339    | ~9% (most in monolith)                                                                            |
+| `codegen/types/generation.yo`                | 719 / 1303    | ~55%                                                                                              |
+| `codegen/codegen-c → constants.yo`           | 132 / 100     | unclear mapping                                                                                   |
+| `codegen/codegen_c.yo`                       | 229 / 311     | ~74%; covers preamble + main wrapper + output-print only (renamed from `program.yo` in Phase A.2) |
+| `lexer.yo`                                   | 585 / 738     | ~79%                                                                                              |
+| `parser.yo`                                  | 1448 / 1569   | ~92%                                                                                              |
+| `token.yo`                                   | 124 / 195     | ~63%                                                                                              |
+| `compiler_utils.yo`                          | 235 / 322     | ~73%                                                                                              |
+| `evaluator/ctfe/ctfe_analysis.yo`            | **17** / 194  | **stub**                                                                                          |
 
 The codegen-exprs "very short" files (e.g. `other_fn_call.yo` at 110
 lines vs 2882) reflect logic still living in the
