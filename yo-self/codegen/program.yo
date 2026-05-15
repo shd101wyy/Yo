@@ -22,6 +22,23 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 /// Emit the minimal C11 preamble required for compiled Yo programs.
 ///
+/// Format the module-ID header comment: `// Module ID: <module_id>`.
+/// Emitted by `emit_c_preamble` so the generated C file is
+/// self-documenting about which Yo module produced it.
+format_module_id_comment :: (fn(module_id : str) -> String)({
+  s := String.from("// Module ID: ");
+  s.push_str(module_id);
+  s
+});
+/// Format the C `main()` body's user-main call line:
+///   `  <user_main_c_name>();`
+/// Emitted between `int main(void) {` and `  return(0);`.
+format_main_call_line :: (fn(user_main_c_name : str) -> String)({
+  s := String.from("  ");
+  s.push_str(user_main_c_name);
+  s.push_str("();");
+  s
+});
 /// Emits into the headers section:
 ///   - `#define _DEFAULT_SOURCE` / `_GNU_SOURCE`
 ///   - Standard C headers
@@ -170,9 +187,7 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     e.*.emit_header_line("typedef struct { uint8_t data[1024]; size_t length; uint8_t* _ptr; } ArrayList_u8;");
     e.*.emit_header_line("");
     // Module ID comment
-    mod_comment := String.from("// Module ID: ");
-    mod_comment.push_str(module_id);
-    e.*.emit_header_line(mod_comment.as_str());
+    e.*.emit_header_line(format_module_id_comment(module_id).as_str());
   }
 );
 // ---------------------------------------------------------------------------
@@ -190,10 +205,7 @@ emit_main_wrapper :: (fn(user_main_c_name : str, ctx : *(CodegenContext)) -> uni
   e := &(
     ctx.*.emitter;
     e.*.emit_line("int main(void) {");
-    call_line := String.from("  ");
-    call_line.push_str(user_main_c_name);
-    call_line.push_str("();");
-    e.*.emit_line(call_line.as_str());
+    e.*.emit_line(format_main_call_line(user_main_c_name).as_str());
     e.*.emit_line("  return(0);");
     e.*.emit_line("}");
   }
@@ -208,4 +220,10 @@ emit_main_wrapper :: (fn(user_main_c_name : str, ctx : *(CodegenContext)) -> uni
 generate_c_output :: (fn(ctx : *(CodegenContext)) -> String)(
   ctx.*.emitter.print()
 );
-export(emit_c_preamble, emit_main_wrapper, generate_c_output);
+export(
+  emit_c_preamble,
+  emit_main_wrapper,
+  generate_c_output,
+  format_module_id_comment,
+  format_main_call_line
+);
