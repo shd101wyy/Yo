@@ -36,7 +36,10 @@ open(import("std/string"));
 } :: import("../utils/index.yo");
 { format_incr_rc_call, format_incr_rc_atomic_call } :: import("./rc_fns.yo");
 { format_typed_rc_cast } :: import("./drop_dup.yo");
-{ format_enum_tag_construction } :: import("./comptime_value.yo");
+{
+  format_enum_tag_construction,
+  format_enum_data_construction
+} :: import("./comptime_value.yo");
 { register_typeid_static, extract_type_value } :: import("./typeid.yo");
 { call_gen_expr } :: import("./expr.yo");
 /// Format the box-extraction subexpression
@@ -105,18 +108,20 @@ format_ternary_expr :: (
 });
 /// Format the `Option.Some({ value : v })` construction:
 ///   `(<option_c_name>){ .tag = <some_tag>, .data = { .Some = { .value = <value_code> } } }`
+// `format_option_some_construction` is a special case of
+// `format_enum_data_construction` with variant_name="Some" and the
+// single field initialiser ".value = <value>". Compose via the
+// canonical enum-data builder.
 format_option_some_construction :: (
   fn(option_c_name : String, some_tag : String, value_code : String) -> String
-)({
-  s := String.from("(");
-  s.push_string(option_c_name);
-  s.push_str("){ .tag = ");
-  s.push_string(some_tag);
-  s.push_str(", .data = { .Some = { .value = ");
-  s.push_string(value_code);
-  s.push_str(" } } }");
-  s
-});
+)(
+  format_enum_data_construction(
+    option_c_name,
+    some_tag,
+    String.from("Some"),
+    String.from(".value = ") + value_code
+  )
+);
 /// Format the `Option.None` construction:
 ///   `(<option_c_name>){ .tag = <none_tag> }`
 // `format_option_none_construction` was a local divergence — the shape
