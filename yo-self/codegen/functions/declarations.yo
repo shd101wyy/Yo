@@ -19,6 +19,42 @@ open(import("std/string"));
 } :: import("./context.yo");
 { sanitize_for_c_identifier } :: import("../utils/index.yo");
 
+/// Format a C function prototype:
+///   `<return_type> <c_function_name>(<params_joined>)`
+/// Pure string composition — the tail return of `generate_function_prototype`.
+/// `params_joined` is the pre-joined comma-separated parameter list.
+format_fn_prototype :: (
+  fn(return_type : String, c_function_name : String, params_joined : String) -> String
+)((return_type + String.from(" ")) + ((c_function_name + String.from("(")) + (params_joined + String.from(")"))));
+/// Format a C parameter: `<c_type> <param_name>`. Used for both the
+/// function-prototype parameter list and constructor parameter list.
+format_fn_param :: (fn(c_type : String, param_name : String) -> String)(
+  (c_type + String.from(" ")) + param_name
+);
+/// Format an extern-C function declaration line:
+///   `<linkage_prefix><prototype>; // <yo_type_str>`
+format_fn_declaration_with_comment :: (
+  fn(linkage_prefix : String, prototype : String, yo_type_str : String) -> String
+)(((linkage_prefix + prototype) + String.from("; // ")) + yo_type_str);
+/// Format a struct constructor forward declaration line:
+///   `static <c_struct_name>* <ctor_name>(<params_joined>); // Constructor`
+format_struct_ctor_decl :: (
+  fn(c_struct_name : String, ctor_name : String, params_joined : String) -> String
+)(
+  (((String.from("static ") + c_struct_name) + String.from("* ")) + ctor_name) +
+    ((String.from("(") + params_joined) + String.from("); // Constructor"))
+);
+/// Format a closure dispose forward declaration line:
+///   `static void <dispose_fn_name>(void* closure_ptr);`
+format_closure_dispose_decl :: (fn(dispose_fn_name : String) -> String)(
+  (String.from("static void ") + dispose_fn_name) + String.from("(void* closure_ptr);")
+);
+/// Format a default positional parameter name when the source label is
+/// empty or missing: `param<idx>`. Mirrors the TS fallback used by
+/// `generate_function_prototype` for unnamed parameters.
+format_default_param_name :: (fn(i : usize) -> String)(
+  String.from("param") + i.to_string()
+);
 copy_path_with_label_ :: (fn(path_prefix : ArrayList(String), label : String) -> ArrayList(String))({
   path := ArrayList(String).new();
   i := usize(0);
@@ -244,10 +280,10 @@ generate_function_prototype :: (
         raw_param_name := match(
           param_labels.get(i),
           .Some(label) => cond(
-            label.is_empty() => (String.from("param") + i.to_string()),
+            label.is_empty() => format_default_param_name(i),
             true => label
           ),
-          .None => (String.from("param") + i.to_string())
+          .None => format_default_param_name(i)
         );
         param_name := sanitize_for_c_identifier(raw_param_name);
         match(
@@ -257,7 +293,7 @@ generate_function_prototype :: (
             param_strings.push(function_pointer_type);
           },
           _ => {
-            param_strings.push((type_value_to_c_name_(param_type) + String.from(" ")) + param_name);
+            param_strings.push(format_fn_param(type_value_to_c_name_(param_type), param_name));
           }
         );
       });
@@ -280,7 +316,7 @@ generate_function_prototype :: (
         );
       });
       sep := String.from(", ");
-      return((return_type_str + String.from(" ")) + ((c_function_name + String.from("(")) + (sep.join(param_strings) + String.from(")"))));
+      return(format_fn_prototype(return_type_str, c_function_name, sep.join(param_strings)));
     },
     _ => return((String.from("void ") + c_function_name) + String.from("()"))
   );
@@ -315,7 +351,9 @@ generate_function_declaration :: (
   function_prototype := generate_function_prototype(function_type, c_function_name, override_return_type, original_function_type);
   linkage_prefix := function_declaration_linkage_prefix(c_function_name, is_extern, is_exported_by_name);
   yo_type_str := type_to_string(function_type);
-  ctx.*.emitter.emit_declaration_string_line(((linkage_prefix + function_prototype) + String.from("; // ")) + yo_type_str);
+  ctx.*.emitter.emit_declaration_string_line(
+    format_fn_declaration_with_comment(linkage_prefix, function_prototype, yo_type_str)
+  );
 });
 
 type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
@@ -595,13 +633,15 @@ generate_object_constructor_declarations :: (fn(ctx : *(CodegenContext)) -> unit
                 .Some(field_type) => {
                   raw_field_name := match(field_labels.get(i),.Some(label) => label,.None => (String.from("_f") + i.to_string()));
                   field_name := sanitize_for_c_identifier(raw_field_name);
-                  param_strings.push((type_value_to_c_name_(field_type) + String.from(" ")) + field_name);
+                  param_strings.push(format_fn_param(type_value_to_c_name_(field_type), field_name));
                 },
                 .None => ()
               );
             });
             sep := String.from(", ");
-            ctx.*.emitter.emit_declaration_string_line((((String.from("static ") + entry.c_name) + String.from("* ")) + constructor_name) + ((String.from("(") + sep.join(param_strings)) + String.from("); // Constructor")));
+            ctx.*.emitter.emit_declaration_string_line(
+              format_struct_ctor_decl(entry.c_name, constructor_name, sep.join(param_strings))
+            );
           },
           true => ()
         ),
@@ -624,7 +664,7 @@ generate_capture_dispose_function_declarations :: (fn(ctx : *(CodegenContext)) -
       },
       .Some(closure_instance_id) => {
         dispose_function_name := (String.from("__yo_dispose_closure_") + closure_instance_id);
-        ctx.*.emitter.emit_declaration_string_line((String.from("static void ") + dispose_function_name) + String.from("(void* closure_ptr);"));
+        ctx.*.emitter.emit_declaration_string_line(format_closure_dispose_decl(dispose_function_name));
       }
     );
   });
@@ -980,5 +1020,11 @@ export(
   generate_capture_dispose_function_declarations,
   generate_closure_vtable_declarations,
   generate_function_declarations,
-  generate_specialized_function_declarations
+  generate_specialized_function_declarations,
+  format_fn_prototype,
+  format_fn_param,
+  format_fn_declaration_with_comment,
+  format_struct_ctor_decl,
+  format_closure_dispose_decl,
+  format_default_param_name
 );
