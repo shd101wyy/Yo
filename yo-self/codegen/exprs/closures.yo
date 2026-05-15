@@ -22,6 +22,10 @@ open(import("std/string"));
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 { type_implements_fn } :: import("../../evaluator/trait_checking.yo");
 { CodegenContext } :: import("../context.yo");
+{
+  format_typed_init_line,
+  format_typed_var_name
+} :: import("../utils/index.yo");
 /// True if the most recent variable named `name` in `env` was bound at
 /// a frame level shallower than (or equal to) `capture_frame_level` —
 /// i.e. it was captured by an enclosing closure rather than declared
@@ -143,15 +147,15 @@ format_closure_capture_temp_var :: (
 /// `format_spawn_heap_alloc` in parallelism.yo.
 format_closure_stack_alloc :: (
   fn(capture_c_name : String, capture_temp_var : String, capture_data_code : String) -> String
-)({
-  s := String.from(capture_c_name.as_str());
-  s.push_str(" ");
-  s.push_str(capture_temp_var.as_str());
-  s.push_str(" = ");
-  s.push_str(capture_data_code.as_str());
-  s.push_str(";");
-  s
-});
+)(
+  // Composes via canonical typed-init helper:
+  //   "" + (capture_c_name + " " + capture_temp_var) + " = " + capture_data_code + ";"
+  format_typed_init_line(
+    String.new(),
+    format_typed_var_name(capture_c_name, capture_temp_var),
+    capture_data_code
+  )
+);
 export(
   check_variable_is_closure_captured,
   is_closure_construction,
