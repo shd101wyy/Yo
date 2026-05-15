@@ -159,6 +159,40 @@ emit_cast_enum_tag :: (fn(target_c_type : str, scrutinee : str) -> String)({
   out.push_str(").tag))");
   out
 });
+/// Emit the `arc4random_buf` comma-expression call form:
+///   `(arc4random_buf(<a0>, <a1>), (void)0)`
+/// The trailing `(void)0` lets the call appear as a value expression
+/// (returning `void`) — `arc4random_buf` itself returns `void`, so we
+/// need to coerce it into a value-of-no-type via the comma operator.
+emit_arc4_call :: (fn(a0 : str, a1 : str) -> String)({
+  out := String.from("(arc4random_buf(");
+  out.push_str(a0);
+  out.push_str(", ");
+  out.push_str(a1);
+  out.push_str("), (void)0)");
+  out
+});
+/// Emit the Windows BCrypt call form:
+///   `(int32_t)BCryptGenRandom(NULL, <a0>, <a1>, BCRYPT_USE_SYSTEM_PREFERRED_RNG)`
+/// The `int32_t` cast normalises BCrypt's NTSTATUS return type to the
+/// portable `i32` Yo expects from `__yo_bcrypt_gen_random`.
+emit_bcrypt_call :: (fn(a0 : str, a1 : str) -> String)({
+  out := String.from("(int32_t)BCryptGenRandom(NULL, ");
+  out.push_str(a0);
+  out.push_str(", ");
+  out.push_str(a1);
+  out.push_str(", BCRYPT_USE_SYSTEM_PREFERRED_RNG)");
+  out
+});
+/// Emit a plain parens-wrap: `(<arg>)`. Used by
+/// `__yo_maybe_uninit_assume_init`, whose lowering is the identity on
+/// the underlying expression but kept parenthesised for precedence.
+emit_paren_wrap :: (fn(arg : str) -> String)({
+  out := String.from("(");
+  out.push_str(arg);
+  out.push_str(")");
+  out
+});
 /// Emit a slice fat-pointer compound literal:
 ///   `(<slice_c_type>){ .data = <ptr>, .length = <len> }`
 /// Mirrors the body of `__yo_slice_new` in TS inline-fns.
@@ -401,31 +435,12 @@ generate_yo_inline_function_call :: (
     (func_name == BF_YO_SLICE_LEN) => Option(String).Some(emit_field(arg0, "length")),
     (func_name == BF_YO_SLICE_PTR) => Option(String).Some(emit_field(arg0, "data")),
     (func_name == BF_YO_GETRANDOM) => Option(String).Some(emit_call_3("getrandom", arg0, arg1, arg2)),
-    (func_name == BF_YO_ARC4RANDOM_BUF) => {
-      out := String.from("(arc4random_buf(");
-      out.push_str(arg0);
-      out.push_str(", ");
-      out.push_str(arg1);
-      out.push_str("), (void)0)");
-      Option(String).Some(out)
-    },
-    (func_name == BF_YO_BCRYPT_GEN_RANDOM) => {
-      out := String.from("(int32_t)BCryptGenRandom(NULL, ");
-      out.push_str(arg0);
-      out.push_str(", ");
-      out.push_str(arg1);
-      out.push_str(", BCRYPT_USE_SYSTEM_PREFERRED_RNG)");
-      Option(String).Some(out)
-    },
+    (func_name == BF_YO_ARC4RANDOM_BUF) => Option(String).Some(emit_arc4_call(arg0, arg1)),
+    (func_name == BF_YO_BCRYPT_GEN_RANDOM) => Option(String).Some(emit_bcrypt_call(arg0, arg1)),
     (func_name == BF_YO_GETENTROPY) => Option(String).Some(emit_call_2("getentropy", arg0, arg1)),
     (func_name == BF_YO_ARRAY_INDEX) => Option(String).Some(emit_array_index(arg0, arg1)),
     (func_name == BF_YO_SLICE_INDEX) => Option(String).Some(emit_array_index(arg0, arg1)),
-    (func_name == BF_YO_MAYBE_UNINIT_ASSUME_INIT) => {
-      out := String.from("(");
-      out.push_str(arg0);
-      out.push_str(")");
-      Option(String).Some(out)
-    },
+    (func_name == BF_YO_MAYBE_UNINIT_ASSUME_INIT) => Option(String).Some(emit_paren_wrap(arg0)),
     true => Option(String).None
   )
 });
@@ -479,4 +494,11 @@ is_yo_inline_builtin :: (fn(func_name : str) -> bool)(
 );
 export(generate_yo_inline_function_call, is_yo_inline_builtin);
 export(generate_yo_inline_meta, is_yo_inline_meta_builtin);
-export(emit_cast, emit_cast_enum_tag, emit_slice_construction);
+export(
+  emit_cast,
+  emit_cast_enum_tag,
+  emit_slice_construction,
+  emit_arc4_call,
+  emit_bcrypt_call,
+  emit_paren_wrap
+);
