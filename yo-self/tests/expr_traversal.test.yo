@@ -1,14 +1,14 @@
-/// Tests for the expression-traversal helpers exported from yo-self/expr.yo.
+/// Tests for the expression-traversal helpers in yo-self/expr_traversal.yo.
 ///
-/// Mirrors the (un-ported) `src/expr-traversal.ts`. Only the AST-only
-/// helpers are covered here — the metadata-aware variants (e.g.
-/// `exprContainsAwait`) live in expr.yo / expr_info.yo or are still
-/// pending and have their own coverage there.
+/// 1-to-1 port of `src/expr-traversal.ts`. Only the AST-only helpers are
+/// covered here — the metadata-aware variant (`exprContainsAwait`) is not
+/// yet ported.
 open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, make_err_expr, evaluated_body_contains_escape, expr_tree_contains_return } :: import("../expr.yo");
+{ AstExpr, make_err_expr } :: import("../expr.yo");
+{ evaluated_body_contains_escape, expr_tree_contains_return } :: import("../expr_traversal.yo");
 { parse } :: import("../parser.yo");
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 parse_one :: (fn(src : String) -> AstExpr)({

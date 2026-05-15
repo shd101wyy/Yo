@@ -452,92 +452,8 @@ expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) 
 expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
   table.data.get(id)
 );
-// ---------------------------------------------------------------------------
-// expr_contains_loop_terminator
-// ---------------------------------------------------------------------------
-/// Walk `expr` looking for any loop-terminator atom or call (break, return, escape).
-/// Stops at function/closure boundaries (`=>` arrows) but recurses directly
-/// into the condition and body parts of `cond`/`match` branch arms, bypassing
-/// the `=>` boundary check for those specific arguments.
-///
-/// Uses `recur` for self-recursion (Yo does not allow direct self-calls).
-///
-/// Mirrors `exprContainsLoopTerminator` in `src/expr-traversal.ts`.
-expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
-  match(
-    expr,
-    .Atom(_, tok) => {
-      s := tok.value.as_str();
-      (s == BK_BREAK) || ((s == BK_RETURN) || (s == BF_ESCAPE))
-    },
-    .FnCall(_, fn_box, args, _, _) => {
-      // return / escape as a direct function call
-      if(ast_expr_is_fn_call_of(expr, BK_RETURN,.None), {
-        return(true);
-      });
-      if(ast_expr_is_fn_call_of(expr, BF_ESCAPE,.None), {
-        return(true);
-      });
-      // => is a function boundary: do not recurse into it
-      if(ast_expr_is_fn_call_of(expr, "=>",.None), {
-        return(false);
-      });
-      // cond/match: recurse into branch parts directly (bypassing => at arg level)
-      (is_cond_or_match : bool) = (
-        ast_expr_is_fn_call_of(expr, BK_COND,.None) ||
-          ast_expr_is_fn_call_of(expr, BK_MATCH,.None)
-      );
-      if(is_cond_or_match, {
-        if(recur(fn_box.*), {
-          return(true);
-        });
-        (n_cm : usize) = args.len();
-        (i_cm : usize) = usize(0);
-        while(runtime(i_cm < n_cm), {
-          arg := match(args.get(i_cm),.Some(a) => a,.None => make_err_expr());
-          if(ast_expr_is_fn_call_of(arg, "=>",.None), {
-            // Branch arrow: recurse into each child (condition and body)
-            match(
-              arg,
-              .Atom(_, _) => (),
-              .FnCall(_, _, branch_args, _, _) => {
-                (n_ba : usize) = branch_args.len();
-                (j : usize) = usize(0);
-                while(runtime(j < n_ba), {
-                  ba := match(branch_args.get(j),.Some(a) => a,.None => make_err_expr());
-                  if(recur(ba), {
-                    return(true);
-                  });
-                  j = (j + usize(1));
-                });
-              }
-            );
-          }, {
-            if(recur(arg), {
-              return(true);
-            });
-          });
-          i_cm = (i_cm + usize(1));
-        });
-        return(false);
-      });
-      // General case: recurse into func and all args
-      if(recur(fn_box.*), {
-        return(true);
-      });
-      (n : usize) = args.len();
-      (i : usize) = usize(0);
-      while(runtime(i < n), {
-        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
-        if(recur(arg), {
-          return(true);
-        });
-        i = (i + usize(1));
-      });
-      false
-    }
-  )
-);
+// `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
+// (mirrors `src/expr-traversal.ts`).
 export(Path, PathCollection, path_collection_new);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
@@ -546,4 +462,3 @@ export(ComptimeRef);
 export(RuntimeDestructuring);
 export(ExprInfo, new_expr_info);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
-export(expr_contains_loop_terminator);
