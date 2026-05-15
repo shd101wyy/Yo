@@ -29,22 +29,17 @@
 //! The concrete-`___drop` dispatch branch of `generateYoSomeTypeDrop`
 //! similarly waits on the trait fields' `assigned_value` slot.
 open(import("std/string"));
+{ format_c_function_call } :: import("../utils/index.yo");
 /// Format the C call site `__yo_decr_rc(arg_code)`. Mirrors the body of
 /// TS `generateYoDecrRc` — pure string wrap.
-format_decr_rc_call :: (fn(arg_code : String) -> String)({
-  s := String.from("__yo_decr_rc(");
-  s.push_str(arg_code.as_str());
-  s.push_str(")");
-  s
-});
+format_decr_rc_call :: (fn(arg_code : String) -> String)(
+  format_c_function_call("__yo_decr_rc", arg_code)
+);
 /// Format the C call site `__yo_incr_rc(arg_code)`. Mirrors the body of
 /// TS `generateYoIncrRc` — pure string wrap.
-format_incr_rc_call :: (fn(arg_code : String) -> String)({
-  s := String.from("__yo_incr_rc(");
-  s.push_str(arg_code.as_str());
-  s.push_str(")");
-  s
-});
+format_incr_rc_call :: (fn(arg_code : String) -> String)(
+  format_c_function_call("__yo_incr_rc", arg_code)
+);
 /// Identity-style "rc-own" formatter — returns `arg_code` as-is.
 /// Mirrors TS `generateYoRcOwn`: an ownership-transfer marker has no
 /// runtime effect on the generated C expression.
@@ -53,20 +48,14 @@ format_rc_own :: (fn(arg_code : String) -> String)(arg_code);
 /// Used by the `drop-dup` leaf emit when the type is atomic-Object or
 /// `Iso(T)`. Lives in `rc_fns.yo` rather than `drop_dup.yo` so the
 /// builtin-wrapper formatters stay grouped.
-format_decr_rc_atomic_call :: (fn(arg_code : String) -> String)({
-  s := String.from("__yo_decr_rc_atomic(");
-  s.push_str(arg_code.as_str());
-  s.push_str(")");
-  s
-});
+format_decr_rc_atomic_call :: (fn(arg_code : String) -> String)(
+  format_c_function_call("__yo_decr_rc_atomic", arg_code)
+);
 /// Format `__yo_incr_rc_atomic(arg_code)` — symmetric counterpart to
 /// `format_decr_rc_atomic_call`.
-format_incr_rc_atomic_call :: (fn(arg_code : String) -> String)({
-  s := String.from("__yo_incr_rc_atomic(");
-  s.push_str(arg_code.as_str());
-  s.push_str(")");
-  s
-});
+format_incr_rc_atomic_call :: (fn(arg_code : String) -> String)(
+  format_c_function_call("__yo_incr_rc_atomic", arg_code)
+);
 /// Format the `__yo_dyn_drop` call site:
 ///   `__yo_decr_rc((void*)(arg_code).data)`
 ///
