@@ -12,12 +12,15 @@
 //! `check_type_implements_self_constraints`.
 //!
 //! Phase 3 stubs (returns conservative fallback):
-//!   * `_find_matching_generic_impl` — always returns false (generic impl registry needed)
 //!   * `_find_associated_type_from_generic_impls` — always returns false
-//!   * `_is_concrete_impl_being_registered` — always returns false
 //!   * `synthesize_types` calls in `type_implements_trait` step 3 and
 //!     `_check_associated_type_constraints` are deferred; env binding
 //!     propagation is not yet implemented (returns original env unchanged).
+//!
+//! Ported in this commit:
+//!   * `mark/unmark_concrete_impl_being_registered` and
+//!     `_is_concrete_impl_being_registered` now use a real HashMap-backed
+//!     registry instead of returning false. Mirrors TS `currentlyRegisteringConcreteImpls`.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -43,7 +46,13 @@ open(import("std/string"));
 { Environment } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { YoError, ErrorKind, format_error_message } :: import("../error.yo");
-{ find_matching_generic_impl, set_type_implements_trait_fn }
+{
+  find_matching_generic_impl,
+  set_type_implements_trait_fn,
+  is_concrete_impl_being_registered,
+  mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
+  unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered
+}
 :: import("./values/impl.yo");
 // ---------------------------------------------------------------------------
 // Auto-derived trait registry (folded from former
@@ -227,9 +236,17 @@ _find_matching_generic_impl :: (fn(target : TypeValue, trait_ty : TypeValue, env
 /// Phase 3 stub for `findAssociatedTypeFromGenericImpls`.
 /// Always returns false.
 _find_associated_type_from_generic_impls :: (fn(_target : TypeValue, _prop_name : String, _env : Environment) -> bool)(false);
-/// Phase 3 stub for `isConcreteImplBeingRegistered`.
-/// Always returns false.
-_is_concrete_impl_being_registered :: (fn(_type_id : String, _trait_name : String) -> bool)(false);
+/// Returns true if (type_id, trait_id) is currently being registered.
+/// Delegates to the registry in `evaluator/values/impl.yo` (where TS
+/// keeps `currentlyRegisteringConcreteImpls`). Used to handle recursive
+/// types — e.g. `impl(TreeNode, Clone(...))` whose function bodies
+/// validate `TreeNode <: Clone` before the impl is formally registered.
+///
+/// Mirrors `isConcreteImplBeingRegistered` in
+/// `src/evaluator/values/impl.ts:825-832`.
+_is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> bool)(
+  is_concrete_impl_being_registered(type_id, trait_id)
+);
 // ---------------------------------------------------------------------------
 // _check_associated_type_constraints
 // ---------------------------------------------------------------------------
@@ -1061,18 +1078,18 @@ find_some_type_missing_comptime_constraint :: (
 // ---------------------------------------------------------------------------
 // mark/unmark_concrete_impl_being_registered (Phase 3 stubs)
 // ---------------------------------------------------------------------------
-/// Mark a type+trait pair as currently being registered.
-/// Phase 3 stub: no-op.
-///
-/// Mirrors `markConcreteImplBeingRegistered` in
-/// `src/evaluator/trait-checking.ts`.
-mark_concrete_impl_being_registered :: (fn(_type_id : String, _trait_id : String) -> unit)(());
-/// Unmark a type+trait pair after registration.
-/// Phase 3 stub: no-op.
-///
-/// Mirrors `unmarkConcreteImplBeingRegistered` in
-/// `src/evaluator/trait-checking.ts`.
-unmark_concrete_impl_being_registered :: (fn(_type_id : String, _trait_id : String) -> unit)(());
+// `mark_concrete_impl_being_registered` and
+// `unmark_concrete_impl_being_registered` are re-exported here as
+// thin pass-throughs to `evaluator/values/impl.yo` (same module that
+// owns the underlying HashMap). Defined that way so the impl
+// evaluator — which already imports impl.yo — can call them without
+// a circular dependency through trait_checking.yo.
+mark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)(
+  impl_mark_concrete_impl_being_registered(type_id, trait_id)
+);
+unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)(
+  impl_unmark_concrete_impl_being_registered(type_id, trait_id)
+);
 // Install type_implements_trait_bool as the function pointer used by
 // impl.yo's try_match_generic_impl for where-clause checking.
 // This breaks the circular dependency between the two modules.

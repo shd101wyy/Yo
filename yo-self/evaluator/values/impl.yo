@@ -15,6 +15,7 @@
 //!   - Methods are added to env with qualified names (ReceiverType.method_name).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 {
   AstExpr,
   ast_expr_token,
@@ -115,6 +116,44 @@ TypeImplementsTraitFn :: (fn(t : TypeValue, trait_type : TypeValue, env : Enviro
 /// Install the function pointer (called from trait_checking.yo init block).
 set_type_implements_trait_fn :: (fn(f : TypeImplementsTraitFn) -> unit)({
   g_type_implements_trait_fn = Option(TypeImplementsTraitFn).Some(f);
+});
+// ---------------------------------------------------------------------------
+// `currentlyRegisteringConcreteImpls` registry
+// ---------------------------------------------------------------------------
+/// Set of `${typeId}:${traitId}` keys currently being registered.
+/// Mirrors `currentlyRegisteringConcreteImpls` in
+/// `src/evaluator/values/impl.ts:819`. Lives in impl.yo (not
+/// trait_checking.yo) so the impl evaluator can mark/unmark without
+/// a circular import; trait_checking.yo re-exports thin wrappers.
+///
+/// Used to handle recursive types — e.g. `derive(TreeNode, Clone)`
+/// where `Box(TreeNode)` Clone-impl validation needs to see
+/// `TreeNode <: Clone` even though the impl hasn't been formally
+/// registered yet.
+(_currently_registering_concrete_impls : HashMap(String, bool)) =
+  HashMap(String, bool).new();
+_concrete_impl_key :: (fn(type_id : String, trait_id : String) -> String)(
+  ((&(type_id)).clone() + String.from(":")) + trait_id
+);
+/// Returns true if (type_id, trait_id) is currently being registered.
+/// Mirrors `isConcreteImplBeingRegistered` in `impl.ts:825-832`.
+is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> bool)({
+  k := _concrete_impl_key(type_id, trait_id);
+  match(
+    _currently_registering_concrete_impls.get(k),
+    .Some(_) => true,
+    .None => false
+  )
+});
+/// Mark a type+trait pair as currently being registered.
+mark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)({
+  k := _concrete_impl_key(type_id, trait_id);
+  _ := _currently_registering_concrete_impls.set(k, true);
+});
+/// Unmark a type+trait pair after registration completes.
+unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)({
+  k := _concrete_impl_key(type_id, trait_id);
+  _ := _currently_registering_concrete_impls.remove(k);
 });
 /// Extract the registry key from a trait TypeValue.
 /// Uses the `id` field of TraitT (the stable nominal ID).
@@ -737,6 +776,48 @@ evaluate_module_value :: (
     .None => ()
   );
   receiver_type_id := type_id_or_empty(receiver_ty);
+  // Pre-register each trait name in this impl so that recursive types
+  // (e.g. `TreeNode :: enum(Branch(left : Box(Self)))` with
+  // `derive(TreeNode, Clone)`) can find their own Clone impl while
+  // the function body is being validated. Mirrors TS impl.ts:2911-2946:
+  // collect each trait name, mark it, run field eval, unmark on the
+  // way out.
+  (pre_registered_trait_ids : ArrayList(String)) = ArrayList(String).new();
+  if(receiver_type_id != String.from(""), {
+    (preri : usize) = usize(1);
+    while(runtime(preri < n_args), {
+      match(
+        args.get(preri),
+        .None => (),
+        .Some(pre_field_expr) => {
+          // Skip name:value pairs — only trait constructors (or bare
+          // trait names) qualify for pre-registration.
+          is_colon_pair := (
+            ast_expr_is_fn_call(pre_field_expr) &&
+              ast_expr_is_fn_call_of(pre_field_expr, BK_COLON,.Some(usize(2)))
+          );
+          if(!(is_colon_pair), {
+            tname := ast_expr_token(pre_field_expr).value;
+            if(tname.len() > usize(0), {
+              first_byte := tname.as_bytes().get(usize(0));
+              // Trait names start with an uppercase ASCII letter (mirrors
+              // TS regex /^[A-Z]/).
+              is_upper := match(
+                first_byte,
+                .Some(b) => ((b >= u8(65)) && (b <= u8(90))),
+                .None => false
+              );
+              if(is_upper, {
+                mark_concrete_impl_being_registered(receiver_type_id, tname);
+                pre_registered_trait_ids.push((&(tname)).clone());
+              });
+            });
+          });
+        }
+      );
+      preri = (preri + usize(1));
+    });
+  });
   // Mirror TS `context: { ...context, SelfType: receiverType }` so
   // that `Self` references inside method signatures (e.g.
   // `fn(self : Self) -> i32`) resolve to the receiver type during
@@ -858,6 +939,18 @@ evaluate_module_value :: (
     );
     field_idx = (field_idx + usize(1));
   });
+  // Unmark each trait pre-registered above. Mirrors TS impl.ts:2942-2946
+  // `finally { for (const key of preRegisteredKeys) ... }`.
+  (postri : usize) = usize(0);
+  pre_n := pre_registered_trait_ids.len();
+  while(runtime(postri < pre_n), {
+    match(
+      pre_registered_trait_ids.get(postri),
+      .None => (),
+      .Some(tname) => unmark_concrete_impl_being_registered(receiver_type_id, tname)
+    );
+    postri = (postri + usize(1));
+  });
   // Restore self_type so the impl's parent scope sees its prior value.
   ctx.*.self_type = old_self_type;
   // Set ExprInfo on the impl expression and return.
@@ -926,3 +1019,6 @@ export(register_generic_impl);
 export(try_match_generic_impl);
 export(find_matching_generic_impl);
 export(find_methods_from_generic_impls);
+export(is_concrete_impl_being_registered);
+export(mark_concrete_impl_being_registered);
+export(unmark_concrete_impl_being_registered);
