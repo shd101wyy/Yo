@@ -480,14 +480,14 @@ type_implements_trait :: (
     target = resolved;
   });
   // 7.5. Concrete impl currently being registered (recursive types).
-  // Phase 3 stub: always returns false.
+  // Mirrors `currentlyRegisteringConcreteImpls` lookup in TS.
   if(_is_concrete_impl_being_registered(
     _trait_type_id(target),
     _trait_type_id(trait_type)
   ), {
     return(TraitCheckResult(implemented : true, env : env));
   });
-  // 8. Generic impl registry (Phase 3 stub — always returns false).
+  // 8. Generic impl registry — delegated to impl.yo via _find_matching_generic_impl.
   guard_key := _trait_type_id(target).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
