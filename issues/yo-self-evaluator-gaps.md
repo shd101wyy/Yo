@@ -102,26 +102,36 @@ Tracked via `/tmp/test_higher_kinded.yo` and
 exposure: `iterator.test.yo`-style chains that use
 `Iterator.Map(F, …)` patterns.
 
-### 6. Prelude auto-loading
+### 6. Prelude auto-loading — **partially fixed**
 
-**Location:** `yo-self/main.yo:run_check` (and elsewhere where
-`std_path : String.from("")` is passed to `eval_context_new`).
+**Status:** Pre-loading mechanism wired in `run_check`; first
+post-prelude gap surfaces around `std/prelude.yo:102` (Array `forall(T : Type, N : usize)` HKT support).
 
-**What's missing:** The bootstrap evaluator doesn't auto-load
-`std/prelude.yo`. As a result, references to prelude-defined
-identifiers in any context that the evaluator can't satisfy
-inline (`Box`, `Option`, `Result`, `str`, primitive operators
-`+ - * / & |` etc.) fail with `Variable "X" not found`.
+**What landed (commit TBD):**
 
-**Impact:** This is THE biggest practical blocker. Most real
-`./tests/*.test.yo` files exercise prelude types and operators, so
-they can't be `check`-ed end-to-end without local re-definitions.
-TS reference auto-loads prelude in `evaluator/index.ts:138-180`.
+- `resolve_std_path()` helper — reads `YO_STD` env var, falls
+  back to `./std`.
+- `collect_module_deps` extended with a `std_base` parameter:
+  when non-empty, `std/foo` imports are rewritten to
+  `{std_base}/foo` and followed; when empty, legacy skip
+  behavior is preserved (used by `run_test`).
+- `run_check` now calls `collect_module_deps("prelude.yo", …)`
+  before walking the input file's own imports, so prelude
+  declarations are part of `all_exprs`. ctx.std_path is also
+  set so the modular `import("std/...")` handler can resolve
+  paths during evaluation itself.
 
-**Suggested fix path:** In `run_check` (and the compile pipeline),
-look up `std_path` via env var (`YO_STD`) or relative to the
-bootstrap binary's location, then load `std/prelude.yo` once at
-evaluator init and inject its exports into the root env.
+**What's still missing:** the evaluator now starts processing
+prelude but stops at the first unported feature (currently the
+Array fat-pointer HKT). Once §5 HKT and §2 RC are filled in,
+prelude evaluation should complete and the run_check
+"Variable not found" failures disappear for typical real source
+files.
+
+**Not yet wired:** `run_compile` still doesn't pre-load prelude
+(it relies on the existing `try_populate_expr_info_table` fallback).
+`@skip_prelude` per-file detection is also not wired — every file
+passed to `check` currently gets prelude pre-loaded unconditionally.
 
 ### 7. Build / asm / partial assignment stubs
 
@@ -145,6 +155,8 @@ Roughly in order of practical impact for "yo-self-bin can compile
 real tests":
 
 1. **Prelude auto-loading (§6)** — unblocks ~95% of `./tests/`.
+   Mechanism is now wired (commit TBD); blocked on §5 HKT and
+   §2 RC to actually finish evaluating prelude.
 2. **Trait-checking Phase-3 stubs (§1)** — needed for blanket-impl
    and Iterator-style trait code.
 3. **HKT `kindFunctionType` (§5)** — needed for Functor/Monad std

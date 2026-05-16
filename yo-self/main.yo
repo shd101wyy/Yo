@@ -18,7 +18,7 @@ open(import("std/fmt"));
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
 { Command } :: import("std/process/command");
-{ exit } :: import("std/libc/stdlib");
+{ exit, getenv } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr } :: import("./expr.yo");
 { ExprInfoTable } :: import("./expr_info.yo");
@@ -40,6 +40,30 @@ module_id_from_path :: (fn(path : String) -> String)(
   // path reserved for future use (filename stem extraction)
   String.from("yo_module")
 );
+/// Resolve the path to the `std/` directory at the time the bootstrap
+/// binary runs. The proper evaluator needs this so `import("std/...")`
+/// can be satisfied — without it, prelude can't be loaded and the
+/// majority of user code references (`Option`, `Box`, `+`, …) fail
+/// with "Variable not found".
+///
+/// Lookup order (mirrors TS `evaluator/index.ts:142`):
+///   1. `YO_STD` env var, if set and non-empty.
+///   2. `./std` relative to the current working directory.
+resolve_std_path :: (fn() -> String)({
+  name_cstr := String.from("YO_STD").to_cstr().ptr().unwrap();
+  val_ptr := getenv(*(char)(name_cstr));
+  match(
+    val_ptr,
+    .None => String.from("./std"),
+    .Some(ptr) => {
+      v := String.from_cstr(*(u8)(ptr)).unwrap();
+      cond(
+        (v.len() > usize(0)) => v,
+        true => String.from("./std")
+      )
+    }
+  )
+});
 /// Stream A: try to populate the typed AST metadata table by running the
 /// proper evaluator over the parsed top-level expressions. On any failure
 /// (the evaluator's coverage of real source files is still incomplete),
@@ -59,12 +83,12 @@ try_populate_expr_info_table :: (
       (_err) -> escape(Option(ExprInfoTable).None)
     )
   );
-  // Build a fresh Environment + EvalContext for this compilation. The
-  // std_path argument is left empty — the proper evaluator's std-resolution
-  // is not yet plumbed in, so modules that depend on prelude / cross-module
-  // lookups will throw and we gracefully fall back.
+  // Build a fresh Environment + EvalContext for this compilation. std_path
+  // is resolved from `YO_STD` (or `./std` fallback) so the modular import
+  // handler can find `std/...` modules. The local exception escape catches
+  // any evaluator coverage gap (e.g. unported HKT/RC features in prelude).
   env := Environment.new(module_path);
-  ctx := eval_context_new(String.from(""), module_path);
+  ctx := eval_context_new(resolve_std_path(), module_path);
   // Wire the proper expression-evaluator function pointer.
   register_evaluate_expression();
   // Drive the module body through the proper evaluator. We discard the
@@ -155,24 +179,37 @@ collect_module_deps :: (
   fn(
     path_str : str,
     base_dir : str,
+    std_base : str,
     visited : *(ArrayList(String)),
     all_exprs : *(ArrayList(AstExpr)),
     using(io : IO, exn : Exception)
   ) -> unit
 )({
-  // Skip standard library imports (handled via C preamble)
+  // Standard library imports: when std_base is empty, skip (legacy behavior —
+  // codegen handles std symbols via the C preamble). When std_base is set,
+  // rewrite `std/foo` → `{std_base}/foo` and follow it like a regular dep so
+  // the evaluator can see prelude/std declarations.
+  (effective_path : String) = String.from(path_str);
+  (effective_base : String) = String.from(base_dir);
   if(String.from(path_str).starts_with(String.from("std/")), {
-    return(());
+    if(String.from(std_base).len() == usize(0), {
+      return(());
+    });
+    rest := String.from(path_str).substring(usize(4), String.from(path_str).len());
+    effective_path = String.from(rest.as_str());
+    effective_base = String.from(std_base);
   });
   // Normalize extension: append .yo if missing
-  norm_path := normalize_import_path(path_str);
+  norm_path := normalize_import_path(effective_path.as_str());
   // Resolve absolute path by normalizing base_dir/norm_path as one string.
   // Path.new normalizes ".." segments, which is needed for relative imports like "../types/tags.yo".
   // (Path.join does NOT re-normalize ".." in the second argument.)
-  abs_path_raw := Path.new(`${base_dir}/${norm_path.as_str()}`).to_string();
-  // Also skip imports that resolve to a path inside the std/ directory
-  // (e.g. relative imports like "../string" from within std/imm/).
-  if(String.from(abs_path_raw.as_str()).starts_with(String.from("std/")), {
+  abs_path_raw := Path.new(`${effective_base.as_str()}/${norm_path.as_str()}`).to_string();
+  // When std_base is empty, also skip paths that resolve into std/ (e.g.
+  // relative imports like "../string" from within std/imm/). With std_base
+  // set, std/ resolves into std_base and these paths should be followed.
+  if((String.from(std_base).len() == usize(0)) &&
+    String.from(abs_path_raw.as_str()).starts_with(String.from("std/")), {
     return(());
   });
   // Handle directory modules: if path.yo doesn't exist but path/index.yo does, use the latter.
@@ -239,6 +276,7 @@ collect_module_deps :: (
           recur(
             child_path.as_str(),
             mod_base_dir.as_str(),
+            std_base,
             visited,
             all_exprs,
             using(io, exn)
@@ -291,10 +329,21 @@ run_check :: (
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path, using(exn));
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
-  // Resolve transitive (non-std) imports so the evaluator sees the
-  // full module body, the same way `run_test` does.
+  // Resolve transitive imports — std/ paths now follow into "./std" so the
+  // evaluator can see prelude/std declarations.
+  std_path := resolve_std_path();
   visited := ArrayList(String).new();
   dep_exprs := ArrayList(AstExpr).new();
+  prelude_literal := String.from("prelude.yo");
+  collect_module_deps(
+    prelude_literal.as_str(),
+    std_path.as_str(),
+    std_path.as_str(),
+    &(visited),
+    &(dep_exprs),
+    using(io, exn)
+  );
+  println(`check: pre-loaded prelude — ${dep_exprs.len().to_string()} expr(s) so far`);
   input_base_dir := match(
     Path.new(String.from(input_path.as_str())).parent(),
     .None => String.from("."),
@@ -314,6 +363,7 @@ run_check :: (
           collect_module_deps(
             imp_path.as_str(),
             input_base_dir.as_str(),
+            std_path.as_str(),
             &(visited),
             &(dep_exprs),
             using(io, exn)
@@ -356,7 +406,7 @@ run_check :: (
   // pipelines DO catch and fall back; `check` is intentionally
   // strict.)
   env := Environment.new(input_path);
-  ctx := eval_context_new(String.from(""), input_path);
+  ctx := eval_context_new(std_path, input_path);
   register_evaluate_expression();
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
   _r := evaluate_anonymous_module_begin_exprs(
@@ -468,6 +518,7 @@ run_test :: (
           collect_module_deps(
             imp_path.as_str(),
             input_base_dir.as_str(),
+            "",
             &(visited),
             &(dep_exprs),
             using(io, exn)
