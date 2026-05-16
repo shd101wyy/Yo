@@ -26,9 +26,9 @@ segfaults are tracked separately in
 **What's stubbed:**
 
 - `findAssociatedTypeFromGenericImpls` — returns `Option.None`
-- `isConcreteImplBeingRegistered` — always returns `false`
+- ~~`isConcreteImplBeingRegistered` — always returns `false`~~ — **fixed** in commit `efd79680` (real HashMap-backed registry mirroring TS `currentlyRegisteringConcreteImpls`)
 - Generic-impl-registry walks for associated-type constraints
-- `mark/unmarkConcreteImplBeingRegistered` — no-ops
+- ~~`mark/unmarkConcreteImplBeingRegistered` — no-ops~~ — **fixed** in commit `efd79680` (registry write/delete + pre-registration loop in `evaluate_module_value` Case-3)
 - `typeImplementsTraitBool` (where-clause checking) — conservative fallback
 
 **Impact:** Where-clause constraints on generic impls are not fully
