@@ -25,6 +25,7 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
   make_err_expr,
+  BK_BEGIN,
   BK_TUPLE,
   BK_RETURN,
   BF_ESCAPE,
@@ -164,11 +165,28 @@ evaluate_begin_expression :: (
 )({
   (env : Environment) = env_in;
   // Extract the list of child expressions from the begin block.
-  begin_args := match(
+  //
+  // If `expr` is NOT a `begin(...)` call (e.g. a function body like
+  // `struct(value : T)` invoked via the comptime-fn caller), treat it
+  // as a single-expression begin block by wrapping it in a 1-element
+  // arg list. Mirrors TS `evaluateBeginExpression`
+  // (src/evaluator/exprs/begin.ts:1009-1037) which synthesises a
+  // `begin(expr)` wrapper when the input is not already a begin call.
+  // Without this, the naive `FnCall` arg unwrap below would treat the
+  // struct call's fields (`value : T`) as top-level statements and
+  // dispatch them through `evaluate_binding`, raising a spurious
+  // `Unexpected runtime variable binding in a compile-time only
+  // function body.` error.
+  is_begin_call := ast_expr_is_fn_call_of(expr, BK_BEGIN,.None);
+  begin_args := if(is_begin_call, match(
     expr,
     .FnCall(_, _, args, _, _) => args,
     .Atom(_, _) => ArrayList(AstExpr).new()
-  );
+  ), {
+    single := ArrayList(AstExpr).new();
+    single.push(expr);
+    single
+  });
   n_args := begin_args.len();
   // Empty begin → unit result immediately.
   if(n_args == usize(0), {
