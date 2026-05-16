@@ -117,6 +117,17 @@ found` errors in method signatures like `fn(self : Self) -> i32`.
   expression's ExprInfo. Value-position expressions are not gated
   on TypeValue-ness.
 
+- **`Self.Item` associated type resolution** (commit `3cd18fb4`) —
+  property access on a SomeT (the trait's `Self` type variable) and
+  on Struct/Union types now resolves associated-type properties
+  like `Self.Item` / `Self.Output`. Two complementary paths in
+  `evaluator/exprs/property_access.yo`: SomeT walks
+  `required_trait_types` + falls back to `ctx.self_trait_type`
+  (covers trait declarations); Struct/Union uses
+  `get_type_trait_methods_by_name` against the impl-registry (covers
+  impl method bodies where Self resolves to the concrete receiver).
+  Mirrors TS `property-access.ts:425-523`.
+
 - **`:` / `#` keyword-alias correctness** (commit `a6025b43`) —
   TS `BuiltinKeywords` aliases `quote = ["quote", ":"]` and
   `unquote = ["unquote", "#"]`. yo-self splits these into separate
