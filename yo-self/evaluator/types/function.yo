@@ -692,33 +692,61 @@ evaluate_function_parameter :: (
     },
     .None => ()
   );
-  // Evaluate default value expression
+  // Evaluate default value expression.
+  //
+  // Mirror TS `function.ts:399-440` — the default value's VALUE and
+  // TYPE are extracted separately from the evaluated expression's
+  // ExprInfo. A default like `?= i32(42)` evaluates to an i32 value
+  // (not a TypeValue), so we cannot route through `_eval_and_update_env`
+  // (which is type-only and would return `.None` here, triggering a
+  // spurious `Expected a compile-time known value for default
+  // parameter` error). Read the ExprInfo directly.
   match(
     default_value_expr,
     .Some(dve) => {
-      (default_val_ty : Option(TypeValue)) = _eval_and_update_env(dve, env_mut, ctx, using(exn));
+      evaluated_dve := evaluate_expression(dve, env_mut.*, ctx);
+      info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dve));
       match(
-        default_val_ty,
-        .Some(dv_ty) => {
+        info_opt,
+        .Some(info) => {
+          env_mut.* = info.env;
+          dv_val_opt := info.value;
+          dv_ty := info.ty;
           match(
-            param_type,
-            .None => {
-              param_type =.Some(dv_ty);
+            dv_val_opt,
+            .Some(_dv_val) => {
+              match(
+                param_type,
+                .None => {
+                  param_type =.Some(dv_ty);
+                },
+                .Some(pt) => {
+                  if(!(are_types_compatible(pt, dv_ty)), {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(dve),
+                          `Incompatible default value type:\n- Expected: ${type_to_string(pt)}\n- Got     : ${type_to_string(dv_ty)}`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                  });
+                }
+              );
             },
-            .Some(pt) => {
-              // Check compatibility
-              if(!(are_types_compatible(pt, dv_ty)), {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      ast_expr_token(dve),
-                      `Incompatible default value type:\n- Expected: ${type_to_string(pt)}\n- Got     : ${type_to_string(dv_ty)}`,
-                      false,
-                      .None
-                    )
+            .None => {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(dve),
+                    `Expected a compile-time known value for default parameter, got ${ast_expr_to_string(dve)}`,
+                    false,
+                    .None
                   )
-                );
-              });
+                )
+              );
             }
           );
         },
@@ -727,7 +755,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(dve),
-                `Expected a compile-time known value for default parameter, got ${ast_expr_to_string(dve)}`,
+                `Failed to evaluate default value expression`,
                 false,
                 .None
               )
