@@ -107,10 +107,43 @@ found` errors in method signatures like `fn(self : Self) -> i32`.
   `createUnknownValue` at `src/value.ts:573-588`. Where-clause LHS
   resolution now correctly recognises `T` as a SomeType.
 
+- **Single-expression function body wrapped in synthetic begin**
+  (commit `7fa04102`) — `evaluate_begin_expression`
+  (`yo-self/evaluator/exprs/begin.yo:155`) used to naively unwrap
+  any `FnCall`'s args, treating a body like `struct(value : T)` as
+  a 1-arg begin block whose only arg `value : T` then dispatched
+  through `evaluate_binding` and threw `Unexpected runtime variable
+binding in a compile-time only function body.`. Mirror TS
+  `src/evaluator/exprs/begin.ts:1009-1037` — when the input is not
+  already a `begin(...)` call, synthesise a 1-element wrapper so the
+  loop dispatches the original expression through the proper
+  handler. Enables generic structs of the form
+  `Container :: (fn(comptime(T) : Type) -> comptime(Type))(struct(value : T))`.
+
 The forall→SomeT fix surfaced a downstream silent SIGSEGV on
 `where(T <: Trait)` constraints — likely the same May-14 runtime
 regression manifesting through a newly-exercised codepath. Tracked
 in `issues/yo-self-where-clause-trait-eval-segfault.md`.
+
+### Known `yo-self-bin check` limits (May 16, 2026)
+
+The `yo check` subcommand currently can be exercised on
+self-contained `.yo` files that:
+
+- Do not contain `test("name", { body })` blocks (those segfault
+  at runtime — separate yo-self bin issue).
+- Do not use template literals (` `… ${expr} …` `) — the runtime
+  crashes on the parser-generated `.to_string()` desugaring.
+- Do not import `std/...` modules (the bootstrap evaluator passes
+  `std_path : String.from("")` into the eval context, so the
+  import handler can't resolve `std/` prefixes; auto-loading the
+  prelude is also not yet wired).
+
+These three limits together mean most `./tests/*.test.yo` files
+cannot be checked end-to-end yet. The gap-fill loop still works on
+inline fixtures (struct + impl + method dispatch, generic structs,
+recursive functions, pointer/dereference, etc.) and on `std/...`
+imports stripped down to local files.
 
 ### Current blocker (May 15, 2026)
 
