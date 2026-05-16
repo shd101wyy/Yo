@@ -76,6 +76,29 @@ Most likely candidates:
 - Some downstream codegen path on a SomeT that wasn't exercised
   before (Pass 3 used to leave T as `UnknownVal`).
 
+## Narrowed (May 16 follow-up)
+
+After more probing:
+
+- `where(T <: CustomTrait)` where `CustomTrait` is **defined in the
+  same file** works correctly (e.g.,
+  `/tmp/test_fn_where_custom.yo` passes).
+- `where(T <: Send)` segfaults — `Send` is a stdlib trait not loaded
+  in env (bootstrap doesn't preload prelude).
+- `where(T <: NonExistent)` (genuinely undefined identifier) also
+  segfaults instead of throwing a clean `Variable "NonExistent" not
+found` error.
+
+So the trigger is: **the where-clause RHS trait identifier lookup
+fails AND the resulting throw doesn't propagate cleanly**. A plain
+identifier lookup failure outside where-clauses prints the clean
+error and exits 134 (panic via wrapper), but the where-clause path
+gives exit 139 (SIGSEGV).
+
+Probably a yo-self codegen issue with how the exn passes through
+nested raw_wrapper / inner evaluator boundaries — only triggered
+on this specific control-flow shape.
+
 ## Probable relation to May-14 codegen regression
 
 This crash has the same fingerprint as
