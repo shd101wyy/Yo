@@ -418,6 +418,57 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
     .None => assert(false, "expected a method entry")
   );
 });
+test("get_receiver_methods_by_name_from_env: infix call drops *(Self)-first-param methods", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_infix"), String.from("I"));
+  // Build `+ : (fn(self : *(I), other : I) -> i32)` — a Self-as-ptr
+  // first-param shape. Under TS, an infix `a + b` lookup should
+  // NOT pick this method (auto-pointer-conversion is suppressed
+  // for infix calls); a regular method call would keep it.
+  param_labels := ArrayList(String).new();
+  param_labels.push(String.from("self"));
+  param_labels.push(String.from("other"));
+  param_types := ArrayList(TypeValue).new();
+  param_types.push(TypeValue.Pointer(Box(TypeValue)(s)));
+  param_types.push(s);
+  fn_ty := TypeValue.Func(
+    forall_labels : ArrayList(String).new(),
+    forall_types : ArrayList(TypeValue).new(),
+    param_labels : param_labels,
+    param_types : param_types,
+    implicit_labels : ArrayList(String).new(),
+    implicit_types : ArrayList(TypeValue).new(),
+    implicit_spreads : ArrayList(bool).new(),
+    where_types : ArrayList(TypeValue).new(),
+    result : Box(TypeValue)(t_i32())
+  );
+  register_type_trait_method(
+    String.from("ty_infix"),
+    MethodEntry(
+      label : String.from("+"),
+      ty : fn_ty,
+      value : Option(EvalValue).None,
+      source_trait_id : String.from("")
+    )
+  );
+  env := Environment.new(String.from(""));
+  // Non-infix call → keep the method.
+  hits_normal := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("+"),
+    s,
+    false
+  );
+  assert(hits_normal.len() == usize(1), "non-infix call keeps *(Self) method");
+  // Infix call → drop the method.
+  hits_infix := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("+"),
+    s,
+    true
+  );
+  assert(hits_infix.len() == usize(0), "infix call drops *(Self) method");
+});
 test("clear_type_trait_methods: wipes state", {
   register_type_trait_method(
     String.from("ty_e"),
