@@ -32,7 +32,7 @@ open(import("std/string"));
   Environment,
   add_variable_to_env,
   synthetic_token,
-  get_variables_from_env
+  get_receiver_methods_by_name_from_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type } :: import("../../types/creators.yo");
@@ -68,17 +68,13 @@ open(import("std/string"));
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { try_to_call_function_with_arguments } :: import("./helper.yo");
-{
-  MethodCandidate,
-  find_methods_from_generic_impls
-} :: import("../values/impl.yo");
 { create_unknown_val } :: import("../../value.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
-// Used by `_try_find_receiver_method` / `_type_value_base_name` below.
+// Used by `_try_find_receiver_method` below.
 // ---------------------------------------------------------------------------
 ReceiverMethodResult :: struct(
   method_val_opt : Option(EvalValue),
@@ -86,30 +82,16 @@ ReceiverMethodResult :: struct(
   receiver_expr : AstExpr
 );
 // ---------------------------------------------------------------------------
-// _type_value_base_name — extract the nominal type name from a TypeValue for
-// qualified method lookup ("TypeName.method_name").
-// Mirrors the name extraction inside `getReceiverMethodsByNameFromEnv` in
-// `src/env.ts`.
-// ---------------------------------------------------------------------------
-_type_value_base_name :: (fn(ty : TypeValue) -> Option(String))(
-  match(
-    ty,
-    .Struct(_, name, _, _, _, _, _) => Option(String).Some((&(name)).clone()),
-    .EnumT(_, name, _, _, _, _, _) => Option(String).Some((&(name)).clone()),
-    .Union(name, _, _) => Option(String).Some((&(name)).clone()),
-    .ModuleT(_, name, _, _) => Option(String).Some((&(name)).clone()),
-    .TraitT(name, _, _, _, _, _, _, _) => Option(String).Some((&(name)).clone()),
-    .SomeT(_, name, _, _, _, _, _, _, _) => Option(String).Some((&(name)).clone()),
-    .TypeAppT(ctor_box, _) => recur(ctor_box.*),
-    .Pointer(pt_box) => recur(pt_box.*),
-    _ => Option(String).None
-  )
-);
-// ---------------------------------------------------------------------------
 // _try_find_receiver_method — when the callee is a property-access expression
-// `.(receiver, method_name)` with no ExprInfo, look up the method by qualified
-// name ("TypeName.method") in the env (Case 3 non-generic impls) or the generic-
-// impl registry.
+// `.(receiver, method_name)` with no ExprInfo, look up the method via env.yo's
+// `get_receiver_methods_by_name_from_env`.
+//
+// Replaces the previous in-file "TypeName.method" qualified-name walk; the
+// new env.yo function consults the trait-method registry (keyed by type id),
+// applies pointer auto-deref, runs the comptime-receiver retry, walks
+// SomeType / Dyn / TypeApplication trait constraints, and falls back to the
+// generic-impl registry — covering everything the old local helper did plus
+// trait-bounded receivers.
 //
 // Returns `.Some(ReceiverMethodResult)` if a method was found, `.None` otherwise.
 //
@@ -159,68 +141,34 @@ _try_find_receiver_method :: (
   // 3. Method name token.
   method_tok := ast_expr_token(method_name_expr);
   method_name := (&(method_tok.value)).clone();
-  // 4. Dereference pointer layers on the receiver type to reach the base type.
-  (base_ty : TypeValue) = receiver_type;
-  (keep_deref : bool) = true;
-  while(runtime(keep_deref), {
-    match(
-      base_ty,
-      .Pointer(pt_box) => {
-        base_ty = pt_box.*;
-      },
-      _ => {
-        keep_deref = false;
-      }
-    );
+  // 4. Delegate to env.yo's full receiver-method lookup. It handles
+  //    pointer auto-deref, the trait-method registry (direct +
+  //    impl'd), the generic-impl fallback, and the
+  //    SomeT/Dyn/TypeApp/comptime branches.
+  //    is_infix_operator_call = false: dot-call dispatch is never
+  //    infix.
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    method_name,
+    receiver_type,
+    false
+  );
+  if(hits.len() == usize(0), {
+    return(Option(ReceiverMethodResult).None);
   });
-  // 5. Build the qualified name "TypeName.method".
-  type_name := match(
-    _type_value_base_name(base_ty),
-    .Some(tn) => tn,
+  // Take the first hit (mirrors the prior "first match wins"
+  // contract — the call site does parameter unification later).
+  first := match(
+    hits.get(usize(0)),
+    .Some(m) => m,
     .None => {
       return(Option(ReceiverMethodResult).None);
     }
   );
-  qualified := `${type_name}.${method_name}`;
-  // 6. Resolve the method: try env lookup first, then generic-impl registry.
-  (method_val_opt : Option(EvalValue)) = Option(EvalValue).None;
-  (method_ty : TypeValue) = t_unit();
-  (found_method : bool) = false;
-  // 6a. Non-generic impls registered as "TypeName.method" in env (Case 3 of impl.yo).
-  vars := get_variables_from_env(env, (&(qualified)).clone());
-  if(vars.len() > usize(0), {
-    match(
-      vars.get(vars.len() - usize(1)),
-      .Some(mv) => {
-        method_val_opt = mv.value;
-        method_ty = mv.ty;
-        found_method = true;
-      },
-      .None => ()
-    );
-  });
-  // 6b. Generic impls registered via impl(forall(T), ReceiverType(T), …).
-  if(!(found_method), {
-    candidates := find_methods_from_generic_impls(base_ty, (&(method_name)).clone(), env);
-    if(candidates.len() > usize(0), {
-      match(
-        candidates.get(usize(0)),
-        .Some(c) => {
-          method_val_opt = c.method_value;
-          method_ty = c.method_type;
-          found_method = true;
-        },
-        .None => ()
-      );
-    });
-  });
-  if(!(found_method), {
-    return(Option(ReceiverMethodResult).None);
-  });
   Option(ReceiverMethodResult).Some(
     ReceiverMethodResult(
-      method_val_opt : method_val_opt,
-      method_ty : method_ty,
+      method_val_opt : first.value,
+      method_ty : first.ty,
       receiver_expr : receiver_expr
     )
   )
