@@ -117,6 +117,19 @@ found` errors in method signatures like `fn(self : Self) -> i32`.
   expression's ExprInfo. Value-position expressions are not gated
   on TypeValue-ness.
 
+- **`:` / `#` keyword-alias correctness** (commit `a6025b43`) —
+  TS `BuiltinKeywords` aliases `quote = ["quote", ":"]` and
+  `unquote = ["unquote", "#"]`. yo-self splits these into separate
+  string constants so each check site has to spell the right alias.
+  Three sites in `evaluator/types/function.yo` were wrong:
+  variadic outer `...(name : Type)` was matching `BK_QUOTE.Some(2)`
+  (the binary `:` is a colon pair, not the quote macro — switched
+  to `BK_COLON.Some(2)`); inner unary `:(x)` quote-alias and
+  function-return-type `#(...)` unquote-alias now both accept the
+  alias forms. Enables runtime-variadic-with-type-annotation
+  (`...(name : Type)`) and macro return types written with `#(Expr)`
+  instead of `unquote(Expr)`.
+
 - **Single-expression function body wrapped in synthetic begin**
   (commit `7fa04102`) — `evaluate_begin_expression`
   (`yo-self/evaluator/exprs/begin.yo:155`) used to naively unwrap
