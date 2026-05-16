@@ -13,7 +13,8 @@ open(import("std/string"));
 { EvalValue } :: import("../value.yo");
 { Environment } :: import("../env.yo");
 {
-  get_type_trait_methods_by_name_from_env
+  get_type_trait_methods_by_name_from_env,
+  get_receiver_methods_by_name_from_env
 } :: import("../env.yo");
 {
   MethodEntry,
@@ -118,6 +119,57 @@ test("get_type_trait_methods_by_name_from_env: empty id short-circuits", {
     TypeValue.Unit
   );
   assert(hits.len() == usize(0), "no hits for Unit");
+});
+test("get_receiver_methods_by_name_from_env: direct receiver", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_recv"), String.from("R"));
+  // `_entry` constructs a `MethodEntry` with `ty : t_i32()` (not
+  // Func) — the receiver-methods filter only drops 0-arg `Func`
+  // methods, so non-Func types pass through. That's enough to
+  // exercise the lookup + filter path on the direct-receiver
+  // branch.
+  register_type_trait_method(
+    String.from("ty_recv"),
+    _entry(String.from("greet"))
+  );
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("greet"),
+    s,
+    false
+  );
+  assert(hits.len() == usize(1), "one greet method on direct receiver");
+});
+test("get_receiver_methods_by_name_from_env: through pointer deref", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_pdr"), String.from("PD"));
+  register_type_trait_method(
+    String.from("ty_pdr"),
+    _entry(String.from("foo"))
+  );
+  // Pointer to struct s.
+  ptr_ty := TypeValue.Pointer(Box(TypeValue)(s));
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("foo"),
+    ptr_ty,
+    false
+  );
+  assert(hits.len() == usize(1), "method found via ptr-deref");
+});
+test("get_receiver_methods_by_name_from_env: empty when nothing matches", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_none"), String.from("N"));
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("missing"),
+    s,
+    false
+  );
+  assert(hits.len() == usize(0), "no hits for unregistered method");
 });
 test("clear_type_trait_methods: wipes state", {
   register_type_trait_method(
