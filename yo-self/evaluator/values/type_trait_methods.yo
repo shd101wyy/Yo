@@ -73,11 +73,21 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
 /// shared reference to multiple call sites without paying for
 /// repeated cloning, matching the way TS's `field` records
 /// transitively share through `type.trait.fields`.
+///
+/// `needs_pointer_conversion` mirrors TS's
+/// `needsPointerConversion?: boolean` flag on
+/// `getReceiverMethodsByNameFromEnv`'s return record. It's set
+/// by `_filter_receiver_methods` (in env.yo) when the method's
+/// first parameter is `*(T)` and the receiver is `T` — codegen
+/// uses the flag to insert an address-of so the caller can pass
+/// `&receiver` automatically. Defaults to `false` at every
+/// registration site.
 MethodEntry :: object(
   label : String,
   ty : TypeValue,
   value : Option(EvalValue),
-  source_trait_id : String
+  source_trait_id : String,
+  needs_pointer_conversion : bool
 );
 /// Module-level storage: `type id` → list of method entries.
 (_type_trait_methods : HashMap(String, ArrayList(MethodEntry))) =

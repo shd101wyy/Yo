@@ -43,7 +43,8 @@ _entry :: (fn(label : String) -> MethodEntry)(
     label : label,
     ty : t_i32(),
     value : Option(EvalValue).None,
-    source_trait_id : String.from("")
+    source_trait_id : String.from(""),
+    needs_pointer_conversion : false
   )
 );
 test("type_id_or_empty: extracts struct id", {
@@ -448,7 +449,8 @@ test("get_receiver_methods_by_name_from_env: infix call drops *(Self)-first-para
       label : String.from("+"),
       ty : fn_ty,
       value : Option(EvalValue).None,
-      source_trait_id : String.from("")
+      source_trait_id : String.from(""),
+      needs_pointer_conversion : false
     )
   );
   env := Environment.new(String.from(""));
@@ -468,6 +470,49 @@ test("get_receiver_methods_by_name_from_env: infix call drops *(Self)-first-para
     true
   );
   assert(hits_infix.len() == usize(0), "infix call drops *(Self) method");
+});
+test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_conversion", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_ptrconv"), String.from("P"));
+  param_labels := ArrayList(String).new();
+  param_labels.push(String.from("self"));
+  param_types := ArrayList(TypeValue).new();
+  param_types.push(TypeValue.Pointer(Box(TypeValue)(s)));
+  fn_ty := TypeValue.Func(
+    forall_labels : ArrayList(String).new(),
+    forall_types : ArrayList(TypeValue).new(),
+    param_labels : param_labels,
+    param_types : param_types,
+    implicit_labels : ArrayList(String).new(),
+    implicit_types : ArrayList(TypeValue).new(),
+    implicit_spreads : ArrayList(bool).new(),
+    where_types : ArrayList(TypeValue).new(),
+    result : Box(TypeValue)(t_i32())
+  );
+  register_type_trait_method(
+    String.from("ty_ptrconv"),
+    MethodEntry(
+      label : String.from("incr"),
+      ty : fn_ty,
+      value : Option(EvalValue).None,
+      source_trait_id : String.from(""),
+      needs_pointer_conversion : false
+    )
+  );
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("incr"),
+    s,
+    false
+  );
+  assert(hits.len() == usize(1), "one incr method via direct receiver");
+  match(
+    hits.get(usize(0)),
+    .Some(m) =>
+      assert(m.needs_pointer_conversion, "ptr-conversion flag set on non-infix *(T) method"),
+    .None => assert(false, "expected a method entry")
+  );
 });
 test("clear_type_trait_methods: wipes state", {
   register_type_trait_method(
