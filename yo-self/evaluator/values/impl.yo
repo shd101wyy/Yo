@@ -53,7 +53,7 @@ open(import("std/string"));
 { t_unit, t_type, t_some_t } :: import("../../types/creators.yo");
 { is_some_type } :: import("../../types/guards.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
 { format_error_message } :: import("../../error.yo");
@@ -498,6 +498,98 @@ find_methods_from_generic_impls :: (
   });
   results
 });
+/// Try to evaluate a trait-name expression (e.g. `LogicalNot` in
+/// `impl(bool, LogicalNot(...))`) to its `TypeValue.TraitT`. Returns
+/// `.None` on any evaluation failure or non-TraitT result. Used to
+/// look up per-method expected types when evaluating impl field
+/// bodies. Mirrors TS's silent fallback when the trait can't be
+/// resolved — the impl still typechecks, just without per-field type
+/// guidance.
+/// Resolve a trait-name expression to its base `TraitT` TypeValue
+/// by env lookup. Handles both atom names (e.g. `LogicalNot`) and
+/// parametric trait shapes (`ComptimeAdd(comptime_int)` →
+/// `ComptimeAdd`) by walking left through FnCall heads. Returns
+/// `.None` when the resulting head isn't bound to a TraitT — that
+/// case falls back to legacy "no expected_type" behavior.
+_try_lookup_trait_type :: (
+  fn(trait_expr : AstExpr, env : Environment) -> Option(TypeValue)
+)({
+  // Walk through `Trait(...)` / `Trait(A)(B)` etc. to reach the
+  // leftmost atom.
+  (head_expr : AstExpr) = trait_expr;
+  (steps : usize) = usize(0);
+  while(runtime(!(ast_expr_is_atom(head_expr)) && (steps < usize(32))), {
+    head_expr = match(
+      head_expr,
+      .FnCall(_, fb, _, _, _) => fb.*,
+      .Atom(_, _) => head_expr
+    );
+    steps = (steps + usize(1));
+  });
+  if(!(ast_expr_is_atom(head_expr)), {
+    return(Option(TypeValue).None);
+  });
+  name := ast_expr_token(head_expr).value;
+  vars := get_variables_from_env(env, name);
+  if(vars.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  last_v := match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => v,
+    .None => {
+      return(Option(TypeValue).None);
+    }
+  );
+  match(
+    last_v.value,
+    .None => Option(TypeValue).None,
+    .Some(ev) => match(
+      ev,
+      .TypeVal(tb) => match(
+        tb.*,
+        .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(tb.*),
+        _ => Option(TypeValue).None
+      ),
+      _ => Option(TypeValue).None
+    )
+  )
+});
+/// Look up the type of a trait field by its label. Returns `.None` if
+/// the trait value is `.None`, the type isn't a `TraitT`, or no field
+/// matches the label. Used by `evaluate_module_value` to set
+/// `ctx.expected_type` when evaluating method bodies in
+/// `impl(T, Trait(name : value))`.
+_trait_field_type_by_label :: (
+  fn(trait_opt : Option(TypeValue), label : String) -> Option(TypeValue)
+)(
+  match(
+    trait_opt,
+    .None => Option(TypeValue).None,
+    .Some(t) => match(
+      t,
+      .TraitT(_, _, labels, types, _, _, _, _) => {
+        (i : usize) = usize(0);
+        (found : Option(TypeValue)) = Option(TypeValue).None;
+        n := labels.len();
+        while(runtime((i < n) && found.is_none()), {
+          match(
+            labels.get(i),
+            .Some(l) => {
+              if(l.as_str() == label.as_str(), {
+                found = types.get(i);
+              });
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      _ => Option(TypeValue).None
+    )
+  )
+);
 evaluate_module_value :: (
   fn(
     expr : AstExpr,
@@ -835,7 +927,13 @@ evaluate_module_value :: (
       .Some(field_expr) => {
         // Collect method colon-pair expressions from either the direct form
         // `name : fn_def` or from inside a trait constructor `Trait(name: fn_def, ...)`.
+        // Also try to capture the trait TypeValue (when present) so each
+        // method body can be evaluated with the correct `expected_type` —
+        // anonymous lambdas like `(self) -> __yo_op_not(self)` in
+        // `impl(bool, LogicalNot((!) : ((self) -> ...)))` need the trait's
+        // field-type-by-label to typecheck.
         (method_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+        (current_trait_ty : Option(TypeValue)) = Option(TypeValue).None;
         if(ast_expr_is_fn_call(field_expr) && ast_expr_is_fn_call_of(field_expr, BK_COLON,.Some(usize(2))), {
           // Direct colon pair: add it directly.
           method_exprs.push(field_expr);
@@ -847,6 +945,18 @@ evaluate_module_value :: (
             .FnCall(_, _, tia, _, _) => tia,
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
+          // Look up the trait type by atom name in the env so we can
+          // resolve each field's type by label below. Worst case (the
+          // trait expr isn't a simple atom, or the var binding isn't
+          // a TraitT): `_try_lookup_trait_type` returns `.None`, which
+          // downstream treats identically to legacy "no expected_type"
+          // behavior.
+          trait_fn_expr := match(
+            field_expr,
+            .FnCall(_, fb, _, _, _) => fb.*,
+            .Atom(_, _) => make_err_expr()
+          );
+          current_trait_ty = _try_lookup_trait_type(trait_fn_expr, local_env);
           (ti2 : usize) = usize(0);
           while(runtime(ti2 < trait_inner_args.len()), {
             match(
@@ -878,8 +988,16 @@ evaluate_module_value :: (
               name_tok := ast_expr_token(name_expr);
               method_name := (&(name_tok.value)).clone();
               qualified := `${receiver_name}.${method_name}`;
+              // Compute the expected type for this method from the trait's
+              // field-by-label. This lets anonymous lambdas (e.g. the body
+              // of an impl method) see the function type the trait expects.
+              expected_method_ty := _trait_field_type_by_label(current_trait_ty, method_name);
               saved2 := ctx.*.expected_type;
-              ctx.*.expected_type =.None;
+              ctx.*.expected_type = match(
+                expected_method_ty,
+                .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : local_env)),
+                .None => Option(ExpectedTypeCtx).None
+              );
               eval_val := evaluate_expression_raw(val_expr, local_env, ctx, using(exn));
               ctx.*.expected_type = saved2;
               match(
