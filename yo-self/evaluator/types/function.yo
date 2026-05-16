@@ -36,7 +36,7 @@ open(import("std/fmt"));
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_some_t, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_some_type, is_trait_type, is_function_type } :: import("../../types/guards.yo");
+{ is_some_type, is_trait_type, is_function_type, is_type_0 } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type, is_effects_row_type }
 :: import("../../types/guards.yo");
@@ -997,14 +997,31 @@ use_id :: (fn(forall(T : Type),
           );
         },
         .None => {
-          // No existing variable — add new one
+          // No existing variable — add new one.
+          //
+          // When the parameter type is `Type` (TypeUni(0)) — e.g.
+          // `forall(T : Type)` — bind to `TypeVal(SomeT(...))` rather
+          // than `UnknownVal(...)`. Mirrors TS `createUnknownValue`
+          // (src/value.ts:573-588) which returns a TypeValue wrapping
+          // a fresh SomeType for level-0 type-hierarchy types. Where
+          // clauses (`T <: Trait`) and identifier lookups expect to
+          // see a TypeVal(SomeT) so they can attach constraints.
+          (param_frame_level : usize) = if(
+            env_mut.frames.len() > usize(0),
+            env_mut.frames.len() - usize(1),
+            usize(0)
+          );
           (param_val : Option(EvalValue)) = match(
             assigned_value,
             .Some(av) =>.Some(av),
             .None =>
               if(
                 is_compile_time_only,
-                .Some(create_unknown_val(final_param_type)),
+                if(
+                  is_type_0(final_param_type),
+                  Option(EvalValue).Some(create_type_value(t_some_t(label_str, param_frame_level))),
+                  Option(EvalValue).Some(create_unknown_val(final_param_type))
+                ),
                 Option(EvalValue).None
               )
           );
@@ -2342,7 +2359,19 @@ evaluate_function_parameters :: (
           continue; // Skip — will be handled in main pass
         });
         param_type := match(param_type_opt,.Some(t) => t,.None => continue);
-        val := create_unknown_val(param_type);
+        // For `comptime(T) : Type` — create TypeVal(SomeT) so where
+        // clauses and identifier lookups treat T as a SomeType (mirrors
+        // TS createUnknownValue for level-0 type-hierarchy types).
+        ct_frame_level := if(
+          env_mut.frames.len() > usize(0),
+          env_mut.frames.len() - usize(1),
+          usize(0)
+        );
+        val := if(
+          is_type_0(param_type),
+          create_type_value(t_some_t(info.name, ct_frame_level)),
+          create_unknown_val(param_type)
+        );
         _ := add_variable_to_env(
           env_mut,
           info.name,
@@ -2560,7 +2589,20 @@ evaluate_function_parameters :: (
       );
       // Add to env if named
       if(!(vparam_name == String.from("...")), {
-        vval := if(is_vcomptime, Option(EvalValue).Some(create_unknown_val(vparam_type)), Option(EvalValue).None);
+        v_frame_level := if(
+          env_mut.frames.len() > usize(0),
+          env_mut.frames.len() - usize(1),
+          usize(0)
+        );
+        vval := if(
+          is_vcomptime,
+          if(
+            is_type_0(vparam_type),
+            Option(EvalValue).Some(create_type_value(t_some_t(vparam_name, v_frame_level))),
+            Option(EvalValue).Some(create_unknown_val(vparam_type))
+          ),
+          Option(EvalValue).None
+        );
         _ := add_variable_to_env(
           env_mut,
           vparam_name,
