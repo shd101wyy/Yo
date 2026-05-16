@@ -179,6 +179,40 @@ inline fixtures (struct + impl + method dispatch, generic structs,
 recursive functions, pointer/dereference, etc.) and on `std/...`
 imports stripped down to local files.
 
+### Real-test extraction coverage (May 16, 2026)
+
+Sampling real `./tests/*.test.yo` files by extracting individual
+test bodies into standalone fixtures and running them through
+`yo-self-bin check`:
+
+| Source test file                  | Extracted test                                                           | Result  |
+| --------------------------------- | ------------------------------------------------------------------------ | ------- |
+| basic.test.yo                     | Test bindings / comptime / destructuring / Send / Acyclic                | ✅ OK   |
+| array.test.yo                     | Element access + length, inferred length                                 | ✅ OK   |
+| closure.test.yo                   | ClosureType, closure with Dyn                                            | ✅ OK   |
+| dyn.test.yo                       | Multiple traits                                                          | ✅ OK   |
+| derive.test.yo                    | derive Eq for struct                                                     | ✅ OK   |
+| comptime.test.yo                  | Comptime f32                                                             | ✅ OK   |
+| comptime_option_result.test.yo    | Option comptime methods                                                  | ✅ OK   |
+| algebraic_effects.test.yo         | resume / escape                                                          | ✅ OK   |
+| gadts.test.yo                     | basic (lazy) — passes; forced specialization → clean GADT-not-impl error | ⚠️      |
+| iso.test.yo                       | basic Iso functions                                                      | ✅ OK   |
+| type_reflection.test.yo           | Type reflection methods                                                  | ✅ OK   |
+| impl_fn_field_rejection.test.yo   | workaround A + B                                                         | ✅ OK   |
+| atomic_object.test.yo             | basic; generic-with-where → 💥                                           | partial |
+| blanket_impl_inner_forall.test.yo | inner forall blanket → 💥                                                | fails   |
+| error.test.yo                     | custom MathError enum → 💥                                               | fails   |
+
+**22 / 25 (88%)** of extracted real-test fixtures pass cleanly.
+
+The 3 SIGSEGV cases are all the same underlying throw-propagation
+bug surfacing through different shapes — see
+`issues/yo-self-where-clause-trait-eval-segfault.md` and
+`issues/yo-self-nested-typeapp-in-impl-return-segfault.md`. When
+the evaluator throws from deep inside a type-expression evaluator,
+the throw doesn't propagate cleanly to the wrapper's
+`eprintln + panic` path — SIGSEGVs before reaching the handler.
+
 ### Current blocker (May 15, 2026)
 
 `./yo-cli compile yo-self/main.yo --release` produces a binary that
