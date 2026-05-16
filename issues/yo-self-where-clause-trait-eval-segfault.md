@@ -2,9 +2,24 @@
 
 ## Status
 
-Open. Originally observed 2026-05-16 on `where(T <: Send)` constraint
+**Fixed for the primary case** (commit `28c95b8e`) — codegen now
+includes implicit (using-) params in fn-pointer cast signatures.
+
+`where(T <: UnknownTrait)`, missing identifier in deep type-expr
+evaluation, and other patterns where the throw propagates through
+the `g_evaluate_expression_raw` fn-pointer slot now produce a clean
+error (exit 134 via wrapper panic) instead of SIGSEGV.
+
+Some related segfaults remain (recursive-generic forward refs,
+nested type-app in impl return) — those go through different call
+shapes and may have separate root causes; tracked as
+`yo-self-nested-typeapp-in-impl-return-segfault.md`.
+
+### History
+
+Originally observed 2026-05-16 on `where(T <: Send)` constraint
 evaluation; further narrowed the same day; root-cause investigation
-2026-05-16 PM.
+and codegen fix 2026-05-16 PM.
 
 ## Summary
 
