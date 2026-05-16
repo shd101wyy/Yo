@@ -99,6 +99,29 @@ Probably a yo-self codegen issue with how the exn passes through
 nested raw_wrapper / inner evaluator boundaries — only triggered
 on this specific control-flow shape.
 
+## Same fingerprint, different surface (May 16 second follow-up)
+
+A second case has the identical SIGSEGV shape:
+
+```yo
+LL :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(Nil, Cons(value : T, rest : LL(T)))
+);
+length :: (fn(forall(T : Type), list : LL(T)) -> i32)(
+  match(list, .Nil => i32(0), .Cons({value, rest}) => length(rest) + 1)
+);
+```
+
+TS rejects this with `Variable "LL" not found` because `LL` is being
+used inside its own definition. yo-self-bin instead segfaults
+silently at the same place in the pipeline (after
+`evaluate_anonymous_module_begin_exprs` invocation).
+
+Together with the where-clause case this seems to be one underlying
+bug: **identifier-lookup throws from deeply-nested type-expression
+evaluators don't propagate cleanly to the wrapper's `eprintln + panic`
+path; they SIGSEGV first.**
+
 ## Probable relation to May-14 codegen regression
 
 This crash has the same fingerprint as
