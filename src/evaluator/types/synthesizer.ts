@@ -164,6 +164,64 @@ export interface SynthesizeTypesOptions {
   token?: Token;
 }
 
+type SynthStats = { calls: number; throws: number };
+const _g2: typeof globalThis & { __yoSynthStats?: SynthStats } = globalThis;
+const _synthStats =
+  _g2.__yoSynthStats ?? (_g2.__yoSynthStats = { calls: 0, throws: 0 });
+
+/**
+ * Lightweight `Error` clone that skips V8 stack-capture *and* lazily
+ * builds its message string.
+ *
+ * `synthesizeTypes` is called speculatively during overload resolution
+ * and where-clause checking; per `perf-repros/run.sh ts-nested-tostring`
+ * roughly 30% of calls throw to signal "incompatible types" — these
+ * throws are caught and discarded by almost every call site. The only
+ * site that *reads* the message is `evaluator/calls/helper.ts:~610`,
+ * which forwards it into a user-facing error.
+ *
+ * Two wins over `new Error("...")`:
+ *
+ *   1. The constructor does not call `super()`, so V8's stack-capture
+ *      pass is skipped (~2x faster per throw/catch pair on Bun). We
+ *      still patch the prototype so `error instanceof Error === true`
+ *      for catch sites that check it.
+ *   2. The message is computed lazily via a getter. The two
+ *      `typeToString(...)` calls that go into a typical message
+ *      ("Cannot unify X and Y") only execute when the message is
+ *      actually read — i.e. essentially never on the hot speculative
+ *      path. For the heavy yo-self compile this avoids tens of
+ *      thousands of recursive `typeToString` walks.
+ */
+class IncompatibleTypesError {
+  name: string = "IncompatibleTypesError";
+  private _msg: string | (() => string);
+  constructor(msg: string | (() => string)) {
+    this._msg = msg;
+  }
+  get message(): string {
+    if (typeof this._msg === "function") {
+      this._msg = this._msg();
+    }
+    return this._msg;
+  }
+}
+// Make `error instanceof Error` still hold for the catch sites that
+// check it (see src/evaluator/calls/function.ts:1721).
+Object.setPrototypeOf(IncompatibleTypesError.prototype, Error.prototype);
+export function _printSynthStats() {
+  if (process.env["YO_DEBUG_CALL_PROFILE"] === "1") {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[SYNTH] calls=${_synthStats.calls} throws=${_synthStats.throws} (throw rate ${
+        _synthStats.calls === 0
+          ? "n/a"
+          : ((100 * _synthStats.throws) / _synthStats.calls).toFixed(1) + "%"
+      })`
+    );
+  }
+}
+
 export function synthesizeTypes(
   expected: {
     type: Type;
@@ -176,6 +234,7 @@ export function synthesizeTypes(
   checkedTypePairs: { expected: Type; given: Type }[] = [],
   options?: SynthesizeTypesOptions
 ): { expectedEnv: Environment; givenEnv: Environment } {
+  _synthStats.calls++;
   // Prevent circular checks for `object` and similar recursive types
   if (
     checkedTypePairs.find(
@@ -392,8 +451,12 @@ export function synthesizeTypes(
     if (isSomeType(type) && type.id === expected.type.id) {
       // Occurs check: prevent infinite types like T = Option(T)
       if (occursCheck(expected.type.id, given.type)) {
-        throw new Error(
-          `Cannot unify type variable "${expected.type.name}" with type "${typeToString(given.type)}" because it would create an infinite type.`
+        _synthStats.throws++;
+        const expectedName = expected.type.name;
+        const givenType = given.type;
+        throw new IncompatibleTypesError(
+          () =>
+            `Cannot unify type variable "${expectedName}" with type "${typeToString(givenType)}" because it would create an infinite type.`
         );
       }
 
@@ -519,8 +582,12 @@ export function synthesizeTypes(
     } else {
       // Occurs check: prevent infinite types like T = Option(T)
       if (occursCheck(given.type.id, expected.type)) {
-        throw new Error(
-          `Cannot unify type variable "${given.type.name}" with type "${typeToString(expected.type)}" because it would create an infinite type.`
+        _synthStats.throws++;
+        const givenName = given.type.name;
+        const expectedType = expected.type;
+        throw new IncompatibleTypesError(
+          () =>
+            `Cannot unify type variable "${givenName}" with type "${typeToString(expectedType)}" because it would create an infinite type.`
         );
       }
 
@@ -575,10 +642,12 @@ export function synthesizeTypes(
       given.env = givenEnv;
     }
   } else if (isTupleType(expected.type) && isTupleType(given.type)) {
-    throw new Error(
-      `Cannot unify incompatible tuple types: "${typeToString(
-        expected.type
-      )}" and "${typeToString(given.type)}"`
+    _synthStats.throws++;
+    throw new IncompatibleTypesError(
+      () =>
+        `Cannot unify incompatible tuple types: "${typeToString(
+          expected.type
+        )}" and "${typeToString(given.type)}"`
     );
   } else if (isStructType(expected.type) && isStructType(given.type)) {
     if (
@@ -601,8 +670,10 @@ export function synthesizeTypes(
     ) {
       // Same type constructor by funcId — allow structural unification
     } else {
-      throw new Error(
-        `Cannot unify incompatible struct types: "${typeToString(expected.type)}" and "${typeToString(given.type)}"`
+      _synthStats.throws++;
+      throw new IncompatibleTypesError(
+        () =>
+          `Cannot unify incompatible struct types: "${typeToString(expected.type)}" and "${typeToString(given.type)}"`
       );
     }
 
@@ -689,10 +760,12 @@ export function synthesizeTypes(
       }
     }
   } else if (isEnumType(expected.type) && isEnumType(given.type)) {
-    throw new Error(
-      `Cannot unify incompatible enum types: "${typeToString(
-        expected.type
-      )}" and "${typeToString(given.type)}"`
+    _synthStats.throws++;
+    throw new IncompatibleTypesError(
+      () =>
+        `Cannot unify incompatible enum types: "${typeToString(
+          expected.type
+        )}" and "${typeToString(given.type)}"`
     );
   } else if (
     isSourceNamespaceType(expected.type) &&
@@ -1184,8 +1257,10 @@ export function synthesizeTypes(
     // (different type constructors with no SomeType to unify)
     // Check if they have the same tag as a basic compatibility check
     if (expected.type.tag !== given.type.tag) {
-      throw new Error(
-        `Cannot unify incompatible types:
+      _synthStats.throws++;
+      throw new IncompatibleTypesError(
+        () =>
+          `Cannot unify incompatible types:
 Expected: "${typeToString(expected.type)}"
 Given: "${typeToString(given.type)}"`
       );

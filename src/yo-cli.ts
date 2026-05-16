@@ -9,6 +9,7 @@ import { getGlobalCacheDir } from "./cache";
 import { CodeGenerator } from "./codegen";
 import { _printFrameIndexStats } from "./env";
 import { _printCallProfile } from "./evaluator/calls/helper";
+import { _printSynthStats } from "./evaluator/types/synthesizer";
 import { findAvailableCompiler } from "./compiler-utils";
 import {
   clearBuildRegistry,
@@ -454,6 +455,7 @@ yo --version                     Show version number
         });
         _printCallProfile();
         _printFrameIndexStats();
+        _printSynthStats();
       }
     )
     .command(
