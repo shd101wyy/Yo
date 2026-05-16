@@ -10,6 +10,7 @@ import {
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
 import {
+  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -1017,7 +1018,89 @@ export function generateOtherFunctionCall(
           const paramTypeStrs = runtimeParams.map((p) =>
             getTypeString(p.type, context)
           );
-          const fnPtrCast = `((${returnTypeStr} (*)(${paramTypeStrs.join(", ")}))${funcCode})`;
+          // Function-pointer signatures must include any implicit (using-)
+          // params at the C ABI level — they are passed as extra args after
+          // the regular params (one `void*` per evidence field, matching
+          // generateFunctionPrototype's emission for the same FunctionType).
+          // Without this, a fn-ptr dispatch like
+          // `evaluate_expression_raw`'s `.Some(f) => f(expr, env, ctx, using(exn))`
+          // would silently drop `exn__throw` at the call site, leaving the
+          // callee to read garbage off the stack on the deep throw path.
+          //
+          // The functionType reaching this branch can lose its
+          // `implicitParameters` when the fn value is destructured from a
+          // generic enum (e.g. Option(F) → `.Some(f) => f(...)`), so we
+          // fall back to the explicit `using(...)` arg at the call site
+          // when present — one void* per atom inside `using(...)`.
+          const ptrEvidenceParams = getEvidenceParameters(functionType);
+          let ptrEvidenceCount = ptrEvidenceParams.length;
+          const callSiteUsingExpr = expr.args.find(
+            (a): a is FnCallExpr =>
+              exprIsFunctionCall(a) &&
+              exprIsFunctionCallOf(a, BuiltinKeywords.using)
+          );
+          if (ptrEvidenceCount === 0 && callSiteUsingExpr) {
+            ptrEvidenceCount = callSiteUsingExpr.args.length;
+          }
+          const ptrParamTypeStrs = [
+            ...paramTypeStrs,
+            ...Array.from({ length: ptrEvidenceCount }, () => "void*"),
+          ];
+          // Resolve evidence args for the fn-ptr call site.
+          //   * When functionType carries the implicits, use the normal
+          //     resolution flow (caller's evidence params → handler value →
+          //     given() binding → SM capture → null fallback).
+          //   * When functionType has lost its implicits (Option(F) etc.)
+          //     but the call site has an explicit `using(name, ...)` arg,
+          //     resolve each `name` from the call env directly.
+          //   * Otherwise pass nulls so cast and call shapes still match.
+          let ptrEvidenceArgs: string[] = [];
+          if (ptrEvidenceParams.length > 0) {
+            if (functionValue && isFunctionValue(functionValue)) {
+              const { args: resolved } = resolveEvidenceArgsForCallSite(
+                ptrEvidenceParams,
+                functionValue,
+                expr,
+                context as FunctionGenerationContext
+              );
+              if (resolved.length === ptrEvidenceParams.length) {
+                ptrEvidenceArgs = resolved;
+              }
+            }
+            if (ptrEvidenceArgs.length === 0) {
+              ptrEvidenceArgs = ptrEvidenceParams.map(() => "((void*)0)");
+            }
+          } else if (callSiteUsingExpr) {
+            const fnCtx = context as FunctionGenerationContext;
+            const callEnv = expr.func.$?.env ?? expr.$?.env;
+            for (const u of callSiteUsingExpr.args) {
+              let argCode: string | undefined;
+              if (exprIsAtom(u)) {
+                // Match against caller's evidence params first — when the
+                // referenced name IS an implicit param (e.g. `using(exn)`
+                // forwards the caller's `using(exn : Exception)` param),
+                // use that C-level evidence name (e.g. `exn__throw`) rather
+                // than the Yo-level variable name.
+                const refName = u.token.value;
+                if (fnCtx.currentEvidenceParams) {
+                  for (const ep of fnCtx.currentEvidenceParams.values()) {
+                    if (ep.implicitLabel === refName) {
+                      argCode = ep.cParamName;
+                      break;
+                    }
+                  }
+                }
+                if (argCode === undefined) {
+                  argCode = getVariableNameForCodegen(refName, callEnv);
+                }
+              } else {
+                // Non-atom using arg — fall back to expression generation
+                argCode = generateExpr(u, indent, context);
+              }
+              ptrEvidenceArgs.push(argCode);
+            }
+          }
+          const fnPtrCast = `((${returnTypeStr} (*)(${ptrParamTypeStrs.join(", ")}))${funcCode})`;
 
           // Cast each runtime arg to its corresponding parameter type. This
           // avoids -Wincompatible-pointer-types errors from strict C compilers
@@ -1034,6 +1117,13 @@ export function generateOtherFunctionCall(
                 .map((part, i) => `(${paramTypeStrs[i]})(${part})`)
                 .join(", ");
             }
+          }
+          // Append evidence args to the cast/call so they survive the
+          // function-pointer dispatch.
+          if (ptrEvidenceArgs.length > 0) {
+            castedArgsList = castedArgsList
+              ? `${castedArgsList}, ${ptrEvidenceArgs.join(", ")}`
+              : ptrEvidenceArgs.join(", ");
           }
 
           // Detect effect record member calls in async SM context
