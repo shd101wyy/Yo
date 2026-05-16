@@ -260,6 +260,114 @@ collect_module_deps :: (
     );
   });
 });
+/// Run the `check` subcommand — evaluator-only.
+///
+/// Parses the input file (with transitive imports resolved like
+/// `run_test`), drives the parsed top-level expressions through
+/// the PROPER evaluator (`evaluate_anonymous_module_begin_exprs`),
+/// and reports any error the evaluator throws. NO codegen is run.
+///
+/// This is the analog of `cargo check` for Yo: it isolates
+/// evaluator-coverage correctness from codegen correctness so we
+/// can iterate on `_evaluate_expression` sub-handler gaps without
+/// fighting unrelated codegen errors. Per `plans/BOOTSTRAPPING.md`
+/// Stream A, this is the entry point for the
+/// "fill the evaluator coverage gaps" workflow.
+///
+/// Exits 0 on success, non-zero if any evaluator error fires.
+run_check :: (
+  fn(
+    argv : ArrayList(String),
+    using(io : IO, exn : Exception)
+  ) -> unit
+)({
+  if(argv.len() < usize(3), {
+    exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo>`));
+  });
+  input_path := argv.get(usize(2)).unwrap();
+  println(`check: parsing ${input_path}`);
+  // Read + parse the file.
+  src_bytes := io.await(read_file(Path.new(input_path)));
+  src := String.from_bytes(src_bytes);
+  exprs := parse(src, input_path, using(exn));
+  println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
+  // Resolve transitive (non-std) imports so the evaluator sees the
+  // full module body, the same way `run_test` does.
+  visited := ArrayList(String).new();
+  dep_exprs := ArrayList(AstExpr).new();
+  input_base_dir := match(
+    Path.new(String.from(input_path.as_str())).parent(),
+    .None => String.from("."),
+    .Some(p) => p.to_string()
+  );
+  (nip : usize) = exprs.len();
+  (iip : usize) = usize(0);
+  while(runtime(iip < nip), {
+    iip = (iip + usize(1));
+    match(
+      exprs.get(iip - usize(1)),
+      .None => (),
+      .Some(e) => match(
+        extract_import_path(e),
+        .None => (),
+        .Some(imp_path) => {
+          collect_module_deps(
+            imp_path.as_str(),
+            input_base_dir.as_str(),
+            &(visited),
+            &(dep_exprs),
+            using(io, exn)
+          );
+        }
+      )
+    );
+  });
+  // Combine: dependency module declarations first, then the
+  // input file's declarations.
+  all_exprs := ArrayList(AstExpr).new();
+  (ndep : usize) = dep_exprs.len();
+  (idep : usize) = usize(0);
+  while(runtime(idep < ndep), {
+    idep = (idep + usize(1));
+    match(
+      dep_exprs.get(idep - usize(1)),
+      .None => (),
+      .Some(e) => {
+        all_exprs.push(e);
+      }
+    );
+  });
+  (nexp : usize) = exprs.len();
+  (iexp : usize) = usize(0);
+  while(runtime(iexp < nexp), {
+    iexp = (iexp + usize(1));
+    match(
+      exprs.get(iexp - usize(1)),
+      .None => (),
+      .Some(e) => {
+        all_exprs.push(e);
+      }
+    );
+  });
+  println(`check: collected ${all_exprs.len().to_string()} exprs total (deps + body); registering evaluator`);
+  // Drive the evaluator. We DO NOT catch the throw here — let it
+  // surface as the user-facing error so `check` reports the first
+  // coverage gap with full diagnostic context. (The compile / test
+  // pipelines DO catch and fall back; `check` is intentionally
+  // strict.)
+  env := Environment.new(input_path);
+  ctx := eval_context_new(String.from(""), input_path);
+  register_evaluate_expression();
+  println(`check: invoking evaluate_anonymous_module_begin_exprs`);
+  _r := evaluate_anonymous_module_begin_exprs(
+    all_exprs,
+    env,
+    &(ctx),
+    false,
+    using(exn)
+  );
+  println(`check: ${input_path} — evaluator OK`);
+});
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -561,7 +669,8 @@ main :: (fn(using(io : IO)) -> unit)({
     (subcmd.as_str() == "compile") => run_compile(argv, using(io, exn)),
     (subcmd.as_str() == "test") => run_test(argv, using(io, exn)),
     (subcmd.as_str() == "fmt") => run_fmt(argv, using(io, exn)),
-    true => exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt> ...`))
+    (subcmd.as_str() == "check") => run_check(argv, using(io, exn)),
+    true => exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check> ...`))
   );
 });
 export(main);

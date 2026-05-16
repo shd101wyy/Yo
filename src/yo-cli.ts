@@ -459,6 +459,45 @@ yo --version                     Show version number
       }
     )
     .command(
+      "check <file>",
+      "Type-check (run the evaluator on) a '.yo' file — no codegen",
+      (_yargs) => {
+        _yargs.positional("file", {
+          describe: "File to check",
+          type: "string",
+          demandOption: true,
+        });
+      },
+      (argv) => {
+        // `check` is `compile` with `--skip-codegen --skip-c-compiler`
+        // and no output binary. The TS evaluator runs during module
+        // loading, so any coverage gap surfaces as a thrown error
+        // before codegen would have started.
+        const file = argv.file as string;
+        const absolutePath = `file://` + fs.realpathSync(file);
+        const codeGenerator = new CodeGenerator();
+        codeGenerator.compileModule(absolutePath, {
+          output: "/tmp/yo_check_noop",
+          cCompiler: "cc",
+          target: "c",
+          extern: [],
+          includePaths: [],
+          libraryPaths: [],
+          libraries: [],
+          defines: [],
+          emitC: false,
+          skipCodegen: true,
+          skipCCompiler: true,
+          debugGc: false,
+          debugParallelism: false,
+          debugAsyncAwait: false,
+          release: false,
+          allocator: "libc",
+        });
+        console.log(`check: ${file} — evaluator OK`);
+      }
+    )
+    .command(
       "test [path]",
       "Run tests in .test.yo files",
       (_yargs) => {

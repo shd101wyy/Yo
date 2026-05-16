@@ -5,6 +5,7 @@
 //! Dispatches every AstExpr node kind to the appropriate sub-evaluator.
 //! The profiler instrumentation from the TypeScript version is omitted (Node.js-specific).
 open(import("std/string"));
+open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
 {
@@ -797,7 +798,22 @@ _evaluate_expression :: (
   )
 );
 /// Non-capturing wrapper that creates a local exception handler.
-/// Phase 2: panics on unexpected errors.
+///
+/// When the underlying `_evaluate_expression` throws, the previous
+/// implementation called `panic("evaluate_expression: unexpected
+/// error")` — that aborted the process with `SIGABRT` and discarded
+/// the actual error message, making evaluator coverage gaps look
+/// like opaque crashes (especially through `yo-self-bin check`).
+/// We now print the caught error's `to_string()` output to stderr
+/// before aborting, so the user sees the real diagnostic without
+/// extra tooling.
+///
+/// (Callers that want graceful recovery instead of an abort can
+/// use `_evaluate_expression_raw_wrapper`, which propagates the
+/// exception through to the caller's `exn`. `try_populate_expr_info_table`
+/// in `yo-self/main.yo` and the new `run_check` subcommand both
+/// go through that path so they can surface or swallow errors as
+/// appropriate.)
 _evaluate_expression_wrapper :: (
   fn(
     expr : AstExpr,
@@ -805,7 +821,14 @@ _evaluate_expression_wrapper :: (
     ctx : *(EvalContext)
   ) -> AstExpr
 )({
-  given(exn) := Exception(throw : ((err) -> panic("evaluate_expression: unexpected error")));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`evaluate_expression: ${err.to_string()}`);
+        panic("evaluate_expression: aborting after error")
+      }
+    )
+  );
   _evaluate_expression(expr, env, ctx, using(exn))
 });
 /// Concrete-signature wrapper for set_evaluate_expression_raw_fn.
