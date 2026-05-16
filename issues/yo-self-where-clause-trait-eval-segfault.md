@@ -1,20 +1,38 @@
-# yo-self segfaults during where-clause trait constraint evaluation
+# yo-self segfaults during deep type-expression evaluator throws
 
 ## Status
 
-Open. Discovered 2026-05-16 during evaluator-coverage gap-fill session
-on `bootstrap/phase-4`, immediately after the forall→SomeT fix
-(commit `e1caa757`) corrected the LHS resolution.
+Open. Originally observed 2026-05-16 on `where(T <: Send)` constraint
+evaluation; further narrowed the same day; root-cause investigation
+2026-05-16 PM.
 
-## Symptom
+## Summary
 
-The yo-self bootstrap binary (`yo-self-bin check`) silently segfaults
-(SIGSEGV, exit 139) when evaluating a function type that has a
-`where(T <: Trait)` clause, after the breadcrumb `check: invoking
-evaluate_anonymous_module_begin_exprs` is printed.
+`yo-self-bin check` SIGSEGVs (exit 139) when an evaluator `exn.throw`
+is invoked deep inside a nested type-expression evaluation chain.
+The crash is **in the `exn.throw` call itself**, before any handler
+runs. A fresh `given(local) := Exception(...)` handler at the same
+throw site works perfectly — so the throw _mechanism_ is fine; the
+**propagated `using(exn)` is broken** by the time it reaches the
+deep call site.
 
-The TS reference compiler (`./yo-cli check`) handles the same source
-successfully.
+The same throw idiom works from shallow positions (e.g. function-
+parameter type evaluation reached via `_eval_and_update_env →
+evaluate_expression`).
+
+## Surfaces
+
+The same underlying bug surfaces in several patterns:
+
+- `where(T <: UnknownTrait)` — RHS trait identifier not in env
+- `LL(T)` inside its own definition body (recursive forward ref)
+- `((self) -> match(...))` impl-method shorthand needing
+  inferred fn type (this case throws "Anonymous function: no
+  expected type in context" which segfaults rather than printing)
+- Nested type-app `Wrap(Wrap(P, i32), i32)` in impl return type
+
+All segfault at `exn.throw(dyn(format_error_message(...)))` deep in
+the evaluator.
 
 ## Repro
 
@@ -29,17 +47,13 @@ export(main);
 ```
 
 ```
-$ ./yo-cli check /tmp/test_forall_where.yo
-check: /tmp/test_forall_where.yo — evaluator OK
-
 $ /tmp/yo-self-bin check /tmp/test_forall_where.yo
-check: parsing /tmp/test_forall_where.yo
-check: parsed 4 top-level exprs
-check: collected 4 exprs total (deps + body); registering evaluator
 check: invoking evaluate_anonymous_module_begin_exprs
 $ echo $?
 139
 ```
+
+TS reference handles the same source successfully.
 
 A reduced form without the `where(...)` clause does not crash:
 
@@ -49,93 +63,107 @@ main :: (fn() -> unit)({ _ := my_id(i32, i32(42)); });
 export(main);
 ```
 
-passes `yo-self-bin check` with `evaluator OK`.
+## Investigation timeline (May 16 PM)
 
-## Localization
+1. **Wrapper / main handler breadcrumbs:** added `eprintln`s to both
+   `_evaluate_expression_wrapper` (the local-exn-installing wrapper
+   at `yo-self/evaluator/exprs/_expr.yo:817`) and `main`'s outer
+   exn handler. Confirmed _neither_ handler is reached on the deep
+   throw — crash happens before any handler runs.
 
-The crash sits between two breadcrumb prints in
-`yo-self/main.yo:run_check` — after
-`evaluate_anonymous_module_begin_exprs` is invoked but before any
-diagnostic from `_evaluate_expression_wrapper`'s throw handler is
-emitted. That means either:
+2. **Throw-site breadcrumbs in `identifier_and_operator.yo`:** added
+   breadcrumbs around the "Variable not found" throw site. Confirmed
+   `format_error_message(...)` builds successfully, then crash is
+   exactly at `exn.throw(...)`.
 
-1. A SIGSEGV (raw C-level crash) inside the yo-self runtime
-   during where-clause evaluation, OR
-2. A panic without graceful unwinding that bypasses the wrapper.
+3. **Local-handler diagnostic:** at the same throw site, installed
+   a fresh `given(local_diag) := Exception(throw : ((_err) -> {
+eprintln(...); panic(...) }))` and invoked `local_diag.throw(
+dyn(err_msg))` instead of the propagated `exn`. The local handler
+   **runs cleanly** — eprintln + panic produce a clean exit 134:
 
-The forall→SomeT fix (`e1caa757`) makes Pass 3 bind `T` to
-`TypeVal(SomeT(...))`. Pass 4's where-clause LHS resolver now finds
-the existing SomeT and falls through to
-`parse_where_clause_constraints` → trait evaluation → constraint
-attachment. The segfault is somewhere on that path.
+   ```
+   [ident:entry] "Type"
+   [where-clause:entry]
+   [where-clause:loop-iter]
+   [where-clause:before-eval-trait-rhs]
+   [ident:entry] "UndefinedThing"
+   [ident:var-lookup] "UndefinedThing"
+   [ident:var-lookup-result] count=0
+   [ident:about-to-throw-not-found:1]
+   [ident:about-to-throw-not-found:2-built-msg]
+   [ident:local-diag-handler-entered]   ← fresh handler runs
+   [ident:local-diag-panic]
+   exit: 134
+   ```
 
-Most likely candidates:
+   But replacing `local_diag.throw(...)` with `exn.throw(...)` (the
+   propagated using-param) gives SIGSEGV (exit 139) at the same
+   point.
 
-- `evaluate_expression_raw` on the RHS trait name (`Send`).
-- `_add_where_clause_constraint` mutating `required_trait_types`.
-- Some downstream codegen path on a SomeT that wasn't exercised
-  before (Pass 3 used to leave T as `UnknownVal`).
+4. **Conclusion:** the throw mechanism works. The propagated
+   `using(exn)` value reaching the deep call site is corrupt
+   (the closure's vtable / fn-pointer / environment dereferences
+   into invalid memory). The shallow throw case works because the
+   immediately-enclosing wrapper's just-installed exn is still
+   valid at the (shorter) call site.
 
-## Narrowed (May 16 follow-up)
+## Likely root cause
 
-After more probing:
+`using(exn)` is propagated through:
 
-- `where(T <: CustomTrait)` where `CustomTrait` is **defined in the
-  same file** works correctly (e.g.,
-  `/tmp/test_fn_where_custom.yo` passes).
-- `where(T <: Send)` segfaults — `Send` is a stdlib trait not loaded
-  in env (bootstrap doesn't preload prelude).
-- `where(T <: NonExistent)` (genuinely undefined identifier) also
-  segfaults instead of throwing a clean `Variable "NonExistent" not
-found` error.
+1. The `g_evaluate_expression_raw` function-pointer dispatch in
+   `yo-self/evaluator/exprs/expr.yo:68`.
+2. Multiple `evaluate_expression_raw(..., using(exn))` calls
+   in the type-expression evaluators.
 
-So the trigger is: **the where-clause RHS trait identifier lookup
-fails AND the resulting throw doesn't propagate cleanly**. A plain
-identifier lookup failure outside where-clauses prints the clean
-error and exits 134 (panic via wrapper), but the where-clause path
-gives exit 139 (SIGSEGV).
+One of these layers is dropping / aliasing the Exception value so
+the closure's environment pointer becomes invalid by the time the
+deep call site dereferences it.
 
-Probably a yo-self codegen issue with how the exn passes through
-nested raw_wrapper / inner evaluator boundaries — only triggered
-on this specific control-flow shape.
+Concretely:
 
-## Same fingerprint, different surface (May 16 second follow-up)
+- **Works:** shallow throw — `evaluate_function_parameter →
+_eval_and_update_env → evaluate_expression(...)` — the wrapper
+  call here is one level deep.
+- **Crashes:** deep throw — `init_assignment → evaluate_expression
+(installs wrapper) → _evaluate_expression → evaluate_function_call
+→ evaluate_expression (installs wrapper) → _evaluate_expression →
+evaluate_function_type → evaluate_function_parameters →
+parse_where_clause_constraints → evaluate_expression_raw → ... →
+identifier_and_operator` — the wrapper's exn has to flow through
+  many `using(exn)` boundaries (including the fn-pointer dispatch)
+  to reach the throw site.
 
-A second case has the identical SIGSEGV shape:
+## Next steps
 
-```yo
-LL :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(Nil, Cons(value : T, rest : LL(T)))
-);
-length :: (fn(forall(T : Type), list : LL(T)) -> i32)(
-  match(list, .Nil => i32(0), .Cons({value, rest}) => length(rest) + 1)
-);
-```
-
-TS rejects this with `Variable "LL" not found` because `LL` is being
-used inside its own definition. yo-self-bin instead segfaults
-silently at the same place in the pipeline (after
-`evaluate_anonymous_module_begin_exprs` invocation).
-
-Together with the where-clause case this seems to be one underlying
-bug: **identifier-lookup throws from deeply-nested type-expression
-evaluators don't propagate cleanly to the wrapper's `eprintln + panic`
-path; they SIGSEGV first.**
+1. Compare yo-self codegen for `using(...)` parameter handling
+   against the TS reference. Check whether the
+   `Exception` struct (which contains a function-value closure)
+   is being copied / moved / Rc'd through the using-param chain
+   correctly.
+2. Specifically inspect the C output for `evaluate_expression_raw`'s
+   function-pointer-dispatched call site (`g_evaluate_expression_raw`)
+   — does the C code pass `exn` by value, by pointer, or with an
+   RC increment? Compare against a working shallow chain.
+3. If the fn-pointer dispatch is the culprit, consider replacing
+   `g_evaluate_expression_raw` with a direct call to
+   `_evaluate_expression_raw_wrapper` (or short-circuit through
+   `_evaluate_expression` directly) to verify.
 
 ## Probable relation to May-14 codegen regression
 
 This crash has the same fingerprint as
 `yo-self-bin-rebuild-segfaults-after-may14-src-codegen-changes.md`:
-silent SIGSEGV with no diagnostic, only on specific code paths the
-bootstrap rebuild exercises. It may be the same underlying runtime
-bug surfacing through a new path.
+silent SIGSEGV with no diagnostic, only on specific control-flow
+paths the bootstrap rebuild exercises. They are likely the same
+underlying `using()` propagation bug surfacing through different
+call shapes.
 
-## Next steps
+## Workaround
 
-1. Add per-step breadcrumbs inside `parse_where_clause_constraints`
-   to pinpoint which call crashes.
-2. If the crash is at the C-runtime level, compile yo-self with
-   `--sanitize address` and re-run on this fixture.
-3. If sanitizer flags a specific allocation, file or fix a codegen
-   bug; if not, this is likely a yo-self evaluator gap (a downstream
-   function that doesn't handle SomeT correctly).
+For tests that hit this path, replace `exn.throw(...)` at the deep
+site with a freshly-installed local `given(local) := Exception(...)`
+handler — that works correctly. This is not a fix; just a way to
+unblock specific evaluator paths that need to throw clean errors
+while the underlying codegen bug is being investigated.
