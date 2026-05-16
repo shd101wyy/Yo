@@ -2,13 +2,26 @@ import { createHash } from "crypto";
 import { charIsOperator, Operators } from "./token";
 
 /**
- * Generate a module id based on the module path
- * @param modulePath
- * @returns
+ * Generate a module id based on the module path.
+ *
+ * Cached: hashing the same modulePath repeatedly is wasted work.
+ * `generateModuleId` is called by `generateNewTempVariableName`,
+ * `isTempVariableName`, `generateVarialeId`, etc. — each one
+ * previously paid the SHA-1 cost on every call. Per
+ * `perf-repros/ts-nested-tostring`, `generateModuleId` (and its
+ * underlying `crypto.Hash.update` / `digest`) was in the top-10
+ * profile entries.
  */
+const moduleIdCache: Map<string, string> = new Map();
 export function generateModuleId(modulePath: string) {
+  const cached = moduleIdCache.get(modulePath);
+  if (cached !== undefined) {
+    return cached;
+  }
   const hash = createHash("sha1").update(modulePath).digest("hex");
-  return "yo" + hash.slice(0, 8);
+  const id = "yo" + hash.slice(0, 8);
+  moduleIdCache.set(modulePath, id);
+  return id;
 }
 
 /**

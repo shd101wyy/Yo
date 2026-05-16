@@ -7,6 +7,7 @@ import packageJson from "../package.json";
 import { runBuild } from "./build-runner";
 import { getGlobalCacheDir } from "./cache";
 import { CodeGenerator } from "./codegen";
+import { _printFrameIndexStats } from "./env";
 import { _printCallProfile } from "./evaluator/calls/helper";
 import { findAvailableCompiler } from "./compiler-utils";
 import {
@@ -452,6 +453,7 @@ yo --version                     Show version number
           cflags: argv.cflags as string | undefined,
         });
         _printCallProfile();
+        _printFrameIndexStats();
       }
     )
     .command(

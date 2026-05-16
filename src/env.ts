@@ -751,20 +751,103 @@ function addTempVariableToFrame(frame: Frame, variable: Variable): Frame {
   };
 }
 
+/**
+ * Lazy name → variables[] index keyed by the `variables` ARRAY REFERENCE.
+ *
+ * Frames are functionally immutable: every `addVariableToFrame` /
+ * `addTempVariableToFrame` returns a new frame with a fresh
+ * `variables` array. So the array reference uniquely identifies a
+ * snapshot of variables, and the index built from it stays valid for
+ * the lifetime of that array. When a frame's variables change, a new
+ * array is allocated and the cache miss rebuilds.
+ *
+ * Using a WeakMap keyed on the array (rather than mutating `Frame`)
+ * means callers that hold a `Frame` reference across re-entrant code
+ * (e.g. cond/match branch merging in `expr.ts`) see no behaviour
+ * change — we never write to the frame itself.
+ */
+const _frameNameIndexCache: WeakMap<
+  Variable[],
+  Map<string, Variable[]>
+> = new WeakMap();
+
+const _frameIndexStats = { hits: 0, misses: 0, lookups: 0 };
+export function _printFrameIndexStats() {
+  if (process.env["YO_DEBUG_CALL_PROFILE"] === "1") {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[FRAME INDEX] lookups=${_frameIndexStats.lookups} hits=${_frameIndexStats.hits} misses=${_frameIndexStats.misses} (hit rate ${
+        _frameIndexStats.lookups === 0
+          ? "n/a"
+          : ((100 * _frameIndexStats.hits) / _frameIndexStats.lookups).toFixed(
+              1
+            ) + "%"
+      })`
+    );
+  }
+}
+
+function _buildFrameNameIndex(variables: Variable[]): Map<string, Variable[]> {
+  const index = new Map<string, Variable[]>();
+  for (const v of variables) {
+    const list = index.get(v.name);
+    if (list) {
+      list.push(v);
+    } else {
+      index.set(v.name, [v]);
+    }
+  }
+  return index;
+}
+
+/**
+ * Threshold above which we build a Map index. For frames with only a
+ * handful of variables, the index-build cost (Map + per-entry array
+ * allocation) outweighs the saved filter passes. Most short-lived
+ * inner frames live below this size, so they keep the linear scan.
+ */
+const _FRAME_INDEX_THRESHOLD = 8;
+
 export function getVariablesFromFrame(
   frame: Frame,
   variableName: string,
   variableFilter?: (variable: Variable) => boolean
 ): Variable[] {
-  const variables = frame.variables.filter((variable) => {
-    return variable.name === variableName;
-  });
-
-  if (variableFilter) {
-    return variables.filter(variableFilter);
-  } else {
-    return variables;
+  _frameIndexStats.lookups++;
+  const variables = frame.variables;
+  if (variables.length < _FRAME_INDEX_THRESHOLD) {
+    // Small-frame fast path: a linear scan beats the per-frame Map
+    // allocation. Profiling shows the heavy yo-self compile creates
+    // many transient frames (function-call frames, match-arm frames)
+    // with only 1-3 variables.
+    const out: Variable[] = [];
+    for (const v of variables) {
+      if (v.name === variableName) {
+        out.push(v);
+      }
+    }
+    if (variableFilter) {
+      return out.filter(variableFilter);
+    }
+    return out;
   }
+  let index = _frameNameIndexCache.get(variables);
+  if (!index) {
+    _frameIndexStats.misses++;
+    index = _buildFrameNameIndex(variables);
+    _frameNameIndexCache.set(variables, index);
+  } else {
+    _frameIndexStats.hits++;
+  }
+  const hit = index.get(variableName);
+  if (!hit) {
+    return [];
+  }
+  if (variableFilter) {
+    return hit.filter(variableFilter);
+  }
+  // Return a copy so callers can't mutate the cached list.
+  return hit.slice();
 }
 
 /**
