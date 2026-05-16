@@ -202,6 +202,72 @@ test("get_receiver_methods_by_name_from_env: comptime receiver does not crash", 
   );
   assert(hits_str.len() == usize(0), "no methods on comptime_string");
 });
+test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
+  clear_type_trait_methods();
+  // Build a trait with one method: `greet : (fn(x : i32) -> i32)`.
+  param_labels := ArrayList(String).new();
+  param_labels.push(String.from("x"));
+  param_types := ArrayList(TypeValue).new();
+  param_types.push(t_i32());
+  fn_ty := TypeValue.Func(
+    forall_labels : ArrayList(String).new(),
+    forall_types : ArrayList(TypeValue).new(),
+    param_labels : param_labels,
+    param_types : param_types,
+    implicit_labels : ArrayList(String).new(),
+    implicit_types : ArrayList(TypeValue).new(),
+    implicit_spreads : ArrayList(bool).new(),
+    where_types : ArrayList(TypeValue).new(),
+    result : Box(TypeValue)(t_i32())
+  );
+  trait_field_labels := ArrayList(String).new();
+  trait_field_labels.push(String.from("greet"));
+  trait_field_types := ArrayList(TypeValue).new();
+  trait_field_types.push(fn_ty);
+  greeter_trait := TypeValue.TraitT(
+    name : String.from("Greeter"),
+    assoc_type_names : ArrayList(String).new(),
+    field_labels : trait_field_labels,
+    field_types : trait_field_types,
+    id : String.from("trait_greeter"),
+    is_concrete : Option(Box(TypeValue)).None,
+    self_constraints : ArrayList(TypeValue).new(),
+    neg_self_constraints : ArrayList(TypeValue).new()
+  );
+  // SomeT requiring the Greeter trait.
+  required_traits := ArrayList(TypeValue).new();
+  required_traits.push(greeter_trait);
+  required_levels := ArrayList(usize).new();
+  required_levels.push(usize(0));
+  some_t := TypeValue.SomeT(
+    id : String.from("st_t"),
+    name : String.from("T"),
+    frame_level : usize(0),
+    parent_type : Box(TypeValue)(TypeValue.TypeUni(usize(0))),
+    required_trait_types : required_traits,
+    required_trait_levels : required_levels,
+    negative_trait_types : ArrayList(TypeValue).new(),
+    negative_trait_levels : ArrayList(usize).new(),
+    is_effects_row : false
+  );
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("greet"),
+    some_t,
+    false
+  );
+  assert(hits.len() == usize(1), "one greet method via SomeT required-trait walk");
+  match(
+    hits.get(usize(0)),
+    .Some(m) =>
+      assert(
+        m.source_trait_id == String.from("trait_greeter"),
+        "method carries the source trait id"
+      ),
+    .None => assert(false, "expected a method entry")
+  );
+});
 test("clear_type_trait_methods: wipes state", {
   register_type_trait_method(
     String.from("ty_e"),
