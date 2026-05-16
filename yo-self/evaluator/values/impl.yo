@@ -824,7 +824,13 @@ evaluate_module_value :: (
                         // label === "" marker for impl-trait
                         // values, not for direct methods).
                         source_trait_id : String.from(""),
-                        needs_pointer_conversion : false
+                        needs_pointer_conversion : false,
+                        // Direct-on-type methods don't carry a
+                        // SelfType either (TS doesn't set it on
+                        // direct-method results; only the
+                        // SomeT / Dyn / TypeApp paths do, via
+                        // env.yo:get_receiver_methods_by_name_from_env).
+                        self_type : Option(TypeValue).None
                       )
                     );
                   });
@@ -871,7 +877,13 @@ _find_methods_from_generic_impls_as_method_entries :: (
             ty : c.method_type,
             value : c.method_value,
             source_trait_id : c.source_trait_id,
-            needs_pointer_conversion : false
+            needs_pointer_conversion : false,
+            // Generic-impl candidates come from
+            // `find_methods_from_generic_impls` which already
+            // resolved any `Self`-shaped fields against the
+            // concrete receiver during unification — no
+            // additional SelfType stamp is needed here.
+            self_type : Option(TypeValue).None
           )
         );
       },

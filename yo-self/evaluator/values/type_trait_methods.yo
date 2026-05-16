@@ -82,12 +82,22 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
 /// uses the flag to insert an address-of so the caller can pass
 /// `&receiver` automatically. Defaults to `false` at every
 /// registration site.
+///
+/// `self_type` mirrors TS's
+/// `specializedMethodType.SelfType = dereferencedReceiverType`
+/// (env.ts:1958-1961). Set on the SomeT / Dyn / TypeApplication
+/// trait-walk paths to the dereferenced receiver so that
+/// codegen can resolve `Self` references inside the method's
+/// signature to the concrete receiver type. Direct-on-type
+/// registry hits leave it `.None` (TS doesn't need it there —
+/// the method's `Self` is already the concrete type).
 MethodEntry :: object(
   label : String,
   ty : TypeValue,
   value : Option(EvalValue),
   source_trait_id : String,
-  needs_pointer_conversion : bool
+  needs_pointer_conversion : bool,
+  self_type : Option(TypeValue)
 );
 /// Module-level storage: `type id` → list of method entries.
 (_type_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
