@@ -107,6 +107,16 @@ found` errors in method signatures like `fn(self : Self) -> i32`.
   `createUnknownValue` at `src/value.ts:573-588`. Where-clause LHS
   resolution now correctly recognises `T` as a SomeType.
 
+- **Default-value parameter reads ExprInfo directly** (commit
+  `3d7bad1e`) — the default-value handler used
+  `_eval_and_update_env` which returns `None` when the result isn't
+  a TypeValue. Default values like `(name : i32) ?= i32(42)` evaluate
+  to an i32 VALUE (not a TypeValue), so the type-only check threw
+  spuriously. Mirror TS `src/evaluator/types/function.ts:399-440` —
+  read `info.value` and `info.ty` separately from the evaluated
+  expression's ExprInfo. Value-position expressions are not gated
+  on TypeValue-ness.
+
 - **Single-expression function body wrapped in synthetic begin**
   (commit `7fa04102`) — `evaluate_begin_expression`
   (`yo-self/evaluator/exprs/begin.yo:155`) used to naively unwrap
