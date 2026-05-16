@@ -363,9 +363,18 @@ find_matching_generic_impl :: (
   false
 });
 /// A method (field) from a matched generic impl.
+///
+/// `source_trait_id` carries the trait id whose generic-impl
+/// entry produced this candidate — same value as the registry
+/// key (`GenericImplEntry.trait_key`). The adapter that converts
+/// `MethodCandidate -> MethodEntry`
+/// (`_find_methods_from_generic_impls_as_method_entries`) threads
+/// this through so call-site code can disambiguate which trait
+/// contributed a method.
 MethodCandidate :: struct(
   method_type : TypeValue,
-  method_value : Option(EvalValue)
+  method_value : Option(EvalValue),
+  source_trait_id : String
 );
 /// Search ALL registered generic impls for matching entries that have a field
 /// with `method_name`. Returns candidates (unspecialized).
@@ -437,7 +446,8 @@ find_methods_from_generic_impls :: (
           results.push(
             MethodCandidate(
               method_type : ftype,
-              method_value : fvalue
+              method_value : fvalue,
+              source_trait_id : (&(entry.trait_key)).clone()
             )
           );
         });
@@ -840,10 +850,10 @@ evaluate_module_value :: (
 /// method name + the source trait id). Project each candidate up
 /// into the registry shape so call sites see one uniform type.
 ///
-/// `source_trait_id` is left empty: the generic-impl registry
-/// does not currently carry the source trait id on each method
-/// (the entry's `field_names` are method names, not trait names).
-/// Wiring up trait-id provenance is tracked separately.
+/// `source_trait_id` is now threaded through from the candidate —
+/// `find_methods_from_generic_impls` populates it from each
+/// matching `GenericImplEntry.trait_key`, so the adapter passes
+/// the value forward unchanged.
 _find_methods_from_generic_impls_as_method_entries :: (
   fn(env : Environment, method_name : String, ty : TypeValue) -> ArrayList(MethodEntry)
 )({
@@ -860,7 +870,7 @@ _find_methods_from_generic_impls_as_method_entries :: (
             label : (&(method_name)).clone(),
             ty : c.method_type,
             value : c.method_value,
-            source_trait_id : String.from(""),
+            source_trait_id : c.source_trait_id,
             needs_pointer_conversion : false
           )
         );
