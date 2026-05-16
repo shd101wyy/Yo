@@ -310,7 +310,7 @@ evaluate_comptime_fn :: (
   (pti : usize) = usize(0);
   while(runtime(pti < n_pt), {
     pt := match(param_types.get(pti),.Some(t) => t,.None => t_unit());
-    if(type_prohibits_comptime_modifier(pt, env), {
+    if(type_prohibits_comptime_modifier(pt), {
       exn.throw(
         dyn(
           format_error_message(
@@ -324,7 +324,7 @@ evaluate_comptime_fn :: (
     });
     pti = (pti + usize(1));
   });
-  if(type_prohibits_comptime_modifier(result_box.*, env), {
+  if(type_prohibits_comptime_modifier(result_box.*), {
     exn.throw(
       dyn(
         format_error_message(

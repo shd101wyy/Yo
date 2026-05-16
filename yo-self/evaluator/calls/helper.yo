@@ -13,9 +13,12 @@
 //! Ported functions (Phase 3):
 //!   * `extract_function_value` — extract FuncVal from EvalValue
 //!   * `_module_type_contains_ctl_field` — stub (no isControlFunction in yo-self)
-//!   * `_get_variables_needing_drop` — simplified (type_contains_rc_type is stub)
 //!   * `generate_deferred_drop_expressions` — generates ___drop calls for RC vars
 //!   * `validate_function_return_type` — checks return type SomeTs are resolvable
+//!
+//! Note: `getVariablesNeedingDrop` is now ported in full in
+//! `yo-self/env.yo:get_variables_needing_drop`; the prior simplified
+//! stub that lived here has been retired.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -193,46 +196,10 @@ _module_type_contains_ctl_field :: (
     _ => false
   )
 );
-// ---------------------------------------------------------------------------
-// _get_variables_needing_drop
-// ---------------------------------------------------------------------------
-/// Return variables from the top env frame that need RC drop calls.
-///
-/// Phase 3 simplification: `type_contains_rc_type` is a stub that always
-/// returns `false`, so this returns an empty list.
-///
-/// Mirrors `getVariablesNeedingDrop` in `src/env.ts`.
-_get_variables_needing_drop :: (fn(env : Environment) -> ArrayList(Variable))({
-  result := ArrayList(Variable).new();
-  n := env.frames.len();
-  if(n == usize(0), {
-    return(result);
-  });
-  match(
-    env.frames.get(n - usize(1)),
-    .None => (),
-    .Some(top_frame) => {
-      m := top_frame.variables.len();
-      (i : usize) = usize(0);
-      while(runtime(i < m), {
-        match(
-          top_frame.variables.get(i),
-          .Some(v) => {
-            if((!(v.consumed_at_token.is_some())) && v.is_owning_the_rc_value, {
-              // Phase 3: type_contains_rc_type is stub (always false),
-              // so no variable qualifies for dropping yet.
-              // Full implementation: also check type_contains_rc_type(v.ty).
-              _ := v;
-            });
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-    }
-  );
-  result
-});
+// `_get_variables_needing_drop` stub retired — the full
+// `getVariablesNeedingDrop` port lives at
+// `yo-self/env.yo:get_variables_needing_drop` after the
+// env.yo ↔ types/utils.yo import cycle was broken.
 // ---------------------------------------------------------------------------
 // generate_deferred_drop_expressions
 // ---------------------------------------------------------------------------

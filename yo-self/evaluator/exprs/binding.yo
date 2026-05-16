@@ -272,7 +272,7 @@ evaluate_binding :: (
     );
   });
   // Reject type annotations that require comptime but binding is runtime.
-  if(type_requires_comptime_modifier(user_defined_type, env) && !(is_compile_time_only), {
+  if(type_requires_comptime_modifier(user_defined_type) && !(is_compile_time_only), {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(
@@ -286,7 +286,7 @@ evaluate_binding :: (
     );
   });
   // Reject comptime modifier on runtime-only types.
-  if(type_prohibits_comptime_modifier(user_defined_type, env) && is_compile_time_only, {
+  if(type_prohibits_comptime_modifier(user_defined_type) && is_compile_time_only, {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(

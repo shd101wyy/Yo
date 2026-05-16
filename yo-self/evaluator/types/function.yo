@@ -45,11 +45,13 @@ open(import("std/fmt"));
   prohibit_void_type,
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
-  type_contains_some_type,
-  convert_comptime_type_to_runtime_type
+  type_contains_some_type
 }
 :: import("../../types/utils.yo");
-{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
+{
+  get_value_of_some_type_from_env,
+  convert_comptime_type_to_runtime_type
+} :: import("../../types/env_lookup.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../exprs/binding.yo");
@@ -757,7 +759,7 @@ evaluate_function_parameter :: (
   // Validate comptime + type compatibility
   if(is_compile_time_only &&
     !(type_contains_some_type(final_param_type)) &&
-      type_prohibits_comptime_modifier(final_param_type, env_mut.*), {
+      type_prohibits_comptime_modifier(final_param_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -769,7 +771,7 @@ evaluate_function_parameter :: (
       )
     );
   });
-  if(!(is_compile_time_only) && type_requires_comptime_modifier(final_param_type, env_mut.*), {
+  if(!(is_compile_time_only) && type_requires_comptime_modifier(final_param_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -2914,9 +2916,9 @@ evaluate_function_type :: (
   );
   // Auto-convert comptime-only return types if possible
   (return_type : TypeValue) = ret_type_val;
-  if(type_requires_comptime_modifier(return_type, env_mut) && !(is_return_comptime_only), {
+  if(type_requires_comptime_modifier(return_type) && !(is_return_comptime_only), {
     converted := convert_comptime_type_to_runtime_type(return_type, env_mut);
-    if(type_requires_comptime_modifier(converted, env_mut), {
+    if(type_requires_comptime_modifier(converted), {
       exn.throw(
         dyn(
           format_error_message(
@@ -2936,7 +2938,7 @@ evaluate_function_type :: (
   });
   if(is_return_comptime_only &&
     !(type_contains_some_type(return_type)) &&
-      type_prohibits_comptime_modifier(return_type, env_mut), {
+      type_prohibits_comptime_modifier(return_type), {
     exn.throw(
       dyn(
         format_error_message(

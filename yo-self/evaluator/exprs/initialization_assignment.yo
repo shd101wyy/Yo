@@ -51,12 +51,12 @@ open(import("std/string"));
 { TypeTag } :: import("../../types/tags.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
-  convert_comptime_type_to_runtime_type,
   prohibit_void_type,
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
   type_contains_rc_type
 } :: import("../../types/utils.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
@@ -348,7 +348,7 @@ evaluate_initialization_assignment :: (
       lhs_type = pre_type;
     });
     // Check comptime modifier requirements.
-    if(!(effective_is_compile_time_only) && type_requires_comptime_modifier(lhs_type, env), {
+    if(!(effective_is_compile_time_only) && type_requires_comptime_modifier(lhs_type), {
       lhs_type_str := type_to_string(lhs_type);
       expr_str := ast_expr_to_string(expr);
       exn.throw(
@@ -366,7 +366,7 @@ ${lhs_type_str}`,
         )
       );
     });
-    if(effective_is_compile_time_only && type_prohibits_comptime_modifier(lhs_type, env), {
+    if(effective_is_compile_time_only && type_prohibits_comptime_modifier(lhs_type), {
       lhs_type_str := type_to_string(lhs_type);
       expr_str := ast_expr_to_string(expr);
       exn.throw(

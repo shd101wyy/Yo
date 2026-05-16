@@ -35,23 +35,17 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
-{ t_i32, t_f64, type_value_tag } :: import("./creators.yo");
+{ type_value_tag } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_integer_type,
   is_float_type,
   is_comptime_int_type,
   is_comptime_float_type,
-  is_comptime_string_type,
   is_some_type,
-  is_rc_type,
-  is_u8_type,
-  is_char_type
+  is_rc_type
 }
 :: import("./guards.yo");
-{ is_pointer_type, is_slice_type } :: import("./guards.yo");
-{ Variable, Environment, get_variables_from_env } :: import("../env.yo");
-{ EvalValue } :: import("../value.yo");
 { Token } :: import("../token.yo");
 { format_error_message, YoError } :: import("../error.yo");
 { Exception } :: import("std/error");
@@ -136,89 +130,13 @@ can_comptime_int_cast_to :: (fn(target_type : TypeValue) -> bool)(
 can_comptime_float_cast_to :: (fn(target_type : TypeValue) -> bool)(
   is_float_type(target_type) || is_comptime_float_type(target_type)
 );
-/// Look up the prelude `str` type in the given environment.
-/// Mirrors `createStrType(env)` in `src/types/creators.ts`.
-/// Throws (panics) if `str` is not present in the env.
-create_str_type :: (fn(env : Environment) -> TypeValue)({
-  vars := get_variables_from_env(env, String.from("str"));
-  (i : usize) = usize(0);
-  (found : Option(TypeValue)) =.None;
-  (n : usize) = vars.len();
-  while(runtime(i < n), {
-    match(
-      vars.get(i),
-      .Some(v) => match(
-        v.value,
-        .Some(ev) => match(
-          ev,
-          .TypeVal(ty) => {
-            found =.Some(ty.*);
-          },
-          _ => ()
-        ),
-        .None => ()
-      ),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  match(
-    found,
-    .Some(t) => t,
-    .None => t_i32() // fallback (should not happen if prelude is loaded)
-  )
-});
-/// Convert a comptime type to its runtime equivalent.
-/// Mirrors `convertComptimeTypeToRuntimeType` in `src/types/utils.ts`,
-/// in the simplified form used by the `runtime(_)` builtin
-/// (i.e., `expectedType = undefined`).
-///
-///   * `comptime_int`    → `i32`
-///   * `comptime_float`  → `f64`
-///   * `comptime_string` → `str` (looked up in `env`)
-///   * otherwise        → unchanged
-/// True iff `ty` is `*(u8)` or `*(char)` — the two byte-pointer
-/// shapes that can hold a comptime-string literal. Helper for
-/// `convert_comptime_type_to_runtime_type_with_expected`.
-pointer_target_is_byte_ :: (fn(ty : TypeValue) -> bool)(
-  match(
-    ty,
-    .Pointer(pointee) => (is_u8_type(pointee.*) || is_char_type(pointee.*)),
-    _ => false
-  )
-);
-/// `convert_comptime_type_to_runtime_type` plus an optional
-/// `expected_type` hint. When the input is `comptime_string`, TS
-/// special-cases `*(u8)` / `*(char)` / `Slice(T)` expected types and
-/// returns the expected type instead of `str`. Mirrors the full
-/// signature of TS `convertComptimeTypeToRuntimeType`. The TS-side
-/// `expr` parameter (which mutates `expr.$.convertedRuntimeType`) is
-/// not threaded through here — yo-self callers that need the side-
-/// table update will assign through `ExprInfo.converted_runtime_type`
-/// directly.
-convert_comptime_type_to_runtime_type_with_expected :: (
-  fn(ty : TypeValue, expected : Option(TypeValue), env : Environment) -> TypeValue
-)(
-  cond(
-    is_comptime_int_type(ty) => t_i32(),
-    is_comptime_float_type(ty) => t_f64(),
-    is_comptime_string_type(ty) => match(
-      expected,
-      .None => create_str_type(env),
-      .Some(et) => cond(
-        // *(u8) / *(char) — comptime_string converts to the pointer.
-        (is_pointer_type(et) && pointer_target_is_byte_(et)) => et,
-        // [T] — comptime_string fits a slice value directly.
-        is_slice_type(et) => et,
-        true => create_str_type(env)
-      )
-    ),
-    true => ty
-  )
-);
-convert_comptime_type_to_runtime_type :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
-  convert_comptime_type_to_runtime_type_with_expected(ty, Option(TypeValue).None, env)
-);
+// NOTE: `create_str_type`, `pointer_target_is_byte_`,
+// `convert_comptime_type_to_runtime_type`, and
+// `convert_comptime_type_to_runtime_type_with_expected` have been
+// moved to `types/env_lookup.yo` so that this file no longer imports
+// from `env.yo`. The move breaks the env.yo ↔ types/utils.yo import
+// cycle and lets `env.yo` import `type_contains_rc_type` from here
+// for `get_variables_needing_drop`.
 // ---------------------------------------------------------------------------
 // Phase 2u additions — mirrors functions from src/types/utils.ts
 // ---------------------------------------------------------------------------
@@ -247,8 +165,12 @@ prohibit_void_type :: (fn(ty : TypeValue, token : Token, using(exn : Exception))
 /// fast path. Returns true only when we *know* the type is
 /// comptime-only.
 ///
-/// Mirrors `isComptimeOnlyType` in `src/types/utils.ts`.
-type_is_comptime_only :: (fn(ty : TypeValue, _env : Environment) -> bool)(
+/// Mirrors `isComptimeOnlyType` in `src/types/utils.ts`. Divergence:
+/// TS takes an `env` argument (for Runtime-trait lookups in compound
+/// types) but the tag-only fast-path here never reads it; the
+/// parameter is dropped to keep `types/utils.yo` free of any
+/// dependency on `env.yo` (see top of file for the cycle context).
+type_is_comptime_only :: (fn(ty : TypeValue) -> bool)(
   match(
     type_value_tag(ty),
     .TComptimeInt => true,
@@ -266,14 +188,16 @@ type_is_comptime_only :: (fn(ty : TypeValue, _env : Environment) -> bool)(
 /// A type requires comptime when it is comptime-only (never runtime).
 ///
 /// Mirrors `typeRequiresComptimeModifier` in `src/types/utils.ts`.
-type_requires_comptime_modifier :: (fn(ty : TypeValue, env : Environment) -> bool)(
-  type_is_comptime_only(ty, env)
+/// `env` param dropped (was unused on the tag-only path).
+type_requires_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
+  type_is_comptime_only(ty)
 );
 /// Return `true` if the type prohibits a `comptime` modifier.
 /// A type prohibits comptime when it is runtime-only (never comptime).
 ///
 /// Mirrors `typeProhibitsComptimeModifier` in `src/types/utils.ts`.
-type_prohibits_comptime_modifier :: (fn(ty : TypeValue, _env : Environment) -> bool)(
+/// `env` param dropped (was unused on the tag-only path).
+type_prohibits_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
   // A type is runtime-only when it implements Runtime but NOT Comptime.
   // Use the tag fast path: these types are definitively runtime-only.
   match(
@@ -356,7 +280,8 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
 /// undecided cases it conservatively returns `false` (Phase 3 will
 /// consult the `Runtime` trait in `env`). Mirrors the contract of
 /// `typeImplementsRuntime` in `src/evaluator/trait-checking.ts`.
-type_implements_runtime :: (fn(ty : TypeValue, _env : Environment) -> bool)(
+/// `env` param dropped (was unused on the tag-only path).
+type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
   match(
     type_implements_runtime_builtin(ty),
     .Some(b) => b,
@@ -728,9 +653,9 @@ export(IntRange);
 export(get_integer_type_range);
 export(can_comptime_int_cast_to);
 export(can_comptime_float_cast_to);
-export(create_str_type);
-export(convert_comptime_type_to_runtime_type);
-export(convert_comptime_type_to_runtime_type_with_expected);
+// create_str_type, convert_comptime_type_to_runtime_type, and
+// convert_comptime_type_to_runtime_type_with_expected moved to
+// `types/env_lookup.yo` (cycle break — see top of file).
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
