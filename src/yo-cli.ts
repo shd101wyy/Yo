@@ -41,6 +41,51 @@ import {
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
 
+// Collect .yo files to type-check. Accepts either a single file (must end in
+// `.yo`) or a directory (walked recursively; `.test.yo` files are included
+// since their bodies are evaluator-typecheckable; noisy infrastructure dirs
+// like `node_modules` / `.git` are skipped).
+function collectCheckFiles(targetPath: string): string[] {
+  const absolutePath = path.resolve(targetPath);
+  const stats = fs.statSync(absolutePath);
+  if (stats.isFile()) {
+    if (!absolutePath.endsWith(".yo")) {
+      console.error(`check: not a .yo file: ${absolutePath}`);
+      process.exit(1);
+    }
+    return [absolutePath];
+  }
+  if (stats.isDirectory()) {
+    const out: string[] = [];
+    walkCheckDir(absolutePath, out);
+    out.sort();
+    return out;
+  }
+  return [];
+}
+
+function walkCheckDir(dir: string, out: string[]): void {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (
+        ![
+          "node_modules",
+          "vendor",
+          ".git",
+          "vscode-extension",
+          "outdated",
+        ].includes(entry.name)
+      ) {
+        walkCheckDir(full, out);
+      }
+    } else if (entry.isFile() && entry.name.endsWith(".yo")) {
+      out.push(full);
+    }
+  }
+}
+
 // ── Version re-dispatch ─────────────────────────────────────────────────
 // Before yargs processes any command, check `.yo-version` and re-dispatch
 // to the pinned version if it differs from the currently running version.
@@ -459,11 +504,11 @@ yo --version                     Show version number
       }
     )
     .command(
-      "check <file>",
-      "Type-check (run the evaluator on) a '.yo' file — no codegen",
+      "check <path>",
+      "Type-check (run the evaluator on) a .yo file or every .yo file in a directory — no codegen",
       (_yargs) => {
-        _yargs.positional("file", {
-          describe: "File to check",
+        _yargs.positional("path", {
+          describe: "File or directory to check",
           type: "string",
           demandOption: true,
         });
@@ -473,28 +518,54 @@ yo --version                     Show version number
         // and no output binary. The TS evaluator runs during module
         // loading, so any coverage gap surfaces as a thrown error
         // before codegen would have started.
-        const file = argv.file as string;
-        const absolutePath = `file://` + fs.realpathSync(file);
-        const codeGenerator = new CodeGenerator();
-        codeGenerator.compileModule(absolutePath, {
-          output: "/tmp/yo_check_noop",
-          cCompiler: "cc",
-          target: "c",
-          extern: [],
-          includePaths: [],
-          libraryPaths: [],
-          libraries: [],
-          defines: [],
-          emitC: false,
-          skipCodegen: true,
-          skipCCompiler: true,
-          debugGc: false,
-          debugParallelism: false,
-          debugAsyncAwait: false,
-          release: false,
-          allocator: "libc",
-        });
-        console.log(`check: ${file} — evaluator OK`);
+        const targetPath = argv.path as string;
+        if (!fs.existsSync(targetPath)) {
+          console.error(`check: path does not exist: ${targetPath}`);
+          process.exit(1);
+        }
+        const files = collectCheckFiles(targetPath);
+        if (files.length === 0) {
+          console.error(`check: no .yo files found at ${targetPath}`);
+          process.exit(1);
+        }
+        let failed = 0;
+        for (const file of files) {
+          const absolutePath = `file://` + fs.realpathSync(file);
+          const codeGenerator = new CodeGenerator();
+          try {
+            codeGenerator.compileModule(absolutePath, {
+              output: "/tmp/yo_check_noop",
+              cCompiler: "cc",
+              target: "c",
+              extern: [],
+              includePaths: [],
+              libraryPaths: [],
+              libraries: [],
+              defines: [],
+              emitC: false,
+              skipCodegen: true,
+              skipCCompiler: true,
+              debugGc: false,
+              debugParallelism: false,
+              debugAsyncAwait: false,
+              release: false,
+              allocator: "libc",
+            });
+            console.log(`check: ${file} — evaluator OK`);
+          } catch (err) {
+            failed += 1;
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`check: ${file} — FAILED\n${msg}`);
+          }
+        }
+        if (files.length > 1) {
+          console.log(
+            `check: ${files.length - failed}/${files.length} file(s) passed`
+          );
+        }
+        if (failed > 0) {
+          process.exit(1);
+        }
       }
     )
     .command(

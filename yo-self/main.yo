@@ -17,6 +17,8 @@ open(import("std/fmt"));
 { args } :: import("std/env");
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
+{ metadata } :: import("std/fs/metadata");
+{ read_dir, FileType } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
 { exit, getenv } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
@@ -298,40 +300,104 @@ collect_module_deps :: (
     );
   });
 });
-/// Run the `check` subcommand — evaluator-only.
-///
-/// Parses the input file (with transitive imports resolved like
-/// `run_test`), drives the parsed top-level expressions through
-/// the PROPER evaluator (`evaluate_anonymous_module_begin_exprs`),
-/// and reports any error the evaluator throws. NO codegen is run.
-///
-/// This is the analog of `cargo check` for Yo: it isolates
-/// evaluator-coverage correctness from codegen correctness so we
-/// can iterate on `_evaluate_expression` sub-handler gaps without
-/// fighting unrelated codegen errors. Per `plans/BOOTSTRAPPING.md`
-/// Stream A, this is the entry point for the
-/// "fill the evaluator coverage gaps" workflow.
-///
-/// Exits 0 on success, non-zero if any evaluator error fires.
-run_check :: (
+/// Recursive helper for `collect_check_files` — walks a directory
+/// tree appending each `.yo` file path to `out`.
+_walk_check_dir :: (
   fn(
-    argv : ArrayList(String),
+    dir : String,
+    out : *(ArrayList(String)),
     using(io : IO, exn : Exception)
   ) -> unit
 )({
-  if(argv.len() < usize(3), {
-    exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo>`));
+  entries := io.await(read_dir(Path.new((&(dir)).clone())));
+  (n : usize) = entries.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    i = (i + usize(1));
+    match(
+      entries.get(i - usize(1)),
+      .None => (),
+      .Some(entry) => {
+        full := Path.new((&(dir)).clone()).join(Path.new((&(entry.name)).clone())).to_string();
+        match(
+          entry.file_type,
+          .Directory => {
+            // Skip noisy infrastructure dirs (mirror src/yo-cli.ts:walkCheckDir).
+            skip := cond(
+              (entry.name.as_str() == "node_modules") => true,
+              (entry.name.as_str() == "vendor") => true,
+              (entry.name.as_str() == ".git") => true,
+              (entry.name.as_str() == "vscode-extension") => true,
+              (entry.name.as_str() == "outdated") => true,
+              true => false
+            );
+            if(!(skip), {
+              recur(full, out, using(io, exn));
+            });
+          },
+          .File => {
+            if(entry.name.ends_with(String.from(".yo")), {
+              out.*.push(full);
+            });
+          },
+          .Symlink => (),
+          .Other => ()
+        );
+      }
+    );
   });
-  input_path := argv.get(usize(2)).unwrap();
+});
+/// Collect every `.yo` file at or under `path_str`. If `path_str` is a
+/// file, returns `[path_str]`. If it's a directory, walks recursively
+/// and returns sorted absolute paths. `.test.yo` files are included
+/// (they have `test("name", { body })` declarations which the
+/// evaluator can still typecheck). Noisy infra dirs like
+/// `node_modules`/`.git`/`vscode-extension`/`outdated` are skipped.
+/// Mirrors `collectCheckFiles` in `src/yo-cli.ts`.
+collect_check_files :: (
+  fn(
+    path_str : String,
+    using(io : IO, exn : Exception)
+  ) -> ArrayList(String)
+)({
+  out := ArrayList(String).new();
+  meta := io.await(metadata(Path.new((&(path_str)).clone())));
+  cond(
+    meta.is_file() => {
+      if(path_str.ends_with(String.from(".yo")), {
+        out.push((&(path_str)).clone());
+      });
+    },
+    meta.is_dir() => _walk_check_dir(path_str, &(out), using(io, exn)),
+    true => ()
+  );
+  out
+});
+/// Run the evaluator against a single `.yo` file. Returns `true` on
+/// success; on any thrown evaluator error, catches via a local
+/// exception handler and returns `false` so a directory walk keeps
+/// going across files. The evaluator's own `evaluate_expression: …`
+/// diagnostic has already been printed by the time the throw fires,
+/// so the caller just needs to log which file failed.
+check_single_file :: (
+  fn(
+    input_path : String,
+    std_path : String,
+    using(io : IO, exn : Exception)
+  ) -> bool
+)({
+  // Local exception handler escapes the function body with `false`.
+  // Effect-handler bodies cannot capture outer runtime vars (per
+  // Yo's `->` rule), so we can't print here — the caller logs the
+  // file's pass/fail status from the bool return.
+  given(local_exn) := Exception(
+    throw : ((_err) -> escape(false))
+  );
   println(`check: parsing ${input_path}`);
-  // Read + parse the file.
-  src_bytes := io.await(read_file(Path.new(input_path)));
+  src_bytes := io.await(read_file(Path.new((&(input_path)).clone())));
   src := String.from_bytes(src_bytes);
-  exprs := parse(src, input_path, using(exn));
+  exprs := parse(src, (&(input_path)).clone(), using(local_exn));
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
-  // Resolve transitive imports — std/ paths now follow into "./std" so the
-  // evaluator can see prelude/std declarations.
-  std_path := resolve_std_path();
   visited := ArrayList(String).new();
   dep_exprs := ArrayList(AstExpr).new();
   prelude_literal := String.from("prelude.yo");
@@ -341,7 +407,7 @@ run_check :: (
     std_path.as_str(),
     &(visited),
     &(dep_exprs),
-    using(io, exn)
+    using(io, local_exn)
   );
   println(`check: pre-loaded prelude — ${dep_exprs.len().to_string()} expr(s) so far`);
   input_base_dir := match(
@@ -366,7 +432,7 @@ run_check :: (
             std_path.as_str(),
             &(visited),
             &(dep_exprs),
-            using(io, exn)
+            using(io, local_exn)
           );
         }
       )
@@ -400,13 +466,8 @@ run_check :: (
     );
   });
   println(`check: collected ${all_exprs.len().to_string()} exprs total (deps + body); registering evaluator`);
-  // Drive the evaluator. We DO NOT catch the throw here — let it
-  // surface as the user-facing error so `check` reports the first
-  // coverage gap with full diagnostic context. (The compile / test
-  // pipelines DO catch and fall back; `check` is intentionally
-  // strict.)
-  env := Environment.new(input_path);
-  ctx := eval_context_new(std_path, input_path);
+  env := Environment.new((&(input_path)).clone());
+  ctx := eval_context_new((&(std_path)).clone(), (&(input_path)).clone());
   register_evaluate_expression();
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
   _r := evaluate_anonymous_module_begin_exprs(
@@ -414,9 +475,58 @@ run_check :: (
     env,
     &(ctx),
     false,
-    using(exn)
+    using(local_exn)
   );
   println(`check: ${input_path} — evaluator OK`);
+  true
+});
+/// Run the `check` subcommand — evaluator-only.
+///
+/// Accepts either a single `.yo` file or a directory. For a directory
+/// the bootstrap walks `*.yo` (excluding `.test.yo`) and runs each one
+/// through the evaluator; cross-file evaluator state pollution is
+/// possible but acceptable for the "find evaluator coverage gaps"
+/// workflow.
+///
+/// Exits 0 if every file passes, non-zero if any file's evaluator
+/// throws.
+run_check :: (
+  fn(
+    argv : ArrayList(String),
+    using(io : IO, exn : Exception)
+  ) -> unit
+)({
+  if(argv.len() < usize(3), {
+    exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
+  });
+  target_path := argv.get(usize(2)).unwrap();
+  files := collect_check_files((&(target_path)).clone(), using(io, exn));
+  if(files.len() == usize(0), {
+    exn.throw(dyn(`check: no .yo files found at ${target_path}`));
+  });
+  std_path := resolve_std_path();
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  total := files.len();
+  while(runtime(fi < total), {
+    match(
+      files.get(fi),
+      .None => (),
+      .Some(file_path) => {
+        if(!(check_single_file(file_path, (&(std_path)).clone(), using(io, exn))), {
+          failed = (failed + usize(1));
+        });
+      }
+    );
+    fi = (fi + usize(1));
+  });
+  if(total > usize(1), {
+    passed := (total - failed);
+    println(`check: ${passed.to_string()}/${total.to_string()} file(s) passed`);
+  });
+  if(failed > usize(0), {
+    exn.throw(dyn(`check: ${failed.to_string()} file(s) failed evaluator coverage`));
+  });
 });
 /// Run the `compile` subcommand.
 run_compile :: (
