@@ -9,7 +9,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../types/definitions.yo");
-{ t_i32 } :: import("../types/creators.yo");
+{ t_i32, t_comptime_int, t_comptime_float, t_comptime_string } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
 { Environment } :: import("../env.yo");
 {
@@ -170,6 +170,37 @@ test("get_receiver_methods_by_name_from_env: empty when nothing matches", {
     false
   );
   assert(hits.len() == usize(0), "no hits for unregistered method");
+});
+test("get_receiver_methods_by_name_from_env: comptime receiver does not crash", {
+  // Numeric runtime types (i32/f64) don't carry an `id` in
+  // yo-self's `TypeValue` variant set, so the comptime → runtime
+  // retry path never finds anything to register against — but it
+  // should still complete without throwing for each of the three
+  // comptime literal shapes. The asserts pin the no-crash + zero
+  // results contract that the larger evaluator will rely on.
+  clear_type_trait_methods();
+  env := Environment.new(String.from(""));
+  hits_int := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("anything"),
+    t_comptime_int(),
+    false
+  );
+  assert(hits_int.len() == usize(0), "no methods on comptime_int");
+  hits_float := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("anything"),
+    t_comptime_float(),
+    false
+  );
+  assert(hits_float.len() == usize(0), "no methods on comptime_float");
+  hits_str := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("anything"),
+    t_comptime_string(),
+    false
+  );
+  assert(hits_str.len() == usize(0), "no methods on comptime_string");
 });
 test("clear_type_trait_methods: wipes state", {
   register_type_trait_method(
