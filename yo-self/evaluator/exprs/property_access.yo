@@ -42,8 +42,8 @@ open(import("std/string"));
   is_type_value
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_type } :: import("../../types/creators.yo");
-{ is_pointer_type, is_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type } :: import("../../types/guards.yo");
+{ t_unit, t_type, t_some_t } :: import("../../types/creators.yo");
+{ is_pointer_type, is_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0 } :: import("../../types/guards.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
@@ -54,6 +54,8 @@ open(import("std/string"));
 { Exception } :: import("std/error");
 { find_methods_from_generic_impls, MethodCandidate }
 :: import("../values/impl.yo");
+{ get_type_trait_methods_by_name, type_id_or_empty }
+:: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
@@ -600,6 +602,52 @@ evaluate_property_access :: (
           );
         });
       });
+      // Look up in the type-trait-methods registry — covers
+      // impl-provided associated types (e.g. `Counter.Item` where an
+      // earlier `impl(Counter, Iter(Item : i32, ...))` registered
+      // "Item" with value `TypeVal(i32)`). Mirrors TS
+      // `property-access.ts:474-523` which walks
+      // `typeValue.value.trait.fields` looking for entries with
+      // assigned values. Only non-function values are eligible — the
+      // function dispatch path handles method overload resolution.
+      su_type_id := type_id_or_empty(type_val_inner);
+      if(su_type_id != String.from(""), {
+        registry_methods := get_type_trait_methods_by_name(su_type_id, prop_name_su);
+        if(registry_methods.len() > usize(0), {
+          (rm_idx : usize) = usize(0);
+          (rm_done : bool) = false;
+          while(runtime((rm_idx < registry_methods.len()) && !(rm_done)), {
+            match(
+              registry_methods.get(rm_idx),
+              .Some(rm) => {
+                match(
+                  rm.value,
+                  .Some(rmv) => {
+                    rm_v_ty := type_of_eval_value(rmv);
+                    out_rm := new_expr_info(env, rm.ty);
+                    out_rm.value = Option(EvalValue).Some(rmv);
+                    out_rm.is_accessing_property = Option(bool).Some(true);
+                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rm);
+                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rm);
+                    rm_done = true;
+                    // rm_v_ty is computed but not used; the field's
+                    // declared ty (rm.ty) is what we report so
+                    // downstream type-equality checks match the
+                    // trait's field-type slot.
+                    _unused := rm_v_ty;
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+            rm_idx = (rm_idx + usize(1));
+          });
+          if(rm_done, {
+            return(expr);
+          });
+        });
+      });
       // Not found — let function.yo handle it as a method call.
       return(expr);
     });
@@ -692,6 +740,105 @@ evaluate_property_access :: (
           return(expr);
         }
       );
+    });
+    // --- TypeVal + SomeT --------------------------------------------------
+    // Resolve `Self.Item` (or `T.Item`) where the SomeT has a trait
+    // constraint that declares `Item` as an associated type.
+    //
+    // Mirrors TS `property-access.ts:425-456`. yo-self's SomeT doesn't
+    // carry an inline `.trait` slot — the constraint trait lives in
+    // either `required_trait_types` (for where-clause bounds) or in
+    // `ctx.self_trait_type` (when the SomeT IS the trait's own Self).
+    // We walk both and return on first match. The associated type's
+    // value is a SomeT placeholder in TS (`field.unassignedSomeType`);
+    // here we return an `UnknownVal` of the field's declared type
+    // (typically `Type` for assoc-type fields), which is enough for
+    // the function-type evaluator to accept `Self.Output` as a type
+    // slot.
+    if(is_some_type(type_val_inner), {
+      if(is_valid_variable_name(property_expr), {
+        st_prop_name := ast_expr_token(property_expr).value;
+        st_rtt := match(
+          type_val_inner,
+          .SomeT(_, _, _, _, rtt, _, _, _, _) => rtt,
+          _ => ArrayList(TypeValue).new()
+        );
+        // Build the list of candidate traits: explicit
+        // required_trait_types first, then ctx.self_trait_type as
+        // a fallback (covers `Self.X` during trait declaration).
+        candidate_traits := ArrayList(TypeValue).new();
+        (st_idx0 : usize) = usize(0);
+        while(runtime(st_idx0 < st_rtt.len()), {
+          match(
+            st_rtt.get(st_idx0),
+            .Some(t) => {
+              candidate_traits.push(t);
+            },
+            .None => ()
+          );
+          st_idx0 = (st_idx0 + usize(1));
+        });
+        match(
+          ctx.self_trait_type,
+          .Some(stt) => {
+            candidate_traits.push(stt);
+          },
+          .None => ()
+        );
+        (st_found : bool) = false;
+        (st_idx : usize) = usize(0);
+        st_n := candidate_traits.len();
+        while(runtime((st_idx < st_n) && !(st_found)), {
+          st_trait := match(candidate_traits.get(st_idx),.Some(t) => t,.None => t_unit());
+          if(is_trait_type(st_trait), {
+            st_labels := match(
+              st_trait,
+              .TraitT(_, _, labels, _, _, _, _, _) => labels,
+              _ => ArrayList(String).new()
+            );
+            st_types := match(
+              st_trait,
+              .TraitT(_, _, _, types, _, _, _, _) => types,
+              _ => ArrayList(TypeValue).new()
+            );
+            st_fidx := find_first_field_index(st_labels, st_prop_name.as_str());
+            match(
+              st_fidx,
+              .Some(st_fi) => {
+                st_ft := match(st_types.get(st_fi),.Some(t) => t,.None => t_unit());
+                // For assoc-type fields (declared `Item : Type` etc.)
+                // synthesise a TypeVal wrapping a fresh SomeT placeholder
+                // so downstream type-expression evaluators see a concrete
+                // TypeValue. Mirrors TS `field.unassignedSomeType` →
+                // `createTypeValue(unassignedSomeType)` flow at
+                // property-access.ts:445-456.
+                placeholder_ty := if(
+                  is_type_0(st_ft),
+                  t_some_t((&(st_prop_name)).clone(), env.frames.len()),
+                  st_ft
+                );
+                ev_st := if(
+                  is_type_0(st_ft),
+                  create_type_value(placeholder_ty),
+                  create_unknown_val(st_ft)
+                );
+                out_st := new_expr_info(env, st_ft);
+                out_st.value = Option(EvalValue).Some(ev_st);
+                out_st.is_accessing_property = Option(bool).Some(true);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_st);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_st);
+                st_found = true;
+              },
+              .None => ()
+            );
+          });
+          st_idx = (st_idx + usize(1));
+        });
+        if(st_found, {
+          return(expr);
+        });
+        // Property not found in any constraint trait — fall through.
+      });
     });
     // Unhandled TypeVal variant — fall through to runtime field access.
   });
