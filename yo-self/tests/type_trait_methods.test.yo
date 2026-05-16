@@ -1,0 +1,130 @@
+//! Round-trip tests for the trait-method registry +
+//! `get_type_trait_methods_by_name_from_env` in env.yo.
+//!
+//! The full impl-block evaluator-driven path (impl-block source →
+//! `evaluate_module_value` → `register_type_trait_method`) is
+//! covered by the end-to-end tests once `getReceiverMethodsByName…`
+//! lands. These tests poke the registry primitives directly so
+//! regressions in storage / lookup shape are caught in isolation.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../types/definitions.yo");
+{ t_i32 } :: import("../types/creators.yo");
+{ EvalValue } :: import("../value.yo");
+{ Environment } :: import("../env.yo");
+{
+  get_type_trait_methods_by_name_from_env
+} :: import("../env.yo");
+{
+  MethodEntry,
+  register_type_trait_method,
+  get_type_trait_methods_for_type,
+  get_type_trait_methods_by_name,
+  clear_type_trait_methods,
+  type_id_or_empty
+} :: import("../evaluator/values/type_trait_methods.yo");
+_synth_struct :: (fn(id : String, name : String) -> TypeValue)(
+  TypeValue.Struct(
+    id : id,
+    name : name,
+    field_labels : ArrayList(String).new(),
+    field_types : ArrayList(TypeValue).new(),
+    is_reference_semantics : false,
+    is_atomic_rc : false,
+    is_newtype : false
+  )
+);
+_entry :: (fn(label : String) -> MethodEntry)(
+  MethodEntry(
+    label : label,
+    ty : t_i32(),
+    value : Option(EvalValue).None,
+    source_trait_id : String.from("")
+  )
+);
+test("type_id_or_empty: extracts struct id", {
+  s := _synth_struct(String.from("ty_a"), String.from("A"));
+  id := type_id_or_empty(s);
+  assert(id.as_str() == "ty_a", "expected struct id");
+});
+test("type_id_or_empty: empty for variant without id", {
+  id := type_id_or_empty(TypeValue.Unit);
+  assert(id.as_str() == "", "Unit has no id");
+});
+test("register + get_type_trait_methods_for_type: appends entries", {
+  clear_type_trait_methods();
+  register_type_trait_method(
+    String.from("ty_b"),
+    _entry(String.from("foo"))
+  );
+  register_type_trait_method(
+    String.from("ty_b"),
+    _entry(String.from("bar"))
+  );
+  list := get_type_trait_methods_for_type(String.from("ty_b"));
+  assert(list.len() == usize(2), "two entries registered");
+});
+test("get_type_trait_methods_by_name: filters by label", {
+  clear_type_trait_methods();
+  register_type_trait_method(
+    String.from("ty_c"),
+    _entry(String.from("foo"))
+  );
+  register_type_trait_method(
+    String.from("ty_c"),
+    _entry(String.from("bar"))
+  );
+  register_type_trait_method(
+    String.from("ty_c"),
+    _entry(String.from("foo"))
+  );
+  foos := get_type_trait_methods_by_name(
+    String.from("ty_c"),
+    String.from("foo")
+  );
+  assert(foos.len() == usize(2), "two foos");
+  bars := get_type_trait_methods_by_name(
+    String.from("ty_c"),
+    String.from("bar")
+  );
+  assert(bars.len() == usize(1), "one bar");
+  none := get_type_trait_methods_by_name(
+    String.from("ty_c"),
+    String.from("baz")
+  );
+  assert(none.len() == usize(0), "no baz");
+});
+test("get_type_trait_methods_by_name_from_env: registry hit", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_d"), String.from("D"));
+  register_type_trait_method(
+    String.from("ty_d"),
+    _entry(String.from("greet"))
+  );
+  env := Environment.new(String.from(""));
+  hits := get_type_trait_methods_by_name_from_env(
+    env,
+    String.from("greet"),
+    s
+  );
+  assert(hits.len() == usize(1), "one greet method");
+});
+test("get_type_trait_methods_by_name_from_env: empty id short-circuits", {
+  clear_type_trait_methods();
+  env := Environment.new(String.from(""));
+  hits := get_type_trait_methods_by_name_from_env(
+    env,
+    String.from("anything"),
+    TypeValue.Unit
+  );
+  assert(hits.len() == usize(0), "no hits for Unit");
+});
+test("clear_type_trait_methods: wipes state", {
+  register_type_trait_method(
+    String.from("ty_e"),
+    _entry(String.from("foo"))
+  );
+  clear_type_trait_methods();
+  list := get_type_trait_methods_for_type(String.from("ty_e"));
+  assert(list.len() == usize(0), "empty after clear");
+});

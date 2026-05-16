@@ -47,6 +47,25 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
 { EvalValue } :: import("../../value.yo");
+/// Extract the unique `id` string from a `TypeValue` variant that
+/// carries one (Struct / EnumT / TraitT / ModuleT / SomeT). Returns
+/// the empty string for variants that don't — method lookup is
+/// meaningless for them, mirroring TS's early-return-`[]` path when
+/// the type has no `.trait`. Lives here (rather than on env.yo or
+/// types/utils.yo) so it's reachable from `impl.yo` registration
+/// callers and from `env.yo` lookup callers without re-creating
+/// the env ↔ impl cycle.
+type_id_or_empty :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct(id, _, _, _, _, _, _) => id,
+    .EnumT(id, _, _, _, _, _, _) => id,
+    .TraitT(_, _, _, _, id, _, _, _) => id,
+    .ModuleT(id, _, _, _) => id,
+    .SomeT(id, _, _, _, _, _, _, _, _) => id,
+    _ => String.from("")
+  )
+);
 /// A single trait method or property attached to a concrete type.
 /// Mirrors TS `TraitField` (an extension of `TypeField`).
 ///
@@ -127,5 +146,6 @@ export(
   register_type_trait_method,
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,
-  clear_type_trait_methods
+  clear_type_trait_methods,
+  type_id_or_empty
 );
