@@ -107,7 +107,7 @@ exposure: `iterator.test.yo`-style chains that use
 **Status:** Pre-loading mechanism wired in `run_check`; first
 post-prelude gap surfaces around `std/prelude.yo:102` (Array `forall(T : Type, N : usize)` HKT support).
 
-**What landed (commit TBD):**
+**What landed (commit a872d884):**
 
 - `resolve_std_path()` helper — reads `YO_STD` env var, falls
   back to `./std`.
@@ -155,7 +155,7 @@ Roughly in order of practical impact for "yo-self-bin can compile
 real tests":
 
 1. **Prelude auto-loading (§6)** — unblocks ~95% of `./tests/`.
-   Mechanism is now wired (commit TBD); blocked on §5 HKT and
+   Mechanism is now wired (commit a872d884); blocked on §5 HKT and
    §2 RC to actually finish evaluating prelude.
 2. **Trait-checking Phase-3 stubs (§1)** — needed for blanket-impl
    and Iterator-style trait code.
