@@ -206,7 +206,7 @@ _get_expr_type :: (
     using(exn : Exception)
   ) -> TypeValue
 )({
-  evaluated := evaluate_expression(expr, env_mut, ctx);
+  evaluated := evaluate_expression_raw(expr, env_mut, ctx, using(exn));
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   info := match(
     info_opt,
@@ -253,7 +253,7 @@ _eval_and_update_env :: (
     using(exn : Exception)
   ) -> Option(TypeValue)
 )({
-  evaluated := evaluate_expression(expr, env_mut.*, ctx);
+  evaluated := evaluate_expression_raw(expr, env_mut.*, ctx, using(exn));
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
     info_opt,
@@ -1181,7 +1181,7 @@ validate_concrete_type_constraints :: (
       }
     );
     (negated : bool) = match(trait_negated.get(j),.Some(b) => b,.None => false);
-    evaled_t := evaluate_expression(t_expr, env_mut.*, ctx);
+    evaled_t := evaluate_expression_raw(t_expr, env_mut.*, ctx, using(exn));
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_t));
     _ := evaled_t;
     info := match(
