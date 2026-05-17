@@ -35,7 +35,8 @@ open(import("std/string"));
   get_receiver_methods_by_name_from_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_type } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_comptime_int } :: import("../../types/creators.yo");
+{ TokenKind } :: import("../../token.yo");
 { EvalValue, is_unknown_val, type_of_eval_value } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 {
@@ -203,6 +204,38 @@ evaluate_function_call :: (
     .FnCall(_, _, a, _, _) => a,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
+  // Pre-fold `-(IntLit)` to a comptime negative integer literal.
+  // yo-self does not yet implement full ModuleT/Call overload dispatch
+  // for the prelude's `(-) :: impl({ Call :: (neg, comptime_neg); })`,
+  // so unary-minus on a comptime int falls into a soft fallback that
+  // produces UnknownVal. The TS evaluator effectively folds the same
+  // shape via `ComptimeNegate.neg`. We mirror the fold here, just for
+  // the literal-arg form, so that prelude patterns like
+  // `Completed = -(1)` in enum discriminants and similar default-value
+  // sites evaluate as comptime_int.
+  neg_callee_str := match(
+    func_expr,
+    .Atom(_, ftok) => ftok.value,
+    _ => String.new()
+  );
+  is_neg_call :=
+    (neg_callee_str.as_str() == "-") && (args.len() == usize(1));
+  if(is_neg_call, {
+    arg0 := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    match(
+      arg0,
+      .Atom(_, atok) => {
+        if(atok.kind == TokenKind.Integer, {
+          neg_raw := `-${atok.value.as_str()}`;
+          out_neg := new_expr_info(env, t_comptime_int());
+          out_neg.value = Option(EvalValue).Some(EvalValue.IntLit(neg_raw));
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_neg);
+          return(expr);
+        });
+      },
+      _ => ()
+    );
+  });
   // Evaluate the callee.
   evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, using(exn));
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
