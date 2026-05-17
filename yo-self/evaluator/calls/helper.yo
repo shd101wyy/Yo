@@ -79,7 +79,7 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
   SynthesizeResult,
   SynthesizeOptions,
@@ -231,7 +231,7 @@ generate_deferred_drop_expressions :: (
         // Build the drop expression: ___drop(varName)
         drop_code := `___drop(${variable.name})`;
         drop_expr := generate_expr_from_code(drop_code.as_str(), using(exn));
-        evaluated := evaluate_expression(drop_expr, cur_env, ctx);
+        evaluated := evaluate_expression_raw(drop_expr, cur_env, ctx, using(exn));
         // Phase 3: env update from ExprInfo is skipped; cur_env stays unchanged.
         _ := evaluated;
         deferred.push(evaluated);
@@ -417,7 +417,7 @@ check_if_function_parameter_matches_argument :: (
   // Step 3: Evaluate arg with param type as expected-type hint.
   saved_exp := ctx.expected_type;
   ctx.expected_type =.Some(ExpectedTypeCtx(ty : resolved_pt, env : callee_env_r));
-  evaled_arg := evaluate_expression(actual_arg, caller_env, ctx);
+  evaled_arg := evaluate_expression_raw(actual_arg, caller_env, ctx, using(exn));
   ctx.expected_type = saved_exp;
   // Extract ExprInfo for the evaluated arg.
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
@@ -1514,7 +1514,7 @@ try_to_call_function_with_arguments :: (
               fas.get(fpi),
               .Some(fa) => {
                 if(!(ast_expr_is_atom_of(fa, "_")), {
-                  evaled_fa := evaluate_expression(fa, caller_env, ctx);
+                  evaled_fa := evaluate_expression_raw(fa, caller_env, ctx, using(exn));
                   fa_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_fa));
                   match(
                     fa_info_opt,
@@ -1663,7 +1663,7 @@ try_to_call_function_with_arguments :: (
             match(
               uas.get(impl_i),
               .Some(ua_expr) => {
-                evaled_ua := evaluate_expression(ua_expr, caller_env_m, ctx);
+                evaled_ua := evaluate_expression_raw(ua_expr, caller_env_m, ctx, using(exn));
                 ua_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_ua));
                 match(
                   ua_info_opt,

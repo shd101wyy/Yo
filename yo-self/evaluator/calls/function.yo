@@ -47,7 +47,7 @@ open(import("std/string"));
   TraitTypeCallResult,
   TraitSpecializationResult
 } :: import("../context.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { try_to_implement_function_by_function_type } :: import("./function_type.yo");
 { try_to_implement_closure_by_fn_module_type } :: import("./closure_type.yo");
@@ -204,7 +204,7 @@ evaluate_function_call :: (
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   // Evaluate the callee.
-  evaluated_callee := evaluate_expression(func_expr, env, ctx);
+  evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, using(exn));
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
   callee_value := match(
     callee_info_opt,
@@ -806,7 +806,7 @@ evaluate_function_call :: (
         (ai : usize) = usize(0);
         while(runtime(ai < n_a), {
           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
-          evaled_arg := evaluate_expression(arg_expr, env, ctx);
+          evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, using(exn));
           arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
           arg_info := match(
             arg_info_opt,

@@ -51,7 +51,8 @@ open(import("std/fmt"));
 :: import("../../types/utils.yo");
 {
   get_value_of_some_type_from_env,
-  convert_comptime_type_to_runtime_type
+  convert_comptime_type_to_runtime_type,
+  convert_comptime_type_to_runtime_type_with_expected
 } :: import("../../types/env_lookup.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -715,7 +716,17 @@ evaluate_function_parameter :: (
         .Some(info) => {
           env_mut.* = info.env;
           dv_val_opt := info.value;
-          dv_ty := info.ty;
+          // Coerce comptime types (e.g. comptime_string) to their runtime
+          // equivalents when the param has an explicit annotation. Mirrors
+          // TS `convertComptimeTypeToRuntimeType` at default-value sites —
+          // lets `(msg : str) ?= "Assertion failed."` typecheck because the
+          // comptime_string literal coerces to `str` (or `*(u8)`/`*(char)`/
+          // `[u8]` if explicitly expected).
+          dv_ty := convert_comptime_type_to_runtime_type_with_expected(
+            info.ty,
+            param_type,
+            env_mut.*
+          );
           match(
             dv_val_opt,
             .Some(_dv_val) => {
