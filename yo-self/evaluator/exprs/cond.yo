@@ -206,8 +206,13 @@ evaluate_cond :: (
         return(expr);
       }
     );
-    // Require bool type.
-    if(!(is_bool_type(cond_info.ty)), {
+    // Require bool type — but tolerate `unit` (from an `UnknownVal`
+    // emitted by an upstream soft-fallback, e.g. operator-trait
+    // lookup that the bootstrap can't yet resolve). Treat the
+    // condition as non-comptime-true and let the rest of the
+    // case-selection logic fall through naturally.
+    is_unit_fallback := match(cond_info.ty,.Unit => true, _ => false);
+    if((!(is_bool_type(cond_info.ty))) && !(is_unit_fallback), {
       exn.throw(
         dyn(
           format_error_message(
