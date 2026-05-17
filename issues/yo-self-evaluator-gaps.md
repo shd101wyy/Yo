@@ -84,23 +84,44 @@ is lossy. Doesn't crash, but may cause RC double-drop or use-after-
 free in heavy closure-passing tests. The bootstrap closure test
 suite passes today, so it isn't blocking.
 
-### 5. HKT support — `SomeT.kindFunctionType` field missing
+### 5. HKT support — partial progress
 
-**Location:** `evaluator/types/...` (SomeT shape in
-`types/definitions.yo`).
+**5a. SomeT.kindFunctionType field missing** — TS reference's
+`SomeType.kindFunctionType` slot captures the kind of higher-kinded
+type parameters like `F : (fn(T : Type) -> Type)`. yo-self's `SomeT`
+variant has no equivalent field, so HKT-style trait declarations
+(`Functor :: trait(F : (fn(T : Type) -> Type), map : ...)`) segfault
+during type-expression evaluation. Tracked via
+`/tmp/test_higher_kinded.yo` and `/tmp/test_typeapp_inline.yo` repros.
 
-**What's missing:** TS reference's `SomeType.kindFunctionType` slot
-that captures the kind of higher-kinded type parameters like
-`F : (fn(T : Type) -> Type)`. yo-self's `SomeT` variant has no
-equivalent field, so HKT-style trait declarations
-(`Functor :: trait(F : (fn(T : Type) -> Type), map : ...)`)
-segfault during type-expression evaluation.
+**5b. Array length must be IntLit** — ~~`evaluator/types/array.yo`
+threw `Expected integer literal for array length` on any non-IntLit
+length value, so `Array(T, N)` with forall-bound `N : usize` failed.~~
+**Fixed in commit `c8bd5b40`** — accepts `UnknownVal` and stores
+`usize(0)` as placeholder. The proper TS-equivalent `length : Value`
+(EvalValue) representation is deferred (TypeValue ↔ EvalValue mutual
+recursion not yet wired through `types/definitions.yo`).
+
+**5c. Impl trait-constructor field expected_type** — ~~
+`evaluate_module_value` blanked out `ctx.expected_type` before
+evaluating each impl-field's value, so anonymous lambdas in
+`impl(T, Trait(method : (self) -> body))` threw "Anonymous function:
+no expected type in context".~~ **Fixed in commit `3f69d633`** —
+trait-constructor path now looks up the trait via env (`_try_lookup_trait_type`)
+and sets `ctx.expected_type` from the matching field's type
+(`_trait_field_type_by_label`). Works for atom trait names
+(`LogicalNot`); falls back to `.None` for parametric trait shapes
+(`ComptimeAdd(comptime_int)(...)`) — those bind to a FuncVal in the
+env, not a TraitT, and resolving them properly needs the evaluator
+(currently blocked by a TS-side codegen quirk where some
+`given(...) := Exception(...); other_fn(..., using(...))` wrappers
+silently drop the `using` arg).
 
 **Impact:** Functor/Monad-style HKT traits cannot be declared.
-Tracked via `/tmp/test_higher_kinded.yo` and
-`/tmp/test_typeapp_inline.yo` repros (both segfault). Real-test
-exposure: `iterator.test.yo`-style chains that use
-`Iterator.Map(F, …)` patterns.
+Real-test exposure: `iterator.test.yo`-style chains using
+`Iterator.Map(F, …)`. Prelude evaluation is now blocked at line 693
+(`impl(comptime_int, ComptimeAdd(comptime_int)(...))`) — a
+parametric trait specialization.
 
 ### 6. Prelude auto-loading — **partially fixed**
 
