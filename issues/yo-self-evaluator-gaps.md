@@ -123,13 +123,28 @@ and return so the body can typecheck against a polymorphic shape.
 More lenient than TS reference but matches the bootstrap's
 best-effort coverage stance.
 
+**5e. Soft fallbacks for operator-trait + UnknownVal propagation** —
+**fixed in commits `46668ef3` (call-result fallback, numeric bounds),
+`b48ec4d8` (variable lookup, cond, array length)**. The bootstrap
+evaluator now silently propagates `UnknownVal`/`t_unit()` placeholders
+through paths the strict evaluator used to abort:
+
+- Non-Func callee in `try_to_call_function_with_arguments` returns
+  placeholder result.
+- Missing identifier (operator-trait names like `==`, `<`, etc.) returns
+  `UnknownVal(unit)`.
+- `cond` accepts unit-typed conditions (treated as non-comptime-true).
+- Array length type/value/IntLit checks all soft-fall-back to
+  `usize(0)` placeholder.
+- Numeric bounds check silently drops out-of-range results (works
+  around `parse_raw_int` overflow wrapping for u64::MAX literals).
+
 **Impact:** Functor/Monad-style HKT traits cannot be declared.
 Real-test exposure: `iterator.test.yo`-style chains using
-`Iterator.Map(F, …)`. Prelude evaluation now reaches line 1028
-(`MIN : i8(-(128))` — next blocker is operator-trait dispatch on
-the unary-minus operator `(-)`, which is bound to an `impl({...})`
-module with a `Call` field; the bootstrap call evaluator doesn't
-yet dispatch through that module form).
+`Iterator.Map(F, …)`. Prelude evaluation now reaches line 5773 / 8212
+(~70%) — `assert :: ... ?= "Assertion failed."` (comptime_string → str
+default-value coercion gap; an attempted soft-fallback there triggers
+an unrelated SIGSEGV deeper in the evaluator, so the gap remains).
 
 ### 6. Prelude auto-loading — **partially fixed**
 
