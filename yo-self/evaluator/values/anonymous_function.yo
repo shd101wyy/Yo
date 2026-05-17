@@ -36,7 +36,7 @@ open(import("std/string"));
   synthetic_token
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_func_simple } :: import("../../types/creators.yo");
 {
   EvalValue,
   create_unknown_val
@@ -49,6 +49,90 @@ open(import("std/string"));
 { Exception } :: import("std/error");
 { register_definition_site_return } :: import("../../function_value.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
+/// Walk a parameter-declaration AST (`(a, b)` tuple or single atom)
+/// and append each param-name token-value to `out`. Used to
+/// synthesize a default Func type when no `expected_type` is in
+/// context (e.g. impl field whose surrounding trait is a parametric
+/// trait the bootstrap can't yet evaluate).
+_collect_anon_param_names :: (
+  fn(param_decl : AstExpr, out : *(ArrayList(String))) -> unit
+)(
+  match(
+    param_decl,
+    .Atom(_, t) => {
+      out.*.push((&(t.value)).clone());
+    },
+    .FnCall(_, fb, args, _, _) => match(
+      fb.*,
+      .Atom(_, ptok) => cond(
+        (ptok.value.as_str() == BK_TUPLE) => {
+          (i : usize) = usize(0);
+          n := args.len();
+          while(runtime(i < n), {
+            match(
+              args.get(i),
+              .Some(a) => match(
+                a,
+                .Atom(_, at) => {
+                  out.*.push((&(at.value)).clone());
+                },
+                .FnCall(_, _, _, _, _) => {
+                  // Best-effort: use the first atom of the call (e.g.
+                  // `name : Type` → token "name") if present.
+                  match(
+                    a,
+                    .FnCall(_, _, ca, _, _) => match(
+                      ca.get(usize(0)),
+                      .Some(name_e) => match(
+                        name_e,
+                        .Atom(_, nt) => {
+                          out.*.push((&(nt.value)).clone());
+                        },
+                        .FnCall(_, _, _, _, _) => ()
+                      ),
+                      .None => ()
+                    ),
+                    .Atom(_, _) => ()
+                  );
+                }
+              ),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+        },
+        true => {
+          // Single non-tuple FnCall — treat as one param with the
+          // function head's atom value if available.
+          out.*.push((&(ptok.value)).clone());
+        }
+      ),
+      .FnCall(_, _, _, _, _) => ()
+    )
+  )
+);
+/// Synthesize a default `Func` TypeValue whose params and return
+/// type are fresh `SomeT`s. Used as the fallback for anonymous
+/// functions evaluated without an `expected_type` in context. Lets
+/// downstream code path through without throwing; the resulting
+/// closure is effectively polymorphic.
+_synthesize_default_func_type :: (
+  fn(param_decl : AstExpr, env : Environment) -> TypeValue
+)({
+  names := ArrayList(String).new();
+  _collect_anon_param_names(param_decl, &(names));
+  frame_level := env.frames.len();
+  param_types := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  n := names.len();
+  while(runtime(i < n), {
+    name := match(names.get(i),.Some(s) => s,.None => String.from("_p"));
+    param_types.push(t_some_t(name, frame_level));
+    i = (i + usize(1));
+  });
+  ret_ty := t_some_t(String.from("_ret"), frame_level);
+  t_func_simple(names, param_types, ret_ty)
+});
 /// Helper: get the operator string from an anonymous function expression.
 /// For `(x) -> body`, returns "->"; for `(x) => body`, returns "=>"; etc.
 _get_anon_op :: (fn(expr : AstExpr) -> String)(
@@ -158,22 +242,18 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // Resolve the expected type from context.
   // -------------------------------------------------------------------------
+  // When no `expected_type` is provided (e.g. inside a parametric trait
+  // impl that the bootstrap evaluator can't fully resolve), synthesize a
+  // fresh polymorphic Func type — SomeT for each param and a SomeT
+  // return — so the body can still typecheck. TS reference throws here;
+  // the bootstrap is more lenient because real failures surface later
+  // anyway, and this avoids choking on prelude impls whose surrounding
+  // context can't be resolved syntactically. Tracked in
+  // `issues/yo-self-evaluator-gaps.md` §5c.
   expected_ty := match(
     ctx.expected_type,
     .Some(etc) => etc.ty,
-    .None => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            tok,
-            String.from("Anonymous function: no expected type in context. Add an explicit type annotation."),
-            false,
-            .None
-          )
-        )
-      );
-      TypeValue.Unit
-    }
+    .None => _synthesize_default_func_type(param_decl, env)
   );
   // -------------------------------------------------------------------------
   // Determine whether this is a closure (`=>` / `=>>`) or regular function
