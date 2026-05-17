@@ -1903,17 +1903,16 @@ try_to_call_function_with_arguments :: (
       )
     },
     _ => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            tok,
-            String.from("try_to_call_function_with_arguments: func_type is not a Func type"),
-            false,
-            .None
-          )
-        )
-      );
-      // Unreachable placeholder.
+      // Soft fallback: when the callee's type isn't `.Func(...)` (e.g.
+      // it's a `ModuleT` from an `impl({...})` operator binding like
+      // `(-) :: impl({ Call :: (neg, comptime_neg); })`, or a `SomeT`
+      // that hasn't been resolved to a Func yet), return a placeholder
+      // `FuncCallResult` with `t_unit()` return instead of aborting
+      // the surrounding eval. This lets the bootstrap make progress
+      // through prelude impls that exercise operator-trait dispatch
+      // patterns the bootstrap doesn't yet model. Tracked as an
+      // evaluator coverage gap in `issues/yo-self-evaluator-gaps.md`.
+      _ := tok;
       FuncCallResult(
         callee_env : caller_env,
         caller_env : caller_env,
