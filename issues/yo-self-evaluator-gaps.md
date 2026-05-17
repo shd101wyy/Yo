@@ -209,16 +209,27 @@ the result via `type_of_eval_value(mod_val)` instead of a stale
 `t_unit()`.
 
 **5k. Generic-constructor call inside trait fn-type field** —
-**gap**. With §5j landed, `{ GlobalAllocator } :: import("std/allocator")`
-exposes that evaluating `CustomAllocator` trait at
-`std/allocator.yo` fails with `Expected type for element, got
-OkType` at `std/prelude.yo:7076` (`Ok(value : OkType)` inside the
-`Result(OkType, ErrorType)` enum body). The trait's
-`alloc : (fn(…) -> Result(?*(T), AllocError))` field type calls
-`Result(?*(T), AllocError)`, but when that call evaluates Result's
-inner `enum(...)` body, the `comptime(OkType)` binding doesn't
-propagate down. Pre-existing — masked by the module-loader error
-before §5j. Tracked as task #120.
+**fixed** in `yo-self/evaluator/calls/function_type.yo`.
+`try_to_implement_function_by_function_type` was building FuncVals
+for top-level `::`-defined functions with EMPTY
+`cap_names`/`cap_tys`/`cap_vals`, based on a stale comment ("Regular
+functions do not capture outer runtime variables"). That's true for
+runtime locals, but the body still needs to resolve OTHER top-level
+identifiers (other functions, types, constants) at call time — and
+the call site builds a `fresh_env` that only contains captures +
+params, with no module-level fallback lookup. So
+`outer :: (fn(comptime(T) : Type) -> comptime(Type))(inner(T))`
+evaluated `inner` at call time as Unknown via the soft-fallback,
+and the whole result became `UnknownVal`. Now mirror the capture
+loop in `evaluator/values/anonymous_function.yo`: copy every visible
+binding (across all frames, except `__recur_fn`) from `caller_env`
+into the FuncVal's captures.
+
+This unblocks `Result(?*(T), AllocError)` in trait declarations
+(allocator.yo's `CustomAllocator` trait) and any function whose body
+calls another function. Regression: lexer (33/33) + binding (7/7)
+tests still pass; simple programs (Option, match, struct + impl,
+generics) still check OK.
 
 ### 6. Prelude auto-loading — **partially fixed**
 

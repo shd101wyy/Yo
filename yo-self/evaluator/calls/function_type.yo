@@ -229,17 +229,58 @@ try_to_implement_function_by_function_type :: (
         ___ := param_type_names.push(pt_name);
         pti = (pti + usize(1));
       });
-      // Build the FuncVal.  Regular functions (defined with `::`) do not capture
-      // outer runtime variables, so cap_names/cap_tys/cap_vals are empty.
+      // Build cap_names/cap_tys/cap_vals from `caller_env` so the FuncVal's body
+      // can resolve other top-level identifiers (other functions, types,
+      // constants) at call time. The body is evaluated in a `fresh_env`
+      // that only contains captures + params; without these, references
+      // like `inner` inside `outer :: (fn(…))(inner(T))` fall through to
+      // the "Variable not found" soft fallback and the call result becomes
+      // `UnknownVal`. Mirrors the capture loop in
+      // `evaluator/values/anonymous_function.yo`.
+      cap_names := ArrayList(String).new();
+      cap_tys := ArrayList(TypeValue).new();
+      cap_vals := ArrayList(EvalValue).new();
+      n_cap_fr := caller_env.frames.len();
+      (cap_fi : usize) = usize(0);
+      while(runtime(cap_fi < n_cap_fr), {
+        match(
+          caller_env.frames.get(cap_fi),
+          .Some(cap_frame) => {
+            n_cap_v := cap_frame.variables.len();
+            (cap_vi : usize) = usize(0);
+            while(runtime(cap_vi < n_cap_v), {
+              match(
+                cap_frame.variables.get(cap_vi),
+                .Some(cv) => {
+                  if(!(cv.name.as_str() == "__recur_fn"), {
+                    cap_names.push(cv.name);
+                    cap_tys.push(cv.ty);
+                    cap_val := match(
+                      cv.value,
+                      .Some(actual) => actual,
+                      .None => EvalValue.VarRef(cv.name)
+                    );
+                    cap_vals.push(cap_val);
+                  });
+                },
+                .None => ()
+              );
+              cap_vi = (cap_vi + usize(1));
+            });
+          },
+          .None => ()
+        );
+        cap_fi = (cap_fi + usize(1));
+      });
       func_val := EvalValue.FuncVal(
         forall_labels,
         param_labels,
         param_type_names,
         implicit_labels,
         box(body_expr),
-        ArrayList(String).new(),
-        ArrayList(TypeValue).new(),
-        ArrayList(EvalValue).new(),
+        cap_names,
+        cap_tys,
+        cap_vals,
         random_id(caller_env.module_path)
       );
       _ := result_box;
