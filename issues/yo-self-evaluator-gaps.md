@@ -146,6 +146,31 @@ Real-test exposure: `iterator.test.yo`-style chains using
 default-value coercion gap; an attempted soft-fallback there triggers
 an unrelated SIGSEGV deeper in the evaluator, so the gap remains).
 
+**5f. Unary `-(IntLit)` comptime fold** — **fixed** in
+`yo-self/evaluator/calls/function.yo` (top of `evaluate_function_call`).
+Prelude declares `(-) :: impl({ Call :: (neg, comptime_neg); })`
+(line 515), and yo-self does not yet implement full ModuleT/Call
+overload dispatch, so `-(IntLit)` was falling into the soft fallback
+in `helper.yo:1916` and producing `UnknownVal` with `t_unit()` type.
+TS handles this transparently through `ComptimeNegate.neg` constant
+folding. We mirror that fold here for the literal-arg form only:
+when the callee is the atom `-` and the single argument is an
+`Integer` token, produce `IntLit("-${raw}")` with type `ComptimeInt`
+directly. This unblocked prelude evaluation through
+`FutureState`'s `Completed = -(1)` / `Aborted = -(2)` enum
+discriminants. Prelude now reaches line 8196
+(`__yo_builtin_io :: IO(...)` — extern-fn comptime gap, tracked
+separately).
+
+**5g. Stack overflow on default macOS 8MB main-thread stack** —
+**workaround documented**, not fixed in code. The recursive
+evaluator chain carries large by-value structs (`AstExpr`,
+`TypeValue`, `Environment`, plus cleanup blocks) and exceeds the
+soft stack limit around 40–50 deep recursion. lldb backtrace at the
+crash showed `__yo_dispose_dispatch` prologue with `sp` next to an
+unmapped guard page. Workaround: `ulimit -s 65520` before running
+yo-self-bin. See `issues/yo-self-evaluator-stack-overflow.md`.
+
 ### 6. Prelude auto-loading — **partially fixed**
 
 **Status:** Pre-loading mechanism wired in `run_check`; first

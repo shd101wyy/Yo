@@ -2,14 +2,26 @@
 
 ## Status
 
-**Resolved.** The "SIGSEGV in the and_then impl" was a misdiagnosis —
-the actual error was a clean Yo throw at `std/prelude.yo:5773`
-(`assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)(...)`),
-where the bootstrap doesn't yet auto-coerce `comptime_string` →
-`str` at default-value sites. The non-raw `evaluate_expression`
-panic-wrapper path was corrupting memory when downstream code
-threw, producing a SIGSEGV at a later prelude site that LOOKED
-like the and_then crash.
+**Resolved.** Two distinct issues were stacked behind the same
+symptom; both are now understood.
+
+1. The initial "SIGSEGV in the and_then impl" was a misdiagnosis —
+   the actual error was a clean Yo throw at `std/prelude.yo:5773`
+   (`assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)(...)`),
+   where the bootstrap doesn't yet auto-coerce `comptime_string` →
+   `str` at default-value sites. The non-raw `evaluate_expression`
+   panic-wrapper path was corrupting memory when downstream code
+   threw, producing a SIGSEGV at a later prelude site that LOOKED
+   like the and_then crash.
+
+2. After fixing (1) by switching the relevant sites to
+   `evaluate_expression_raw`, a SECOND silent SIGSEGV appeared
+   around iter ~924 (Option.and_then impl eval). lldb showed
+   the crash was in `__yo_dispose_dispatch`'s prologue with sp
+   near an unmapped page — i.e. **stack overflow** on macOS's
+   default 8 MB main-thread stack. Workaround:
+   `ulimit -s 65520` before running yo-self-bin. Tracked
+   separately in `issues/yo-self-evaluator-stack-overflow.md`.
 
 Resolved by commits:
 
