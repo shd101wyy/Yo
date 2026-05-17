@@ -549,7 +549,7 @@ _parse_trait_where_clauses :: (
 ///
 /// Lives in its own function because Yo effect-handler bodies cannot
 /// capture outer runtime vars — wrapping the call this way lets the
-/// `escape(())` exit only this helper, leaving the calling loop's
+/// `unwind(())` exit only this helper, leaving the calling loop's
 /// state untouched.
 _drop_where_constraint_failures :: (
   fn(
@@ -561,7 +561,7 @@ _drop_where_constraint_failures :: (
   ) -> unit
 )({
   given(retry_exn) := Exception(
-    throw : ((_err) -> escape(()))
+    throw : ((_err) -> unwind(()))
   );
   _ := _parse_trait_where_clauses(
     retry_list,

@@ -1364,7 +1364,7 @@ test("Test basic spawn of two futures", {
   // After spawn, both are running — handle.await waits and returns Option(T).
   result1 := handle1.await(using(io));
   result2 := handle2.await(using(io));
-  // Both tasks completed successfully (no escape), results are Some.
+  // Both tasks completed successfully (no unwind), results are Some.
   assert(result1.is_some(), "task1 should complete successfully");
   assert(result2.is_some(), "task2 should complete successfully");
   // Both tasks incremented counter: +2 from task1, +20 from task2
@@ -1859,39 +1859,39 @@ test("Test io.state consistency", {
   assert(s3 == s4, "multiple state calls after completion should match");
   assert(s3 == FutureState.Completed, "completed future should be Completed");
 });
-test("Test escape in async closure", {
+test("Test unwind in async closure", {
   // NOTE: Using forall(T) here due to a C codegen bug where concrete effect
   // types in async closures produce "No C function name found" errors.
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   {
-    test_escape :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> unit)({
+    test_unwind :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> unit)({
       (given(raise) : Raise) =
         (msg) -> {
           println(msg);
-          escape(());
+          unwind(());
         };
       io.await(task, using(io, raise));
-      assert(false, "expected task to escape already");
+      assert(false, "expected task to unwind already");
     });
     // I expect 'task' to have type Impl(Future(i32, IO, Raise))
     task := io.async((using(io : IO, raise : Raise)) => {
       raise(`This task should be aborted, not awaited!`);
       return(i32(12));
     });
-    test_escape(task);
+    test_unwind(task);
     st := io.state(task);
     printf("Future state after starting task: %d\n", st);
     assert(st == FutureState.Aborted);
   };
   {
-    test_escape :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> i32)({
+    test_unwind :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> i32)({
       (given(raise) : Raise) =
         (msg) -> {
           println(msg);
-          escape(666);
+          unwind(666);
         };
       result := io.await(task, using(io, raise));
-      assert(false, "expected task to escape already");
+      assert(false, "expected task to unwind already");
       return(result);
     });
     // I expect 'task' to have type Impl(Future(i32, IO, Raise))
@@ -1899,18 +1899,18 @@ test("Test escape in async closure", {
       raise(`This task should be aborted, not awaited!`);
       return(i32(12));
     });
-    result := test_escape(task);
+    result := test_unwind(task);
     st := io.state(task);
     printf("Future state after starting task: %d\n", st);
     assert(st == FutureState.Aborted, "expected task to be aborted");
-    assert(result == 666, "expected task to escape with 666");
+    assert(result == 666, "expected task to unwind with 666");
   };
 });
 // ============================================================================
 // JoinHandle Tests — verify handle := io.spawn(task) + handle.await(using(io))
 // ============================================================================
 // ---------------------------------------------------------------------------
-// JoinHandle.await returns Option(T) — .Some on success, .None on escape
+// JoinHandle.await returns Option(T) — .Some on success, .None on unwind
 // ---------------------------------------------------------------------------
 test("Test JoinHandle await returns Some on success", {
   task := io.async((using(io : IO)) => {
@@ -1925,7 +1925,7 @@ test("Test JoinHandle await returns Some on success", {
 // ---------------------------------------------------------------------------
 // JoinHandle.await returns .None when the task escapes (aborts)
 // ---------------------------------------------------------------------------
-test("Test JoinHandle await returns None on escape", {
+test("Test JoinHandle await returns None on unwind", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   task := io.async((using(io : IO, raise : Raise)) => {
     io.await(yield());
@@ -1934,7 +1934,7 @@ test("Test JoinHandle await returns None on escape", {
   });
   (given(raise) : Raise) =
     (msg) -> {
-      escape(());
+      unwind(());
     };
   handle := io.spawn(task, using(io, raise));
   result := handle.await(using(io));
@@ -1956,13 +1956,13 @@ test("Test JoinHandle two tasks one escapes", {
   });
   (given(raise) : Raise) =
     (msg) -> {
-      escape(());
+      unwind(());
     };
   handle1 := io.spawn(task1, using(io, raise));
   handle2 := io.spawn(task2, using(io, raise));
   result1 := handle1.await(using(io));
   result2 := handle2.await(using(io));
-  assert(result1.is_none(), "task1 should escape → None");
+  assert(result1.is_none(), "task1 should unwind → None");
   assert(result2.is_some(), "task2 should succeed → Some");
   assert(result2.unwrap() == i32(42), "task2 should return 42");
 });
@@ -2284,11 +2284,11 @@ test("Test effect resume in async while loop with break", {
 });
 // ---------------------------------------------------------------------------
 // Escape from async task via injected effect — the handler escapes,
-// the future is aborted, and the caller sees the escape.
+// the future is aborted, and the caller sees the unwind.
 // ---------------------------------------------------------------------------
-test("Test escape via injected effect aborts future", {
+test("Test unwind via injected effect aborts future", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
-  test_escape :: (fn(using(io : IO)) -> i32)({
+  test_unwind :: (fn(using(io : IO)) -> i32)({
     task := io.async((using(io : IO, raise : Raise)) => {
       io.await(yield());
       raise(`abort now`);
@@ -2296,20 +2296,20 @@ test("Test escape via injected effect aborts future", {
     });
     (given(raise) : Raise) =
       (msg) -> {
-        escape(i32(77));
+        unwind(i32(77));
       };
     io.await(task, using(io, raise));
     // should not reach here
     i32(0)
   });
-  escape_result := test_escape();
-  assert(escape_result == i32(77), "escape should return 77");
+  unwind_result := test_unwind();
+  assert(unwind_result == i32(77), "unwind should return 77");
 });
 // ---------------------------------------------------------------------------
 // JoinHandle.await on escaped task returns .None — same as existing test but
 // with the effect injected via io.spawn (not io.await).
 // ---------------------------------------------------------------------------
-test("Test JoinHandle escape via spawn-injected effect", {
+test("Test JoinHandle unwind via spawn-injected effect", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   task := io.async((using(io : IO, raise : Raise)) => {
     io.await(yield());
@@ -2318,7 +2318,7 @@ test("Test JoinHandle escape via spawn-injected effect", {
   });
   (given(raise) : Raise) =
     (msg) -> {
-      escape(());
+      unwind(());
     };
   handle := io.spawn(task, using(io, raise));
   result := handle.await(using(io));
@@ -2391,13 +2391,13 @@ test("Regression: 3-arg while loop in async SM with step expression", {
   assert(result == i32(10), "while 3-arg in async: 0+1+2+3+4=10");
 });
 // ---------------------------------------------------------------------------
-// Bug fix: async escape caused use-after-free due to double RC decrement.
-// The SM self-decrements on escape (event loop ref), and the synchronous
+// Bug fix: async unwind caused use-after-free due to double RC decrement.
+// The SM self-decrements on unwind (event loop ref), and the synchronous
 // await abort path was also decrementing. The caller's reference was freed
 // prematurely, causing UAF when accessing the future after the function
 // returned.
 // ---------------------------------------------------------------------------
-test("Regression: async escape RC no double-decrement UAF", {
+test("Regression: async unwind RC no double-decrement UAF", {
   // This test verifies that a full async SM that escapes doesn't cause a
   // use-after-free when the caller accesses the future after the await.
   // Before the fix, the synchronous await abort path decremented the RC
@@ -2411,14 +2411,14 @@ test("Regression: async escape RC no double-decrement UAF", {
     });
     (given(raise) : Raise) =
       (msg) -> {
-        escape(i32(77));
+        unwind(i32(77));
       };
     result := io.await(task, using(io, raise));
-    // If we reach here, the escape didn't work
+    // If we reach here, the unwind didn't work
     result
   });
-  escape_result := test_and_check();
-  assert(escape_result == i32(77), "escape should return 77");
+  unwind_result := test_and_check();
+  assert(unwind_result == i32(77), "unwind should return 77");
 });
 // ---------------------------------------------------------------------------
 // SM Optimization: Segment-local variables should be C locals, not struct fields

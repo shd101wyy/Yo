@@ -6504,7 +6504,7 @@ is_builtin_keyword :: (fn(name : str) -> bool)(
     (name == "runtime") => true,
     (name == "match") => true,
     (name == "recur") => true,
-    (name == "escape") => true,
+    (name == "unwind") => true,
     (name == "return") => true,
     (name == "assert") => true,
     (name == "comptime_assert") => true,
@@ -11540,8 +11540,8 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             )
           }
         ),
-        // escape(expr) — in the prototype codegen, treated identically to `return`.
-        // In the full codegen, `escape` discards the continuation and exits the
+        // unwind(expr) — in the prototype codegen, treated identically to `return`.
+        // In the full codegen, `unwind` discards the continuation and exits the
         // enclosing handler-installed function.  For prototype purposes, emitting
         // `return(expr);` is correct for all non-async, non-effect code paths.
         // If the argument is unit (empty tuple, generates None) we emit a bare `return;`.
@@ -11549,7 +11549,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "escape")
+            .Some(id) => (id.as_str() == "unwind")
           )
         ) => match(
           args.get(usize(0)),
@@ -11560,7 +11560,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           },
           .Some(esc_expr) => match(
             call_gen_expr(esc_expr, ctx, indent),
-            // Unit escape (tuple() → None): emit bare return
+            // Unit unwind (tuple() → None): emit bare return
             .None => {
               ctx.*.emitter.emit_string(indent);
               ctx.*.emitter.emit_line("return;");

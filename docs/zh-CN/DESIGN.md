@@ -2383,9 +2383,9 @@ use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({
 Yo 支持**代数效应** — 一种用于隐式参数传递和定界续延的机制。效应建立在两个特性之上：
 
 1. **隐式参数（`using` / `given`）**：函数可以使用 `using(name : Type)` 声明隐式参数。在调用处，编译器会从作用域中的 `given` 绑定自动解析这些参数。
-2. **效应处理器（`return` / `escape`）**：当效应处理器使用 `return(value)` 或 `return()` 时，它会恢复被捕获的续延。当它使用 `escape(value)` 或 `escape()` 时，它会丢弃续延并从外围函数返回。
+2. **效应处理器（`return` / `unwind`）**：当效应处理器使用 `return(value)` 或 `return()` 时，它会恢复被捕获的续延。当它使用 `unwind(value)` 或 `unwind()` 时，它会丢弃续延并从外围函数返回。
 
-效应可以与 `async`/`await` 组合使用：`io.async` 任务内部的效应处理器能够正确工作。如果在异步任务中调用了 `escape`，该 Future 会被标记为已逃逸，等待它会导致 panic。
+效应可以与 `async`/`await` 组合使用：`io.async` 任务内部的效应处理器能够正确工作。如果在异步任务中调用了 `unwind`，该 Future 会被标记为已逃逸，等待它会导致 panic。
 
 详细文档请参阅 [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md)。
 
@@ -2458,7 +2458,7 @@ match(downcast(err, MathError),
 
 ### Exception（不可恢复异常）
 
-`Exception` 是一种用于不可恢复异常处理的代数效应。当处理器调用 `escape` 时，续延被丢弃，控制流返回到外围函数：
+`Exception` 是一种用于不可恢复异常处理的代数效应。当处理器调用 `unwind` 时，续延被丢弃，控制流返回到外围函数：
 
 ```rust
 open(import("std/error"));
@@ -2474,13 +2474,13 @@ safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
 given(exn) := Exception(
   throw : ((err) -> {
     println(`Error: ${err}`);  // 打印 "Error: Division by zero"
-    escape();  // 丢弃续延，从外围函数返回
+    unwind();  // 丢弃续延，从外围函数返回
   })
 );
 
 result := safe_divide(6, 3);        // result = 2
-safe_divide(10, 0, using(exn));     // 触发处理器，escape 丢弃续延
-// escape 之后的代码永远不会执行
+safe_divide(10, 0, using(exn));     // 触发处理器，unwind 丢弃续延
+// unwind 之后的代码永远不会执行
 ```
 
 ### ResumableException

@@ -176,7 +176,7 @@ When testing functions that require `using(exn : Exception)`, provide the effect
 
 ```rust
 test("my test", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(); }));
+  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); unwind(); }));
   result := my_function_that_throws(using(exn));
   // ...
 });

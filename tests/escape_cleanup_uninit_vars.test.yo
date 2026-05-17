@@ -1,7 +1,7 @@
 open(import("std/string"));
 open(import("std/error"));
 open(import("std/fmt"));
-// Regression for issues/escape-cleanup-references-uninitialized-vars.md
+// Regression for issues/unwind-cleanup-references-uninitialized-vars.md
 //
 // 1. (var : T) = match(opt, .None => exn.throw(...), .Some(v) => v)
 //    The .None arm escapes via exn.throw — its cleanup must NOT
@@ -26,7 +26,7 @@ ParseResult :: object(label : String, index : usize);
 get_opt_token :: (fn(present : bool) -> Option(Token))(
   cond(present =>.Some(Token(name : `tok`)), true =>.None)
 );
-// Pattern 1 — escape inside (var : T) = match(...) initializer.
+// Pattern 1 — unwind inside (var : T) = match(...) initializer.
 parse_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
   (tok : Token) = match(
     get_opt_token(present),
@@ -57,12 +57,12 @@ collect_one :: (fn(present : bool, using(exn : Exception)) -> ParseResult)({
   });
   ParseResult(label : final_label, index : usize(0))
 });
-// Helpers (so escape value type matches enclosing fn return type).
+// Helpers (so unwind value type matches enclosing fn return type).
 run_parse_one :: (fn(present : bool) -> ParseResult)({
   given(exn) := Exception(
     throw : (
       (err) -> {
-        escape(ParseResult(label : `caught`, index : usize(7)));
+        unwind(ParseResult(label : `caught`, index : usize(7)));
       }
     )
   );
@@ -72,17 +72,17 @@ run_collect_one :: (fn(present : bool) -> ParseResult)({
   given(exn) := Exception(
     throw : (
       (err) -> {
-        escape(ParseResult(label : `err`, index : usize(99)));
+        unwind(ParseResult(label : `err`, index : usize(99)));
       }
     )
   );
   collect_one(present, using(exn))
 });
-test("Pattern 1: escape from (var : T) = match initializer compiles and runs", {
+test("Pattern 1: unwind from (var : T) = match initializer compiles and runs", {
   ok_result := run_parse_one(true);
   assert(ok_result.index == usize(0), "ok index");
   err_result := run_parse_one(false);
-  assert(err_result.index == usize(7), "escape index");
+  assert(err_result.index == usize(7), "unwind index");
 });
 test("Pattern 2: break inside match arm before later RC binding compiles and runs", {
   ok_result := run_collect_one(true);

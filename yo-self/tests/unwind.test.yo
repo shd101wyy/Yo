@@ -1,11 +1,11 @@
-/// Tests for yo-self/evaluator/exprs/escape.yo — Phase 2r
+/// Tests for yo-self/evaluator/exprs/unwind.yo — Phase 2r
 ///
-/// Covers `evaluate_escape` — the production handler for `escape(value)`.
+/// Covers `evaluate_unwind` — the production handler for `unwind(value)`.
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind } :: import("../token.yo");
-{ AstExpr, ast_expr_id, BF_ESCAPE } :: import("../expr.yo");
+{ AstExpr, ast_expr_id, BF_UNWIND } :: import("../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -23,7 +23,7 @@ open(import("std/fmt"));
 { t_i32 } :: import("../types/creators.yo");
 { set_evaluate_expression_fn, evaluate_expression }
 :: import("../evaluator/exprs/expr.yo");
-{ evaluate_escape } :: import("../evaluator/exprs/escape.yo");
+{ evaluate_unwind } :: import("../evaluator/exprs/unwind.yo");
 { Exception } :: import("std/error");
 mk_token :: (fn(value : str) -> Token)(
   Token(
@@ -38,10 +38,10 @@ mk_token :: (fn(value : str) -> Token)(
 );
 mk_escape_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({
   arg_atom := AstExpr.Atom(arg_id, mk_token(arg_value));
-  callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_ESCAPE));
+  callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_UNWIND));
   args := ArrayList(AstExpr).new();
   args.push(arg_atom);
-  AstExpr.FnCall(call_id, box(callee), args, false, mk_token(BF_ESCAPE))
+  AstExpr.FnCall(call_id, box(callee), args, false, mk_token(BF_UNWIND))
 });
 stub_evaluate_i32 :: (
   fn(
@@ -54,13 +54,13 @@ stub_evaluate_i32 :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
-test("evaluate_escape: writes ExprInfo with Escape control flow", {
+test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   set_evaluate_expression_fn(stub_evaluate_i32);
   given(exn) := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -71,9 +71,9 @@ test("evaluate_escape: writes ExprInfo with Escape control flow", {
   ctx_ptr.is_inside_given_handler = true;
   env := Environment.new(String.from("test"));
   call := mk_escape_call(usize(21), "0", usize(22));
-  result := evaluate_escape(call, env, &(ctx), using(exn));
+  result := evaluate_unwind(call, env, &(ctx), using(exn));
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
-  assert(match(info_opt,.Some(_) => true,.None => false), "escape(did not record an ExprInfo)");
+  assert(match(info_opt,.Some(_) => true,.None => false), "unwind(did not record an ExprInfo)");
   info := match(
     info_opt,
     .Some(i) => i,
@@ -83,20 +83,20 @@ test("evaluate_escape: writes ExprInfo with Escape control flow", {
   match(
     info.ty,
     .Int(bits, signed) => {
-      assert(bits == u8(32), "expected escape(to inherit i32 bits=32)");
-      assert(signed, "expected escape(to inherit i32 signed=true)");
+      assert(bits == u8(32), "expected unwind(to inherit i32 bits=32)");
+      assert(signed, "expected unwind(to inherit i32 signed=true)");
     },
-    _ => assert(false, "expected escape(ty to be Int(32, true))")
+    _ => assert(false, "expected unwind(ty to be Int(32, true))")
   );
   // value must be .None
   match(
     info.value,
     .None => (),
-    .Some(_) => assert(false, "expected escape(to leave value = .None)")
+    .Some(_) => assert(false, "expected unwind(to leave value = .None)")
   );
-  // Control flow flag must include Escape.
+  // Control flow flag must include Unwind.
   assert(
-    has_control_flow(info.control_flow,.Escape),
-    "expected escape(to set control_flow = .Escape)"
+    has_control_flow(info.control_flow,.Unwind),
+    "expected unwind(to set control_flow = .Unwind)"
   );
 });

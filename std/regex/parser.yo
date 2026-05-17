@@ -176,7 +176,7 @@ impl(
     r.push(CharRange(low : u32(32), high : u32(32)));
     r
   }),
-  // Parse \xHH hex escape — reads exactly 2 hex digits and returns the codepoint.
+  // Parse \xHH hex unwind — reads exactly 2 hex digits and returns the codepoint.
   _parse_hex_byte : (fn(self : Self) -> Option(u32))({
     if((self._pos + usize(2)) > self._bytes.len(), {
       return(.None);
@@ -202,7 +202,7 @@ impl(
     self._pos = (self._pos + usize(2));
     .Some(u32((v1 << i32(4)) | v2))
   }),
-  _parse_class_escape : (fn(self : Self) -> Result(ArrayList(CharRange), String))({
+  _parse_class_unwind : (fn(self : Self) -> Result(ArrayList(CharRange), String))({
     b := self._advance();
     match(
       b,
@@ -273,7 +273,7 @@ impl(
                 // High end is an escape sequence (e.g. \x20, \0, \n)
                 self._pos = (self._pos + usize(1));
                 self._pos = (self._pos + usize(1));
-                esc := self._parse_class_escape();
+                esc := self._parse_class_unwind();
                 match(
                   esc,
                   .Ok(esc_ranges) => {
@@ -281,7 +281,7 @@ impl(
                       (high : u32) = esc_ranges.get(usize(0)).unwrap().low;
                       ranges.push(CharRange(low : low, high : high));
                     }, {
-                      // Multi-range escape like \d can't be range endpoint; treat dash as literal
+                      // Multi-range unwind like \d can't be range endpoint; treat dash as literal
                       ranges.push(CharRange(low : low, high : low));
                       ranges.push(CharRange(low : u32(45), high : u32(45)));
                       j := usize(0);
@@ -331,11 +331,11 @@ impl(
       },
       (b == u8(92)) => {
         self._pos = (self._pos + usize(1));
-        esc := self._parse_class_escape();
+        esc := self._parse_class_unwind();
         match(
           esc,
           .Ok(esc_ranges) => {
-            // If escape produced a single codepoint, check for range (e.g. \0-\x20)
+            // If unwind produced a single codepoint, check for range (e.g. \0-\x20)
             if((esc_ranges.len() == usize(1)) && (esc_ranges.get(usize(0)).unwrap().low == esc_ranges.get(usize(0)).unwrap().high), {
               (low : u32) = esc_ranges.get(usize(0)).unwrap().low;
               self._try_parse_char_range(ranges, low);
@@ -402,7 +402,7 @@ impl(
     });
     .Err(`Unterminated character class`)
   }),
-  // Parse \p{PropertyName} or \P{PropertyName} unicode property escape.
+  // Parse \p{PropertyName} or \P{PropertyName} unicode property unwind.
   // negated=true for \P (inverted match).
   _parse_unicode_property : (fn(self : Self, negated : bool) -> Result(RegexNode, String))({
     // Expect opening '{'
@@ -451,7 +451,7 @@ impl(
     });
     .Err(`Unterminated Unicode property \\p{...}`)
   }),
-  _parse_escape : (fn(self : Self) -> Result(RegexNode, String))({
+  _parse_unwind : (fn(self : Self) -> Result(RegexNode, String))({
     b := self._advance();
     match(
       b,
@@ -524,7 +524,7 @@ impl(
           (ch == u8(112)) => self._parse_unicode_property(false),
           // Negated unicode property \P{Name}
           (ch == u8(80)) => self._parse_unicode_property(true),
-          // Hex escape \xHH
+          // Hex unwind \xHH
           (ch == u8(120)) => match(
             self._parse_hex_byte(),
             .Some(v) =>.Ok(RegexNode.literal(v)),
@@ -627,7 +627,7 @@ impl(
           (ch == u8(94)) =>.Ok(RegexNode.anchor_node(.Start)),
           (ch == u8(36)) =>.Ok(RegexNode.anchor_node(.End)),
           (ch == u8(91)) => self._parse_char_class(),
-          (ch == u8(92)) => self._parse_escape(),
+          (ch == u8(92)) => self._parse_unwind(),
           true =>.Ok(RegexNode.literal(self._read_codepoint(ch)))
         ),
       .None =>.Err(`Unexpected end of pattern`)

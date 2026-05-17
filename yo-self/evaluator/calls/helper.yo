@@ -29,7 +29,7 @@ open(import("std/string"));
   ast_expr_is_atom_of,
   make_err_expr
 } :: import("../../expr.yo");
-{ evaluated_body_contains_escape } :: import("../../expr_traversal.yo");
+{ evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 {
   Environment,
   Variable,
@@ -125,7 +125,7 @@ extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
 // _module_type_contains_ctl_field
 // ---------------------------------------------------------------------------
 /// Return true if any field of `module_type` is a "control function"
-/// (one that uses `escape` to control the continuation).
+/// (one that uses `unwind` to control the continuation).
 ///
 /// Mirrors `moduleTypeContainsCtlField` in `src/evaluator/calls/helper.ts`.
 /// Uses the global control-function registry since FuncVal has no isControlFunction flag.
@@ -1038,12 +1038,12 @@ create_specialized_function_inline :: (
             specialized_func_id
           );
           // Detect isControlFunction: set if the original was already a control
-          // function OR if the specialized body contains escape.
+          // function OR if the specialized body contains unwind.
           // Mirrors the `isControlFunction: originalFunction.isControlFunction ||
           //   evaluatedBodyContainsEscape(specializedBody)` logic in TypeScript.
           parent_is_ctl := is_control_fn(func_id.as_str());
-          body_has_escape := evaluated_body_contains_escape(specialized_body);
-          if(parent_is_ctl || body_has_escape, {
+          body_has_unwind := evaluated_body_contains_unwind(specialized_body);
+          if(parent_is_ctl || body_has_unwind, {
             mark_as_control_fn((&(specialized_func_id)).clone());
           });
           // Store in cache
@@ -1069,7 +1069,7 @@ create_specialized_function_inline :: (
 /// Inline-evaluate a control function body to produce a specialized version
 /// with the forall type parameter bound to the concrete call-site type.
 ///
-/// Called for `isControlFunction` functions (effect handlers that use `escape`)
+/// Called for `isControlFunction` functions (effect handlers that use `unwind`)
 /// when they have forall parameters. This is separate from normal specialization
 /// because the concrete type comes from the CALL SITE's enclosing function return
 /// type (not from the arguments).
@@ -1299,8 +1299,8 @@ evaluate_ctl_function_body_inline :: (
   // Mirrors: funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`
   // -------------------------------------------------------------------------
   ctl_parent_is_ctl := is_control_fn(orig_func_id.as_str());
-  ctl_body_has_escape := evaluated_body_contains_escape(ctl_body);
-  if(ctl_parent_is_ctl || ctl_body_has_escape, {
+  ctl_body_has_unwind := evaluated_body_contains_unwind(ctl_body);
+  if(ctl_parent_is_ctl || ctl_body_has_unwind, {
     mark_as_control_fn((&(ctl_func_id)).clone());
   });
   // Rebuild captures (same as original + forall type bindings).

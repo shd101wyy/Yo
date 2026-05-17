@@ -971,45 +971,45 @@ test("handle_for: wrong arity (1 arg) returns None", {
     .Some(_) => assert(false, "expected None for wrong-arity for")
   );
 });
-// Phase 5l: escape-as-return codegen tests, plus standalone break/continue ----
-test("generate_expr: escape() with no args emits bare return", {
-  // escape() — no arguments → should emit `return;`
+// Phase 5l: unwind-as-return codegen tests, plus standalone break/continue ----
+test("generate_expr: unwind() with no args emits bare return", {
+  // unwind() — no arguments → should emit `return;`
   a := ArrayList(AstExpr).new();
-  esc_e := make_fncall_expr("escape", a);
+  esc_e := make_fncall_expr("unwind", a);
   ctx := run_gen_with_ctx(esc_e);
   code := ctx.emitter.code;
-  assert(code.contains(String.from("return;")), "bare return(emitted for escape())");
+  assert(code.contains(String.from("return;")), "bare return(emitted for unwind())");
 });
-test("generate_expr: escape(unit)(emits return(statement))", {
-  // escape(()) — unit argument maps to "0" in the proto-codegen, so escape(())
+test("generate_expr: unwind(unit)(emits return(statement))", {
+  // unwind(()) — unit argument maps to "0" in the proto-codegen, so unwind(())
   // emits `return 0;` (same as return(()) — unit return value maps to 0).
   unit_args := ArrayList(AstExpr).new();
   unit_e := make_fncall_expr("tuple", unit_args);
   a := ArrayList(AstExpr).new();
   a.push(unit_e);
-  esc_e := make_fncall_expr("escape", a);
+  esc_e := make_fncall_expr("unwind", a);
   ctx := run_gen_with_ctx(esc_e);
   code := ctx.emitter.code;
   // Unit return: `return 0;` is emitted (proto-codegen maps unit to 0)
-  assert(code.contains(String.from("return 0;")), "return 0 emitted for escape(())");
+  assert(code.contains(String.from("return 0;")), "return 0 emitted for unwind(())");
 });
-test("generate_expr: escape(expr)(emits return(with value))", {
-  // escape(42) -> should emit `return 42;`
+test("generate_expr: unwind(expr)(emits return(with value))", {
+  // unwind(42) -> should emit `return 42;`
   a := ArrayList(AstExpr).new();
   a.push(make_atom_expr(TokenKind.Integer, "42"));
-  esc_e := make_fncall_expr("escape", a);
+  esc_e := make_fncall_expr("unwind", a);
   ctx := run_gen_with_ctx(esc_e);
   code := ctx.emitter.code;
-  assert(code.contains(String.from("return 42;")), "return with value emitted for escape(42)");
+  assert(code.contains(String.from("return 42;")), "return with value emitted for unwind(42)");
 });
-test("generate_expr: escape(ident)(emits return(with identifier))", {
-  // escape(result) -> should emit `return result;`
+test("generate_expr: unwind(ident)(emits return(with identifier))", {
+  // unwind(result) -> should emit `return result;`
   a := ArrayList(AstExpr).new();
   a.push(make_atom_expr(TokenKind.Identifier, "result"));
-  esc_e := make_fncall_expr("escape", a);
+  esc_e := make_fncall_expr("unwind", a);
   ctx := run_gen_with_ctx(esc_e);
   code := ctx.emitter.code;
-  assert(code.contains(String.from("return result;")), "return with ident emitted for escape(result)");
+  assert(code.contains(String.from("return result;")), "return with ident emitted for unwind(result)");
 });
 test("generate_expr: break atom is emitted as identifier", {
   // Standalone `break` atom → generate_expr returns "break" as the expression code.
@@ -1575,7 +1575,7 @@ test("validation: function pointer parameter call is not treated as Index", {
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -1597,7 +1597,7 @@ test("validation: Impl Fn parameter callbacks lower through carrier", {
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -1621,7 +1621,7 @@ test("validation: Dyn Fn parameter callbacks lower through carrier", {
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -1643,7 +1643,7 @@ test("validation: typeof anonymous struct methods inline at call site", {
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );

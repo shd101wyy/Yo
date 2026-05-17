@@ -187,8 +187,8 @@ those shadowing-shaped bindings.
 
 - Write `func(arg1, arg2)`, not `func arg1, arg2`.
 - Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
-- Control-flow keywords follow the same rule: `return(value)`, `return()`, `escape(value)`, `escape()`.
-- In `given(exn) := Exception(throw: ((err) -> { ... }))` handlers, add `escape(...)` / `escape()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves.
+- Control-flow keywords follow the same rule: `return(value)`, `return()`, `unwind(value)`, `unwind()`.
+- In `given(exn) := Exception(throw: ((err) -> { ... }))` handlers, add `unwind(...)` / `unwind()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves.
 - Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`, `~(bits)`.
 - Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
 - Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
@@ -241,7 +241,7 @@ Newlines around operators can also be semantically significant because they disa
 // Valid because newline after `:` confirms the RHS:
 raise :
   (msg) -> {
-    escape(());
+    unwind(());
   }
 
 // Formatter style: indent the RHS one level under the line-ending operator:
@@ -252,7 +252,7 @@ raise :
 
 // Also valid: explicit grouping on the RHS.
 raise : ((msg) -> {
-  escape(());
+  unwind(());
 })
 ```
 
@@ -478,7 +478,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - `unit` is a type not value, `()` is the unit value.
 - There is no `loop` function. Use `while(true, body)` for a runtime infinite loop.
 - **`while(cond, body)` is always a runtime loop**, regardless of whether `cond` is compile-time known.
-- **`while(comptime(cond), body)`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while(comptime(true), ...)` with no `break`/`return`/`escape`).
+- **`while(comptime(cond), body)`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while(comptime(true), ...)` with no `break`/`return`/`unwind`).
 - If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
@@ -506,7 +506,7 @@ In Yo, function calls must always use immediate parentheses:
 - `func (a, b)` — invalid whitespace before `(`
 - `func a, b, c` — invalid paren-less call
 - Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`
-- Control flow follows the same rule: `return(value)`, `return()`, `escape(value)`, `escape()`
+- Control flow follows the same rule: `return(value)`, `return()`, `unwind(value)`, `unwind()`
 
 Always use `func(a, b)` with no space. Never `func (a, b)` or `func a, b`.
 
@@ -694,7 +694,7 @@ define :: (fn(ty : TypeValue) -> unit)(...)  // CORRECT, use `ty`
 Variable :: object(name : String, ty : TypeValue);
 ```
 
-Other reserved words to avoid as identifiers: `fn`, `type`, `trait`, `impl`, `enum`, `struct`, `object`, `newtype`, `match`, `cond`, `if`, `while`, `for`, `return`, `escape`, `recur`, `export`, `import`, `using`, `given`, `forall`, `where`.
+Other reserved words to avoid as identifiers: `fn`, `type`, `trait`, `impl`, `enum`, `struct`, `object`, `newtype`, `match`, `cond`, `if`, `while`, `for`, `return`, `unwind`, `recur`, `export`, `import`, `using`, `given`, `forall`, `where`.
 
 ## `___` (discard) cannot be used twice in the same scope
 

@@ -2383,9 +2383,9 @@ For more examples, see [impl.test.yo](../tests/impl.test.yo).
 Yo supports **algebraic effects** — a mechanism for implicit parameter passing and delimited continuations. Effects are built on two features:
 
 1. **Implicit Parameters (`using` / `given`)**: Functions can declare implicit parameters with `using(name : Type)`. At call sites, the compiler resolves them automatically from `given` bindings in scope.
-2. **Effect Handlers (`return` / `escape`)**: When an effect handler uses `return(value)` or `return()`, it resumes the captured continuation. When it uses `escape(value)` or `escape()`, it discards the continuation and returns from the enclosing function.
+2. **Effect Handlers (`return` / `unwind`)**: When an effect handler uses `return(value)` or `return()`, it resumes the captured continuation. When it uses `unwind(value)` or `unwind()`, it discards the continuation and returns from the enclosing function.
 
-Effects compose with `async`/`await`: effect handlers inside `io.async` tasks work correctly. If `escape` is called inside an async task, the Future is marked as escaped and awaiting it causes a panic.
+Effects compose with `async`/`await`: effect handlers inside `io.async` tasks work correctly. If `unwind` is called inside an async task, the Future is marked as escaped and awaiting it causes a panic.
 
 See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive documentation.
 
@@ -2458,7 +2458,7 @@ match(downcast(err, MathError),
 
 ### Exception (Non-Resumable)
 
-`Exception` is an algebraic effect for non-resumable exception handling. When the handler calls `escape`, the continuation is discarded and control returns to the enclosing function:
+`Exception` is an algebraic effect for non-resumable exception handling. When the handler calls `unwind`, the continuation is discarded and control returns to the enclosing function:
 
 ```rust
 open(import("std/error"));
@@ -2474,13 +2474,13 @@ safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
 given(exn) := Exception(
   throw : ((err) -> {
     println(`Error: ${err}`);  // prints "Error: Division by zero"
-    escape();  // discard continuation, return from enclosing function
+    unwind();  // discard continuation, return from enclosing function
   })
 );
 
 result := safe_divide(6, 3);        // result = 2
-safe_divide(10, 0, using(exn));     // triggers handler, escape discards continuation
-// code after escape is never reached
+safe_divide(10, 0, using(exn));     // triggers handler, unwind discards continuation
+// code after unwind is never reached
 ```
 
 ### ResumableException
@@ -2540,7 +2540,7 @@ Key properties:
 - `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or spawned
 - `io.await(future)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future
 - `io.spawn(future)` starts a cold future without waiting, returns `JoinHandle(T)`
-- `handle.await(using(io))` waits for a spawned task, returns `Option(T)` — `.None` on escape (abort)
+- `handle.await(using(io))` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort)
 - All async code runs on the **same thread** (no thread spawning, no data races)
 
 See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.

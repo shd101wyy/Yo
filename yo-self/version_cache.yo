@@ -131,7 +131,7 @@ _json_extract_version_keys :: (fn(json : String) -> ArrayList(String))({
       pos := scan_start;
       depth := i32(1); // already inside the opening '{'
       in_string := false;
-      escape_next := false;
+      unwind_next := false;
       while(runtime((pos < json_len) && (depth > i32(0))), {
         byte_opt := bytes.get(pos);
         pos = (pos + usize(1)); // advance BEFORE dispatch
@@ -141,14 +141,14 @@ _json_extract_version_keys :: (fn(json : String) -> ArrayList(String))({
             depth = i32(0);
           },
           .Some(b) => {
-            if(escape_next, {
-              escape_next = false;
+            if(unwind_next, {
+              unwind_next = false;
             }, {
               cond(
                 // ── Inside a string value (depth > 1) ──────────────────
                 in_string => cond(
                   (b == u8(92)) => {
-                    escape_next = true;
+                    unwind_next = true;
                   },
                   // '\'
                   (b == u8(34)) => {

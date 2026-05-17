@@ -66,7 +66,7 @@ open(import("std/fmt"));
   BF_ALIGNOF,
   BF_TYPEID,
   BF_RUNTIME,
-  BF_ESCAPE,
+  BF_UNWIND,
   BF_RECUR,
   BF_DOT,
   BF_COMPTIME_ASSERT,
@@ -206,7 +206,7 @@ open(import("std/fmt"));
 { evaluate_match } :: import("./match.yo");
 { evaluate_property_access } :: import("./property_access.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
-{ evaluate_escape } :: import("./escape.yo");
+{ evaluate_unwind } :: import("./unwind.yo");
 { evaluate_import } :: import("./import.yo");
 { evaluate_open } :: import("./open.yo");
 { evaluate_subtype_of } :: import("./subtype_of.yo");
@@ -614,8 +614,8 @@ _evaluate_expression :: (
             ast_expr_is_fn_call_of(expr, BK_OP_OR,.None)
         ) =>
           evaluate_and_or(expr, env, ctx, using(exn)),
-        ast_expr_is_fn_call_of(expr, BF_ESCAPE,.None) =>
-          evaluate_escape(expr, env, ctx, using(exn)),
+        ast_expr_is_fn_call_of(expr, BF_UNWIND,.None) =>
+          evaluate_unwind(expr, env, ctx, using(exn)),
         ast_expr_is_fn_call_of(expr, BF_CONSUME,.None) =>
           evaluate_consume(expr, env, ctx, using(exn)),
         ast_expr_is_fn_call_of(expr, BF_DROP,.None) =>

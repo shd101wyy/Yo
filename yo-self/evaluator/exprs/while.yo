@@ -52,7 +52,7 @@ MAX_COMPTIME_LOOP_ITERATIONS :: usize(10000);
 // ---------------------------------------------------------------------------
 // Helper: _body_has_any_terminator_guaranteed / _body_has_any_terminator_possible
 // ---------------------------------------------------------------------------
-/// True when the body is GUARANTEED to terminate via break/return/escape
+/// True when the body is GUARANTEED to terminate via break/return/unwind
 /// control-flow flags (i.e. every execution path terminates).
 ///
 /// Mirrors the `guaranteed` field of `bodyHasAnyTerminator` in `while.ts`.
@@ -64,7 +64,7 @@ _body_has_any_terminator_guaranteed :: (
   has_control_flow(body_info_cf,.Break) ||
     (
       has_control_flow(body_info_cf,.Return) ||
-        has_control_flow(body_info_cf,.Escape)
+        has_control_flow(body_info_cf,.Unwind)
     )
 );
 /// True when the body MIGHT terminate (either guaranteed or the AST contains
@@ -100,9 +100,9 @@ _throw_max_iterations_error :: (
   limit := MAX_COMPTIME_LOOP_ITERATIONS;
   err_msg := cond(
     possible =>
-      `Compile-time while loop exceeded the maximum iteration count (${limit.to_string()}). The loop body contains a conditional \`break\`, \`return\`, or \`escape\`, but the loop did not terminate within the limit.\nIf this is an infinite runtime loop, use \`while true, { ... }\` instead.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`,
+      `Compile-time while loop exceeded the maximum iteration count (${limit.to_string()}). The loop body contains a conditional \`break\`, \`return\`, or \`unwind\`, but the loop did not terminate within the limit.\nIf this is an infinite runtime loop, use \`while true, { ... }\` instead.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`,
     true =>
-      `Infinite compile-time while loop detected. The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`escape\` to terminate it.\nIf you need an infinite runtime loop, use \`while true, { ... }\` without the comptime modifier.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`
+      `Infinite compile-time while loop detected. The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`unwind\` to terminate it.\nIf you need an infinite runtime loop, use \`while true, { ... }\` without the comptime modifier.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`
   );
   exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, false,.None)));
   make_err_expr()
@@ -324,18 +324,18 @@ evaluate_while :: (
   );
   // Handle control flow produced by the body.
   if(has_any_control_flow(body_info.control_flow), {
-    // --- return / escape ---
-    if(has_control_flow(body_info.control_flow,.Return) || has_control_flow(body_info.control_flow,.Escape), {
+    // --- return / unwind ---
+    if(has_control_flow(body_info.control_flow,.Return) || has_control_flow(body_info.control_flow,.Unwind), {
       eff_cond_is_true_re := match(
         effective_condition_value,
         .None => false,
         .Some(v) => match(v,.BoolVal(b) => b, _ => false)
       );
       if(eff_cond_is_true_re, {
-        // Condition is compile-time true: propagate return/escape, clear break/continue.
+        // Condition is compile-time true: propagate return/unwind, clear break/continue.
         cf_ret := has_control_flow(body_info.control_flow,.Return);
-        cf_esc := has_control_flow(body_info.control_flow,.Escape);
-        prop_cf := ControlFlowFlags(return_flag : cf_ret, escape_flag : cf_esc, break_flag : false, continue_flag : false);
+        cf_esc := has_control_flow(body_info.control_flow,.Unwind);
+        prop_cf := ControlFlowFlags(return_flag : cf_ret, unwind_flag : cf_esc, break_flag : false, continue_flag : false);
         out_info := new_expr_info(body_info.env, body_info.ty);
         out_info.value = body_info.value;
         out_info.path_collection = body_info.path_collection;
@@ -415,7 +415,7 @@ evaluate_while :: (
   // Only applies when the condition is a LITERAL `true` atom (not an expression
   // like `i < 10` that happens to evaluate to true on the first iteration).
   // A literal `while true` will never have its condition change, so we check
-  // whether the body can terminate via break/return/escape.
+  // whether the body can terminate via break/return/unwind.
   //
   // We walk the body AST instead of checking `control_flow` flags because
   // control_flow only reflects *guaranteed* control flow. A `break` inside

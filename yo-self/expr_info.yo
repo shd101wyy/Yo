@@ -8,13 +8,13 @@
 //! * `PathCollection = Path[]` → `PathCollection :: ArrayList(ArrayList(String))` type alias.
 //!   This replaces the `PathCollection :: ArrayList(AstExpr)` stub in `evaluator/context.yo`.
 //!
-//! * `ControlFlowFlags { return?, escape?, break?, continue? }` →
-//!   `ControlFlowFlags :: struct(return_flag, escape_flag, break_flag, continue_flag : bool)`.
+//! * `ControlFlowFlags { return?, unwind?, break?, continue? }` →
+//!   `ControlFlowFlags :: struct(return_flag, unwind_flag, break_flag, continue_flag : bool)`.
 //!   Using `bool` fields (not `Option(bool)`) because `false` and TypeScript `undefined`
 //!   are semantically equivalent for flag fields.
 //!
 //! * `ControlFlowKind` enum replaces the TypeScript string literal union
-//!   `"return" | "escape" | "break" | "continue"` for type-safe function parameterisation.
+//!   `"return" | "unwind" | "break" | "continue"` for type-safe function parameterisation.
 //!
 //! * `ComptimeRef` discriminated union → Yo enum carrying the inner `ArrayList(EvalValue)`
 //!   directly (not the full EvalValue wrapper), preserving the type invariant and
@@ -41,7 +41,7 @@ open(import("std/fmt"));
   BK_COND,
   BK_MATCH,
   BK_RETURN,
-  BF_ESCAPE,
+  BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
 { Environment, Variable, Frame } :: import("./env.yo");
@@ -122,22 +122,22 @@ path_collection_conflicts_with_path_collection :: (
 // ControlFlowKind
 // ---------------------------------------------------------------------------
 /// Discriminator for control-flow flag operations.
-/// Replaces the TypeScript string literal union `"return" | "escape" | "break" | "continue"`.
-ControlFlowKind :: enum(Return, Escape, Break, Continue);
+/// Replaces the TypeScript string literal union `"return" | "unwind" | "break" | "continue"`.
+ControlFlowKind :: enum(Return, Unwind, Break, Continue);
 derive(ControlFlowKind, Clone, Eq(ControlFlowKind), ToString);
 // ---------------------------------------------------------------------------
 // ControlFlowFlags
 // ---------------------------------------------------------------------------
 /// Whether an expression carries control flow.
 /// Multiple flags can be simultaneously true (e.g., a cond where some branches
-/// return and others escape).
+/// return and others unwind).
 ///
 /// Mirrors `ControlFlowFlags` in `src/expr.ts`.
 /// All fields use `bool` rather than `Option(bool)` because `false` and
 /// TypeScript's `undefined` are semantically equivalent for flag fields.
 ControlFlowFlags :: struct(
   return_flag : bool,
-  escape_flag : bool,
+  unwind_flag : bool,
   break_flag : bool,
   continue_flag : bool
 );
@@ -158,7 +158,7 @@ control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)({
     .Return => {
       r = true;
     },
-    .Escape => {
+    .Unwind => {
       e = true;
     },
     .Break => {
@@ -168,7 +168,7 @@ control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)({
       c = true;
     }
   );
-  ControlFlowFlags(return_flag : r, escape_flag : e, break_flag : b, continue_flag : c)
+  ControlFlowFlags(return_flag : r, unwind_flag : e, break_flag : b, continue_flag : c)
 });
 /// True if `cf` has the given flag set.
 ///
@@ -187,7 +187,7 @@ has_control_flow :: (fn(cf : Option(ControlFlowFlags), kind : ControlFlowKind) -
   match(
     kind,
     .Return => f.return_flag,
-    .Escape => f.escape_flag,
+    .Unwind => f.unwind_flag,
     .Break => f.break_flag,
     .Continue => f.continue_flag
   )
@@ -203,7 +203,7 @@ has_any_control_flow :: (fn(cf : Option(ControlFlowFlags)) -> bool)({
     },
     .Some(x) => x
   );
-  f.return_flag || (f.escape_flag || (f.break_flag || f.continue_flag))
+  f.return_flag || (f.unwind_flag || (f.break_flag || f.continue_flag))
 });
 /// Union multiple ControlFlowFlags into one (OR of all flags).
 ///
@@ -219,12 +219,12 @@ merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFl
     cf := match(
       flows.get(i),
       .Some(f) => f,
-      .None => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false)
+      .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
     );
     if(cf.return_flag, {
       r = true;
     });
-    if(cf.escape_flag, {
+    if(cf.unwind_flag, {
       e = true;
     });
     if(cf.break_flag, {
@@ -235,7 +235,7 @@ merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFl
     });
     i = (i + usize(1));
   });
-  ControlFlowFlags(return_flag : r, escape_flag : e, break_flag : b, continue_flag : c)
+  ControlFlowFlags(return_flag : r, unwind_flag : e, break_flag : b, continue_flag : c)
 });
 /// Format ControlFlowFlags as a `+`-joined string for error messages.
 ///
@@ -245,8 +245,8 @@ control_flow_to_string :: (fn(cf : ControlFlowFlags) -> String)({
   if(cf.return_flag, {
     parts.push(String.from("return"));
   });
-  if(cf.escape_flag, {
-    parts.push(String.from("escape"));
+  if(cf.unwind_flag, {
+    parts.push(String.from("unwind"));
   });
   if(cf.break_flag, {
     parts.push(String.from("break"));
@@ -330,7 +330,7 @@ ExprInfo :: object(
   runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)),
   /// Runtime destructuring bindings for `{ x, y } := point`.
   runtime_destructurings : Option(ArrayList(RuntimeDestructuring)),
-  /// Control-flow flags (return, escape, break, continue).
+  /// Control-flow flags (return, unwind, break, continue).
   control_flow : Option(ControlFlowFlags),
   /// Trait values for `dyn()` dynamic dispatch (used by codegen vtable emit).
   dyn_call_trait_values : Option(ArrayList(EvalValue)),
@@ -347,7 +347,7 @@ ExprInfo :: object(
   /// `___drop` call expressions for variables needing cleanup at scope exit.
   deferred_drop_expressions : Option(ArrayList(AstExpr)),
   /// Drop expressions for RC variables consumed by the return value
-  /// (needed when `escape` propagates through the function).
+  /// (needed when `unwind` propagates through the function).
   consumed_variable_drop_expressions : Option(ArrayList(AstExpr)),
   /// Optional runtime stack size expression for `async` spawns.
   async_stack_size : Option(AstExpr),

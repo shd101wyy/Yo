@@ -5,7 +5,7 @@
 Yo supports **algebraic effects** — a mechanism for implicit parameter passing and one-shot delimited continuations. The system is built on two features:
 
 1. **Implicit Parameters (`using` / `given`)** — contextual parameter passing, resolved statically and passed at runtime
-2. **Effect Handlers (`return` / `escape`)** — one-shot delimited continuations for control flow effects
+2. **Effect Handlers (`return` / `unwind`)** — one-shot delimited continuations for control flow effects
 
 The code generation strategy is **evidence passing** — effect handler function pointers are passed as extra C parameters, following the approach described in [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf). All effect types are handled this way, including forall effects (passed as `void*` and cast to typed fn ptr at each call site).
 
@@ -14,11 +14,11 @@ The code generation strategy is **evidence passing** — effect handler function
 | Principle                  | Decision                          | Rationale                                                                           |
 | -------------------------- | --------------------------------- | ----------------------------------------------------------------------------------- |
 | Explicit over implicit     | **Use `given`**                   | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent |
-| Evidence passing           | **Always**                        | Fn ptr params eliminate SM overhead; Koka-style flag propagation for escape         |
+| Evidence passing           | **Always**                        | Fn ptr params eliminate SM overhead; Koka-style flag propagation for unwind         |
 | Forall effects             | **void\* cast**                   | `forall` fn ptrs passed as `void*` and cast to typed fn ptr at each call site       |
 | One-shot continuations     | **One-shot**                      | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear  |
 | Static dispatch            | **Impl (static)**                 | Handler is lexically scoped, compiler knows types, zero overhead                    |
-| `return`/`escape` keywords | **One-shot (enforced by syntax)** | `return` and `escape` must be the last expression — can only appear once            |
+| `return`/`unwind` keywords | **One-shot (enforced by syntax)** | `return` and `unwind` must be the last expression — can only appear once            |
 
 ---
 
@@ -89,7 +89,7 @@ See `tests/fn.test.yo` ("Test contextual parameters (using/given)") for examples
 
 ---
 
-## Effect Handlers (`return` + `escape`)
+## Effect Handlers (`return` + `unwind`)
 
 ### Syntax
 
@@ -105,12 +105,12 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
   )
 );
 
-// Handle the effect — without resume (discarding continuation via `escape`)
+// Handle the effect — without resume (discarding continuation via `unwind`)
 raise_const :: (fn() -> i64)({
   (given(raise) : Raise) = ((msg, msg2) -> {
     println(msg);
     println(msg2);
-    escape(i64(42)); // escape returns from enclosing function with this value
+    unwind(i64(42)); // unwind returns from enclosing function with this value
   });
   (i64(8) + i64(safe_divide(1, 0))) + i64(10)
 });
@@ -130,18 +130,18 @@ raise_resume :: (fn() -> i64)({
 
 ### Semantics
 
-- An effect operation type is a regular `fn` type whose handler body uses `escape` or `return` to control the continuation (the compiler detects this automatically).
+- An effect operation type is a regular `fn` type whose handler body uses `unwind` or `return` to control the continuation (the compiler detects this automatically).
 - When an effect operation is invoked, the handler function is called directly via a function pointer parameter.
 - The handler body receives the effect's arguments (e.g., `msg`, `msg2`).
 - Inside the handler body:
   - **`return(value)`** — resumes the captured continuation with `value` as the result of the effect call.
-  - **`escape(expr)`** — discards the continuation entirely and returns `expr` from the enclosing function that installed the handler.
+  - **`unwind(expr)`** — discards the continuation entirely and returns `expr` from the enclosing function that installed the handler.
 - Two handler forms:
-  - **Anonymous function handler** (no-resume): `(given(raise) : Raise) = ((msg, msg2) -> { escape(expr); });`
+  - **Anonymous function handler** (no-resume): `(given(raise) : Raise) = ((msg, msg2) -> { unwind(expr); });`
   - **fn-typed handler** (with resume): `(given(raise) : Raise) = (fn(msg : String, msg2 : String) -> i32)({ return(value); });`
 - Continuations are **one-shot** — `return` can be called at most once (syntactically enforced as last expression; runtime double-resume check is planned but not yet implemented).
 - Effect operations compose with `using` — the effect is an implicit parameter resolved via `given`.
-- **Escape in async context**: When `escape` is called inside an `io.async` task, the Future is marked as **aborted** (state = -2). Attempting to `io.await` or `io.spawn` on an aborted Future causes a **panic** at runtime. See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md#aborted-futures) for details.
+- **Escape in async context**: When `unwind` is called inside an `io.async` task, the Future is marked as **aborted** (state = -2). Attempting to `io.await` or `io.spawn` on an aborted Future causes a **panic** at runtime. See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md#aborted-futures) for details.
 
 ### Effect Coloring / Propagation
 
@@ -166,13 +166,13 @@ wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 );
 ```
 
-The `using` parameter with a function type whose handler uses `escape` is the **sole marker** for whether a function may suspend due to an effect:
+The `using` parameter with a function type whose handler uses `unwind` is the **sole marker** for whether a function may suspend due to an effect:
 
 | Signature                                           | Role                                   | Code generation strategy         | Callers need transformation?            |
 | --------------------------------------------------- | -------------------------------------- | -------------------------------- | --------------------------------------- |
 | `fn(..., using(raise : Raise)) -> T`                | **Propagates** the effect              | Evidence passing (fn ptr params) | Only if they also propagate via `using` |
 | `fn() -> T` (handles effect internally via `given`) | **Handles** the effect                 | Evidence passing at handler site | **No** — callers see a plain function   |
-| `fn(using(f : (fn() -> i32))) -> T`                 | Implicit param (plain `fn`, no escape) | No — plain parameter             | No                                      |
+| `fn(using(f : (fn() -> i32))) -> T`                 | Implicit param (plain `fn`, no unwind) | No — plain parameter             | No                                      |
 
 The handler is the boundary. With evidence passing, intermediate functions simply forward the fn ptr params — no state machine transformation needed.
 
@@ -182,7 +182,7 @@ With evidence passing, effect handler functions are passed as **extra C paramete
 
 1. **Effect invocation** (calling `raise(...)`) = fn ptr call through the evidence parameter
 2. **`return(value)`** = handler function returns normally; caller uses the value
-3. **`escape(expr)`** = handler function sets `__yo_effect_escaped = 1`, stores value in thread-local `__yo_effect_escape_value`, returns dummy; caller checks flag and propagates
+3. **`escape(expr)`** = handler function sets `__yo_effect_escaped = 1`, stores value in thread-local `__yo_unwind_value`, returns dummy; caller checks flag and propagates
 
 Intermediate functions in the call chain simply forward the fn ptr parameters:
 
@@ -400,7 +400,7 @@ Effect handler functions are compiled as **standalone C functions** — they are
 // WRONG — handler references outer variable `threshold`, compile error:
 threshold := i32(10);
 (given(raise) : Raise) = ((msg) -> {
-  escape((threshold * i32(2)));  // ERROR: threshold is not in scope
+  unwind((threshold * i32(2)));  // ERROR: threshold is not in scope
 });
 
 // CORRECT — pass state as explicit arguments via the effect function itself:
@@ -410,7 +410,7 @@ check :: (fn(x : i32, threshold : i32, using(raise : Raise)) -> i32)(
     true => x
   )
 );
-(given(raise) : Raise) = ((msg) -> { escape(i32(-1)); });
+(given(raise) : Raise) = ((msg) -> { unwind(i32(-1)); });
 result := check(i32(15), i32(10));
 ```
 
@@ -422,7 +422,7 @@ See `tests/algebraic_effects.test.yo` (57 tests) for comprehensive sync examples
 
 | Category                                       | Tests |
 | ---------------------------------------------- | ----- |
-| Basic fn-type effects (escape/resume)          | 4     |
+| Basic fn-type effects (unwind/resume)          | 4     |
 | Direct handler calls (no `using`)              | 2     |
 | Nested handlers                                | 2     |
 | While loops + effects                          | 6     |
@@ -434,14 +434,14 @@ See `tests/algebraic_effects.test.yo` (57 tests) for comprehensive sync examples
 | Multiple effect row spreads                    | 2     |
 | Closures with effects                          | 2     |
 | Effect row polymorphism                        | 2     |
-| Mixed escape+return handler                    | 1     |
+| Mixed unwind+return handler                    | 1     |
 | Transitive SM (break/continue/return)          | 5     |
 | Struct-record forall handlers                  | 5     |
 | Option match + effects                         | 3     |
-| Struct-record non-unit escape value            | 1     |
+| Struct-record non-unit unwind value            | 1     |
 | Multi-member struct effect records             | 1     |
 | Multiple struct effect records in scope        | 1     |
-| Conditional resume/escape                      | 1     |
+| Conditional resume/unwind                      | 1     |
 | Recursive functions + effects                  | 2     |
 | Effect with enum return type                   | 1     |
 | Struct-record effect polymorphism              | 1     |
@@ -458,7 +458,7 @@ See `tests/async_await.test.yo` (9 async+effects tests) for async integration:
 | Effect resume in async while loop              | 1     |
 | Effect resume in async while loop with break   | 1     |
 | Escape via injected effect aborts future       | 1     |
-| JoinHandle escape via spawn-injected effect    | 1     |
+| JoinHandle unwind via spawn-injected effect    | 1     |
 | Given handler inside async closure with yields | 1     |
 
 ---
@@ -470,7 +470,7 @@ See `tests/async_await.test.yo` (9 async+effects tests) for async integration:
 | Suspension point | `io.await(expr)`              | `effect_op(args)` (fn ptr call)           |
 | Who resumes      | Event loop (IO completion)    | Handler (calling `return`)                |
 | Code generation  | State machine (always)        | Evidence passing (always)                 |
-| Continuation     | Implicit (event loop manages) | Explicit (`return` / `escape` in handler) |
+| Continuation     | Implicit (event loop manages) | Explicit (`return` / `unwind` in handler) |
 | Thread model     | Single-threaded event loop    | Synchronous (same thread)                 |
 | Use cases        | IO concurrency                | Control flow abstraction, error handling  |
 
@@ -521,7 +521,7 @@ int32_t safe_divide(int32_t x, int32_t y, void* exn__throw) {
     __yo_effect_escaped = 0;
     int32_t result = ((int32_t(*)(AnyError*))exn__throw)(error_obj);
     if (__yo_effect_escaped) {
-      return 0;  // dummy — caller propagates escape
+      return 0;  // dummy — caller propagates unwind
     }
     return result;  // handler resumed with this value
   }
@@ -540,7 +540,7 @@ At each call site, the compiler resolves evidence arguments in this order:
 
 ### Escape handling
 
-When a handler calls `escape`:
+When a handler calls `unwind`:
 
 1. The handler function sets `__yo_effect_escaped = 1` and returns a dummy value
 2. The caller checks `if (__yo_effect_escaped)` after the fn ptr call
@@ -559,15 +559,15 @@ When a handler calls `return(value)`:
 
 This is the simplest path — no state machine, no yield/resume protocol. The handler is just a function call.
 
-### Mixed escape+return handlers
+### Mixed unwind+return handlers
 
-A handler may `return` in one branch and `escape` in another:
+A handler may `return` in one branch and `unwind` in another:
 
 ```rust
 given(raise_mod) := Raise(
   raise : (msg) -> cond(
     (msg == `recoverable`) => return(i32(0)), // resume with 0
-    true => escape(i32(-1))                   // escape with -1
+    true => unwind(i32(-1))                   // unwind with -1
   )
 );
 ```
@@ -617,12 +617,12 @@ int32_t safe_divide(int32_t x, int32_t y, void* throw) {
 
 **Additional behaviors:**
 
-- **Handler doesn't use the forall type** (e.g., `escape()`): the unspecialized function is generated and passed directly
+- **Handler doesn't use the forall type** (e.g., `unwind()`): the unspecialized function is generated and passed directly
 - **Transitive forwarding**: the `void*` evidence is forwarded as-is between callers and callees
 
 ### Escape value propagation
 
-Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `escape(expr)` is called inside a handler, the escape value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
+Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `unwind(expr)` is called inside a handler, the unwind value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
 
 ---
 
@@ -640,11 +640,11 @@ Each effect call site adds exactly three operations:
 
 **Total happy-path overhead: ~4-9 ns per effect call site.**
 
-The escape branch is never taken on the happy path, so the CPU branch predictor learns this quickly and the check amortizes to near-zero.
+The unwind branch is never taken on the happy path, so the CPU branch predictor learns this quickly and the check amortizes to near-zero.
 
 ### Per-Call-Site Overhead (Escape Path)
 
-When an escape occurs:
+When an unwind occurs:
 
 | Step                                              | Cost               |
 | ------------------------------------------------- | ------------------ |
@@ -673,7 +673,7 @@ Two thread-local variables are used globally:
 
 ```c
 static _Thread_local int __yo_effect_escaped = 0;                     // 4 bytes
-static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // 64 bytes
+static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // 64 bytes
 ```
 
 TLS access latency by platform:
@@ -703,11 +703,11 @@ No locks or atomic operations are needed — effects are single-threaded (within
 | Koka evidence vectors     | ~3-5 ns per call site        | ~10-30 ns             | Similar           | ✅ Yes     |
 | OCaml 5 fibers            | ~0 ns (native)               | ~50-200 ns            | Runtime overhead  | ✅ Yes     |
 
-¹ `setjmp` always pays its setup cost (~5-15 ns) at the handler installation point even when no escape ever occurs.
+¹ `setjmp` always pays its setup cost (~5-15 ns) at the handler installation point even when no unwind ever occurs.
 
 **Happy path** — Evidence passing wins: it pays ~4-9 ns only at actual effect call sites, with zero cost at handler installation. `setjmp` always pays ~5-15 ns at installation regardless of whether effects fire.
 
-**Escape path** — `longjmp` (~5-15 ns) is faster than evidence passing (~15-50 ns) for a single escape. The tradeoff: evidence passing supports async-safe composability and doesn't prevent compiler optimizations around the protected region, while `setjmp`/`longjmp` disables many optimizations.
+**Escape path** — `longjmp` (~5-15 ns) is faster than evidence passing (~15-50 ns) for a single unwind. The tradeoff: evidence passing supports async-safe composability and doesn't prevent compiler optimizations around the protected region, while `setjmp`/`longjmp` disables many optimizations.
 
 **Amortized** — When effects are called N times per `given` installation, evidence passing total cost is `N × 4-9 ns`, vs `setjmp` total is `5-15 ns + escape_count × 5-15 ns`. For N > ~2 effect calls with no escapes, evidence passing is cheaper overall.
 

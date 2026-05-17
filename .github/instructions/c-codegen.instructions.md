@@ -121,12 +121,12 @@ See `issues/sync-effect-inlining-inside-async-context.md` for the full design ra
 - The evaluator includes forall function effects in async closure capture structs (`isEffectParamInAsyncClosure` in `anonymous-function.ts`). They are stored as `void*` and cast at each call site.
 - Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both struct-record and forall function-type effects (`emitEffectInjectionForAwait` in `await.ts`).
 
-**Mixed escape+return handlers:**
+**Mixed unwind+return handlers:**
 
-- A handler may `return` in one branch and `escape` in another. Both paths work with evidence passing:
+- A handler may `return` in one branch and `unwind` in another. Both paths work with evidence passing:
   - Return path: handler function returns normally; caller uses the resume value
   - Escape path: handler sets `__yo_effect_escaped = 1` and returns a dummy; caller checks the flag and propagates
-- Non-unit `escape(value)` is supported — the escape value is stored in a thread-local and retrieved at the handler installation site.
+- Non-unit `unwind(value)` is supported — the unwind value is stored in a thread-local and retrieved at the handler installation site.
 
 ### Escape detection in sync_fut_t resume functions
 
@@ -147,26 +147,26 @@ void resume(void* ptr) {
 }
 ```
 
-**Event loop RC convention:** ALL futures (both sync_fut_t and full SM) self-decrement the event loop reference on BOTH completion AND escape. The synchronous await abort path (`await.ts`) does NOT decrement — this prevents double-free/UAF. The awaiter's pending deferred drops handle the ownership reference for locally-owned futures.
+**Event loop RC convention:** ALL futures (both sync_fut_t and full SM) self-decrement the event loop reference on BOTH completion AND unwind. The synchronous await abort path (`await.ts`) does NOT decrement — this prevents double-free/UAF. The awaiter's pending deferred drops handle the ownership reference for locally-owned futures.
 
 ### When SM is still needed
 
 The SM approach is still needed for **multi-yield resumable effects** where the handler body interleaves with the computation (e.g., deep handlers that resume multiple times from different yield points within the same function body). This is rare in practice; most effects are tail-resumptive.
 
-### Thread-local escape flag
+### Thread-local unwind flag
 
 Because effect handlers are called via function pointer (evidence passing), the codegen cannot statically detect whether the handler calls `escape()`. A thread-local flag `__yo_effect_escaped` is used for runtime detection:
 
 1. Before calling an effect handler via function pointer, the flag is reset to 0.
-2. If the handler calls `escape()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
-3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments and propagates the escape:
+2. If the handler calls `unwind()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
+3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments and propagates the unwind:
    - In async SM: aborts the Future (state = -2), spawns the continuation, self-decrements event loop RC, returns.
    - In sync_fut_t resume: sets state = -2 (aborted), self-decrements event loop RC, returns.
    - In sync context (evidence passing): drops locals, returns a dummy value. Each caller in the transitive chain checks the flag and propagates.
 
-The `__yo_effect_escaped` and `__yo_effect_escape_value` variables are declared via `emitDeclarationLine` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.
+The `__yo_effect_escaped` and `__yo_unwind_value` variables are declared via `emitDeclarationLine` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.
 
-Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (declaration + context flag), `exprs/generation.ts` (flag set in `generateEscape`), `other-fn-call.ts` (flag check + abort at call site), `async.ts` (escape check in sync_fut_t resume).
+Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (declaration + context flag), `exprs/generation.ts` (flag set in `generateEscape`), `other-fn-call.ts` (flag check + abort at call site), `async.ts` (unwind check in sync_fut_t resume).
 
 ### Function collection for evidence-bearing functions
 
@@ -178,11 +178,11 @@ Functions with evidence parameters (from `using(io: IO)` or algebraic effect bin
 
 3. **SomeType ARC function filter** — `___drop`/`___dup` for SomeType(Future) are skipped because SomeType has no C representation. But user-defined functions (e.g., `test_escape(task: Impl(Future(...)))`) with evidence params should NOT be skipped — their SomeType params are resolved at call sites.
 
-### Await escape value handling: handler installation vs propagation
+### Await unwind value handling: handler installation vs propagation
 
 When an `io.await` detects a Future abort (state == -2), the behavior depends on whether the current function is the **handler installation point** or a **propagation point**:
 
-- **Handler installation** — The function has a `given(raise) := ...` binding that locally installs the effect handler. When escaped, it clears `__yo_effect_escaped = 0`, extracts the escape value from `__yo_effect_escape_value` via `memcpy`, and returns it.
+- **Handler installation** — The function has a `given(raise) := ...` binding that locally installs the effect handler. When escaped, it clears `__yo_effect_escaped = 0`, extracts the escape value from `__yo_unwind_value` via `memcpy`, and returns it.
 
 - **Propagation** — The function receives the effect via evidence parameters (`using`). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the escape.
 
@@ -195,7 +195,7 @@ Handler functions marked `isModuleEffectMember = true` with SomeType return type
 - **Declaration** (`declarations.ts`): passes `undefined` for body → no body-type override → `getTypeString(SomeType)` → `void`
 - **Definition** (`generation.ts`): skips SomeType body override when `isModuleEffectMember` is true
 
-This consistency prevents type mismatches between forward declarations and definitions. The escape value is communicated through `__yo_effect_escape_value` (thread-local), not through the C return value.
+This consistency prevents type mismatches between forward declarations and definitions. The unwind value is communicated through `__yo_unwind_value` (thread-local), not through the C return value.
 
 The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actual C return type derived from the body, used by `generateEscape` to emit correct dummy return values when the SomeType-based return maps to `void` but the declaration uses a concrete type.
 

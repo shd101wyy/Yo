@@ -78,7 +78,7 @@ if(done, println("done"), println("pending"));
 - Always write `match(...)`, never bare `match ...`
 - `if(a, b)` and `if(a, b, c)` are macro forms over `cond`
 - Write `return(value)` or `return()`; `return value` is invalid.
-- Write `escape(value)` or `escape()`; `escape value` is invalid.
+- Write `unwind(value)` or `unwind()`; `unwind value` is invalid.
 - If a `match`/`cond` branch returns an enum variant and inference fails, qualify
   the variant with its enum type: `TypeValue.Unit` instead of `.Unit`.
 - Do not match enum payload literals directly, e.g. avoid `.Some(false)` and
@@ -724,17 +724,17 @@ if(!cond, { do_thing(); });
 if((!cond), { do_thing(); });
 ```
 
-### `escape` requires a nested-function context
+### `unwind` requires a nested-function context
 
-`escape(value)` exits the **enclosing function** — the nearest `fn(...)` that
+`unwind(value)` exits the **enclosing function** — the nearest `fn(...)` that
 wraps the current code. It requires that the code is inside a nested function
 (e.g., a closure or `given` handler lambda), NOT at the top level of a
 standalone function definition.
 
 ```rust
-// CORRECT — escape inside a given handler lambda (lambda has enclosing fn):
+// CORRECT — unwind inside a given handler lambda (lambda has enclosing fn):
 given(exn) := Exception(throw: ((err) -> {
-  escape(result); // exits the outer function that contains this given()
+  unwind(result); // exits the outer function that contains this given()
 }));
 do_something(using(exn));
 
@@ -742,27 +742,27 @@ do_something(using(exn));
 given(exn2) := Exception(throw: ((err) -> {
   eprintln(err.to_string());
   exit(int(1));
-  escape(); // required because exit() returns unit, not the handler ResumeType
+  unwind(); // required because exit() returns unit, not the handler ResumeType
 }));
 
-// CORRECT — escape inside a closure passed as argument:
+// CORRECT — unwind inside a closure passed as argument:
 result := match(opt, .Some(x) => x, .None => {
   // This is NOT a nested function — use return:
-  // WRONG: escape(default_val)  // ERROR: no enclosing fn
+  // WRONG: unwind(default_val)  // ERROR: no enclosing fn
   return(default_val); // CORRECT: return exits the enclosing fn directly
 });
 
-// WRONG — escape inside a match arm (not a nested fn):
+// WRONG — unwind inside a match arm (not a nested fn):
 match(opt,
-  .Some(x) => { escape(x); }  // ERROR: "can only be used inside a function that has an enclosing function"
+  .Some(x) => { unwind(x); }  // ERROR: "can only be used inside a function that has an enclosing function"
 );
 ```
 
-**Rule of thumb**: Use `escape` only inside lambdas passed to `given()` handlers.
+**Rule of thumb**: Use `unwind` only inside lambdas passed to `given()` handlers.
 In all other contexts (match arms, if blocks, begin blocks, top-level fn bodies),
 use `return` for early exit.
 
-`return` inside a lambda exits that lambda only; `escape` exits the OUTER function
+`return` inside a lambda exits that lambda only; `unwind` exits the OUTER function
 (the one that installed the `given` handler).
 
 ### Parameter reassignment

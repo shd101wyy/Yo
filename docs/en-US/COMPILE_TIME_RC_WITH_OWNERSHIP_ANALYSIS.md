@@ -387,7 +387,7 @@ The compiler now detects this traversal pattern and eliminates **all** RC operat
 1. A variable is initialized from a parameter (or field of a parameter) that does not own the RC value (`isOwningTheRcValue: false`)
 2. Inside a `while`-`match` loop, the variable is the match scrutinee
 3. In one match branch, the variable is reassigned from a field of the match binding (traversal step)
-4. The variable does not escape the loop scope (no references after the loop except the begin block return value)
+4. The variable does not unwind the loop scope (no references after the loop except the begin block return value)
 
 **What gets removed:**
 

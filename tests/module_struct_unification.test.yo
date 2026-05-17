@@ -15,7 +15,7 @@
 // .test.yo file via top-level `import` — no dedicated case needed here.
 open(import("std/string"));
 open(import("std/fmt"));
-test("Phase 4c: migrated struct effect record escape", {
+test("Phase 4c: migrated struct effect record unwind", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -29,11 +29,11 @@ test("Phase 4c: migrated struct effect record escape", {
     raise :
       (msg) -> {
         println(msg);
-        escape(());
+        unwind(());
       }
   );
   divide(10, 0);
-  assert(false, "should not reach here after escape");
+  assert(false, "should not reach here after unwind");
 });
 test("Phase 4c: migrated struct effect record resume", {
   Logger :: struct(
@@ -67,11 +67,11 @@ test("Baseline: struct(...) builds a usable effect record type", {
     raise :
       (msg) -> {
         println(msg);
-        escape(());
+        unwind(());
       }
   );
   divide(10, 0);
-  assert(false, "should not reach here after escape");
+  assert(false, "should not reach here after unwind");
 });
 test("Baseline: given/using round-trip with resume (struct)", {
   Logger :: struct(

@@ -77,17 +77,17 @@ try_populate_expr_info_table :: (
     module_path : String
   ) -> Option(ExprInfoTable)
 )({
-  // Local exception handler: on any throw from the evaluator, escape this
+  // Local exception handler: on any throw from the evaluator, unwind this
   // helper with `.None`. The handler is scoped to this function so the
   // outer compile / test pipeline keeps its own top-level handler intact.
   given(local_exn) := Exception(
     throw : (
-      (_err) -> escape(Option(ExprInfoTable).None)
+      (_err) -> unwind(Option(ExprInfoTable).None)
     )
   );
   // Build a fresh Environment + EvalContext for this compilation. std_path
   // is resolved from `YO_STD` (or `./std` fallback) so the modular import
-  // handler can find `std/...` modules. The local exception escape catches
+  // handler can find `std/...` modules. The local exception unwind catches
   // any evaluator coverage gap (e.g. unported HKT/RC features in prelude).
   env := Environment.new(module_path);
   ctx := eval_context_new(resolve_std_path(), module_path);
@@ -391,7 +391,7 @@ check_single_file :: (
   // Yo's `->` rule), so we can't print here — the caller logs the
   // file's pass/fail status from the bool return.
   given(local_exn) := Exception(
-    throw : ((_err) -> escape(false))
+    throw : ((_err) -> unwind(false))
   );
   println(`check: parsing ${input_path}`);
   src_bytes := io.await(read_file(Path.new((&(input_path)).clone())));
@@ -817,7 +817,7 @@ main :: (fn(using(io : IO)) -> unit)({
       (err) -> {
         eprintln(`yo-self: error: ${err.to_string()}`);
         exit(int(1));
-        escape();
+        unwind();
       }
     )
   );

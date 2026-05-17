@@ -172,7 +172,7 @@ This applies to all parameters and return types in comptime-only APIs:
 
 - Effects are matched by **type**, not by name. A `given(raise) : Raise` handler matches any `using(my_raise : Raise)` parameter regardless of the variable name — the match is on the `Raise` type.
 - `return(expr)` inside an effect handler **resumes** the continuation.
-- `escape(expr)` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
+- `unwind(expr)` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
 - Effect row variables (`forall(...(E))` with `using(...(E))`) allow functions to be polymorphic over their effects — they forward whatever effects the caller provides.
 - Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.
 - **Handler functions are standalone, not closures.** Effect handlers are compiled as standalone C functions and cannot reference variables from the enclosing scope. Pass state as explicit function arguments instead.
@@ -217,7 +217,7 @@ result := handle.await(using(io));            // → Option(T)
 - `io.spawn(task, using(io, effects...))` cold-starts the future, injects effect handlers, returns a `JoinHandle(T)`.
 - `handle.await(using(io))` polls the spawned future until completion or abort, returns `Option(T)`:
   - `.Some(result)` — task completed normally
-  - `.None` — task was aborted (effect handler called `escape`)
+  - `.None` — task was aborted (effect handler called `unwind`)
 - When used as fire-and-forget (`io.spawn(task)` without binding result), the JoinHandle is discarded with no RC overhead.
 - `JoinHandle(T)` is a non-owning view — it does not increment the future's reference count. The original task variable (`task1`, etc.) owns the future.
 

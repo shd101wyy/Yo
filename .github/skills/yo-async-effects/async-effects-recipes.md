@@ -82,7 +82,7 @@ export(main);
 ```
 
 - `io.spawn(...)` begins execution without waiting
-- `handle.await(using(io))` returns `Option(T)` because a spawned task can abort via `escape`
+- `handle.await(using(io))` returns `Option(T)` because a spawned task can abort via `unwind`
 
 ## Propagating and handling effects
 
@@ -111,7 +111,7 @@ resume_example :: (fn() -> i32)({
 escape_example :: (fn() -> i32)({
   (given(raise) : Raise) = (fn(msg : String) -> i32)({
     println(msg);
-    escape(i32(-1));
+    unwind(i32(-1));
   });
 
   safe_divide(i32(8), i32(0))
@@ -121,7 +121,7 @@ escape_example :: (fn() -> i32)({
 | Handler action  | Meaning                                      |
 | --------------- | -------------------------------------------- |
 | `return(value)` | Resume the continuation with `value`         |
-| `escape(expr)`  | Exit the function that installed the handler |
+| `unwind(expr)`  | Exit the function that installed the handler |
 
 ## Futures with multiple effects
 
@@ -179,14 +179,14 @@ process_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(uni
 ## Common pitfalls
 
 - `io.async(...)` does not run immediately
-- `escape` inside async aborts the future instead of completing it normally
+- `unwind` inside async aborts the future instead of completing it normally
 - `io.await(...)` on an aborted future can panic; `JoinHandle.await(...)` converts abort into `.None`
 - Handler functions cannot capture outer variables like closures; pass required state explicitly
 - **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion
 
 ## Exception (non-resumable)
 
-`Exception` is a built-in struct-record effect for non-resumable error handling. When the handler calls `escape`, the continuation is discarded:
+`Exception` is a built-in struct-record effect for non-resumable error handling. When the handler calls `unwind`, the continuation is discarded:
 
 ```rust
 open(import("std/error"));
@@ -207,7 +207,7 @@ main :: (fn() -> unit)({
   given(exn) := Exception(
     throw : ((err) -> {
       println(`Error: ${err}`);
-      escape();
+      unwind();
     })
   );
 
@@ -222,12 +222,12 @@ export(main);
 
 - `Exception` has a single field `throw : (fn(error : AnyError) -> T)`
 - `exn.throw(dyn(error))` calls the handler with a type-erased error
-- Handler uses `escape` to discard the continuation and exit the enclosing function
+- Handler uses `unwind` to discard the continuation and exit the enclosing function
 - Code after the escaped call is never reached
 
 ### Swallowing exceptions with a fallback value (return in Exception handler)
 
-When an exception is thrown inside an async operation (e.g., `cmd.status()` or `cmd.output()`), you can **swallow the error and resume with a fallback value** by using `return` in the handler (not `escape`). The `ResumeType` is the return type of the operation that would have thrown.
+When an exception is thrown inside an async operation (e.g., `cmd.status()` or `cmd.output()`), you can **swallow the error and resume with a fallback value** by using `return` in the handler (not `unwind`). The `ResumeType` is the return type of the operation that would have thrown.
 
 ```rust
 { Command, ExitStatus, Output } :: import("std/process/command");
@@ -247,9 +247,9 @@ out := io.await(cmd.output(using(io, out_exn)));
 if((!(out.status.success())), { return(); });  // handle failure
 ```
 
-Key: the `return` inside the handler resumes the _effect invocation site_ with the provided value. The calling code then sees the fallback as if the operation returned normally. Use `escape` only when the enclosing function returns `unit` (e.g., test bodies).
+Key: the `return` inside the handler resumes the _effect invocation site_ with the provided value. The calling code then sees the fallback as if the operation returned normally. Use `unwind` only when the enclosing function returns `unit` (e.g., test bodies).
 
-**`escape(T_value)` constraint**: `escape(T_value)` inside an `Exception` handler requires that the enclosing `io.async` closure's return type matches `T_value`. Due to forward type inference, the evaluator may not know the closure's return type at the point where `given` is declared. This causes a "Expected: unit" error when `escape(non_unit)` is used in a handler declared before the final return expression. Prefer `return(fallback_value)` (resume) when possible.
+**`unwind(T_value)` constraint**: `unwind(T_value)` inside an `Exception` handler requires that the enclosing `io.async` closure's return type matches `T_value`. Due to forward type inference, the evaluator may not know the closure's return type at the point where `given` is declared. This causes a "Expected: unit" error when `unwind(non_unit)` is used in a handler declared before the final return expression. Prefer `return(fallback_value)` (resume) when possible.
 
 `ResumableException(ResumeType)` is a struct-record effect for resumable error handling. The handler uses `return` to resume with a recovery value:
 
@@ -316,7 +316,7 @@ handle := io.spawn(task, using(io, exn));
 result := handle.await(using(io));
 match(result,
   .Some(value) => println(`got: ${value}`),
-  .None => println("task aborted via escape")
+  .None => println("task aborted via unwind")
 );
 ```
 

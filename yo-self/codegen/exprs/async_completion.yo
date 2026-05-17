@@ -89,7 +89,7 @@ emit_async_future_completion :: (fn(opts : AsyncCompletionOptions) -> unit)({
   opts.emitter.*.emit_line("");
   opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "return;"));
 });
-emit_async_future_escape :: (fn(opts : AsyncCompletionOptions) -> unit)({
+emit_async_future_unwind :: (fn(opts : AsyncCompletionOptions) -> unit)({
   match(
     opts.result_code,
     .None => (),
@@ -149,7 +149,7 @@ emit_async_future_escape :: (fn(opts : AsyncCompletionOptions) -> unit)({
 export(
   AsyncCompletionOptions,
   emit_async_future_completion,
-  emit_async_future_escape,
+  emit_async_future_unwind,
   format_indented_line,
   format_async_result_assign,
   format_async_debug_line

@@ -32,7 +32,7 @@ Use this skill when you need to:
 - `{ expr }` is a struct literal; `{ expr; }` is a begin block.
 - Yo has no operator precedence. Parenthesize every binary operation.
 - Use `func(arg)` with no space before `(` for every call; `func arg` and `func (arg)` are invalid.
-- Use `return(value)` / `return()` and `escape(value)` / `escape()`; bare control-flow arguments are invalid.
+- Use `return(value)` / `return()` and `unwind(value)` / `unwind()`; bare control-flow arguments are invalid.
 - Use `recur(...)` for self-recursion instead of the function name.
 - Use `forall(T : Type)` for generic type parameters, `comptime(x) : T` for compile-time parameters.
 - Use `where(T <: Trait)` to constrain type parameters.

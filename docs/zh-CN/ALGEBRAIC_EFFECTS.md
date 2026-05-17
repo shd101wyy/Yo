@@ -5,7 +5,7 @@
 Yo 支持**代数效应**——一种隐式参数传递和一次性 delimited continuation 的机制。该系统基于两个特性：
 
 1. **隐式参数（`using` / `given`）** —— 上下文参数传递，静态解析并在运行时传递
-2. **效应处理器（`return` / `escape`）** —— 用于控制流效应的一次性 delimited continuations
+2. **效应处理器（`return` / `unwind`）** —— 用于控制流效应的一次性 delimited continuations
 
 代码生成策略是**证据传递（evidence passing）**——效应处理器函数指针作为额外的 C 参数传递，遵循 [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf) 中描述的方法。所有效应类型都以此方式处理，包括 forall 效应（作为 `void*` 传递，并在每个调用点转换为带类型的函数指针）。
 
@@ -14,11 +14,11 @@ Yo 支持**代数效应**——一种隐式参数传递和一次性 delimited co
 | 原则                     | 决策                         | 理由                                                                     |
 | ------------------------ | ---------------------------- | ------------------------------------------------------------------------ |
 | 显式优于隐式             | **使用 `given`**             | 显式标记避免歧义，更好的错误消息，遵循 Scala 3 先例                      |
-| 证据传递                 | **总是**                     | 函数指针参数消除了状态机开销；Koka 风格的标志传播用于 escape             |
+| 证据传递                 | **总是**                     | 函数指针参数消除了状态机开销；Koka 风格的标志传播用于 unwind             |
 | Forall 效应              | **void\* 转换**              | `forall` 函数指针作为 `void*` 传递，并在每个调用点转换为带类型的函数指针 |
 | 一次性 continuations     | **一次性**                   | 符合 RC 模型，实现更简单，覆盖 99% 的使用场景，`resume` 是线性的         |
 | 静态分发                 | **Impl（静态）**             | 处理器在词法作用域内，编译器知道类型，零开销                             |
-| `return`/`escape` 关键字 | **一次性（由语法强制执行）** | `return` 和 `escape` 必须是最后一个表达式——只能出现一次                  |
+| `return`/`unwind` 关键字 | **一次性（由语法强制执行）** | `return` 和 `unwind` 必须是最后一个表达式——只能出现一次                  |
 
 ---
 
@@ -89,7 +89,7 @@ result4 := add_numbers(7, 8, using(undefined));
 
 ---
 
-## 效应处理器（`return` + `escape`）
+## 效应处理器（`return` + `unwind`）
 
 ### 语法
 
@@ -105,12 +105,12 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
   )
 );
 
-// 处理效应——不带 resume（通过 `escape` 丢弃 continuation）
+// 处理效应——不带 resume（通过 `unwind` 丢弃 continuation）
 raise_const :: (fn() -> i64)({
   (given(raise) : Raise) = ((msg, msg2) -> {
     println(msg);
     println(msg2);
-    escape(i64(42)); // escape 用此值从 enclosing 函数返回
+    unwind(i64(42)); // unwind 用此值从 enclosing 函数返回
   });
   (i64(8) + i64(safe_divide(1, 0))) + i64(10)
 });
@@ -130,18 +130,18 @@ raise_resume :: (fn() -> i64)({
 
 ### 语义
 
-- 效应操作类型是一个普通的 `fn` 类型，其处理器体使用 `escape` 或 `return` 来控制 continuation（编译器自动检测）。
+- 效应操作类型是一个普通的 `fn` 类型，其处理器体使用 `unwind` 或 `return` 来控制 continuation（编译器自动检测）。
 - 当调用效应操作时，处理器函数通过函数指针参数直接调用。
 - 处理器体接收效应的参数（例如，`msg`、`msg2`）。
 - 在处理器体内：
   - **`return(value)`** —— 用 `value` 作为效应调用的结果恢复捕获的 continuation。
-  - **`escape(expr)`** —— 完全丢弃 continuation 并用 `expr` 从安装处理器的 enclosing 函数返回。
+  - **`unwind(expr)`** —— 完全丢弃 continuation 并用 `expr` 从安装处理器的 enclosing 函数返回。
 - 两种处理器形式：
-  - **匿名函数处理器**（无 resume）：`(given(raise) : Raise) = ((msg, msg2) -> { escape(expr); });`
+  - **匿名函数处理器**（无 resume）：`(given(raise) : Raise) = ((msg, msg2) -> { unwind(expr); });`
   - **fn-typed 处理器**（带 resume）：`(given(raise) : Raise) = (fn(msg : String, msg2 : String) -> i32)({ return(value); });`
 - Continuations 是**一次性**的——`return` 最多只能调用一次（语法上强制为最后一个表达式；运行时双重 resume 检查已计划但尚未实现）。
 - 效应操作与 `using` 组合——效应是通过 `given` 解析的隐式参数。
-- **异步上下文中的 escape**：当在 `io.async` 任务中调用 `escape` 时，Future 被标记为**已中止**（state = -2）。尝试对已中止的 Future 进行 `io.await` 或 `io.spawn` 会导致运行时**panic**。详见 [ASYNC_AWAIT.md](./ASYNC_AWAIT.md#aborted-futures)。
+- **异步上下文中的 unwind**：当在 `io.async` 任务中调用 `unwind` 时，Future 被标记为**已中止**（state = -2）。尝试对已中止的 Future 进行 `io.await` 或 `io.spawn` 会导致运行时**panic**。详见 [ASYNC_AWAIT.md](./ASYNC_AWAIT.md#aborted-futures)。
 
 ### 效应着色/传播（Effect Coloring / Propagation）
 
@@ -166,13 +166,13 @@ wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 );
 ```
 
-带有使用 `escape` 的函数类型的 `using` 参数是函数是否可能因效应而挂起的**唯一标记**：
+带有使用 `unwind` 的函数类型的 `using` 参数是函数是否可能因效应而挂起的**唯一标记**：
 
 | 签名                                       | 角色                             | 代码生成策略            | 调用者需要转换？               |
 | ------------------------------------------ | -------------------------------- | ----------------------- | ------------------------------ |
 | `fn(..., using(raise : Raise)) -> T`       | **传播**效应                     | 证据传递（fn ptr 参数） | 仅当它们也通过 `using` 传播时  |
 | `fn() -> T`（通过 `given` 在内部处理效应） | **处理**效应                     | 处理器站点的证据传递    | **否**——调用者看到一个普通函数 |
-| `fn(using(f : (fn() -> i32))) -> T`        | 隐式参数（普通 `fn`，无 escape） | 否——普通参数            | 否                             |
+| `fn(using(f : (fn() -> i32))) -> T`        | 隐式参数（普通 `fn`，无 unwind） | 否——普通参数            | 否                             |
 
 处理器是边界。通过证据传递，中间函数简单地转发 fn ptr 参数——不需要状态机转换。
 
@@ -182,7 +182,7 @@ wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 
 1. **效应调用**（调用 `raise(...)`）= 通过证据参数的 fn ptr 调用
 2. **`return(value)`** = 处理器函数正常返回；调用者使用该值
-3. **`escape(expr)`** = 处理器函数设置 `__yo_effect_escaped = 1`，将值存储在线程本地 `__yo_effect_escape_value`，返回 dummy；调用者检查标志并传播
+3. **`escape(expr)`** = 处理器函数设置 `__yo_effect_escaped = 1`，将值存储在线程本地 `__yo_unwind_value`，返回 dummy；调用者检查标志并传播
 
 调用链中的中间函数简单地转发 fn ptr 参数：
 
@@ -400,7 +400,7 @@ result := apply_effect(i32(10));
 // 错误——处理器引用外部变量 `threshold`，编译错误：
 threshold := i32(10);
 (given(raise) : Raise) = ((msg) -> {
-  escape((threshold * i32(2)));  // ERROR: threshold 不在作用域内
+  unwind((threshold * i32(2)));  // ERROR: threshold 不在作用域内
 });
 
 // 正确——通过效应函数本身传递状态作为显式参数：
@@ -410,7 +410,7 @@ check :: (fn(x : i32, threshold : i32, using(raise : Raise)) -> i32)(
     true => x
   )
 );
-(given(raise) : Raise) = ((msg) -> { escape(i32(-1)); });
+(given(raise) : Raise) = ((msg) -> { unwind(i32(-1)); });
 result := check(i32(15), i32(10));
 ```
 
@@ -422,7 +422,7 @@ result := check(i32(15), i32(10));
 
 | 类别                               | 测试数 |
 | ---------------------------------- | ------ |
-| 基本 fn-type 效应（escape/resume） | 4      |
+| 基本 fn-type 效应（unwind/resume） | 4      |
 | 直接处理器调用（无 `using`）       | 2      |
 | 嵌套处理器                         | 2      |
 | while 循环 + 效应                  | 6      |
@@ -434,14 +434,14 @@ result := check(i32(15), i32(10));
 | 多个效应行展开                     | 2      |
 | 带效应的闭包                       | 2      |
 | 效应行多态性                       | 2      |
-| 混合 escape+return 处理器          | 1      |
+| 混合 unwind+return 处理器          | 1      |
 | 传递 SM（break/continue/return）   | 5      |
 | Struct 记录 forall 处理器          | 5      |
 | Option match + 效应                | 3      |
-| Struct 记录 non-unit escape value  | 1      |
+| Struct 记录 non-unit unwind value  | 1      |
 | Multi-member struct effect records | 1      |
 | Multiple struct records in scope   | 1      |
-| Conditional resume/escape          | 1      |
+| Conditional resume/unwind          | 1      |
 | Recursive functions + effects      | 2      |
 | Effect with enum return type       | 1      |
 | Struct record effect polymorphism  | 1      |
@@ -458,7 +458,7 @@ result := check(i32(15), i32(10));
 | Effect resume in async while loop              | 1      |
 | Effect resume in async while loop with break   | 1      |
 | Escape via injected effect aborts future       | 1      |
-| JoinHandle escape via spawn-injected effect    | 1      |
+| JoinHandle unwind via spawn-injected effect    | 1      |
 | Given handler inside async closure with yields | 1      |
 
 ---
@@ -470,7 +470,7 @@ result := check(i32(15), i32(10));
 | 挂起点       | `io.await(expr)`               | `effect_op(args)`（fn ptr 调用）           |
 | 谁 resume    | Event loop（IO completion）    | Handler（calling `return`）                |
 | 代码生成     | State machine（always）        | Evidence passing（always）                 |
-| Continuation | Implicit（event loop manages） | Explicit（`return` / `escape` in handler） |
+| Continuation | Implicit（event loop manages） | Explicit（`return` / `unwind` in handler） |
 | Thread model | Single-threaded event loop     | Synchronous（same thread）                 |
 | Use cases    | IO concurrency                 | Control flow abstraction, error handling   |
 
@@ -521,7 +521,7 @@ int32_t safe_divide(int32_t x, int32_t y, void* exn__throw) {
     __yo_effect_escaped = 0;
     int32_t result = ((int32_t(*)(AnyError*))exn__throw)(error_obj);
     if (__yo_effect_escaped) {
-      return 0;  // dummy — caller propagates escape
+      return 0;  // dummy — caller propagates unwind
     }
     return result;  // handler resumed with this value
   }
@@ -540,7 +540,7 @@ int32_t safe_divide(int32_t x, int32_t y, void* exn__throw) {
 
 ### Escape handling
 
-当处理器调用 `escape`：
+当处理器调用 `unwind`：
 
 1. 处理器函数设置 `__yo_effect_escaped = 1` 并返回 dummy 值
 2. 调用者在 fn ptr 调用后检查 `if (__yo_effect_escaped)`
@@ -559,15 +559,15 @@ int32_t safe_divide(int32_t x, int32_t y, void* exn__throw) {
 
 这是最简单的路径——没有状态机，没有 yield/resume 协议。处理器只是一个函数调用。
 
-### Mixed escape+return handlers
+### Mixed unwind+return handlers
 
-一个处理器可以在一个分支中 `return`，在另一个分支中 `escape`：
+一个处理器可以在一个分支中 `return`，在另一个分支中 `unwind`：
 
 ```rust
 given(raise_mod) := Raise(
   raise : (msg) -> cond(
     (msg == `recoverable`) => return(i32(0)), // resume with 0
-    true => escape(i32(-1))                   // escape with -1
+    true => unwind(i32(-1))                   // unwind with -1
   )
 );
 ```
@@ -617,12 +617,12 @@ int32_t safe_divide(int32_t x, int32_t y, void* throw) {
 
 **Additional behaviors：**
 
-- **Handler doesn't use the forall type**（例如，`escape()`）：生成未特化的函数并直接传递
+- **Handler doesn't use the forall type**（例如，`unwind()`）：生成未特化的函数并直接传递
 - **Transitive forwarding**：`void*` 证据在调用者和被调用者之间原样转发
 
 ### Escape value propagation
 
-Escape values（包括非-unit 值）通过线程本地 `__yo_escape_value` 机制传播。当在处理器内调用 `escape(expr)` 时，escape 值存储在线程本地，并可以在处理器安装站点（`given`）检索。
+Escape values（包括非-unit 值）通过线程本地 `__yo_escape_value` 机制传播。当在处理器内调用 `unwind(expr)` 时，unwind 值存储在线程本地，并可以在处理器安装站点（`given`）检索。
 
 ---
 
@@ -644,7 +644,7 @@ Escape 分支在 happy path 上从未被采用，所以 CPU 分支预测器很�
 
 ### Per-Call-Site Overhead (Escape Path)
 
-当 escape 发生时：
+当 unwind 发生时：
 
 | Step                                              | Cost               |
 | ------------------------------------------------- | ------------------ |
@@ -673,7 +673,7 @@ Escape 是异常路径，替换了否则会是 `longjmp`、`throw` 或等效机�
 
 ```c
 static _Thread_local int __yo_effect_escaped = 0;                     // 4 bytes
-static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // 64 bytes
+static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // 64 bytes
 ```
 
 TLS access latency by platform:
@@ -703,11 +703,11 @@ TLS access latency by platform:
 | Koka evidence vectors     | ~3-5 ns per call site        | ~10-30 ns             | Similar           | ✅ Yes     |
 | OCaml 5 fibers            | ~0 ns (native)               | ~50-200 ns            | Runtime overhead  | ✅ Yes     |
 
-¹ `setjmp` always pays its setup cost (~5-15 ns) at the handler installation point even when no escape ever occurs.
+¹ `setjmp` always pays its setup cost (~5-15 ns) at the handler installation point even when no unwind ever occurs.
 
 **Happy path** —— Evidence passing wins: it pays ~4-9 ns only at actual effect call sites, with zero cost at handler installation. `setjmp` always pays ~5-15 ns at installation regardless of whether effects fire.
 
-**Escape path** — `longjmp` (~5-15 ns) is faster than evidence passing (~15-50 ns) for a single escape. The tradeoff: evidence passing supports async-safe composability and doesn't prevent compiler optimizations around the protected region, while `setjmp`/`longjmp` disables many optimizations.
+**Escape path** — `longjmp` (~5-15 ns) is faster than evidence passing (~15-50 ns) for a single unwind. The tradeoff: evidence passing supports async-safe composability and doesn't prevent compiler optimizations around the protected region, while `setjmp`/`longjmp` disables many optimizations.
 
 **Amortized** — When effects are called N times per `given` installation, evidence passing total cost is `N × 4-9 ns`, vs `setjmp` total is `5-15 ns + escape_count × 5-15 ns`. For N > ~2 effect calls with no escapes, evidence passing is cheaper overall.
 

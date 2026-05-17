@@ -113,7 +113,7 @@ extern(
   __yo_process_node_version : (fn() -> comptime(comptime_string))
 );
 export(__yo_as);
-/// The `unsafe` module — provides low-level escape hatches.
+/// The `unsafe` module — provides low-level unwind hatches.
 unsafe :: impl({
   /// Manually drop `value`, running its destructor immediately.
   drop :: (fn(quote(value) : Expr) -> unquote(Expr))(quote(___drop(unquote(value))));
@@ -8145,7 +8145,7 @@ FutureState :: enum(
   Running = 1,
   /// The future completed successfully.
   Completed = -(1),
-  /// The future was aborted (e.g., via `escape`).
+  /// The future was aborted (e.g., via `unwind`).
   Aborted = -(2)
 );
 impl(FutureState, Acyclic());

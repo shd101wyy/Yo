@@ -1,8 +1,8 @@
-//! evaluate_escape — handles the `escape(value)` builtin.
+//! evaluate_unwind — handles the `unwind(value)` builtin.
 //!
-//! 1:1 port of `src/evaluator/exprs/escape.ts`.
+//! 1:1 port of `src/evaluator/exprs/unwind.ts`.
 //!
-//! `escape(value)` returns from the **enclosing** function with `value`,
+//! `unwind(value)` returns from the **enclosing** function with `value`,
 //! discarding the current continuation. It is only valid inside a `given`
 //! handler whose effect operation declares an enclosing function return
 //! type (`ctx.enclosing_function_return_type`).
@@ -14,7 +14,7 @@ open(import("std/fmt"));
   ast_expr_id,
   ast_expr_to_string,
   ast_expr_is_fn_call_of,
-  BF_ESCAPE,
+  BF_UNWIND,
   make_err_expr
 } :: import("../../expr.yo");
 {
@@ -35,7 +35,7 @@ open(import("std/fmt"));
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
-evaluate_escape :: (
+evaluate_unwind :: (
   fn(
     expr : AstExpr,
     env : Environment,
@@ -43,13 +43,13 @@ evaluate_escape :: (
     using(exn : Exception)
   ) -> AstExpr
 )({
-  // Validate shape: `escape` with exactly 1 argument.
-  if(!(ast_expr_is_fn_call_of(expr, BF_ESCAPE,.Some(usize(1)))), {
+  // Validate shape: `unwind` with exactly 1 argument.
+  if(!(ast_expr_is_fn_call_of(expr, BF_UNWIND,.Some(usize(1)))), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("`escape` requires exactly one argument."),
+          String.from("`unwind` requires exactly one argument."),
           false,
           .None
         )
@@ -64,7 +64,7 @@ evaluate_escape :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("`escape` can only be used inside a function that has an enclosing function."),
+            String.from("`unwind` can only be used inside a function that has an enclosing function."),
             false,
             .None
           )
@@ -84,7 +84,7 @@ evaluate_escape :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("`escape` can only be used inside a `given` handler definition."),
+          String.from("`unwind` can only be used inside a `given` handler definition."),
           false,
           .None
         )
@@ -111,7 +111,7 @@ evaluate_escape :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            String.from("Failed to evaluate the argument of `escape`."),
+            String.from("Failed to evaluate the argument of `unwind`."),
             false,
             .None
           )
@@ -131,17 +131,17 @@ evaluate_escape :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `Incompatible type for \`escape\` argument:\n- Expected (enclosing function return type): ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(arg_info.ty)}`,
+          `Incompatible type for \`unwind\` argument:\n- Expected (enclosing function return type): ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(arg_info.ty)}`,
           false,
           .None
         )
       )
     );
   });
-  // Emit ExprInfo: type = arg type, value = .None, control_flow = escape.
+  // Emit ExprInfo: type = arg type, value = .None, control_flow = unwind.
   out_info := new_expr_info(env, arg_info.ty);
-  out_info.control_flow =.Some(control_flow_of(.Escape));
+  out_info.control_flow =.Some(control_flow_of(.Unwind));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-export(evaluate_escape);
+export(evaluate_unwind);

@@ -1,10 +1,10 @@
 // Regression test for: a top-level `fn` whose body installs a
-// `given(exn) := Exception(throw: ((err) -> { escape(); }))` handler
+// `given(exn) := Exception(throw: ((err) -> { unwind(); }))` handler
 // must still be registered as a standalone C function when called as
 // a regular (non-handler) function from multiple call sites.
 //
 // Bug: Previously `collection.ts` flagged such functions as
-// `isControlFunction=true` (because the body contains `escape`) and
+// `isControlFunction=true` (because the body contains `unwind`) and
 // only inlined via state machine, never registering a named C function.
 // This caused "Unhandled function call" errors when the function was
 // called from several sites (e.g. main thread + spawned workers).
@@ -24,7 +24,7 @@ do_work :: (fn(iterations : i32, using(io : IO)) -> i32)({
     throw : (
       (err) -> {
         printf("do_work: unexpected exception\n");
-        escape(i32(-(1)));
+        unwind(i32(-(1)));
       }
     )
   );

@@ -1,7 +1,7 @@
 open(import("std/string")); // Let's use `String` instead of `str`
 open(import("std/fmt"));
 { Exception } :: import("std/error");
-test("Test fn escape and return via using parameter", {
+test("Test fn unwind and return via using parameter", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
   // Use an effect in a function (effect becomes an implicit parameter)
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
@@ -17,8 +17,8 @@ test("Test fn escape and return via using parameter", {
         // values/anonymous-function.ts
         println(msg);
         println(msg2);
-        escape(i64(42)); // escape type should match the outer function return type, which is i64 in this case
-        // `escape` is only allowed in `fn` function value.
+        unwind(i64(42)); // unwind type should match the outer function return type, which is i64 in this case
+        // `unwind` is only allowed in `fn` function value.
       }
     );
     (i64(8) + i64(safe_divide(1, 0))) + (i64(10) + i64(safe_divide(10, 2)))
@@ -59,7 +59,7 @@ test("Test fn resume called directly without intermediate using function", {
   });
   run_test();
 });
-test("Test fn escape called directly without intermediate using function", {
+test("Test fn unwind called directly without intermediate using function", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
   // The fn function is called directly in the handler scope — no intermediate
   // function with `using(raise : Raise)`. The handler runs, prints the messages,
@@ -69,7 +69,7 @@ test("Test fn escape called directly without intermediate using function", {
       (msg, msg2) -> {
         println(msg);
         println(msg2);
-        escape(());
+        unwind(());
       }
     );
     raise(`direct-call`, `No using parameter needed`);
@@ -77,12 +77,12 @@ test("Test fn escape called directly without intermediate using function", {
   });
   run_test();
 });
-test("Test zero-arg escape exits unit function", {
+test("Test zero-arg unwind exits unit function", {
   Raise :: (fn() -> unit);
   run_test :: (fn() -> unit)({
     (given(raise) : Raise) = (
       () -> {
-        escape();
+        unwind();
       }
     );
     raise();
@@ -90,10 +90,10 @@ test("Test zero-arg escape exits unit function", {
   });
   run_test();
 });
-test("Test nested fn escape inside resume handler", {
+test("Test nested fn unwind inside resume handler", {
   Raise :: (fn(msg : String, msg2 : String) -> i32);
   // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),
-  // which becomes the result of the outer raise call (since escape exits the
+  // which becomes the result of the outer raise call (since unwind exits the
   // nearest enclosing fn handler, which is raise's handler).
   run_test :: (fn() -> unit)({
     (given(raise) : Raise) = (
@@ -104,7 +104,7 @@ test("Test nested fn escape inside resume handler", {
           (m1, m2) -> {
             println(m1);
             println(m2);
-            escape(i32(18));
+            unwind(i32(18));
           }
         );
         raise2(`inner msg1`, `inner msg2`);
@@ -113,7 +113,7 @@ test("Test nested fn escape inside resume handler", {
       }
     );
     result := raise(`outer msg1`, `outer msg2`);
-    assert(result == 18, "result should be 18 from raise2s escape");
+    assert(result == 18, "result should be 18 from raise2s unwind");
   });
   run_test();
 });
@@ -403,7 +403,7 @@ test("Test two-level effect propagation via using parameter", {
   result := compute(50, 0);
   assert(result == i32(10), "two-level propagation: 0 + 10 = 10");
 });
-test("Test two-level effect propagation via using parameter with escape", {
+test("Test two-level effect propagation via using parameter with unwind", {
   Raise :: (fn(msg : String) -> i32);
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -417,11 +417,11 @@ test("Test two-level effect propagation via using parameter with escape", {
   (given(raise) : Raise) = (
     (msg) -> {
       println(msg);
-      escape(());
+      unwind(());
     }
   );
   result := compute(50, 0);
-  assert(false, "Expected to escape");
+  assert(false, "Expected to unwind");
 });
 test("Test given variable shadowing (inner scope shadows outer)", {
   Raise :: (fn(msg : String) -> i32);
@@ -450,7 +450,7 @@ test("Test given variable shadowing (inner scope shadows outer)", {
   result3 := safe_divide(30, 0);
   assert(result3 == i32(0), "outer handler should still work after inner scope");
 });
-test("Test given variable shadowing (inner scope shadows outer) with escape", {
+test("Test given variable shadowing (inner scope shadows outer) with unwind", {
   Raise :: (fn(msg : String) -> i32);
   // Function that USES the effect (propagates via using parameter)
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
@@ -471,7 +471,7 @@ test("Test given variable shadowing (inner scope shadows outer) with escape", {
     (given(raise2) : Raise) = (
       (msg) -> {
         println(msg);
-        escape(());
+        unwind(());
       }
     );
     result := safe_divide(10, 0);
@@ -501,7 +501,7 @@ test("Test effect polymorphism with using spread", {
   result := run(might_fail);
   assert(result == i32(42), "effect polymorphism: should be 42");
 });
-test("Test effect polymorphism with using spread and escape", {
+test("Test effect polymorphism with using spread and unwind", {
   Raise :: (fn(msg : String) -> i32);
   might_fail :: (fn(using(raise : Raise)) -> i32)(
     raise(`oops`)
@@ -517,13 +517,13 @@ test("Test effect polymorphism with using spread and escape", {
   (given(raise) : Raise) = (
     (msg) -> {
       println(msg);
-      escape(());
+      unwind(());
     }
   );
   result := run(might_fail);
   assert(false, "This line should not be reached since might_fail raises an error");
 });
-test("Test struct-record effect with escape", {
+test("Test struct-record effect with unwind", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -537,11 +537,11 @@ test("Test struct-record effect with escape", {
     raise :
       (msg) -> {
         println(msg);
-        escape(());
+        unwind(());
       }
   );
   result := safe_divide(10, 0);
-  assert(false, "Should not reach here after escape");
+  assert(false, "Should not reach here after unwind");
 });
 test("Test struct-record effect with resume", {
   Raise :: struct(
@@ -565,7 +565,7 @@ test("Test struct-record effect with resume", {
   result2 := safe_divide(10, 2);
   assert(result2 == 5, "struct-record effect with resume: should be 5");
 });
-test("Test nested struct-record effect with escape", {
+test("Test nested struct-record effect with unwind", {
   Errors :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -583,12 +583,12 @@ test("Test nested struct-record effect with escape", {
       raise :
         (msg) -> {
           println(msg);
-          escape(());
+          unwind(());
         }
     )
   );
   result := safe_divide(10, 0);
-  assert(false, "Should not reach here after escape");
+  assert(false, "Should not reach here after unwind");
 });
 test("Test nested struct-record effect with resume", {
   Errors :: struct(
@@ -617,7 +617,7 @@ test("Test nested struct-record effect with resume", {
   result2 := safe_divide(10, 2);
   assert(result2 == 5, "nested struct-record effect with resume: should be 5");
 });
-test("Test struct record labeled using(name : Type) with escape", {
+test("Test struct record labeled using(name : Type) with unwind", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -631,11 +631,11 @@ test("Test struct record labeled using(name : Type) with escape", {
     raise :
       (msg) -> {
         println(msg);
-        escape(());
+        unwind(());
       }
   );
   result := safe_divide(10, 0);
-  assert(false, "Should not reach here after escape");
+  assert(false, "Should not reach here after unwind");
 });
 test("Test struct record labeled using(name : Type) with resume", {
   Raise :: struct(
@@ -694,7 +694,7 @@ test("Test multiple effect row spreads with resume", {
   result := run_both(might_fail, might_log);
   assert(result == i32(42), "multiple spreads resume: should be 42");
 });
-test("Test multiple effect row spreads with escape", {
+test("Test multiple effect row spreads with unwind", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
   might_fail :: (fn(using(raise : Raise)) -> i32)(
@@ -717,7 +717,7 @@ test("Test multiple effect row spreads with escape", {
   (given(raise) : Raise) = (
     (msg) -> {
       println(msg);
-      escape(());
+      unwind(());
     }
   );
   (given(log) : Log) = (
@@ -727,7 +727,7 @@ test("Test multiple effect row spreads with escape", {
     }
   );
   run_both(might_fail, might_log);
-  assert(false, "multiple spreads escape: should not reach here");
+  assert(false, "multiple spreads unwind: should not reach here");
 });
 test("Test closure with using() effect - resume", {
   Log :: (fn(msg : String) -> unit);
@@ -751,14 +751,14 @@ test("Test closure with using() effect - resume", {
   assert(result2 == 3, "closure+effect resume: expected result2 to be 3");
   assert(x.* == 3, "closure+effect resume: expected x to be 3");
 });
-test("Test closure with using() effect - escape", {
+test("Test closure with using() effect - unwind", {
   Log :: (fn(msg : String) -> unit);
   run_test :: (fn() -> i32)({
     x := Box(i32)(0);
     (given(log) : Log) = (
       (msg) -> {
         println(msg);
-        escape(i32(99));
+        unwind(i32(99));
       }
     );
     (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
@@ -768,11 +768,11 @@ test("Test closure with using() effect - escape", {
         return(x.*);
       };
     result := closure(1, `hello`);
-    assert(false, "closure+effect escape: should not reach here");
+    assert(false, "closure+effect unwind: should not reach here");
     return(result);
   });
   val := run_test();
-  assert(val == 99, "closure+effect escape: expected escape value 99");
+  assert(val == 99, "closure+effect unwind: expected unwind value 99");
 });
 test("Effect row polymorphism with ...(E) spread", {
   Yield :: (fn(v : i32) -> i32);
@@ -843,7 +843,7 @@ test("Effect row inline typed declaration using(name : Type)", {
   });
   assert(sum.* == 10, "inline typed: sum should be 10");
 });
-test("Mixed escape and return in effect handler", {
+test("Mixed unwind and return in effect handler", {
   Yield :: (fn(v : i32) -> i32);
   Log :: (fn(v : i32) -> unit);
   traverse :: (
@@ -863,7 +863,7 @@ test("Mixed escape and return in effect handler", {
     (v) ->
       cond(
         (v > 2) => {
-          escape(());
+          unwind(());
         },
         true => {
           return(v);
@@ -881,7 +881,7 @@ test("Mixed escape and return in effect handler", {
     assert(result == v, "mixed handler: yield should return the value");
     sum.* = (sum.* + result);
   });
-  assert(false, "This line should not be reached due to escape in yield");
+  assert(false, "This line should not be reached due to unwind in yield");
 });
 test("Transitive SM while loop with break", {
   Yield :: (fn(v : i32) -> i32);
@@ -1047,9 +1047,9 @@ test("Transitive SM while loop with early return", {
   // yield(0)=0, yield(1)=3, yield(2)=6, yield(3)=9, yield(4)=12 >= 12 => return 12
   assert(result == i32(12), "transitive early return: should find 12");
 });
-test("Struct-record effect with forall handler — escape in while loop", {
+test("Struct-record effect with forall handler — unwind in while loop", {
   // Tests the pattern from fixme.yo: struct-record effect with forall(ResumeType),
-  // handler uses escape inside a while loop to abort traversal.
+  // handler uses unwind inside a while loop to abort traversal.
   MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
     struct(
       throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
@@ -1077,12 +1077,12 @@ test("Struct-record effect with forall handler — escape in while loop", {
   given(exn) := MyException(i32)(
     throw : (
       (val, resume_val) -> {
-        escape(());
+        unwind(());
       }
     )
   );
   traverse(arr, using(exn));
-  assert(false, "Should not reach here after escape");
+  assert(false, "Should not reach here after unwind");
 });
 test("Struct-record effect with forall handler — resume in while loop", {
   // Struct-record effect with forall(ResumeType), handler resumes with a value.
@@ -1377,10 +1377,10 @@ test("Test three-level effect propagation via using parameter", {
   assert(result2 == i32(11), "3-level propagation with raise: 0+1+10 = 11");
 });
 // ---------------------------------------------------------------------------
-// Three-level effect propagation with escape
+// Three-level effect propagation with unwind
 // Escape at the deepest level should propagate all the way out.
 // ---------------------------------------------------------------------------
-test("Test three-level effect propagation with escape", {
+test("Test three-level effect propagation with unwind", {
   Raise :: (fn(msg : String) -> i32);
   level3 :: (fn(x : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -1397,18 +1397,18 @@ test("Test three-level effect propagation with escape", {
   run_test :: (fn() -> i32)({
     (given(raise) : Raise) = (
       (msg) -> {
-        escape(i32(99));
+        unwind(i32(99));
       }
     );
     level1(i32(-(1)))
   });
   result := run_test();
-  assert(result == i32(99), "3-level escape: should get 99");
+  assert(result == i32(99), "3-level unwind: should get 99");
 });
 // ---------------------------------------------------------------------------
-// Struct-record effect with escape returning non-unit value
+// Struct-record effect with unwind returning non-unit value
 // ---------------------------------------------------------------------------
-test("Test struct-record effect escape with non-unit value", {
+test("Test struct-record effect unwind with non-unit value", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -1422,13 +1422,13 @@ test("Test struct-record effect escape with non-unit value", {
     (given(raise_mod) : Raise) = Raise(
       raise :
         (msg) -> {
-          escape(i32(-(1)));
+          unwind(i32(-(1)));
         }
     );
     safe_divide(10, 0)
   });
   result := run_test();
-  assert(result == i32(-(1)), "struct-record escape non-unit: should get -1");
+  assert(result == i32(-(1)), "struct-record unwind non-unit: should get -1");
 });
 // ---------------------------------------------------------------------------
 // Struct-record effect with multiple functions
@@ -1504,9 +1504,9 @@ test("Test multiple struct-record effects in same scope", {
 });
 // ---------------------------------------------------------------------------
 // Effect handler that conditionally resumes or escapes based on argument
-// Handler decides at runtime whether to resume or escape.
+// Handler decides at runtime whether to resume or unwind.
 // ---------------------------------------------------------------------------
-test("Test effect handler conditional resume or escape based on argument", {
+test("Test effect handler conditional resume or unwind based on argument", {
   Raise :: (fn(msg : String, attempt : i32) -> i32);
   safe_divide :: (fn(x : i32, y : i32, attempt : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -1522,7 +1522,7 @@ test("Test effect handler conditional resume or escape based on argument", {
             return(i32(0));
           },
           true => {
-            escape(i32(-(1)));
+            unwind(i32(-(1)));
           }
         );
       }
@@ -1534,7 +1534,7 @@ test("Test effect handler conditional resume or escape based on argument", {
     return(sum.*);
   });
   result := run_test();
-  assert(result == i32(-(1)), "conditional resume/escape: third call escapes with -1");
+  assert(result == i32(-(1)), "conditional resume/unwind: third call escapes with -1");
 });
 // ---------------------------------------------------------------------------
 // Recursive function with effects (recur + using)
@@ -1556,9 +1556,9 @@ test("Test recursive function with effect via recur", {
   assert(result == i32(15), "recur+effect: 5+4+3+2+1+0 = 15");
 });
 // ---------------------------------------------------------------------------
-// Recursive function with effect — escape during recursion
+// Recursive function with effect — unwind during recursion
 // ---------------------------------------------------------------------------
-test("Test recursive function with effect escape during recursion", {
+test("Test recursive function with effect unwind during recursion", {
   Raise :: (fn(val : i32) -> i32);
   sum_to :: (fn(n : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -1571,7 +1571,7 @@ test("Test recursive function with effect escape during recursion", {
       (val) -> {
         cond(
           (val == i32(3)) => {
-            escape(i32(42));
+            unwind(i32(42));
           },
           true => {
             return(val);
@@ -1582,7 +1582,7 @@ test("Test recursive function with effect escape during recursion", {
     sum_to(i32(5))
   });
   result := run_test();
-  assert(result == i32(42), "recur+escape: should escape with 42 at n=3");
+  assert(result == i32(42), "recur+unwind: should unwind with 42 at n=3");
 });
 // ---------------------------------------------------------------------------
 // Effect with enum return type (Option)
@@ -1686,7 +1686,7 @@ test("regular fn struct handler cannot capture outer runtime variable", {
     )
   );
 });
-test("Test struct-based effect with escape", {
+test("Test struct-based effect with unwind", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
@@ -1700,11 +1700,11 @@ test("Test struct-based effect with escape", {
     raise :
       (msg) -> {
         println(msg);
-        escape(());
+        unwind(());
       }
   );
   result := safe_divide(10, 0);
-  assert(false, "Should not reach here after escape");
+  assert(false, "Should not reach here after unwind");
 });
 test("Test struct-based effect with resume", {
   Raise :: struct(

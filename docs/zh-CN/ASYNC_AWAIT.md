@@ -184,7 +184,7 @@ io.async(fn)                  // 创建冷 Future（惰性，不会立即启动�
 io.await(future)              // 若为冷任务则启动，等待完成，返回结果
 io.state(future)              // 查询 Future 的当前状态（返回 FutureState）
 io.spawn(future)              // 启动冷 Future 但不等待，返回 JoinHandle(T)
-handle.await(using(io))       // 等待已 spawn 的任务，返回 Option(T)（escape 时返回 .None）
+handle.await(using(io))       // 等待已 spawn 的任务，返回 Option(T)（unwind 时返回 .None）
 yield()                       // 创建预完成的 Future（将控制权让给事件循环）
 ```
 
@@ -194,7 +194,7 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 2. `io.await(future)` 启动冷 Future 并顺序运行至完成
 3. `io.state(future)` 返回当前 `FutureState`，不会阻塞或启动 Future
 4. `io.spawn(future)` 启动冷 Future 但不等待——返回 `JoinHandle(T)` 以便后续 await
-5. `handle.await(using(io))` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，escape（中止）时返回 `.None`
+5. `handle.await(using(io))` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，unwind（中止）时返回 `.None`
 6. 对已**中止**的 Future 进行 spawn 会导致 **panic**
 7. 所有异步代码运行在**同一线程**上——不会创建新线程
 8. `yield()` 挂起当前任务，将控制权让给事件循环中其他就绪的任务
@@ -359,11 +359,11 @@ Future 在完成后保留其结果。对于引用计数类型的结果，每次 
 
 ### 中止的 Future
 
-当代数效应处理器在异步任务内调用 `escape` 时，Future 被标记为**已中止**（内部状态 = -2）。任务的续体被丢弃，不会存储结果。
+当代数效应处理器在异步任务内调用 `unwind` 时，Future 被标记为**已中止**（内部状态 = -2）。任务的续体被丢弃，不会存储结果。
 
 **使用 `io.await`**：对已中止的 Future 调用 `io.await` 会导致 **panic**。
 
-**使用 `handle.await`**：`JoinHandle.await` 返回 `Option(T)`——中止时返回 `.None`，安全地捕获 escape：
+**使用 `handle.await`**：`JoinHandle.await` 返回 `Option(T)`——中止时返回 `.None`，安全地捕获 unwind：
 
 ```rust
 main :: (fn(using(io : IO)) -> unit) {
@@ -373,7 +373,7 @@ main :: (fn(using(io : IO)) -> unit) {
     return i32(42);
   });
 
-  (given(raise) : Raise) = (msg) -> { escape (); };
+  (given(raise) : Raise) = (msg) -> { unwind (); };
   handle := io.spawn(task, using(io, raise));
   result := handle.await(using(io));
   // result 是 Option(i32).None——任务已被中止
@@ -389,7 +389,7 @@ export main;
 | 0      | 冷——尚未启动                              | `FutureState.Pending`   |
 | 1..N   | 中间状态——在 await/yield 点挂起           | `FutureState.Running`   |
 | -1     | 已完成——结果可用                          | `FutureState.Completed` |
-| -2     | 已中止——效应处理器调用了 `escape`，无结果 | `FutureState.Aborted`   |
+| -2     | 已中止——效应处理器调用了 `unwind`，无结果 | `FutureState.Aborted`   |
 
 ### 查询 Future 状态
 
@@ -400,7 +400,7 @@ FutureState :: enum(
   Pending = 0,     // 冷——尚未启动
   Running = 1,     // 执行中——在 await/yield 点挂起
   Completed = -(1), // 已完成——结果可用
-  Aborted = -(2)   // 已中止——效应处理器调用了 escape
+  Aborted = -(2)   // 已中止——效应处理器调用了 unwind
 );
 ```
 
@@ -961,15 +961,15 @@ handle.await(using(io));
 | 通过 `io.spawn` 注入两个效应            | 同上，但通过 `io.spawn` + `handle.await`             |
 | while 循环中的效应恢复                  | 在带 yield 的 `while` 循环体中调用效应               |
 | while 循环中带 break 的效应恢复         | 效应根据返回值触发 `break`                           |
-| 注入效应的 escape 中止 Future           | 处理器调用 `escape`，Future 进入 `Aborted` 状态      |
-| 通过 spawn 注入效应的 JoinHandle escape | 同上，但使用 `io.spawn`，`handle.await` 返回 `.None` |
+| 注入效应的 unwind 中止 Future           | 处理器调用 `unwind`，Future 进入 `Aborted` 状态      |
+| 通过 spawn 注入效应的 JoinHandle unwind | 同上，但使用 `io.spawn`，`handle.await` 返回 `.None` |
 | 异步内部的 given 处理器跨 yield         | `given` 绑定在异步体内定义，在 yield 后使用          |
 
 ### 已知限制
 
 1. **效应处理器不是闭包** — 处理器函数是独立的 C 函数，无法捕获外部作用域的变量。请通过显式参数或 `Box` 传递状态。参见 `docs/en-US/ALGEBRAIC_EFFECTS.md`。
 
-2. **异步 escape 的引用计数双重递减** — 当 Future 作为参数传递给在 `io.await` 期间 escape 的函数时，Future 的引用计数会被递减两次（一次在 await 中止路径，一次在 escape 清理中），导致释放后使用。解决方法：在 escape 的函数内部创建 Future。参见 `issues/async-escape-rc-double-decrement.md`。
+2. **异步 unwind 的引用计数双重递减** — 当 Future 作为参数传递给在 `io.await` 期间 unwind 的函数时，Future 的引用计数会被递减两次（一次在 await 中止路径，一次在 unwind 清理中），导致释放后使用。解决方法：在 unwind 的函数内部创建 Future。参见 `issues/async-unwind-rc-double-decrement.md`。
 
 3. **异步中的三参数 while 循环** — 异步状态机代码生成仅处理两参数形式 `while condition, body`。三参数形式 `while condition, step, body` 会生成错误的 C 代码。解决方法：将步进表达式放在循环体内。参见 `issues/async-while-3arg-form.md`。
 
@@ -1016,7 +1016,7 @@ r2 := handle2.await(using(io));  // Option(T)
 1. **惰性执行** — `io.async(fn)` 创建冷 Future
 2. **`io.await(task)`** — 启动冷任务，顺序运行至完成
 3. **`io.spawn(task)`** — 启动冷任务但不等待，返回 `JoinHandle(T)`
-4. **`handle.await(using(io))`** — 等待已 spawn 的任务，返回 `Option(T)`（escape 时返回 `.None`）
+4. **`handle.await(using(io))`** — 等待已 spawn 的任务，返回 `Option(T)`（unwind 时返回 `.None`）
 5. **单线程** — 所有异步代码运行在调用线程上
 6. **`yield()` 让出** — 挂起任务，将控制权交给其他就绪任务
 7. **状态机** — 编译器将每个 `io.await` 变换为状态转换

@@ -184,7 +184,7 @@ io.async(fn)                  // Create a cold Future (lazy, doesn't start)
 io.await(future)              // Start if cold, wait for completion, return result
 io.state(future)              // Query the current state of a Future (returns FutureState)
 io.spawn(future)              // Start a cold Future without waiting, returns JoinHandle(T)
-handle.await(using(io))       // Wait for spawned task, returns Option(T) (.None on escape)
+handle.await(using(io))       // Wait for spawned task, returns Option(T) (.None on unwind)
 yield()                       // Create a pre-completed Future (yields control to event loop)
 ```
 
@@ -194,7 +194,7 @@ yield()                       // Create a pre-completed Future (yields control t
 2. `io.await(future)` starts a cold future and runs it sequentially to completion
 3. `io.state(future)` returns the current `FutureState` without blocking or starting the Future
 4. `io.spawn(future)` starts a cold future without waiting — returns `JoinHandle(T)` for later awaiting
-5. `handle.await(using(io))` waits for a spawned task and returns `Option(T)` — `.Some(result)` on completion, `.None` on escape (abort)
+5. `handle.await(using(io))` waits for a spawned task and returns `Option(T)` — `.Some(result)` on completion, `.None` on unwind (abort)
 6. Spawning an already **aborted** Future causes a **panic**
 7. All async code runs on the **same thread** — no thread spawning
 8. `yield()` suspends the current task and yields to other ready tasks in the event loop
@@ -359,11 +359,11 @@ The Future retains its result after completion. For reference-counted result typ
 
 ### Aborted Futures
 
-When an algebraic effect handler calls `escape` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
+When an algebraic effect handler calls `unwind` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
 
 **With `io.await`**: Attempting to `io.await` on an aborted Future causes a **panic**.
 
-**With `handle.await`**: `JoinHandle.await` returns `Option(T)` — `.None` on abort, safely catching the escape:
+**With `handle.await`**: `JoinHandle.await` returns `Option(T)` — `.None` on abort, safely catching the unwind:
 
 ```rust
 main :: (fn(using(io : IO)) -> unit) {
@@ -373,7 +373,7 @@ main :: (fn(using(io : IO)) -> unit) {
     return i32(42);
   });
 
-  (given(raise) : Raise) = (msg) -> { escape (); };
+  (given(raise) : Raise) = (msg) -> { unwind (); };
   handle := io.spawn(task, using(io, raise));
   result := handle.await(using(io));
   // result is Option(i32).None — the task was aborted
@@ -389,7 +389,7 @@ export main;
 | 0     | Cold — not started yet                                 | `FutureState.Pending`   |
 | 1..N  | Intermediate — suspended at an await/yield point       | `FutureState.Running`   |
 | -1    | Completed — result is available                        | `FutureState.Completed` |
-| -2    | Aborted — an effect handler called `escape`, no result | `FutureState.Aborted`   |
+| -2    | Aborted — an effect handler called `unwind`, no result | `FutureState.Aborted`   |
 
 ### Querying Future State
 
@@ -400,7 +400,7 @@ FutureState :: enum(
   Pending = 0,     // Cold — not started yet
   Running = 1,     // In progress — suspended at an await/yield point
   Completed = -(1), // Completed — result is available
-  Aborted = -(2)   // Aborted — an effect handler called escape
+  Aborted = -(2)   // Aborted — an effect handler called unwind
 );
 ```
 
@@ -980,8 +980,8 @@ parameters via `using(...)`, and callers inject handlers at `io.await` or
 | Two effects injected via `io.spawn`         | Same, but via `io.spawn` + `handle.await`                    |
 | Effect resume in async while loop           | Effect called inside `while` loop body with yields           |
 | Effect resume in while loop with break      | Effect triggers `break` based on return value                |
-| Escape via injected effect aborts future    | Handler `escape`s, future enters `Aborted` state             |
-| JoinHandle escape via spawn-injected effect | Same but with `io.spawn`, `handle.await` returns `.None`     |
+| Escape via injected effect aborts future    | Handler `unwind`s, future enters `Aborted` state             |
+| JoinHandle unwind via spawn-injected effect | Same but with `io.spawn`, `handle.await` returns `.None`     |
 | Given handler inside async with yields      | `given` binding defined inside async body, used after yields |
 
 ### Known Limitations
@@ -990,11 +990,11 @@ parameters via `using(...)`, and callers inject handlers at `io.await` or
    functions and cannot capture variables from the enclosing scope. Pass state
    via explicit parameters or `Box`. See `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
-2. **Async escape RC double-decrement** — when a future is passed as a
+2. **Async unwind RC double-decrement** — when a future is passed as a
    parameter to a function that escapes during `io.await`, the future's RC is
-   decremented twice (once in the await abort path, once in escape cleanup),
+   decremented twice (once in the await abort path, once in unwind cleanup),
    causing use-after-free. Workaround: create the future inside the escaping
-   function. See `issues/async-escape-rc-double-decrement.md`.
+   function. See `issues/async-unwind-rc-double-decrement.md`.
 
 3. **3-argument while loop in async** — the async SM codegen only handles the
    2-argument form `while condition, body`. The 3-argument form
@@ -1047,7 +1047,7 @@ r2 := handle2.await(using(io));  // Option(T)
 1. **Lazy execution** — `io.async(fn)` creates cold Futures
 2. **`io.await(task)`** — starts cold task, runs sequentially to completion
 3. **`io.spawn(task)`** — starts cold task without waiting, returns `JoinHandle(T)`
-4. **`handle.await(using(io))`** — waits for spawned task, returns `Option(T)` (`.None` on escape)
+4. **`handle.await(using(io))`** — waits for spawned task, returns `Option(T)` (`.None` on unwind)
 5. **Single-threaded** — all async code runs on the calling thread
 6. **`yield()` yields** — suspends task, gives control to other ready tasks
 7. **State machines** — compiler transforms each `io.await` into state transition

@@ -1,12 +1,12 @@
 //! Expression-tree traversal helpers — 1-to-1 port of `src/expr-traversal.ts`.
 //!
 //! Pure AST-shape predicates that walk an `AstExpr` tree looking for
-//! control-flow keywords (`return`, `escape`, `break`). They respect
+//! control-flow keywords (`return`, `unwind`, `break`). They respect
 //! function/closure boundaries (`=>` arrows) so a `return` inside a
 //! nested closure does not register as a return for the outer scope.
 //!
 //! Ported helpers:
-//!   * `evaluated_body_contains_escape` — true if `escape` appears outside
+//!   * `evaluated_body_contains_unwind` — true if `unwind` appears outside
 //!     a function boundary. Mirrors `evaluatedBodyContainsEscape`.
 //!   * `expr_tree_contains_return` — same shape but also matches `return`.
 //!     Mirrors `exprTreeContainsReturn`. The TS `macro_expansion` case is
@@ -27,23 +27,23 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   is_function_boundary_arrow,
   make_err_expr,
-  BF_ESCAPE,
+  BF_UNWIND,
   BK_BREAK,
   BK_RETURN,
   BK_COND,
   BK_MATCH
 } :: import("./expr.yo");
-/// Traverse an evaluated expression tree checking for an `escape` usage.
+/// Traverse an evaluated expression tree checking for an `unwind` usage.
 /// Skips new function/closure boundaries; recurses into cond/match branches.
 ///
 /// The cond/match branch traversal is inlined here (rather than delegated to a
 /// separate visitor function) to avoid mutual-recursion forward-reference issues.
 ///
 /// Mirrors `evaluatedBodyContainsEscape` in `src/expr-traversal.ts`.
-evaluated_body_contains_escape :: (fn(e : AstExpr) -> bool)(
+evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value.as_str() == BF_ESCAPE),
+    .Atom(_, tok) => (tok.value.as_str() == BF_UNWIND),
     .FnCall(_, func_box, args, _, _) => {
       is_cond := ast_expr_is_fn_call_of(e, BK_COND,.None);
       is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
@@ -104,8 +104,8 @@ evaluated_body_contains_escape :: (fn(e : AstExpr) -> bool)(
     }
   )
 );
-/// Traverse an evaluated expression tree checking for a `return` or `escape`
-/// usage. Like `evaluated_body_contains_escape` but additionally matches
+/// Traverse an evaluated expression tree checking for a `return` or `unwind`
+/// usage. Like `evaluated_body_contains_unwind` but additionally matches
 /// `return`. Skips new function/closure boundaries; recurses into cond/match
 /// branches.
 ///
@@ -118,13 +118,13 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
     e,
     .Atom(_, tok) => {
       v := tok.value.as_str();
-      (v == BK_RETURN) || (v == BF_ESCAPE)
+      (v == BK_RETURN) || (v == BF_UNWIND)
     },
     .FnCall(_, func_box, args, _, _) => {
       if(ast_expr_is_fn_call_of(e, BK_RETURN,.None), {
         return(true);
       });
-      if(ast_expr_is_fn_call_of(e, BF_ESCAPE,.None), {
+      if(ast_expr_is_fn_call_of(e, BF_UNWIND,.None), {
         return(true);
       });
       is_cond := ast_expr_is_fn_call_of(e, BK_COND,.None);
@@ -183,7 +183,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
     }
   )
 );
-/// Walk `expr` looking for any loop-terminator atom or call (break, return, escape).
+/// Walk `expr` looking for any loop-terminator atom or call (break, return, unwind).
 /// Stops at function/closure boundaries (`=>` arrows) but recurses directly
 /// into the condition and body parts of `cond`/`match` branch arms, bypassing
 /// the `=>` boundary check for those specific arguments.
@@ -196,14 +196,14 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
     expr,
     .Atom(_, tok) => {
       s := tok.value.as_str();
-      (s == BK_BREAK) || ((s == BK_RETURN) || (s == BF_ESCAPE))
+      (s == BK_BREAK) || ((s == BK_RETURN) || (s == BF_UNWIND))
     },
     .FnCall(_, fn_box, args, _, _) => {
-      // return / escape as a direct function call
+      // return / unwind as a direct function call
       if(ast_expr_is_fn_call_of(expr, BK_RETURN,.None), {
         return(true);
       });
-      if(ast_expr_is_fn_call_of(expr, BF_ESCAPE,.None), {
+      if(ast_expr_is_fn_call_of(expr, BF_UNWIND,.None), {
         return(true);
       });
       // => is a function boundary: do not recurse into it
@@ -267,7 +267,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
   )
 );
 export(
-  evaluated_body_contains_escape,
+  evaluated_body_contains_unwind,
   expr_tree_contains_return,
   expr_contains_loop_terminator
 );
