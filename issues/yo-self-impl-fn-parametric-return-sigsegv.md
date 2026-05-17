@@ -58,23 +58,61 @@ For comparison, TS handles it fine:
 ./yo-cli check /tmp/test_simple_prelude.yo  # exit=0
 ```
 
-## Where it crashes
+## Where it crashes (precise, post-investigation)
 
-Localized via `eprintln` markers (since `lldb` requires codesign
-permissions this session can't grant). The crash happens inside
-`evaluate_expression_raw(mval_expr, ...)` for the `and_then`
-method, called from `evaluator/values/impl.yo`'s Case-2
-generic-impl loop (around line 772 in the current file). Specifically:
+Localized via `eprintln` markers (`lldb` requires codesign
+permissions this session can't grant). The crash is in
+`evaluator/types/fn_trait.yo:97`:
 
-1. `mval_expr` is the AST for the `(fn(forall(B : Type), self : Self, f : Impl(Fn(a : T) -> Option(B))) -> Option(B))(match(...))` expression.
-2. The evaluator processes the function type and its parameters.
-3. While evaluating `f : Impl(Fn(a : T) -> Option(B))` — specifically the `Option(B)` inside the `Fn` return — memory corruption occurs.
-4. No output reaches stdout/stderr; process exits with SIGSEGV (139).
+```rust
+evaluated_ret_expr := evaluate_expression(return_type_expr, env_mut, ctx);
+```
+
+For `and_then`'s `f : Impl(Fn(a : T) -> Option(B))` parameter, the
+inner `Fn(a : T) -> Option(B)` is evaluated by `evaluate_fn_trait_type`.
+After the inner params (`a : T`) are processed cleanly, the return
+type `Option(B)` is evaluated. The call to `evaluate_expression` on
+`Option(B)` crashes with a raw C SIGSEGV — no Yo throw, no
+`evaluate_expression: Error` from the panic wrapper.
+
+For comparison, `map`'s inner Fn return is just `B` (atom): single
+SomeT lookup, works fine. The crash is specific to evaluating
+`Option(B)` as a Fn-trait return type, where `Option` is the
+prelude FuncVal and `B` is a forall-bound SomeT in the current
+frame.
+
+Crash sequence (from debug eprintlns):
+
+```
+DBG-gen-method "and_then" before eval
+DBG-fn-trait before params              # outer fn type params
+... params evaluated ...
+# inner Fn(a:T) -> Option(B) starts
+DBG-fn-trait before params              # inner Fn(a:T)
+DBG-fn-trait after params, before ret eval, ret_expr=Option(B)
+# SIGSEGV — "after ret eval" never prints
+```
+
+`Option(B)` evaluates fine in OTHER contexts (e.g. as the OUTER
+fn type's return type for both `map` and `and_then`). The crash
+is specifically when it's the INNER Fn-trait return inside an
+`Impl(Fn(...))` parameter type. The differing context likely
+corrupts something (env state? frame layout? — needs lldb).
 
 The crash is non-deterministic in timing — adding/removing
 `eprintln` statements can mask or reveal it depending on stack /
 memory layout. This is a classic uninitialized-memory or use-after-
 free signature.
+
+## What the kindFunctionType port (commit `d78e5e14`) did NOT fix
+
+Adding the `kind_function_type` field to `TypeValue.SomeT` was
+the prerequisite for proper HKT support but did not by itself
+resolve this segfault. The crash isn't from the missing field
+on `B` — `B` is a regular `Type`-kinded SomeT, not an HKT one.
+The bug is in some other path (likely in the function-call
+evaluator's handling of `Option(B)` when called recursively from
+the Fn-trait return-type evaluator).
 
 ## Why it's bootstrap-only
 
