@@ -183,6 +183,28 @@ compile-time-only UnknownVals. With the relaxation, prelude
 evaluation now completes end-to-end (`evaluator OK` on simple test
 files using `Option(T)` / `match` / etc.).
 
+**5i. extern / c_include Type-binding produces TypeVal(SomeT)** —
+**fixed** in `yo-self/value.yo` (new `create_unknown_val_with_name`),
+`evaluator/exprs/c_include.yo`, `evaluator/exprs/extern.yo`. When an
+`extern("Yo", X : Type)` or `c_include("...", X : Type)` field has
+declared type `Type`, mirror TS's `createUnknownValue` and produce
+`TypeVal(SomeT(name=label))` instead of `UnknownVal(Type)`. This lets
+later fields use the label as a real type (e.g.
+`INT_LEAST8_MIN : int_least8_t` after `int_least8_t : Type`).
+Verified: structures using nontrivial generic structs + impl methods
+(`Counter`, `Box2(T)`) check OK against the full prelude.
+
+**5j. EvalContext.load_module for transitive imports** — **gap**.
+After §5i, the next failure is "Module loader is not provided in
+the context" when prelude / user files reach
+`import("std/collections/array_list")` →
+`import("./libc/stdint.yo")`. The eager-load step
+(`collect_module_deps`) walks all dep files and appends their
+expressions, but the evaluator's runtime `import(...)` call still
+needs a `ctx.load_module` callback that returns a `ModuleVal` for an
+already-loaded path. Need to register the callback in
+`run_check` / `check_single_file`. Tracked as task #119.
+
 ### 6. Prelude auto-loading — **partially fixed**
 
 **Status:** Pre-loading mechanism wired in `run_check`; first

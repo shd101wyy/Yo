@@ -20,7 +20,7 @@ open(import("std/string"));
 { new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -175,7 +175,7 @@ evaluate_extern :: (
       &(env),
       String.from(result.label.as_str()),
       result.field_type,
-      Option(EvalValue).Some(create_unknown_val(result.field_type)),
+      Option(EvalValue).Some(create_unknown_val_with_name(result.field_type, String.from(result.label.as_str()))),
       true,
       // is_compile_time_only
       false,

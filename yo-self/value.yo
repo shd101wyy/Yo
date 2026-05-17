@@ -7,7 +7,8 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./types/definitions.yo");
-{ t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type } :: import("./types/creators.yo");
+{ t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t } :: import("./types/creators.yo");
+{ is_type_0 } :: import("./types/guards.yo");
 { AstExpr } :: import("./expr.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
 /// The compile-time representation of an evaluated expression.
@@ -988,10 +989,23 @@ is_type_value :: (fn(opt : Option(EvalValue)) -> bool)(
 );
 /// Create a compile-time unknown placeholder for type `ty`.
 /// Mirrors `createUnknownValue` in `src/value.ts` for the common (non-SomeType) case.
-/// For type-level unknowns (`TypeUni(0)`), the production evaluator returns a
-/// `TypeVal(SomeType)` — that path is deferred to Phase 3 (SomeType not yet ported).
+/// For type-level unknowns (`TypeUni(0)`), prefer `create_unknown_val_with_name`
+/// which builds a `TypeVal(SomeType)` — required for extern/c_include fields whose
+/// declared type is `Type` so that later expressions can use the name as a type
+/// (e.g. `INT_LEAST8_MIN : int_least8_t`).
 create_unknown_val :: (fn(ty : TypeValue) -> EvalValue)(
   EvalValue.UnknownVal(Box(TypeValue)(ty))
+);
+/// Create a compile-time unknown placeholder, promoting to `TypeVal(SomeType)` when
+/// `ty` is the `Type` universe (i.e. the binding is type-level). Mirrors the TS
+/// path in `createUnknownValue` (`src/value.ts:573-588`) that returns a fresh
+/// `SomeType` wrapped as a `TypeValue` whenever the slot's declared type is `Type`.
+create_unknown_val_with_name :: (fn(ty : TypeValue, name : String) -> EvalValue)(
+  cond(
+    is_type_0(ty) =>
+      EvalValue.TypeVal(Box(TypeValue)(t_some_t(name, usize(0)))),
+    true => EvalValue.UnknownVal(Box(TypeValue)(ty))
+  )
 );
 /// The result of evaluating a single `AstExpr` node.
 EvalResult :: object(
@@ -1071,5 +1085,5 @@ export(
   is_comptime_float_value,
   is_comptime_string_value
 );
-export(is_type_value, create_unknown_val);
+export(is_type_value, create_unknown_val, create_unknown_val_with_name);
 export(eval_value_eq);
