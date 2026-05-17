@@ -28,28 +28,22 @@ open(import("std/fmt"));
   BK_IMPL_UPPER,
   BK_CONST,
   BK_ASSIGN
-} :: import("../../expr/expr.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
-{ Environment } :: import("../../env/env.yo");
+} :: import("../../expr.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue } :: import("../value.yo");
-{
-  TypeValue,
-  is_some_type,
-  is_tuple_type,
-  is_struct_type,
-  is_module_type,
-  is_trait_type
-} :: import("../../types/type.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_some_type, is_tuple_type, is_struct_type, is_module_type, is_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ format_error_message } :: import("../../error/error.yo");
+{ format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { prohibit_void_type } :: import("../../types/utils.yo");
 { doc_comment_lookup_key_from_token } :: import("../utils.yo");
-{ is_type_value } :: import("../value.yo");
+{ is_type_value } :: import("../../value.yo");
 { is_valid_variable_name } :: import("../exprs/binding.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { HashMap } :: import("std/collections/hash_map");
 { ArrayList } :: import("std/collections/array_list");
 { type_implements_fn } :: import("../trait_checking.yo");
@@ -282,7 +276,7 @@ evaluate_type_field :: (
     }, {
       ctx.expected_type = Option(ExpectedTypeCtx).None;
     });
-    evaluated_te := evaluate_expression(te, env, ctx);
+    evaluated_te := evaluate_expression_raw(te, env, ctx, using(exn));
     ctx.expected_type = old_expected;
     te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
     te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env, TypeValue.Unit));
@@ -348,7 +342,7 @@ evaluate_type_field :: (
     ctx.expected_type = field_expected_ctx;
     // Do not propagate forceCompileTimeBindings when evaluating type field values.
     ctx.force_compile_time_bindings = false;
-    evaluated_av := evaluate_expression(av_expr, env, ctx);
+    evaluated_av := evaluate_expression_raw(av_expr, env, ctx, using(exn));
     ctx.expected_type = old_expected;
     ctx.force_compile_time_bindings = old_force_ct;
     av_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_av));
@@ -427,7 +421,7 @@ evaluate_type_field :: (
     );
     old_expected := ctx.expected_type;
     ctx.expected_type = field_expected_ctx;
-    evaluated_dv := evaluate_expression(dv_expr, env, ctx);
+    evaluated_dv := evaluate_expression_raw(dv_expr, env, ctx, using(exn));
     ctx.expected_type = old_expected;
     dv_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dv));
     dv_info := match(

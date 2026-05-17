@@ -23,12 +23,13 @@ open(import("std/fmt"));
   BK_GIVEN,
   BK_COLON,
   make_err_expr
-} :: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../env/env.yo");
+} :: import("../../expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
-{ EvalValue, is_type_value, create_unknown_val } :: import("../value.yo");
-{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
 {
   is_array_type,
   is_function_type,
@@ -42,9 +43,9 @@ open(import("std/fmt"));
   type_prohibits_comptime_modifier,
   type_contains_rc_type
 } :: import("../../types/utils.yo");
-{ format_error_message, YoError } :: import("../../error/error.yo");
+{ format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ TokenKind } :: import("../../lexer/token.yo");
+{ TokenKind } :: import("../../token.yo");
 { evaluate_expression } :: import("./expr.yo");
 // ---------------------------------------------------------------------------
 // Return type
@@ -271,7 +272,7 @@ evaluate_binding :: (
     );
   });
   // Reject type annotations that require comptime but binding is runtime.
-  if(type_requires_comptime_modifier(user_defined_type, env) && !(is_compile_time_only), {
+  if(type_requires_comptime_modifier(user_defined_type) && !(is_compile_time_only), {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(
@@ -285,7 +286,7 @@ evaluate_binding :: (
     );
   });
   // Reject comptime modifier on runtime-only types.
-  if(type_prohibits_comptime_modifier(user_defined_type, env) && is_compile_time_only, {
+  if(type_prohibits_comptime_modifier(user_defined_type) && is_compile_time_only, {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(

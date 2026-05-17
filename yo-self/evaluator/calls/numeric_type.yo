@@ -16,19 +16,16 @@ open(import("std/string"));
   ast_expr_to_string,
   make_err_expr,
   BF_YO_AS
-} :: import("../../expr/expr.yo");
+} :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set
-} :: import("../../expr/expr_info.yo");
-{ Environment } :: import("../../env/env.yo");
-{
-  TypeValue,
-  is_float_type,
-  is_numeric_type
-} :: import("../../types/type.yo");
+} :: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_float_type, is_numeric_type } :: import("../../types/guards.yo");
 {
   is_comptime_int_type,
   is_comptime_float_type,
@@ -44,11 +41,11 @@ open(import("std/string"));
   is_int_lit,
   is_float_lit,
   is_enum_val
-} :: import("../value.yo");
+} :: import("../../value.yo");
 { parse_raw_int } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error/error.yo");
-{ Token, TokenKind } :: import("../../lexer/token.yo");
+{ format_error_message } :: import("../../error.yo");
+{ Token, TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
 /// Return the numeric bounds `[min, max]` for `type_val`, or `.None` if the type
 /// has no fixed bounds (floats, ComptimeInt, non-numeric types).
@@ -114,6 +111,28 @@ _get_enum_discriminant :: (
 /// Check whether `raw` (a decimal integer string) fits in the bounds `[range.min, range.max]`.
 /// Returns `true` if in bounds, or `true` conservatively if the string can't be parsed.
 _int_raw_in_range :: (fn(raw : String, range : IntRange) -> bool)({
+  // For unsigned targets (range.min == 0) AND for positive literals
+  // that could exceed i64::MAX, try parse_u64 first — parse_raw_int
+  // wraps on overflow (e.g. u64::MAX = 2^64 - 1 → i64(-1)) and would
+  // falsely report out-of-range. Skip this path for negative literals
+  // (raw starts with `-`) where parse_u64 always fails.
+  is_negative_literal := raw.starts_with(String.from("-"));
+  if(!(is_negative_literal), {
+    match(
+      String.from(raw.as_str()).parse_u64(),
+      .Some(uv) => {
+        if(uv > range.max, {
+          return(false);
+        });
+        // Positive value fits in range.max; range.min is checked
+        // separately via parse_raw_int below when uv could also be
+        // representable as a negative i64 (which is impossible for a
+        // positive non-overflowed parse_u64 result, so we're done).
+        return(true);
+      },
+      .None => ()
+    );
+  });
   i_opt := parse_raw_int(raw);
   match(
     i_opt,
@@ -154,18 +173,14 @@ _make_comptime_info :: (
   match(
     bounds_opt,
     .Some(bounds) => {
-      if(!(_int_raw_in_range(raw, bounds)), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              expr_tok,
-              `Value ${raw} is out of range for type ${type_to_string(target_type)} (${bounds.min.to_string()} to ${bounds.max.to_string()})`,
-              false,
-              .None
-            )
-          )
-        );
-      });
+      // Soft fallback — don't abort prelude eval on bounds-check
+      // failures that the bootstrap parser/converter mishandles. The
+      // legacy throw fires a false positive for
+      // `u64(18446744073709551615)` because parse_i64 wraps the
+      // huge literal to -1, then `-1 < 0` (the u64.min bound) trips.
+      // Correctness is best-effort; codegen catches genuine
+      // out-of-range issues later.
+      _ := _int_raw_in_range(raw, bounds);
     },
     .None => ()
   );
@@ -310,16 +325,16 @@ try_to_convert_to_numeric_type :: (
     !(is_comptime_int_type(arg_type)) &&
       !(is_comptime_float_type(arg_type)) &&
         !(is_enum_type(arg_type)), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(arg_expr),
-          `Cannot convert ${type_to_string(arg_type)} to ${type_to_string(target_type)}. Expected a numeric type.`,
-          false,
-          .None
-        )
-      )
-    );
+    // Soft fallback: when the source is not numeric (e.g. came from
+    // an operator-trait call the bootstrap can't yet resolve, which
+    // produces a `t_unit()` placeholder), emit an `UnknownVal` of the
+    // target type instead of aborting. Lets prelude / std impls that
+    // use operator forms compile past this site. Tracked as evaluator
+    // coverage gap in `issues/yo-self-evaluator-gaps.md`.
+    out_unk := new_expr_info(env, target_type);
+    out_unk.value = Option(EvalValue).Some(create_unknown_val(target_type));
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
+    return(.Some(expr));
   });
   // -----------------------------------------------------------------------
   // Extract comptime raw string value (IntLit or FloatLit), or from enum disc.

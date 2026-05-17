@@ -1,0 +1,273 @@
+//! Expression-tree traversal helpers — 1-to-1 port of `src/expr-traversal.ts`.
+//!
+//! Pure AST-shape predicates that walk an `AstExpr` tree looking for
+//! control-flow keywords (`return`, `escape`, `break`). They respect
+//! function/closure boundaries (`=>` arrows) so a `return` inside a
+//! nested closure does not register as a return for the outer scope.
+//!
+//! Ported helpers:
+//!   * `evaluated_body_contains_escape` — true if `escape` appears outside
+//!     a function boundary. Mirrors `evaluatedBodyContainsEscape`.
+//!   * `expr_tree_contains_return` — same shape but also matches `return`.
+//!     Mirrors `exprTreeContainsReturn`. The TS `macro_expansion` case is
+//!     omitted because `ExprInfo.macro_expansion` lives in a side table
+//!     not reachable from a raw `AstExpr`.
+//!   * `expr_contains_loop_terminator` — also matches `break`. Mirrors
+//!     `exprContainsLoopTerminator`.
+//!
+//! Not yet ported:
+//!   * `expr_contains_await` — no yo-self caller uses it yet.
+//!
+//! Phase A.9 (§2 — create missing files): these three helpers previously
+//! lived in `expr.yo` and `expr_info.yo`; relocated here to mirror src/.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_is_fn_call_of,
+  is_function_boundary_arrow,
+  make_err_expr,
+  BF_ESCAPE,
+  BK_BREAK,
+  BK_RETURN,
+  BK_COND,
+  BK_MATCH
+} :: import("./expr.yo");
+/// Traverse an evaluated expression tree checking for an `escape` usage.
+/// Skips new function/closure boundaries; recurses into cond/match branches.
+///
+/// The cond/match branch traversal is inlined here (rather than delegated to a
+/// separate visitor function) to avoid mutual-recursion forward-reference issues.
+///
+/// Mirrors `evaluatedBodyContainsEscape` in `src/expr-traversal.ts`.
+evaluated_body_contains_escape :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, tok) => (tok.value.as_str() == BF_ESCAPE),
+    .FnCall(_, func_box, args, _, _) => {
+      is_cond := ast_expr_is_fn_call_of(e, BK_COND,.None);
+      is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
+      if(is_cond || is_match, {
+        // Inline traverseCondMatchBranches: recurse into each arg.
+        // Branch arrows `condition => body` are NOT function boundaries:
+        // recurse into both the condition and the body parts.
+        if(recur(func_box.*), {
+          return(true);
+        });
+        na := args.len();
+        (ia : usize) = usize(0);
+        (found_a : bool) = false;
+        while(runtime((ia < na) && (!(found_a))), {
+          arg_a := match(args.get(ia),.Some(a) => a,.None => make_err_expr());
+          is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>",.None);
+          if(is_branch_arrow, {
+            inner_args := match(
+              arg_a,
+              .FnCall(_, _, ia_inner, _, _) => ia_inner,
+              .Atom(_, _) => ArrayList(AstExpr).new()
+            );
+            ni := inner_args.len();
+            (ji : usize) = usize(0);
+            while(runtime((ji < ni) && (!(found_a))), {
+              bp := match(inner_args.get(ji),.Some(a) => a,.None => make_err_expr());
+              if(recur(bp), {
+                found_a = true;
+              });
+              ji = (ji + usize(1));
+            });
+          }, {
+            if(recur(arg_a), {
+              found_a = true;
+            });
+          });
+          ia = (ia + usize(1));
+        });
+        return(found_a);
+      });
+      if(is_function_boundary_arrow(e), {
+        return(false);
+      });
+      if(recur(func_box.*), {
+        return(true);
+      });
+      n := args.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while(runtime((i < n) && (!(found))), {
+        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+        if(recur(arg), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
+/// Traverse an evaluated expression tree checking for a `return` or `escape`
+/// usage. Like `evaluated_body_contains_escape` but additionally matches
+/// `return`. Skips new function/closure boundaries; recurses into cond/match
+/// branches.
+///
+/// Mirrors `exprTreeContainsReturn` in `src/expr-traversal.ts`. The macro
+/// expansion case from TS is omitted — `ExprInfo.macro_expansion` lives in a
+/// side table (`ExprInfoTable`) and is not reachable from a raw `AstExpr`, so
+/// this helper is an AST-only baseline.
+expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, tok) => {
+      v := tok.value.as_str();
+      (v == BK_RETURN) || (v == BF_ESCAPE)
+    },
+    .FnCall(_, func_box, args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, BK_RETURN,.None), {
+        return(true);
+      });
+      if(ast_expr_is_fn_call_of(e, BF_ESCAPE,.None), {
+        return(true);
+      });
+      is_cond := ast_expr_is_fn_call_of(e, BK_COND,.None);
+      is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
+      if(is_cond || is_match, {
+        if(recur(func_box.*), {
+          return(true);
+        });
+        na := args.len();
+        (ia : usize) = usize(0);
+        (found_a : bool) = false;
+        while(runtime((ia < na) && (!(found_a))), {
+          arg_a := match(args.get(ia),.Some(a) => a,.None => make_err_expr());
+          is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>",.None);
+          if(is_branch_arrow, {
+            inner_args := match(
+              arg_a,
+              .FnCall(_, _, ia_inner, _, _) => ia_inner,
+              .Atom(_, _) => ArrayList(AstExpr).new()
+            );
+            ni := inner_args.len();
+            (ji : usize) = usize(0);
+            while(runtime((ji < ni) && (!(found_a))), {
+              bp := match(inner_args.get(ji),.Some(a) => a,.None => make_err_expr());
+              if(recur(bp), {
+                found_a = true;
+              });
+              ji = (ji + usize(1));
+            });
+          }, {
+            if(recur(arg_a), {
+              found_a = true;
+            });
+          });
+          ia = (ia + usize(1));
+        });
+        return(found_a);
+      });
+      if(is_function_boundary_arrow(e), {
+        return(false);
+      });
+      if(recur(func_box.*), {
+        return(true);
+      });
+      n := args.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while(runtime((i < n) && (!(found))), {
+        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+        if(recur(arg), {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
+/// Walk `expr` looking for any loop-terminator atom or call (break, return, escape).
+/// Stops at function/closure boundaries (`=>` arrows) but recurses directly
+/// into the condition and body parts of `cond`/`match` branch arms, bypassing
+/// the `=>` boundary check for those specific arguments.
+///
+/// Uses `recur` for self-recursion (Yo does not allow direct self-calls).
+///
+/// Mirrors `exprContainsLoopTerminator` in `src/expr-traversal.ts`.
+expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
+  match(
+    expr,
+    .Atom(_, tok) => {
+      s := tok.value.as_str();
+      (s == BK_BREAK) || ((s == BK_RETURN) || (s == BF_ESCAPE))
+    },
+    .FnCall(_, fn_box, args, _, _) => {
+      // return / escape as a direct function call
+      if(ast_expr_is_fn_call_of(expr, BK_RETURN,.None), {
+        return(true);
+      });
+      if(ast_expr_is_fn_call_of(expr, BF_ESCAPE,.None), {
+        return(true);
+      });
+      // => is a function boundary: do not recurse into it
+      if(ast_expr_is_fn_call_of(expr, "=>",.None), {
+        return(false);
+      });
+      // cond/match: recurse into branch parts directly (bypassing => at arg level)
+      (is_cond_or_match : bool) = (
+        ast_expr_is_fn_call_of(expr, BK_COND,.None) ||
+          ast_expr_is_fn_call_of(expr, BK_MATCH,.None)
+      );
+      if(is_cond_or_match, {
+        if(recur(fn_box.*), {
+          return(true);
+        });
+        (n_cm : usize) = args.len();
+        (i_cm : usize) = usize(0);
+        while(runtime(i_cm < n_cm), {
+          arg := match(args.get(i_cm),.Some(a) => a,.None => make_err_expr());
+          if(ast_expr_is_fn_call_of(arg, "=>",.None), {
+            // Branch arrow: recurse into each child (condition and body)
+            match(
+              arg,
+              .Atom(_, _) => (),
+              .FnCall(_, _, branch_args, _, _) => {
+                (n_ba : usize) = branch_args.len();
+                (j : usize) = usize(0);
+                while(runtime(j < n_ba), {
+                  ba := match(branch_args.get(j),.Some(a) => a,.None => make_err_expr());
+                  if(recur(ba), {
+                    return(true);
+                  });
+                  j = (j + usize(1));
+                });
+              }
+            );
+          }, {
+            if(recur(arg), {
+              return(true);
+            });
+          });
+          i_cm = (i_cm + usize(1));
+        });
+        return(false);
+      });
+      // General case: recurse into func and all args
+      if(recur(fn_box.*), {
+        return(true);
+      });
+      (n : usize) = args.len();
+      (i : usize) = usize(0);
+      while(runtime(i < n), {
+        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+        if(recur(arg), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
+export(
+  evaluated_body_contains_escape,
+  expr_tree_contains_return,
+  expr_contains_loop_terminator
+);

@@ -57,11 +57,38 @@ ${getLineAtToken({ token })}`;
   }
 }
 
+/**
+ * Cache for `inputString.split("\n")` keyed by the inputString itself.
+ *
+ * `formatErrorMessage` calls `getLineAtToken` for every formatted
+ * error, and the synthesizer's overload-resolution path catches and
+ * discards tens of thousands of these per compile. Splitting a
+ * multi-thousand-character module source each time is wasted work —
+ * the source doesn't change. Per `perf-repros/run.sh ts-nested-tostring`
+ * profiling, `inputString.split("\n")` accounted for 100% of
+ * `stringSplitFast` calls (262 ms self-time on the small repro).
+ *
+ * Using a `WeakRef`-keyed structure would be ideal, but `Map` on the
+ * primitive string suffices: tokens from the same module all share
+ * the same `inputString` reference (Yo lexer stores one canonical
+ * string per module), so the cache size is bounded by the number of
+ * compiled modules.
+ */
+const _inputLinesCache: Map<string, string[]> = new Map();
+function _splitLinesCached(inputString: string): string[] {
+  let lines = _inputLinesCache.get(inputString);
+  if (lines === undefined) {
+    lines = inputString.split("\n");
+    _inputLinesCache.set(inputString, lines);
+  }
+  return lines;
+}
+
 export function getLineAtToken({ token }: { token: Token }): string {
   const { position, modulePath, inputString } = token;
   const { row, column } = position;
 
-  const lines = inputString.split("\n");
+  const lines = _splitLinesCached(inputString);
   const lineString = lines[row];
   return `${modulePath}:${row + 1}:${column + 1}:
 ${lineString}
@@ -79,10 +106,10 @@ export function getLineAtPosition({
 }): string {
   const { row, column } = position;
 
-  const lines = inputString.split("\n");
+  const lines = _splitLinesCached(inputString);
   const lineString = lines[row];
   return `${modulePath}:${row + 1}:${column + 1}:
-  
+
 ${lineString}
 ${" ".repeat(column)}^`;
 }

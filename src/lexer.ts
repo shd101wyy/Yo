@@ -662,15 +662,6 @@ export function tokenize(input: string, modulePath: string): Token[] {
           }
           i = i - 1;
 
-          // Add support for trailing !? characters in identifiers
-          if (
-            (input[i + 1] === "!" || input[i + 1] === "?") &&
-            IdentifierRegex.test(value + input[i + 1])
-          ) {
-            i = i + 1;
-            value += input[i];
-          }
-
           // Check if the identifier is valid using IdentifierRegex
           if (IdentifierRegex.test(value)) {
             /* 

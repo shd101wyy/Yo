@@ -116,24 +116,27 @@ export const Operators = [
   "#",
 ];
 
+/**
+ * Set form of Operators for O(1) membership test. `Operators.includes`
+ * is O(n=20) per call; with `charIsOperator` invoked once per
+ * character of every variable name during ID sanitisation, the linear
+ * scan dominated profiles on large compiles.
+ */
+const _operatorSet: Set<string> = new Set(Operators);
+
 export function charIsOperator(char: string): boolean {
-  return Operators.includes(char);
+  return _operatorSet.has(char);
 }
 
 export function stringIsOperator(str: string): boolean {
-  let isOperator = true;
+  if (str.length === 0) return true;
   for (let i = 0; i < str.length; i++) {
-    const char = str[i]!;
-    if (!charIsOperator(char)) {
-      isOperator = false;
-      break;
-    }
+    if (!_operatorSet.has(str[i]!)) return false;
   }
-  return isOperator;
+  return true;
 }
 
-export const IdentifierRegex =
-  /^[_a-zA-Z\xA0-\uFFFF][_a-zA-Z0-9\xA0-\uFFFF]*[!?]?$/;
+export const IdentifierRegex = /^[_a-zA-Z\xA0-\uFFFF][_a-zA-Z0-9\xA0-\uFFFF]*$/;
 
 /**
  * Finds the index of the matching right bracket (closing bracket) for a left bracket (opening bracket)

@@ -1,0 +1,763 @@
+//! Install command — `yo install` implementation.
+//!
+//! Parses a package specifier, resolves the latest semver tag via
+//! `git ls-remote`, appends the dependency to `deps.yo`, and fetches
+//! it into the global cache.
+//!
+//! This mirrors `src/install-command.ts`.
+open(import("std/string"));
+open(import("std/fmt"));
+{ env } :: import("std/env");
+{ cwd } :: import("std/env");
+{ Path } :: import("std/path");
+{ AnyError, Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ Command, ExitStatus, Output } :: import("std/process/command");
+{ exists, read_file, write_file } :: import("std/fs/file");
+{ BuildGitDependency, fetch_all_deps } :: import("./fetch.yo");
+{ generate_deps_yo } :: import("./init.yo");
+{ exit } :: import("std/libc/stdlib");
+// ---------------------------------------------------------------------------
+// Data types
+// ---------------------------------------------------------------------------
+/// Discriminated union of parsed package kinds.
+/// Git variant: (name, url, pinned_ref)
+/// Path variant: (name, rel_path)
+ParsedPackage :: enum(
+  Git(name : String, url : String, pinned_ref : Option(String)),
+  Path(name : String, rel_path : String)
+);
+/// A parsed semantic version tag.
+SemVer :: object(
+  tag : String,
+  major : i32,
+  minor : i32,
+  patch : i32
+);
+/// Options for the `run_install` entry point.
+InstallOptions :: object(
+  package_spec : String,
+  build_file : String,
+  verbose : bool
+);
+// ---------------------------------------------------------------------------
+// Pure string helpers
+// ---------------------------------------------------------------------------
+/// Return `true` if `spec` looks like a local file-system path.
+is_local_path :: (fn(spec : str) -> bool)({
+  s := String.from(spec);
+  (spec == ".") || ((spec == "..") || ((s.starts_with(String.from("./"))) || ((s.starts_with(String.from("../"))) || s.starts_with(String.from("/")))))
+});
+/// Extract the last path component from a URL or path, stripping `.git`.
+_url_to_dep_name :: (fn(url : str) -> String)({
+  s := String.from(url);
+  s2 := if(
+    s.ends_with(String.from(".git")),
+    s.substring(usize(0), s.len() - usize(4)),
+    s
+  );
+  match(
+    s2.last_index_of(String.from("/")),
+    .None => s2,
+    .Some(idx) => s2.substring(idx + usize(1), s2.len())
+  )
+});
+/// Return `true` if every character in `s` is an ASCII digit.
+_is_all_digits :: (fn(s : String) -> bool)({
+  n := s.len();
+  if(n == usize(0), return(false));
+  i := usize(0);
+  ok := true;
+  while(runtime((i < n) && ok), {
+    match(
+      s.at(i),
+      .None => {
+        ok = false;
+      },
+      .Some(c) => if((c < rune(u32('0'))) || (c > rune(u32('9'))), {
+        ok = false;
+      })
+    );
+    i = (i + usize(1));
+  });
+  ok
+});
+/// Parse a semver tag like "v1.2.3" or "1.2.3".
+/// Returns `.None` if the string is not a valid semver.
+_parse_semver_tag :: (fn(tag : String) -> Option(SemVer))({
+  n := tag.len();
+  if(n == usize(0), return(Option(SemVer).None));
+  first_char := match(
+    tag.at(usize(0)),
+    .None => {
+      return(Option(SemVer).None);
+    },
+    .Some(c) => c
+  );
+  stripped := if(
+    (first_char == rune(u32('v'))) || (first_char == rune(u32('V'))),
+    tag.substring(usize(1), n),
+    tag
+  );
+  parts := stripped.split(String.from("."));
+  if(!(parts.len() == usize(3)), return(Option(SemVer).None));
+  major_str := match(
+    parts.get(usize(0)),
+    .None => {
+      return(Option(SemVer).None);
+    },
+    .Some(s) => s
+  );
+  minor_str := match(
+    parts.get(usize(1)),
+    .None => {
+      return(Option(SemVer).None);
+    },
+    .Some(s) => s
+  );
+  patch_str := match(
+    parts.get(usize(2)),
+    .None => {
+      return(Option(SemVer).None);
+    },
+    .Some(s) => s
+  );
+  if(
+    !(_is_all_digits(major_str) && (_is_all_digits(minor_str) && _is_all_digits(patch_str))),
+    return(Option(SemVer).None)
+  );
+  major := match(
+    major_str.parse_i32(),
+    .None => {
+      return(Option(SemVer).None);
+    },
+    .Some(x) => x
+  );
+  minor := match(
+    minor_str.parse_i32(),
+    .None => {
+      return(Option(SemVer).None);
+    },
+    .Some(x) => x
+  );
+  patch := match(
+    patch_str.parse_i32(),
+    .None => {
+      return(Option(SemVer).None);
+    },
+    .Some(x) => x
+  );
+  Option(SemVer).Some(SemVer(tag : tag, major : major, minor : minor, patch : patch))
+});
+/// Compare two `SemVer` values. Returns positive if `a > b`, negative if `a < b`, 0 if equal.
+_compare_semver :: (fn(a : SemVer, b : SemVer) -> i32)(
+  if(
+    a.major != b.major,
+    if(a.major > b.major, i32(1), i32(-(1))),
+    if(
+      a.minor != b.minor,
+      if(a.minor > b.minor, i32(1), i32(-(1))),
+      if(
+        a.patch != b.patch,
+        if(a.patch > b.patch, i32(1), i32(-(1))),
+        i32(0)
+      )
+    )
+  )
+);
+/// Scan `git ls-remote --tags` output and return the latest semver tag string.
+/// Returns `.None` if no valid semver tags are found.
+_parse_tags_for_latest_semver :: (fn(text : String) -> Option(String))({
+  lines := text.split(String.from("\n"));
+  tags := ArrayList(SemVer).new();
+  n := lines.len();
+  i := usize(0);
+  while(runtime(i < n), {
+    match(
+      lines.get(i),
+      .None => (),
+      .Some(line) => {
+        trimmed := line.trim();
+        // Skip empty lines and ^{} dereferenced tag objects
+        if((trimmed.len() > usize(0)) && (!(trimmed.ends_with(String.from("^{}")))), {
+          parts := trimmed.split(String.from("\t"));
+          match(
+            parts.get(usize(1)),
+            .None => (),
+            .Some(ref_path) => {
+              prefix := String.from("refs/tags/");
+              if(ref_path.starts_with(prefix), {
+                tag_name := ref_path.substring(prefix.len(), ref_path.len());
+                match(
+                  _parse_semver_tag(tag_name),
+                  .None => (),
+                  .Some(sv) => {
+                    tags.push(sv);
+                  }
+                );
+              });
+            }
+          );
+        });
+      }
+    );
+    i = (i + usize(1));
+  });
+  // Find the maximum-version SemVer (linear scan — list is typically small)
+  if(tags.len() == usize(0), return(Option(String).None));
+  best := match(
+    tags.get(usize(0)),
+    .None => {
+      return(Option(String).None);
+    },
+    .Some(t) => t
+  );
+  j := usize(1);
+  while(runtime(j < tags.len()), {
+    match(
+      tags.get(j),
+      .None => (),
+      .Some(t) => if(_compare_semver(t, best) > i32(0), {
+        best = t;
+      })
+    );
+    j = (j + usize(1));
+  });
+  Option(String).Some(best.tag)
+});
+/// Parse a package specifier into a `ParsedPackage`.
+///
+/// Accepted forms:
+/// - `./path` / `../path` / `/abs/path` → `ParsedPackage.Path`
+/// - `user/repo`                         → GitHub shorthand
+/// - `github.com/user/repo`              → GitHub with explicit host
+/// - `github.com/user/repo@v1.0.0`       → GitHub with pinned version
+/// - `https://host/path.git@ref`         → full URL with optional ref
+parse_package_specifier :: (fn(spec : String) -> Result(ParsedPackage, String))({
+  spec_str := spec.as_str();
+  // Local path case
+  if(is_local_path(spec_str), {
+    name := _url_to_dep_name(spec_str);
+    return(
+      Result(ParsedPackage, String).Ok(
+        ParsedPackage.Path(name, spec)
+      )
+    );
+  });
+  // Split off optional @ref suffix (use last '@' so URLs with '@' in credentials are handled)
+  at_idx := spec.last_index_of(String.from("@"));
+  url_part := match(
+    at_idx,
+    .None => spec,
+    .Some(idx) => if(idx > usize(0), spec.substring(usize(0), idx), spec)
+  );
+  pinned_ref := match(
+    at_idx,
+    .None => Option(String).None,
+    .Some(idx) => if(
+      idx > usize(0),
+      Option(String).Some(spec.substring(idx + usize(1), spec.len())),
+      Option(String).None
+    )
+  );
+  // Build canonical https URL
+  url := cond(
+    (url_part.starts_with(String.from("https://")) || url_part.starts_with(String.from("http://"))) =>
+      if(
+        url_part.ends_with(String.from(".git")),
+        url_part,
+        url_part.concat(String.from(".git"))
+      ),
+    url_part.starts_with(String.from("github.com/")) => {
+      s := String.from("https://").concat(url_part);
+      if(s.ends_with(String.from(".git")), s, s.concat(String.from(".git")))
+    },
+    true => {
+      // Exactly two parts ("user/repo") → GitHub shorthand
+      slash_parts := url_part.split(String.from("/"));
+      if(slash_parts.len() == usize(2), {
+        s := String.from("https://github.com/").concat(url_part);
+        if(s.ends_with(String.from(".git")), s, s.concat(String.from(".git")))
+      }, {
+        return(
+          Result(ParsedPackage, String).Err(
+            String.from("Invalid package specifier: \"").concat(spec).concat(
+              String.from("\". Use 'user/repo', 'github.com/user/repo', or a full URL.")
+            )
+          )
+        );
+      })
+    }
+  );
+  name := _url_to_dep_name(url.as_str());
+  Result(ParsedPackage, String).Ok(
+    ParsedPackage.Git(name, url, pinned_ref)
+  )
+});
+// ---------------------------------------------------------------------------
+// deps.yo text manipulation helpers
+// ---------------------------------------------------------------------------
+/// Return `true` if a dependency named `name` already appears in `content`.
+dependency_exists_in_deps_file :: (fn(content : String, name : str) -> bool)({
+  name_str := String.from(name);
+  git_pat := name_str.concat(String.from(" :: build.dependency("));
+  path_pat := name_str.concat(String.from(" :: build.path_dependency("));
+  (content.contains(git_pat)) || (content.contains(path_pat))
+});
+/// Scan `content` for dependency binding lines and return the binding names.
+///
+/// Looks for lines containing `:: build.dependency(` or
+/// `:: build.path_dependency(` and extracts the identifier before ` ::`.
+parse_dependency_names :: (fn(content : String) -> ArrayList(String))({
+  names := ArrayList(String).new();
+  all_lines := content.split(String.from("\n"));
+  n := all_lines.len();
+  i := usize(0);
+  while(runtime(i < n), {
+    match(
+      all_lines.get(i),
+      .None => (),
+      .Some(line) => {
+        trimmed := line.trim();
+        has_git := trimmed.contains(String.from(":: build.dependency("));
+        has_path := trimmed.contains(String.from(":: build.path_dependency("));
+        if((has_git) || (has_path), {
+          sep := String.from(" ::");
+          match(
+            trimmed.index_of(sep, usize(0)),
+            .None => (),
+            .Some(sep_idx) => {
+              name := trimmed.substring(usize(0), sep_idx).trim();
+              if(name.len() > usize(0), {
+                names.push(name);
+              });
+            }
+          );
+        });
+      }
+    );
+    i = (i + usize(1));
+  });
+  names
+});
+/// Build the `imports :: ComptimeList(...)` block for the given dep names.
+_build_imports_block :: (fn(dep_names : ArrayList(String)) -> String)({
+  n := dep_names.len();
+  if(n == usize(0), String.from("imports :: ComptimeList(build.ImportEntry)();\nexport(imports);\n"), {
+    block := String.from("imports :: ComptimeList(build.ImportEntry)(\n");
+    i := usize(0);
+    while(runtime(i < n), {
+      match(
+        dep_names.get(i),
+        .None => (),
+        .Some(dep_name) => {
+          entry := String.from("  { name: \"").concat(dep_name).concat(
+            String.from("\", module: ")
+          ).concat(dep_name).concat(String.from(".module() }"));
+          block = block.concat(entry);
+          if((i + usize(1)) < n, {
+            block = block.concat(String.from(",\n"));
+          }, {
+            block = block.concat(String.from("\n"));
+          });
+        }
+      );
+      i = (i + usize(1));
+    });
+    block.concat(String.from(");\nexport(imports);\n"))
+  })
+});
+/// Regenerate the `// --- Import list ---` … `export(imports);` section in
+/// `content` to match the dependency declarations found in the same content.
+regenerate_imports_list :: (fn(content : String) -> String)({
+  dep_names := parse_dependency_names(content);
+  marker := String.from("// --- Import list ---");
+  export_line := String.from("export(imports);");
+  imports_blk := _build_imports_block(dep_names);
+  marker_idx := content.index_of(marker, usize(0));
+  match(
+    marker_idx,
+    .None => {
+      // No marker — append at end
+      suffix := if(content.ends_with(String.from("\n")), String.new(), String.from("\n"));
+      content.concat(suffix).concat(String.from("\n")).concat(marker).concat(
+        String.from("\n")
+      ).concat(imports_blk)
+    },
+    .Some(m_idx) => {
+      export_idx := content.index_of(export_line, m_idx);
+      match(
+        export_idx,
+        .None =>
+          // Marker found but no `export(imports);` — replace to end
+          content.substring(usize(0), m_idx).concat(marker).concat(
+            String.from("\n")
+          ).concat(imports_blk),
+        .Some(e_idx) => {
+          // Replace from marker to end of "export(imports);\n"
+          end_idx := ((e_idx + export_line.len()) + usize(1));
+          prefix := content.substring(usize(0), m_idx);
+          tail := content.substring(end_idx, content.len());
+          prefix.concat(marker).concat(String.from("\n")).concat(imports_blk).concat(tail)
+        }
+      )
+    }
+  )
+});
+/// Insert `dep_line` after the `// --- Dependencies ---` marker (or append to
+/// the file) and return the updated content with the imports list regenerated.
+_append_dep_to_content :: (fn(content : String, dep_line : String) -> String)({
+  dep_marker := String.from("// --- Dependencies ---");
+  import_marker := String.from("// --- Import list ---");
+  dep_marker_idx := content.index_of(dep_marker, usize(0));
+  content2 := match(
+    dep_marker_idx,
+    .Some(d_idx) => {
+      // Insert after the marker line (skip past the marker and its newline)
+      insert_pos := ((d_idx + dep_marker.len()) + usize(1));
+      content.substring(usize(0), insert_pos).concat(dep_line).concat(
+        content.substring(insert_pos, content.len())
+      )
+    },
+    .None =>
+      // No dep marker — insert before the import list marker if present
+      match(
+        content.index_of(import_marker, usize(0)),
+        .Some(i_idx) => content.substring(usize(0), i_idx).concat(dep_line).concat(
+          String.from("\n")
+        ).concat(content.substring(i_idx, content.len())),
+        .None => {
+          suffix := if(content.ends_with(String.from("\n")), String.new(), String.from("\n"));
+          content.concat(suffix).concat(String.from("\n")).concat(dep_line)
+        }
+      )
+  );
+  // Regenerate the import list from the new content
+  regenerate_imports_list(content2)
+});
+// ---------------------------------------------------------------------------
+// File I/O helpers
+// ---------------------------------------------------------------------------
+/// Read `deps_path`, check for duplicate, insert `dep_line`, regenerate
+/// the imports list, and write the file back.
+/// Returns `true` if the dependency was added, `false` if it already existed.
+append_dep_to_deps_file :: (
+  fn(
+    deps_path : Path,
+    dep_line : String,
+    dep_name : str,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(bool, IO, Exception))
+)(
+  io.async((using(io, exn)) => {
+    // Create deps.yo from template if it does not exist yet
+    file_exists := io.await(exists(deps_path));
+    if(!(file_exists), {
+      io.await(write_file(deps_path, String.from(generate_deps_yo())));
+    });
+    bytes := io.await(read_file(deps_path));
+    content := String.from_bytes(bytes);
+    if(dependency_exists_in_deps_file(content, dep_name), {
+      println(`Dependency "${dep_name}" already exists in deps.yo. Update it manually if needed.`);
+      return(false);
+    });
+    updated := _append_dep_to_content(content, dep_line);
+    io.await(write_file(deps_path, updated));
+    true
+  })
+);
+// ---------------------------------------------------------------------------
+// Git subprocess helpers
+// ---------------------------------------------------------------------------
+/// Resolve the default branch of a git repository (usually "main" or "master").
+/// Falls back to `"main"` on any error.
+resolve_default_branch :: (
+  fn(
+    url : String,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(String, IO, Exception))
+)(
+  io.async((using(io, exn)) => {
+    cmd := Command.new(String.from("git"));
+    cmd.arg(String.from("ls-remote"));
+    cmd.arg(String.from("--symref"));
+    cmd.arg(url);
+    cmd.arg(String.from("HEAD"));
+    given(try_exn) := Exception(
+      throw : (
+        (err) -> {
+          return(
+            Output(
+              status : ExitStatus(raw : i32(1)),
+              stdout : ArrayList(u8).new(),
+              stderr : ArrayList(u8).new()
+            )
+          );
+        }
+      )
+    );
+    out := io.await(cmd.output(using(io, try_exn)));
+    if(out.status.raw != i32(0), return(String.from("main")));
+    text := String.from_bytes(out.stdout).trim();
+    lines := text.split(String.from("\n"));
+    prefix := String.from("ref: refs/heads/");
+    result := String.from("main");
+    n := lines.len();
+    i := usize(0);
+    while(runtime(i < n), {
+      match(
+        lines.get(i),
+        .None => (),
+        .Some(line) => {
+          if(line.starts_with(prefix), {
+            rest := line.substring(prefix.len(), line.len());
+            tab_opt := rest.index_of(String.from("\t"), usize(0));
+            branch := match(
+              tab_opt,
+              .None => rest,
+              .Some(ti) => rest.substring(usize(0), ti)
+            );
+            result = branch;
+          });
+        }
+      );
+      i = (i + usize(1));
+    });
+    result
+  })
+);
+/// Resolve the latest semver tag from a git repository via `git ls-remote`.
+/// Falls back to the default branch if no semver tags are found.
+/// Returns `Err(msg)` if the repository cannot be reached.
+resolve_latest_ref :: (
+  fn(
+    url : String,
+    verbose : bool,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(Result(String, String), IO, Exception))
+)(
+  io.async((using(io, exn)) => {
+    // Disable interactive credential prompts
+    env.set(String.from("GIT_TERMINAL_PROMPT"), String.from("0"));
+    cmd := Command.new(String.from("git"));
+    cmd.arg(String.from("ls-remote"));
+    cmd.arg(String.from("--tags"));
+    cmd.arg(url);
+    given(try_exn) := Exception(
+      throw : (
+        (err) -> {
+          return(
+            Output(
+              status : ExitStatus(raw : i32(1)),
+              stdout : ArrayList(u8).new(),
+              stderr : ArrayList(u8).new()
+            )
+          );
+        }
+      )
+    );
+    out := io.await(cmd.output(using(io, try_exn)));
+    if(
+      out.status.raw != i32(0),
+      return(
+        Result(String, String).Err(
+          String.from("Repository not found or not accessible: ").concat(url)
+        )
+      )
+    );
+    text := String.from_bytes(out.stdout).trim();
+    semver_opt := _parse_tags_for_latest_semver(text);
+    match(
+      semver_opt,
+      .Some(latest_tag) => {
+        if(verbose, {
+          println(`  Found semver tags, latest: ${latest_tag.as_str()}`);
+        });
+        Result(String, String).Ok(latest_tag)
+      },
+      .None => {
+        if(verbose, {
+          println("  No semver tags found, resolving default branch...");
+        });
+        branch := io.await(resolve_default_branch(url));
+        Result(String, String).Ok(branch)
+      }
+    )
+  })
+);
+/// Print guidance for adding `deps.yo` to `build.yo` if not already done.
+_print_add_import_guidance :: (fn(build_path : Path, project_dir : Path) -> unit)({
+  build_exists_sync := true; // build_path was verified above
+  if(build_exists_sync, {
+    // Read build.yo synchronously would require IO — skip check and always print guidance.
+    // (In practice the user already has deps.yo wired if they ran install before.)
+    println("If you haven't already, add the following to your build.yo:");
+    println("  { imports } :: import(\"./deps.yo\");");
+    println("  exe.add_import_list(imports);");
+  });
+  ()
+});
+// ---------------------------------------------------------------------------
+// Main install entry point
+// ---------------------------------------------------------------------------
+/// Run `yo install <package_spec>`.
+///
+/// 1. Parse `options.package_spec`.
+/// 2. Locate `build.yo` (ensures we are inside a project).
+/// 3. Resolve the latest semver ref if none was pinned.
+/// 4. Append a declaration to `deps.yo` (create it if absent).
+/// 5. Fetch the new dependency into the global cache and update `yo.lock`.
+run_install :: (
+  fn(
+    options : InstallOptions,
+    using(io : IO, exn : Exception)
+  ) -> Impl(Future(unit, IO, Exception))
+)(
+  io.async((using(io, exn)) => {
+    // 1. Parse package specifier
+    parsed_result := parse_package_specifier(options.package_spec);
+    parsed := match(
+      parsed_result,
+      .Err(msg) => {
+        println(`Error: ${msg.as_str()}`);
+        exit(int(1));
+        ParsedPackage.Git(String.new(), String.new(), Option(String).None) // unreachable — satisfies type checker
+      },
+      .Ok(p) => p
+    );
+    // 2. Locate build.yo (determines project root)
+    user_cwd_str := match(
+      cwd(),
+      .Err(_) => String.from("."),
+      .Ok(p) => p.to_string()
+    );
+    yo_original_cwd := match(
+      env.get(String.from("YO_ORIGINAL_CWD")),
+      .None => user_cwd_str,
+      .Some(s) => s
+    );
+    build_path := Path.new(yo_original_cwd).join(Path.new(options.build_file));
+    build_exists := io.await(exists(build_path));
+    if(!(build_exists), {
+      println(`Error: Build file not found: ${build_path.to_string().as_str()}`);
+      println("Run 'yo init' to create a project with a build.yo file.");
+      exit(int(1));
+    });
+    project_dir := match(
+      build_path.parent(),
+      .None => Path.new(String.from(".")),
+      .Some(p) => p
+    );
+    deps_path := project_dir.join(Path.new(String.from("deps.yo")));
+    // 3. Handle path vs. git dependency
+    match(
+      parsed,
+      .Path(p_name, p_rel_path) => {
+        // Local path dependency — just append, no git needed
+        rel_path := p_rel_path.as_str();
+        path_exists := io.await(exists(Path.new(p_rel_path)));
+        if(!(path_exists), {
+          println(`Error: Path does not exist: ${rel_path}`);
+          exit(int(1));
+        });
+        dep_line := p_name.concat(
+          String.from(" :: build.path_dependency({ name: \"")
+        ).concat(p_name).concat(
+          String.from("\", path: \"")
+        ).concat(p_rel_path).concat(String.from("\" });\n"));
+        added := io.await(append_dep_to_deps_file(deps_path, dep_line, p_name.as_str()));
+        if(added, {
+          println(
+            String.from("Added path dependency \"").concat(p_name).concat(
+              String.from("\" from ")
+            ).concat(p_rel_path).concat(String.from(" to deps.yo"))
+          );
+        });
+        println("");
+        _print_add_import_guidance(build_path, project_dir);
+        println("Done.");
+      },
+      .Git(g_name, g_url, g_pinned_ref) => {
+        if(options.verbose, {
+          println(`Package: ${g_name.as_str()}`);
+          println(`URL: ${g_url.as_str()}`);
+        });
+        // Resolve the git ref
+        ref_str := match(
+          g_pinned_ref,
+          .Some(r) => {
+            println(`Installing ${g_name.as_str()} @ ${r.as_str()} ...`);
+            r
+          },
+          .None => {
+            println(`Resolving latest version for ${g_name.as_str()}...`);
+            ref_result := io.await(resolve_latest_ref(g_url, options.verbose));
+            match(
+              ref_result,
+              .Err(msg) => {
+                println(`Error: ${msg.as_str()}`);
+                println(`Ensure the repository exists and is accessible: ${g_url.as_str()}`);
+                exit(int(1));
+                String.new() // unreachable
+              },
+              .Ok(r) => {
+                println(`Installing ${g_name.as_str()} @ ${r.as_str()} ...`);
+                r
+              }
+            )
+          }
+        );
+        // Build the dependency declaration line
+        dep_line := g_name.concat(
+          String.from(" :: build.dependency({ name: \"")
+        ).concat(g_name).concat(
+          String.from("\", url: \"")
+        ).concat(g_url).concat(
+          String.from("\", ref: \"")
+        ).concat(ref_str).concat(String.from("\" });\n"));
+        added := io.await(append_dep_to_deps_file(deps_path, dep_line, g_name.as_str()));
+        if(added, {
+          // Fetch the single new dependency
+          println("\nFetching dependency...");
+          new_dep := BuildGitDependency(
+            name : g_name,
+            url : g_url,
+            ref : ref_str,
+            path : Option(String).None
+          );
+          dep_list := ArrayList(BuildGitDependency).new();
+          dep_list.push(new_dep);
+          io.await(fetch_all_deps(project_dir.to_string(), dep_list, options.verbose, false));
+          println("Done. Lock file updated: yo.lock");
+        });
+        println("");
+        _print_add_import_guidance(build_path, project_dir);
+      }
+    );
+    ()
+  })
+);
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+export(
+  is_local_path,
+  _url_to_dep_name,
+  _is_all_digits,
+  _parse_semver_tag,
+  _compare_semver,
+  _parse_tags_for_latest_semver,
+  _build_imports_block,
+  _append_dep_to_content,
+  parse_package_specifier,
+  dependency_exists_in_deps_file,
+  parse_dependency_names,
+  regenerate_imports_list,
+  resolve_default_branch,
+  resolve_latest_ref,
+  append_dep_to_deps_file,
+  run_install,
+  ParsedPackage,
+  SemVer,
+  InstallOptions
+);

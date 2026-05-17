@@ -11,18 +11,18 @@
 //!   evaluate_type_map_variants.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr/expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get
-} :: import("../../expr/expr_info.yo");
+} :: import("../../expr_info.yo");
 {
   Environment,
   add_variable_to_env,
   synthetic_token
-} :: import("../../env/env.yo");
+} :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   EvalValue,
@@ -33,33 +33,22 @@ open(import("std/string"));
   create_unknown_val,
   create_type_value,
   type_of_eval_value
-} :: import("../value.yo");
-{
-  TypeValue,
-  t_unit,
-  t_bool,
-  t_type,
-  t_comptime_string,
-  t_comptime_int,
-  t_comptime_float,
-  t_expr_t,
-  t_comptime_list,
-  is_some_type,
-  is_struct_type,
-  is_enum_type
-} :: import("../../types/type.yo");
+} :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit, t_bool, t_type, t_comptime_string, t_comptime_int, t_comptime_float, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
+{ is_some_type, is_struct_type, is_enum_type } :: import("../../types/guards.yo");
 { is_type_hierarchy_type, is_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_contains_rc_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
-{ format_error_message } :: import("../../error/error.yo");
+{ format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 {
   generate_expr_from_code,
   generate_exprs_from_code
-} :: import("../../parser/parser.yo");
-{ random_id } :: import("../utils.yo");
+} :: import("../../parser.yo");
+{ random_id } :: import("../../utils.yo");
 { Exception } :: import("std/error");
 /// Helper: extract a TypeValue from an arg's ExprInfo value, or throw.
 /// If value is .None (runtime expression), throws.
@@ -662,6 +651,34 @@ _ti_escape_str :: (fn(s : String) -> String)({
   s2 := s.replace(String.from("\\"), String.from("\\\\"));
   s2.replace(String.from("\""), String.from("\\\""))
 });
+/// Format the Yo source for a `TypeFieldInfo("label", ty_var)` call:
+///   `TypeFieldInfo("<escaped_label>", <ty_var_name>)`
+/// Used by `_ti_build_type_field_info` to build the code string passed
+/// to `_ti_eval_code`. Pure string composition.
+format_type_field_info_call :: (
+  fn(escaped_label : String, ty_var_name : String) -> String
+)(
+  (((String.from("TypeFieldInfo(\"") + escaped_label) + String.from("\", ")) + ty_var_name) +
+    String.from(")")
+);
+/// Format the Yo source for a `VariantInfo("name", fl, et, usize(idx))` call:
+///   `VariantInfo("<escaped_name>", <fl_var>, <et_var>, usize(<idx>))`
+/// Used by `_ti_build_variant_info` to build the code string passed to
+/// `_ti_eval_code`. Pure string composition.
+format_variant_info_call :: (
+  fn(escaped_name : String, fl_var_name : String, et_var_name : String, idx_str : String) -> String
+)(
+  (
+    (
+      (
+        (
+          (((String.from("VariantInfo(\"") + escaped_name) + String.from("\", ")) + fl_var_name) +
+            String.from(", ")
+        ) + et_var_name
+      ) + String.from(", usize(")
+    ) + idx_str
+  ) + String.from("))")
+);
 /// Bind a TypeValue to a fresh comptime temp variable in the env.
 /// Mutates env in place via pointer; returns the generated variable name.
 _ti_bind_type :: (
@@ -769,7 +786,7 @@ _ti_build_type_field_info :: (
 )({
   ty_name := _ti_bind_type(env_ptr, field_ty, ctx);
   escaped_label := _ti_escape_str(label);
-  code := ((((String.from("TypeFieldInfo(\"") + escaped_label) + String.from("\", ")) + ty_name) + String.from(")"));
+  code := format_type_field_info_call(escaped_label, ty_name);
   match(
     _ti_eval_code(env_ptr, code, ctx, using(exn)),
     .Some(v) => v,
@@ -817,7 +834,7 @@ _ti_build_variant_info :: (
   fl_name := _ti_bind_type_field_list(env_ptr, v_field_labels, v_field_types, ctx, using(exn));
   escaped_name := _ti_escape_str(v_name);
   idx_str := v_idx.to_string();
-  code := ((((((((String.from("VariantInfo(\"") + escaped_name) + String.from("\", ")) + fl_name) + String.from(", ")) + et_name) + String.from(", usize(")) + idx_str) + String.from("))"));
+  code := format_variant_info_call(escaped_name, fl_name, et_name, idx_str);
   match(
     _ti_eval_code(env_ptr, code, ctx, using(exn)),
     .Some(v) => v,
@@ -1767,5 +1784,7 @@ export(
   evaluate_comptime_eval,
   evaluate_comptime_string_to_expr,
   evaluate_type_join_fields,
-  evaluate_type_map_variants
+  evaluate_type_map_variants,
+  format_type_field_info_call,
+  format_variant_info_call
 );

@@ -1,0 +1,171 @@
+//! type_trait_methods.yo — per-type trait-method registry.
+//!
+//! In TS, every concrete type carries a `trait?: TraitType` field
+//! (see `src/types/definitions.ts:70`). When you write
+//! `impl(Foo, SomeTrait(...))`, the evaluator merges the new
+//! methods into `Foo.trait.fields` so later `getTypeTraitMethodsByName`
+//! calls can find them without a separate lookup table.
+//!
+//! yo-self's `TypeValue` is a flat sum type with no per-variant
+//! mutable `trait` slot. Following the same pattern as
+//! `evaluator/values/generic_impl_registry.yo`, we keep the
+//! per-type trait fields in a module-level registry keyed by the
+//! type's id string.
+//!
+//! ## What's stored
+//!
+//! `MethodEntry` mirrors a TS `TraitField`:
+//!
+//!   - `label` — method or property name (`""` for inline-imported
+//!     trait values, matching TS's `field.label === ""` impl-trait
+//!     marker — see `src/env.ts:1112-1138`).
+//!   - `ty` — the field's `TypeValue` (typically a `Func(...)`).
+//!   - `value` — the assigned `EvalValue` (the concrete
+//!     `FuncVal`/`TraitVal` produced by the `impl(...)` block).
+//!   - `source_trait_id` — the id of the trait this entry was
+//!     contributed by (for diagnostics + cross-trait disambiguation).
+//!
+//! ## What's exposed
+//!
+//!   - `register_type_trait_method(type_id, entry)` — append one
+//!     entry. The same `type_id` can hold many entries (one per
+//!     impl'd trait method); duplicates by `(label, source_trait_id)`
+//!     are not deduplicated by the registry — callers responsible
+//!     for coherence.
+//!   - `get_type_trait_methods_for_type(type_id)` — all entries.
+//!   - `get_type_trait_methods_by_name(type_id, method_name)` —
+//!     entries whose `label` matches.
+//!   - `clear_type_trait_methods()` — global wipe, used by test
+//!     harnesses to reset between runs.
+//!
+//! This registry is read by
+//! `env.yo:get_type_trait_methods_by_name_from_env` and by the
+//! receiver-method-lookup path that's still in flight
+//! (`getReceiverMethodsByNameFromEnv`).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ EvalValue } :: import("../../value.yo");
+/// Extract the unique `id` string from a `TypeValue` variant that
+/// carries one (Struct / EnumT / TraitT / ModuleT / SomeT). Returns
+/// the empty string for variants that don't — method lookup is
+/// meaningless for them, mirroring TS's early-return-`[]` path when
+/// the type has no `.trait`. Lives here (rather than on env.yo or
+/// types/utils.yo) so it's reachable from `impl.yo` registration
+/// callers and from `env.yo` lookup callers without re-creating
+/// the env ↔ impl cycle.
+type_id_or_empty :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct(id, _, _, _, _, _, _) => id,
+    .EnumT(id, _, _, _, _, _, _) => id,
+    .TraitT(_, _, _, _, id, _, _, _) => id,
+    .ModuleT(id, _, _, _) => id,
+    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
+    _ => String.from("")
+  )
+);
+/// A single trait method or property attached to a concrete type.
+/// Mirrors TS `TraitField` (an extension of `TypeField`).
+///
+/// Stored as an `object` so the registry can hand back the same
+/// shared reference to multiple call sites without paying for
+/// repeated cloning, matching the way TS's `field` records
+/// transitively share through `type.trait.fields`.
+///
+/// `needs_pointer_conversion` mirrors TS's
+/// `needsPointerConversion?: boolean` flag on
+/// `getReceiverMethodsByNameFromEnv`'s return record. It's set
+/// by `_filter_receiver_methods` (in env.yo) when the method's
+/// first parameter is `*(T)` and the receiver is `T` — codegen
+/// uses the flag to insert an address-of so the caller can pass
+/// `&receiver` automatically. Defaults to `false` at every
+/// registration site.
+///
+/// `self_type` mirrors TS's
+/// `specializedMethodType.SelfType = dereferencedReceiverType`
+/// (env.ts:1958-1961). Set on the SomeT / Dyn / TypeApplication
+/// trait-walk paths to the dereferenced receiver so that
+/// codegen can resolve `Self` references inside the method's
+/// signature to the concrete receiver type. Direct-on-type
+/// registry hits leave it `.None` (TS doesn't need it there —
+/// the method's `Self` is already the concrete type).
+MethodEntry :: object(
+  label : String,
+  ty : TypeValue,
+  value : Option(EvalValue),
+  source_trait_id : String,
+  needs_pointer_conversion : bool,
+  self_type : Option(TypeValue)
+);
+/// Module-level storage: `type id` → list of method entries.
+(_type_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
+  HashMap(String, ArrayList(MethodEntry)).new();
+/// Append `entry` to the method list for `type_id`. The list is
+/// created on demand.
+register_type_trait_method :: (
+  fn(type_id : String, entry : MethodEntry) -> unit
+)({
+  match(
+    _type_trait_methods.get(type_id),
+    .Some(list) => {
+      ___ := list.push(entry);
+    },
+    .None => {
+      fresh := ArrayList(MethodEntry).new();
+      ___ := fresh.push(entry);
+      ___set := _type_trait_methods.set(type_id, fresh);
+    }
+  );
+});
+/// Return all method entries registered for `type_id`, or an empty
+/// list when nothing has been registered.
+get_type_trait_methods_for_type :: (
+  fn(type_id : String) -> ArrayList(MethodEntry)
+)(
+  match(
+    _type_trait_methods.get(type_id),
+    .Some(list) => list,
+    .None => ArrayList(MethodEntry).new()
+  )
+);
+/// Return only the method entries whose `label` matches
+/// `method_name`. Mirrors the inner `.find` / `.filter` calls inside
+/// TS `getTypeTraitMethodsByNameFromEnv`.
+get_type_trait_methods_by_name :: (
+  fn(type_id : String, method_name : String) -> ArrayList(MethodEntry)
+)({
+  result := ArrayList(MethodEntry).new();
+  all := get_type_trait_methods_for_type(type_id);
+  n := all.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    match(
+      all.get(i),
+      .Some(entry) => {
+        if(entry.label == method_name, {
+          ___ := result.push(entry);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  result
+});
+/// Drop all registered methods. Used by test harnesses to reset
+/// global state between runs. Mirrors the cleanup helpers in
+/// `evaluator/values/impl.yo` for the generic-impl registry.
+clear_type_trait_methods :: (fn() -> unit)({
+  fresh := HashMap(String, ArrayList(MethodEntry)).new();
+  _type_trait_methods = fresh;
+});
+export(
+  MethodEntry,
+  register_type_trait_method,
+  get_type_trait_methods_for_type,
+  get_type_trait_methods_by_name,
+  clear_type_trait_methods,
+  type_id_or_empty
+);

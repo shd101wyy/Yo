@@ -28,22 +28,23 @@ open(import("std/fmt"));
   BK_ENUM,
   BK_ASSIGN,
   BK_CONST
-} :: import("../../expr/expr.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
-{ Environment } :: import("../../env/env.yo");
+} :: import("../../expr.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_type_value, is_type_value } :: import("../value.yo");
-{ TypeValue } :: import("../../types/type.yo");
+{ EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 { is_comptime_int_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ format_error_message } :: import("../../error/error.yo");
+{ format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { TypeField, EvalTypeFieldResult, evaluate_type_field } :: import("./field.yo");
-{ random_id, parse_raw_int } :: import("../utils.yo");
+{ parse_raw_int } :: import("../utils.yo");
+{ random_id } :: import("../../utils.yo");
 { is_valid_variable_name } :: import("../exprs/binding.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ auto_derive_traits_for_enum_type } :: import("./auto_derive.yo");
+{ auto_derive_traits_for_enum_type } :: import("./utils.yo");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ _evaluate_discriminant :: (
     using(exn : Exception)
   ) -> i64
 )({
-  evaluated_disc := evaluate_expression(discriminant_expr, env_in, ctx);
+  evaluated_disc := evaluate_expression_raw(discriminant_expr, env_in, ctx, using(exn));
   disc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_disc));
   disc_info := match(
     disc_info_opt,

@@ -25,29 +25,19 @@ open(import("std/fmt"));
   BK_WHERE,
   BK_COMPTIME,
   BK_QUOTE,
+  BK_COLON,
   BK_FN,
   BK_UNSAFE_FN,
   BK_TUPLE
 }
-:: import("../../expr/expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
-{ Environment, Variable, get_variables_from_env, add_variable_to_env } :: import("../../env/env.yo");
+:: import("../../expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment, Variable, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../value.yo");
-{
-  TypeValue,
-  t_some_t,
-  t_type,
-  t_type_1,
-  t_unit,
-  t_expr_t,
-  t_comptime_list,
-  is_some_type,
-  is_trait_type,
-  is_function_type,
-  generate_some_type_id
-}
-:: import("../../types/type.yo");
+{ EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_some_t, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id } :: import("../../types/creators.yo");
+{ is_some_type, is_trait_type, is_function_type, is_type_0 } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type, is_effects_row_type }
 :: import("../../types/guards.yo");
@@ -56,19 +46,111 @@ open(import("std/fmt"));
   prohibit_void_type,
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
-  type_contains_some_type,
-  convert_comptime_type_to_runtime_type
+  type_contains_some_type
 }
 :: import("../../types/utils.yo");
-{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
-{ format_error_message } :: import("../../error/error.yo");
+{
+  get_value_of_some_type_from_env,
+  convert_comptime_type_to_runtime_type,
+  convert_comptime_type_to_runtime_type_with_expected
+} :: import("../../types/env_lookup.yo");
+{ format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../exprs/binding.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ Token, TokenKind } :: import("../../lexer/token.yo");
+{ HashMap } :: import("std/collections/hash_map");
+{ Token, TokenKind } :: import("../../token.yo");
+// ---------------------------------------------------------------------------
+// Macro side-tables (folded from former
+// `evaluator/types/macro_registry.yo`).
+//
+// In src/, macro-ness is stored as flags on FunctionType:
+//   * `parameter.isQuote: boolean` — for `quote(name) : Expr` parameters
+//   * `returnType.isUnquote: boolean` — for `unquote(Expr)` return types
+//
+// yo-self's TypeValue.Func does not carry those flags, so we side-table
+// the information keyed by `func_id`. A function is treated as a macro
+// if EITHER its return type is `unquote(...)` OR it has at least one
+// quoted parameter.
+// ---------------------------------------------------------------------------
+/// Map from func_id → list of parameter indices that are quoted.
+/// Absent entry means no quoted parameters.
+(g_macro_quoted_param_indices : HashMap(String, ArrayList(usize))) =
+  HashMap(String, ArrayList(usize)).new();
+/// Map from func_id → true if return type is `unquote(...)`.
+/// Absent entry means return is not an unquote.
+(g_macro_return_is_unquote : HashMap(String, bool)) =
+  HashMap(String, bool).new();
+/// Register the list of quoted parameter indices for a function.
+/// Idempotent: repeated calls overwrite the previous entry.
+register_macro_quoted_params :: (fn(func_id : String, indices : ArrayList(usize)) -> unit)({
+  cond(
+    (indices.len() > usize(0)) => {
+      ___ := g_macro_quoted_param_indices.set((&(func_id)).clone(), indices);
+    },
+    true => ()
+  );
+});
+/// Mark a function as having an `unquote(...)` return type. Idempotent.
+register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
+  ___ := g_macro_return_is_unquote.set((&(func_id)).clone(), true);
+});
+/// Returns the list of quoted parameter indices, or an empty list if none.
+get_macro_quoted_param_indices :: (fn(func_id : str) -> ArrayList(usize))(
+  match(
+    g_macro_quoted_param_indices.get(String.from(func_id)),
+    .Some(idxs) => idxs,
+    .None => ArrayList(usize).new()
+  )
+);
+/// Returns true if the function's return type is `unquote(...)`.
+macro_return_is_unquote :: (fn(func_id : str) -> bool)(
+  match(
+    g_macro_return_is_unquote.get(String.from(func_id)),
+    .Some(_) => true,
+    .None => false
+  )
+);
+/// Returns true if the function is a macro (quoted params OR unquote return).
+is_macro_fn :: (fn(func_id : str) -> bool)(
+  cond(
+    macro_return_is_unquote(func_id) => true,
+    true => match(
+      g_macro_quoted_param_indices.get(String.from(func_id)),
+      .Some(idxs) => (idxs.len() > usize(0)),
+      .None => false
+    )
+  )
+);
+/// Returns true if the parameter at `param_index` is quoted for `func_id`.
+is_param_quoted :: (fn(func_id : str, param_index : usize) -> bool)(
+  match(
+    g_macro_quoted_param_indices.get(String.from(func_id)),
+    .Some(idxs) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      n := idxs.len();
+      while(runtime((i < n) && !(found)), {
+        match(
+          idxs.get(i),
+          .Some(idx) => cond(
+            (idx == param_index) => {
+              found = true;
+            },
+            true => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    .None => false
+  )
+);
 // ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
@@ -124,7 +206,7 @@ _get_expr_type :: (
     using(exn : Exception)
   ) -> TypeValue
 )({
-  evaluated := evaluate_expression(expr, env_mut, ctx);
+  evaluated := evaluate_expression_raw(expr, env_mut, ctx, using(exn));
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   info := match(
     info_opt,
@@ -171,7 +253,7 @@ _eval_and_update_env :: (
     using(exn : Exception)
   ) -> Option(TypeValue)
 )({
-  evaluated := evaluate_expression(expr, env_mut.*, ctx);
+  evaluated := evaluate_expression_raw(expr, env_mut.*, ctx, using(exn));
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
     info_opt,
@@ -239,7 +321,7 @@ _add_where_clause_constraint :: (
 )(
   match(
     some_ty,
-    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _) => {
+    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _) => {
       if(is_negated, {
         negative_trait_types.push(trait_ty);
         negative_trait_levels.push(usize(0));
@@ -612,33 +694,74 @@ evaluate_function_parameter :: (
     },
     .None => ()
   );
-  // Evaluate default value expression
+  // Evaluate default value expression.
+  //
+  // Mirror TS `function.ts:399-440` — the default value's VALUE and
+  // TYPE are extracted separately from the evaluated expression's
+  // ExprInfo. A default like `?= i32(42)` evaluates to an i32 value
+  // (not a TypeValue), so we cannot route through `_eval_and_update_env`
+  // (which is type-only and would return `.None` here, triggering a
+  // spurious `Expected a compile-time known value for default
+  // parameter` error). Read the ExprInfo directly.
   match(
     default_value_expr,
     .Some(dve) => {
-      (default_val_ty : Option(TypeValue)) = _eval_and_update_env(dve, env_mut, ctx, using(exn));
+      // Use raw evaluator path so throws (e.g. propagated from
+      // nested type evaluations) reach the caller's exn cleanly
+      // instead of via the panic wrapper.
+      evaluated_dve := evaluate_expression_raw(dve, env_mut.*, ctx, using(exn));
+      info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dve));
       match(
-        default_val_ty,
-        .Some(dv_ty) => {
-          match(
+        info_opt,
+        .Some(info) => {
+          env_mut.* = info.env;
+          dv_val_opt := info.value;
+          // Coerce comptime types (e.g. comptime_string) to their runtime
+          // equivalents when the param has an explicit annotation. Mirrors
+          // TS `convertComptimeTypeToRuntimeType` at default-value sites —
+          // lets `(msg : str) ?= "Assertion failed."` typecheck because the
+          // comptime_string literal coerces to `str` (or `*(u8)`/`*(char)`/
+          // `[u8]` if explicitly expected).
+          dv_ty := convert_comptime_type_to_runtime_type_with_expected(
+            info.ty,
             param_type,
-            .None => {
-              param_type =.Some(dv_ty);
+            env_mut.*
+          );
+          match(
+            dv_val_opt,
+            .Some(_dv_val) => {
+              match(
+                param_type,
+                .None => {
+                  param_type =.Some(dv_ty);
+                },
+                .Some(pt) => {
+                  if(!(are_types_compatible(pt, dv_ty)), {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(dve),
+                          `Incompatible default value type:\n- Expected: ${type_to_string(pt)}\n- Got     : ${type_to_string(dv_ty)}`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                  });
+                }
+              );
             },
-            .Some(pt) => {
-              // Check compatibility
-              if(!(are_types_compatible(pt, dv_ty)), {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      ast_expr_token(dve),
-                      `Incompatible default value type:\n- Expected: ${type_to_string(pt)}\n- Got     : ${type_to_string(dv_ty)}`,
-                      false,
-                      .None
-                    )
+            .None => {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(dve),
+                    `Expected a compile-time known value for default parameter, got ${ast_expr_to_string(dve)}`,
+                    false,
+                    .None
                   )
-                );
-              });
+                )
+              );
             }
           );
         },
@@ -647,7 +770,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(dve),
-                `Expected a compile-time known value for default parameter, got ${ast_expr_to_string(dve)}`,
+                `Failed to evaluate default value expression`,
                 false,
                 .None
               )
@@ -679,7 +802,7 @@ evaluate_function_parameter :: (
   // Validate comptime + type compatibility
   if(is_compile_time_only &&
     !(type_contains_some_type(final_param_type)) &&
-      type_prohibits_comptime_modifier(final_param_type, env_mut.*), {
+      type_prohibits_comptime_modifier(final_param_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -691,7 +814,7 @@ evaluate_function_parameter :: (
       )
     );
   });
-  if(!(is_compile_time_only) && type_requires_comptime_modifier(final_param_type, env_mut.*), {
+  if(!(is_compile_time_only) && type_requires_comptime_modifier(final_param_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -849,7 +972,7 @@ use_id :: (fn(forall(T : Type),
                 new_some := av_box.*;
                 match(
                   new_some,
-                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _) => {
+                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _) => {
                     // Merge required traits
                     (ri : usize) = usize(0);
                     while(runtime(ri < new_rtt.len()), {
@@ -917,14 +1040,31 @@ use_id :: (fn(forall(T : Type),
           );
         },
         .None => {
-          // No existing variable — add new one
+          // No existing variable — add new one.
+          //
+          // When the parameter type is `Type` (TypeUni(0)) — e.g.
+          // `forall(T : Type)` — bind to `TypeVal(SomeT(...))` rather
+          // than `UnknownVal(...)`. Mirrors TS `createUnknownValue`
+          // (src/value.ts:573-588) which returns a TypeValue wrapping
+          // a fresh SomeType for level-0 type-hierarchy types. Where
+          // clauses (`T <: Trait`) and identifier lookups expect to
+          // see a TypeVal(SomeT) so they can attach constraints.
+          (param_frame_level : usize) = if(
+            env_mut.frames.len() > usize(0),
+            env_mut.frames.len() - usize(1),
+            usize(0)
+          );
           (param_val : Option(EvalValue)) = match(
             assigned_value,
             .Some(av) =>.Some(av),
             .None =>
               if(
                 is_compile_time_only,
-                .Some(create_unknown_val(final_param_type)),
+                if(
+                  is_type_0(final_param_type),
+                  Option(EvalValue).Some(create_type_value(t_some_t(label_str, param_frame_level))),
+                  Option(EvalValue).Some(create_unknown_val(final_param_type))
+                ),
                 Option(EvalValue).None
               )
           );
@@ -1041,7 +1181,7 @@ validate_concrete_type_constraints :: (
       }
     );
     (negated : bool) = match(trait_negated.get(j),.Some(b) => b,.None => false);
-    evaled_t := evaluate_expression(t_expr, env_mut.*, ctx);
+    evaled_t := evaluate_expression_raw(t_expr, env_mut.*, ctx, using(exn));
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_t));
     _ := evaled_t;
     info := match(
@@ -1832,7 +1972,8 @@ evaluate_function_parameters :: (
             ArrayList(usize).new(),
             ArrayList(TypeValue).new(),
             ArrayList(usize).new(),
-            true
+            true,
+            Option(Box(TypeValue)).None
           );
           row_kind_type := TypeValue.TypeUni(usize(1));
           _ := add_variable_to_env(
@@ -1999,7 +2140,7 @@ evaluate_function_parameters :: (
                     // TypeVal but not EffectsRowT — must be a SomeT with is_effects_row
                     is_er_some := match(
                       (&(inner_ty)).clone(),
-                      .SomeT(_, _, _, _, _, _, _, _, is_er) => is_er,
+                      .SomeT(_, _, _, _, _, _, _, _, is_er, _) => is_er,
                       _ => false
                     );
                     if(!(is_er_some), {
@@ -2072,7 +2213,8 @@ evaluate_function_parameters :: (
                       ArrayList(usize).new(),
                       ArrayList(TypeValue).new(),
                       ArrayList(usize).new(),
-                      true
+                      true,
+                      Option(Box(TypeValue)).None
                     );
                     implicit_params.push(
                       FuncParam(
@@ -2262,7 +2404,19 @@ evaluate_function_parameters :: (
           continue; // Skip — will be handled in main pass
         });
         param_type := match(param_type_opt,.Some(t) => t,.None => continue);
-        val := create_unknown_val(param_type);
+        // For `comptime(T) : Type` — create TypeVal(SomeT) so where
+        // clauses and identifier lookups treat T as a SomeType (mirrors
+        // TS createUnknownValue for level-0 type-hierarchy types).
+        ct_frame_level := if(
+          env_mut.frames.len() > usize(0),
+          env_mut.frames.len() - usize(1),
+          usize(0)
+        );
+        val := if(
+          is_type_0(param_type),
+          create_type_value(t_some_t(info.name, ct_frame_level)),
+          create_unknown_val(param_type)
+        );
         _ := add_variable_to_env(
           env_mut,
           info.name,
@@ -2373,8 +2527,16 @@ evaluate_function_parameters :: (
       (vparam_type : TypeValue) = TypeValue.Unit;
       if(ast_expr_is_fn_call(param_expr), {
         varg := match(_fn_call_args(param_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr());
-        // ...(:(lhsExpr, typeExpr)) — type-annotated variadic
-        if(ast_expr_is_fn_call_of(varg, BK_QUOTE,.Some(usize(2))), {
+        // ...((lhsExpr : typeExpr)) — type-annotated variadic.
+        //
+        // The outer is a *colon pair* `lhs : type`, parsed as
+        // `:(lhs, type)`. In TS this matches via the
+        // `BuiltinKeywords.quote = ["quote", ":"]` keyword alias, but
+        // the semantic shape is the colon pair, not the quote macro
+        // (quote is only the unary form). In yo-self where `BK_QUOTE`
+        // and `BK_COLON` are separate constants, the correct spelling
+        // is `BK_COLON.Some(2)`.
+        if(ast_expr_is_fn_call_of(varg, BK_COLON,.Some(usize(2))), {
           vlhs_arg := match(_fn_call_args(varg).get(usize(0)),.Some(a) => a,.None => make_err_expr());
           vtype_arg := match(_fn_call_args(varg).get(usize(1)),.Some(a) => a,.None => make_err_expr());
           if(ast_expr_is_fn_call_of(vlhs_arg, BK_COMPTIME, Option(usize).None), {
@@ -2382,7 +2544,14 @@ evaluate_function_parameters :: (
             vlabel_expr = match(_fn_call_args(vlhs_arg).get(usize(0)),.Some(a) => a,.None => make_err_expr());
             vparam_name = ast_expr_token(vlabel_expr).value;
           }, {
-            if(ast_expr_is_fn_call_of(vlhs_arg, BK_QUOTE, Option(usize).None), {
+            // Inner LHS may be `quote(name)` (literal "quote") or
+            // `:(name)` (unary `:`) — both are the unary quote macro,
+            // semantically interchangeable.
+            vlhs_is_quote := (
+              ast_expr_is_fn_call_of(vlhs_arg, BK_QUOTE, Option(usize).None) ||
+                ast_expr_is_fn_call_of(vlhs_arg, BK_COLON,.Some(usize(1)))
+            );
+            if(vlhs_is_quote, {
               is_vcomptime = true;
               is_vquote = true;
               vlabel_expr = match(_fn_call_args(vlhs_arg).get(usize(0)),.Some(a) => a,.None => make_err_expr());
@@ -2432,8 +2601,13 @@ evaluate_function_parameters :: (
             vparam_name = ast_expr_token(vlabel_expr).value;
             vparam_type = TypeValue.ComptimeListT(Box(TypeValue)(t_type()));
           }, {
-            // ...(quote(name)) or ...(:(name))
-            if(ast_expr_is_fn_call_of(varg, BK_QUOTE, Option(usize).None), {
+            // ...(quote(name)) or ...(:(name)) — the unary quote
+            // macro. `:` (unary) aliases `quote` semantically.
+            varg_is_quote := (
+              ast_expr_is_fn_call_of(varg, BK_QUOTE, Option(usize).None) ||
+                ast_expr_is_fn_call_of(varg, BK_COLON,.Some(usize(1)))
+            );
+            if(varg_is_quote, {
               is_vcomptime = true;
               is_vquote = true;
               vlabel_expr = match(_fn_call_args(varg).get(usize(0)),.Some(a) => a,.None => make_err_expr());
@@ -2480,7 +2654,20 @@ evaluate_function_parameters :: (
       );
       // Add to env if named
       if(!(vparam_name == String.from("...")), {
-        vval := if(is_vcomptime, Option(EvalValue).Some(create_unknown_val(vparam_type)), Option(EvalValue).None);
+        v_frame_level := if(
+          env_mut.frames.len() > usize(0),
+          env_mut.frames.len() - usize(1),
+          usize(0)
+        );
+        vval := if(
+          is_vcomptime,
+          if(
+            is_type_0(vparam_type),
+            Option(EvalValue).Some(create_type_value(t_some_t(vparam_name, v_frame_level))),
+            Option(EvalValue).Some(create_unknown_val(vparam_type))
+          ),
+          Option(EvalValue).None
+        );
         _ := add_variable_to_env(
           env_mut,
           vparam_name,
@@ -2693,8 +2880,13 @@ evaluate_function_type :: (
       });
       rl_expr = match(ct_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     });
-    // unquote modifier
-    if(ast_expr_is_fn_call_of(rl_expr, "unquote", Option(usize).None), {
+    // unquote modifier — accepts both `unquote(...)` and `#(...)`
+    // (TS `BuiltinKeywords.unquote = ["unquote", "#"]`).
+    rl_is_unquote := (
+      ast_expr_is_fn_call_of(rl_expr, "unquote", Option(usize).None) ||
+        ast_expr_is_fn_call_of(rl_expr, "#", Option(usize).None)
+    );
+    if(rl_is_unquote, {
       is_return_unquote = true;
       uq_args := _fn_call_args(rl_expr);
       if(!(uq_args.len() == usize(1)), {
@@ -2769,7 +2961,11 @@ evaluate_function_type :: (
       });
       return_type_expr = match(ct_args2.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     });
-    if(ast_expr_is_fn_call_of(return_type_expr, "unquote", Option(usize).None), {
+    rte_is_unquote := (
+      ast_expr_is_fn_call_of(return_type_expr, "unquote", Option(usize).None) ||
+        ast_expr_is_fn_call_of(return_type_expr, "#", Option(usize).None)
+    );
+    if(rte_is_unquote, {
       is_return_unquote = true;
       uq_args2 := _fn_call_args(return_type_expr);
       if(!(uq_args2.len() == usize(1)), {
@@ -2836,9 +3032,9 @@ evaluate_function_type :: (
   );
   // Auto-convert comptime-only return types if possible
   (return_type : TypeValue) = ret_type_val;
-  if(type_requires_comptime_modifier(return_type, env_mut) && !(is_return_comptime_only), {
+  if(type_requires_comptime_modifier(return_type) && !(is_return_comptime_only), {
     converted := convert_comptime_type_to_runtime_type(return_type, env_mut);
-    if(type_requires_comptime_modifier(converted, env_mut), {
+    if(type_requires_comptime_modifier(converted), {
       exn.throw(
         dyn(
           format_error_message(
@@ -2858,7 +3054,7 @@ evaluate_function_type :: (
   });
   if(is_return_comptime_only &&
     !(type_contains_some_type(return_type)) &&
-      type_prohibits_comptime_modifier(return_type, env_mut), {
+      type_prohibits_comptime_modifier(return_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -2978,7 +3174,7 @@ evaluate_function_type :: (
     );
     match(
       fp.ty,
-      .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
+      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
         (ti2 : usize) = usize(0);
         while(runtime(ti2 < required_trait_types.len()), {
           tt := match(
@@ -3076,3 +3272,11 @@ export(evaluate_function_parameter_type_again);
 export(evaluate_function_return_type_again);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
 export(_add_where_clause_constraint, _trait_has_receiver);
+export(
+  register_macro_quoted_params,
+  register_macro_return_is_unquote,
+  get_macro_quoted_param_indices,
+  macro_return_is_unquote,
+  is_macro_fn,
+  is_param_quoted
+);

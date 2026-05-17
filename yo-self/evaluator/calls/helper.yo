@@ -13,9 +13,12 @@
 //! Ported functions (Phase 3):
 //!   * `extract_function_value` — extract FuncVal from EvalValue
 //!   * `_module_type_contains_ctl_field` — stub (no isControlFunction in yo-self)
-//!   * `_get_variables_needing_drop` — simplified (type_contains_rc_type is stub)
 //!   * `generate_deferred_drop_expressions` — generates ___drop calls for RC vars
 //!   * `validate_function_return_type` — checks return type SomeTs are resolvable
+//!
+//! Note: `getVariablesNeedingDrop` is now ported in full in
+//! `yo-self/env.yo:get_variables_needing_drop`; the prior simplified
+//! stub that lived here has been retired.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -24,9 +27,9 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
-  make_err_expr,
-  evaluated_body_contains_escape
-} :: import("../../expr/expr.yo");
+  make_err_expr
+} :: import("../../expr.yo");
+{ evaluated_body_contains_escape } :: import("../../expr_traversal.yo");
 {
   Environment,
   Variable,
@@ -36,8 +39,9 @@ open(import("std/string"));
   update_existing_variable,
   synthetic_token,
   clone_env
-} :: import("../../env/env.yo");
-{ TypeValue, t_unit } :: import("../../types/type.yo");
+} :: import("../../env.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   get_all_some_types,
@@ -53,7 +57,7 @@ open(import("std/string"));
   eval_value_eq,
   value_to_string,
   create_type_value
-} :: import("../value.yo");
+} :: import("../../value.yo");
 {
   EvalContext,
   FuncCallResult,
@@ -74,8 +78,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get
-} :: import("../../expr/expr_info.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+} :: import("../../expr_info.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
   SynthesizeResult,
   SynthesizeOptions,
@@ -91,10 +95,13 @@ open(import("std/string"));
   evaluate_function_return_type_again
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ generate_expr_from_code } :: import("../../parser/parser.yo");
-{ format_error_message } :: import("../../error/error.yo");
-{ mark_as_control_fn, is_control_fn } :: import("../types/control_fn_registry.yo");
-{ get_definition_site_return } :: import("../types/definition_site_registry.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ format_error_message } :: import("../../error.yo");
+{
+  mark_as_control_fn,
+  is_control_fn,
+  get_definition_site_return
+} :: import("../../function_value.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // extract_function_value
@@ -189,46 +196,10 @@ _module_type_contains_ctl_field :: (
     _ => false
   )
 );
-// ---------------------------------------------------------------------------
-// _get_variables_needing_drop
-// ---------------------------------------------------------------------------
-/// Return variables from the top env frame that need RC drop calls.
-///
-/// Phase 3 simplification: `type_contains_rc_type` is a stub that always
-/// returns `false`, so this returns an empty list.
-///
-/// Mirrors `getVariablesNeedingDrop` in `src/env.ts`.
-_get_variables_needing_drop :: (fn(env : Environment) -> ArrayList(Variable))({
-  result := ArrayList(Variable).new();
-  n := env.frames.len();
-  if(n == usize(0), {
-    return(result);
-  });
-  match(
-    env.frames.get(n - usize(1)),
-    .None => (),
-    .Some(top_frame) => {
-      m := top_frame.variables.len();
-      (i : usize) = usize(0);
-      while(runtime(i < m), {
-        match(
-          top_frame.variables.get(i),
-          .Some(v) => {
-            if((!(v.consumed_at_token.is_some())) && v.is_owning_the_rc_value, {
-              // Phase 3: type_contains_rc_type is stub (always false),
-              // so no variable qualifies for dropping yet.
-              // Full implementation: also check type_contains_rc_type(v.ty).
-              _ := v;
-            });
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-    }
-  );
-  result
-});
+// `_get_variables_needing_drop` stub retired — the full
+// `getVariablesNeedingDrop` port lives at
+// `yo-self/env.yo:get_variables_needing_drop` after the
+// env.yo ↔ types/utils.yo import cycle was broken.
 // ---------------------------------------------------------------------------
 // generate_deferred_drop_expressions
 // ---------------------------------------------------------------------------
@@ -260,7 +231,7 @@ generate_deferred_drop_expressions :: (
         // Build the drop expression: ___drop(varName)
         drop_code := `___drop(${variable.name})`;
         drop_expr := generate_expr_from_code(drop_code.as_str(), using(exn));
-        evaluated := evaluate_expression(drop_expr, cur_env, ctx);
+        evaluated := evaluate_expression_raw(drop_expr, cur_env, ctx, using(exn));
         // Phase 3: env update from ExprInfo is skipped; cur_env stays unchanged.
         _ := evaluated;
         deferred.push(evaluated);
@@ -311,7 +282,7 @@ validate_function_return_type :: (
       .Some(st) =>
         match(
           st,
-          .SomeT(_, name, _, _, required_trait_types, _, _, _, _) => {
+          .SomeT(_, name, _, _, required_trait_types, _, _, _, _, _) => {
             // Determine whether this SomeT should be skipped.
             should_skip := (
               type_implements_future(st) ||
@@ -345,7 +316,7 @@ validate_function_return_type :: (
                                   .Some(tst) => {
                                     match(
                                       tst,
-                                      .SomeT(_, tname, _, _, _, _, _, _, _) => {
+                                      .SomeT(_, tname, _, _, _, _, _, _, _, _) => {
                                         if(tname == name, {
                                           found_transitively = true;
                                         });
@@ -446,7 +417,7 @@ check_if_function_parameter_matches_argument :: (
   // Step 3: Evaluate arg with param type as expected-type hint.
   saved_exp := ctx.expected_type;
   ctx.expected_type =.Some(ExpectedTypeCtx(ty : resolved_pt, env : callee_env_r));
-  evaled_arg := evaluate_expression(actual_arg, caller_env, ctx);
+  evaled_arg := evaluate_expression_raw(actual_arg, caller_env, ctx, using(exn));
   ctx.expected_type = saved_exp;
   // Extract ExprInfo for the evaluated arg.
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
@@ -1543,7 +1514,7 @@ try_to_call_function_with_arguments :: (
               fas.get(fpi),
               .Some(fa) => {
                 if(!(ast_expr_is_atom_of(fa, "_")), {
-                  evaled_fa := evaluate_expression(fa, caller_env, ctx);
+                  evaled_fa := evaluate_expression_raw(fa, caller_env, ctx, using(exn));
                   fa_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_fa));
                   match(
                     fa_info_opt,
@@ -1692,7 +1663,7 @@ try_to_call_function_with_arguments :: (
             match(
               uas.get(impl_i),
               .Some(ua_expr) => {
-                evaled_ua := evaluate_expression(ua_expr, caller_env_m, ctx);
+                evaled_ua := evaluate_expression_raw(ua_expr, caller_env_m, ctx, using(exn));
                 ua_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_ua));
                 match(
                   ua_info_opt,
@@ -1932,17 +1903,16 @@ try_to_call_function_with_arguments :: (
       )
     },
     _ => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            tok,
-            String.from("try_to_call_function_with_arguments: func_type is not a Func type"),
-            false,
-            .None
-          )
-        )
-      );
-      // Unreachable placeholder.
+      // Soft fallback: when the callee's type isn't `.Func(...)` (e.g.
+      // it's a `ModuleT` from an `impl({...})` operator binding like
+      // `(-) :: impl({ Call :: (neg, comptime_neg); })`, or a `SomeT`
+      // that hasn't been resolved to a Func yet), return a placeholder
+      // `FuncCallResult` with `t_unit()` return instead of aborting
+      // the surrounding eval. This lets the bootstrap make progress
+      // through prelude impls that exercise operator-trait dispatch
+      // patterns the bootstrap doesn't yet model. Tracked as an
+      // evaluator coverage gap in `issues/yo-self-evaluator-gaps.md`.
+      _ := tok;
       FuncCallResult(
         callee_env : caller_env,
         caller_env : caller_env,

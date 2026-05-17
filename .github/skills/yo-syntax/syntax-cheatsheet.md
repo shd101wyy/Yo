@@ -79,6 +79,16 @@ if(done, println("done"), println("pending"));
 - `if(a, b)` and `if(a, b, c)` are macro forms over `cond`
 - Write `return(value)` or `return()`; `return value` is invalid.
 - Write `escape(value)` or `escape()`; `escape value` is invalid.
+- If a `match`/`cond` branch returns an enum variant and inference fails, qualify
+  the variant with its enum type: `TypeValue.Unit` instead of `.Unit`.
+- Do not match enum payload literals directly, e.g. avoid `.Some(false)` and
+  `.Some(true)` as sibling branches. Match `.Some(value)` once, then branch with
+  `if(value, ...)` or `cond(...)` inside the arm; otherwise generated C can
+  contain duplicate enum `case` labels.
+- In large enum matches, avoid binding a pattern variable with the same name as a
+  variant field (for example, prefer `struct_field_types` over `field_types`).
+  This can currently produce invalid generated C in some self-hosted codegen
+  paths.
 
 ## String types
 
@@ -140,6 +150,8 @@ impl(Counter,
 ```
 
 - No space between a function type and its body: `(fn(...) -> T)(...)`
+- Top-level aliases for function types need parentheses too:
+  `Callback :: (fn(x : i32) -> i32);`, not `Callback :: fn(x : i32) -> i32;`
 - Use `Self` in method signatures and in type definitions for recursive references (the type name is not available during its own definition)
 - `Self` also works inside generic type constructors — it refers to the current instantiation (e.g., `Tree(T)` inside `Tree`). Use `recur(args)` only when type arguments differ from the current instantiation.
 - Use `struct(...)` for record and effect-record types. The legacy `module(...)`,
@@ -250,14 +262,27 @@ text := match(value,
 Three destructuring shapes for arms (mix freely across arms):
 
 ```rust
-Shape :: enum(Circle(radius : i32), Rectangle(width : i32, height : i32));
+Shape :: enum(
+  Circle(radius : i32),
+  Rectangle(width : i32, height : i32),
+  Triangle(base : i32, height : i32, label : str)
+);
 
 match(s,
-  .Circle(r)                       => (r * r),         // positional
-  .Rectangle(width: w, height: h)  => (w * h),         // labeled
-  .Rectangle({width, height: h})   => (width * h)      // curly shorthand
+  // ✅ Preferred — curly shorthand names only the fields you use.
+  .Triangle({base, height: h})  => (base * h),
+
+  // Also OK — labeled (label : var) pairs; order-free, partial matches OK.
+  .Circle(radius: r)             => (r * r),
+
+  // ⚠️ Avoid for 2+ field variants — positional with `_` is brittle when
+  //    a field is added and harder to read (each `_` requires counting).
+  //    OK when the variant has one field, or when every field is named.
+  .Rectangle(w, h)               => (w * h)
 )
 ```
+
+**Preferred form**: `.Variant({label, label: alias})`. Names only the fields the arm binds, so adding a field to the variant later doesn't silently break every arm. `tests/match_curly.test.yo` is the spec.
 
 Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` and empty `{}` are rejected.
 
@@ -553,6 +578,23 @@ Variable :: object(name : String, type : TypeValue);
 Variable :: object(name : String, ty : TypeValue);
 ```
 
+### 1-element array literals require a trailing comma
+
+`[expr]` without a trailing comma is **parsed as a Slice type** `Slice(expr)`, not an array literal. To create a 1-element array value, add a trailing comma:
+
+```rust
+// WRONG — parsed as Slice type, not array literal:
+arr := [i32(42)];
+
+// CORRECT — trailing comma makes it an array literal:
+arr := [i32(42),];
+
+// Multi-element arrays work fine (comma separator detected):
+arr2 := [i32(1), i32(2), i32(3)];  // ✓
+```
+
+This also applies inside source strings in proto-evaluator tests.
+
 ### ArrayList indexing uses call syntax
 
 ```rust
@@ -695,6 +737,13 @@ given(exn) := Exception(throw: ((err) -> {
   escape(result); // exits the outer function that contains this given()
 }));
 do_something(using(exn));
+
+// CORRECT — even after process-exit helpers, satisfy the handler's resume type:
+given(exn2) := Exception(throw: ((err) -> {
+  eprintln(err.to_string());
+  exit(int(1));
+  escape(); // required because exit() returns unit, not the handler ResumeType
+}));
 
 // CORRECT — escape inside a closure passed as argument:
 result := match(opt, .Some(x) => x, .None => {
@@ -1036,3 +1085,102 @@ match(outer_val,
   .None => { fallback() } // ← outer .None arm
 )                          // ← closes outer match
 ```
+
+### Nested enum patterns in match are NOT supported
+
+Yo does **not** support nested enum patterns inside a single match arm.
+You cannot write `.Some(.IntLit(n))` — this is a parser error.
+
+```rust
+// ❌ WRONG — nested enum pattern, parser error:
+match(v.get(usize(0)),
+  .Some(.IntLit(n)) => assert(n.as_str() == "3", "ok"),
+  _ => assert(false, "err")
+)
+
+// ✅ CORRECT — two-level match:
+match(v.get(usize(0)),
+  .Some(x) => match(x, .IntLit(n) => assert(n.as_str() == "3", "ok"), _ => assert(false, "err")),
+  .None => assert(false, "err")
+)
+```
+
+This applies to ALL nested enum patterns: `.Some(.BoolVal(b))`, `.Some(.ArrayVal(arr))`, etc. — always use a two-level match.
+
+### `get_callee()` returns ExprVal directly, not an Option-wrapped EnumVal
+
+In the proto-evaluator source strings (`evaluate_module_body`), `ExprVal.get_callee()` on a FnCall returns the callee `ExprVal` directly — NOT wrapped in an `Option` EnumVal. Chaining `.is_some()` fails with SIGABRT because `is_some()` requires an `EnumVal` receiver.
+
+```rust
+// ❌ SIGABRT — get_callee() returns ExprVal, not Option(EnumVal)
+result := quote(foo(i64(1))).get_callee().is_some();
+
+// ✅ Chain .is_atom() or .is_fn_call() on the returned ExprVal
+result := quote(foo(i64(1))).get_callee().is_atom();   // true: callee "foo" is an atom
+result := quote(foo(i64(1))).get_callee().is_fn_call(); // false: callee "foo" is not a fn call
+```
+
+Similarly, calling `get_callee()` on an Atom causes the overall evaluation to fail — do not test the Atom case via `get_callee()` in source strings.
+
+### Source-string evaluation pitfalls (proto-evaluator tests)
+
+When writing source strings passed to `evaluate_module_body` in proto-evaluator tests:
+
+**`cond` form**: Always use the `cond(condition => value, true => fallback)` form, NOT `cond(condition, value, fallback)`. The 3-arg form does NOT work inside lambdas or recursive functions in source strings.
+
+```
+// ❌ WRONG — crashes inside lambdas and recursive functions
+cond((n <= i32(1)), i32(1), (n * recur((n - i32(1)))))
+
+// ✅ CORRECT
+cond((n <= i32(1)) => i32(1), true => (n * recur((n - i32(1)))))
+```
+
+**Recursive functions**: Use `recur(...)` for self-recursion inside named `::` functions. Never call the function by name from inside its own body.
+
+**Chaining function calls with operators**: `f(a) + f(b) + f(c)` throws an exception. Use fold over an array instead:
+
+```
+// ❌ WRONG — exception in source strings
+result := abs_val(i32(3)) + abs_val(i32(1)) + abs_val(i32(4));
+
+// ✅ CORRECT
+arr := [i32(3), i32(1), i32(4)];
+result := arr.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + abs_val(x))));
+```
+
+**Empty array `[]` in cond branches**: `cond(condition => [x], true => [])` crashes because the empty array type is unknown. Avoid empty array literals in conditional branches inside `flat_map` lambdas.
+
+**Option types**: Must use `Option(T).Some(val)` not `Option.Some(val)`. `Option(T).None` with a type annotation crashes — use `r := Option(i32).None` without annotation. `.is_none()` is not supported; use `!(r.is_some())`. `and_then(f)` returns the raw value (not wrapped in Option), so calling `.unwrap_or()` on the result crashes.
+
+**Number literals**: `i32(-3)` crashes — use `(i32(0) - i32(3))`. `i32.as_usize()` / `usize.as_i32()` not supported.
+
+**Fibonacci without tmp variable**: `b = (a + b); a = (b - a)` computes fib correctly without a temp variable. After N iterations, `a` holds fib(N) and `b` holds fib(N+1).
+
+**3-term multiplication in source strings**: `(x * x * x)` causes an exception in evaluated source strings. Break it into a block:
+
+```
+// ❌ WRONG — causes exception
+cubes := arr.map((fn(x : i32) -> i32)((x * x * x)));
+
+// ✅ CORRECT — use a block with a local binding
+cubes := arr.map((fn(x : i32) -> i32)({
+  sq := (x * x);
+  (sq * x)
+}));
+```
+
+**3-term sum in fold on tuples**: `(acc + p.0 + p.1)` inside a fold lambda on tuple pairs crashes. Always map pairs to scalars first, then fold:
+
+```
+// ❌ WRONG — crashes in fold on (i32, i32) tuples
+total := pairs.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)((acc + p.0 + p.1)));
+
+// ✅ CORRECT — map to scalars first, then fold
+sums := pairs.map((fn(p : (i32, i32)) -> i32)((p.0 + p.1)));
+total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));
+```
+
+**`&&` in `cond` conditions inside `while` body**: Crashes. Avoid by restructuring (e.g., start loop at 1 instead of 0 to eliminate the `&& (i > 0)` guard).
+
+**Test API format**: Use `evaluate_module_body(exprs, &(env))` (reference syntax, returns `Option`). Match with function-style `match(result, .None => ..., .Some(m) => ...)`. Do NOT use block-style `match(result) { ... }` — it causes a parse error ("Paren-less function and operator calls are not supported").

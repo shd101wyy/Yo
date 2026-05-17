@@ -16,17 +16,18 @@ open(import("std/string"));
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   BK_C_INCLUDE
-} :: import("../../expr/expr.yo");
-{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr/expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../env/env.yo");
+} :: import("../../expr.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
+{ Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_unknown_val } :: import("../value.yo");
-{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ format_error_message } :: import("../../error/error.yo");
+{ format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
-{ EvalModuleFieldResult, evaluate_module_field } :: import("../types/module.yo");
+{ EvalModuleFieldResult, evaluate_module_field } :: import("../types/record.yo");
 { ArrayList } :: import("std/collections/array_list");
 evaluate_c_include :: (
   fn(
@@ -170,7 +171,7 @@ evaluate_c_include :: (
       &(env),
       String.from(result.label.as_str()),
       result.field_type,
-      Option(EvalValue).Some(create_unknown_val(result.field_type)),
+      Option(EvalValue).Some(create_unknown_val_with_name(result.field_type, String.from(result.label.as_str()))),
       true,
       // is_compile_time_only
       false,

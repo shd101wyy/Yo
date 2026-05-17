@@ -2,8 +2,8 @@ open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import("../expr/expr.yo");
-{ ParseError, parse, extract_source_line, generate_expr_from_code } :: import("../parser/parser.yo");
+{ AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import("../expr.yo");
+{ ParseError, parse, extract_source_line, generate_expr_from_code } :: import("../parser.yo");
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Check that two String values are equal; fails with msg if not.
 assert_str_eq :: (fn(actual : String, expected : String, msg : str) -> unit)(
@@ -330,6 +330,19 @@ test("Parse shorthand anonymous struct { x, y }", {
   prog := parse(`{ x, y }`, `test.yo`, using(exn));
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `_(x : x, y : y)`, "anon struct shorthand form");
+});
+test("Parse single-field shorthand anonymous struct { x }", {
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected parse error");
+        escape(());
+      }
+    )
+  );
+  prog := parse(`{ x }`, `test.yo`, using(exn));
+  e := only_expr(prog);
+  assert_str_eq(ast_expr_to_string(e), `_(x : x)`, "single-field anon struct shorthand form");
 });
 // ─── Array and bracket expressions ───────────────────────────────────────────
 test("Parse array value [1, 2, 3]", {

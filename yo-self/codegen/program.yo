@@ -17,11 +17,28 @@
 //!   6. generate_c_output(ctx) -> full C source
 open(import("std/string"));
 { CodegenContext } :: import("./context.yo");
+{ format_indented_stmt } :: import("./utils/index.yo");
 // ---------------------------------------------------------------------------
 // Preamble
 // ---------------------------------------------------------------------------
 /// Emit the minimal C11 preamble required for compiled Yo programs.
 ///
+/// Format the module-ID header comment: `// Module ID: <module_id>`.
+/// Emitted by `emit_c_preamble` so the generated C file is
+/// self-documenting about which Yo module produced it.
+format_module_id_comment :: (fn(module_id : str) -> String)({
+  s := String.from("// Module ID: ");
+  s.push_str(module_id);
+  s
+});
+/// Format the C `main()` body's user-main call line:
+///   `  <user_main_c_name>();`
+/// Emitted between `int main(void) {` and `  return(0);`.
+format_main_call_line :: (fn(user_main_c_name : str) -> String)(
+  // Compose via canonical typed-stmt helper:
+  //   "  " + <user_main_c_name> + "()" + ";"
+  format_indented_stmt(String.from("  "), String.from(user_main_c_name) + String.from("()"))
+);
 /// Emits into the headers section:
 ///   - `#define _DEFAULT_SOURCE` / `_GNU_SOURCE`
 ///   - Standard C headers
@@ -43,6 +60,20 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     e.*.emit_header_line("#include <stdio.h>");
     e.*.emit_header_line("#include <string.h>");
     e.*.emit_header_line("#include <errno.h>");
+    // Record each baseline include in `ctx.c_includes` so downstream
+    // handlers that depend on these headers (e.g. typeid's call to
+    // `add_c_include("<stdint.h>")`) are properly deduplicated against
+    // the always-emitted preamble. Once the preamble itself becomes
+    // demand-driven the explicit `emit_header_line` calls above will
+    // disappear and these registrations will be the source of truth.
+    ctx.*.add_c_include(String.from("<stdbool.h>"));
+    ctx.*.add_c_include(String.from("<stdint.h>"));
+    ctx.*.add_c_include(String.from("<stddef.h>"));
+    ctx.*.add_c_include(String.from("<stdarg.h>"));
+    ctx.*.add_c_include(String.from("<stdlib.h>"));
+    ctx.*.add_c_include(String.from("<stdio.h>"));
+    ctx.*.add_c_include(String.from("<string.h>"));
+    ctx.*.add_c_include(String.from("<errno.h>"));
     e.*.emit_header_line("");
     // Allocator abstraction (libc default)
     e.*.emit_header_line("// Using libc allocator");
@@ -51,15 +82,35 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     e.*.emit_header_line("#define __yo_realloc realloc");
     e.*.emit_header_line("#define __yo_free    free");
     e.*.emit_header_line("");
-    // Template string helper: concatenate two C strings.
+    // Template string helpers: concatenate and convert-to-string.
     // Used by the self-hosted codegen to implement `\`...${x}...\`` expressions.
-    e.*.emit_header_line("// Template string helper");
+    e.*.emit_header_line("#include <inttypes.h>");
+    ctx.*.add_c_include(String.from("<inttypes.h>"));
+    e.*.emit_header_line("// Template string helpers");
     e.*.emit_header_line("static inline char* __yo_str_concat(const char* a, const char* b) {");
     e.*.emit_header_line("  size_t la = strlen(a), lb = strlen(b);");
     e.*.emit_header_line("  char* buf = (char*)__yo_malloc(la + lb + 1);");
     e.*.emit_header_line("  memcpy(buf, a, la); memcpy(buf + la, b, lb);");
     e.*.emit_header_line("  buf[la + lb] = '\\0';");
     e.*.emit_header_line("  return(buf);");
+    e.*.emit_header_line("}");
+    e.*.emit_header_line("static inline char* __yo_int_to_str(int64_t n) {");
+    e.*.emit_header_line("  char* buf = (char*)__yo_malloc(32);");
+    e.*.emit_header_line("  snprintf(buf, 32, \"%lld\", (long long)n);");
+    e.*.emit_header_line("  return buf;");
+    e.*.emit_header_line("}");
+    e.*.emit_header_line("static inline char* __yo_uint_to_str(uint64_t n) {");
+    e.*.emit_header_line("  char* buf = (char*)__yo_malloc(32);");
+    e.*.emit_header_line("  snprintf(buf, 32, \"%llu\", (unsigned long long)n);");
+    e.*.emit_header_line("  return buf;");
+    e.*.emit_header_line("}");
+    e.*.emit_header_line("static inline char* __yo_float_to_str(double d) {");
+    e.*.emit_header_line("  char* buf = (char*)__yo_malloc(32);");
+    e.*.emit_header_line("  snprintf(buf, 32, \"%g\", d);");
+    e.*.emit_header_line("  return buf;");
+    e.*.emit_header_line("}");
+    e.*.emit_header_line("static inline const char* __yo_bool_to_str(_Bool b) {");
+    e.*.emit_header_line("  return b ? \"true\" : \"false\";");
     e.*.emit_header_line("}");
     e.*.emit_header_line("");
     // box(v) — heap-allocate a value and return a typed pointer to it.
@@ -78,10 +129,65 @@ emit_c_preamble :: (fn(module_id : str, ctx : *(CodegenContext)) -> unit)({
     e.*.emit_header_line("typedef uint32_t rune;");
     e.*.emit_header_line("typedef const char* String;");
     e.*.emit_header_line("");
+    e.*.emit_header_line("// Process target constants");
+    e.*.emit_header_line("#if defined(_WIN32)");
+    e.*.emit_header_line("static const char* platform = \"windows\";");
+    e.*.emit_header_line("#elif defined(__APPLE__) && defined(__MACH__)");
+    e.*.emit_header_line("static const char* platform = \"macos\";");
+    e.*.emit_header_line("#elif defined(__FreeBSD__)");
+    e.*.emit_header_line("static const char* platform = \"freebsd\";");
+    e.*.emit_header_line("#elif defined(__EMSCRIPTEN__)");
+    e.*.emit_header_line("static const char* platform = \"emscripten\";");
+    e.*.emit_header_line("#elif defined(__wasi__)");
+    e.*.emit_header_line("static const char* platform = \"wasi\";");
+    e.*.emit_header_line("#else");
+    e.*.emit_header_line("static const char* platform = \"linux\";");
+    e.*.emit_header_line("#endif");
+    e.*.emit_header_line("#if defined(__x86_64__) || defined(_M_X64)");
+    e.*.emit_header_line("static const char* arch = \"x86_64\";");
+    e.*.emit_header_line("#elif defined(__aarch64__) || defined(_M_ARM64)");
+    e.*.emit_header_line("static const char* arch = \"aarch64\";");
+    e.*.emit_header_line("#elif defined(__i386__) || defined(_M_IX86)");
+    e.*.emit_header_line("static const char* arch = \"x86\";");
+    e.*.emit_header_line("#elif defined(__arm__) || defined(_M_ARM)");
+    e.*.emit_header_line("static const char* arch = \"arm\";");
+    e.*.emit_header_line("#elif defined(__wasm32__)");
+    e.*.emit_header_line("static const char* arch = \"wasm32\";");
+    e.*.emit_header_line("#else");
+    e.*.emit_header_line("static const char* arch = \"unknown\";");
+    e.*.emit_header_line("#endif");
+    e.*.emit_header_line("");
+    e.*.emit_header_line("// Bootstrap-only slice specializations");
+    e.*.emit_header_line("typedef struct { uint8_t* data; size_t length; } YoSlice_u8;");
+    // Record the baseline slice type in the codegen registry so
+    // downstream handlers can dedupe and reuse it via
+    // `ctx.has_slice_struct_type("YoSlice_u8")` instead of hardcoding
+    // the name. Mirrors the TS pattern of pre-populating
+    // `context.sliceStructTypes` with the always-emitted baselines.
+    ctx.*.register_slice_struct_type(
+      String.from("YoSlice_u8"),
+      String.from("uint8_t")
+    );
+    e.*.emit_header_line("");
+    e.*.emit_header_line("// Bootstrap-only returned array specializations");
+    e.*.emit_header_line("typedef struct { int32_t data[1024]; size_t length; } YoArray_i32;");
+    // Same baseline-registration treatment for the array type.
+    ctx.*.register_array_struct_type(
+      String.from("YoArray_i32"),
+      String.from("int32_t"),
+      usize(1024)
+    );
+    e.*.emit_header_line("static inline YoArray_i32 __yo_array_i32_fill(size_t length, int32_t value) {");
+    e.*.emit_header_line("  YoArray_i32 result; result.length = length;");
+    e.*.emit_header_line("  for (size_t i = 0; i < length && i < 1024; i++) { result.data[i] = value; }");
+    e.*.emit_header_line("  return result;");
+    e.*.emit_header_line("}");
+    e.*.emit_header_line("");
+    e.*.emit_header_line("// Bootstrap-only ArrayList specializations");
+    e.*.emit_header_line("typedef struct { uint8_t data[1024]; size_t length; uint8_t* _ptr; } ArrayList_u8;");
+    e.*.emit_header_line("");
     // Module ID comment
-    mod_comment := String.from("// Module ID: ");
-    mod_comment.push_str(module_id);
-    e.*.emit_header_line(mod_comment.as_str());
+    e.*.emit_header_line(format_module_id_comment(module_id).as_str());
   }
 );
 // ---------------------------------------------------------------------------
@@ -99,10 +205,7 @@ emit_main_wrapper :: (fn(user_main_c_name : str, ctx : *(CodegenContext)) -> uni
   e := &(
     ctx.*.emitter;
     e.*.emit_line("int main(void) {");
-    call_line := String.from("  ");
-    call_line.push_str(user_main_c_name);
-    call_line.push_str("();");
-    e.*.emit_line(call_line.as_str());
+    e.*.emit_line(format_main_call_line(user_main_c_name).as_str());
     e.*.emit_line("  return(0);");
     e.*.emit_line("}");
   }
@@ -117,4 +220,10 @@ emit_main_wrapper :: (fn(user_main_c_name : str, ctx : *(CodegenContext)) -> uni
 generate_c_output :: (fn(ctx : *(CodegenContext)) -> String)(
   ctx.*.emitter.print()
 );
-export(emit_c_preamble, emit_main_wrapper, generate_c_output);
+export(
+  emit_c_preamble,
+  emit_main_wrapper,
+  generate_c_output,
+  format_module_id_comment,
+  format_main_call_line
+);

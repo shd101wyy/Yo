@@ -18,16 +18,17 @@ open(import("std/fmt"));
   make_err_expr,
   BK_FN_TRAIT
 }
-:: import("../../expr/expr.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
-{ Environment } :: import("../../env/env.yo");
+:: import("../../expr.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_type_value, is_type_value } :: import("../value.yo");
-{ TypeValue, t_fn_trait } :: import("../../types/type.yo");
+{ EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_fn_trait } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ format_error_message } :: import("../../error/error.yo");
+{ format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 { evaluate_function_parameters, FuncParam, FuncParamsResult } :: import("./function.yo");
 // ---------------------------------------------------------------------------
@@ -92,8 +93,10 @@ evaluate_fn_trait_type :: (
   ctx.is_evaluating_function_type = true;
   (env_mut : Environment) = env;
   params_result := evaluate_function_parameters(param_exprs, &(env_mut), ctx, using(exn));
-  // Evaluate the return type
-  evaluated_ret_expr := evaluate_expression(return_type_expr, env_mut, ctx);
+  // Evaluate the return type via the raw evaluator path so any
+  // throw propagates cleanly to the caller's `exn` (the non-raw
+  // wrapper's panic would otherwise swallow surfacing errors).
+  evaluated_ret_expr := evaluate_expression_raw(return_type_expr, env_mut, ctx, using(exn));
   ctx.is_evaluating_function_type = prev_is_eval_fn_type;
   // Extract return TypeValue from expr info
   ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_expr));

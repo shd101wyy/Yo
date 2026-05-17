@@ -2,17 +2,11 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TokenKind, Token } :: import("../lexer/token.yo");
-{ AstExpr } :: import("../expr/expr.yo");
-{ ExprInfo, new_expr_info } :: import("../expr/expr_info.yo");
-{
-  TypeValue,
-  t_unit,
-  t_bool,
-  t_future_trait_simple,
-  t_some_t,
-  generate_some_type_id
-} :: import("../types/type.yo");
+{ TokenKind, Token } :: import("../token.yo");
+{ AstExpr } :: import("../expr.yo");
+{ ExprInfo, new_expr_info } :: import("../expr_info.yo");
+{ TypeValue } :: import("../types/definitions.yo");
+{ t_unit, t_bool, t_future_trait_simple, t_some_t, generate_some_type_id } :: import("../types/creators.yo");
 {
   extract_future_trait_from_type,
   type_implements_future,
@@ -111,7 +105,8 @@ make_future_some_type :: (fn() -> TypeValue)({
     required_trait_levels,
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
-    false
+    false,
+    Option(Box(TypeValue)).None
   )
 });
 // A DynT with FutureTraitT(output: bool)

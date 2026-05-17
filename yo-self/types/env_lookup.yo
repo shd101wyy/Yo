@@ -13,10 +13,21 @@
 //! * TypeScript reference-equality `===` on SomeType → ID equality (`id_a == id_b`).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("./type.yo");
-{ is_some_type, is_trait_type } :: import("./guards.yo");
-{ EvalValue } :: import("../evaluator/value.yo");
-{ Environment, get_variables_from_env } :: import("../env/env.yo");
+{ TypeValue } :: import("./definitions.yo");
+{ t_i32, t_f64 } :: import("./creators.yo");
+{
+  is_some_type,
+  is_trait_type,
+  is_comptime_int_type,
+  is_comptime_float_type,
+  is_comptime_string_type,
+  is_pointer_type,
+  is_slice_type,
+  is_u8_type,
+  is_char_type
+} :: import("./guards.yo");
+{ EvalValue } :: import("../value.yo");
+{ Environment, get_variables_from_env } :: import("../env.yo");
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -379,4 +390,88 @@ get_value_of_some_type_from_env :: (fn(env : Environment, some_type : TypeValue)
     }
   )
 );
-export(get_trait_type_from_env, get_value_of_some_type_from_env);
+/// Look up the prelude `str` type in the given environment.
+/// Mirrors `createStrType(env)` in `src/types/creators.ts`. Returns
+/// `t_i32()` as a fallback when the prelude `str` binding has not
+/// been loaded — should never happen at compile time once the prelude
+/// is in scope, but keeps the function total instead of throwing.
+///
+/// Moved here from `types/utils.yo` so the `env.yo` ↔ `types/utils.yo`
+/// import cycle no longer exists; `types/env_lookup.yo` is the
+/// designated location for env-dependent type lookups.
+create_str_type :: (fn(env : Environment) -> TypeValue)({
+  vars := get_variables_from_env(env, String.from("str"));
+  (i : usize) = usize(0);
+  (found : Option(TypeValue)) =.None;
+  (n : usize) = vars.len();
+  while(runtime(i < n), {
+    match(
+      vars.get(i),
+      .Some(v) => match(
+        v.value,
+        .Some(ev) => match(
+          ev,
+          .TypeVal(ty) => {
+            found =.Some(ty.*);
+          },
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  match(
+    found,
+    .Some(t) => t,
+    .None => t_i32()
+  )
+});
+/// True iff `ty` is `*(u8)` or `*(char)` — the two byte-pointer
+/// shapes that can hold a comptime-string literal. Helper for
+/// `convert_comptime_type_to_runtime_type_with_expected`.
+_pointer_target_is_byte :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Pointer(pointee) => (is_u8_type(pointee.*) || is_char_type(pointee.*)),
+    _ => false
+  )
+);
+/// `convert_comptime_type_to_runtime_type` plus an optional
+/// `expected_type` hint. When the input is `comptime_string`, TS
+/// special-cases `*(u8)` / `*(char)` / `Slice(T)` expected types and
+/// returns the expected type instead of `str`. Mirrors the full
+/// signature of TS `convertComptimeTypeToRuntimeType`. The TS-side
+/// `expr` parameter (which mutates `expr.$.convertedRuntimeType`) is
+/// not threaded through here — yo-self callers that need the side-
+/// table update will assign through `ExprInfo.converted_runtime_type`
+/// directly.
+convert_comptime_type_to_runtime_type_with_expected :: (
+  fn(ty : TypeValue, expected : Option(TypeValue), env : Environment) -> TypeValue
+)(
+  cond(
+    is_comptime_int_type(ty) => t_i32(),
+    is_comptime_float_type(ty) => t_f64(),
+    is_comptime_string_type(ty) => match(
+      expected,
+      .None => create_str_type(env),
+      .Some(et) => cond(
+        (is_pointer_type(et) && _pointer_target_is_byte(et)) => et,
+        is_slice_type(et) => et,
+        true => create_str_type(env)
+      )
+    ),
+    true => ty
+  )
+);
+convert_comptime_type_to_runtime_type :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
+  convert_comptime_type_to_runtime_type_with_expected(ty, Option(TypeValue).None, env)
+);
+export(
+  get_trait_type_from_env,
+  get_value_of_some_type_from_env,
+  create_str_type,
+  convert_comptime_type_to_runtime_type,
+  convert_comptime_type_to_runtime_type_with_expected
+);

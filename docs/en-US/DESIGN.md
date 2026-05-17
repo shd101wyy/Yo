@@ -561,9 +561,9 @@ Functions are declared using the `::` operator for compile-time definitions or `
 ```rust
 // Function declaration with explicit type
 // function type is written as fn(args...) -> return_type
-add :: (fn(x : i32, y : i32) -> i32)
-  (x + y)  // Function body
-;
+add :: (fn(x : i32, y : i32) -> i32)(
+  x + y // Function body
+);
 // calling a function type with function body creates a function value
 
 // Or define type first, then implementation
@@ -579,9 +579,7 @@ multiply :: (fn(x : i32, y : i32) -> i32)({
 });
 
 // Last expression is the return value
-divide :: (fn(x : i32, y : i32) -> i32)
-  (x / y)
-;
+divide :: (fn(x : i32, y : i32) -> i32)(x / y);
 
 // Function can take `comptime` parameter and can return `comptime` value, like Type:
 Point :: (fn(comptime(T) : Type) -> comptime(Type))({
@@ -662,12 +660,12 @@ compare_and_add :: (fn(
     y: T,
     z: T,
     where(T <: (Add(T), Eq(T)))
-  ) -> T)
+  ) -> T)(
   cond(
     (x == y) => (x + z),
     true => (y + z)
   )
-;
+);
 ```
 
 ### Trait Method Disambiguation
@@ -719,7 +717,7 @@ Partial application works **only** on comptime functions (functions whose return
 IntResult :: Result(_, i32);    // kind: Type -> Type
 
 // Comptime value functions (return comptime(i32), comptime(bool), etc.):
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
 add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
 result :: add1(i32(2));   // 3
 ```
@@ -794,23 +792,25 @@ If `recur` is the last expression, tail-call optimization will be applied.
 - With tail-call optimization
 
   ```rust
-  (fn(x : u32, acc : u32) -> u32)
-    if x == 1, then:
-      acc
-    else:
-      recur(x - 1, acc * x)
-  ;
+  (fn(x : u32, acc : u32) -> u32)(
+    if(x == 1,
+      then: acc,
+      else:
+        recur(x - 1, acc * x)
+    )
+  );
   ```
 
 - Without tail-call optimization
 
   ```rust
-  (fn(x : u32) -> u32)
-    if x == 1, then:
-      1
-    else:
-      x * recur(x - 1)
-  ;
+  (fn(x : u32) -> u32)(
+    if(x == 1,
+      then: 1,
+      else:
+        x * recur(x - 1)
+    )
+  );
   ```
 
 ### Object Types and Memory Management
@@ -1027,13 +1027,13 @@ i32_array.len(); // 5, compile-time known
 slice := i32_array(1:end);  // slice: Slice(i32)
 slice.len(); // 2, runtime known
 
-full_slice := i32_array(:);  // full_slice: Slice(i32)
+full_slice := i32_array(0..3);  // full_slice: Slice(i32)
 
 slice(0) = 10;  // Modify through slice
 slice(1) = 20;
 // i32_array: [1, 10, 20, 4, 5]
 
-slice_of_slice := slice(0:2);  // Slice from slice
+slice_of_slice := slice(0..2);  // Slice from slice
 ```
 
 ### Range with `..`
@@ -1143,13 +1143,13 @@ For more array examples, see [array.test.yo](../tests/array.test.yo).
 ### cond
 
 ```rust
-use_cond :: (fn(x: i32) -> unit)
+use_cond :: (fn(x: i32) -> unit)(
   cond(
     (x == 1) => println("x is 1"),
     (x == 2) => println("x is 2"),
     true => println("x is not 1 or 2")
   )
-;
+);
 ```
 
 > Note: The last condition must be compile-time known value `true` to act as the default case.
@@ -1166,14 +1166,14 @@ if :: (fn(
         quote(condition): Expr,
         quote(then): Expr,
         (quote(else): Expr) ?= quote(())
-      ) -> unquote(Expr))
+      ) -> unquote(Expr))(
   quote(
     cond(
       unquote(condition) => unquote(then),
       true => unquote(else)
     )
   )
-;
+);
 
 // Usage
 main :: (fn() -> unit)({
@@ -1708,7 +1708,7 @@ Coin :: enum(
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-value_in_cents :: (fn(coin: Coin) -> u8)
+value_in_cents :: (fn(coin: Coin) -> u8)(
   match(coin,
     .Penny => {
       printf("Lucky penny!\n");
@@ -1718,7 +1718,7 @@ value_in_cents :: (fn(coin: Coin) -> u8)
     .Dime => 10,
     .Quarter => 25
   )
-;
+);
 
 Shape :: enum(
   Circle(r : i32),
@@ -2142,16 +2142,16 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 
 ```rust
 // Box is defined in std/prelude.yo
-Box :: (fn(comptime(V) : Type) -> comptime(Type))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))(
   object(
     (*) : V
   )
-;
+);
 
 // box function creates a Box
-box :: (fn(forall(V : Type), value : V) -> Box(V))
+box :: (fn(forall(V : Type), value : V) -> Box(V))(
   Box(V)(value)
-;
+);
 ```
 
 ### Usage Examples
@@ -2594,12 +2594,12 @@ export(test);
 
 // module2.yo
 // Export the type
-Option :: (fn(comptime(T): Type) -> comptime(Type))
+Option :: (fn(comptime(T): Type) -> comptime(Type))(
   enum(
     Some(value : T),
     None
   )
-;
+);
 export(Option);
 ```
 
@@ -2879,12 +2879,14 @@ Example from `std/prelude.yo`:
 if :: (fn(quote(condition): Expr,
         quote(then): Expr,
         (quote(else): Expr) ?= quote(())
-      ) -> unquote(Expr))
-  quote
-    cond
+      ) -> unquote(Expr))(
+  quote(
+    cond(
       unquote(condition) => unquote(then),
       true => unquote(else)
-;
+    )
+  )
+);
 
 // Usage
 if(true, {
@@ -2906,10 +2908,11 @@ try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr))({
 });
 
 // Custom macro example
-unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))
-  quote
+unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
+  quote(
     if(not(unquote(condition)), unquote(do))
-;
+  )
+);
 ```
 
 ## Derive Traits
@@ -3025,12 +3028,12 @@ MyInt :: i32;               // comptime(Type)
 value := MyInt(100);        // Runtime i32
 
 // Compile-time computation
-factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))
+factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))(
   cond(
     (n <= 1) => 1,
     true => (n * recur(n - 1))
   )
-;
+);
 result :: factorial(5);     // Computed at compile time: 120
 ```
 

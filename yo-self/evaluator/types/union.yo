@@ -21,25 +21,25 @@ open(import("std/fmt"));
   ast_expr_is_fn_call_of,
   make_err_expr,
   BK_UNION
-} :: import("../../expr/expr.yo");
-{ new_expr_info, expr_info_table_set } :: import("../../expr/expr_info.yo");
-{ Environment } :: import("../../env/env.yo");
+} :: import("../../expr.yo");
+{ new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_type_value } :: import("../value.yo");
-{ TypeValue } :: import("../../types/type.yo");
+{ EvalValue, create_type_value } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ format_error_message } :: import("../../error/error.yo");
+{ format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 {
   TypeField,
   EvalTypeFieldResult,
   evaluate_type_field
 } :: import("./field.yo");
-{ random_id } :: import("../utils.yo");
+{ random_id } :: import("../../utils.yo");
 { type_implements_runtime, type_is_comptime_only } :: import("../../types/utils.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ auto_derive_traits_for_union_type } :: import("./auto_derive.yo");
+{ auto_derive_traits_for_union_type } :: import("./utils.yo");
 evaluate_union_type :: (
   fn(
     expr : AstExpr,
@@ -122,7 +122,7 @@ evaluate_union_type :: (
       );
     });
     // Union fields must be runtime types.
-    if(type_is_comptime_only(field.ty, env_mut) || !(type_implements_runtime(field.ty, env_mut)), {
+    if(type_is_comptime_only(field.ty) || !(type_implements_runtime(field.ty)), {
       exn.throw(
         dyn(
           format_error_message(

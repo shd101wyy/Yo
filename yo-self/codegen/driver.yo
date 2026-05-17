@@ -14,14 +14,49 @@
 //!   - Only simple atomic type names (i32, u8, bool, unit, str, …) are mapped.
 //!   - `using(…)` evidence params are emitted as `void*`.
 //!   - No type declarations, RC helpers, or async support yet.
+//!
+//! **Structural mapping vs src/**: this file is the **bootstrap codegen
+//! pipeline** — it pattern-matches the raw `AstExpr` AST directly and emits
+//! C, *without going through the evaluator*. src/ has no equivalent: the
+//! production compiler always runs `evaluator → codegen-c.ts` on the typed
+//! AST, with codegen logic spread across `src/codegen/{functions,types,exprs}/`.
+//! Every `extract_*_def` / `emit_*_to_c` function here is a yo-self-only
+//! AST-walker that will be deleted once yo-self can use its own typed AST
+//! (the typed-AST pivot, roadmap Phase 13at). Until then, `driver.yo` is
+//! an **acceptable divergence (bootstrap-specific)** with no src/
+//! counterpart to align against.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY } :: import("../expr/expr.yo");
-{ TokenKind, Token } :: import("../lexer/token.yo");
+{ AstExpr, BK_IMPORT, BK_OPEN, BK_ARRAY, BK_BEGIN } :: import("../expr.yo");
+{ TokenKind, Token } :: import("../token.yo");
+{ ExprInfoTable } :: import("../expr_info.yo");
 { CodegenContext } :: import("./context.yo");
-{ type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl } :: import("./exprs.yo");
-{ generate_function } :: import("./functions.yo");
-{ emit_c_preamble, emit_main_wrapper, generate_c_output } :: import("./program.yo");
+{ type_expr_to_c, type_name_to_c, is_begin_block, sanitize_c_ident, build_typed_decl, register_generic_struct_template_if_supported, is_primitive_type_cast, generate_expr } :: import("./exprs.yo");
+{ generate_function, emit_function_declaration } :: import("./functions/generation.yo");
+{ emit_c_preamble, emit_main_wrapper, generate_c_output } :: import("./codegen_c.yo");
+// ---------------------------------------------------------------------------
+// Pipeline-scoped ExprInfoTable handoff
+// ---------------------------------------------------------------------------
+/// One-shot slot for the typed AST metadata produced by an evaluator pass.
+/// `compile_module_to_c` (and its `*_with_info_table` variant) reads this
+/// slot, installs the table on its `CodegenContext`, and then clears it
+/// back to `.None` so subsequent compilations start clean.
+///
+/// Mirrors the pattern already used by `g_evaluate_expression` in
+/// `evaluator/exprs/expr.yo` — a module-level function-pointer / state
+/// slot, set by the caller right before invoking the consumer.
+///
+/// Wiring the evaluator into `yo-self/main.yo` is the goal of Stream A
+/// (see `plans/BOOTSTRAPPING.md` Path Forward). Today the slot stays
+/// `.None` for every caller, so codegen continues to use the AST-only
+/// bootstrap heuristics and per-handler ports fall through.
+(g_pipeline_expr_info_table : Option(ExprInfoTable)) =.None;
+/// Set the ExprInfoTable that the next `compile_module_to_c` call will
+/// install on its CodegenContext. The slot is one-shot: `compile_module_to_c`
+/// reads it, installs it, and resets it to `.None` before returning.
+set_pipeline_expr_info_table :: (fn(table : Option(ExprInfoTable)) -> unit)({
+  g_pipeline_expr_info_table = table;
+});
 // ---------------------------------------------------------------------------
 // FnDef — extracted function definition record
 // ---------------------------------------------------------------------------
@@ -113,6 +148,23 @@ atom_ident :: (fn(expr : AstExpr) -> Option(str))(
       true => Option(str).None
     ),
     .FnCall(_, _, _, _, _) => Option(str).None
+  )
+);
+/// Return a C field name for struct/object field declarations.
+/// Yo object single-field syntax uses `(*) : T`; the bootstrap C layout names
+/// that payload field `_0` so `value.*` can lower to `value._0`.
+struct_field_c_name :: (fn(expr : AstExpr) -> Option(str))(
+  match(
+    atom_ident(expr),
+    .Some(name) => Option(str).Some(name),
+    .None => match(
+      expr,
+      .FnCall(_, _, _, _, _) => Option(str).None,
+      .Atom(_, tok) => cond(
+        (tok.value.as_str() == "*") => Option(str).Some("_0"),
+        true => Option(str).None
+      )
+    )
   )
 );
 // ---------------------------------------------------------------------------
@@ -305,6 +357,40 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                               // typed param:  FnCall(Atom(":"), [name, type], true)
                               // name can be a bare Atom("name") or comptime(name)
                               ((pftok.value.as_str() == ":") && pinfix) => {
+                                // Check if this is `comptime(Name) : MetaType` — a type-variable parameter.
+                                // When the name side is `comptime(...)` and the type side is a meta-type
+                                // (Type, Trait, Expr, etc.) that has no C equivalent, the function is generic
+                                // and cannot be emitted as C — return None immediately.
+                                is_comptime_name := match(
+                                  pargs.get(usize(0)),
+                                  .None => false,
+                                  .Some(pne_chk) => match(
+                                    pne_chk,
+                                    .Atom(_, _) => false,
+                                    .FnCall(_, cpf_chk, _, cp_infix_chk, _) => cond(
+                                      cp_infix_chk => false,
+                                      true => match(
+                                        cpf_chk.*,
+                                        .FnCall(_, _, _, _, _) => false,
+                                        .Atom(_, cptok_chk) => (cptok_chk.value.as_str() == "comptime")
+                                      )
+                                    )
+                                  )
+                                );
+                                is_meta_type_param := (
+                                  is_comptime_name && match(
+                                    pargs.get(usize(1)),
+                                    .None => false,
+                                    .Some(pty_e) => match(
+                                      type_expr_to_c(pty_e),
+                                      .Some(_) => false,
+                                      .None => true
+                                    )
+                                  )
+                                );
+                                if(is_meta_type_param, {
+                                  return(Option(FnDef).None);
+                                });
                                 p_name := match(
                                   pargs.get(usize(0)),
                                   .Some(ne) => match(
@@ -384,7 +470,9 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                   out_param_tys.push(String.from("void*"));
                                 }
                               ),
-                              // forall / other — skip
+                              // forall param → the whole function is generic; skip it entirely
+                              (pftok.value.as_str() == "forall") => return(Option(FnDef).None),
+                              // other — skip
                               true => ()
                             )
                           )
@@ -522,7 +610,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                                           fa.get(usize(0)),
                                           .None => (),
                                           .Some(field_name_e) => match(
-                                            atom_ident(field_name_e),
+                                            struct_field_c_name(field_name_e),
                                             .None => (),
                                             .Some(fname) => match(
                                               fa.get(usize(1)),
@@ -561,7 +649,7 @@ extract_struct_def :: (fn(expr : AstExpr) -> Option(StructDef))(
                                                     ic_args.get(usize(0)),
                                                     .None => (),
                                                     .Some(field_name_e2) => match(
-                                                      atom_ident(field_name_e2),
+                                                      struct_field_c_name(field_name_e2),
                                                       .None => (),
                                                       .Some(fname2) => match(
                                                         ic_args.get(usize(1)),
@@ -943,6 +1031,15 @@ ConstDef :: struct(
   kind : String
 );
 derive(ConstDef, Clone);
+/// A module-level mutable variable declaration:
+///   x := expr          (infix `:=`)
+///   (x : T) = expr     (infix `=` with annotated binding lhs)
+MutableVarDef :: struct(
+  name : String,
+  c_type : String,
+  rhs : AstExpr
+);
+derive(MutableVarDef, Clone);
 /// Try to extract a module-level constant `Name :: literal` from an AST expr.
 /// Recognises string literals, integers, and booleans.
 /// Returns None for function defs, type defs, or non-literal RHS.
@@ -1828,6 +1925,43 @@ extract_impl_fns :: (fn(expr : AstExpr, type_prefix : str) -> ArrayList(FnDef))(
                         );
                       }
                     );
+                    // Multi-method impls parse as `impl(T, method1 : ..., method2 : ..., ...)`.
+                    // The first method is `body_expr`; remaining methods live in top_args[2..].
+                    (extra_i : usize) = usize(2);
+                    while(runtime(extra_i < top_args.len()), {
+                      match(
+                        top_args.get(extra_i),
+                        .None => (),
+                        .Some(extra_method_expr) => {
+                          extra_fd_opt := match(
+                            extract_fn_def(extra_method_expr),
+                            .Some(fd_c) => Option(FnDef).Some(fd_c),
+                            .None => extract_colon_fn_def(extra_method_expr)
+                          );
+                          match(
+                            extra_fd_opt,
+                            .None => (),
+                            .Some(extra_fd) => {
+                              extra_c_name := String.from(type_prefix);
+                              extra_c_name.push_str("_");
+                              extra_c_name.push_string(extra_fd.name);
+                              results.push(
+                                FnDef(
+                                  name : extra_c_name,
+                                  ret_ty_c : subst_self_ty(extra_fd.ret_ty_c, type_prefix),
+                                  params : extra_fd.params,
+                                  param_tys : subst_self_ty_list(extra_fd.param_tys, type_prefix),
+                                  body : extra_fd.body,
+                                  is_impl : true,
+                                  impl_type : String.from(type_prefix)
+                                )
+                              );
+                            }
+                          );
+                        }
+                      );
+                      extra_i = (extra_i + usize(1));
+                    });
                     results
                   }
                 )
@@ -2000,22 +2134,32 @@ is_fn_name_called :: (fn(name : str, expr : AstExpr) -> bool)(
         cond(
           this_is_call => true,
           true => {
-            n := args.len();
-            (i : usize) = usize(0);
-            (found : bool) = false;
-            while(runtime((i < n) && (!(found))), {
-              match(
-                args.get(i),
-                .None => (),
-                .Some(a) => {
-                  if(recur(name, a), {
-                    found = true;
-                  });
-                }
-              );
-              i = (i + usize(1));
-            });
-            found
+            found_in_func := match(
+              func_box.*,
+              .Atom(_, _) => false,
+              .FnCall(_, _, _, _, _) => recur(name, func_box.*)
+            );
+            cond(
+              found_in_func => true,
+              true => {
+                n := args.len();
+                (i : usize) = usize(0);
+                (found : bool) = false;
+                while(runtime((i < n) && (!(found))), {
+                  match(
+                    args.get(i),
+                    .None => (),
+                    .Some(a) => {
+                      if(recur(name, a), {
+                        found = true;
+                      });
+                    }
+                  );
+                  i = (i + usize(1));
+                });
+                found
+              }
+            )
           }
         )
       }
@@ -2058,6 +2202,62 @@ collect_all_enum_defs :: (fn(expr : AstExpr, result : *(ArrayList(EnumDef))) -> 
     )
   )
 );
+merge_enum_defs_for_name :: (fn(all_eds : ArrayList(EnumDef), enum_name : str) -> EnumDef)({
+  merged_variants := ArrayList(EnumVariant).new();
+  is_complex := false;
+  n_all := all_eds.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n_all), {
+    match(
+      all_eds.get(i),
+      .None => (),
+      .Some(ed) => if(ed.name.as_str() == enum_name, {
+        nv := ed.variants.len();
+        (vi : usize) = usize(0);
+        while(runtime(vi < nv), {
+          match(
+            ed.variants.get(vi),
+            .None => (),
+            .Some(ev) => {
+              (later_same_variant : bool) = false;
+              (j : usize) = (i + usize(1));
+              while(runtime((j < n_all) && (!(later_same_variant))), {
+                match(
+                  all_eds.get(j),
+                  .None => (),
+                  .Some(later_ed) => if(later_ed.name.as_str() == enum_name, {
+                    later_nv := later_ed.variants.len();
+                    (later_vi : usize) = usize(0);
+                    while(runtime((later_vi < later_nv) && (!(later_same_variant))), {
+                      match(
+                        later_ed.variants.get(later_vi),
+                        .None => (),
+                        .Some(later_ev) => if(later_ev.name.as_str() == ev.name.as_str(), {
+                          later_same_variant = true;
+                        })
+                      );
+                      later_vi = (later_vi + usize(1));
+                    });
+                  })
+                );
+                j = (j + usize(1));
+              });
+              if(!(later_same_variant), {
+                if(ev.fields.len() > usize(0), {
+                  is_complex = true;
+                });
+                merged_variants.push(ev);
+              });
+            }
+          );
+          vi = (vi + usize(1));
+        });
+      })
+    );
+    i = (i + usize(1));
+  });
+  EnumDef(name : String.from(enum_name), variants : merged_variants, is_complex : is_complex)
+});
 /// Recursively scan a begin-block AST for local `Name :: struct(...)` and
 /// `Name :: enum(...)` definitions at any nesting depth.
 ///
@@ -2097,8 +2297,15 @@ emit_local_type_defs :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> unit)({
           j = (j + usize(1));
         });
         cond(
-          // Last occurrence → emit typedef + register variants
-          (!(later_found)) => emit_enum_to_c(ed, ctx),
+          // Last occurrence → emit one merged typedef and register variants.
+          // Same-named local enums can appear in separate lexical scopes; the
+          // bootstrap C backend has module-level typedefs, so merge distinct
+          // variant names while allowing later definitions of the same variant
+          // to win for field names/discriminants.
+          (!(later_found)) => {
+            merged_ed := merge_enum_defs_for_name(all_eds, ed.name.as_str());
+            emit_enum_to_c(merged_ed, ctx);
+          },
           // Earlier occurrence → only register variants (no C emit)
           true => _register_enum_variants(ed, ctx)
         );
@@ -2412,6 +2619,161 @@ emit_comptime_const_defs :: (fn(body : AstExpr, ctx : *(CodegenContext)) -> unit
     )
   )
 );
+/// Infer a C type string from a simple RHS expression.
+///
+/// Handles:
+///   - `i32(0)`, `u8(0)`, `bool(false)`, etc. — primitive type casts
+///   - `true` / `false` atoms — bool
+///   - integer literals — int32_t
+///   - float literals — double
+/// Returns None for complex expressions that cannot be inferred.
+infer_c_type_from_rhs :: (fn(rhs : AstExpr) -> Option(String))(
+  match(
+    rhs,
+    .Atom(_, tok) => cond(
+      (tok.kind == TokenKind.Integer) => Option(String).Some(String.from("int32_t")),
+      (tok.kind == TokenKind.Float) => Option(String).Some(String.from("double")),
+      ((tok.value.as_str() == "true") || (tok.value.as_str() == "false")) => Option(String).Some(String.from("bool")),
+      true => Option(String).None
+    ),
+    .FnCall(_, func, args, infix, _) => cond(
+      infix => Option(String).None,
+      (args.len() != usize(1)) => Option(String).None,
+      true => match(
+        func.*,
+        .FnCall(_, _, _, _, _) => Option(String).None,
+        .Atom(_, ftok) => cond(
+          (is_primitive_type_cast(ftok.value.as_str())) => Option(String).Some(type_name_to_c(ftok.value.as_str())),
+          true => Option(String).None
+        )
+      )
+    )
+  )
+);
+/// Extract a module-level mutable variable declaration from an AST expression.
+///
+/// Handles two Yo forms:
+///   1. `x := expr`           — infix `:=` with atom LHS (type inferred)
+///   2. `(x : T) = expr`      — infix `=` with colon-annotated LHS (explicit type)
+///
+/// Returns None for function defs, constants (`::`) or anything else.
+extract_module_var_def :: (fn(expr : AstExpr) -> Option(MutableVarDef))(
+  match(
+    expr,
+    .Atom(_, _) => Option(MutableVarDef).None,
+    .FnCall(_, top_func, top_args, top_infix, _) => cond(
+      (!(top_infix)) => Option(MutableVarDef).None,
+      (top_args.len() < usize(2)) => Option(MutableVarDef).None,
+      true => match(
+        top_func.*,
+        .FnCall(_, _, _, _, _) => Option(MutableVarDef).None,
+        .Atom(_, op_tok) => cond(
+          // Form 1: name := rhs
+          (op_tok.value.as_str() == ":=") => match(
+            top_args.get(usize(0)),
+            .None => Option(MutableVarDef).None,
+            .Some(lhs) => match(
+              atom_ident(lhs),
+              .None => Option(MutableVarDef).None,
+              .Some(var_name) => match(
+                top_args.get(usize(1)),
+                .None => Option(MutableVarDef).None,
+                .Some(rhs) => match(
+                  infer_c_type_from_rhs(rhs),
+                  .None => Option(MutableVarDef).None,
+                  .Some(c_ty) => Option(MutableVarDef).Some(
+                    MutableVarDef(name : String.from(var_name), c_type : c_ty, rhs : rhs)
+                  )
+                )
+              )
+            )
+          ),
+          // Form 2: (name : T) = rhs
+          (op_tok.value.as_str() == "=") => match(
+            top_args.get(usize(0)),
+            .None => Option(MutableVarDef).None,
+            .Some(lhs) => match(
+              lhs,
+              .Atom(_, _) => Option(MutableVarDef).None,
+              .FnCall(_, colon_func, colon_args, colon_infix, _) => cond(
+                (!(colon_infix)) => Option(MutableVarDef).None,
+                (colon_args.len() < usize(2)) => Option(MutableVarDef).None,
+                (
+                  !(
+                    match(
+                      colon_func.*,
+                      .Atom(_, ctok) => (ctok.value.as_str() == ":"),
+                      .FnCall(_, _, _, _, _) => false
+                    )
+                  )
+                ) => Option(MutableVarDef).None,
+                true => match(
+                  colon_args.get(usize(0)),
+                  .None => Option(MutableVarDef).None,
+                  .Some(name_expr) => match(
+                    atom_ident(name_expr),
+                    .None => Option(MutableVarDef).None,
+                    .Some(var_name) => match(
+                      colon_args.get(usize(1)),
+                      .None => Option(MutableVarDef).None,
+                      .Some(ty_expr) => match(
+                        type_expr_to_c(ty_expr),
+                        .None => Option(MutableVarDef).None,
+                        .Some(c_ty) => match(
+                          top_args.get(usize(1)),
+                          .None => Option(MutableVarDef).None,
+                          .Some(rhs) => Option(MutableVarDef).Some(
+                            MutableVarDef(name : String.from(var_name), c_type : c_ty, rhs : rhs)
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          ),
+          true => Option(MutableVarDef).None
+        )
+      )
+    )
+  )
+);
+/// Emit module-level mutable variable declarations to the declarations buffer.
+///
+/// Each variable is emitted as: `static C_TYPE name = init_val;`
+/// Uses emit_declaration_line so it appears before all function bodies.
+/// Also registers each variable's C type in the context for codegen of
+/// function bodies that reference the variable.
+emit_module_level_vars :: (fn(module_exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) -> unit)({
+  ne := module_exprs.len();
+  (ie : usize) = usize(0);
+  indent := String.new();
+  while(runtime(ie < ne), {
+    ie = (ie + usize(1));
+    match(
+      module_exprs.get(ie - usize(1)),
+      .None => (),
+      .Some(mexpr) => match(
+        extract_module_var_def(mexpr),
+        .None => (),
+        .Some(mvd) => {
+          rhs_c := generate_expr(mvd.rhs, ctx, indent);
+          rhs_str := match(rhs_c,.None => String.from("0"),.Some(s) => s);
+          line := String.from("static ");
+          line.push_string(mvd.c_type);
+          line.push_str(" ");
+          line.push_string(mvd.name);
+          line.push_str(" = ");
+          line.push_string(rhs_str);
+          line.push_str("; /* module-level mutable variable */");
+          ctx.*.emitter.emit_declaration_line(line.as_str());
+          ctx.*.register_var_type(mvd.name.as_str(), mvd.c_type.as_str());
+        }
+      )
+    );
+  });
+});
 /// Recursively scan a begin-block AST for local `name :: fn` definitions.
 ///
 /// Walks the expression tree depth-first. Any statement that matches
@@ -4053,6 +4415,58 @@ process_derive_eq :: (fn(exprs : ArrayList(AstExpr), ctx : *(CodegenContext)) ->
 // ---------------------------------------------------------------------------
 // compile_module_to_c
 // ---------------------------------------------------------------------------
+/// Recursively scan a function body for local type definitions
+/// (`Name :: struct(...)`, `Name :: enum(...)`, `Name :: newtype(...)`,
+/// `Name :: union(...)`) and emit them as top-level C typedefs.
+///
+/// This walks into nested begin blocks (e.g. inside if branches, while bodies)
+/// so type definitions at any depth get hoisted to the C file's top level.
+scan_and_emit_local_defs :: (
+  fn(body : AstExpr, ctx : *(CodegenContext)) -> unit
+)(
+  match(
+    body,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      // First, try to extract a type def from the expr itself
+      sd_opt := extract_struct_def(body);
+      match(
+        sd_opt,
+        .Some(sd) => emit_struct_to_c(sd, ctx),
+        .None => {
+          ed_opt := extract_enum_def(body);
+          match(
+            ed_opt,
+            .Some(ed) => emit_enum_to_c(ed, ctx),
+            .None => {
+              ud_opt := extract_union_def(body);
+              match(
+                ud_opt,
+                .Some(ud) => emit_union_to_c(ud, ctx),
+                .None => ()
+              );
+            }
+          );
+        }
+      );
+      // Recurse into begin block children to find nested defs
+      is_begin := match(
+        func_box.*,
+        .Atom(_, ftok) => (ftok.value.as_str() == BK_BEGIN),
+        .FnCall(_, _, _, _, _) => false
+      );
+      if(is_begin, {
+        (i : usize) = usize(0);
+        n := args.len();
+        while(runtime(i < n), {
+          match(args.get(i),.None => (),.Some(child) => recur(child, ctx));
+          i = (i + usize(1));
+        });
+      });
+    }
+  )
+);
+// ---------------------------------------------------------------------------
 /// Walk a parsed module body and generate a complete C11 source file.
 ///
 /// * Every `name :: (fn(…) -> T)(body)` top-level expression is compiled as a
@@ -4069,6 +4483,11 @@ compile_module_to_c :: (
 )({
   ctx := CodegenContext.new();
   (pctx : *(CodegenContext)) = &(ctx);
+  // One-shot handoff: install the pipeline's ExprInfoTable (if the
+  // caller staged one via `set_pipeline_expr_info_table`) and reset
+  // the slot so the next compilation starts clean.
+  ctx.expr_info_table = g_pipeline_expr_info_table;
+  g_pipeline_expr_info_table = Option(ExprInfoTable).None;
   emit_c_preamble(module_id, pctx);
   n := exprs.len();
   (i : usize) = usize(0);
@@ -4086,6 +4505,7 @@ compile_module_to_c :: (
           .Some(fd) => {
             name_copy := String.from(fd.name.as_str());
             pctx.*.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
+            pctx.*.register_fn_return_type(fd.name.as_str(), fd.ret_ty_c.as_str());
           },
           .None => {
             // Also register impl method names for forward reference support.
@@ -4118,6 +4538,7 @@ compile_module_to_c :: (
                               .Some(ifd) => {
                                 iname := String.from(ifd.name.as_str());
                                 pctx.*.register_fn_with_params(iname, build_param_tys_pipe(ifd.param_tys));
+                                pctx.*.register_fn_return_type(ifd.name.as_str(), ifd.ret_ty_c.as_str());
                               }
                             );
                           });
@@ -4133,6 +4554,8 @@ compile_module_to_c :: (
       }
     );
   });
+  // === Pass 1.5: emit module-level mutable variable declarations ===
+  emit_module_level_vars(exprs, pctx);
   // === Pass 2: emit structs, functions, and impl methods ===
   i = usize(0);
   (main_found : bool) = false;
@@ -4154,6 +4577,16 @@ compile_module_to_c :: (
               main_found = true;
               main_c_name = c_name;
             });
+            // Pre-scan body for local type definitions and emit them as
+            // top-level C typedefs before generating the function body.
+            scan_and_emit_local_defs(fd.body, pctx);
+            emit_function_declaration(
+              c_name.as_str(),
+              fd.ret_ty_c.as_str(),
+              fd.params,
+              fd.param_tys,
+              pctx
+            );
             generate_function(
               c_name.as_str(),
               fd.ret_ty_c.as_str(),
@@ -4239,6 +4672,13 @@ compile_module_to_c :: (
                                 main_found = true;
                                 main_c_name = fd.name;
                               });
+                              emit_function_declaration(
+                                fd.name.as_str(),
+                                fd.ret_ty_c.as_str(),
+                                fd.params,
+                                fd.param_tys,
+                                pctx
+                              );
                               generate_function(
                                 fd.name.as_str(),
                                 fd.ret_ty_c.as_str(),
@@ -4252,11 +4692,41 @@ compile_module_to_c :: (
                         });
                         // Fifth: try to extract a module-level constant.
                         if(nm == usize(0), {
-                          match(
-                            extract_const_def(expr),
-                            .Some(cd) => emit_const_to_c(cd, pctx),
-                            .None => ()
+                          generic_template_registered := match(
+                            expr,
+                            .Atom(_, _) => false,
+                            .FnCall(_, gen_func, gen_args, gen_infix, _) => cond(
+                              (!(gen_infix && (gen_args.len() >= usize(2)))) => false,
+                              true => match(
+                                gen_func.*,
+                                .FnCall(_, _, _, _, _) => false,
+                                .Atom(_, gen_op_tok) => cond(
+                                  (gen_op_tok.value.as_str() != "::") => false,
+                                  true => match(
+                                    gen_args.get(usize(0)),
+                                    .None => false,
+                                    .Some(gen_name_expr) => match(
+                                      atom_ident(gen_name_expr),
+                                      .None => false,
+                                      .Some(gen_name) => match(
+                                        gen_args.get(usize(1)),
+                                        .None => false,
+                                        .Some(gen_rhs) =>
+                                          register_generic_struct_template_if_supported(gen_name, gen_rhs, pctx)
+                                      )
+                                    )
+                                  )
+                                )
+                              )
+                            )
                           );
+                          if(!(generic_template_registered), {
+                            match(
+                              extract_const_def(expr),
+                              .Some(cd) => emit_const_to_c(cd, pctx),
+                              .None => ()
+                            );
+                          });
                         });
                       }
                     )
@@ -4289,7 +4759,7 @@ compile_module_to_c :: (
     }
   )
 });
-export(compile_module_to_c);
+export(compile_module_to_c, set_pipeline_expr_info_table);
 /// An `int main(void)` wrapper calls `fn_test_body()`.
 ///
 /// `assert(cond, msg)` in the body emits `if (!(cond)) { exit(1); }` via
@@ -4352,6 +4822,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                               .None => (),
                               .Some(ifd) => {
                                 pctx.*.register_fn_with_params(String.from(ifd.name.as_str()), build_param_tys_pipe(ifd.param_tys));
+                                pctx.*.register_fn_return_type(ifd.name.as_str(), ifd.ret_ty_c.as_str());
                               }
                             );
                           });
@@ -4366,12 +4837,17 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
           .Some(fd) => {
             name_copy := String.from(fd.name.as_str());
             pctx.*.register_fn_with_params(name_copy, build_param_tys_pipe(fd.param_tys));
+            pctx.*.register_fn_return_type(fd.name.as_str(), fd.ret_ty_c.as_str());
           }
         );
       }
     );
   });
   emit_c_preamble(module_id, pctx);
+  // === Pass 1.5: emit module-level mutable variable declarations ===
+  // These become `static C_TYPE name = init_val;` in the declarations section,
+  // which precedes all function bodies. This mirrors TS emitModuleLevelVariableDeclarations().
+  emit_module_level_vars(module_exprs, pctx);
   // === Pass 2: emit helper structs and functions ===
   ie = usize(0);
   while(runtime(ie < ne), {
@@ -4385,6 +4861,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
           extract_fn_def(mexpr),
           .Some(fd) => {
             c_name := `fn_${ fd.name }`;
+            emit_function_declaration(
+              c_name.as_str(),
+              fd.ret_ty_c.as_str(),
+              fd.params,
+              fd.param_tys,
+              pctx
+            );
             generate_function(
               c_name.as_str(),
               fd.ret_ty_c.as_str(),
@@ -4419,6 +4902,33 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                         emit_union_to_c(ud, pctx);
                       },
                       .None => {
+                        match(
+                          mexpr,
+                          .Atom(_, _) => (),
+                          .FnCall(_, gen_func2, gen_args2, gen_infix2, _) => if(gen_infix2 && (gen_args2.len() >= usize(2)), {
+                            match(
+                              gen_func2.*,
+                              .FnCall(_, _, _, _, _) => (),
+                              .Atom(_, gen_op_tok2) => if(gen_op_tok2.value.as_str() == "::", {
+                                match(
+                                  gen_args2.get(usize(0)),
+                                  .None => (),
+                                  .Some(gen_name_expr2) => match(
+                                    atom_ident(gen_name_expr2),
+                                    .None => (),
+                                    .Some(gen_name2) => match(
+                                      gen_args2.get(usize(1)),
+                                      .None => (),
+                                      .Some(gen_rhs2) => {
+                                        register_generic_struct_template_if_supported(gen_name2, gen_rhs2, pctx);
+                                      }
+                                    )
+                                  )
+                                );
+                              })
+                            );
+                          })
+                        );
                         // Emit impl methods
                         match(
                           mexpr,
@@ -4451,6 +4961,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
                                             // Determine the implementing type (strip leading `TypeName_` prefix)
                                             // tp2 holds the Yo type name (e.g. "SomeUnion").
                                             pctx.*.set_self_type(tp2);
+                                            emit_function_declaration(
+                                              c_name3.as_str(),
+                                              ifd2.ret_ty_c.as_str(),
+                                              ifd2.params,
+                                              ifd2.param_tys,
+                                              pctx
+                                            );
                                             generate_function(
                                               c_name3.as_str(),
                                               ifd2.ret_ty_c.as_str(),
@@ -4527,6 +5044,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
         // Only pre-register impl method names (called as TypeName.method()).
         if(lfd0.is_impl, {
           pctx.*.register_fn_with_params(String.from(lfd0.name.as_str()), build_param_tys_pipe(lfd0.param_tys));
+          pctx.*.register_fn_return_type(lfd0.name.as_str(), lfd0.ret_ty_c.as_str());
         });
       }
     );
@@ -4568,6 +5086,13 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
             // invoked as TypeName.method() which is_fn_name_called won't detect.
             c_name2 := `fn_${ lfd.name }`;
             pctx.*.set_self_type(lfd.impl_type.as_str());
+            emit_function_declaration(
+              c_name2.as_str(),
+              lfd.ret_ty_c.as_str(),
+              lfd.params,
+              lfd.param_tys,
+              pctx
+            );
             generate_function(
               c_name2.as_str(),
               lfd.ret_ty_c.as_str(),
@@ -4584,7 +5109,15 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
             // Regular local function that is directly called in the test body.
             name_copy2 := String.from(lfd.name.as_str());
             pctx.*.register_fn_with_params(name_copy2, build_param_tys_pipe(lfd.param_tys));
+            pctx.*.register_fn_return_type(lfd.name.as_str(), lfd.ret_ty_c.as_str());
             c_name2 := `fn_${ lfd.name }`;
+            emit_function_declaration(
+              c_name2.as_str(),
+              lfd.ret_ty_c.as_str(),
+              lfd.params,
+              lfd.param_tys,
+              pctx
+            );
             generate_function(
               c_name2.as_str(),
               lfd.ret_ty_c.as_str(),
@@ -4604,6 +5137,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   // === Emit the test body as a standalone function ===
   params := ArrayList(String).new();
   param_tys := ArrayList(String).new();
+  emit_function_declaration("fn_test_body", "void", params, param_tys, pctx);
   generate_function("fn_test_body", "void", params, param_tys, body, pctx);
   emit_main_wrapper("fn_test_body", pctx);
   generate_c_output(pctx)

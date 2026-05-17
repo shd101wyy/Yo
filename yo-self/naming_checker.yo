@@ -1,0 +1,156 @@
+//! Naming-convention predicates for identifier names.
+//!
+//! 1-to-1 port of `src/naming-checker.ts`. The four functions classify a
+//! name string against Rust API guideline conventions:
+//!
+//!   - `is_upper_camel_case` — `UpperCamelCase` (PascalCase)
+//!   - `is_lower_camel_case` — `lowerCamelCase`
+//!   - `is_snake_case`       — `snake_case` (no uppercase letters)
+//!   - `is_screaming_snake_case` — `SCREAMING_SNAKE_CASE`
+//!
+//! Like the TS reference, leading/trailing underscores are stripped before
+//! checking case shape, so `__foo__` is treated as `foo`. Empty names
+//! cause `is_upper_camel_case` / `is_lower_camel_case` to throw via the
+//! caller-supplied exception handler (the TS version throws `new Error`).
+//!
+//! Currently nothing in the compiler pipeline calls these predicates;
+//! they exist so the file structure mirrors `src/`.
+open(import("std/string"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+/// Strip leading underscore bytes (`_`) from a string.
+_strip_leading_underscores :: (fn(name : String) -> String)({
+  bytes := name.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+    if(b != u8(95), {
+      break;
+    });
+    i = (i + usize(1));
+  });
+  if(i == usize(0), {
+    return(name);
+  });
+  // Slice from i to n.
+  out := ArrayList(u8).new();
+  (j : usize) = i;
+  while(runtime(j < n), {
+    match(
+      bytes.get(j),
+      .Some(b) => {
+        ___ := out.push(b);
+        ()
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  String.from_bytes(out)
+});
+/// Strip trailing underscore bytes (`_`) from a string.
+_strip_trailing_underscores :: (fn(name : String) -> String)({
+  bytes := name.as_bytes();
+  n := bytes.len();
+  if(n == usize(0), {
+    return(name);
+  });
+  (end : usize) = n;
+  while(runtime(end > usize(0)), {
+    b := match(bytes.get(end - usize(1)),.Some(x) => x,.None => u8(0));
+    if(b != u8(95), {
+      break;
+    });
+    end = (end - usize(1));
+  });
+  if(end == n, {
+    return(name);
+  });
+  out := ArrayList(u8).new();
+  (j : usize) = usize(0);
+  while(runtime(j < end), {
+    match(
+      bytes.get(j),
+      .Some(b) => {
+        ___ := out.push(b);
+        ()
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  String.from_bytes(out)
+});
+_trim_underscores :: (fn(name : String) -> String)(
+  _strip_trailing_underscores(_strip_leading_underscores(name))
+);
+/// True iff byte is in `A`..=`Z`.
+_is_upper_byte :: (fn(b : u8) -> bool)(
+  (b >= u8(65)) && (b <= u8(90))
+);
+/// True iff byte is in `a`..=`z`.
+_is_lower_byte :: (fn(b : u8) -> bool)(
+  (b >= u8(97)) && (b <= u8(122))
+);
+// ---------------------------------------------------------------------------
+// Public predicates
+// ---------------------------------------------------------------------------
+/// Check if the name is in `UpperCamelCase` (PascalCase).
+///
+/// Mirrors `isUpperCamelCase` in `src/naming-checker.ts`. Throws when
+/// passed an empty string.
+is_upper_camel_case :: (fn(name : String, using(exn : Exception)) -> bool)({
+  if(name.len() == usize(0), {
+    exn.throw(dyn(String.from("Name cannot be empty")));
+  });
+  trimmed := _trim_underscores(name);
+  if(trimmed.len() == usize(0), {
+    return(false);
+  });
+  first := match(trimmed.as_bytes().get(usize(0)),.Some(b) => b,.None => u8(0));
+  (_is_upper_byte(first)) && (!(trimmed.contains(String.from("_"))))
+});
+/// Check if the name is in `lowerCamelCase`.
+///
+/// Mirrors `isLowerCamelCase` in `src/naming-checker.ts`. Throws when
+/// passed an empty string.
+is_lower_camel_case :: (fn(name : String, using(exn : Exception)) -> bool)({
+  if(name.len() == usize(0), {
+    exn.throw(dyn(String.from("Name cannot be empty")));
+  });
+  trimmed := _trim_underscores(name);
+  if(trimmed.len() == usize(0), {
+    return(false);
+  });
+  first := match(trimmed.as_bytes().get(usize(0)),.Some(b) => b,.None => u8(0));
+  (_is_lower_byte(first)) && (!(trimmed.contains(String.from("_"))))
+});
+/// Check if the name is in `snake_case` (contains no uppercase letters).
+///
+/// Mirrors `isSnakeCase` in `src/naming-checker.ts`. The TS regex
+/// `[A-Z]` matches any uppercase ASCII letter; this implementation
+/// scans byte-by-byte.
+is_snake_case :: (fn(name : String) -> bool)({
+  bytes := name.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  (found_upper : bool) = false;
+  while(runtime((i < n) && (!(found_upper))), {
+    b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+    if(_is_upper_byte(b), {
+      found_upper = true;
+    });
+    i = (i + usize(1));
+  });
+  !(found_upper)
+});
+/// Check if the name is in `SCREAMING_SNAKE_CASE` — equivalent to
+/// `name == name.toUpperCase()` in TS.
+is_screaming_snake_case :: (fn(name : String) -> bool)(
+  name == name.to_uppercase()
+);
+export(is_upper_camel_case, is_lower_camel_case, is_snake_case, is_screaming_snake_case);

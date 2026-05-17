@@ -88,6 +88,7 @@ Use `cond` when there are more than two branches or when the branches are large.
 - `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return(expr); })`
 - No space between `(fn() -> ReturnType)` and `({ body; })`
 - Function type body creation is a normal call: `(fn(...) -> T)({ body })`, not `(fn(...) -> T) { body }`
+- Top-level aliases for function types also need parentheses: `Callback :: (fn(x : i32) -> i32);`, not `Callback :: fn(x : i32) -> i32;`
 - Method definitions in `impl` use `name : (fn(self : Self) -> ReturnType)({ body })`
 - Use `Self` instead of the type name in method signatures, enum definitions, and struct definitions — the type name is not available inside its own definition
 - Use `struct(...)` for record/effect-record types. The old `module(...)`,
@@ -168,11 +169,26 @@ match(c,
 );
 ```
 
+If a `match`/`cond` branch returns an enum variant and the evaluator reports
+"Failed to infer enum variant type", qualify the variant explicitly, e.g.
+`TypeValue.Unit` instead of `.Unit`.
+
+Do not write sibling enum-payload literal patterns such as `.Some(false)` and
+`.Some(true)`. Match the variant once (`.Some(value)`) and branch on `value`
+inside the arm. The self-hosted codegen can otherwise emit duplicate C `case`
+labels for the same enum variant.
+
+When writing large enum matches, avoid binding a pattern variable with the same
+name as a variant field (for example, prefer `struct_field_types` over
+`field_types`). Some self-hosted codegen paths can currently emit invalid C for
+those shadowing-shaped bindings.
+
 ## All function, keyword, and prefix-operator calls require immediate `(...)`
 
 - Write `func(arg1, arg2)`, not `func arg1, arg2`.
 - Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
 - Control-flow keywords follow the same rule: `return(value)`, `return()`, `escape(value)`, `escape()`.
+- In `given(exn) := Exception(throw: ((err) -> { ... }))` handlers, add `escape(...)` / `escape()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves.
 - Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`, `~(bits)`.
 - Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
 - Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
@@ -576,21 +592,30 @@ Match arms support three destructuring shapes for enum variants. All three coexi
 ```rust
 Shape :: enum(
   Circle(radius : i32),
-  Rectangle(width : i32, height : i32)
+  Rectangle(width : i32, height : i32),
+  Triangle(base : i32, height : i32, label : str)
 );
 
 match(s,
-  // 1. Positional — order matches field declaration. Must list all fields.
-  .Rectangle(w, h) => (w * h),
+  // ✅ Preferred — Curly shorthand: `{a, b: c}` names only the fields
+  //    the arm uses. Order-free, partial matches allowed.
+  .Triangle({base, height: h}) => (base * h),
 
-  // 2. Labeled — `(label: var)` pairs. Order-free, supports partial matches.
+  // Also OK — Labeled `(label: var)` pairs. Order-free, partial matches OK.
   .Circle(radius: r) => (r * r),
 
-  // 3. Curly shorthand — `{a, b: c}` is sugar for `(a: a, b: c)`.
-  //    Bare atoms become `name: name`. Order-free, supports partial matches.
-  .Rectangle({width, height: h}) => (width * h)
+  // ⚠️ Avoid for variants with 2+ fields — Positional ordering with `_`
+  //    padding is brittle (adding a field shifts every later position)
+  //    and hard to read (each `_` requires counting fields). Fine when
+  //    every field is named *and* the variant has one or two fields.
+  .Rectangle(w, h) => (w * h)
 )
 ```
+
+**Preferred form: curly shorthand `.Variant({field1, field2: alias})`** —
+names only the fields the arm needs, so adding a new field to the variant
+later does not silently shift positions in every arm. The
+`tests/match_curly.test.yo` spec covers this form end-to-end.
 
 Curly destructuring rules:
 

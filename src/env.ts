@@ -751,20 +751,41 @@ function addTempVariableToFrame(frame: Frame, variable: Variable): Frame {
   };
 }
 
+/**
+ * No-op kept for backward-compat with `yo-cli.ts` profiler wiring.
+ *
+ * The previous WeakMap-keyed name → variables[] index was removed
+ * because the per-frame `Map<string, Variable[]>` value allocations
+ * accumulated across all frames kept alive by every module's
+ * ExprInfo table (popped_env_frame etc.). On the `yo-cli doc std/`
+ * pipeline, which evaluates 148+ modules with a shared ModuleManager,
+ * peak heap exceeded 8 GB (vs. ~3 GB on develop). CI macOS / Linux
+ * runners have 7 GB RAM, so the build-site step OOMed (or hit the
+ * 10-min spawn timeout while swapping). See the perf-cache cleanup
+ * note in the issue tracker for the proper fix (compact per-frame
+ * index representation that doesn't leak when many frames are live
+ * at once).
+ */
+export function _printFrameIndexStats() {
+  // intentionally empty
+}
+
 export function getVariablesFromFrame(
   frame: Frame,
   variableName: string,
   variableFilter?: (variable: Variable) => boolean
 ): Variable[] {
-  const variables = frame.variables.filter((variable) => {
-    return variable.name === variableName;
-  });
-
-  if (variableFilter) {
-    return variables.filter(variableFilter);
-  } else {
-    return variables;
+  const variables = frame.variables;
+  const out: Variable[] = [];
+  for (const v of variables) {
+    if (v.name === variableName) {
+      out.push(v);
+    }
   }
+  if (variableFilter) {
+    return out.filter(variableFilter);
+  }
+  return out;
 }
 
 /**

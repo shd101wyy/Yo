@@ -50,6 +50,17 @@ const colors = {
 };
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
+export const DEFAULT_TEST_BATCH_SIZE = 100;
+
+function normalizeTestBatchSize(testBatchSize: number | undefined): number {
+  if (testBatchSize === undefined) {
+    return DEFAULT_TEST_BATCH_SIZE;
+  }
+  if (!Number.isInteger(testBatchSize) || testBatchSize < 1) {
+    throw new Error("--test-batch-size must be a positive integer");
+  }
+  return testBatchSize;
+}
 
 /**
  * Try to force garbage collection if running with --expose-gc flag
@@ -856,6 +867,7 @@ async function runSingleFileInIsolatedProcess({
   keepGeneratedFiles,
   profile,
   noSanitize,
+  testBatchSize,
 }: {
   filePath: string;
   cCompiler: string;
@@ -866,6 +878,7 @@ async function runSingleFileInIsolatedProcess({
   keepGeneratedFiles?: boolean;
   profile?: boolean;
   noSanitize?: boolean;
+  testBatchSize: number;
 }): Promise<IsolatedFileRunResult> {
   return await new Promise((resolve) => {
     const bunExecutable = process.env.BUN || "bun";
@@ -903,6 +916,7 @@ async function runSingleFileInIsolatedProcess({
     if (profile) {
       args.push("--profile");
     }
+    args.push("--test-batch-size", String(testBatchSize));
 
     const child = spawn(bunExecutable, args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -983,6 +997,7 @@ async function runTestsInIsolatedProcesses({
   keepGeneratedFiles,
   profile,
   noSanitize,
+  testBatchSize,
   startTime,
 }: {
   testFiles: string[];
@@ -995,6 +1010,7 @@ async function runTestsInIsolatedProcesses({
   keepGeneratedFiles?: boolean;
   profile?: boolean;
   noSanitize?: boolean;
+  testBatchSize: number;
   startTime: number;
 }): Promise<TestRunSummary> {
   const allResults: TestResult[] = [];
@@ -1021,6 +1037,7 @@ async function runTestsInIsolatedProcesses({
         keepGeneratedFiles,
         profile,
         noSanitize,
+        testBatchSize,
       });
 
       const relativePath = path.relative(process.cwd(), filePath);
@@ -1147,6 +1164,7 @@ async function runTestsSequentially(
     profile?: boolean;
     wasmTarget?: TargetInfo;
     noSanitize?: boolean;
+    testBatchSize: number;
   }
 ): Promise<{
   results: TestResult[];
@@ -1192,61 +1210,74 @@ async function runTestsSequentially(
     }
   };
 
-  // --- Batch-compile all tests into one binary ---
-  const firstTest = testsToRun[0]!;
-  let batchResult: BatchCompileResult;
-  try {
-    batchResult = compileBatchedBinary(
-      testsToRun.map((t) => t.test),
-      firstTest.nonTestContent,
-      firstTest.test.filePath,
-      cCompiler,
-      options.wasmTarget,
-      options.keepGeneratedFiles,
-      options.noSanitize
-    );
-  } catch (compileError) {
-    // Batch compilation failed — report as failure for all tests
-    const errorMsg =
-      compileError instanceof Error
-        ? compileError.message
-        : String(compileError);
-    for (const { test } of testsToRun) {
-      reportResult(test, {
-        testName: test.name,
-        filePath: test.filePath,
-        passed: false,
-        errorMessage: errorMsg,
-        duration: 0,
-      });
-      if (bailed) break;
-    }
-    return { results, passedTests, failedTests, bailed };
-  }
-
-  // Run each test from the batched binary
-  if (options.profile && batchResult.yoCompileMs != null) {
-    console.log(
-      `  ${colors.dim}batch: yo=${batchResult.yoCompileMs}ms cc=${batchResult.cCompileMs}ms (${testsToRun.length} tests)${colors.reset}`
-    );
-  }
-
-  for (let i = 0; i < testsToRun.length; i++) {
+  const batchCount = Math.ceil(testsToRun.length / options.testBatchSize);
+  for (let batchIndex = 0; batchIndex < batchCount; batchIndex++) {
     if (bailed) break;
-    const test = testsToRun[i]!.test;
-    const result = runTestFromBatchedBinary(
-      i,
-      test,
-      batchResult.binaryPath,
-      cCompiler,
-      options.wasmTarget,
-      options.profile,
-      options.noSanitize
+
+    const batchStart = batchIndex * options.testBatchSize;
+    const batchTests = testsToRun.slice(
+      batchStart,
+      batchStart + options.testBatchSize
     );
-    reportResult(test, result);
+    const firstTest = batchTests[0]!;
+
+    let batchResult: BatchCompileResult;
+    try {
+      batchResult = compileBatchedBinary(
+        batchTests.map((t) => t.test),
+        firstTest.nonTestContent,
+        firstTest.test.filePath,
+        cCompiler,
+        options.wasmTarget,
+        options.keepGeneratedFiles,
+        options.noSanitize
+      );
+    } catch (compileError) {
+      const errorMsg =
+        compileError instanceof Error
+          ? compileError.message
+          : String(compileError);
+      for (const { test } of batchTests) {
+        reportResult(test, {
+          testName: test.name,
+          filePath: test.filePath,
+          passed: false,
+          errorMessage: errorMsg,
+          duration: 0,
+        });
+        if (bailed) break;
+      }
+      continue;
+    }
+
+    try {
+      if (options.profile && batchResult.yoCompileMs != null) {
+        const batchLabel =
+          batchCount === 1 ? "batch" : `batch ${batchIndex + 1}/${batchCount}`;
+        console.log(
+          `  ${colors.dim}${batchLabel}: yo=${batchResult.yoCompileMs}ms cc=${batchResult.cCompileMs}ms (${batchTests.length} tests)${colors.reset}`
+        );
+      }
+
+      for (let i = 0; i < batchTests.length; i++) {
+        if (bailed) break;
+        const test = batchTests[i]!.test;
+        const result = runTestFromBatchedBinary(
+          i,
+          test,
+          batchResult.binaryPath,
+          cCompiler,
+          options.wasmTarget,
+          options.profile,
+          options.noSanitize
+        );
+        reportResult(test, result);
+      }
+    } finally {
+      batchResult.cleanup();
+    }
   }
 
-  batchResult.cleanup();
   return { results, passedTests, failedTests, bailed };
 }
 
@@ -1265,11 +1296,13 @@ export async function runTests(
     keepGeneratedFiles?: boolean;
     profile?: boolean;
     noSanitize?: boolean;
+    testBatchSize?: number;
   } = {}
 ): Promise<TestRunSummary> {
   const startTime = Date.now();
   const cCompiler = options.cCompiler ?? "cc";
   const isEmcc = cCompiler === "emcc";
+  const testBatchSize = normalizeTestBatchSize(options.testBatchSize);
 
   // Resolve the WASM target (if any)
   let wasmTarget: TargetInfo | undefined;
@@ -1358,6 +1391,7 @@ export async function runTests(
       keepGeneratedFiles: options.keepGeneratedFiles,
       profile: options.profile,
       noSanitize: options.noSanitize,
+      testBatchSize,
       startTime,
     });
     parallelResult.skipped += skippedTests;
@@ -1445,6 +1479,7 @@ export async function runTests(
       profile: options.profile,
       wasmTarget,
       noSanitize: options.noSanitize,
+      testBatchSize,
     });
 
     allResults.push(...result.results);

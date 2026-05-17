@@ -7,29 +7,83 @@
 //! comment. The full implementations will be added once the relevant TypeValue
 //! variants and field flags are wired in.
 //!
-//! Guards already defined in `type.yo` (is_int_type, is_float_type, …) are
-//! re-exported from here so callers can import from a single module.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{
-  TypeValue,
-  type_value_tag,
-  is_int_type,
-  is_float_type,
-  is_signed_int_type,
-  is_numeric_type,
-  is_pointer_type,
-  is_slice_type,
-  is_array_type,
-  is_function_type,
-  is_trait_type,
-  is_module_type,
-  is_some_type,
-  is_struct_type,
-  is_enum_type,
-  is_unit_type,
-  is_bool_type
-} :: import("./type.yo");
+{ TypeValue } :: import("./definitions.yo");
+{ type_value_tag } :: import("./creators.yo");
+// ---------------------------------------------------------------------------
+// Variant-shape predicates — were in `type.yo` before Phase A.3.2; relocated
+// here to mirror `src/types/guards.ts`. These are one-line wrappers around a
+// `match` on the TypeValue variant, used pervasively by callers that want a
+// boolean test rather than a tag enum comparison.
+// ---------------------------------------------------------------------------
+is_int_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Int(_, _) => true, _ => false)
+);
+is_float_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Float(_) => true, _ => false)
+);
+is_signed_int_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Int(_, signed) => signed,
+    .Isize => true,
+    _ => false
+  )
+);
+is_numeric_type :: (fn(t : TypeValue) -> bool)(
+  cond(
+    is_int_type(t) => true,
+    is_float_type(t) => true,
+    true => match(
+      t,
+      .Usize => true,
+      .Isize => true,
+      .ComptimeInt => true,
+      .ComptimeFloat => true,
+      _ => false
+    )
+  )
+);
+is_pointer_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Pointer(_) => true, _ => false)
+);
+is_slice_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Slice(_) => true, _ => false)
+);
+is_array_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Array(_, _) => true, _ => false)
+);
+is_function_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Func(result : _) => true, _ => false)
+);
+is_some_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.SomeT(name : _) => true, _ => false)
+);
+is_trait_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .TraitT(name : _) => true,
+    .FnTraitT(base_name : _) => true,
+    .FutureTraitT(base_name : _) => true,
+    _ => false
+  )
+);
+is_module_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.ModuleT(_, _, _, _) => true, _ => false)
+);
+is_struct_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Struct(_, _, _, _, _, _, _) => true, _ => false)
+);
+is_enum_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.EnumT(_, _, _, _, _, _, _) => true, _ => false)
+);
+is_unit_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.Unit => true, _ => false)
+);
+is_bool_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.BoolT => true, _ => false)
+);
 // ---------------------------------------------------------------------------
 // Basic primitive guards
 // ---------------------------------------------------------------------------
@@ -123,15 +177,53 @@ is_union_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Union(_, _, _) => true, _ => false)
 );
 is_object_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct(_, _, _, _, is_ref, _, _) => is_ref, _ => false)
+  match(t,.Struct({ is_reference_semantics : is_ref }) => is_ref, _ => false)
 );
 // Phase 2b: Struct needs `isAtomicRc` flag.
+// Mirrors `isAtomicObjectType` in `src/types/guards.ts`, which requires
+// BOTH `is_reference_semantics` AND `is_atomic_rc`. A value-semantics
+// struct with `is_atomic_rc = true` is malformed but should not pass.
 is_atomic_object_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct(_, _, _, _, _, is_atomic, _) => is_atomic, _ => false)
+  match(
+    t,
+    .Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) =>
+      (is_ref && is_atomic),
+    _ => false
+  )
 );
 // Phase 2b: Struct needs `isNewtype` flag.
 is_newtype_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct(_, _, _, _, _, _, is_nt) => is_nt, _ => false)
+  match(t,.Struct({ is_newtype : is_nt }) => is_nt, _ => false)
+);
+/// True if `t` is the `str` newtype (a `Struct` named "str" with
+/// `is_newtype = true`). Used by `panic` / `fprintf` codegen to choose
+/// between `%s` and `%.*s` format specifiers.
+is_str_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct({ name, is_newtype : is_nt }) =>
+      (is_nt && (name.as_str() == "str")),
+    _ => false
+  )
+);
+/// True if `t` is `Box(T)` — a single-field reference-semantics Struct
+/// whose name starts with `Box(` and whose only field is labeled `*`.
+/// Used by RC and downcast codegen to look through the Box wrapper.
+is_box_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct({ name, field_labels, is_reference_semantics : is_ref }) => cond(
+      (!(is_ref)) => false,
+      (field_labels.len() != usize(1)) => false,
+      (!(String.from(name.as_str()).starts_with(String.from("Box(")))) => false,
+      true => match(
+        field_labels.get(usize(0)),
+        .Some(label) => (label.as_str() == "*"),
+        .None => false
+      )
+    ),
+    _ => false
+  )
 );
 is_fn_trait_type :: (fn(t : TypeValue) -> bool)(
   match(t,.FnTraitT(base_name : _) => true, _ => false)
@@ -415,10 +507,10 @@ is_effects_row_type :: (fn(t : TypeValue) -> bool)(
   match(t,.EffectsRowT(implicit_labels : _) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
-// Re-exports of guards already defined in type.yo
+// Exports
 // ---------------------------------------------------------------------------
 export(
-  // Re-exports from type.yo
+  // Variant-shape predicates (relocated from type.yo in Phase A.3.2)
   is_int_type,
   is_float_type,
   is_signed_int_type,
@@ -460,6 +552,8 @@ export(
   is_object_type,
   is_atomic_object_type,
   is_newtype_type,
+  is_str_type,
+  is_box_type,
   is_fn_trait_type,
   is_function_type_and_is_type_function,
   is_function_type_and_is_macro_function,

@@ -273,13 +273,29 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // MUST still be emitted in their unspecialized form — their forall params are type-erased
     // (void), the body is just escape(), and the unspecialized name is stored as a void*
     // function pointer in async capture structs by emitEffectRecordInjection in await.ts.
+    //
+    // Second exception: if the base's cName is still referenced by at least one
+    // call site emitted into the C output (call-site codegen uses
+    // `context.functions[funcId].cName` which is the base's name when no
+    // matching specialization is registered in `context.functions`), skipping
+    // the base would leave those call sites unresolved. Detect this by
+    // checking whether any *registered* specialized FunctionValue shares the
+    // base's funcId — in which case the specialized entry has already
+    // replaced the base and we can safely skip; otherwise emit the base.
     if (
       !isUserMain &&
       !value.type.isClosure &&
       !value.isEffectRecordMember &&
       value.specializedFunctionCaches?.length > 0
     ) {
-      continue;
+      const baseCName = cName;
+      const hasRegisteredReplacement = Object.values(context.functions).some(
+        (entry) =>
+          entry !== context.functions[funcId] && entry.cName === baseCName
+      );
+      if (hasRegisteredReplacement) {
+        continue;
+      }
     }
 
     // For isEffectRecordMember functions that have specializations, the generic
@@ -1033,6 +1049,16 @@ export function generateFunctionBody(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
+
+  // Reset per-function deferred-drop state so escape / early-return paths
+  // inside this body do not pick up drops left over from a previous
+  // function's generation. The begin-block branch below overwrites these
+  // with the current body's drop expressions; non-begin bodies (e.g.
+  // synthetic ctl handlers whose body is a bare `escape(...)`) start
+  // empty, since their drop targets live in the caller's scope, not in
+  // this function's frame.
+  context.pendingDeferredDrops = [];
+  context.consumedVarPendingDrops = [];
 
   if (
     exprIsFunctionCall(expr) &&

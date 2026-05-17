@@ -26,17 +26,11 @@ open(import("std/string"));
   add_variable_to_env,
   update_existing_variable,
   synthetic_token
-} :: import("../../env/env.yo");
-{ Token } :: import("../../lexer/token.yo");
-{
-  TypeValue,
-  type_value_tag,
-  is_some_type,
-  is_function_type,
-  is_pointer_type,
-  t_effects_row
-}
-:: import("../../types/type.yo");
+} :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ type_value_tag, t_effects_row } :: import("../../types/creators.yo");
+{ is_some_type, is_function_type, is_pointer_type } :: import("../../types/guards.yo");
 { TypeTag } :: import("../../types/tags.yo");
 {
   is_fn_trait_type,
@@ -59,8 +53,8 @@ open(import("std/string"));
 { get_value_of_some_type_from_env }
 :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ EvalValue } :: import("../value.yo");
-{ format_error_message, ErrorKind } :: import("../../error/error.yo");
+{ EvalValue } :: import("../../value.yo");
+{ format_error_message, ErrorKind } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Public data types
@@ -191,7 +185,7 @@ synthesis_type_id :: (fn(ty : TypeValue) -> String)(
     .EnumT(id, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _) => id,
     .ModuleT(id, _, _, _) => id,
-    .SomeT(id, _, _, _, _, _, _, _, _) => id,
+    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
     _ => type_to_string(ty)
   )
 );
@@ -337,7 +331,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : *(ArrayLis
   visited.*.push(ty_id);
   match(
     ty,
-    .SomeT(sid, _, _, _, _, _, _, _, _) => (some_type_id == sid),
+    .SomeT(sid, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
     .Struct(_, _, _, field_types, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
@@ -692,7 +686,7 @@ _synthesize_implicit_params :: (
         }, {
           match(
             ty,
-            .SomeT(_, _, _, _, _, _, _, _, is_er) => {
+            .SomeT(_, _, _, _, _, _, _, _, is_er, _) => {
               if(is_er, {
                 unsolved_spreads.push(entry);
               });
@@ -891,7 +885,7 @@ _synthesize_implicit_params :: (
     );
     match(
       unsolved.ty,
-      .SomeT(_, sname, _, _, _, _, _, _, is_er) => {
+      .SomeT(_, sname, _, _, _, _, _, _, is_er, _) => {
         if(is_er, {
           // Collect remaining unmatched given entries
           remaining_labels := ArrayList(String).new();
@@ -1052,39 +1046,39 @@ _synthesize_types_impl :: (
   if(is_some_type(expected_ty) && is_some_type(given_ty), {
     expected_bound := get_value_of_some_type_from_env(ee, expected_ty);
     given_bound := get_value_of_some_type_from_env(ge, given_ty);
-    exp_some_id := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _) => id, _ => ``);
-    giv_some_id := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _) => id, _ => ``);
+    exp_some_id := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_some_id := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     exp_bound_is_some := is_some_type(expected_bound);
     giv_bound_is_some := is_some_type(given_bound);
     cond(
       !(exp_bound_is_some) => {
         // Expected is bound — use its value to bind given
         val := EvalValue.TypeVal(Box(TypeValue)(expected_bound));
-        _bind_some_type(&(ge), match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _) => n, _ => ``), val, expected_bound, tok, using(exn));
+        _bind_some_type(&(ge), match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, expected_bound, tok, using(exn));
       },
       !(giv_bound_is_some) => {
         // Given is bound — use its value to bind expected
         val := EvalValue.TypeVal(Box(TypeValue)(given_bound));
-        _bind_some_type(&(ee), match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _) => n, _ => ``), val, given_bound, tok, using(exn));
+        _bind_some_type(&(ee), match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_bound, tok, using(exn));
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
         val := EvalValue.TypeVal(Box(TypeValue)(given_ty));
-        _bind_some_type(&(ee), match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _) => n, _ => ``), val, given_ty, tok, using(exn));
+        _bind_some_type(&(ee), match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_ty, tok, using(exn));
         val2 := EvalValue.TypeVal(Box(TypeValue)(given_ty));
-        _bind_some_type(&(ge), match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _) => n, _ => ``), val2, given_ty, tok, using(exn));
+        _bind_some_type(&(ge), match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val2, given_ty, tok, using(exn));
       }
     );
     // After unifying, recursively synthesize required trait type parameters
     if(exp_some_id != giv_some_id, {
       match(
         expected_ty,
-        .SomeT(_, _, _, _, expected_traits, _, _, _, _) => {
+        .SomeT(_, _, _, _, expected_traits, _, _, _, _, _) => {
           match(
             given_ty,
-            .SomeT(_, _, _, _, given_traits, _, _, _, _) => {
+            .SomeT(_, _, _, _, given_traits, _, _, _, _, _) => {
               n_et := expected_traits.len();
               (eti : usize) = usize(0);
               while(runtime(eti < n_et), {
@@ -1155,10 +1149,10 @@ _synthesize_types_impl :: (
   // Case: expected is SomeType (given may be concrete)
   if(is_some_type(expected_ty), {
     bound := get_value_of_some_type_from_env(ee, expected_ty);
-    exp_id2 := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _) => id, _ => ``);
-    exp_name := match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _) => n, _ => ``);
-    exp_traits := match(expected_ty,.SomeT(_, _, _, _, rts, _, _, _, _) => rts, _ => ArrayList(TypeValue).new());
-    if(is_some_type(bound) && (match(bound,.SomeT(bid, _, _, _, _, _, _, _, _) => (bid == exp_id2), _ => false)), {
+    exp_id2 := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    exp_name := match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``);
+    exp_traits := match(expected_ty,.SomeT(_, _, _, _, rts, _, _, _, _, _) => rts, _ => ArrayList(TypeValue).new());
+    if(is_some_type(bound) && (match(bound,.SomeT(bid, _, _, _, _, _, _, _, _, _) => (bid == exp_id2), _ => false)), {
       // Unbound — bind to given_ty
       // Occurs check
       {
@@ -1219,8 +1213,8 @@ _synthesize_types_impl :: (
   // Case: given is SomeType (expected is concrete)
   if(is_some_type(given_ty), {
     existing_bound := get_value_of_some_type_from_env(ge, given_ty);
-    giv_id2 := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _) => id, _ => ``);
-    giv_name := match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _) => n, _ => ``);
+    giv_id2 := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_name := match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``);
     if(!(is_some_type(existing_bound)), {
       // Given is already bound — recurse
       res := _synthesize_call(expected_ty, ee, existing_bound, ge, checked, opts, using(exn));

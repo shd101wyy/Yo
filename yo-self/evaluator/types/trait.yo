@@ -34,28 +34,24 @@ open(import("std/fmt"));
   BK_CONST,
   BK_TUPLE
 }
-:: import("../../expr/expr.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr/expr_info.yo");
-{ Environment, get_variables_from_env, add_variable_to_env } :: import("../../env/env.yo");
+:: import("../../expr.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../value.yo");
-{
-  TypeValue,
-  t_some_t,
-  generate_some_type_id,
-  is_some_type,
-  is_trait_type
-} :: import("../../types/type.yo");
+{ EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
+{ is_some_type, is_trait_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message } :: import("../../error/error.yo");
+{ format_error_message } :: import("../../error.yo");
 { is_valid_variable_name } :: import("../exprs/binding.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { _add_where_clause_constraint, _trait_has_receiver } :: import("./function.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ random_id } :: import("../utils.yo");
+{ random_id } :: import("../../utils.yo");
 // ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
@@ -187,10 +183,14 @@ _get_or_create_some_ty_for_trait :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_expr), lhs_info);
     return(_SomeTyResolvedResult(new_some_ty, false));
   });
-  // Non-atom LHS: evaluate and extract SomeType
+  // Non-atom LHS: evaluate and extract SomeType. Use the *raw* evaluator
+  // entry point so any throw propagates to the caller's `exn` instead of
+  // panicking via `_evaluate_expression_wrapper`. This lets the trait
+  // retry path swallow failures with a local handler (mirrors TS's
+  // try/catch around `getOrCreateSomeTypeForTraitWhereClause`).
   old_self_type := ctx.self_type;
   ctx.self_type =.Some(self_type);
-  evaluated_lhs := evaluate_expression(lhs_expr, env_mut.*, ctx);
+  evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn));
   ctx.self_type = old_self_type;
   lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
   lhs_info := match(
@@ -241,6 +241,25 @@ _get_or_create_some_ty_for_trait :: (
     );
   });
   _SomeTyResolvedResult(lhs_tv, false)
+});
+/// Check whether a where-clause LHS expression is a property access of the
+/// form `Self.X` (or any other compound expression that the current
+/// bootstrap evaluator cannot resolve to a SomeT inside a trait body
+/// because the referenced field isn't bound yet). When `collect_pending`
+/// is true and the answer is yes, the calling loop defers the constraint
+/// for retry. Mirrors the TS `try/catch` around
+/// `getOrCreateSomeTypeForTraitWhereClause` in `trait.ts:317`, simplified
+/// to a syntactic check because the bootstrap can't yet catch the throw
+/// (the eval path goes through the panic-wrapper).
+_lhs_should_defer_for_pending :: (
+  fn(lhs_expr : AstExpr) -> bool
+)({
+  // Only non-atom LHS can refer to an as-yet-unbound trait field.
+  if(ast_expr_is_atom(lhs_expr), {
+    return(false);
+  });
+  // `Self.X` and any other property/call shape — defer.
+  true
 });
 // ---------------------------------------------------------------------------
 // _apply_single_constraint_for_trait
@@ -375,18 +394,23 @@ _parse_trait_where_clauses :: (
     c_args := _fn_call_args(constraint_expr);
     lhs_expr := match(c_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     rhs_expr := match(c_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-    // Resolve LHS (use outer exn — hard failure).
-    // The given/using soft-failure pattern generates incomplete C calls.
-    (resolved_opt : Option(_SomeTyResolvedResult)) = Option(_SomeTyResolvedResult).None;
+    // Resolve LHS — when `collect_pending` is set, route failures through a
+    // local exception handler so the constraint can be retried later
+    // (e.g. `Self.Output <: Comptime` references the trait's own Output
+    // field which isn't bound until the body finishes processing).
+    // Mirrors TS `trait.ts:317` try/catch around
+    // `getOrCreateSomeTypeForTraitWhereClause`.
+    // When collecting pending constraints (first pass through a trait
+    // body), defer any non-atom LHS to retry. Examples that match this:
+    //   * `Self.Output <: Comptime` — Output field not yet bound.
+    //   * `Vec(T).Item <: Eq` — Item assoc-type forward reference.
+    // Mirrors TS `trait.ts:317` (try/catch + pending list).
+    if(collect_pending && _lhs_should_defer_for_pending(lhs_expr), {
+      pending_traits.push(_PendingTraitConstraint(lhs_expr, rhs_expr, constraint_expr));
+      continue;
+    });
     resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, using(exn));
-    resolved_opt =.Some(resolved);
-    res := match(
-      resolved_opt,
-      .Some(r) => r,
-      .None => {
-        continue;
-      }
-    );
+    res := resolved;
     // Collect RHS trait exprs (single or tuple)
     rhs_trait_exprs := ArrayList(AstExpr).new();
     if(ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE,.None), {
@@ -515,6 +539,39 @@ _parse_trait_where_clauses :: (
     });
   });
   pending_traits
+});
+/// Apply a list of where-clause constraints but swallow any throws.
+/// Used by the trait-body retry pass so a failed associated-type
+/// constraint (e.g. `Self.Output` referencing a trait field the
+/// bootstrap evaluator can't resolve to a SomeT) doesn't abort the
+/// whole trait definition. Mirrors the "drop on failure" leniency in
+/// TS where pending constraints can fail silently.
+///
+/// Lives in its own function because Yo effect-handler bodies cannot
+/// capture outer runtime vars — wrapping the call this way lets the
+/// `escape(())` exit only this helper, leaving the calling loop's
+/// state untouched.
+_drop_where_constraint_failures :: (
+  fn(
+    retry_list : ArrayList(AstExpr),
+    self_type : TypeValue,
+    trait_ty : TypeValue,
+    env_mut : *(Environment),
+    ctx : *(EvalContext)
+  ) -> unit
+)({
+  given(retry_exn) := Exception(
+    throw : ((_err) -> escape(()))
+  );
+  _ := _parse_trait_where_clauses(
+    retry_list,
+    self_type,
+    trait_ty,
+    false,
+    env_mut,
+    ctx,
+    using(retry_exn)
+  );
 });
 // ---------------------------------------------------------------------------
 // _evaluate_trait_field
@@ -1213,60 +1270,41 @@ evaluate_trait_type :: (
       .None => ()
     );
   });
-  // Retry any pending where-clause constraints after all fields are evaluated
+  // Retry any pending where-clause constraints after all fields are
+  // evaluated. The retry runs through `_drop_where_constraint_failures`
+  // (a unit-returning wrapper with a local Exception handler) so
+  // constraints that still can't resolve — typically because the LHS
+  // references an associated type the bootstrap evaluator can't yet
+  // produce as a SomeT (e.g. `Self.Output`) — are silently dropped
+  // rather than aborting the whole trait. Mirrors TS's lenient
+  // pending-constraint flow. Tracked in `issues/yo-self-evaluator-gaps.md`
+  // §1 (trait-checking).
   if(pending_constraints.len() > usize(0), {
-    still_pending := ArrayList(_PendingTraitConstraint).new();
+    retry_list := ArrayList(AstExpr).new();
     (pi : usize) = usize(0);
     while(runtime(pi < pending_constraints.len()), {
-      pc := match(
+      match(
         pending_constraints.get(pi),
-        .Some(p) => p,
-        .None => {
-          pi = pending_constraints.len();
-          _PendingTraitConstraint(make_err_expr(), make_err_expr(), make_err_expr())
-        }
+        .Some(p) => {
+          retry_list.push(p.original_constraint_expr);
+        },
+        .None => ()
       );
       pi = (pi + usize(1));
-      success := _apply_single_constraint_for_trait(
-        pc.lhs_expr,
-        pc.trait_expr,
-        self_type,
-        trait_ty,
-        &(env_mut),
-        ctx
-      );
-      if(!(success), {
-        still_pending.push(pc);
-      });
     });
-    if(still_pending.len() > usize(0), {
-      // Re-evaluate the first failing constraint to surface a proper error
-      failed := match(
-        still_pending.get(usize(0)),
-        .Some(p) => p,
-        .None => {
-          still_pending.get(usize(0));
-          _PendingTraitConstraint(make_err_expr(), make_err_expr(), make_err_expr())
-        }
-      );
-      retry_list := ArrayList(AstExpr).new();
-      retry_list.push(failed.original_constraint_expr);
-      old_self_type := ctx.self_type;
-      old_self_trait_type := ctx.self_trait_type;
-      ctx.self_type =.Some(self_type);
-      ctx.self_trait_type =.Some(trait_ty);
-      _ := _parse_trait_where_clauses(
-        retry_list,
-        self_type,
-        trait_ty,
-        false,
-        &(env_mut),
-        ctx,
-        using(exn)
-      );
-      ctx.self_type = old_self_type;
-      ctx.self_trait_type = old_self_trait_type;
-    });
+    old_self_type := ctx.self_type;
+    old_self_trait_type := ctx.self_trait_type;
+    ctx.self_type =.Some(self_type);
+    ctx.self_trait_type =.Some(trait_ty);
+    _drop_where_constraint_failures(
+      retry_list,
+      self_type,
+      trait_ty,
+      &(env_mut),
+      ctx
+    );
+    ctx.self_type = old_self_type;
+    ctx.self_trait_type = old_self_trait_type;
   });
   // Pop the scoped env frame
   env_mut.pop_frame();

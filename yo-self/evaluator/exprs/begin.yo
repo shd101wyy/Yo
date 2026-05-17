@@ -25,12 +25,13 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
   make_err_expr,
+  BK_BEGIN,
   BK_TUPLE,
   BK_RETURN,
   BF_ESCAPE,
   BK_ASSIGN,
   BK_INIT_ASSIGN
-} :: import("../../expr/expr.yo");
+} :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -40,19 +41,20 @@ open(import("std/string"));
   control_flow_of,
   has_control_flow,
   has_any_control_flow
-} :: import("../../expr/expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env } :: import("../../env/env.yo");
+} :: import("../../expr_info.yo");
+{ Environment, Variable, Frame, add_variable_to_env } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx
 } :: import("../context.yo");
-{ EvalValue } :: import("../value.yo");
-{ TypeValue, t_unit } :: import("../../types/type.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
 { is_some_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message } :: import("../../error/error.yo");
-{ evaluate_expression } :: import("./expr.yo");
+{ format_error_message } :: import("../../error.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
   attach_temp_variable_to_expr,
   throw_expr_is_implicit_variable_error,
@@ -163,11 +165,28 @@ evaluate_begin_expression :: (
 )({
   (env : Environment) = env_in;
   // Extract the list of child expressions from the begin block.
-  begin_args := match(
+  //
+  // If `expr` is NOT a `begin(...)` call (e.g. a function body like
+  // `struct(value : T)` invoked via the comptime-fn caller), treat it
+  // as a single-expression begin block by wrapping it in a 1-element
+  // arg list. Mirrors TS `evaluateBeginExpression`
+  // (src/evaluator/exprs/begin.ts:1009-1037) which synthesises a
+  // `begin(expr)` wrapper when the input is not already a begin call.
+  // Without this, the naive `FnCall` arg unwrap below would treat the
+  // struct call's fields (`value : T`) as top-level statements and
+  // dispatch them through `evaluate_binding`, raising a spurious
+  // `Unexpected runtime variable binding in a compile-time only
+  // function body.` error.
+  is_begin_call := ast_expr_is_fn_call_of(expr, BK_BEGIN,.None);
+  begin_args := if(is_begin_call, match(
     expr,
     .FnCall(_, _, args, _, _) => args,
     .Atom(_, _) => ArrayList(AstExpr).new()
-  );
+  ), {
+    single := ArrayList(AstExpr).new();
+    single.push(expr);
+    single
+  });
   n_args := begin_args.len();
   // Empty begin → unit result immediately.
   if(n_args == usize(0), {
@@ -266,7 +285,7 @@ evaluate_begin_expression :: (
           // (Full synthesize_types support is Phase 3; we pass None here.)
           old_expected := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).None;
-          evaluated_ret_arg := evaluate_expression(ret_arg, env, ctx);
+          evaluated_ret_arg := evaluate_expression_raw(ret_arg, env, ctx, using(exn));
           ctx.expected_type = old_expected;
           ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg));
           if(ret_info_opt.is_none(), {
@@ -382,7 +401,7 @@ evaluate_begin_expression :: (
         ctx.expected_type = Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(ty : enclosing_ret, env : env)
         );
-        evaluated_esc_arg := evaluate_expression(esc_arg, env, ctx);
+        evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, using(exn));
         ctx.expected_type = old_expected;
         esc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg));
         if(esc_info_opt.is_none(), {
@@ -438,7 +457,7 @@ evaluate_begin_expression :: (
         if(!(is_last_in_loop), {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
         });
-        evaluated := evaluate_expression(expr_to_eval, env, ctx);
+        evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, using(exn));
         ctx.expected_type = old_expected;
         ev_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
         match(

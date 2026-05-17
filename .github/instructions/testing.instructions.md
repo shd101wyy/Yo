@@ -37,6 +37,8 @@ description: "Use when running tests, setting up test files, or debugging test f
 - These are integration tests for `yo-self/` — the self-hosted compiler components.
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
 - Run these whenever modifying `yo-self/` source or tests.
+- Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
+- Do not run multiple `./yo-self/yo-self-bin test ...` commands concurrently. The self-hosted test path currently writes shared scratch files such as `/tmp/yo_self_out.c`, so concurrent runs can collide and produce misleading compile errors or skipped-test counts.
 
 ### macOS 26 AMFI / ASAN dylib workaround
 
@@ -199,6 +201,10 @@ Partial application tests live in `tests/fn.test.yo`. Key facts:
 - Lint: `bun run lint`
 - Format check: `bun run format`
 - Fix lint/format issues before committing.
+- **Always run `./yo-cli fmt <files>` on any `.yo` files you create or modify before committing.**
+  - To check: `./yo-cli fmt --check path/to/file.yo`
+  - To fix: `./yo-cli fmt path/to/file.yo`
+  - Example: `./yo-cli fmt yo-self/tests/eval_5v_1.test.yo`
 
 ## Slow test files
 
@@ -208,6 +214,8 @@ Some test files contain hundreds of tests and take a long time on their own:
 - Other large test files may take several minutes
 
 When running a single large file, use `--test-name-pattern` to target individual tests for faster iteration. The full suite (`./yo-cli test --bail`) runs these in parallel and finishes in ~30 minutes total on a Mac Mini M4.
+
+For large generated test binaries, use `--test-batch-size N` to split one `.test.yo` file into smaller generated C binaries. The default is 100 tests per batch.
 
 ## WASM testing
 

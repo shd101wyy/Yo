@@ -1,0 +1,38 @@
+//! Optional debug-print helper.
+//!
+//! 1-to-1 port of `src/logger.ts`. The TS version checks
+//! `process.env.NODE_ENV !== "production"` and `process.env.DEBUG`
+//! before forwarding to `console.log`. The yo-self equivalent reads
+//! the same two env vars via `std/env` and forwards to `println`.
+//!
+//! Currently nothing in the compiler pipeline calls `debug`; it
+//! exists so the file structure mirrors `src/`.
+open(import("std/string"));
+open(import("std/fmt"));
+{ env } :: import("std/env");
+/// Print `msg` to stdout iff:
+///   - `NODE_ENV` is unset, OR set to anything other than "production"; AND
+///   - `DEBUG` is set to any non-empty value.
+///
+/// Mirrors `debug(...args)` in `src/logger.ts`. The TS variadic spread
+/// `console.log(...args)` is collapsed into a single string parameter
+/// here — yo-self callers can pre-format with template literals.
+debug :: (fn(msg : String) -> unit)({
+  is_production := match(
+    env.get(String.from("NODE_ENV")),
+    .Some(v) => (v == String.from("production")),
+    .None => false
+  );
+  if(is_production, {
+    return(());
+  });
+  has_debug := match(
+    env.get(String.from("DEBUG")),
+    .Some(v) => (v.len() > usize(0)),
+    .None => false
+  );
+  if(has_debug, {
+    println(msg);
+  });
+});
+export(debug);

@@ -5,6 +5,7 @@
 //! Dispatches every AstExpr node kind to the appropriate sub-evaluator.
 //! The profiler instrumentation from the TypeScript version is omitted (Node.js-specific).
 open(import("std/string"));
+open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
 {
@@ -184,16 +185,17 @@ open(import("std/string"));
   BF_COMPTIME_ARRAY_INDEX_RANGE_INCLUSIVE,
   BF_COMPTIME_SLICE_INDEX_RANGE,
   BF_COMPTIME_SLICE_INDEX_RANGE_INCLUSIVE
-} :: import("../../expr/expr.yo");
-{ TokenKind } :: import("../../lexer/token.yo");
-{ Environment, Variable } :: import("../../env/env.yo");
+} :: import("../../expr.yo");
+{ TokenKind } :: import("../../token.yo");
+{ Environment, Variable } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ format_error_message } :: import("../../error/error.yo");
-{ TypeValue, t_unit } :: import("../../types/type.yo");
-{ EvalValue } :: import("../value.yo");
+{ format_error_message } :: import("../../error.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ EvalValue } :: import("../../value.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
 { BindingResult, evaluate_binding } :: import("./binding.yo");
-{ evaluate_initialization_assignment } :: import("./init_assignment.yo");
+{ evaluate_initialization_assignment } :: import("./initialization_assignment.yo");
 { evaluate_assignment } :: import("./assignment.yo");
 { evaluate_recur } :: import("./recur.yo");
 { evaluate_runtime } :: import("./runtime.yo");
@@ -210,7 +212,7 @@ open(import("std/string"));
 { evaluate_subtype_of } :: import("./subtype_of.yo");
 { evaluate_typeof } :: import("./typeof.yo");
 { evaluate_while } :: import("./while.yo");
-{ evaluate_identifier_and_operator } :: import("./identifier_and_operator.yo");
+{ evaluate_identifier_and_operator } :: import("./identifer_and_operator.yo");
 { evaluate_anonymous_function_implementation } :: import("../values/anonymous_function.yo");
 { evaluate_array_value } :: import("../values/array.yo");
 { evaluate_boolean_literal } :: import("../values/boolean.yo");
@@ -232,7 +234,7 @@ open(import("std/string"));
 { evaluate_fn_trait_type } :: import("../types/fn_trait.yo");
 { evaluate_function_type } :: import("../types/function.yo");
 { evaluate_future_type } :: import("../types/future_trait.yo");
-{ evaluate_module_type } :: import("../types/module.yo");
+{ evaluate_module_type } :: import("../types/record.yo");
 { evaluate_newtype_type } :: import("../types/newtype.yo");
 { evaluate_object_type } :: import("../types/object.yo");
 { evaluate_slice_type } :: import("../types/slice.yo");
@@ -796,7 +798,22 @@ _evaluate_expression :: (
   )
 );
 /// Non-capturing wrapper that creates a local exception handler.
-/// Phase 2: panics on unexpected errors.
+///
+/// When the underlying `_evaluate_expression` throws, the previous
+/// implementation called `panic("evaluate_expression: unexpected
+/// error")` — that aborted the process with `SIGABRT` and discarded
+/// the actual error message, making evaluator coverage gaps look
+/// like opaque crashes (especially through `yo-self-bin check`).
+/// We now print the caught error's `to_string()` output to stderr
+/// before aborting, so the user sees the real diagnostic without
+/// extra tooling.
+///
+/// (Callers that want graceful recovery instead of an abort can
+/// use `_evaluate_expression_raw_wrapper`, which propagates the
+/// exception through to the caller's `exn`. `try_populate_expr_info_table`
+/// in `yo-self/main.yo` and the new `run_check` subcommand both
+/// go through that path so they can surface or swallow errors as
+/// appropriate.)
 _evaluate_expression_wrapper :: (
   fn(
     expr : AstExpr,
@@ -804,14 +821,30 @@ _evaluate_expression_wrapper :: (
     ctx : *(EvalContext)
   ) -> AstExpr
 )({
-  given(exn) := Exception(throw : ((err) -> panic("evaluate_expression: unexpected error")));
+  given(exn) := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`evaluate_expression: ${err.to_string()}`);
+        panic("evaluate_expression: aborting after error")
+      }
+    )
+  );
   _evaluate_expression(expr, env, ctx, using(exn))
 });
 /// Concrete-signature wrapper for set_evaluate_expression_raw_fn.
-/// Phase 2 bootstrapping: ignores the caller's exn and uses _evaluate_expression_wrapper
-/// (which panics on error). This avoids calling the base (unspecialized) _evaluate_expression
-/// with a runtime void* throw function pointer, which the codegen cannot handle.
-/// Phase 3: replace with a proper exception-forwarding implementation.
+///
+/// Forwards the caller's exception handler directly to the underlying
+/// `_evaluate_expression`. This is what lets `try_populate_expr_info_table`
+/// in `yo-self/main.yo` install a `.None`-escape handler and gracefully
+/// fall back when the proper evaluator hits coverage gaps (Stream A in
+/// `plans/BOOTSTRAPPING.md`).
+///
+/// The previous bootstrap stub delegated to `_evaluate_expression_wrapper`
+/// (which installs its own panic handler), with a comment claiming the
+/// codegen could not handle a runtime `void*` throw function pointer.
+/// Phase 3 verified that the codegen does in fact handle this — the
+/// previous panic was masking real evaluator coverage gaps as crashes
+/// instead of recoverable errors.
 _evaluate_expression_raw_wrapper :: (
   fn(
     expr : AstExpr,
@@ -820,7 +853,7 @@ _evaluate_expression_raw_wrapper :: (
     using(exn : Exception)
   ) -> AstExpr
 )(
-  _evaluate_expression_wrapper(expr, env, ctx)
+  _evaluate_expression(expr, env, ctx, using(exn))
 );
 /// Register the expression evaluator. Call once during evaluator initialization.
 register_evaluate_expression :: (fn() -> unit)({

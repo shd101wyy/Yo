@@ -20,23 +20,25 @@ open(import("std/string"));
   make_err_expr,
   ast_expr_is_fn_call_of,
   BF_DOT
-} :: import("../../expr/expr.yo");
+} :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set
-} :: import("../../expr/expr_info.yo");
+} :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
   add_variable_to_env,
   synthetic_token,
-  get_variables_from_env
-} :: import("../../env/env.yo");
-{ TypeValue, t_unit, t_type } :: import("../../types/type.yo");
-{ EvalValue, is_unknown_val, type_of_eval_value } :: import("../value.yo");
-{ random_id } :: import("../utils.yo");
+  get_receiver_methods_by_name_from_env
+} :: import("../../env.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit, t_type, t_comptime_int } :: import("../../types/creators.yo");
+{ TokenKind } :: import("../../token.yo");
+{ EvalValue, type_of_eval_value } :: import("../../value.yo");
+{ random_id } :: import("../../utils.yo");
 {
   EvalContext,
   FuncOrAsyncBlockCtx,
@@ -46,13 +48,13 @@ open(import("std/string"));
   TraitTypeCallResult,
   TraitSpecializationResult
 } :: import("../context.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { try_to_implement_function_by_function_type } :: import("./function_type.yo");
 { try_to_implement_closure_by_fn_module_type } :: import("./closure_type.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
-{ try_to_implement_module_with_arguments_by_module_type } :: import("./module_type.yo");
+{ try_to_implement_module_with_arguments_by_module_type } :: import("./record_type.yo");
 {
   try_to_specialize_trait_type,
   try_to_implement_trait_with_arguments_by_trait_type
@@ -67,17 +69,13 @@ open(import("std/string"));
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { try_to_call_function_with_arguments } :: import("./helper.yo");
-{
-  MethodCandidate,
-  find_methods_from_generic_impls
-} :: import("../values/generic_impl_registry.yo");
-{ create_unknown_val } :: import("../value.yo");
-{ format_error_message } :: import("../../error/error.yo");
+{ create_unknown_val } :: import("../../value.yo");
+{ format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
-// Used by `_try_find_receiver_method` / `_type_value_base_name` below.
+// Used by `_try_find_receiver_method` below.
 // ---------------------------------------------------------------------------
 ReceiverMethodResult :: struct(
   method_val_opt : Option(EvalValue),
@@ -85,30 +83,16 @@ ReceiverMethodResult :: struct(
   receiver_expr : AstExpr
 );
 // ---------------------------------------------------------------------------
-// _type_value_base_name — extract the nominal type name from a TypeValue for
-// qualified method lookup ("TypeName.method_name").
-// Mirrors the name extraction inside `getReceiverMethodsByNameFromEnv` in
-// `src/env.ts`.
-// ---------------------------------------------------------------------------
-_type_value_base_name :: (fn(ty : TypeValue) -> Option(String))(
-  match(
-    ty,
-    .Struct(_, name, _, _, _, _, _) => Option(String).Some((&(name)).clone()),
-    .EnumT(_, name, _, _, _, _, _) => Option(String).Some((&(name)).clone()),
-    .Union(name, _, _) => Option(String).Some((&(name)).clone()),
-    .ModuleT(_, name, _, _) => Option(String).Some((&(name)).clone()),
-    .TraitT(name, _, _, _, _, _, _, _) => Option(String).Some((&(name)).clone()),
-    .SomeT(_, name, _, _, _, _, _, _, _) => Option(String).Some((&(name)).clone()),
-    .TypeAppT(ctor_box, _) => recur(ctor_box.*),
-    .Pointer(pt_box) => recur(pt_box.*),
-    _ => Option(String).None
-  )
-);
-// ---------------------------------------------------------------------------
 // _try_find_receiver_method — when the callee is a property-access expression
-// `.(receiver, method_name)` with no ExprInfo, look up the method by qualified
-// name ("TypeName.method") in the env (Case 3 non-generic impls) or the generic-
-// impl registry.
+// `.(receiver, method_name)` with no ExprInfo, look up the method via env.yo's
+// `get_receiver_methods_by_name_from_env`.
+//
+// Replaces the previous in-file "TypeName.method" qualified-name walk; the
+// new env.yo function consults the trait-method registry (keyed by type id),
+// applies pointer auto-deref, runs the comptime-receiver retry, walks
+// SomeType / Dyn / TypeApplication trait constraints, and falls back to the
+// generic-impl registry — covering everything the old local helper did plus
+// trait-bounded receivers.
 //
 // Returns `.Some(ReceiverMethodResult)` if a method was found, `.None` otherwise.
 //
@@ -158,68 +142,34 @@ _try_find_receiver_method :: (
   // 3. Method name token.
   method_tok := ast_expr_token(method_name_expr);
   method_name := (&(method_tok.value)).clone();
-  // 4. Dereference pointer layers on the receiver type to reach the base type.
-  (base_ty : TypeValue) = receiver_type;
-  (keep_deref : bool) = true;
-  while(runtime(keep_deref), {
-    match(
-      base_ty,
-      .Pointer(pt_box) => {
-        base_ty = pt_box.*;
-      },
-      _ => {
-        keep_deref = false;
-      }
-    );
+  // 4. Delegate to env.yo's full receiver-method lookup. It handles
+  //    pointer auto-deref, the trait-method registry (direct +
+  //    impl'd), the generic-impl fallback, and the
+  //    SomeT/Dyn/TypeApp/comptime branches.
+  //    is_infix_operator_call = false: dot-call dispatch is never
+  //    infix.
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    method_name,
+    receiver_type,
+    false
+  );
+  if(hits.len() == usize(0), {
+    return(Option(ReceiverMethodResult).None);
   });
-  // 5. Build the qualified name "TypeName.method".
-  type_name := match(
-    _type_value_base_name(base_ty),
-    .Some(tn) => tn,
+  // Take the first hit (mirrors the prior "first match wins"
+  // contract — the call site does parameter unification later).
+  first := match(
+    hits.get(usize(0)),
+    .Some(m) => m,
     .None => {
       return(Option(ReceiverMethodResult).None);
     }
   );
-  qualified := `${type_name}.${method_name}`;
-  // 6. Resolve the method: try env lookup first, then generic-impl registry.
-  (method_val_opt : Option(EvalValue)) = Option(EvalValue).None;
-  (method_ty : TypeValue) = t_unit();
-  (found_method : bool) = false;
-  // 6a. Non-generic impls registered as "TypeName.method" in env (Case 3 of impl.yo).
-  vars := get_variables_from_env(env, (&(qualified)).clone());
-  if(vars.len() > usize(0), {
-    match(
-      vars.get(vars.len() - usize(1)),
-      .Some(mv) => {
-        method_val_opt = mv.value;
-        method_ty = mv.ty;
-        found_method = true;
-      },
-      .None => ()
-    );
-  });
-  // 6b. Generic impls registered via impl(forall(T), ReceiverType(T), …).
-  if(!(found_method), {
-    candidates := find_methods_from_generic_impls(base_ty, (&(method_name)).clone(), env);
-    if(candidates.len() > usize(0), {
-      match(
-        candidates.get(usize(0)),
-        .Some(c) => {
-          method_val_opt = c.method_value;
-          method_ty = c.method_type;
-          found_method = true;
-        },
-        .None => ()
-      );
-    });
-  });
-  if(!(found_method), {
-    return(Option(ReceiverMethodResult).None);
-  });
   Option(ReceiverMethodResult).Some(
     ReceiverMethodResult(
-      method_val_opt : method_val_opt,
-      method_ty : method_ty,
+      method_val_opt : first.value,
+      method_ty : first.ty,
       receiver_expr : receiver_expr
     )
   )
@@ -254,8 +204,40 @@ evaluate_function_call :: (
     .FnCall(_, _, a, _, _) => a,
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
+  // Pre-fold `-(IntLit)` to a comptime negative integer literal.
+  // yo-self does not yet implement full ModuleT/Call overload dispatch
+  // for the prelude's `(-) :: impl({ Call :: (neg, comptime_neg); })`,
+  // so unary-minus on a comptime int falls into a soft fallback that
+  // produces UnknownVal. The TS evaluator effectively folds the same
+  // shape via `ComptimeNegate.neg`. We mirror the fold here, just for
+  // the literal-arg form, so that prelude patterns like
+  // `Completed = -(1)` in enum discriminants and similar default-value
+  // sites evaluate as comptime_int.
+  neg_callee_str := match(
+    func_expr,
+    .Atom(_, ftok) => ftok.value,
+    _ => String.new()
+  );
+  is_neg_call :=
+    (neg_callee_str.as_str() == "-") && (args.len() == usize(1));
+  if(is_neg_call, {
+    arg0 := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    match(
+      arg0,
+      .Atom(_, atok) => {
+        if(atok.kind == TokenKind.Integer, {
+          neg_raw := `-${atok.value.as_str()}`;
+          out_neg := new_expr_info(env, t_comptime_int());
+          out_neg.value = Option(EvalValue).Some(EvalValue.IntLit(neg_raw));
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_neg);
+          return(expr);
+        });
+      },
+      _ => ()
+    );
+  });
   // Evaluate the callee.
-  evaluated_callee := evaluate_expression(func_expr, env, ctx);
+  evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, using(exn));
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
   callee_value := match(
     callee_info_opt,
@@ -323,7 +305,7 @@ evaluate_function_call :: (
             )
           },
           // SomeT / DynT — check if they wrap a FnTrait (e.g. Impl(Fn(...) -> T)).
-          .SomeT(_, _, _, _, _, _, _, _, _) => {
+          .SomeT(_, _, _, _, _, _, _, _, _, _) => {
             fn_trait_opt := extract_fn_trait_from_type(func_type);
             match(
               fn_trait_opt,
@@ -444,6 +426,12 @@ evaluate_function_call :: (
               }
             );
             call_result_s := try_to_call_type_with_arguments(fields, func_expr, args, callee_env, ctx, false, using(exn));
+            // Treat default UnknownVal fields as compile-time placeholders (mirrors
+            // TS createUnknownValue's default `isRuntimeOnly: false/undefined`).
+            // Only `.None` positions (no value at all) make the struct non-comptime.
+            // This lets `__yo_builtin_io :: IO(async : __yo_io_async, ...)` in the
+            // prelude evaluate to a comptime StructVal even though extern-fn fields
+            // carry UnknownVal values.
             (all_known_s : bool) = true;
             (ki_s : usize) = usize(0);
             while(runtime((ki_s < call_result_s.values.len()) && all_known_s), {
@@ -452,11 +440,7 @@ evaluate_function_call :: (
                 .Some(inner_opt_s) => {
                   match(
                     inner_opt_s,
-                    .Some(v_s) => {
-                      if(is_unknown_val(v_s), {
-                        all_known_s = false;
-                      });
-                    },
+                    .Some(_) => (),
                     .None => {
                       all_known_s = false;
                     }
@@ -567,6 +551,10 @@ evaluate_function_call :: (
               tfi_e = (tfi_e + usize(1));
             });
             call_result_e := try_to_call_type_with_arguments(tf_e, func_expr, args, callee_env, ctx, false, using(exn));
+            // Mirror TS enum value construction: default UnknownVal fields are
+            // compile-time placeholders (isRuntimeOnly: false/undefined) and
+            // therefore still produce a comptime EnumVal. Only missing values
+            // (`.None`) abort comptime construction.
             (all_known_e : bool) = true;
             (ki_e : usize) = usize(0);
             while(runtime((ki_e < call_result_e.values.len()) && all_known_e), {
@@ -575,11 +563,7 @@ evaluate_function_call :: (
                 .Some(inner_opt_e) => {
                   match(
                     inner_opt_e,
-                    .Some(v_e) => {
-                      if(is_unknown_val(v_e), {
-                        all_known_e = false;
-                      });
-                    },
+                    .Some(_) => (),
                     .None => {
                       all_known_e = false;
                     }
@@ -857,7 +841,7 @@ evaluate_function_call :: (
         (ai : usize) = usize(0);
         while(runtime(ai < n_a), {
           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
-          evaled_arg := evaluate_expression(arg_expr, env, ctx);
+          evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, using(exn));
           arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
           arg_info := match(
             arg_info_opt,

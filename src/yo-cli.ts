@@ -7,6 +7,9 @@ import packageJson from "../package.json";
 import { runBuild } from "./build-runner";
 import { getGlobalCacheDir } from "./cache";
 import { CodeGenerator } from "./codegen";
+import { _printFrameIndexStats } from "./env";
+import { _printCallProfile } from "./evaluator/calls/helper";
+import { _printSynthStats } from "./evaluator/types/synthesizer";
 import { findAvailableCompiler } from "./compiler-utils";
 import {
   clearBuildRegistry,
@@ -21,7 +24,11 @@ import {
   isTargetWindows,
   parseTarget,
 } from "./target";
-import { findTestFiles, runTests } from "./test-runner";
+import {
+  DEFAULT_TEST_BATCH_SIZE,
+  findTestFiles,
+  runTests,
+} from "./test-runner";
 import { getCurrentYoVersion, readYoVersion } from "./version";
 import {
   cleanVersionCache,
@@ -33,6 +40,51 @@ import {
 } from "./version-cache";
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
+
+// Collect .yo files to type-check. Accepts either a single file (must end in
+// `.yo`) or a directory (walked recursively; `.test.yo` files are included
+// since their bodies are evaluator-typecheckable; noisy infrastructure dirs
+// like `node_modules` / `.git` are skipped).
+function collectCheckFiles(targetPath: string): string[] {
+  const absolutePath = path.resolve(targetPath);
+  const stats = fs.statSync(absolutePath);
+  if (stats.isFile()) {
+    if (!absolutePath.endsWith(".yo")) {
+      console.error(`check: not a .yo file: ${absolutePath}`);
+      process.exit(1);
+    }
+    return [absolutePath];
+  }
+  if (stats.isDirectory()) {
+    const out: string[] = [];
+    walkCheckDir(absolutePath, out);
+    out.sort();
+    return out;
+  }
+  return [];
+}
+
+function walkCheckDir(dir: string, out: string[]): void {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (
+        ![
+          "node_modules",
+          "vendor",
+          ".git",
+          "vscode-extension",
+          "outdated",
+        ].includes(entry.name)
+      ) {
+        walkCheckDir(full, out);
+      }
+    } else if (entry.isFile() && entry.name.endsWith(".yo")) {
+      out.push(full);
+    }
+  }
+}
 
 // ── Version re-dispatch ─────────────────────────────────────────────────
 // Before yargs processes any command, check `.yo-version` and re-dispatch
@@ -446,6 +498,74 @@ yo --version                     Show version number
           staticLibrary: argv.staticLibrary as boolean,
           cflags: argv.cflags as string | undefined,
         });
+        _printCallProfile();
+        _printFrameIndexStats();
+        _printSynthStats();
+      }
+    )
+    .command(
+      "check <path>",
+      "Type-check (run the evaluator on) a .yo file or every .yo file in a directory — no codegen",
+      (_yargs) => {
+        _yargs.positional("path", {
+          describe: "File or directory to check",
+          type: "string",
+          demandOption: true,
+        });
+      },
+      (argv) => {
+        // `check` is `compile` with `--skip-codegen --skip-c-compiler`
+        // and no output binary. The TS evaluator runs during module
+        // loading, so any coverage gap surfaces as a thrown error
+        // before codegen would have started.
+        const targetPath = argv.path as string;
+        if (!fs.existsSync(targetPath)) {
+          console.error(`check: path does not exist: ${targetPath}`);
+          process.exit(1);
+        }
+        const files = collectCheckFiles(targetPath);
+        if (files.length === 0) {
+          console.error(`check: no .yo files found at ${targetPath}`);
+          process.exit(1);
+        }
+        let failed = 0;
+        for (const file of files) {
+          const absolutePath = `file://` + fs.realpathSync(file);
+          const codeGenerator = new CodeGenerator();
+          try {
+            codeGenerator.compileModule(absolutePath, {
+              output: "/tmp/yo_check_noop",
+              cCompiler: "cc",
+              target: "c",
+              extern: [],
+              includePaths: [],
+              libraryPaths: [],
+              libraries: [],
+              defines: [],
+              emitC: false,
+              skipCodegen: true,
+              skipCCompiler: true,
+              debugGc: false,
+              debugParallelism: false,
+              debugAsyncAwait: false,
+              release: false,
+              allocator: "libc",
+            });
+            console.log(`check: ${file} — evaluator OK`);
+          } catch (err) {
+            failed += 1;
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`check: ${file} — FAILED\n${msg}`);
+          }
+        }
+        if (files.length > 1) {
+          console.log(
+            `check: ${files.length - failed}/${files.length} file(s) passed`
+          );
+        }
+        if (failed > 0) {
+          process.exit(1);
+        }
       }
     )
     .command(
@@ -518,6 +638,12 @@ yo --version                     Show version number
               "Print per-test timing breakdown (Yo compile, C compile, run) and heap usage",
             type: "boolean",
             default: false,
+          })
+          .option("test-batch-size", {
+            describe:
+              "Maximum number of tests to compile into one generated test binary",
+            type: "number",
+            default: DEFAULT_TEST_BATCH_SIZE,
           });
       },
       async (argv) => {
@@ -532,6 +658,11 @@ yo --version                     Show version number
         const parallel = argv.parallel as number;
         if (parallel < 0) {
           console.error("Error: --parallel value cannot be negative");
+          process.exit(1);
+        }
+        const testBatchSize = argv.testBatchSize as number;
+        if (!Number.isInteger(testBatchSize) || testBatchSize < 1) {
+          console.error("Error: --test-batch-size must be a positive integer");
           process.exit(1);
         }
 
@@ -570,6 +701,7 @@ yo --version                     Show version number
           keepGeneratedFiles: argv.keepGeneratedFiles as boolean,
           noSanitize: argv.disableSanitize as boolean,
           profile: argv.profile as boolean,
+          testBatchSize,
         });
 
         if (argv.jsonSummary as boolean) {
