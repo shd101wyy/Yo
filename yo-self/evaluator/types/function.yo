@@ -705,7 +705,10 @@ evaluate_function_parameter :: (
   match(
     default_value_expr,
     .Some(dve) => {
-      evaluated_dve := evaluate_expression(dve, env_mut.*, ctx);
+      // Use raw evaluator path so throws (e.g. propagated from
+      // nested type evaluations) reach the caller's exn cleanly
+      // instead of via the panic wrapper.
+      evaluated_dve := evaluate_expression_raw(dve, env_mut.*, ctx, using(exn));
       info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dve));
       match(
         info_opt,
