@@ -37,7 +37,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_comptime_int } :: import("../../types/creators.yo");
 { TokenKind } :: import("../../token.yo");
-{ EvalValue, is_unknown_val, type_of_eval_value } :: import("../../value.yo");
+{ EvalValue, type_of_eval_value } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 {
   EvalContext,
@@ -426,6 +426,12 @@ evaluate_function_call :: (
               }
             );
             call_result_s := try_to_call_type_with_arguments(fields, func_expr, args, callee_env, ctx, false, using(exn));
+            // Treat default UnknownVal fields as compile-time placeholders (mirrors
+            // TS createUnknownValue's default `isRuntimeOnly: false/undefined`).
+            // Only `.None` positions (no value at all) make the struct non-comptime.
+            // This lets `__yo_builtin_io :: IO(async : __yo_io_async, ...)` in the
+            // prelude evaluate to a comptime StructVal even though extern-fn fields
+            // carry UnknownVal values.
             (all_known_s : bool) = true;
             (ki_s : usize) = usize(0);
             while(runtime((ki_s < call_result_s.values.len()) && all_known_s), {
@@ -434,11 +440,7 @@ evaluate_function_call :: (
                 .Some(inner_opt_s) => {
                   match(
                     inner_opt_s,
-                    .Some(v_s) => {
-                      if(is_unknown_val(v_s), {
-                        all_known_s = false;
-                      });
-                    },
+                    .Some(_) => (),
                     .None => {
                       all_known_s = false;
                     }
@@ -549,6 +551,10 @@ evaluate_function_call :: (
               tfi_e = (tfi_e + usize(1));
             });
             call_result_e := try_to_call_type_with_arguments(tf_e, func_expr, args, callee_env, ctx, false, using(exn));
+            // Mirror TS enum value construction: default UnknownVal fields are
+            // compile-time placeholders (isRuntimeOnly: false/undefined) and
+            // therefore still produce a comptime EnumVal. Only missing values
+            // (`.None`) abort comptime construction.
             (all_known_e : bool) = true;
             (ki_e : usize) = usize(0);
             while(runtime((ki_e < call_result_e.values.len()) && all_known_e), {
@@ -557,11 +563,7 @@ evaluate_function_call :: (
                 .Some(inner_opt_e) => {
                   match(
                     inner_opt_e,
-                    .Some(v_e) => {
-                      if(is_unknown_val(v_e), {
-                        all_known_e = false;
-                      });
-                    },
+                    .Some(_) => (),
                     .None => {
                       all_known_e = false;
                     }

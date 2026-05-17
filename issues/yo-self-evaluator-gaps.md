@@ -171,6 +171,18 @@ crash showed `__yo_dispose_dispatch` prologue with `sp` next to an
 unmapped guard page. Workaround: `ulimit -s 65520` before running
 yo-self-bin. See `issues/yo-self-evaluator-stack-overflow.md`.
 
+**5h. UnknownVal-tolerant struct/enum comptime construction** —
+**fixed** in `yo-self/evaluator/calls/function.yo` (Struct and EnumT
+construction branches). yo-self was treating any `UnknownVal` field
+as breaking comptime-ness; TS treats default UnknownValues
+(`isRuntimeOnly: false/undefined`) as comptime placeholders and
+still emits a comptime `StructValue` / `EnumValue`. This unblocks
+`__yo_builtin_io :: IO(async : __yo_io_async, …)` at
+`std/prelude.yo:8196`, where the extern-fn fields are
+compile-time-only UnknownVals. With the relaxation, prelude
+evaluation now completes end-to-end (`evaluator OK` on simple test
+files using `Option(T)` / `match` / etc.).
+
 ### 6. Prelude auto-loading — **partially fixed**
 
 **Status:** Pre-loading mechanism wired in `run_check`; first
