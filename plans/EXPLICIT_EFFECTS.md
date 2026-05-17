@@ -257,25 +257,46 @@ Files touched:
 
 ### Suggested phasing
 
-1. **Phase 0 — Rename `escape` → `unwind`.** Mechanical rename across all
-   files (TS, `.yo`, docs). No semantics change. Land independently to
-   keep the rest of the diff focused.
-2. **Phase 1 — Wrap bare fn-typed effects in structs.** Prelude + tests.
-   Still uses `using` / `given`. Tests stay green after this. Reduces the
-   "two shapes" → "one shape" before changing semantics.
-3. **Phase 2 — Parser + evaluator: explicit params.** Drop `using` /
-   `given` keywords. Replace `forall(...(E))` + `using(...(E))` with
-   `forall(E : Effects)` + `e : E`. Migrate prelude + stdlib + tests.
+1. **Phase 0 — Rename `escape` → `unwind`.** ✅ DONE (2 commits: `2f07959` + `f649d8dc`).
+   Mechanical rename across all files (TS, `.yo`, docs).
+
+2. **Phase 1 — Wrap bare fn-typed effects in structs.** ❌ SKIPPED. Handler
+   assignment syntax (`given(name) : Struct = handler`) had parsing
+   ambiguities with the struct constructor syntax. Since Phase 2 removes
+   `given` anyway, this intermediate step was unnecessary — the struct
+   wrapping can be done inline during Phase 2 `yo` file migration.
+
+3. **Phase 2 — Parser + evaluator: explicit params.** 🔄 IN PROGRESS.
+   Drop `using` / `given` keywords. Replace `forall(...(E))` + `using(...(E))`
+   with `forall(E : Effects)` + `e : E`. Migrate prelude + stdlib + tests.
    This is the big-bang.
+
 4. **Phase 3 — Codegen install-site detection on data-flow tags.**
    Replace `given`-keyword detection with data-flow. Verify
    `tests/algebraic_effects.test.yo` still passes.
+
 5. **Phase 4 — yo-self port catches up.** Mirror all the above changes
    in `yo-self/`.
 
-Each phase can be its own PR; Phases 0–1 don't break anything, Phase 2
-is the migration breaker. Phases 3+ can land incrementally as gen-output
-audits succeed.
+Each phase can be its own PR; Phase 0 is done. Phase 2 is the migration
+breaker. Phases 3+ can land incrementally as gen-output audits succeed.
+
+### Phase 2 sub-phases
+
+Given the size (~2000+ occurrences across `tests/`, `std/`, `yo-self/`),
+Phase 2 is broken into sub-phases:
+
+| Step | Description                                      | Scope                                                |
+| ---- | ------------------------------------------------ | ---------------------------------------------------- |
+| 2a   | Drop `using`/`given` from lexer/parser tokens    | `src/lexer.ts`, `src/parser.ts`                      |
+| 2b   | Drop `using`/`given` from evaluator              | `src/evaluator/**/*.ts`                              |
+| 2c   | Replace `...(E)` with `E : Effects` in evaluator | `src/evaluator/**/*.ts`                              |
+| 2d   | Drop `using`/`given` from codegen                | `src/codegen/**/*.ts`                                |
+| 2e   | Remove `isImplicit` etc. flags                   | `src/expr.ts`, `src/env.ts`, `src/function-value.ts` |
+| 2f   | Migrate `tests/` `.yo` files                     | `tests/**/*.test.yo`                                 |
+| 2g   | Migrate `std/` `.yo` files                       | `std/**/*.yo`                                        |
+| 2h   | Migrate `yo-self/` `.yo` files                   | `yo-self/**/*.yo`                                    |
+| 2i   | Migrate docs                                     | `docs/en-US/`, `docs/zh-CN/`                         |
 
 ## 8. Implementation Details — What Gets Removed
 
