@@ -1,14 +1,39 @@
-# yo-self SIGSEGV evaluating `Impl(Fn(... -> Option(B)))`
+# yo-self SIGSEGV evaluating `Impl(Fn(... -> Option(B)))` — RESOLVED
 
 ## Status
 
-**Reproducible.** Surfaces in `yo-self-bin check` once the bootstrap
-evaluator processes the second half of `std/prelude.yo` (past line
-~6363, the `impl(forall(T : Type), Option(T), map : ..., and_then :
-..., ...)` block). TS evaluator handles the same code without
-issue, so this is a bootstrap-only gap. Not a TS codegen bug —
-the C output is consistent with the Yo source, the crash is
-real evaluator memory corruption.
+**Resolved.** The "SIGSEGV in the and_then impl" was a misdiagnosis —
+the actual error was a clean Yo throw at `std/prelude.yo:5773`
+(`assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)(...)`),
+where the bootstrap doesn't yet auto-coerce `comptime_string` →
+`str` at default-value sites. The non-raw `evaluate_expression`
+panic-wrapper path was corrupting memory when downstream code
+threw, producing a SIGSEGV at a later prelude site that LOOKED
+like the and_then crash.
+
+Resolved by commits:
+
+- `0a5f806c` — `evaluate_fn_trait_type` uses
+  `evaluate_expression_raw` for Fn-trait return type.
+- `aaa57d7c` — `evaluate_function_parameter` uses
+  `evaluate_expression_raw` for default-value expression.
+- `440489ca` — Same pattern applied to array/record/enum/field/
+  comptime_list type evaluators.
+
+With these fixes, prelude eval now exits 134 with the clean error
+message at line 5773 (the underlying assert comptime_string → str
+coercion gap), not SIGSEGV 139 at the spurious 6363 location.
+
+## Original (now-corrected) hypothesis
+
+The investigation initially blamed `Impl(Fn(... -> Option(B)))`
+HKT/TypeApplication evaluation. After adding the
+`kind_function_type` field to `SomeT` (commit `d78e5e14`) without
+the segfault going away, deeper instrumentation revealed that
+`Option(B)` evaluated correctly — the crash was actually from the
+panic wrapper corrupting state when the assert error at line 5773
+fired upstream. The crash site at 6363 was a victim of memory
+corruption, not the cause.
 
 ## Minimal observation
 
