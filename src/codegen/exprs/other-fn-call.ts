@@ -765,16 +765,16 @@ export function generateOtherFunctionCall(
           // Control functions / effect record members set __yo_effect_escaped.
           // Specialized effectful functions transitively call handlers.
           // Functions whose body has effects may also trigger escape transitively.
-          const callMayEscape =
+          const callMayUnwind =
             functionValue.isControlFunction ||
             functionValue.isEffectRecordMember ||
             functionValue.body?.$?.effectAnalysis?.hasEffects;
 
           // For specialized effectful functions, check if this is the handler
-          // installation point (where the escape value should be extracted
+          // installation point (where the unwind value should be extracted
           // rather than just propagated).
           let callIsHandlerInstallation = false;
-          if (callMayEscape) {
+          if (callMayUnwind) {
             if (
               functionValue.isControlFunction ||
               functionValue.isEffectRecordMember
@@ -846,9 +846,9 @@ export function generateOtherFunctionCall(
               generateDeferredDropExpressions(expr, indent, context);
             }
 
-            // Escape check: if callee may set __yo_effect_escaped, propagate
-            if (callMayEscape) {
-              emitEffectEscapeCheck(
+            // unwind check: if callee may set __yo_effect_escaped, propagate
+            if (callMayUnwind) {
+              emitEffectUnwindCheck(
                 indent,
                 context as FunctionGenerationContext,
                 callIsHandlerInstallation,
@@ -944,9 +944,9 @@ export function generateOtherFunctionCall(
                 generateDeferredDropExpressions(expr, indent, context);
               }
 
-              // Escape check: if callee may set __yo_effect_escaped, propagate
-              if (callMayEscape) {
-                emitEffectEscapeCheck(
+              // unwind check: if callee may set __yo_effect_escaped, propagate
+              if (callMayUnwind) {
+                emitEffectUnwindCheck(
                   indent,
                   context as FunctionGenerationContext,
                   callIsHandlerInstallation,
@@ -2190,15 +2190,15 @@ export function generateOtherFunctionCall(
 }
 
 /**
- * Emit an escape check after calling a function that may set __yo_effect_escaped.
+ * Emit an unwind check after calling a function that may set __yo_effect_escaped.
  * Used in the normal (non-evidence) call path for specialized effectful functions
  * and direct handler calls.
  *
  * At handler installation points (isHandlerInstallation=true): extracts the escape
- * value from __yo_effect_escape_value and returns it.
+ * value from __yo_unwind_value and returns it.
  * At transitive points: returns a dummy value to propagate the escape.
  */
-function emitEffectEscapeCheck(
+function emitEffectUnwindCheck(
   indent: string,
   context: FunctionGenerationContext,
   isHandlerInstallation: boolean,
@@ -2238,11 +2238,11 @@ function emitEffectEscapeCheck(
     if (callerReturnType && !isUnitType(callerReturnType)) {
       const callerCType = getTypeString(callerReturnType, context);
       if (callerCType !== "void") {
-        emitter.emitLine(`${indent}  ${callerCType} _esc_result;`);
+        emitter.emitLine(`${indent}  ${callerCType} _unw_result;`);
         emitter.emitLine(
-          `${indent}  memcpy(&_esc_result, __yo_effect_escape_value, sizeof(${callerCType}));`
+          `${indent}  memcpy(&_unw_result, __yo_unwind_value, sizeof(${callerCType}));`
         );
-        emitter.emitLine(`${indent}  return _esc_result;`);
+        emitter.emitLine(`${indent}  return _unw_result;`);
       } else {
         emitter.emitLine(`${indent}  return;`);
       }
@@ -2350,7 +2350,7 @@ function generateEvidenceFnPtrCall(
       generateDeferredDropExpressions(expr, indent, context);
     }
 
-    // Check escape flag — propagate early return if handler escaped
+    // Check unwind flag — propagate early return if handler escaped
     emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
     // In async SMs, local variable cleanup is handled by _state_dispose
     if (!context.inAsyncStateMachine) {
@@ -2409,7 +2409,7 @@ function generateEvidenceFnPtrCall(
           generateDeferredDropExpressions(expr, indent, context);
         }
 
-        // Check escape flag — propagate early return if handler escaped
+        // Check unwind flag — propagate early return if handler escaped
         emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
         // In async SMs, local variable cleanup is handled by _state_dispose
         if (!context.inAsyncStateMachine) {
@@ -2455,7 +2455,7 @@ function generateEvidenceFnPtrCall(
       // the call (so escape-path drops reference a valid variable), call as void,
       // check escape, then leave the zero-init for the (unlikely) resume case.
       if (handlerReturnsVoid) {
-        // Declare temp var before the call — the escape path's consumed-var
+        // Declare temp var before the call — the unwind path's consumed-var
         // drops may reference it, so it must exist in scope.
         emitter.emitLine(
           `${indent}${cTypeString} ${tempVar} = (${cTypeString}){0};`
@@ -2512,7 +2512,7 @@ function generateEvidenceFnPtrCall(
         generateDeferredDropExpressions(expr, indent, context);
       }
 
-      // Check escape flag — propagate early return if handler escaped
+      // Check unwind flag — propagate early return if handler escaped
       emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
       // In async SMs, local variable cleanup is handled by _state_dispose
       if (!context.inAsyncStateMachine) {
@@ -2535,7 +2535,7 @@ function generateEvidenceFnPtrCall(
           debugLabel: undefined,
         });
       } else {
-        // Return type for escape propagation must match the CALLER's return type, not the callee's
+        // Return type for unwind propagation must match the CALLER's return type, not the callee's
         const callerReturnType = context.currentFunctionType?.return.type;
         if (callerReturnType && !isUnitType(callerReturnType)) {
           const callerCType = getTypeString(callerReturnType, context);
@@ -2850,7 +2850,7 @@ function generateEvidenceCallSite(
     emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
     // In async SMs, local variable cleanup is handled by _state_dispose
     if (!context.inAsyncStateMachine) {
-      // Drop in-scope local variables before escape propagation
+      // Drop in-scope local variables before unwind propagation
       // (includes RC-typed args and other locals like closure captures)
       generatePendingDeferredDrops(
         indent + "  ",
@@ -2878,11 +2878,11 @@ function generateEvidenceCallSite(
         if (isHandlerInstallation) {
           const callerCType = getTypeString(callerReturnType, context);
           if (callerCType !== "void") {
-            emitter.emitLine(`${indent}  ${callerCType} _esc_result;`);
+            emitter.emitLine(`${indent}  ${callerCType} _unw_result;`);
             emitter.emitLine(
-              `${indent}  memcpy(&_esc_result, __yo_effect_escape_value, sizeof(${callerCType}));`
+              `${indent}  memcpy(&_unw_result, __yo_unwind_value, sizeof(${callerCType}));`
             );
-            emitter.emitLine(`${indent}  return _esc_result;`);
+            emitter.emitLine(`${indent}  return _unw_result;`);
           } else {
             emitter.emitLine(`${indent}  return;`);
           }
@@ -2916,7 +2916,7 @@ function generateEvidenceCallSite(
       emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
       // In async SMs, local variable cleanup is handled by _state_dispose
       if (!context.inAsyncStateMachine) {
-        // Drop in-scope local variables before escape propagation
+        // Drop in-scope local variables before unwind propagation
         // (includes RC-typed args and other locals like closure captures)
         generatePendingDeferredDrops(
           indent + "  ",
@@ -2943,12 +2943,12 @@ function generateEvidenceCallSite(
           !isUnitType(callerReturnType)
         ) {
           const callerCType = getTypeString(callerReturnType, context);
-          emitter.emitLine(`${indent}  ${callerCType} _esc_result;`);
+          emitter.emitLine(`${indent}  ${callerCType} _unw_result;`);
           emitter.emitLine(
-            `${indent}  memcpy(&_esc_result, __yo_effect_escape_value, sizeof(${callerCType}));`
+            `${indent}  memcpy(&_unw_result, __yo_unwind_value, sizeof(${callerCType}));`
           );
           emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
-          emitter.emitLine(`${indent}  return _esc_result;`);
+          emitter.emitLine(`${indent}  return _unw_result;`);
         } else if (callerReturnType && !isUnitType(callerReturnType)) {
           const callerCType = getTypeString(callerReturnType, context);
           if (callerCType !== "void") {

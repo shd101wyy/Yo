@@ -2616,7 +2616,7 @@ Please use explicit using() to disambiguate.`,
   //
   // Previously, this was skipped when inside a function that receives the ctl handler
   // via an implicit `using(raise: Raise)` parameter. With evidence passing (void* fn ptr),
-  // we always need the specialized body so the escape value is properly typed.
+  // we always need the specialized body so the unwind value is properly typed.
   if (
     !skipSpecialization &&
     functionValue &&

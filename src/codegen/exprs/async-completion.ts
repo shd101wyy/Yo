@@ -74,7 +74,7 @@ export function emitAsyncFutureCompletion(opts: AsyncCompletionOptions): void {
 /**
  * Emits the C code to mark an async Future state machine as ABORTED (-2):
  * 1. Optionally store the result value (for proper RC cleanup in dispose)
- * 2. Set state to ESCAPED (-2) with release semantics
+ * 2. Set state to UNWOUND (-2) with release semantics
  * 3. Check for and spawn any waiting continuation (so awaiter can detect escape)
  * 4. Release the "running task" reference (decr rc)
  * 5. Return from the resume function
@@ -91,7 +91,7 @@ export function emitAsyncFutureEscape(opts: AsyncCompletionOptions): void {
 
   if (debugLabel) {
     emitter.emitLine(
-      `${indent}ASYNC_DEBUG("${debugLabel}: Setting state to ESCAPED (effect handler escape)\\n");`
+      `${indent}ASYNC_DEBUG("${debugLabel}: Setting state to UNWOUND (effect handler escape)\\n");`
     );
   }
   emitter.emitLine(`${indent}sm->state = -2;  // -2 = escaped`);

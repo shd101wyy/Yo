@@ -887,7 +887,7 @@ export function generateFunction(
   context.currentFunctionName = functionName;
   (context as FunctionGenerationContext).currentFunctionType = functionType;
 
-  // Track if this isan effect record member function (for escape detection)
+  // Track if this isan effect record member function (for unwind detection)
   const previousIsEffectRecordMemberFunction = (
     context as FunctionGenerationContext
   ).isEffectRecordMemberFunction;
@@ -1071,7 +1071,7 @@ export function generateFunctionBody(
     // These need to be generated when early returning from anywhere inside this function
     context.pendingDeferredDrops = [...(expr.$?.deferredDropExpressions ?? [])];
     // Consumed variable drops: RC variables whose drops were optimized away because
-    // they're consumed by the return value. Needed for escape propagation only.
+    // they're consumed by the return value. Needed for unwind propagation only.
     context.consumedVarPendingDrops = [
       ...(expr.$?.consumedVariableDropExpressions ?? []),
     ];
@@ -1498,12 +1498,12 @@ static void __yo_decr_rc_atomic(void* ptr) {
   }
 }`);
 
-  // Effect escape flag and value buffer (always needed)
+  // Effect unwind flag and value buffer (always needed)
   emitter.emitDeclarationLine(
-    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record escape detection`
+    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection`
   );
   emitter.emitDeclarationLine(
-    `static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage`
+    `static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage`
   );
 
   // No-op GC functions so references elsewhere compile
@@ -1606,13 +1606,13 @@ static void __yo_decr_rc_atomic(void* ptr) {
 }`);
 
   // Per-thread GC tracking state (simplified - no stop-the-world coordination needed for thread-local)
-  // Effect escape flag and value buffer are emitted in declaration section
+  // Effect unwind flag and value buffer are emitted in declaration section
   // (via emitDeclarationLine) so they're available to sync_fut_t resume functions.
   emitter.emitDeclarationLine(
-    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record escape detection`
+    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection`
   );
   emitter.emitDeclarationLine(
-    `static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage`
+    `static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage`
   );
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
 static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state

@@ -332,7 +332,7 @@ export function generatePendingDeferredDrops(
 }
 
 /**
- * Generate drops for consumed variables on escape propagation paths.
+ * Generate drops for consumed variables on unwind propagation paths.
  * These are RC-typed variables whose drops were optimized away because
  * they're consumed by the return value. On escape, the return value is
  * discarded, so these variables must be freed.
@@ -359,7 +359,7 @@ export function generateConsumedVarDropsForEscape(
           if (variables.length === 0) return false;
           // Skip variables that exist in the env but are not yet initialized —
           // evaluateBinding adds the LHS to the env before the RHS runs, so the
-          // variable appears in the env at the escape site but its C declaration
+          // variable appears in the env at the unwind site but its C declaration
           // hasn't been emitted yet. Dropping it here would reference an
           // undeclared C identifier (same guard as generatePendingDeferredDrops).
           const latestVar = variables[variables.length - 1]!;
@@ -370,7 +370,7 @@ export function generateConsumedVarDropsForEscape(
 
   if (dropsToEmit.length > 0) {
     context.emitter.emitLine(
-      `${indent}// Drop consumed variables (escape propagation)`
+      `${indent}// Drop consumed variables (unwind propagation)`
     );
     for (const dropExpr of dropsToEmit) {
       const dropCode = generateExpr(dropExpr, indent, context);

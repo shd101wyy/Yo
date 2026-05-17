@@ -132,7 +132,7 @@ import { evaluateBeginExpression } from "./begin";
 import { evaluateBinding } from "./binding";
 import { evaluateCInclude } from "./c-include";
 import { evaluateCond } from "./cond";
-import { evaluateEscape } from "./escape";
+import { evaluateUnwind } from "./unwind";
 import { evaluateExtern } from "./extern";
 import { evaluateIdentifierAndOperator } from "./identifer-and-operator";
 import { evaluateImport } from "./import";
@@ -629,9 +629,9 @@ ${exprToString(expr)}`,
     ) {
       // && ||
       return evaluateAndOr({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.escape)) {
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)) {
       // escape
-      return evaluateEscape({
+      return evaluateUnwind({
         expr,
         env,
         context: { ...context },

@@ -48,7 +48,7 @@ function bodyHasAnyTerminator(
   const guaranteed =
     hasControlFlow(bodyControlFlow, "break") ||
     hasControlFlow(bodyControlFlow, "return") ||
-    hasControlFlow(bodyControlFlow, "escape");
+    hasControlFlow(bodyControlFlow, "unwind");
   const possible = guaranteed || exprContainsLoopTerminator(bodyExpr);
   return { guaranteed, possible };
 }
@@ -264,9 +264,9 @@ export function evaluateWhile({
       // Handle different control flow types
       if (
         hasControlFlow(evaluatedBodyExpr.$.controlFlow, "return") ||
-        hasControlFlow(evaluatedBodyExpr.$.controlFlow, "escape")
+        hasControlFlow(evaluatedBodyExpr.$.controlFlow, "unwind")
       ) {
-        // Guaranteed that we meet "return" or "escape"
+        // Guaranteed that we meet "return" or "unwind"
         // If the body has a return value, we should return it
         if (
           isBooleanValue(effectiveConditionValue) &&
@@ -276,7 +276,7 @@ export function evaluateWhile({
           const propagated: { return?: boolean; escape?: boolean } = {};
           if (hasControlFlow(evaluatedBodyExpr.$.controlFlow, "return"))
             propagated.return = true;
-          if (hasControlFlow(evaluatedBodyExpr.$.controlFlow, "escape"))
+          if (hasControlFlow(evaluatedBodyExpr.$.controlFlow, "unwind"))
             propagated.escape = true;
           expr.$ = {
             env: evaluatedBodyExpr.$.env,

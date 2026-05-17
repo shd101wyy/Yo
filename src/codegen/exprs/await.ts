@@ -154,7 +154,7 @@ export function generateAwait(
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
     // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise))
     // or effect record types (e.g., Future(i32, IO, Exception)).
-    // Effectful futures may be intentionally aborted by a ctl/escape handler
+    // Effectful futures may be intentionally aborted by a ctl/unwind handler
     // during the CURRENT await — don't panic for that case.
     // But if the future was ALREADY aborted before we started awaiting (re-await),
     // always panic regardless of algebraic effects.
@@ -178,7 +178,7 @@ export function generateAwait(
       emitter.emitLine(`${indent}    }`);
       // Aborted during this await by effect handler (e.g., Exception.throw escape).
       // The event loop reference was already decremented by the SM itself
-      // (emitAsyncFutureEscape for full SM, or sync_fut_t escape path).
+      // (emitAsyncFutureEscape for full SM, or sync_fut_t unwind path).
       // Do NOT decrement here — that would cause a double-free/UAF.
       // The pending deferred drops below will handle locally-owned futures;
       // borrowed parameters are not in deferred drops and won't be touched.
@@ -197,23 +197,23 @@ export function generateAwait(
       // Determine if this function is the handler installation point for the
       // effect that caused the escape. If a `given` handler is locally installed
       // (not forwarded via evidence params), the function should extract the
-      // escape value and return it. Otherwise, propagate the escape to the caller.
-      const isHandlerInstallation = isAwaitEscapeHandlerInstallation(
+      // unwind value and return it. Otherwise, propagate the escape to the caller.
+      const isHandlerInstallation = isAwaitUnwindHandlerInstallation(
         futureModuleForCheck!,
         functionContext
       );
       const returnType = functionContext.currentFunctionType?.return?.type;
       if (isHandlerInstallation) {
-        // Handler installation: consume the escape and return the escape value
+        // Handler installation: consume the escape and return the unwind value
         emitter.emitLine(`${indent}    __yo_effect_escaped = 0;`);
         if (returnType && !isUnitType(returnType)) {
           const callerCType = getTypeString(returnType, context);
           if (callerCType !== "void") {
-            emitter.emitLine(`${indent}    ${callerCType} _esc_result;`);
+            emitter.emitLine(`${indent}    ${callerCType} _unw_result;`);
             emitter.emitLine(
-              `${indent}    memcpy(&_esc_result, __yo_effect_escape_value, sizeof(${callerCType}));`
+              `${indent}    memcpy(&_unw_result, __yo_unwind_value, sizeof(${callerCType}));`
             );
-            emitter.emitLine(`${indent}    return _esc_result;`);
+            emitter.emitLine(`${indent}    return _unw_result;`);
           } else {
             emitter.emitLine(`${indent}    return;`);
           }
@@ -221,7 +221,7 @@ export function generateAwait(
           emitter.emitLine(`${indent}    return;`);
         }
       } else {
-        // Propagation: re-set the escape flag so the caller can detect it
+        // Propagation: re-set the unwind flag so the caller can detect it
         emitter.emitLine(`${indent}    __yo_effect_escaped = 1;`);
         if (returnType && !isUnitType(returnType)) {
           const returnTypeStr = getTypeString(returnType, context);
@@ -462,7 +462,7 @@ export function generateJoinHandleAwait(
     }
   }
   emitter.emitLine(`${indent}  } else {`);
-  // Aborted: return .None — also reset escape flag if set
+  // Aborted: return .None — also reset unwind flag if set
   emitter.emitLine(`${indent}    __yo_effect_escaped = 0;`);
   emitter.emitLine(
     `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${noneTag} };`
@@ -480,10 +480,10 @@ export function generateJoinHandleAwait(
  *
  * Returns true if ANY algebraic effect in the future is locally installed
  * (via `given` binding) rather than forwarded from the caller's evidence
- * parameters. When true, the await escape path should extract the escape
- * value from __yo_effect_escape_value and return it directly.
+ * parameters. When true, the await unwind path should extract the escape
+ * value from __yo_unwind_value and return it directly.
  */
-function isAwaitEscapeHandlerInstallation(
+function isAwaitUnwindHandlerInstallation(
   futureTraitType: ReturnType<typeof extractFutureTraitFromType> & object,
   context: FunctionGenerationContext
 ): boolean {

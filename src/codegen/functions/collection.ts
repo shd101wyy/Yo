@@ -546,7 +546,7 @@ export function findFunctionCallsInExpr(
     // Ctl handler functions (isControlFunction=true) are normally inlined at call
     // sites by generateDirectCtlCall. However, when used as evidence handlers
     // (passed as fn ptr evidence args), they must be standalone C functions.
-    // Collect them and mark as effect members so generateEscape sets the escape flag.
+    // Collect them and mark as effect members so generateUnwind sets the unwind flag.
     if (isFunctionValue(functionValue) && functionValue.isControlFunction) {
       functionValue.isEffectRecordMember = true;
       if (!context.functions[functionValue.funcId]) {

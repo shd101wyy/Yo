@@ -433,7 +433,7 @@ export function evaluateCond({
           (body) =>
             body.$ &&
             !hasControlFlow(body.$.controlFlow, "return") &&
-            !hasControlFlow(body.$.controlFlow, "escape")
+            !hasControlFlow(body.$.controlFlow, "unwind")
         )
       );
 
@@ -514,31 +514,31 @@ export function evaluateCond({
           pathCollection: [],
           controlFlow: finalControlFlow,
         };
-      } else if (hasControlFlow(finalControlFlow, "escape")) {
+      } else if (hasControlFlow(finalControlFlow, "unwind")) {
         // All cases are escaping. Determine the result type:
-        // 1. If we have an enclosing function return type, use that (true escape target)
+        // 1. If we have an enclosing function return type, use that (true unwind target)
         // 2. Otherwise, if we're inside a function body, use the function's return type
         //    (the escape from `exn.throw` etc. terminates this function at runtime)
-        let escapeType: Type | undefined = context.enclosingFunctionReturnType;
+        let unwindType: Type | undefined = context.enclosingFunctionReturnType;
         if (
-          !escapeType &&
+          !unwindType &&
           context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
         ) {
-          escapeType =
+          unwindType =
             context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type;
         }
-        if (!escapeType && context.expectedType?.type) {
-          escapeType = context.expectedType.type;
+        if (!unwindType && context.expectedType?.type) {
+          unwindType = context.expectedType.type;
         }
-        if (!escapeType) {
+        if (!unwindType) {
           throw formatErrorMessage({
             token: expr.token,
-            errorMessage: `All cases in cond use "escape", but not inside a function with an enclosing function.`,
+            errorMessage: `All cases in cond use "unwind", but not inside a function with an enclosing function.`,
           });
         }
         expr.$ = {
           env,
-          type: escapeType,
+          type: unwindType,
           value: undefined,
           pathCollection: [],
           controlFlow: finalControlFlow,

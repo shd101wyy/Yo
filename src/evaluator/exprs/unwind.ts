@@ -8,7 +8,7 @@ import { VUnit } from "../../unit-value";
 import type { EvaluatorContext } from "../context";
 import { _evaluateExpression } from "./_expr";
 
-export function evaluateEscape({
+export function evaluateUnwind({
   expr,
   env,
   context,
@@ -65,7 +65,7 @@ export function evaluateEscape({
       type: VUnit.type,
       value: undefined,
       pathCollection: [],
-      controlFlow: controlFlowOf("escape"),
+      controlFlow: controlFlowOf("unwind"),
     };
     return expr;
   }
@@ -108,7 +108,7 @@ export function evaluateEscape({
 
   // escape(value) is control flow — it doesn't produce a value.
   // Its type is the enclosing function's return type, and it's marked as
-  // controlFlow: "escape" so that the begin block and codegen know how to handle it.
+  // controlFlow: "unwind" so that the begin block and codegen know how to handle it.
   expr.args[0] = evaluatedArg;
   expr.$ = {
     ...expr.$,
@@ -116,7 +116,7 @@ export function evaluateEscape({
     type: evaluatedArg.$.type,
     value: undefined,
     pathCollection: [],
-    controlFlow: controlFlowOf("escape"),
+    controlFlow: controlFlowOf("unwind"),
   };
   return expr;
 }

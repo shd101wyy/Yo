@@ -2010,7 +2010,7 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       // isControlFunction with forall parameters that was specialized inline: mark
       // the call expression with escape control flow. After specialization the
       // effective return type matches the enclosing function's return type (e.g. unit
-      // → void). The "escape" annotation lets match arms treat this call as
+      // → void). The "unwind" annotation lets match arms treat this call as
       // "never-type" so type unification with other arms works correctly.
       // Do NOT set escape for isControlFunction calls that were NOT specialized
       // (e.g. `Raise :: fn(...) -> i32`); those have a meaningful return type that
@@ -2020,12 +2020,12 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         functionToCall.value.isControlFunction &&
         specializedFunctionValue !== undefined
       ) {
-        expr.$.controlFlow = controlFlowOf("escape");
+        expr.$.controlFlow = controlFlowOf("unwind");
       }
 
       // NOTE: A previous version (commit f51ad0d3) added a "parametricity"
       // detection here that marked calls like `exn.throw(...)` as
-      // controlFlow="escape" so the begin-block evaluator would skip
+      // controlFlow="unwind" so the begin-block evaluator would skip
       // subsequent dead code (like `t_i32()` constructor calls).
       // That detection was reverted because it also fired on calls inside
       // async closures whose closure parameters wrap forall-T inside

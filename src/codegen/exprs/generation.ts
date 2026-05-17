@@ -513,7 +513,7 @@ function resolveEvidenceFieldFromGivenBindingsForSpawn(
  * and returns from the enclosing function with the given value.
  * In C codegen, this translates to dropping handler params then `return <value>;`.
  */
-function generateEscape(
+function generateUnwind(
   expr: FnCallExpr,
   indent: string,
   context: CodeGenContext
@@ -572,8 +572,8 @@ function generateEscape(
   if (functionContext.inAsyncStateMachine) {
     const emitter = functionContext.emitter;
 
-    // Compute the escape value for side effects, but don't store it as the
-    // Future's result — the escape value's type matches the enclosing fn's
+    // Compute the unwind value for side effects, but don't store it as the
+    // Future's result — the unwind value's type matches the enclosing fn's
     // return type, which may differ from the Future's result type.
     if (arg) {
       const argCode = generateExpr(arg, indent, context);
@@ -659,7 +659,7 @@ function generateEscape(
   }
   // Snapshot drop list lengths BEFORE arg evaluation. Drops added during
   // arg evaluation belong to the value being escaped — that value is
-  // transferred to the handler installation site via __yo_effect_escape_value,
+  // transferred to the handler installation site via __yo_unwind_value,
   // so its ownership escapes with it and we must not emit drops for it here.
   const consumedDropsBaselineForEscapeArg =
     functionContext.consumedVarPendingDrops?.length ?? 0;
@@ -684,9 +684,9 @@ function generateEscape(
   }
   // Also remove any pre-existing drop whose target variable IS the escape
   // argument's resulting C expression (e.g., a temp var holding the freshly
-  // allocated escape value, scheduled by the enclosing begin block as a
+  // allocated unwind value, scheduled by the enclosing begin block as a
   // "consumed-by-return-value" drop). The value's ownership escapes via
-  // __yo_effect_escape_value, so dropping it here would cause a use-after-free
+  // __yo_unwind_value, so dropping it here would cause a use-after-free
   // at the handler installation site.
   const argCodeTrimmed = (argCode ?? "").trim();
   if (argCodeTrimmed && functionContext.consumedVarPendingDrops) {
@@ -728,9 +728,9 @@ function generateEscape(
     generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
   }
   // For effect record members or evidence-passing functions:
-  // store escape value in thread-local buffer for retrieval at handler
+  // store unwind value in thread-local buffer for retrieval at handler
   // installation site, then return a dummy value.
-  // The escape value type may differ from the handler's C return type.
+  // The unwind value type may differ from the handler's C return type.
   if (
     (functionContext.isEffectRecordMemberFunction ||
       (functionContext.currentEvidenceParams &&
@@ -741,7 +741,7 @@ function generateEscape(
     if (argType && !isUnitType(argType)) {
       const argTypeStr = getTypeString(argType, context);
       functionContext.emitter.emitLine(
-        `${indent}{ ${argTypeStr} _esc_val = ${argCode}; memcpy(__yo_effect_escape_value, &_esc_val, sizeof(${argTypeStr})); }`
+        `${indent}{ ${argTypeStr} _unw_val = ${argCode}; memcpy(__yo_unwind_value, &_unw_val, sizeof(${argTypeStr})); }`
       );
     }
     const returnType = functionContext.currentFunctionType.return.type;
@@ -1078,8 +1078,8 @@ function generateFuncCall(
   }
 
   // escape(value) — ctl handler discontinue keyword
-  if (exprIsFunctionCallOf(expr, BuiltinKeywords.escape)) {
-    return generateEscape(expr, indent, context);
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)) {
+    return generateUnwind(expr, indent, context);
   }
 
   // __yo_array_fill builtin (handled similarly to Array.fill)

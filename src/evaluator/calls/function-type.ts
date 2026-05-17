@@ -92,7 +92,7 @@ export function checkDeferredGenericReturnType({
     // When mixed (return + escape), cond/match set both flags,
     // so we still check correctly when return is also set.
     if (
-      hasControlFlow(trialBody.$?.controlFlow, "escape") &&
+      hasControlFlow(trialBody.$?.controlFlow, "unwind") &&
       !hasControlFlow(trialBody.$?.controlFlow, "return")
     ) {
       return;

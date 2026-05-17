@@ -173,7 +173,7 @@ export interface EvaluatorContext {
    * The return type of the enclosing (parent) function.
    * This is set when evaluating a nested function body, enabling `escape expr`
    * to return from the enclosing function. `escape` is valid in any function
-   * that has an enclosing function - the escape value's type must match this type.
+   * that has an enclosing function - the unwind value's type must match this type.
    */
   enclosingFunctionReturnType?: Type;
 
