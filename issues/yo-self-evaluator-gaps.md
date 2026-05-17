@@ -65,11 +65,10 @@ runtime-only and a downstream dereference goes off the rails). Repros:
 `/tmp/test_higher_kinded.yo`, `/tmp/test_typeapp_inline.yo`.
 
 **TS reference:** `src/value.ts:573-619` (`createUnknownValue` branches on
-the param's declared type — `TypeUni(0)` → `SomeType`, `Func(... → comptime Type)`
+the param's declared type: `TypeUni(0)` → `SomeType`, `Func(... → comptime Type)`
 → `SomeType` with `kindFunctionType` set). Then `src/evaluator/calls/numeric-type.ts`
-
-- the type-application path consult `kindFunctionType` to drive `F(A)` eval
-  to a fresh applied `SomeType` instead of a raw lookup.
+and the type-application path consult `kindFunctionType` to drive `F(A)` eval
+to a fresh applied `SomeType` instead of a raw lookup.
 
 **Fix sketch:**
 
