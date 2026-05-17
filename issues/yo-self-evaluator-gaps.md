@@ -194,16 +194,31 @@ later fields use the label as a real type (e.g.
 Verified: structures using nontrivial generic structs + impl methods
 (`Counter`, `Box2(T)`) check OK against the full prelude.
 
-**5j. EvalContext.load_module for transitive imports** — **gap**.
-After §5i, the next failure is "Module loader is not provided in
-the context" when prelude / user files reach
-`import("std/collections/array_list")` →
-`import("./libc/stdint.yo")`. The eager-load step
-(`collect_module_deps`) walks all dep files and appends their
-expressions, but the evaluator's runtime `import(...)` call still
-needs a `ctx.load_module` callback that returns a `ModuleVal` for an
-already-loaded path. Need to register the callback in
-`run_check` / `check_single_file`. Tracked as task #119.
+**5j. EvalContext.load_module for transitive imports** — **fixed**
+in `yo-self/evaluator/exprs/import.yo`. Since `collect_module_deps`
+flattens every dep module's exprs into a single list evaluated in
+the shared `env`, all names declared in an imported module are
+already reachable from `env` when its `import("…")` call runs. When
+`ctx.load_module` is `.None`, we now synthesise a transparent
+`ModuleVal` whose `(names, values)` come from the current env's
+frames and stamp the import expr with the corresponding `ModuleT`
+type via `type_of_eval_value`. Downstream `{ X } :: import("…")`
+destructuring and `open(import("…"))` then find names normally.
+Both the existing real-loader path and the new fallback now type
+the result via `type_of_eval_value(mod_val)` instead of a stale
+`t_unit()`.
+
+**5k. Generic-constructor call inside trait fn-type field** —
+**gap**. With §5j landed, `{ GlobalAllocator } :: import("std/allocator")`
+exposes that evaluating `CustomAllocator` trait at
+`std/allocator.yo` fails with `Expected type for element, got
+OkType` at `std/prelude.yo:7076` (`Ok(value : OkType)` inside the
+`Result(OkType, ErrorType)` enum body). The trait's
+`alloc : (fn(…) -> Result(?*(T), AllocError))` field type calls
+`Result(?*(T), AllocError)`, but when that call evaluates Result's
+inner `enum(...)` body, the `comptime(OkType)` binding doesn't
+propagate down. Pre-existing — masked by the module-loader error
+before §5j. Tracked as task #120.
 
 ### 6. Prelude auto-loading — **partially fixed**
 
