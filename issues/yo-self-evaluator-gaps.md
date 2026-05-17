@@ -112,16 +112,24 @@ and sets `ctx.expected_type` from the matching field's type
 (`_trait_field_type_by_label`). Works for atom trait names
 (`LogicalNot`); falls back to `.None` for parametric trait shapes
 (`ComptimeAdd(comptime_int)(...)`) — those bind to a FuncVal in the
-env, not a TraitT, and resolving them properly needs the evaluator
-(currently blocked by a TS-side codegen quirk where some
-`given(...) := Exception(...); other_fn(..., using(...))` wrappers
-silently drop the `using` arg).
+env, not a TraitT.
+
+**5d. Anonymous function without expected_type** — ~~
+`evaluate_anonymous_function_implementation` threw on `.None`
+expected_type, blocking impl lambdas under parametric trait
+specializations (5c fallback path).~~ **Fixed in commit `a4a83611`**
+— synthesizes a default `Func` TypeValue with fresh `SomeT` params
+and return so the body can typecheck against a polymorphic shape.
+More lenient than TS reference but matches the bootstrap's
+best-effort coverage stance.
 
 **Impact:** Functor/Monad-style HKT traits cannot be declared.
 Real-test exposure: `iterator.test.yo`-style chains using
-`Iterator.Map(F, …)`. Prelude evaluation is now blocked at line 693
-(`impl(comptime_int, ComptimeAdd(comptime_int)(...))`) — a
-parametric trait specialization.
+`Iterator.Map(F, …)`. Prelude evaluation now reaches line 1028
+(`MIN : i8(-(128))` — next blocker is operator-trait dispatch on
+the unary-minus operator `(-)`, which is bound to an `impl({...})`
+module with a `Call` field; the bootstrap call evaluator doesn't
+yet dispatch through that module form).
 
 ### 6. Prelude auto-loading — **partially fixed**
 
