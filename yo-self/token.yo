@@ -83,26 +83,46 @@ string_is_operator :: (fn(s : str) -> bool)({
         b := s.bytes(i);
         // Operator chars: same set as is_operator_char, but on bytes
         is_op := cond(
-          (b == u8(61)) => true,  // =
-          (b == u8(43)) => true,  // +
-          (b == u8(45)) => true,  // -
-          (b == u8(42)) => true,  // *
-          (b == u8(47)) => true,  // /
-          (b == u8(60)) => true,  // <
-          (b == u8(62)) => true,  // >
-          (b == u8(64)) => true,  // @
-          (b == u8(36)) => true,  // $
-          (b == u8(126)) => true, // ~
-          (b == u8(38)) => true,  // &
-          (b == u8(37)) => true,  // %
-          (b == u8(124)) => true, // |
-          (b == u8(33)) => true,  // !
-          (b == u8(63)) => true,  // ?
-          (b == u8(94)) => true,  // ^
-          (b == u8(46)) => true,  // .
-          (b == u8(58)) => true,  // :
-          (b == u8(92)) => true,  // \
-          (b == u8(35)) => true,  // #
+          (b == u8(61)) => true,
+          // =
+          (b == u8(43)) => true,
+          // +
+          (b == u8(45)) => true,
+          // -
+          (b == u8(42)) => true,
+          // *
+          (b == u8(47)) => true,
+          // /
+          (b == u8(60)) => true,
+          // <
+          (b == u8(62)) => true,
+          // >
+          (b == u8(64)) => true,
+          // @
+          (b == u8(36)) => true,
+          // $
+          (b == u8(126)) => true,
+          // ~
+          (b == u8(38)) => true,
+          // &
+          (b == u8(37)) => true,
+          // %
+          (b == u8(124)) => true,
+          // |
+          (b == u8(33)) => true,
+          // !
+          (b == u8(63)) => true,
+          // ?
+          (b == u8(94)) => true,
+          // ^
+          (b == u8(46)) => true,
+          // .
+          (b == u8(58)) => true,
+          // :
+          (b == u8(92)) => true,
+          // \
+          (b == u8(35)) => true,
+          // #
           true => false
         );
         if(!(is_op), {
@@ -137,14 +157,14 @@ is_valid_identifier :: (fn(s : String) -> bool)({
   cond(
     (n == usize(0)) => false,
     true => {
-      first := match(chars.get(usize(0)),.Some(c) => c, .None => rune(u32(0)));
+      first := match(chars.get(usize(0)),.Some(c) => c,.None => rune(u32(0)));
       cond(
         (!(is_identifier_start(first))) => false,
         true => {
           (i : usize) = usize(1);
           (ok : bool) = true;
           while(runtime((i < n) && ok), {
-            ch := match(chars.get(i),.Some(c) => c, .None => rune(u32(0)));
+            ch := match(chars.get(i),.Some(c) => c,.None => rune(u32(0)));
             if(!(is_identifier_continue(ch)), {
               ok = false;
             });

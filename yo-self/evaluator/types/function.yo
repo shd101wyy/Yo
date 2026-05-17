@@ -320,7 +320,7 @@ _add_where_clause_constraint :: (
 )(
   match(
     some_ty,
-    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _) => {
+    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _) => {
       if(is_negated, {
         negative_trait_types.push(trait_ty);
         negative_trait_levels.push(usize(0));
@@ -958,7 +958,7 @@ use_id :: (fn(forall(T : Type),
                 new_some := av_box.*;
                 match(
                   new_some,
-                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _) => {
+                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _) => {
                     // Merge required traits
                     (ri : usize) = usize(0);
                     while(runtime(ri < new_rtt.len()), {
@@ -1958,7 +1958,8 @@ evaluate_function_parameters :: (
             ArrayList(usize).new(),
             ArrayList(TypeValue).new(),
             ArrayList(usize).new(),
-            true
+            true,
+            Option(Box(TypeValue)).None
           );
           row_kind_type := TypeValue.TypeUni(usize(1));
           _ := add_variable_to_env(
@@ -2125,7 +2126,7 @@ evaluate_function_parameters :: (
                     // TypeVal but not EffectsRowT — must be a SomeT with is_effects_row
                     is_er_some := match(
                       (&(inner_ty)).clone(),
-                      .SomeT(_, _, _, _, _, _, _, _, is_er) => is_er,
+                      .SomeT(_, _, _, _, _, _, _, _, is_er, _) => is_er,
                       _ => false
                     );
                     if(!(is_er_some), {
@@ -2198,7 +2199,8 @@ evaluate_function_parameters :: (
                       ArrayList(usize).new(),
                       ArrayList(TypeValue).new(),
                       ArrayList(usize).new(),
-                      true
+                      true,
+                      Option(Box(TypeValue)).None
                     );
                     implicit_params.push(
                       FuncParam(
@@ -3158,7 +3160,7 @@ evaluate_function_type :: (
     );
     match(
       fp.ty,
-      .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => {
+      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
         (ti2 : usize) = usize(0);
         while(runtime(ti2 < required_trait_types.len()), {
           tt := match(

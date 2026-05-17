@@ -176,7 +176,13 @@ TypeValue :: enum(
     // negative trait constraints
     negative_trait_levels : ArrayList(usize),
     // frame-level of each negative constraint
-    is_effects_row : bool // true when this SomeType represents an effect-row spread `...(E)`
+    is_effects_row : bool,
+    // true when this SomeType represents an effect-row spread `...(E)`
+    kind_function_type : Option(Box(Self))
+    // When present, this SomeT represents a higher-kinded type variable
+    // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
+    // captures the kind so `F(A)` can be evaluated as a TypeApplication.
+    // Mirrors `SomeType.kindFunctionType` in `src/types/definitions.ts:238`.
   ),
   // Phase 2f: advanced type variants ----------------------------------------
   /// The Yo `Expr` type (a quoted expression node).

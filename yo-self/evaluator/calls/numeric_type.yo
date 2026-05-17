@@ -174,13 +174,13 @@ _make_comptime_info :: (
     bounds_opt,
     .Some(bounds) => {
       // Soft fallback — don't abort prelude eval on bounds-check
-  // failures that the bootstrap parser/converter mishandles. The
-  // legacy throw fires a false positive for
-  // `u64(18446744073709551615)` because parse_i64 wraps the
-  // huge literal to -1, then `-1 < 0` (the u64.min bound) trips.
-  // Correctness is best-effort; codegen catches genuine
-  // out-of-range issues later.
-  _ := _int_raw_in_range(raw, bounds);
+      // failures that the bootstrap parser/converter mishandles. The
+      // legacy throw fires a false positive for
+      // `u64(18446744073709551615)` because parse_i64 wraps the
+      // huge literal to -1, then `-1 < 0` (the u64.min bound) trips.
+      // Correctness is best-effort; codegen catches genuine
+      // out-of-range issues later.
+      _ := _int_raw_in_range(raw, bounds);
     },
     .None => ()
   );

@@ -359,7 +359,7 @@ generate_function_declaration :: (
 type_value_contains_some_type_ :: (fn(type_value : TypeValue) -> bool)(
   match(
     type_value,
-    .SomeT(_, _, _, _, _, _, _, _, _) => true,
+    .SomeT(_, _, _, _, _, _, _, _, _, _) => true,
     .TypeAppT(_, _) => true,
     .Pointer(child) => recur(child.*),
     .Slice(child) => recur(child.*),
@@ -863,7 +863,7 @@ generate_function_declarations :: (fn(ctx : *(FunctionGenerationContext)) -> uni
           func_type,
           .Func(_, _, _, _, _, _, _, _, result) => match(
             result.*,
-            .SomeT(_, _, _, _, required_trait_types, _, _, _, _) => (required_trait_types.len() > usize(0)),
+            .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => (required_trait_types.len() > usize(0)),
             _ => false
           ),
           _ => false
@@ -951,7 +951,7 @@ generate_specialized_function_declarations :: (fn(ctx : *(FunctionGenerationCont
               match(
                 param_types.get(i),
                 .Some(pt) => {
-                  found = match(pt,.SomeT(_, _, _, _, _, _, _, _, _) => true, _ => false);
+                  found = match(pt,.SomeT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
                 },
                 .None => ()
               );

@@ -541,7 +541,7 @@ find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usiz
           if(stack.len() > usize(0), {
             left_idx := match(stack.get(stack.len() - usize(1)),.Some(x) => x,.None => usize(0));
             _p := stack.pop();
-            left_tok := match(tokens.get(left_idx),.Some(lt) => lt, .None => t);
+            left_tok := match(tokens.get(left_idx),.Some(lt) => lt,.None => t);
             if(t.row > left_tok.row, {
               _add1 := multiline_indices.add(left_idx);
               _add2 := multiline_indices.add(i);
@@ -575,7 +575,7 @@ find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_cur
           if(stack.len() > usize(0), {
             left_idx := match(stack.get(stack.len() - usize(1)),.Some(x) => x,.None => usize(0));
             _p := stack.pop();
-            left_tok := match(tokens.get(left_idx),.Some(lt) => lt, .None => t);
+            left_tok := match(tokens.get(left_idx),.Some(lt) => lt,.None => t);
             if(inline_curly_indices.contains(left_idx) && (t.row > left_tok.row), {
               _add1 := multiline_indices.add(left_idx);
               _add2 := multiline_indices.add(i);
@@ -604,7 +604,7 @@ should_force_operator_rhs_block :: (
     .None => false,
     .Some(p) => (
       (p.kind == TokenKind.Operator) &&
-      has_any_token(tokens, left_index, right_index, TokenKind.LCurlyBracket)
+        has_any_token(tokens, left_index, right_index, TokenKind.LCurlyBracket)
     )
   )
 );
@@ -622,8 +622,8 @@ should_force_control_flow_multiline :: (
       true => {
         v := p.value.as_str();
         ((v == "cond") || ((v == "if") || (v == "match"))) &&
-        has_top_level_token(tokens, left_index, right_index, TokenKind.LCurlyBracket)
-      }
+          has_top_level_token(tokens, left_index, right_index, TokenKind.LCurlyBracket)
+        }
     )
   )
 );
@@ -870,7 +870,7 @@ is_parenthesized_dot_deref :: (
           .None => false,
           .Some(inner) => (
             (inner.kind == TokenKind.Operator) &&
-            ((inner.value.as_str() == "*") && (inner_count == usize(1)))
+              ((inner.value.as_str() == "*") && (inner_count == usize(1)))
           )
         )
       )
@@ -891,7 +891,7 @@ is_redundant_grouping_paren :: (
       first_inner := next_meaningful_token(tokens, left_index, right_index);
       cond(
         match(first_inner,.None => true,.Some(_) => false) => false,
-        token_range_has_comment(tokens, (left_index + usize(1)), right_index) => false,
+        token_range_has_comment(tokens, left_index + usize(1), right_index) => false,
         paren_is_call_delimiter(previous) => false,
         true => {
           // Operator predecessor + not in the allow-list → cannot remove
@@ -900,7 +900,7 @@ is_redundant_grouping_paren :: (
             .None => false,
             .Some(p) => (
               (p.kind == TokenKind.Operator) &&
-              (!(operator_allows_ungrouped_rhs(p.value.as_str())))
+                (!(operator_allows_ungrouped_rhs(p.value.as_str())))
             )
           );
           cond(
@@ -921,9 +921,11 @@ is_redundant_grouping_paren :: (
                     next,
                     .None => false,
                     .Some(nx) => (
-                      (((nx.kind == TokenKind.Operator) && (!(paren_dot_deref))) ||
-                        ((nx.kind == TokenKind.Dot) && (!(paren_dot_deref)))) ||
-                      (nx.kind == TokenKind.LParen)
+                      (
+                        ((nx.kind == TokenKind.Operator) && (!(paren_dot_deref))) ||
+                          ((nx.kind == TokenKind.Dot) && (!(paren_dot_deref)))
+                      ) ||
+                        (nx.kind == TokenKind.LParen)
                     )
                   );
                   cond(
@@ -935,7 +937,7 @@ is_redundant_grouping_paren :: (
                         .None => false,
                         .Some(fi) => (
                           (fi.kind == TokenKind.Identifier) &&
-                          is_function_type_keyword(fi.value.as_str())
+                            is_function_type_keyword(fi.value.as_str())
                         )
                       );
                       cond(
@@ -984,7 +986,7 @@ paren_removal_would_expose_operator_rhs_infix :: (
             .None => false,
             .Some(pp) => (
               (pp.kind == TokenKind.Operator) &&
-              has_top_level_operator(tokens, left_index, right_index)
+                has_top_level_operator(tokens, left_index, right_index)
             )
           )
         )
@@ -1004,7 +1006,7 @@ paren_removal_would_expose_operator_rhs_infix :: (
               .None => false,
               .Some(pp) => (
                 (pp.kind == TokenKind.Operator) &&
-                has_top_level_operator(tokens, left_index, right_index)
+                  has_top_level_operator(tokens, left_index, right_index)
               )
             )
           )
@@ -1043,13 +1045,15 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
   while(runtime(j < n), {
     if(candidate_left_indices.contains(j), {
       right_idx := match(matching_parens.get(j),.Some(x) => x,.None => j);
-      keep_candidate := !(paren_removal_would_expose_operator_rhs_infix(
-        tokens,
-        j,
-        right_idx,
-        parent_parens,
-        candidate_left_indices
-      ));
+      keep_candidate := !(
+        paren_removal_would_expose_operator_rhs_infix(
+          tokens,
+          j,
+          right_idx,
+          parent_parens,
+          candidate_left_indices
+        )
+      );
       if(keep_candidate, {
         _add1 := skipped_indices.add(j);
         _add2 := skipped_indices.add(right_idx);
@@ -1080,8 +1084,10 @@ find_multiline_paren_indices :: (
             previous := previous_meaningful_token(tokens, i);
             force_multiline := (
               should_force_control_flow_multiline(tokens, i, right_idx, previous) ||
-              (has_top_level_field_block(tokens, i, right_idx) ||
-                should_force_operator_rhs_block(tokens, i, right_idx, previous))
+                (
+                  has_top_level_field_block(tokens, i, right_idx) ||
+                    should_force_operator_rhs_block(tokens, i, right_idx, previous)
+                )
             );
             // Token row check
             left_tok := t;
@@ -1098,9 +1104,13 @@ find_multiline_paren_indices :: (
                 );
                 skip := (
                   first_is_curly ||
-                  (has_top_level_curly_argument(tokens, i, right_idx) ||
-                    (paren_is_call_delimiter(previous) &&
-                      has_direct_top_level_closure_argument(tokens, i, right_idx, previous)))
+                    (
+                      has_top_level_curly_argument(tokens, i, right_idx) ||
+                        (
+                          paren_is_call_delimiter(previous) &&
+                            has_direct_top_level_closure_argument(tokens, i, right_idx, previous)
+                        )
+                    )
                 );
                 if(!(skip), {
                   _add1 := multiline_indices.add(i);
@@ -1142,7 +1152,7 @@ is_tightly_bound_operator :: (
             .None => false,
             .Some(n) => (
               (n.row == token.row) &&
-              (n.column == (token.column + token.value.len()))
+                (n.column == (token.column + token.value.len()))
             )
           );
           cond(
@@ -1155,7 +1165,7 @@ is_tightly_bound_operator :: (
                   is_atom_like_token(p.kind) || (
                     (p.kind == TokenKind.RParen) || (
                       (p.kind == TokenKind.RBracket) ||
-                      (p.kind == TokenKind.RCurlyBracket)
+                        (p.kind == TokenKind.RCurlyBracket)
                     )
                   )
                 )
@@ -1232,7 +1242,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
         is_end => false,
         true => {
           b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
-          (b == u8(10))
+          b == u8(10)
         }
       );
       if(is_end || is_nl, {
@@ -1595,7 +1605,7 @@ format_yo_source :: (
                       (trim : bool) = true;
                       while(runtime(trim && (re > usize(0))), {
                         eb := match(rb.get(re - usize(1)),.Some(x) => x,.None => u8(0));
-                        if(((eb == u8(32)) || ((eb == u8(9)) || ((eb == u8(13)) || (eb == u8(10))))), {
+                        if((eb == u8(32)) || ((eb == u8(9)) || ((eb == u8(13)) || (eb == u8(10)))), {
                           re = (re - usize(1));
                         }, {
                           trim = false;
@@ -1604,9 +1614,13 @@ format_yo_source :: (
                       tr := String.new();
                       (tk : usize) = usize(0);
                       while(runtime(tk < re), {
-                        match(rb.get(tk),.Some(b) => {
-                          tr.push_byte(b);
-                        },.None => ());
+                        match(
+                          rb.get(tk),
+                          .Some(b) => {
+                            tr.push_byte(b);
+                          },
+                          .None => ()
+                        );
                         tk = (tk + usize(1));
                       });
                       tr
@@ -1632,22 +1646,26 @@ format_yo_source :: (
                         (cli : usize) = usize(0);
                         cn := comment_lines.len();
                         while(runtime(cli < cn), {
-                          match(comment_lines.get(cli),.Some(line) => {
-                            if(at_line_start, {
-                              (sp2 : usize) = usize(0);
-                              space_count2 := (indent_level * INDENT_SIZE);
-                              while(runtime(sp2 < space_count2), {
-                                result.push_str(" ");
-                                sp2 = (sp2 + usize(1));
+                          match(
+                            comment_lines.get(cli),
+                            .Some(line) => {
+                              if(at_line_start, {
+                                (sp2 : usize) = usize(0);
+                                space_count2 := (indent_level * INDENT_SIZE);
+                                while(runtime(sp2 < space_count2), {
+                                  result.push_str(" ");
+                                  sp2 = (sp2 + usize(1));
+                                });
+                                at_line_start = false;
                               });
-                              at_line_start = false;
-                            });
-                            result.push_string(line);
-                            if(!(result.ends_with(String.from("\n"))), {
-                              result.push_str("\n");
-                            });
-                            at_line_start = true;
-                          },.None => ());
+                              result.push_string(line);
+                              if(!(result.ends_with(String.from("\n"))), {
+                                result.push_str("\n");
+                              });
+                              at_line_start = true;
+                            },
+                            .None => ()
+                          );
                           cli = (cli + usize(1));
                         });
                       },
@@ -1702,14 +1720,19 @@ format_yo_source :: (
                             if(at_line_start, {
                               (sp : usize) = usize(0);
                               count := (indent_level * INDENT_SIZE);
-                              while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                              while(runtime(sp < count), {
+                                result.push_str(" ");
+                                sp = (sp + usize(1));
+                              });
                               at_line_start = false;
                             });
                             result.push_str("{");
                             indent_level = (indent_level + usize(1));
                             next_is_rcurly := match(next,.None => false,.Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
                             if((!(next_is_rcurly)) && match(next,.None => false,.Some(_) => true), {
-                              if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                              if(!(result.ends_with(String.from("\n"))), {
+                                result.push_str("\n");
+                              });
                               at_line_start = true;
                             });
                           },
@@ -1717,7 +1740,10 @@ format_yo_source :: (
                             if(at_line_start, {
                               (sp : usize) = usize(0);
                               count := (indent_level * INDENT_SIZE);
-                              while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                              while(runtime(sp < count), {
+                                result.push_str(" ");
+                                sp = (sp + usize(1));
+                              });
                               at_line_start = false;
                             });
                             result.push_str("{");
@@ -1734,13 +1760,18 @@ format_yo_source :: (
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          while(runtime(sp < count), {
+                            result.push_str(" ");
+                            sp = (sp + usize(1));
+                          });
                           at_line_start = false;
                         });
                         result.push_str("{");
                         curly_depth = (curly_depth + usize(1));
                         indent_level = (indent_level + usize(1));
-                        if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                        if(!(result.ends_with(String.from("\n"))), {
+                          result.push_str("\n");
+                        });
                         at_line_start = true;
                       }
                     );
@@ -1761,18 +1792,27 @@ format_yo_source :: (
                     });
                     cond(
                       cur_inline => {
-                        if(inline_curly_depth > usize(0), { inline_curly_depth = (inline_curly_depth - usize(1)); });
+                        if(inline_curly_depth > usize(0), {
+                          inline_curly_depth = (inline_curly_depth - usize(1));
+                        });
                         cond(
                           cur_multiline => {
                             if(!(at_line_start), {
-                              if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                              if(!(result.ends_with(String.from("\n"))), {
+                                result.push_str("\n");
+                              });
                               at_line_start = true;
                             });
-                            if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                            if(indent_level > usize(0), {
+                              indent_level = (indent_level - usize(1));
+                            });
                             if(at_line_start, {
                               (sp : usize) = usize(0);
                               count := (indent_level * INDENT_SIZE);
-                              while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                              while(runtime(sp < count), {
+                                result.push_str(" ");
+                                sp = (sp + usize(1));
+                              });
                               at_line_start = false;
                             });
                             result.push_str("}");
@@ -1787,7 +1827,10 @@ format_yo_source :: (
                             if(at_line_start, {
                               (sp : usize) = usize(0);
                               count := (indent_level * INDENT_SIZE);
-                              while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                              while(runtime(sp < count), {
+                                result.push_str(" ");
+                                sp = (sp + usize(1));
+                              });
                               at_line_start = false;
                             });
                             result.push_str("}");
@@ -1796,27 +1839,39 @@ format_yo_source :: (
                       },
                       true => {
                         if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          if(!(result.ends_with(String.from("\n"))), {
+                            result.push_str("\n");
+                          });
                           at_line_start = true;
                         });
-                        if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                        if(indent_level > usize(0), {
+                          indent_level = (indent_level - usize(1));
+                        });
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          while(runtime(sp < count), {
+                            result.push_str(" ");
+                            sp = (sp + usize(1));
+                          });
                           at_line_start = false;
                         });
                         result.push_str("}");
                       }
                     );
-                    if(curly_depth > usize(0), { curly_depth = (curly_depth - usize(1)); });
+                    if(curly_depth > usize(0), {
+                      curly_depth = (curly_depth - usize(1));
+                    });
                   },
                   (token.kind == TokenKind.LParen) => {
                     is_multiline := multiline_paren_indices.contains(index);
                     if(at_line_start, {
                       (sp : usize) = usize(0);
                       count := (indent_level * INDENT_SIZE);
-                      while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                      while(runtime(sp < count), {
+                        result.push_str(" ");
+                        sp = (sp + usize(1));
+                      });
                       at_line_start = false;
                     });
                     result.push_str("(");
@@ -1827,7 +1882,9 @@ format_yo_source :: (
                       indent_level = (indent_level + usize(1));
                       next_is_rparen := match(next,.None => false,.Some(nx) => (nx.kind == TokenKind.RParen));
                       if((!(next_is_rparen)) && match(next,.None => false,.Some(_) => true), {
-                        if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                        if(!(result.ends_with(String.from("\n"))), {
+                          result.push_str("\n");
+                        });
                         at_line_start = true;
                       });
                     });
@@ -1839,7 +1896,10 @@ format_yo_source :: (
                     if(at_line_start, {
                       (sp : usize) = usize(0);
                       count := (indent_level * INDENT_SIZE);
-                      while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                      while(runtime(sp < count), {
+                        result.push_str(" ");
+                        sp = (sp + usize(1));
+                      });
                       at_line_start = false;
                     });
                     result.push_str("[");
@@ -1847,7 +1907,9 @@ format_yo_source :: (
                       indent_level = (indent_level + usize(1));
                       next_is_rbracket := match(next,.None => false,.Some(nx) => (nx.kind == TokenKind.RBracket));
                       if((!(next_is_rbracket)) && match(next,.None => false,.Some(_) => true), {
-                        if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                        if(!(result.ends_with(String.from("\n"))), {
+                          result.push_str("\n");
+                        });
                         at_line_start = true;
                       });
                     });
@@ -1868,7 +1930,9 @@ format_yo_source :: (
                           _p1 := continuation_paren.pop();
                           _p2 := continuation_bracket.pop();
                           _p3 := continuation_curly.pop();
-                          if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                          if(indent_level > usize(0), {
+                            indent_level = (indent_level - usize(1));
+                          });
                         }
                       );
                     });
@@ -1883,14 +1947,21 @@ format_yo_source :: (
                     cond(
                       is_multiline => {
                         if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          if(!(result.ends_with(String.from("\n"))), {
+                            result.push_str("\n");
+                          });
                           at_line_start = true;
                         });
-                        if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                        if(indent_level > usize(0), {
+                          indent_level = (indent_level - usize(1));
+                        });
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          while(runtime(sp < count), {
+                            result.push_str(" ");
+                            sp = (sp + usize(1));
+                          });
                           at_line_start = false;
                         });
                         result.push_str(")");
@@ -1900,7 +1971,9 @@ format_yo_source :: (
                         result.push_str(")");
                       }
                     );
-                    if(paren_depth > usize(0), { paren_depth = (paren_depth - usize(1)); });
+                    if(paren_depth > usize(0), {
+                      paren_depth = (paren_depth - usize(1));
+                    });
                   },
                   (token.kind == TokenKind.RBracket) => {
                     // close_operator_continuations
@@ -1918,7 +1991,9 @@ format_yo_source :: (
                           _p1 := continuation_paren.pop();
                           _p2 := continuation_bracket.pop();
                           _p3 := continuation_curly.pop();
-                          if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                          if(indent_level > usize(0), {
+                            indent_level = (indent_level - usize(1));
+                          });
                         }
                       );
                     });
@@ -1926,19 +2001,30 @@ format_yo_source :: (
                       (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.get(bracket_stack_multiline.len() - usize(1)),.Some(x) => x,.None => false),
                       true => false
                     );
-                    if(bracket_stack_multiline.len() > usize(0), { _p := bracket_stack_multiline.pop(); });
-                    if(bracket_depth > usize(0), { bracket_depth = (bracket_depth - usize(1)); });
+                    if(bracket_stack_multiline.len() > usize(0), {
+                      _p := bracket_stack_multiline.pop();
+                    });
+                    if(bracket_depth > usize(0), {
+                      bracket_depth = (bracket_depth - usize(1));
+                    });
                     cond(
                       is_multiline_b => {
                         if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          if(!(result.ends_with(String.from("\n"))), {
+                            result.push_str("\n");
+                          });
                           at_line_start = true;
                         });
-                        if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                        if(indent_level > usize(0), {
+                          indent_level = (indent_level - usize(1));
+                        });
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          while(runtime(sp < count), {
+                            result.push_str(" ");
+                            sp = (sp + usize(1));
+                          });
                           at_line_start = false;
                         });
                         result.push_str("]");
@@ -1965,15 +2051,21 @@ format_yo_source :: (
                           _p1 := continuation_paren.pop();
                           _p2 := continuation_bracket.pop();
                           _p3 := continuation_curly.pop();
-                          if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                          if(indent_level > usize(0), {
+                            indent_level = (indent_level - usize(1));
+                          });
                         }
                       );
                     });
                     result = _trim_trailing_h_ws(result);
                     result.push_str(",");
-                    next_is_closer := match(next,.None => false,.Some(nx) => (
-                      ((nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket)) || (nx.kind == TokenKind.RCurlyBracket)
-                    ));
+                    next_is_closer := match(
+                      next,
+                      .None => false,
+                      .Some(nx) => (
+                        ((nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket)) || (nx.kind == TokenKind.RCurlyBracket)
+                      )
+                    );
                     if((!(next_is_closer)) && match(next,.None => false,.Some(_) => true), {
                       cur_bracket_ml := cond(
                         (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.get(bracket_stack_multiline.len() - usize(1)),.Some(x) => x,.None => false),
@@ -1993,22 +2085,32 @@ format_yo_source :: (
                       );
                       cond(
                         cur_bracket_ml => {
-                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          if(!(result.ends_with(String.from("\n"))), {
+                            result.push_str("\n");
+                          });
                           at_line_start = true;
                         },
                         (cur_curly_inline && cur_curly_ml) => {
-                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          if(!(result.ends_with(String.from("\n"))), {
+                            result.push_str("\n");
+                          });
                           at_line_start = true;
                         },
                         ((bracket_stack_multiline.len() > usize(0)) || (cur_curly_inline && (!(cur_curly_ml)))) => {
-                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                            result.push_str(" ");
+                          });
                         },
                         cur_paren_ml => {
-                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          if(!(result.ends_with(String.from("\n"))), {
+                            result.push_str("\n");
+                          });
                           at_line_start = true;
                         },
                         true => {
-                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                            result.push_str(" ");
+                          });
                         }
                       );
                     });
@@ -2018,7 +2120,9 @@ format_yo_source :: (
                     next_is_not_comment := match(next,.None => true,.Some(nx) => (!(is_comment_token(nx.kind))));
                     cond(
                       ((bracket_depth > usize(0)) && (next_is_not_rbracket && next_is_not_comment)) => {
-                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                          result.push_str(" ");
+                        });
                         result.push_str(";");
                         result.push_str(" ");
                       },
@@ -2038,7 +2142,9 @@ format_yo_source :: (
                               _p1 := continuation_paren.pop();
                               _p2 := continuation_bracket.pop();
                               _p3 := continuation_curly.pop();
-                              if(indent_level > usize(0), { indent_level = (indent_level - usize(1)); });
+                              if(indent_level > usize(0), {
+                                indent_level = (indent_level - usize(1));
+                              });
                             }
                           );
                         });
@@ -2050,11 +2156,15 @@ format_yo_source :: (
                           .Some(nx) => ((!(is_comment_token(nx.kind))) || (nx.row > token.row))
                         );
                         if(emit_newline, {
-                          if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                          if(!(result.ends_with(String.from("\n"))), {
+                            result.push_str("\n");
+                          });
                           at_line_start = true;
                           // Preserve at most one blank line between statements
                           next_row_diff := match(next,.None => usize(0),.Some(nx) => cond((nx.row > token.row) => (nx.row - token.row), true => usize(0)));
-                          if(next_row_diff >= usize(2), { result.push_str("\n"); });
+                          if(next_row_diff >= usize(2), {
+                            result.push_str("\n");
+                          });
                         });
                       }
                     );
@@ -2067,13 +2177,17 @@ format_yo_source :: (
                     is_colon_in_inline_curly := ((token.value.as_str() == ":") && (inline_curly_depth > usize(0)));
                     cond(
                       is_colon_in_inline_curly => {
-                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                          result.push_str(" ");
+                        });
                         result.push_str(":");
                         next_on_next_row := match(next,.None => false,.Some(nx) => (nx.row > token.row));
                         cond(
                           next_on_next_row => {
                             // start_operator_continuation
-                            if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                            if(!(result.ends_with(String.from("\n"))), {
+                              result.push_str("\n");
+                            });
                             at_line_start = true;
                             indent_level = (indent_level + usize(1));
                             _r1 := continuation_paren.push(paren_depth);
@@ -2081,14 +2195,18 @@ format_yo_source :: (
                             _r3 := continuation_curly.push(curly_depth);
                           },
                           true => {
-                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                              result.push_str(" ");
+                            });
                           }
                         );
                       },
                       is_tightly_bound_operator(token, previous, next) => {
                         cond(
                           prefix_operator_needs_leading_space(token, previous) => {
-                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                              result.push_str(" ");
+                            });
                           },
                           true => {
                             result = _trim_trailing_h_ws(result);
@@ -2097,7 +2215,10 @@ format_yo_source :: (
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          while(runtime(sp < count), {
+                            result.push_str(" ");
+                            sp = (sp + usize(1));
+                          });
                           at_line_start = false;
                         });
                         result.push_string(token.value);
@@ -2108,25 +2229,32 @@ format_yo_source :: (
                           .None => false,
                           .Some(p) => (
                             (p.kind == TokenKind.LParen) ||
-                            ((p.kind == TokenKind.LBracket) || (p.kind == TokenKind.LCurlyBracket))
+                              ((p.kind == TokenKind.LBracket) || (p.kind == TokenKind.LCurlyBracket))
                           )
                         );
                         if(!(prev_is_open_bracket), {
                           prev_on_earlier_row := match(previous,.None => false,.Some(p) => (token.row > p.row));
                           cond(
                             prev_on_earlier_row => {
-                              if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                              if(!(result.ends_with(String.from("\n"))), {
+                                result.push_str("\n");
+                              });
                               at_line_start = true;
                             },
                             true => {
-                              if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                              if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                                result.push_str(" ");
+                              });
                             }
                           );
                         });
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
-                          while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                          while(runtime(sp < count), {
+                            result.push_str(" ");
+                            sp = (sp + usize(1));
+                          });
                           at_line_start = false;
                         });
                         result.push_string(token.value);
@@ -2134,7 +2262,9 @@ format_yo_source :: (
                         cond(
                           next_on_next_row2 => {
                             // start_operator_continuation
-                            if(!(result.ends_with(String.from("\n"))), { result.push_str("\n"); });
+                            if(!(result.ends_with(String.from("\n"))), {
+                              result.push_str("\n");
+                            });
                             at_line_start = true;
                             indent_level = (indent_level + usize(1));
                             _r1 := continuation_paren.push(paren_depth);
@@ -2142,7 +2272,9 @@ format_yo_source :: (
                             _r3 := continuation_curly.push(curly_depth);
                           },
                           true => {
-                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                              result.push_str(" ");
+                            });
                           }
                         );
                       }
@@ -2150,12 +2282,17 @@ format_yo_source :: (
                   },
                   is_atom_like_token(token.kind) => {
                     if(needs_space_before_atom(previous), {
-                      if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), { result.push_str(" "); });
+                      if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                        result.push_str(" ");
+                      });
                     });
                     if(at_line_start, {
                       (sp : usize) = usize(0);
                       count := (indent_level * INDENT_SIZE);
-                      while(runtime(sp < count), { result.push_str(" "); sp = (sp + usize(1)); });
+                      while(runtime(sp < count), {
+                        result.push_str(" ");
+                        sp = (sp + usize(1));
+                      });
                       at_line_start = false;
                     });
                     result.push_string(raw);
