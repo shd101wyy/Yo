@@ -49,9 +49,20 @@ export function getStdDocCommand(rootDir: string = ROOT): {
   command: string;
   args: string[];
 } {
+  // `yo-cli doc std/` walks 148+ files and builds an in-memory model that
+  // exceeds Node's default ~4 GB heap on this codebase. Bump to 8 GB so CI
+  // runners (macOS / Ubuntu / Windows on the standard 7 GB image) don't OOM.
+  // Mirrors the heap bump already used by the test runners in
+  // .github/workflows/test.yml ("--max-old-space-size=4096" for tests; doc
+  // generation needs more because the renderer holds the full module graph).
   return {
     command: "node",
-    args: [path.join(rootDir, "out", "cjs", "yo-cli.cjs"), "doc", "std/"],
+    args: [
+      "--max-old-space-size=8192",
+      path.join(rootDir, "out", "cjs", "yo-cli.cjs"),
+      "doc",
+      "std/",
+    ],
   };
 }
 
