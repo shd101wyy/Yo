@@ -306,6 +306,27 @@ export function getEvidenceParameters(
       });
     }
   }
+
+  // Also scan regular parameters for effect-like function/struct types
+  for (const param of functionType.parameters) {
+    if (isFunctionType(param.type)) {
+      result.push({
+        implicitLabel: param.label,
+        fieldLabel: param.label,
+        fieldPath: [param.label],
+        fieldFunctionType: param.type,
+        cParamName: sanitizeForCIdentifier(param.label),
+      });
+    } else if (isSourceNamespaceType(param.type) || isStructType(param.type)) {
+      collectEvidenceFromRecord(
+        param.label,
+        param.type as SourceNamespaceType,
+        [],
+        result
+      );
+    }
+  }
+
   return result;
 }
 
@@ -394,42 +415,47 @@ export function generateFunctionPrototype(
     paramStrings.push(`void* closure_context`);
   }
 
-  // Add regular parameters
-  const regularParamStrings = runtimeParams.map((param, index) => {
-    const paramName = sanitizeForCIdentifier(param.label || `param${index}`);
+  // Add regular parameters (skip those already handled as evidence)
+  const evidenceParamLabels = new Set(
+    getEvidenceParameters(functionType).map((ep) => ep.implicitLabel)
+  );
+  const regularParamStrings = runtimeParams
+    .filter((param) => !evidenceParamLabels.has(param.label))
+    .map((param, index) => {
+      const paramName = sanitizeForCIdentifier(param.label || `param${index}`);
 
-    // Handle function pointer parameters specially
-    if (isFunctionType(param.type)) {
-      const functionPointerType = generateFunctionPrototype(
-        param.type,
-        "(*)",
-        context
-      ).replace(" (*)(", ` (*${paramName})(`);
+      // Handle function pointer parameters specially
+      if (isFunctionType(param.type)) {
+        const functionPointerType = generateFunctionPrototype(
+          param.type,
+          "(*)",
+          context
+        ).replace(" (*)(", ` (*${paramName})(`);
 
-      return functionPointerType;
-    } else {
-      // Handle non-function parameters
-      let paramTypeStr: string;
-      if (isSomeType(param.type) && typeImplementsFuture(param.type)) {
-        // For Future types, use the resolved concrete type (state machine) if available,
-        // otherwise fall back to getTypeString which has multiple lookup paths
-        // (SomeType ID → registered async struct, resolvedConcreteType, etc.)
-        if (param.type.resolvedConcreteType) {
-          // Use the concrete state machine pointer type
-          paramTypeStr =
-            getTypeString(param.type.resolvedConcreteType, context) + "*";
+        return functionPointerType;
+      } else {
+        // Handle non-function parameters
+        let paramTypeStr: string;
+        if (isSomeType(param.type) && typeImplementsFuture(param.type)) {
+          // For Future types, use the resolved concrete type (state machine) if available,
+          // otherwise fall back to getTypeString which has multiple lookup paths
+          // (SomeType ID → registered async struct, resolvedConcreteType, etc.)
+          if (param.type.resolvedConcreteType) {
+            // Use the concrete state machine pointer type
+            paramTypeStr =
+              getTypeString(param.type.resolvedConcreteType, context) + "*";
+          } else {
+            // The SomeType ID may be registered by preRegisterAsyncTypes
+            // (e.g., when the parameter type comes from an io.async call at the call site)
+            paramTypeStr = getTypeString(param.type, context);
+          }
         } else {
-          // The SomeType ID may be registered by preRegisterAsyncTypes
-          // (e.g., when the parameter type comes from an io.async call at the call site)
           paramTypeStr = getTypeString(param.type, context);
         }
-      } else {
-        paramTypeStr = getTypeString(param.type, context);
-      }
 
-      return `${paramTypeStr} ${paramName}`;
-    }
-  });
+        return `${paramTypeStr} ${paramName}`;
+      }
+    });
 
   paramStrings.push(...regularParamStrings);
 
