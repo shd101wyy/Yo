@@ -484,7 +484,7 @@ function resolveEvidenceFieldFromGivenBindingsForSpawn(
 
   const implicitVars = getVariablesFromEnvByFilter(
     callEnv,
-    (v) => v.isImplicit === true
+    (_v) => true /* removed isImplicit check — Phase 2 */
   );
   for (let i = implicitVars.length - 1; i >= 0; i--) {
     const v = implicitVars[i]!;

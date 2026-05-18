@@ -788,7 +788,6 @@ export function generateOtherFunctionCall(
                 const frameIdx = findInnermostFrameWithGivenVariable(
                   callEnv,
                   (v) =>
-                    v.isImplicit === true &&
                     isFunctionValue(v.value?.[0]) &&
                     v.value![0].funcId === functionValue.funcId
                 );
@@ -815,9 +814,7 @@ export function generateOtherFunctionCall(
                     const frameIdx = findInnermostFrameWithGivenVariable(
                       callEnv,
                       (v) =>
-                        v.isImplicit === true &&
-                        (v.name === ep.implicitLabel ||
-                          v.name === ep.fieldLabel)
+                        v.name === ep.implicitLabel || v.name === ep.fieldLabel
                     );
                     if (
                       frameIdx >= 0 &&
@@ -2641,7 +2638,7 @@ function resolveEvidenceArgsForCallSite(
         const typeVars = getVariablesFromEnvByFilter(
           callEnv,
           (v) =>
-            v.isImplicit === true &&
+            /* removed isImplicit check — Phase 2 */
             isFunctionType(v.type) &&
             isFunctionType(ep.fieldFunctionType) &&
             v.type === ep.fieldFunctionType

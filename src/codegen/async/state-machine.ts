@@ -2583,7 +2583,7 @@ function emitEffectRecordInjectionForSM(
       if (callEnv) {
         const implicitVars = getVariablesFromEnvByFilter(
           callEnv,
-          (v) => v.isImplicit === true
+          (_v) => true /* removed isImplicit check — Phase 2 */
         );
         // Iterate in reverse to get the innermost (most-recently bound) given binding,
         // since getVariablesFromEnvByFilter returns outermost-first.
