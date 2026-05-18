@@ -548,6 +548,19 @@ Exception);` and add more as the migration discovers them. A later
 Default evidence values (§9.6) are tracked independently. They reduce
 leaf-call boilerplate later but are not required to start 2g.
 
+### Phase 2g status (2026-05-18)
+
+Migrated and type-checks clean (`./yo-cli check std/`):
+
+- `std/error.yo` — added `IOErr :: struct(io : IO, exn : Exception)`
+- `std/fs/` — `dir.yo`, `file.yo`, `metadata.yo`, `temp.yo`, `walker.yo`
+- `std/net/` — `tcp.yo`, `udp.yo`, `dns.yo`
+- `std/http/` — `client.yo`
+- `std/process/command.yo`
+- `std/sys/bufio/` — `buf_reader.yo`, `buf_writer.yo`
+
+Whole `std/` passes `./yo-cli check`: **148/148**.
+
 ### Phase 2 known issues (encountered during migration)
 
 - **Install-site detection in fn-ptr atom calls.** Codegen at
@@ -567,6 +580,50 @@ comptime(Type))(struct(throw : (fn(forall(R : Type), ...) -> R)))`)
 shadowing (inner scope shadows outer) with unwind` migrated to pass
   `raise2` explicitly; the original test's "type-matching shadowing"
   semantics do not translate cleanly under explicit args.
+- **Main with explicit `io : IO` parameter fails codegen.** The C-side
+  main wrapper at `src/codegen/functions/generation.ts:573-655` reads
+  evidence params from `mainFunctionValue.type` via
+  `getEvidenceParameters`, which only inspects `implicitParameters`.
+  Under explicit effects, `io` and `exn` are _regular_ parameters, so
+  the wrapper falls through to `__yo_user_main()` (no args) while the
+  generated body expects the flattened fn-ptr params. The user_main
+  body itself is also dropped silently. Fix path: detect IO and
+  Exception in the regular parameter list, construct values from
+  `__yo_io_async / await / state / spawn` and a default exn throw
+  helper, and pass them flattened. This blocks every test that uses
+  `io.X` because the test-runner-generated main has no `io` binding.
+- **`No C type name found for struct IO`** when an `io` local is bound
+  to `__yo_builtin_io` inside a function body. The `IO` struct type
+  doesn't get registered in the C type table because the prelude's
+  declaration site doesn't carry through to codegen for the embedded
+  use. Workaround unknown; needs investigation.
+
+### Phase 2g remaining work
+
+`./yo-cli check tests/` reports **89/155 files type-check** after the
+std/ migration. The 66 failures break down roughly into:
+
+- **"Too few arguments for function call"** (~40 files): tests using
+  migrated stdlib APIs without the new `io` / `e` arguments. Will
+  resolve test-by-test as the tests are mechanically migrated to pass
+  effects explicitly.
+- **Test-runner main needs `io` and `exn`** (~10 files): the
+  `imm_threading`, `worker`, `arc`, etc. tests fail at parameter-count
+  checks because the generated main has zero parameters. Blocked by
+  the main-with-explicit-IO codegen bug above.
+- **Unrelated**: `basic.test.yo` (comptime parser issue),
+  `circular_deps/*` (test-runner doesn't yet handle file-level tests),
+  `fn.test.yo` (operator-precedence error in test source).
+
+Suggested order for finishing 2f / 2g:
+
+1. Fix the main-with-explicit-IO codegen (unblocks ~10 tests and
+   anything using `io.X` directly).
+2. Migrate test files mechanically: add `io : IO, exn : Exception` to
+   tests that need them; thread effects through stdlib calls. Group
+   by directory (fs/, net/, sys/, etc.) to mirror the std/ work.
+3. After tests pass: investigate the "No C type name found" issues
+   (IO struct registration, MyException comptime-struct registration).
 
 ## 8. Implementation Details — What Gets Removed
 
