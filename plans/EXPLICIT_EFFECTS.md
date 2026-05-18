@@ -77,9 +77,8 @@ Removed keywords: `using`, `given`. Renamed: `escape` → `unwind`.
 
 Today's `forall(...(E))` declares effect row variables as a special spread
 construct, and `using(...(E))` spreads them as implicit parameters. The
-explicit replacement models an effect row as a **generic parameter bound
-by the standard `Type` constraint** — it composes with existing `forall` /
-generic syntax that the LLM already knows.
+explicit replacement models an effect row as a **regular generic parameter**
+(`E : Type`) — no new syntax, no new concepts.
 
 ### Before
 
@@ -109,29 +108,39 @@ result := run(might_fail, effects);
 | Follows existing patterns                     | No — unique spread syntax  | Yes — normal `forall` generic |
 | LLM prior knowledge                           | Must learn a new concept   | Already knows generics        |
 | Declaration / param / construction consistent | No — three different forms | Yes — `E`, `e : E`, `{ ... }` |
-| Grep-able                                     | Bare `E` is ambiguous      | `Effects` is unique           |
+| Grep-able                                     | Bare `E` is ambiguous      | `E : Type` is standard        |
 
 ### Specifics
 
-- `E : Type` is a **generic constraint** in `forall` — just like
-  `T : Type` today. `Effects` is a built-in constraint that says "this
-  type is a struct whose fields are fn-pointer evidence values."
-- `e : E` in function signatures is a regular typed parameter. The
-  compiler knows `E` is bound as a regular type parameter, so it applies evidence-passing
-  codegen to `E`'s fields (flattening them into fn-ptr C parameters).
+- `E : Type` is a **regular generic parameter** in `forall` — identical to
+  `T : Type`. The compiler detects effect records at specialization time
+  and applies evidence-passing codegen (flattening struct fn-ptr fields
+  into C parameters).
+
 - Effect records are constructed with ordinary anonymous struct syntax:
+
   ```rust
   effects := { raise : my_raise, log : my_log };
-  // Type: anonymous struct { raise : Raise, log : Log } — satisfies Effects
   // Shorthand (existing Yo syntax): { raise, log } ≡ { raise : raise, log : log }
   ```
+
+- **No effects = empty struct**: `E` can bind to `{ }` (anonymous struct
+  with zero fields). No special "empty row" concept. At the call site:
+
+  ```rust
+  result := io.await(fut, {});  // or: result := run(f, {});
+  ```
+
 - Combining rows (today's `using(...(E1), ...(E2))`) becomes record spread:
+
   ```rust
   // Before: using(...(E1), ...(E2))
-  // After:  e := { ...e1, ...e2 }  // spread-builds a wider record
-  //         f(e)                    // pass as one param
+  // After:  e := { ...e1, ...e2 }
+  //         f(e)
   ```
+
 - Field access (`e.raise(msg)`) is regular struct field access.
+
 - Monomorphisation is unchanged: at each call with a concrete effect
   record, the compiler generates a specialized version with the record's
   fields as separate fn-ptr C parameters via evidence passing.
@@ -145,6 +154,46 @@ traverse(arr, (v, using(_yield, _log)) => { ... }, using(yield, log));
 
 // After — effects are an explicit parameter, one consistent pattern
 traverse(arr, (v, e) => { e.log(v); e.yield(v); }, effects);
+```
+
+### IO / Future signatures (prelude redesign)
+
+The standard library's IO signatures use `...(E)` and `using(...(E))`
+extensively. The explicit-param equivalents:
+
+```rust
+// ── BEFORE ──
+async : (fn(forall(T : Type, ...(E)),
+    action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E))))
+await : (fn(forall(T : Type, ...(E)),
+    fut : Impl(Future(T, ...(E))), using(...(E))) -> T)
+spawn : (fn(forall(T : Type, ...(E)),
+    fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
+
+// ── AFTER ──
+async : (fn(forall(T : Type, E : Type),
+    action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E)))
+await : (fn(forall(T : Type, E : Type),
+    fut : Impl(Future(T, E)), e : E) -> T)
+spawn : (fn(forall(T : Type, E : Type),
+    fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+```
+
+At call sites:
+
+```rust
+effects := { raise, log };
+
+fut := io.async((e) => {
+  e.log("hello");
+  result := e.raise("error");
+});
+
+result := io.await(fut, effects);
+
+// No effects — empty struct
+fut := io.async((e) => { return(42); });
+result := io.await(fut, {});
 ```
 
 ## 3. Bare fn-Typed Effects → Always Wrap in a Struct
