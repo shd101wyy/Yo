@@ -9,23 +9,17 @@
 //! { Command } :: import "std/process/command";
 //! { Exception, AnyError } :: import "std/error";
 //!
-//! main :: (fn(io : IO) -> unit)({
-//!   exn := Exception(
-//!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
-//!       { println(error); panic("Exception"); }
-//!     )
-//!   );
-//!
+//! main :: (fn(io : IO, exn : Exception) -> unit)({
 //!   cmd := Command.new(`echo`);
 //!   cmd.arg(`hello`);
 //!   cmd.arg(`world`);
-//!   out := io.await(cmd.output());
+//!   out := io.await(cmd.output(io), { io, exn });
 //!   assert(out.status.success(), "echo should succeed");
 //! });
 //! ```
 open(import("../collections/array_list"));
 open(import("../string"));
-{ Exception } :: import("../error");
+{ Exception, IOErr } :: import("../error");
 { IOError } :: import("../sys/errors");
 IO_process :: import("../sys/process");
 IO_file :: import("../sys/file");
@@ -154,9 +148,9 @@ _spawn_with_fds :: (
     self : *(Command),
     stdin_fd : i32,
     stdout_fd : i32,
-    stderr_fd : i32, io : IO, exn : Exception) -> Impl(Future(i32, IO, Exception))
+    stderr_fd : i32, io : IO) -> Impl(Future(i32, IOErr))
 )(
-  io.async((io, exn) => {
+  io.async((e) => {
     storage := _build_cstr_storage(self);
     argc := storage.len();
     // Allocate argv buffer: argc entries + 1 null terminator.
@@ -186,25 +180,25 @@ _spawn_with_fds :: (
     (argv_buf &+ argc).* =.None;
     // Resolve program path C string (always present — _build_cstr_storage pushes program first).
     program_cstr := (argv_buf &+ usize(0)).*.unwrap();
-    pid := io.await(IO_process.spawn(program_cstr, argv_buf,.None, stdin_fd, stdout_fd, stderr_fd));
+    pid := e.io.await(IO_process.spawn(program_cstr, argv_buf,.None, stdin_fd, stdout_fd, stderr_fd), e.io);
     // Free argv buffer (storage is dropped naturally at scope end).
     free(.Some(argv_raw));
-    IOError.check(pid)
+    IOError.check(pid, e.exn)
   })
 );
 // Read all available bytes from `fd` into a freshly returned ArrayList(u8)
 // until EOF (read returns 0).
-_drain_fd :: (fn(fd : i32, io : IO, exn : Exception) -> Impl(Future(ArrayList(u8), IO, Exception)))(
-  io.async((io, exn) => {
+_drain_fd :: (fn(fd : i32, io : IO) -> Impl(Future(ArrayList(u8), IOErr)))(
+  io.async((e) => {
     buf_size := usize(4096);
     buf := *(u8)(malloc(buf_size).unwrap());
     out := ArrayList(u8).new();
     while(runtime(true), {
-      n := io.await(IO_file.read(fd, buf, u32(buf_size), u64(0)));
+      n := e.io.await(IO_file.read(fd, buf, u32(buf_size), u64(0)), e.io);
       cond(
         (n < i32(0)) => {
           free(.Some(*(void)(buf)));
-          exn.throw(dyn(IOError.from_errno(i32(0) - n)));
+          e.exn.throw(dyn(IOError.from_errno(i32(0) - n)));
         },
         (n == i32(0)) => break,
         true => {
@@ -227,24 +221,24 @@ impl(
   Command,
   /// Spawn the child with stdio inherited from the parent, wait for it to
   /// exit, and return its `ExitStatus`.
-  status : (fn(self : *(Self), io : IO) -> Impl(Future(ExitStatus, IO, Exception)))(
-    io.async((io, exn) => {
-      pid := io.await(_spawn_with_fds(self, i32(-(1)), i32(-(1)), i32(-(1))));
-      raw := io.await(IO_process.waitpid(pid, i32(0)));
-      IOError.check(raw);
+  status : (fn(self : *(Self), io : IO) -> Impl(Future(ExitStatus, IOErr)))(
+    io.async((e) => {
+      pid := e.io.await(_spawn_with_fds(self, i32(-(1)), i32(-(1)), i32(-(1)), io), e);
+      raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
+      IOError.check(raw, e.exn);
       ExitStatus(raw : raw)
     })
   ),
   /// Spawn the child with stdout and stderr captured through pipes. Waits for
   /// the child to exit and returns the exit status plus the captured bytes.
-  output : (fn(self : *(Self), io : IO) -> Impl(Future(Output, IO, Exception)))(
-    io.async((io, exn) => {
+  output : (fn(self : *(Self), io : IO) -> Impl(Future(Output, IOErr)))(
+    io.async((e) => {
       // Create stdout and stderr pipes.
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := *(i32)(out_fd_buf.as_ptr());
       pr1 := IO_pipe.pipe(out_fd);
       cond(
-        (pr1 < i32(0)) => exn.throw(dyn(IOError.from_errno(i32(0) - pr1))),
+        (pr1 < i32(0)) => e.exn.throw(dyn(IOError.from_errno(i32(0) - pr1))),
         true => ()
       );
       out_read := (out_fd &+ usize(0)).*;
@@ -254,26 +248,26 @@ impl(
       pr2 := IO_pipe.pipe(err_fd);
       cond(
         (pr2 < i32(0)) => {
-          io.await(IO_file.close(out_read));
-          io.await(IO_file.close(out_write));
-          exn.throw(dyn(IOError.from_errno(i32(0) - pr2)));
+          e.io.await(IO_file.close(out_read), e.io);
+          e.io.await(IO_file.close(out_write), e.io);
+          e.exn.throw(dyn(IOError.from_errno(i32(0) - pr2)));
         },
         true => ()
       );
       err_read := (err_fd &+ usize(0)).*;
       err_write := (err_fd &+ usize(1)).*;
       // Spawn child with the write ends of both pipes.
-      pid := io.await(_spawn_with_fds(self, i32(-(1)), out_write, err_write));
+      pid := e.io.await(_spawn_with_fds(self, i32(-(1)), out_write, err_write, io), e);
       // Close write ends in parent so reads see EOF when child exits.
-      io.await(IO_file.close(out_write));
-      io.await(IO_file.close(err_write));
+      e.io.await(IO_file.close(out_write), e.io);
+      e.io.await(IO_file.close(err_write), e.io);
       // Drain both pipes sequentially.
-      stdout_buf := io.await(_drain_fd(out_read));
-      stderr_buf := io.await(_drain_fd(err_read));
-      io.await(IO_file.close(out_read));
-      io.await(IO_file.close(err_read));
-      raw := io.await(IO_process.waitpid(pid, i32(0)));
-      IOError.check(raw);
+      stdout_buf := e.io.await(_drain_fd(out_read, io), e);
+      stderr_buf := e.io.await(_drain_fd(err_read, io), e);
+      e.io.await(IO_file.close(out_read), e.io);
+      e.io.await(IO_file.close(err_read), e.io);
+      raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
+      IOError.check(raw, e.exn);
       Output(
         status : ExitStatus(raw : raw),
         stdout : stdout_buf,
