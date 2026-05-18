@@ -11,7 +11,7 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
-import { isArrayType, isStructType, isUnitType } from "../../types/guards";
+import { isArrayType, isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -61,21 +61,6 @@ export function generateAssignment(
   ) {
     // compile-time variable
     return "";
-  }
-
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
-  ) {
-    // Phase 4b: nominal struct given bindings emit a real runtime
-    // assignment. Other given (module/comptime) bindings remain
-    // compile-time only and are skipped.
-    const innerGiven = lhs.args[0]!;
-    if (innerGiven.$?.type && isStructType(innerGiven.$.type)) {
-      lhs = innerGiven;
-    } else {
-      return "";
-    }
   }
 
   // Check if LHS is a field/index access into a compile-time variable

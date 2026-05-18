@@ -279,9 +279,10 @@ export function evaluateAnonymousFunctionImplementation({
     parameterExprs = [functionDeclarationExpr];
   }
 
-  // Parse parameter expressions to separate forall, using, and regular parameters
+  // Parse parameter expressions to separate forall and regular parameters
+  // REMOVED: `using` keyword is gone. All non-forall params are regular.
   let forallParamExprs: Expr[] = [];
-  let usingParamExprs: Expr[] = [];
+  const usingParamExprs: Expr[] = [];
   const regularParamExprs: Expr[] = [];
 
   for (let i = 0; i < parameterExprs.length; i++) {
@@ -298,11 +299,6 @@ export function evaluateAnonymousFunctionImplementation({
         });
       }
       forallParamExprs = paramExpr.args;
-    } else if (
-      exprIsFunctionCall(paramExpr) &&
-      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using)
-    ) {
-      usingParamExprs = paramExpr.args;
     } else {
       regularParamExprs.push(paramExpr);
     }

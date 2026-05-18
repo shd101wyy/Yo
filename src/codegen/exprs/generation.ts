@@ -327,11 +327,8 @@ function emitEffectInjection(
   if (!futureArg?.$?.type) return;
 
   // Find the using(...) expression in the call arguments
-  const usingExpr = expr.args.find(
-    (arg): arg is FnCallExpr =>
-      exprIsFunctionCall(arg) &&
-      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
-  );
+  // REMOVED: `using` keyword is gone. Effects are now explicit params.
+  const usingExpr: FnCallExpr | undefined = undefined;
   if (!usingExpr) return;
 
   // Extract the FutureTraitType to get effect labels

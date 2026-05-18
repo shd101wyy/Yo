@@ -2,9 +2,7 @@ import { addVariableToEnv, type Environment } from "../../env";
 import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
-  BuiltinKeywords,
   type Expr,
-  exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   type FnCallExpr,
@@ -13,7 +11,6 @@ import {
   isArrayType,
   isFunctionType,
   isFunctionTypeGeneric,
-  isStructType,
 } from "../../types/guards";
 import {
   prohibitVoidType,
@@ -43,7 +40,7 @@ export function evaluateBinding({
       errorMessage: `Expected ":" for variable binding.`,
     });
   }
-  let lhs = expr.args[0]!;
+  const lhs = expr.args[0]!;
   const rhs = expr.args[1]!;
 
   // Evaluate the rhs expression
@@ -87,41 +84,7 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
 
   // Evaluate the lhs expression
   let isCompileTimeOnly = false;
-  let isImplicit = false;
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime)
-  ) {
-    isCompileTimeOnly = true;
-    if (lhs.args.length !== 1) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Expected one argument for "comptime" , got ${lhs.args.length}`,
-      });
-    }
-    lhs = lhs.args[0]!;
-  }
-
-  // Detect given(name) wrapper for implicit variable declaration
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
-  ) {
-    if (lhs.args.length !== 1) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Expected exactly one argument for "given", got ${lhs.args.length}`,
-      });
-    }
-    isImplicit = true;
-    // Phase 4b: nominal struct effects can be runtime values; only force
-    // comptime for module/non-struct types so the legacy comptime path
-    // for effect records is preserved.
-    if (!isStructType(userDefinedType)) {
-      isCompileTimeOnly = true;
-    }
-    lhs = lhs.args[0]!;
-  }
+  const isImplicit = false;
 
   isCompileTimeOnly =
     isCompileTimeOnly || context.forceCompileTimeBindings === true;

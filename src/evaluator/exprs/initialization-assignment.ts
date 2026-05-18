@@ -2,7 +2,6 @@ import { addVariableToEnv, type Environment } from "../../env";
 import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
-  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -91,22 +90,8 @@ export function evaluateInitializationAssignment({
   const lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
 
-  // Detect given(name) wrapper on LHS for implicit parameter declaration
-  let isImplicit = false;
-  let actualLhs = lhs;
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
-  ) {
-    if (lhs.args.length !== 1) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Expected exactly one argument for "given", got ${lhs.args.length}`,
-      });
-    }
-    isImplicit = true;
-    actualLhs = lhs.args[0]!;
-  }
+  const isImplicit = false;
+  const actualLhs = lhs;
 
   // Prevent declaring variable type using :: or :=
   if (exprIsFunctionCall(actualLhs) && exprIsFunctionCallOf(actualLhs, ":")) {

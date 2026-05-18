@@ -645,8 +645,6 @@ export const BuiltinKeywords = {
   ref: ["ref"], // Reference semantics for struct/enum
 
   forall: ["forall", "∀"],
-  using: ["using"],
-  given: ["given"],
   where: ["where"],
   // Exists: ["exists", "∃"],
   // In: ["in", "∈"],

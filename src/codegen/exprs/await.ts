@@ -4,12 +4,7 @@ import {
   extractFutureTraitFromType,
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
-import {
-  BuiltinKeywords,
-  exprIsFunctionCall,
-  exprIsFunctionCallOf,
-  type FnCallExpr,
-} from "../../expr";
+import { exprIsFunctionCall, type FnCallExpr } from "../../expr";
 import type {
   FunctionImplicitParameter,
   SourceNamespaceType,
@@ -618,11 +613,7 @@ function emitEffectInjectionForAwait(
   const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
   const functionContext = context as FunctionGenerationContext;
 
-  const usingExpr = expr.args.find(
-    (arg): arg is FnCallExpr =>
-      exprIsFunctionCall(arg) &&
-      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
-  );
+  const usingExpr: FnCallExpr | undefined = undefined; // `using` keyword removed
 
   if (usingExpr) {
     // Explicit using() args: match effects to using args positionally

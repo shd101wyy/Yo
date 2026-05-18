@@ -2458,11 +2458,7 @@ function emitEffectInjectionForSM(
 
   const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
 
-  const usingExpr = awaitExpr.args?.find(
-    (arg): arg is FnCallExpr =>
-      exprIsFunctionCall(arg) &&
-      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
-  );
+  const usingExpr: FnCallExpr | undefined = undefined; // `using` keyword removed
 
   if (usingExpr) {
     // Explicit using() args: match effects to using args positionally

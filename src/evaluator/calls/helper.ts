@@ -946,38 +946,10 @@ function _tryToCallFunctionWithArgumentsImpl({
     argExprs = [argExprs[0]!, ...argExprs.slice(2)];
   }
 
-  // Split arguments: detect using(...) args for implicit parameters
-  let usingArgsExpr: FnCallExpr | undefined = undefined;
-  let adjustedArgExprs = argExprs.slice(regularArgStartIndex);
-
-  // Check if any argument is using(...) — it provides explicit values for implicit parameters
-  // Only one using() is allowed at the call site.
-  const usingArgIndex = adjustedArgExprs.findIndex(
-    (arg) =>
-      exprIsFunctionCall(arg) &&
-      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
-  );
-  if (usingArgIndex !== -1) {
-    // Verify there's only one using() at the call site
-    const secondUsingIndex = adjustedArgExprs.findIndex(
-      (arg, idx) =>
-        idx > usingArgIndex &&
-        exprIsFunctionCall(arg) &&
-        exprIsFunctionCallOf(arg, BuiltinKeywords.using)
-    );
-    if (secondUsingIndex !== -1) {
-      throw formatErrorMessage({
-        token: adjustedArgExprs[secondUsingIndex]!.token,
-        errorMessage: `Only one "using(...)" is allowed per function call. Combine all implicit arguments into a single using(), e.g.: func(..., using(a, b))`,
-      });
-    }
-    usingArgsExpr = adjustedArgExprs[usingArgIndex]! as FnCallExpr;
-    // Remove the using(...) arg from the regular args
-    adjustedArgExprs = [
-      ...adjustedArgExprs.slice(0, usingArgIndex),
-      ...adjustedArgExprs.slice(usingArgIndex + 1),
-    ];
-  }
+  // Split arguments
+  // REMOVED: `using()` keyword is gone. All args are regular args.
+  const usingArgsExpr: FnCallExpr | undefined = undefined;
+  const adjustedArgExprs = argExprs.slice(regularArgStartIndex);
 
   // Split arguments into regular and implicit
   // Regular parameters come first, implicit parameters come after

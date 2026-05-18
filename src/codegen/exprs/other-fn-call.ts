@@ -10,7 +10,6 @@ import {
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
 import {
-  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -1034,11 +1033,7 @@ export function generateOtherFunctionCall(
           // when present — one void* per atom inside `using(...)`.
           const ptrEvidenceParams = getEvidenceParameters(functionType);
           let ptrEvidenceCount = ptrEvidenceParams.length;
-          const callSiteUsingExpr = expr.args.find(
-            (a): a is FnCallExpr =>
-              exprIsFunctionCall(a) &&
-              exprIsFunctionCallOf(a, BuiltinKeywords.using)
-          );
+          const callSiteUsingExpr: FnCallExpr | undefined = undefined; // `using` keyword removed
           if (ptrEvidenceCount === 0 && callSiteUsingExpr) {
             ptrEvidenceCount = callSiteUsingExpr.args.length;
           }

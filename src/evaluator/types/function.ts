@@ -34,7 +34,6 @@ import {
   getFunctionParameterExprs,
 } from "../../types/creators";
 import type {
-  EffectsRowType,
   FunctionForallParameter,
   FunctionImplicitParameter,
   FunctionParameter,
@@ -44,7 +43,6 @@ import type {
 } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
-  isEffectsRowType,
   isExprListType,
   isExprType,
   isFnTraitType,
@@ -68,7 +66,6 @@ import {
   createTypeValue,
   createUnknownValue,
   isTypeValue,
-  isUnknownValue,
   type Value,
   valueToString,
 } from "../../value";
@@ -1701,187 +1698,12 @@ export function evaluateFunctionParameters({
   }
 
   // Using pass: find and process using() implicit parameters
-  // using can appear after forall. using(name : Type) parameters are implicit and compile-time only.
-  // Only one using() clause is allowed per function signature.
-  let usingClauseCount = 0;
-  for (let i = 0; i < parameterExprs.length; i++) {
-    const paramExpr = parameterExprs[i]!;
-    if (
-      exprIsFunctionCall(paramExpr) &&
-      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using)
-    ) {
-      usingClauseCount++;
-      if (usingClauseCount > 1) {
-        throw formatErrorMessage({
-          token: paramExpr.token,
-          errorMessage: `Only one "using(...)" clause is allowed per function signature. Combine all implicit parameters into a single using(), e.g.: using(a : TypeA, b : TypeB)`,
-        });
-      }
-      const implicitParamExprs = paramExpr.args;
-
-      for (let j = 0; j < implicitParamExprs.length; j++) {
-        const implicitParamExpr = implicitParamExprs[j]!;
-
-        // Detect ...(E) — named effect row spread
-        if (
-          exprIsFunctionCall(implicitParamExpr) &&
-          exprIsFunctionCallOf(implicitParamExpr, "...") &&
-          implicitParamExpr.args.length === 1 &&
-          exprIsAtom(implicitParamExpr.args[0]!)
-        ) {
-          const rowVarName = implicitParamExpr.args[0]!.token.value;
-
-          // Look up the SomeType for E (must have been declared in forall)
-          const rowVarVariables = getVariablesFromEnv(env, rowVarName);
-          const rowVarVariable = rowVarVariables.at(-1);
-          if (!rowVarVariable) {
-            throw formatErrorMessage({
-              token: implicitParamExpr.token,
-              errorMessage: `Effect row variable "${rowVarName}" not found in scope. Declare it with forall(..., ...(${rowVarName}))`,
-            });
-          }
-
-          // Determine the SomeType for E.
-          // During initial evaluation, E's value is a TypeValue wrapping the SomeType.
-          // During re-evaluation at call sites (CTFE), E's value may be an UnknownValue.
-          // If E is already bound to a concrete EffectsRowType, expand it into
-          // concrete implicit parameters instead of creating another spread marker.
-          let rowSomeType: Type;
-          const eValue = rowVarVariable.value?.[0];
-          if (eValue && isTypeValue(eValue) && isEffectsRowType(eValue.value)) {
-            // E is bound to a concrete EffectsRowType — expand into concrete params
-            const effectsRow = eValue.value as EffectsRowType;
-            for (const concreteParam of effectsRow.implicitParameters) {
-              implicitParameters.push({
-                ...concreteParam,
-                isEffectRowSpread: false,
-              });
-            }
-            continue;
-          } else if (eValue && isTypeValue(eValue)) {
-            if (
-              !(
-                (isSomeType(eValue.value) && eValue.value.isEffectsRow) ||
-                isEffectsRowType(eValue.value)
-              )
-            ) {
-              throw formatErrorMessage({
-                token: implicitParamExpr.token,
-                errorMessage: `"...(${rowVarName})" requires "${rowVarName}" to be a forall-declared effect row variable, but it resolves to a concrete type. Use individual effect types directly in using(), e.g. using(name : ${rowVarName}) instead of using(...(${rowVarName}))`,
-              });
-            }
-            rowSomeType = eValue.value;
-          } else if (
-            eValue &&
-            isUnknownValue(eValue) &&
-            isEffectsRowType(eValue.type)
-          ) {
-            // E was bound to a concrete EffectsRowType during synthesis
-            // Expand into concrete implicit parameters
-            const effectsRow = eValue.type as EffectsRowType;
-            for (const concreteParam of effectsRow.implicitParameters) {
-              implicitParameters.push({
-                ...concreteParam,
-                isEffectRowSpread: false,
-              });
-            }
-            continue;
-          } else if (eValue && isUnknownValue(eValue)) {
-            // Re-evaluation context: E is an UnknownValue with Type(1) kind.
-            // Re-create the effect row SomeType for this re-evaluation.
-            rowSomeType = createEffectsRowSomeType(rowVarName, env);
-          } else {
-            throw formatErrorMessage({
-              token: implicitParamExpr.token,
-              errorMessage: `Effect row variable "${rowVarName}" has invalid value. Expected a type.`,
-            });
-          }
-          // Create a spread marker entry in implicitParameters
-          const spreadMarker: FunctionImplicitParameter = {
-            label: rowVarName,
-            type: rowSomeType,
-            isCompileTimeOnly: true as const,
-            isImplicit: true as const,
-            isEffectRowSpread: true,
-            isQuote: false,
-            isOwningTheRcValue: false,
-            exprs: getFunctionParameterExprs({
-              expr: implicitParamExpr,
-              labelExpr: implicitParamExpr.args[0],
-              typeExpr: implicitParamExpr.args[0]!,
-              defaultValueExpr: undefined,
-              assignedValueExpr: undefined,
-            }),
-          };
-          implicitParameters.push(spreadMarker);
-          continue;
-        }
-
-        // Bare types without labels are not allowed.
-        // e.g., using(Raise) must be using(raise : Raise)
-        const hasExplicitLabel =
-          exprIsFunctionCall(implicitParamExpr) &&
-          (exprIsFunctionCallOf(implicitParamExpr, ":") ||
-            exprIsFunctionCallOf(implicitParamExpr, "=") ||
-            exprIsFunctionCallOf(implicitParamExpr, "?=") ||
-            exprIsFunctionCallOf(implicitParamExpr, ":="));
-
-        if (!hasExplicitLabel) {
-          throw formatErrorMessage({
-            token: implicitParamExpr.token,
-            errorMessage: `Implicit parameter requires a label. Use "using(name : Type)" instead of "using(Type)".`,
-          });
-        }
-
-        const { parameter, env: nextEnv } = evaluateFunctionParameter({
-          expr: implicitParamExpr,
-          env,
-          context: {
-            ...context,
-          },
-          isParameterComptimeByDefault: true,
-          allowVariableShadowing: true,
-        });
-
-        // Check for duplicate labels against all parameter kinds
-        const duplicateInForall = forallParameters.find(
-          (element) => element.label === parameter.label
-        );
-        if (duplicateInForall) {
-          throw formatErrorMessage({
-            token: implicitParamExpr.token,
-            errorMessage: `Duplicate label "${parameter.label}" in implicit parameter (already in forall)`,
-          });
-        }
-        const duplicateInImplicit = implicitParameters.find(
-          (element) => element.label === parameter.label
-        );
-        if (duplicateInImplicit) {
-          throw formatErrorMessage({
-            token: implicitParamExpr.token,
-            errorMessage: `Duplicate label "${parameter.label}" in implicit parameter`,
-          });
-        }
-
-        // Override the isImplicit flag to true
-        const implicitParameter: FunctionImplicitParameter = {
-          ...parameter,
-          isCompileTimeOnly: true as const,
-          isImplicit: true as const,
-        };
-
-        implicitParameters.push(implicitParameter);
-
-        // Also mark the variable in the env as isImplicit so that nested
-        // using() parameter resolution can find it (for effect propagation)
-        const frame = nextEnv.frames[nextEnv.frames.length - 1]!;
-        const envVar = frame.variables.find((v) => v.name === parameter.label);
-        if (envVar) {
-          envVar.isImplicit = true;
-        }
-
-        env = nextEnv;
-      }
+  // REMOVED: `using` keyword is gone. All params are regular.
+  // eslint-disable-next-line no-constant-condition
+  if (false) {
+    // was: processing using() implicit params, now dead code
+    for (let i = 0; i < parameterExprs.length; i++) {
+      // ... using() parameter processing removed ...
     }
   }
 
@@ -1894,11 +1716,10 @@ export function evaluateFunctionParameters({
   const preAddedComptimeParams = new Set<number>();
   for (let i = 0; i < parameterExprs.length; i++) {
     const paramExpr = parameterExprs[i]!;
-    // Skip forall, using, and where
+    // Skip forall and where
     if (
       exprIsFunctionCall(paramExpr) &&
       (exprIsFunctionCallOf(paramExpr, BuiltinKeywords.forall) ||
-        exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using) ||
         exprIsFunctionCallOf(paramExpr, BuiltinKeywords.where) ||
         exprIsFunctionCallOf(paramExpr, "..."))
     ) {
@@ -2002,14 +1823,7 @@ export function evaluateFunctionParameters({
       }
       continue;
     }
-    // Skip using (already processed in using pass)
-    else if (
-      exprIsFunctionCall(parameterExpr) &&
-      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.using)
-    ) {
-      continue;
-    }
-    // Skip where clause (already processed in third pass)
+    // Skip where clause (already processed)
     else if (
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.where)
