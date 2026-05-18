@@ -283,10 +283,9 @@ ${exprToString(expr)}`,
     }
 
     // Mark bare function-type effect handlers for codegen.
-    // When given(name) = handler and handler is a function value,
-    // mark it as an effect member so its body is generated as a concrete
-    // C function for evidence passing (even if it has forall parameters).
-    if (isImplicit && isFunctionValue(rhsValue)) {
+    // When a handler function value uses unwind, mark it as an effect member
+    // so its body is generated as a concrete C function for evidence passing.
+    if (isFunctionValue(rhsValue) && rhsValue.isControlFunction) {
       rhsValue.isEffectRecordMember = true;
     }
 

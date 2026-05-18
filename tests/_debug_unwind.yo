@@ -1,0 +1,21 @@
+open(import("std/string"));
+open(import("std/fmt"));
+
+export(main);
+
+Raise :: (fn(msg : String) -> i32);
+
+safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
+  cond(
+    (y == 0) => raise("div-by-zero"),
+    true => (x / y)
+  )
+);
+
+main :: (fn() -> i32)({
+  (raise : Raise) = ((msg) -> {
+    println(msg);
+    unwind(i32(42));
+  });
+  return(safe_divide(1, 0, raise));
+});
