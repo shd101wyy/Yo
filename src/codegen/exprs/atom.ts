@@ -2,7 +2,7 @@ import { getVariablesFromEnv } from "../../env";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import type { AtomExpr, Expr } from "../../expr";
 import { isFunctionType, isUnitType } from "../../types/guards";
-import { isFunctionValue, isUnknownValue } from "../../value";
+import { isUnknownValue } from "../../value";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
@@ -496,44 +496,6 @@ export function generateAtom(
         // Note: captureType is no longer on ClosureType, use naming convention
         const captureStructName = `${closureTypeEntry.cName}_capture`;
         return `((${captureStructName}*)closure_context->data)->${getVariableNameForCodegen(expr.token.value, expr.$?.env)}`;
-      }
-    }
-  }
-
-  // Check if this is a function variable - if so, use its C function name
-  // This handles mutually recursive functions where the value might be UnknownValue
-  if (expr.$?.env) {
-    const variables = getVariablesFromEnv(expr.$.env, expr.token.value);
-    if (variables.length > 0) {
-      const variable = variables[variables.length - 1]!;
-
-      // Check if the variable has a function value (or UnknownValue with function type)
-      if (variable.value?.[0] && isFunctionValue(variable.value[0])) {
-        // Look up the C function name
-        const cFuncName = context.functions[variable.value[0].funcId]?.cName;
-        if (cFuncName) {
-          return cFuncName;
-        }
-      } else if (
-        isFunctionType(variable.type) &&
-        (isUnknownValue(variable.value?.[0]) || variable.value === undefined)
-      ) {
-        // For UnknownValue or undefined with function type (mutual recursion case),
-        // we need to find the function ID another way.
-        // The function should have been registered in context.functions
-        // Try to find it by matching the variable name
-        const functionEntry = Object.entries(context.functions).find(
-          ([_funcId, entry]) => {
-            // Check if this function's definition matches our variable
-            // This is a heuristic - we match by checking if any specialization
-            // of the function has a matching variable name
-            return entry.value.funcName === expr.token.value;
-          }
-        );
-
-        if (functionEntry) {
-          return functionEntry[1].cName;
-        }
       }
     }
   }
