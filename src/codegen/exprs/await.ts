@@ -613,7 +613,7 @@ function emitEffectInjectionForAwait(
   const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
   const functionContext = context as FunctionGenerationContext;
 
-  const usingExpr: FnCallExpr | undefined = undefined; // `using` keyword removed
+  const usingExpr = undefined as unknown as FnCallExpr; // dead code, using removed // `using` keyword removed
 
   if (usingExpr) {
     // Explicit using() args: match effects to using args positionally

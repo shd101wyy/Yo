@@ -478,7 +478,8 @@ ${typeToString(parameterType)}`,
     }
     if (
       !isCompileTimeOnly &&
-      typeRequiresComptimeModifier(parameterType, env)
+      typeRequiresComptimeModifier(parameterType, env) &&
+      !isSomeType(parameterType) // Allow forall type variables (e : E where E : Type)
     ) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,

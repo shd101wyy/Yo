@@ -328,7 +328,7 @@ function emitEffectInjection(
 
   // Find the using(...) expression in the call arguments
   // REMOVED: `using` keyword is gone. Effects are now explicit params.
-  const usingExpr: FnCallExpr | undefined = undefined;
+  const usingExpr = undefined as unknown as FnCallExpr; // dead code, using removed
   if (!usingExpr) return;
 
   // Extract the FutureTraitType to get effect labels

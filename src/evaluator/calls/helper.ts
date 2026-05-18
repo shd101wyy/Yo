@@ -948,7 +948,7 @@ function _tryToCallFunctionWithArgumentsImpl({
 
   // Split arguments
   // REMOVED: `using()` keyword is gone. All args are regular args.
-  const usingArgsExpr: FnCallExpr | undefined = undefined;
+  const usingArgsExpr = undefined as unknown as FnCallExpr; // dead code, using removed
   const adjustedArgExprs = argExprs.slice(regularArgStartIndex);
 
   // Split arguments into regular and implicit

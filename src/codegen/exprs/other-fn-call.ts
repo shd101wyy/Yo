@@ -1032,11 +1032,8 @@ export function generateOtherFunctionCall(
           // fall back to the explicit `using(...)` arg at the call site
           // when present — one void* per atom inside `using(...)`.
           const ptrEvidenceParams = getEvidenceParameters(functionType);
-          let ptrEvidenceCount = ptrEvidenceParams.length;
-          const callSiteUsingExpr: FnCallExpr | undefined = undefined; // `using` keyword removed
-          if (ptrEvidenceCount === 0 && callSiteUsingExpr) {
-            ptrEvidenceCount = callSiteUsingExpr.args.length;
-          }
+          const ptrEvidenceCount = ptrEvidenceParams.length;
+          // using keyword removed — effects are explicit params
           const ptrParamTypeStrs = [
             ...paramTypeStrs,
             ...Array.from({ length: ptrEvidenceCount }, () => "void*"),
@@ -1065,36 +1062,9 @@ export function generateOtherFunctionCall(
             if (ptrEvidenceArgs.length === 0) {
               ptrEvidenceArgs = ptrEvidenceParams.map(() => "((void*)0)");
             }
-          } else if (callSiteUsingExpr) {
-            const fnCtx = context as FunctionGenerationContext;
-            const callEnv = expr.func.$?.env ?? expr.$?.env;
-            for (const u of callSiteUsingExpr.args) {
-              let argCode: string | undefined;
-              if (exprIsAtom(u)) {
-                // Match against caller's evidence params first — when the
-                // referenced name IS an implicit param (e.g. `using(exn)`
-                // forwards the caller's `using(exn : Exception)` param),
-                // use that C-level evidence name (e.g. `exn__throw`) rather
-                // than the Yo-level variable name.
-                const refName = u.token.value;
-                if (fnCtx.currentEvidenceParams) {
-                  for (const ep of fnCtx.currentEvidenceParams.values()) {
-                    if (ep.implicitLabel === refName) {
-                      argCode = ep.cParamName;
-                      break;
-                    }
-                  }
-                }
-                if (argCode === undefined) {
-                  argCode = getVariableNameForCodegen(refName, callEnv);
-                }
-              } else {
-                // Non-atom using arg — fall back to expression generation
-                argCode = generateExpr(u, indent, context);
-              }
-              ptrEvidenceArgs.push(argCode);
-            }
           }
+          // Dead code removed: using() call-site evidence resolution
+          // Effects are now explicit regular params
           const fnPtrCast = `((${returnTypeStr} (*)(${ptrParamTypeStrs.join(", ")}))${funcCode})`;
 
           // Cast each runtime arg to its corresponding parameter type. This
