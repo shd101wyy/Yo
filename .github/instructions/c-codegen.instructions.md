@@ -155,7 +155,7 @@ The SM approach is still needed for **multi-yield resumable effects** where the 
 
 ### Thread-local unwind flag
 
-Because effect handlers are called via function pointer (evidence passing), the codegen cannot statically detect whether the handler calls `escape()`. A thread-local flag `__yo_effect_escaped` is used for runtime detection:
+Because effect handlers are called via function pointer (evidence passing), the codegen cannot statically detect whether the handler calls `unwind()`. A thread-local flag `__yo_effect_escaped` is used for runtime detection:
 
 1. Before calling an effect handler via function pointer, the flag is reset to 0.
 2. If the handler calls `unwind()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
@@ -182,9 +182,9 @@ Functions with evidence parameters (from `using(io: IO)` or algebraic effect bin
 
 When an `io.await` detects a Future abort (state == -2), the behavior depends on whether the current function is the **handler installation point** or a **propagation point**:
 
-- **Handler installation** — The function has a `given(raise) := ...` binding that locally installs the effect handler. When escaped, it clears `__yo_effect_escaped = 0`, extracts the escape value from `__yo_unwind_value` via `memcpy`, and returns it.
+- **Handler installation** — The function has a `given(raise) := ...` binding that locally installs the effect handler. When escaped, it clears `__yo_effect_escaped = 0`, extracts the unwind value from `__yo_unwind_value` via `memcpy`, and returns it.
 
-- **Propagation** — The function receives the effect via evidence parameters (`using`). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the escape.
+- **Propagation** — The function receives the effect via evidence parameters (`using`). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the unwind.
 
 The helper `isAwaitEscapeHandlerInstallation()` in `await.ts` determines this by checking if ANY algebraic effect in the Future is NOT in the current function's `currentEvidenceParams`. If an effect's key is missing from evidence params, it must be locally installed via `given`.
 
@@ -203,7 +203,7 @@ The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actu
 
 When calling an evidence handler through a function pointer cast in `generateEvidenceFnPtrCall`, the cast return type **must** match the handler's actual C return type. For forall handlers (e.g., `Exception.throw :: fn(forall(T), error: AnyError) -> T`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
 
-The `handlerReturnsVoid` flag in `generateEvidenceFnPtrCall` handles this: declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates escape. See `issues/evidence-fn-ptr-void-return-abi-mismatch.md`.
+The `handlerReturnsVoid` flag in `generateEvidenceFnPtrCall` handles this: declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates unwind. See `issues/evidence-fn-ptr-void-return-abi-mismatch.md`.
 
 ### Handler functions are standalone, not closures
 
