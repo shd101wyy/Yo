@@ -616,23 +616,27 @@ comptime(Type))(struct(throw : (fn(forall(R : Type), ...) -> R)))`)
 ### Phase 2g/2f progress summary
 
 - `./yo-cli check std/` → **148/148 files pass.**
-- `./yo-cli check tests/` → **126/135 files type-check** (up from 89
-  pre-migration). The 9 remaining are listed above; only `async_await`
-  is migration-blocking, the others are pre-existing.
-- Runnable test suites confirmed passing (sample):
-  algebraic_effects (61 cases), encoding/{base64,hex,json,utf16}
-  (82 cases combined), fs/\* (53 cases), closure (9), dyn (8),
-  comptime (28), derive (30), array (12), error (7).
+- `./yo-cli check tests/` → **134/139 files type-check** (up from 89
+  pre-migration).
+- `./yo-cli test ./tests/` end-to-end: **2243/2248 test cases pass
+  (99.8%)**, with **5 file-level Module-evaluation failures** in:
+  `async_await.test.yo`, `basic.test.yo`, `circular_import.test.yo`,
+  `fn.test.yo`, `module.test.yo`. Of these, only `async_await` is a
+  migration-related inference regression (assert-on-await-result
+  codegen path); the other four are pre-existing issues unrelated to
+  explicit effects (comptime parse, file-tests pre-existing failure,
+  module shadowing).
 
-Suggested order for finishing 2f / 2g:
+### Remaining migration work (post-Phase 2)
 
-1. Fix the main-with-explicit-IO codegen (unblocks ~10 tests and
-   anything using `io.X` directly).
-2. Migrate test files mechanically: add `io : IO, exn : Exception` to
-   tests that need them; thread effects through stdlib calls. Group
-   by directory (fs/, net/, sys/, etc.) to mirror the std/ work.
-3. After tests pass: investigate the "No C type name found" issues
-   (IO struct registration, MyException comptime-struct registration).
+Items intentionally not done in this pass; tracked for follow-up:
+
+1. **`async_await.test.yo` inference regression.** `result := io.await(task, io); assert(result == i32(1))` fails at evaluator with "No matching call found". Closure return-type inference back through `Impl(Fn(e : E) -> T)` is incomplete — the `T` doesn't propagate to `result`'s type at the use site. Workaround: annotate the closure return type.
+2. **`MyException(i32)` codegen.** Struct type produced by a comptime function isn't registered in C type table. Reproduces in `tests/algebraic_effects.test.yo` only when multiple tests share a batch; individual tests pass. Not strictly Phase 2.
+3. **Phase 2h: `yo-self/` port** (~1700 occurrences). Untouched.
+4. **§9.6 default evidence values.** `(e : E) ?= {}` defaults at leaves to reduce no-effect call-site boilerplate. Independent ergonomic feature; not blocking anything.
+5. **§9.8 `Struct` builtin.** Move from prelude (`Struct :: Type`) to a compiler-recognized constraint keyword.
+6. **§4 handler-value escape check.** Static analysis that rejects returning / heap-storing control-function values. Important safety feature but no currently-failing test depends on it.
 
 ## 8. Implementation Details — What Gets Removed
 
