@@ -10,7 +10,7 @@ test("sockinfo getsockname and getpeername on TCP connection", {
   server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
   assert(server_fd >= i32(0), "server socket should be created");
   bind_addr := tcp.make_sockaddr_in_loopback(u16(0));
-  bind_result := io.await(tcp.bind(server_fd, bind_addr.buf, bind_addr.len), io);
+  bind_result := io.await(tcp.bind(server_fd, bind_addr.buf, bind_addr.len, io), io);
   assert(bind_result == i32(0), "bind should succeed on loopback ephemeral port");
   listen_result := io.await(tcp.listen(server_fd, i32(16)), io);
   assert(listen_result == i32(0), "listen should succeed");
@@ -29,7 +29,7 @@ test("sockinfo getsockname and getpeername on TCP connection", {
   client_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
   assert(client_fd >= i32(0), "client socket should be created");
   connect_addr := tcp.make_sockaddr_in_loopback(server_port);
-  connect_result := io.await(tcp.connect(client_fd, connect_addr.buf, connect_addr.len), io);
+  connect_result := io.await(tcp.connect(client_fd, connect_addr.buf, connect_addr.len, io), io);
   assert(connect_result == i32(0), "connect should succeed");
   accepted_addr_buf := *(u8)(malloc(storage_size).unwrap());
   accepted_addr_len := *(u32)(malloc(usize(4)).unwrap());

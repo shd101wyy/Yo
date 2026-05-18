@@ -4,26 +4,26 @@ Worker :: import("std/worker");
 { yield } :: import("std/async");
 test("Worker spawn simple task", {
   Worker.set_num_threads(2);
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     // Simple task that runs on worker thread
     assert(true);
   });
 });
 test("Worker spawn multiple tasks", {
   Worker.set_num_threads(2);
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     // Task 1
     assert(true);
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     // Task 2
     assert(true);
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     // Task 3
     assert(true);
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     // Task 4
     assert(true);
   });
@@ -31,7 +31,7 @@ test("Worker spawn multiple tasks", {
 test("Worker spawn with i32 capture", {
   Worker.set_num_threads(2);
   value := 42;
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     // Capture an i32 value
     assert(value == 42);
   });
@@ -40,7 +40,7 @@ test("Worker spawn with multiple captures", {
   Worker.set_num_threads(2);
   x := 100;
   y := 200;
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     // Capture multiple values
     assert((x + y) == 300);
   });

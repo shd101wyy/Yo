@@ -27,7 +27,7 @@ test("Command.new + status (echo exits 0)", {
       c
     }
   );
-  st := io.await(cmd.status(), io);
+  st := io.await(cmd.status(io), io);
   assert(st.success(), "echo should succeed");
   assert(st.code() == i32(0), "echo exit code 0");
 });
@@ -53,7 +53,7 @@ test("Command.output captures stdout", {
       c
     }
   );
-  out := io.await(cmd.output(), io);
+  out := io.await(cmd.output(io), io);
   assert(out.status.success(), "status success");
   assert(out.stdout.len() >= usize(11), "stdout has at least 11 bytes");
   assert(out.stdout.get(usize(0)).unwrap() == u8(121), "y");
@@ -79,7 +79,7 @@ test("Command.status non-zero exit", {
     },
     true => Command.new(`false`)
   );
-  st := io.await(cmd.status(), io);
+  st := io.await(cmd.status(io), io);
   assert(!(st.success()), "should not be success");
   assert(st.code() == i32(1), "exit code 1");
 });

@@ -4,13 +4,13 @@ open(import("std/libc/stdio"));
 { yield } :: import("std/async");
 test("Thread spawn and join without captures", {
   thread := Thread.spawn(
-    () => () // Thread runs with no captures
+    (io) => () // Thread runs with no captures
   );
   thread.join();
 });
 test("Thread spawn and join with i32 capture", {
   value := 42;
-  thread := Thread.spawn(() => {
+  thread := Thread.spawn((io) => {
     // Use captured value
     assert(value == 42);
   });
@@ -19,7 +19,7 @@ test("Thread spawn and join with i32 capture", {
 test("Thread spawn and join with multiple captures", {
   x := 100;
   y := 200;
-  thread := Thread.spawn(() => {
+  thread := Thread.spawn((io) => {
     // Use captured values
     assert((x + y) == 300);
   });
@@ -83,7 +83,7 @@ test("Thread with multiple async tasks", {
 test "Thread spawn and join with multiple boxed captures", {
   x := box(100);
   y := box(200);
-  thread := Thread.spawn(() => {
+  thread := Thread.spawn((io) => {
     // Use captured values
     assert((x.* + y.*) == 300);
   });

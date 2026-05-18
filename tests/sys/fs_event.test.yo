@@ -47,7 +47,7 @@ test("fs_event detects file creation", {
   fd := io.await(file.openat(AT_FDCWD, test_file_path, O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
   assert(fd >= i32(0), "open failed");
   msg := *(u8)("test content");
-  wr := io.await(file.write(fd, msg, u32(12), u64(0)), io);
+  wr := io.await(file.write(fd, msg, u32(12), u64(0), io), io);
   assert(wr == i32(12), "write failed");
   cr := io.await(file.close(fd), io);
   assert(cr == i32(0), "close failed");
@@ -73,7 +73,7 @@ test("fs_event detects file modification", {
   fd1 := io.await(file.openat(AT_FDCWD, test_file_path, O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
   assert(fd1 >= i32(0), "initial open failed");
   init_msg := *(u8)("initial");
-  wr1 := io.await(file.write(fd1, init_msg, u32(7), u64(0)), io);
+  wr1 := io.await(file.write(fd1, init_msg, u32(7), u64(0), io), io);
   assert(wr1 == i32(7), "initial write failed");
   cr1 := io.await(file.close(fd1), io);
   assert(cr1 == i32(0), "initial close failed");
@@ -91,7 +91,7 @@ test("fs_event detects file modification", {
   fd2 := io.await(file.openat(AT_FDCWD, test_file_path, O_WRONLY, i32(0)), io);
   assert(fd2 >= i32(0), "modify open failed");
   mod_msg := *(u8)("modified content");
-  wr2 := io.await(file.write(fd2, mod_msg, u32(16), u64(0)), io);
+  wr2 := io.await(file.write(fd2, mod_msg, u32(16), u64(0), io), io);
   assert(wr2 == i32(16), "modify write failed");
   cr2 := io.await(file.close(fd2), io);
   assert(cr2 == i32(0), "modify close failed");
@@ -127,7 +127,7 @@ test("fs_event stop prevents further callbacks", {
   fd := io.await(file.openat(AT_FDCWD, test_file_path, O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
   assert(fd >= i32(0), "open failed");
   msg := *(u8)("data");
-  wr := io.await(file.write(fd, msg, u32(4), u64(0)), io);
+  wr := io.await(file.write(fd, msg, u32(4), u64(0), io), io);
   assert(wr == i32(4), "write failed");
   cr := io.await(file.close(fd), io);
   assert(cr == i32(0), "close failed");

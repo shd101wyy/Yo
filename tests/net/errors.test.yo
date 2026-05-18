@@ -43,7 +43,7 @@ test("NetError.check positive value returns value", {
       }
     )
   );
-  n := NetError.check(i32(42));
+  n := NetError.check(i32(42), exn);
   printf("  ok = %d\n", n);
   assert(n == i32(42), "should be 42");
 });
@@ -56,7 +56,7 @@ test("NetError.check zero returns zero", {
       }
     )
   );
-  n := NetError.check(i32(0));
+  n := NetError.check(i32(0), exn);
   printf("  ok = %d\n", n);
   assert(n == i32(0), "should be 0");
 });
@@ -69,7 +69,7 @@ test("NetError.check negative value throws", {
     )
   );
   // -111 is ECONNREFUSED on Linux
-  NetError.check(i32(-(111)));
+  NetError.check(i32(-(111)), exn);
   assert(false, "should have thrown");
 });
 test("NetError DNSFailed to_string", {

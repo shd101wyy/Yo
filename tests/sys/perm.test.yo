@@ -19,7 +19,7 @@ test("access F_OK R_OK W_OK on existing file", {
   fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("perm test data");
-  wr := io.await(file.write(fd, data, u32(14), u64(0)), io);
+  wr := io.await(file.write(fd, data, u32(14), u64(0), io), io);
   assert(wr == i32(14));
   cr := io.await(file.close(fd), io);
   assert(cr == i32(0));
@@ -45,7 +45,7 @@ test("chmodat changes and restores permissions", {
   fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("chmod test");
-  wr := io.await(file.write(fd, data, u32(10), u64(0)), io);
+  wr := io.await(file.write(fd, data, u32(10), u64(0), io), io);
   assert(wr == i32(10));
   cr := io.await(file.close(fd), io);
   assert(cr == i32(0));
@@ -73,7 +73,7 @@ test("fchmod by fd sets executable bit", {
   fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd_w >= i32(0));
   data := *(u8)("fchmod test");
-  wr := io.await(file.write(fd_w, data, u32(11), u64(0)), io);
+  wr := io.await(file.write(fd_w, data, u32(11), u64(0), io), io);
   assert(wr == i32(11));
   cr_w := io.await(file.close(fd_w), io);
   assert(cr_w == i32(0));
@@ -106,7 +106,7 @@ test("fchown with -1 -1 succeeds (no change)", {
   fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd_w >= i32(0));
   data := *(u8)("chown test");
-  wr := io.await(file.write(fd_w, data, u32(10), u64(0)), io);
+  wr := io.await(file.write(fd_w, data, u32(10), u64(0), io), io);
   assert(wr == i32(10));
   cr_w := io.await(file.close(fd_w), io);
   assert(cr_w == i32(0));

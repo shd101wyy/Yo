@@ -39,7 +39,7 @@ test("spawn and waitpid", {
   assert(c1 == i32(0), "close write end failed");
   buf_uninit := MaybeUninit(Array(u8, usize(64))).new();
   buf := *(u8)(buf_uninit.as_ptr());
-  rd := io.await(file.read(read_fd, buf, u32(64), u64(0)), io);
+  rd := io.await(file.read(read_fd, buf, u32(64), u64(0), io), io);
   printf("  read = %d\n", rd);
   expected_len := cond(
     (platform == Platform.Windows) => i32(14),

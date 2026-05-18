@@ -89,17 +89,17 @@ test("Once call from multiple threads executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
   counter := SharedCounter(i32(0));
-  t1 := Thread.spawn(() => {
+  t1 := Thread.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
   });
-  t2 := Thread.spawn(() => {
+  t2 := Thread.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
   });
-  t3 := Thread.spawn(() => {
+  t3 := Thread.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
@@ -122,7 +122,7 @@ test("Once is_done visible across threads after call", {
   o.call(() => {
     counter.value = (counter.value + i32(1));
   });
-  t := Thread.spawn(() => {
+  t := Thread.spawn((io) => {
     assert(o.is_done(), "should see done from other thread");
     // Second call should be no-op
     o.call(() => {
@@ -137,27 +137,27 @@ test("Once multiple threads race to call", {
   o := Once.new();
   counter := SharedCounter(i32(0));
   // All threads start at the same time (no sleep)
-  t1 := Thread.spawn(() => {
+  t1 := Thread.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
   });
-  t2 := Thread.spawn(() => {
+  t2 := Thread.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
   });
-  t3 := Thread.spawn(() => {
+  t3 := Thread.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
   });
-  t4 := Thread.spawn(() => {
+  t4 := Thread.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
   });
-  t5 := Thread.spawn(() => {
+  t5 := Thread.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
@@ -180,19 +180,19 @@ test("Once with Workers executes only once", {
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
   wg.add(i32(3));
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
     wg.done();
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });
     wg.done();
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     o.call(() => {
       counter.value = (counter.value + i32(1));
     });

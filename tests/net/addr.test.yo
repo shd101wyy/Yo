@@ -39,7 +39,7 @@ test("IpAddr.parse_v4 valid address", {
       }
     )
   );
-  addr := IpAddr.parse_v4(`192.168.1.100`);
+  addr := IpAddr.parse_v4(`192.168.1.100`, exn);
   assert(addr.is_v4(), "should be v4");
   s := addr.to_string();
   printf("  parsed = %s\n", s.to_cstr().ptr().unwrap());
@@ -54,7 +54,7 @@ test("IpAddr.parse_v4 loopback", {
       }
     )
   );
-  addr := IpAddr.parse_v4(`127.0.0.1`);
+  addr := IpAddr.parse_v4(`127.0.0.1`, exn);
   assert(addr.is_loopback(), "should be loopback");
 });
 test("IpAddr.parse_v4 invalid address", {
@@ -65,7 +65,7 @@ test("IpAddr.parse_v4 invalid address", {
       }
     )
   );
-  IpAddr.parse_v4(`999.0.0.1`);
+  IpAddr.parse_v4(`999.0.0.1`, exn);
   assert(false, "should fail for out of range");
 });
 test("IpAddr.parse_v4 too few octets", {
@@ -77,7 +77,7 @@ test("IpAddr.parse_v4 too few octets", {
       }
     )
   );
-  IpAddr.parse_v4(`1.2.3`);
+  IpAddr.parse_v4(`1.2.3`, exn);
   assert(false, "should fail for too few octets");
 });
 test("IpAddr.parse_v4 invalid char", {
@@ -89,7 +89,7 @@ test("IpAddr.parse_v4 invalid char", {
       }
     )
   );
-  IpAddr.parse_v4(`1.2.3.abc`);
+  IpAddr.parse_v4(`1.2.3.abc`, exn);
   assert(false, "should fail for invalid char");
 });
 // ============================================================================
@@ -125,7 +125,7 @@ test("IpAddr V4 to_string various addresses", {
       }
     )
   );
-  addr := IpAddr.parse_v4(`10.0.0.1`);
+  addr := IpAddr.parse_v4(`10.0.0.1`, exn);
   s := addr.to_string();
   printf("  10.0.0.1 = %s\n", s.to_cstr().ptr().unwrap());
   assert(s == `10.0.0.1`, "should match");
@@ -139,7 +139,7 @@ test("SocketAddr with parsed IP", {
       }
     )
   );
-  ip := IpAddr.parse_v4(`10.20.30.40`);
+  ip := IpAddr.parse_v4(`10.20.30.40`, exn);
   addr := SocketAddr.new(ip, u16(443));
   s := addr.to_string();
   printf("  addr = %s\n", s.to_cstr().ptr().unwrap());

@@ -92,15 +92,15 @@ test("WaitGroup threads call done then main waits", {
   if(arch == Arch.Wasm32, return(()));
   wg := WaitGroup.new();
   wg.add(i32(3));
-  t1 := Thread.spawn(() => {
+  t1 := Thread.spawn((io) => {
     sleep(usize(10));
     wg.done();
   });
-  t2 := Thread.spawn(() => {
+  t2 := Thread.spawn((io) => {
     sleep(usize(20));
     wg.done();
   });
-  t3 := Thread.spawn(() => {
+  t3 := Thread.spawn((io) => {
     sleep(usize(30));
     wg.done();
   });
@@ -114,19 +114,19 @@ test("WaitGroup add before spawn done in thread", {
   if(arch == Arch.Wasm32, return(()));
   wg := WaitGroup.new();
   wg.add(i32(5));
-  t1 := Thread.spawn(() => {
+  t1 := Thread.spawn((io) => {
     wg.done();
   });
-  t2 := Thread.spawn(() => {
+  t2 := Thread.spawn((io) => {
     wg.done();
   });
-  t3 := Thread.spawn(() => {
+  t3 := Thread.spawn((io) => {
     wg.done();
   });
-  t4 := Thread.spawn(() => {
+  t4 := Thread.spawn((io) => {
     wg.done();
   });
-  t5 := Thread.spawn(() => {
+  t5 := Thread.spawn((io) => {
     wg.done();
   });
   wg.wait();
@@ -142,10 +142,10 @@ test("WaitGroup reuse across thread groups", {
   wg := WaitGroup.new();
   // First group
   wg.add(i32(2));
-  t1 := Thread.spawn(() => {
+  t1 := Thread.spawn((io) => {
     wg.done();
   });
-  t2 := Thread.spawn(() => {
+  t2 := Thread.spawn((io) => {
     wg.done();
   });
   wg.wait();
@@ -154,13 +154,13 @@ test("WaitGroup reuse across thread groups", {
   assert(wg.count() == i32(0), "count should be 0 after first group");
   // Second group
   wg.add(i32(3));
-  t3 := Thread.spawn(() => {
+  t3 := Thread.spawn((io) => {
     wg.done();
   });
-  t4 := Thread.spawn(() => {
+  t4 := Thread.spawn((io) => {
     wg.done();
   });
-  t5 := Thread.spawn(() => {
+  t5 := Thread.spawn((io) => {
     wg.done();
   });
   wg.wait();
@@ -177,13 +177,13 @@ test("WaitGroup with Workers", {
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
   wg.add(i32(3));
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     wg.done();
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     wg.done();
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     wg.done();
   });
   wg.wait();
@@ -194,15 +194,15 @@ test("WaitGroup with Workers and sleep", {
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
   wg.add(i32(3));
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     sleep(usize(10));
     wg.done();
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     sleep(usize(20));
     wg.done();
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     sleep(usize(30));
     wg.done();
   });

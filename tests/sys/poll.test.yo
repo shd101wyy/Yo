@@ -41,7 +41,7 @@ test("poll detects readable pipe", {
   write_fd := (pipefd &+ usize(1)).*;
   // Write data to make read end readable BEFORE starting poll
   data := *(u8)("hello");
-  wr := io.await(file.write(write_fd, data, u32(5), u64(0)), io);
+  wr := io.await(file.write(write_fd, data, u32(5), u64(0), io), io);
   assert(wr == i32(5), "write failed");
   result_buf := MaybeUninit(i32).new();
   result_ptr := *(i32)(result_buf.as_ptr());
@@ -134,7 +134,7 @@ test("poll stop prevents further callbacks", {
   assert(stop_ret == i32(0), "poll_stop failed");
   // Now write data
   data := *(u8)("hi");
-  wr := io.await(file.write(write_fd, data, u32(2), u64(0)), io);
+  wr := io.await(file.write(write_fd, data, u32(2), u64(0), io), io);
   assert(wr == i32(2), "write failed");
   // Yield to event loop
   io.await(sleep(u64(50)), io);

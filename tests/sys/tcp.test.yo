@@ -45,7 +45,7 @@ test("Bind to loopback and listen", {
   printf("  socket fd = %d\n", server_fd);
   assert(server_fd >= i32(0));
   addr := tcp.make_sockaddr_in_loopback(u16(0));
-  bind_result := io.await(tcp.bind(server_fd, addr.buf, addr.len), io);
+  bind_result := io.await(tcp.bind(server_fd, addr.buf, addr.len, io), io);
   printf("  bind = %d\n", bind_result);
   assert(bind_result == i32(0));
   listen_result := io.await(tcp.listen(server_fd, i32(128)), io);
@@ -70,7 +70,7 @@ test("TCP echo server-client", {
   assert(sso == i32(0));
   free(.Some(*(void)(optval)));
   addr := tcp.make_sockaddr_in_loopback(u16(19877));
-  bind_result := io.await(tcp.bind(server_fd, addr.buf, addr.len), io);
+  bind_result := io.await(tcp.bind(server_fd, addr.buf, addr.len, io), io);
   printf("  bind = %d\n", bind_result);
   assert(bind_result == i32(0));
   listen_result := io.await(tcp.listen(server_fd, i32(128)), io);
@@ -80,7 +80,7 @@ test("TCP echo server-client", {
   printf("  client fd = %d\n", client_fd);
   assert(client_fd >= i32(0));
   connect_addr := tcp.make_sockaddr_in_loopback(u16(19877));
-  conn_result := io.await(tcp.connect(client_fd, connect_addr.buf, connect_addr.len), io);
+  conn_result := io.await(tcp.connect(client_fd, connect_addr.buf, connect_addr.len, io), io);
   printf("  connect = %d\n", conn_result);
   assert(conn_result == i32(0));
   tcp.free_sockaddr(connect_addr);
@@ -93,11 +93,11 @@ test("TCP echo server-client", {
   free(.Some(*(void)(peer_addr_buf)));
   free(.Some(*(void)(peer_addr_len)));
   msg := *(u8)("Hello TCP!");
-  sent := io.await(tcp.send(client_fd, msg, usize(10), i32(0)), io);
+  sent := io.await(tcp.send(client_fd, msg, usize(10), i32(0), io), io);
   printf("  sent = %d\n", sent);
   assert(sent == i32(10));
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
-  received := io.await(tcp.recv(accepted_fd, recv_buf, usize(256), i32(0)), io);
+  received := io.await(tcp.recv(accepted_fd, recv_buf, usize(256), i32(0), io), io);
   printf("  received = %d\n", received);
   assert(received == i32(10));
   printf("  verifying message...\n");
@@ -107,7 +107,7 @@ test("TCP echo server-client", {
   assert((recv_buf &+ usize(3)).* == u8(108));
   assert((recv_buf &+ usize(4)).* == u8(111));
   free(.Some(*(void)(recv_buf)));
-  shut := io.await(tcp.shutdown(client_fd, SHUT_RDWR), io);
+  shut := io.await(tcp.shutdown(client_fd, SHUT_RDWR, io), io);
   printf("  shutdown = %d\n", shut);
   c1 := io.await(tcp.close(client_fd), io);
   printf("  close client = %d\n", c1);

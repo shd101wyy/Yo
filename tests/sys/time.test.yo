@@ -19,7 +19,7 @@ create_file :: (fn(test_path : *(u8), content : *(u8), content_len : u32, io : I
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
-  wr := io.await(file.write(fd, content, content_len, u64(0)), io);
+  wr := io.await(file.write(fd, content, content_len, u64(0), io), io);
   assert(wr == i32(content_len));
   cr := io.await(file.close(fd), io);
   assert(cr == i32(0));
@@ -138,7 +138,7 @@ test("futime preserves file content", {
   assert(ret == i32(0));
   read_uninit := MaybeUninit(Array(u8, usize(64))).new();
   read_buf := *(u8)(read_uninit.as_ptr());
-  rd := io.await(file.read(fd, read_buf, u32(12), u64(0)), io);
+  rd := io.await(file.read(fd, read_buf, u32(12), u64(0), io), io);
   assert(rd == i32(12));
   cr := io.await(file.close(fd), io);
   assert(cr == i32(0));
