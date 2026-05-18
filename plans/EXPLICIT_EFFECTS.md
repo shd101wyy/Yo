@@ -69,7 +69,7 @@ is at the surface-syntax + evaluator level only.
 | Effect record (struct-based) | `using(exn : Exception)` then `exn.throw(...)`                                    | `exn : Exception` then `exn.throw(...)`                                |
 | Continuation control         | `return(value)` resumes, `escape(value)` unwinds                                  | `return(value)` resumes, `unwind(value)` unwinds (renamed for clarity) |
 | Skip + fallback to given     | `safe_divide(1, 0, using(undefined))`                                             | n/a — no implicit lookup, no fallback                                  |
-| Effect row polymorphism      | `forall(T : Type, ...(E))` + `using(...(E))`                                      | `forall(T : Type, E : Type)` + `e : E` (see §2)                        |
+| Effect row polymorphism      | `forall(T : Type, ...(E))` + `using(...(E))`                                      | `forall(T : Type, E : Struct)` + `e : E` (see §2)                      |
 
 Removed keywords: `using`, `given`. Renamed: `escape` → `unwind`.
 
@@ -93,7 +93,7 @@ result := run(might_fail);   // E inferred from might_fail's signature
 ### After
 
 ```rust
-run :: (fn(forall(T : Type, E : Type),
+run :: (fn(forall(T : Type, E : Struct),
     f : (fn(e : E) -> T),
     e : E) -> T)(f(e));
 
@@ -171,11 +171,11 @@ spawn : (fn(forall(T : Type, ...(E)),
     fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
 
 // ── AFTER ──
-async : (fn(forall(T : Type, E : Type),
+async : (fn(forall(T : Type, E : Struct),
     action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E)))
-await : (fn(forall(T : Type, E : Type),
+await : (fn(forall(T : Type, E : Struct),
     fut : Impl(Future(T, E)), e : E) -> T)
-spawn : (fn(forall(T : Type, E : Type),
+spawn : (fn(forall(T : Type, E : Struct),
     fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 ```
 

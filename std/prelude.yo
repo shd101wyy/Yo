@@ -5903,6 +5903,10 @@ impl(
 );
 _Type :: Type;
 export(Type : _Type);
+/// Constraint for effect struct type variables.
+Struct :: Type;
+export(Struct);
+export(Type : _Type);
 /// Type reflection metadata structs — used by `Type.get_info()`.
 /// StructKind — discriminant for struct flavors.
 StructKind :: enum(
@@ -8175,21 +8179,21 @@ export(JoinHandle);
 /// Automatically injected into `main` when declared with `io : IO`.
 IO :: struct(
   /// Create a new `Future` from an async closure.
-  async : (fn(forall(T : Type, E : Type), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  async : (fn(forall(T : Type, E : Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   /// Await a `Future`, suspending until its result is ready.
-  await : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E)), e : E) -> T),
+  await : (fn(forall(T : Type, E : Struct), fut : Impl(Future(T, E)), e : E) -> T),
   /// Inspect the current state of a `Future` without blocking.
   state : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
-  spawn : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+  spawn : (fn(forall(T : Type, E : Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 export(IO);
 extern(
   "Yo",
-  __yo_io_async : (fn(forall(T : Type, E : Type), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
-  __yo_io_await : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E)), e : E) -> T),
+  __yo_io_async : (fn(forall(T : Type, E : Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  __yo_io_await : (fn(forall(T : Type, E : Struct), fut : Impl(Future(T, E)), e : E) -> T),
   __yo_io_state : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
-  __yo_io_spawn : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+  __yo_io_spawn : (fn(forall(T : Type, E : Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 /// Built-in IO module instance. Automatically injected for `main` functions
 /// with `io : IO`.
