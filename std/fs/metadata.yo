@@ -6,7 +6,7 @@
 //! ```rust
 //! { metadata } :: import "std/fs/metadata";
 //!
-//! main :: (fn(using(io : IO)) -> unit)({
+//! main :: (fn(io : IO) -> unit)({
 //!   given(exn) : Exception = {
 //!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
 //!       { println(error.to_string()); exit(i32(1)); }
@@ -107,7 +107,7 @@ extern(
 // ============================================================================
 // Internal helper to stat a path
 // ============================================================================
-_stat_path :: (fn(path : Path, flags : i32, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(
+_stat_path :: (fn(path : Path, flags : i32, io : IO) -> Impl(Future(Metadata, IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -127,11 +127,11 @@ _stat_path :: (fn(path : Path, flags : i32, using(io : IO)) -> Impl(Future(Metad
   })
 );
 /// Get metadata for a path (follows symlinks).
-metadata :: (fn(path : Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, AT_STATX_SYNC_AS_STAT));
+metadata :: (fn(path : Path, io : IO) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, AT_STATX_SYNC_AS_STAT));
 /// Get metadata for a path given as a raw string (follows symlinks).
-metadata_str :: (fn(path : str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(metadata(Path.new(String.from(path))));
+metadata_str :: (fn(path : str, io : IO) -> Impl(Future(Metadata, IO, Exception)))(metadata(Path.new(String.from(path))));
 /// Get metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(path : Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT));
+symlink_metadata :: (fn(path : Path, io : IO) -> Impl(Future(Metadata, IO, Exception)))(_stat_path(path, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT));
 /// Get metadata for a path given as a raw string (does NOT follow symlinks).
-symlink_metadata_str :: (fn(path : str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(symlink_metadata(Path.new(String.from(path))));
+symlink_metadata_str :: (fn(path : str, io : IO) -> Impl(Future(Metadata, IO, Exception)))(symlink_metadata(Path.new(String.from(path))));
 export(metadata, metadata_str, symlink_metadata, symlink_metadata_str);

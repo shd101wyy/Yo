@@ -5,7 +5,7 @@
 //! ```rust
 //! { walk, WalkEntry } :: import "std/fs/walker";
 //!
-//! main :: (fn(using(io : IO)) -> unit)({
+//! main :: (fn(io : IO) -> unit)({
 //!   given(exn) : Exception = {
 //!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
 //!       { println(error.to_string()); exit(i32(1)); }
@@ -67,7 +67,7 @@ _join_path :: (fn(base : String, name : String) -> String)(
 // Walk functions
 // ============================================================================
 // Walk a directory tree with custom options.
-walk_with :: (fn(root : Path, options : WalkOptions, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))({
+walk_with :: (fn(root : Path, options : WalkOptions, io : IO) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))({
   root_s := root.to_string();
   io.async((using(io, exn)) => {
     results := ArrayList(WalkEntry).new();
@@ -130,10 +130,10 @@ walk_with :: (fn(root : Path, options : WalkOptions, using(io : IO)) -> Impl(Fut
     results
   })
 });
-walk_with_cstr :: (fn(root : *(u8), options : WalkOptions, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(
+walk_with_cstr :: (fn(root : *(u8), options : WalkOptions, io : IO) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(
   walk_with(Path.from_cstr(root), options)
 );
 /// Walk a directory tree with default options.
-walk :: (fn(root : Path, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(walk_with(root, WalkOptions.defaults()));
-walk_cstr :: (fn(root : *(u8), using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(walk(Path.from_cstr(root)));
+walk :: (fn(root : Path, io : IO) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(walk_with(root, WalkOptions.defaults()));
+walk_cstr :: (fn(root : *(u8), io : IO) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(walk(Path.from_cstr(root)));
 export(walk, walk_cstr, walk_with, walk_with_cstr);

@@ -8,12 +8,12 @@
 //   { fetch, HttpResponse } :: import "std/http";
 //   { Exception } :: import "std/error";
 //
-//   main :: (fn(using(io : IO)) -> unit)({
-//     given(exn) := Exception(throw : ((err) -> {
+//   main :: (fn(io : IO) -> unit)({
+//     exn := Exception(throw : ((err) -> {
 //       println(err.message());
 //       unwind ();
 //     }));
-//     resp := io.await(fetch(`http://example.com/api/data`, using(io)));
+//     resp := io.await(fetch(`http://example.com/api/data`, io));
 //     println(resp.body);
 //   });
 open(import("../string"));
@@ -179,14 +179,14 @@ _find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
 // ============================================================================
 // Internal: read full HTTP response from a TCP stream
 // ============================================================================
-_read_http_response :: (fn(stream : TcpStream, using(io : IO, exn : Exception)) -> String)({
+_read_http_response :: (fn(stream : TcpStream, io : IO, exn : Exception) -> String)({
   buf_size := usize(8192);
   buf := *(u8)(malloc(buf_size).unwrap());
   result := ArrayList(u8).new();
   // Read until connection closes or we've read the full response
   done := false;
   while(runtime(!(done)), {
-    n := io.await(stream.read(buf, buf_size, using(io)));
+    n := io.await(stream.read(buf, buf_size, io));
     cond(
       (n <= i32(0)) => {
         done = true;
@@ -243,15 +243,15 @@ _read_http_response :: (fn(stream : TcpStream, using(io : IO, exn : Exception)) 
 ///
 /// ```rust
 /// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
-/// resp := io.await(fetch_with(`http://example.com/api`, opts, using(io)));
+/// resp := io.await(fetch_with(`http://example.com/api`, opts, io));
 /// ```
 fetch_with :: (
-  fn(url_str : String, opts : FetchOptions, using(io : IO)) ->
+  fn(url_str : String, opts : FetchOptions, io : IO) ->
     Impl(Future(HttpResponse, IO, Exception))
 )(
   io.async((using(io : IO, exn : Exception)) => {
     // Parse URL
-    url := Url.parse(url_str.as_str(), using(exn));
+    url := Url.parse(url_str.as_str(), exn);
     // Validate scheme
     scheme := url.scheme();
     is_http := (scheme == `http`);
@@ -281,7 +281,7 @@ fetch_with :: (
       )
     );
     // Resolve hostname to IP
-    addrs := io.await(lookup_host(host, using(io)));
+    addrs := io.await(lookup_host(host, io));
     cond(
       (addrs.len() == usize(0)) => {
         exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${host}`)));
@@ -291,7 +291,7 @@ fetch_with :: (
     ip := addrs.get(usize(0)).unwrap();
     addr := SocketAddr.new(ip, port);
     // Connect
-    stream := io.await(TcpStream.connect(addr, using(io)));
+    stream := io.await(TcpStream.connect(addr, io));
     // Build the request path (include query string if present)
     req_path := url.path();
     cond(
@@ -329,9 +329,9 @@ fetch_with :: (
     req.set_header(`Connection`, `close`);
     // Send request
     req_str := req.to_string();
-    io.await(stream.write_string(req_str, using(io)));
+    io.await(stream.write_string(req_str, io));
     // Read response
-    raw_response := _read_http_response(stream, using(io, exn));
+    raw_response := _read_http_response(stream, io, exn);
     // Close connection
     io.await(stream.close(using(io)));
     // Parse response
@@ -352,15 +352,15 @@ export(fetch_with);
 /// # Example
 ///
 /// ```rust
-/// resp := io.await(fetch(`http://example.com`, using(io)));
+/// resp := io.await(fetch(`http://example.com`, io));
 /// cond(resp.is_ok() => println(resp.body), true => println(`Error`));
 /// ```
 fetch :: (
-  fn(url_str : String, using(io : IO)) ->
+  fn(url_str : String, io : IO) ->
     Impl(Future(HttpResponse, IO, Exception))
 )(
   io.async((using(io : IO, exn : Exception)) => {
-    return(io.await(fetch_with(url_str, FetchOptions.new(), using(io))));
+    return(io.await(fetch_with(url_str, FetchOptions.new(), io)));
   })
 );
 export(fetch);

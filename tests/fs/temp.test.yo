@@ -13,7 +13,7 @@ fs_dir :: import("std/fs/dir");
 // TempDir
 // ============================================================================
 test("TempDir.new creates a directory", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -26,17 +26,17 @@ test("TempDir.new creates a directory", {
   printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
   assert(p.len() > usize(0), "path should not be empty");
   // Verify it exists
-  e := io.await(fs_file.exists(td.path(), using(io)));
+  e := io.await(fs_file.exists(td.path(), io));
   assert(e, "temp dir should exist");
   // Remove
   io.await(td.remove());
   printf("  removed ok\n");
   // Verify removed
-  e2 := io.await(fs_file.exists(td.path(), using(io)));
+  e2 := io.await(fs_file.exists(td.path(), io));
   assert(!(e2), "temp dir should not exist after remove");
 });
 test("TempDir.new_in creates in specified parent", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -54,7 +54,7 @@ test("TempDir.new_in creates in specified parent", {
   io.await(td.remove());
 });
 test("TempDir.remove is idempotent", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -72,7 +72,7 @@ test("TempDir.remove is idempotent", {
 // TempFile
 // ============================================================================
 test("TempFile.new creates a file", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -85,17 +85,17 @@ test("TempFile.new creates a file", {
   printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
   assert(p.len() > usize(0), "path should not be empty");
   // Verify it exists
-  e := io.await(fs_file.exists(tf.path(), using(io)));
+  e := io.await(fs_file.exists(tf.path(), io));
   assert(e, "temp file should exist");
   // Remove
   io.await(tf.remove());
   printf("  removed ok\n");
   // Verify removed
-  e2 := io.await(fs_file.exists(tf.path(), using(io)));
+  e2 := io.await(fs_file.exists(tf.path(), io));
   assert(!(e2), "temp file should not exist after remove");
 });
 test("TempFile.new_in creates in specified parent", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -113,7 +113,7 @@ test("TempFile.new_in creates in specified parent", {
   io.await(tf.remove());
 });
 test("TempFile.file returns usable File", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -133,7 +133,7 @@ test("TempFile.file returns usable File", {
   io.await(tf.remove());
 });
 test("TempFile.remove is idempotent", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");

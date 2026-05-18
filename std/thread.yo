@@ -8,7 +8,7 @@ extern(
 extern(
   "Yo",
   __yo_thread_t : Type,
-  __yo_thread_spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> __yo_thread_t),
+  __yo_thread_spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
 );
 /// OS thread handle. Each spawned thread gets its own IO event loop.
@@ -19,7 +19,7 @@ impl(
   Thread,
   /// Spawn a new OS thread running the given closure.
   /// The closure receives its own per-thread IO event loop.
-  spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> Self)({
+  spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> Self)({
     raw := __yo_thread_spawn(cb);
     Self(raw)
   }),

@@ -4,13 +4,13 @@
 //! Each worker thread has its own GC heap and async IO event loop.
 extern(
   "Yo",
-  __yo_worker_spawn : (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> unit),
+  __yo_worker_spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> unit),
   __yo_worker_get_num_threads : (fn() -> usize),
   __yo_worker_set_num_threads : (fn(num : usize) -> unit)
 );
 /// Spawn a task on the thread pool. Returns immediately; the task runs in the background.
 /// Tasks are distributed round-robin to worker threads.
-spawn :: (fn(cb : Impl(Fn(using(io : IO)) -> unit, Send)) -> unit)({
+spawn :: (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> unit)({
   __yo_worker_spawn(cb);
 });
 /// Get the number of worker threads in the pool.

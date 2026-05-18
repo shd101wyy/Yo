@@ -9,7 +9,7 @@
 //! { BufWriter } :: import "std/sys/bufio/buf_writer";
 //!
 //! writer := BufWriter.new(fd);
-//! io.await(writer.write_string(`hello\n`, using(io)));
+//! io.await(writer.write_string(`hello\n`, io));
 //! io.await(writer.flush(using(io)));
 //! ```
 { ArrayList } :: import("../../collections/array_list");
@@ -54,9 +54,9 @@ impl(
     self._buf.len()
   ),
   // Internal: flush the buffer contents to fd.
-  _flush_inner : (fn(self : Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
+  _flush_inner : (fn(self : Self, io : IO) -> Impl(Future(Result(unit, IOError), IO)))({
     the_fd := self._fd;
-    io.async((using(io : IO)) => {
+    io.async((io : IO) => {
       (write_err : Option(IOError)) =.None;
       cond(
         (self._buf.len() > usize(0)) => {
@@ -90,9 +90,9 @@ impl(
   // Write bytes from a pointer into the buffer.
   // Automatically flushes when the buffer is full.
   // Returns total number of bytes written.
-  write : (fn(self : Self, data : *(u8), size : u32, using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
+  write : (fn(self : Self, data : *(u8), size : u32, io : IO) -> Impl(Future(Result(i32, IOError), IO)))({
     the_fd := self._fd;
-    io.async((using(io : IO)) => {
+    io.async((io : IO) => {
       remaining := usize(size);
       src_pos := usize(0);
       (write_err : Option(IOError)) =.None;
@@ -133,23 +133,23 @@ impl(
     })
   }),
   // Write a String to the buffer.
-  write_string : (fn(self : Self, s : String, using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
-    io.async((using(io : IO)) => {
+  write_string : (fn(self : Self, s : String, io : IO) -> Impl(Future(Result(i32, IOError), IO)))(
+    io.async((io : IO) => {
       bytes := s.as_bytes();
-      result := io.await(self.write(bytes.ptr().unwrap(), u32(bytes.len()), using(io)));
+      result := io.await(self.write(bytes.ptr().unwrap(), u32(bytes.len()), io));
       result
     })
   ),
   // Write bytes from an ArrayList to the buffer.
-  write_bytes : (fn(self : Self, data : ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
-    io.async((using(io : IO)) => {
-      result := io.await(self.write(data.ptr().unwrap(), u32(data.len()), using(io)));
+  write_bytes : (fn(self : Self, data : ArrayList(u8), io : IO) -> Impl(Future(Result(i32, IOError), IO)))(
+    io.async((io : IO) => {
+      result := io.await(self.write(data.ptr().unwrap(), u32(data.len()), io));
       result
     })
   ),
   // Flush all buffered data to the underlying file descriptor.
-  flush : (fn(self : Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
-    io.async((using(io : IO)) => {
+  flush : (fn(self : Self, io : IO) -> Impl(Future(Result(unit, IOError), IO)))(
+    io.async((io : IO) => {
       flush_result := io.await(self._flush_inner(using(io)));
       flush_result
     })

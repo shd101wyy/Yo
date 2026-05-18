@@ -651,7 +651,7 @@ test("Test contextual parameters (using/given)", {
     )(
       add_fn(x, y)
     );
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
+    my_add := (fn(a : i32, b : i32) -> i32)(a + b);
     // Implicit resolution: finds my_add via given lookup
     result := add_numbers(3, 4);
     assert(result == 7, "implicit resolution failed");
@@ -669,7 +669,7 @@ test("Test contextual parameters (using/given)", {
     );
     my_adder :: (fn(a : i32, b : i32) -> i32)(a + b);
     // Explicit using: passes value directly
-    result := add_numbers(5, 6, using(my_adder));
+    result := add_numbers(5, 6, my_adder);
     assert(result == 11, "explicit using failed");
   };
   // using(undefined) skips explicit and falls back to given lookup
@@ -683,8 +683,8 @@ test("Test contextual parameters (using/given)", {
     )(
       add_fn(x, y)
     );
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
-    result := add_numbers(7, 8, using(undefined));
+    my_add := (fn(a : i32, b : i32) -> i32)(a + b);
+    result := add_numbers(7, 8, undefined);
     assert(result == 15, "using(undefined) should fall back to given lookup");
   };
   // given with : binding
@@ -697,8 +697,7 @@ test("Test contextual parameters (using/given)", {
     )(
       transform(x)
     );
-    (given(my_transform) : (fn(v : i32) -> i32)) =
-      (v) -> (v * 3);
+    (my_transform : (fn(v : i32) -> i32)) = (v) -> (v * 3);
     result := apply(10);
     assert(result == 30, "given with : binding failed");
   };
@@ -715,8 +714,8 @@ test("Test contextual parameters (using/given)", {
     )(
       to_bool(add_fn(x, 1))
     );
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
-    given(my_is_positive) := (fn(a : i32) -> bool)(a > 0);
+    my_add := (fn(a : i32, b : i32) -> i32)(a + b);
+    my_is_positive := (fn(a : i32) -> bool)(a > 0);
     result := compute(5);
     assert(result == true, "multiple implicit params failed");
   };
@@ -735,7 +734,7 @@ test("Test contextual parameters (using/given)", {
     );
     my_add :: (fn(a : i32, b : i32) -> i32)(a + b);
     my_neg :: (fn(a : i32) -> i32)(i32(0) - a);
-    result := compute(5, using(my_add, my_neg));
+    result := compute(5, my_add, my_neg);
     assert(result == (i32(0) - 15), "explicit using with multiple params failed");
   };
   // using(undefined) for partial skip with multiple implicit params
@@ -751,10 +750,10 @@ test("Test contextual parameters (using/given)", {
     )(
       scale(add_fn(x, 1))
     );
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
+    my_add := (fn(a : i32, b : i32) -> i32)(a + b);
     my_double :: (fn(a : i32) -> i32)(a * 2);
     // First implicit param skipped (uses given lookup), second explicit
-    result := compute(4, using(undefined, my_double));
+    result := compute(4, undefined, my_double);
     assert(result == 10, "partial using(undefined) failed");
   };
   // Ambiguous implicit should error
@@ -767,8 +766,8 @@ test("Test contextual parameters (using/given)", {
     )(
       op(x)
     );
-    given(double_it) := (fn(a : i32) -> i32)(a * 2);
-    given(triple_it) := (fn(a : i32) -> i32)(a * 3);
+    double_it := (fn(a : i32) -> i32)(a * 2);
+    triple_it := (fn(a : i32) -> i32)(a * 3);
     comptime_expect_error(apply(5)); // Ambiguous: two given variables with same type
   };
   // No matching given should error
@@ -781,7 +780,7 @@ test("Test contextual parameters (using/given)", {
     )(
       op(x)
     );
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
+    my_add := (fn(a : i32, b : i32) -> i32)(a + b);
     comptime_expect_error(apply(5)); // No given with type (fn(i32) -> bool)
   };
   // Implicit with generic function (forall + using)
@@ -795,7 +794,7 @@ test("Test contextual parameters (using/given)", {
     )(
       op(x)
     );
-    given(inc) := (fn(a : i32) -> i32)(a + 1);
+    inc := (fn(a : i32) -> i32)(a + 1);
     result := apply(41);
     assert(result == 42, "forall + using failed");
   };

@@ -9,8 +9,8 @@
 //   { IpAddr } :: import "std/net/addr";
 //   { Exception } :: import "std/error";
 //
-//   main :: (fn(using(io : IO)) -> unit)({
-//     given(exn) := Exception(throw : ((err) -> {
+//   main :: (fn(io : IO) -> unit)({
+//     exn := Exception(throw : ((err) -> {
 //       println(err.message());
 //       unwind ();
 //     }));
@@ -35,7 +35,7 @@ IO_dns :: import("../sys/dns");
 // DNS lookup
 // ============================================================================
 /// Resolve a hostname to a list of IP addresses.
-lookup_host :: (fn(host : String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr), IO, Exception)))(
+lookup_host :: (fn(host : String, io : IO) -> Impl(Future(ArrayList(IpAddr), IO, Exception)))(
   io.async((using(io : IO, exn : Exception)) => {
     host_cstr_bytes := host.to_cstr();
     host_cstr := host_cstr_bytes.ptr().unwrap();
@@ -86,9 +86,9 @@ lookup_host :: (fn(host : String, using(io : IO)) -> Impl(Future(ArrayList(IpAdd
   })
 );
 /// Resolve a hostname and port to a list of socket addresses.
-resolve :: (fn(host : String, port : u16, using(io : IO)) -> Impl(Future(ArrayList(SocketAddr), IO, Exception)))(
+resolve :: (fn(host : String, port : u16, io : IO) -> Impl(Future(ArrayList(SocketAddr), IO, Exception)))(
   io.async((using(io : IO, exn : Exception)) => {
-    addrs := io.await(lookup_host(host, using(io)));
+    addrs := io.await(lookup_host(host, io));
     result := ArrayList(SocketAddr).new();
     i := usize(0);
     while(runtime(i < addrs.len()), {

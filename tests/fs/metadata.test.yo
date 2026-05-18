@@ -13,7 +13,7 @@ fs_dir :: import("std/fs/dir");
 // metadata on a regular file
 // ============================================================================
 test("metadata returns file info", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -48,7 +48,7 @@ test("metadata returns file info", {
 // metadata on a directory
 // ============================================================================
 test("metadata on directory", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -59,7 +59,7 @@ test("metadata on directory", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_meta_dir`));
   cond(
-    io.await(fs_file.exists(dpath, using(io))) => {
+    io.await(fs_file.exists(dpath, io)) => {
       io.await(fs_dir.remove_dir(dpath));
     },
     true => ()
@@ -76,7 +76,7 @@ test("metadata on directory", {
 // metadata_str
 // ============================================================================
 test("metadata_str works with str path", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -98,7 +98,7 @@ test("metadata_str works with str path", {
 // ============================================================================
 test("metadata nonexistent returns error", {
   fpath := Path.new(`/nonexistent/yo_fs_meta_nope.txt`);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         printf("  got expected error\n");
@@ -116,7 +116,7 @@ test("symlink_metadata on symlink reports symlink", {
   tmp := temp_dir();
   src := Path.new(path_join(tmp, `yo_fs_meta_sym_src.txt`));
   lnk := Path.new(path_join(tmp, `yo_fs_meta_sym_lnk.txt`));
-  given(setup_exn) := Exception(
+  setup_exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception during setup");
@@ -125,20 +125,20 @@ test("symlink_metadata on symlink reports symlink", {
     )
   );
   cond(
-    io.await(fs_file.exists(lnk, using(io))) => {
+    io.await(fs_file.exists(lnk, io)) => {
       io.await(fs_dir.remove_file(lnk));
     },
     true => ()
   );
   cond(
-    io.await(fs_file.exists(src, using(io))) => {
+    io.await(fs_file.exists(src, io)) => {
       io.await(fs_dir.remove_file(src));
     },
     true => ()
   );
   io.await(fs_file.write_file(src, String.from("symlink meta test")));
   // Symlink may fail with PermissionDenied on Windows
-  given(sym_exn) := Exception(
+  sym_exn := Exception(
     throw : (
       (err) -> {
         match(
@@ -161,7 +161,7 @@ test("symlink_metadata on symlink reports symlink", {
     )
   );
   io.await(fs_dir.symlink(src, lnk));
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -187,7 +187,7 @@ test("symlink_metadata on symlink reports symlink", {
 // File.metadata method
 // ============================================================================
 test("File.metadata returns correct info", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");

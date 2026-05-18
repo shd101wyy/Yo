@@ -9,8 +9,8 @@
 //   { SocketAddr, IpAddr } :: import "std/net/addr";
 //   { Exception } :: import "std/error";
 //
-//   main :: (fn(using(io : IO)) -> unit)({
-//     given(exn) := Exception(throw : ((err) -> {
+//   main :: (fn(io : IO) -> unit)({
+//     exn := Exception(throw : ((err) -> {
 //       println(err.message());
 //       unwind ();
 //     }));
@@ -46,7 +46,7 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       IO_tcp.make_sockaddr_in6(*(u8)("::1"), addr.port)
   )
 );
-_throw_net_io :: (fn(errno_val : i32, using(exn : Exception)) -> unit)(
+_throw_net_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
   exn.throw(dyn(NetError.from_io(IOError.from_errno(errno_val))))
 );
 // ============================================================================
@@ -61,7 +61,7 @@ UdpSocket :: object(
 impl(
   UdpSocket,
   /// Create and bind a UDP socket to the given address.
-  bind : (fn(addr : SocketAddr, using(io : IO)) -> Impl(Future(UdpSocket, IO, Exception)))(
+  bind : (fn(addr : SocketAddr, io : IO) -> Impl(Future(UdpSocket, IO, Exception)))(
     io.async((using(io : IO, exn : Exception)) => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
@@ -84,7 +84,7 @@ impl(
   ),
   /// Send a datagram to a specific address.
   /// Returns the number of bytes sent.
-  send_to : (fn(self : Self, data : ArrayList(u8), addr : SocketAddr, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  send_to : (fn(self : Self, data : ArrayList(u8), addr : SocketAddr, io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       saddr := _make_sockaddr(addr);
@@ -95,7 +95,7 @@ impl(
   }),
   /// Receive a datagram into the provided buffer.
   /// Returns the number of bytes received.
-  recv : (fn(self : Self, buf : *(u8), size : usize, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  recv : (fn(self : Self, buf : *(u8), size : usize, io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_udp.recv(fd, buf, size, i32(0)));
@@ -104,7 +104,7 @@ impl(
   }),
   /// Receive a datagram and retrieve the sender's address.
   /// Returns the number of bytes received.
-  recv_from : (fn(self : Self, buf : *(u8), size : usize, src_addr : *(u8), src_addr_len : *(u32), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  recv_from : (fn(self : Self, buf : *(u8), size : usize, src_addr : *(u8), src_addr_len : *(u32), io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_udp.recvfrom(fd, buf, size, i32(0), src_addr, src_addr_len));
@@ -112,7 +112,7 @@ impl(
     })
   }),
   /// Send data on a connected socket (requires prior connect).
-  send : (fn(self : Self, data : ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  send : (fn(self : Self, data : ArrayList(u8), io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)));
@@ -120,7 +120,7 @@ impl(
     })
   }),
   /// Close the socket.
-  close : (fn(self : Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  close : (fn(self : Self, io : IO) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       cond(
@@ -139,7 +139,7 @@ impl(
     })
   }),
   /// Enable or disable SO_BROADCAST on the socket.
-  set_broadcast : (fn(self : Self, enabled : bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  set_broadcast : (fn(self : Self, enabled : bool, io : IO) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       val := cond(enabled => i32(1), true => i32(0));

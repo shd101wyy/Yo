@@ -4,7 +4,7 @@ open(import("std/string"));
 { Error, AnyError, Exception } :: import("std/error");
 // ===== Parse Primitives =====
 test("json_parse null", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -17,7 +17,7 @@ test("json_parse null", {
   assert(is_null, "should be Null");
 });
 test("json_parse true", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -29,7 +29,7 @@ test("json_parse true", {
   assert(v.as_bool().unwrap() == true, "should be true");
 });
 test("json_parse false", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -41,7 +41,7 @@ test("json_parse false", {
   assert(v.as_bool().unwrap() == false, "should be false");
 });
 test("json_parse integer", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -53,7 +53,7 @@ test("json_parse integer", {
   assert(v.as_number().unwrap() == f64(42), "should be 42");
 });
 test("json_parse negative number", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -65,7 +65,7 @@ test("json_parse negative number", {
   assert(v.as_number().unwrap() == f64(-(17)), "should be -17");
 });
 test("json_parse float", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -78,7 +78,7 @@ test("json_parse float", {
   assert((n > f64(3.139)) && (n < f64(3.141)), "should be approximately 3.14");
 });
 test("json_parse string", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -90,7 +90,7 @@ test("json_parse string", {
   assert(v.as_string().unwrap().as_str() == "hello", "should be hello");
 });
 test("json_parse string with escapes", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -105,7 +105,7 @@ test("json_parse string with escapes", {
   assert(bytes.get(usize(5)).unwrap() == u8(10), "byte 5 should be newline");
 });
 test("json_parse empty string", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -118,7 +118,7 @@ test("json_parse empty string", {
 });
 // ===== Parse Arrays =====
 test("json_parse empty array", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -131,7 +131,7 @@ test("json_parse empty array", {
   assert(arr.len() == usize(0), "empty array should have 0 elements");
 });
 test("json_parse array of numbers", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -147,7 +147,7 @@ test("json_parse array of numbers", {
   assert(arr.get(usize(2)).unwrap().as_number().unwrap() == f64(3), "element 2");
 });
 test("json_parse mixed array", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -166,7 +166,7 @@ test("json_parse mixed array", {
 });
 // ===== Parse Objects =====
 test("json_parse empty object", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -179,7 +179,7 @@ test("json_parse empty object", {
   assert(entries.len() == usize(0), "empty object should have 0 entries");
 });
 test("json_parse simple object", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -196,7 +196,7 @@ test("json_parse simple object", {
   assert(value.unwrap().as_number().unwrap() == f64(42), "value should be 42");
 });
 test("json_parse nested object", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -210,7 +210,7 @@ test("json_parse nested object", {
   assert(inner.as_number().unwrap() == f64(99), "inner value should be 99");
 });
 test("json_parse nested array in object", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -225,7 +225,7 @@ test("json_parse nested array in object", {
 });
 // ===== Parse Whitespace =====
 test("json_parse with whitespace", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -238,7 +238,7 @@ test("json_parse with whitespace", {
 });
 // ===== Parse Errors =====
 test("json_parse empty input", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         unwind(());
@@ -249,7 +249,7 @@ test("json_parse empty input", {
   assert(false, "empty input should throw");
 });
 test("json_parse unclosed string error", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         unwind(());
@@ -311,7 +311,7 @@ test("json_stringify object", {
 });
 // ===== Roundtrip =====
 test("json roundtrip simple object", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -325,7 +325,7 @@ test("json roundtrip simple object", {
   assert(output.as_str() == input, "roundtrip should preserve simple object");
 });
 test("json roundtrip nested", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -339,7 +339,7 @@ test("json roundtrip nested", {
   assert(output.as_str() == input, "roundtrip should preserve nested structure");
 });
 test("json roundtrip booleans and null", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -354,7 +354,7 @@ test("json roundtrip booleans and null", {
 });
 // ===== JsonValue Methods =====
 test("JsonValue.get missing key", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -366,7 +366,7 @@ test("JsonValue.get missing key", {
   assert(result.get(String.from("b")).is_none(), "missing key should return None");
 });
 test("JsonValue.get on non-object", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -378,7 +378,7 @@ test("JsonValue.get on non-object", {
   assert(result.get(String.from("a")).is_none(), "get on number should return None");
 });
 test("JsonValue.at valid index", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -390,7 +390,7 @@ test("JsonValue.at valid index", {
   assert(result.at(usize(1)).unwrap().as_number().unwrap() == f64(20), "at(1) should be 20");
 });
 test("JsonValue.at on non-array", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");

@@ -19,13 +19,13 @@ test("Phase 4c: migrated struct effect record unwind", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-  divide :: (fn(x : i32, y : i32, using(r : Raise)) -> i32)(
+  divide :: (fn(x : i32, y : i32, r : Raise) -> i32)(
     cond(
       (y == 0) => r.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-  (given(r) : Raise) = Raise(
+  (r : Raise) = Raise(
     raise :
       (msg) -> {
         println(msg);
@@ -39,10 +39,10 @@ test("Phase 4c: migrated struct effect record resume", {
   Logger :: struct(
     log : (fn(msg : String) -> unit)
   );
-  shout :: (fn(msg : String, using(l : Logger)) -> unit)(
+  shout :: (fn(msg : String, l : Logger) -> unit)(
     l.log(msg)
   );
-  (given(l) : Logger) = Logger(
+  (l : Logger) = Logger(
     log :
       (msg) -> {
         println(msg);
@@ -57,13 +57,13 @@ test("Baseline: struct(...) builds a usable effect record type", {
   Raise :: struct(
     raise : (fn(msg : String) -> i32)
   );
-  divide :: (fn(x : i32, y : i32, using(r : Raise)) -> i32)(
+  divide :: (fn(x : i32, y : i32, r : Raise) -> i32)(
     cond(
       (y == 0) => r.raise(`div-by-zero`),
       true => (x / y)
     )
   );
-  (given(r) : Raise) = Raise(
+  (r : Raise) = Raise(
     raise :
       (msg) -> {
         println(msg);
@@ -77,11 +77,11 @@ test("Baseline: given/using round-trip with resume (struct)", {
   Logger :: struct(
     log : (fn(msg : String) -> unit)
   );
-  shout :: (fn(msg : String, using(l : Logger)) -> unit)(
+  shout :: (fn(msg : String, l : Logger) -> unit)(
     l.log(msg)
   );
   count := 0;
-  (given(l) : Logger) = Logger(
+  (l : Logger) = Logger(
     log :
       (msg) -> {
         println(msg);
@@ -105,15 +105,15 @@ test("Phase 4a: given(struct) inside a runtime branch", {
   Tag :: struct(
     name : (fn() -> str)
   );
-  speak :: (fn(using(t : Tag)) -> str)(
+  speak :: (fn(t : Tag) -> str)(
     t.name()
   );
   flag := true;
   if(flag, {
-    (given(t) : Tag) = Tag(name : (() -> "alpha"));
+    (t : Tag) = Tag(name : (() -> "alpha"));
     assert(speak() == "alpha", "branch-true picked alpha");
   }, {
-    (given(t) : Tag) = Tag(name : (() -> "beta"));
+    (t : Tag) = Tag(name : (() -> "beta"));
     assert(speak() == "beta", "branch-false picked beta");
   });
 });
@@ -121,13 +121,13 @@ test("Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
   Counter :: struct(
     next : (fn() -> i32)
   );
-  step :: (fn(using(c : Counter)) -> i32)(
+  step :: (fn(c : Counter) -> i32)(
     c.next()
   );
   i := Box(i32)(0);
   sum := Box(i32)(0);
   while(runtime(i.* < 3), {
-    (given(c) : Counter) = Counter(next : (() -> i32(7)));
+    (c : Counter) = Counter(next : (() -> i32(7)));
     sum.* = (sum.* + step());
     i.* = (i.* + 1);
   });
@@ -143,23 +143,23 @@ test("Phase 4b: given(struct) bound to runtime function-returned value", {
       true => Counter(next : (() -> i32(2)))
     )
   );
-  step :: (fn(using(c : Counter)) -> i32)(
+  step :: (fn(c : Counter) -> i32)(
     c.next()
   );
   flag := true;
   if(flag, {
-    (given(c) : Counter) = make_counter(true);
+    (c : Counter) = make_counter(true);
     assert(step() == 1, "use_a=true -> 1");
   }, {
-    (given(c) : Counter) = make_counter(false);
+    (c : Counter) = make_counter(false);
     assert(step() == 2, "use_a=false -> 2");
   });
   flag2 := false;
   if(flag2, {
-    (given(c) : Counter) = make_counter(true);
+    (c : Counter) = make_counter(true);
     assert(step() == 1, "unreachable");
   }, {
-    (given(c) : Counter) = make_counter(false);
+    (c : Counter) = make_counter(false);
     assert(step() == 2, "use_a=false -> 2");
   });
 });

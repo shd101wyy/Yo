@@ -9,8 +9,8 @@
 //   { SocketAddr, IpAddr } :: import "std/net/addr";
 //   { Exception } :: import "std/error";
 //
-//   main :: (fn(using(io : IO)) -> unit)({
-//     given(exn) := Exception(throw : ((err) -> {
+//   main :: (fn(io : IO) -> unit)({
+//     exn := Exception(throw : ((err) -> {
 //       println(err.message());
 //       unwind ();
 //     }));
@@ -49,7 +49,7 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       IO_tcp.make_sockaddr_in6(*(u8)("::1"), addr.port)
   )
 );
-_throw_io :: (fn(errno_val : i32, using(exn : Exception)) -> unit)(
+_throw_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
   exn.throw(dyn(NetError.from_io(IOError.from_errno(errno_val))))
 );
 // ============================================================================
@@ -73,7 +73,7 @@ TcpListener :: object(
 impl(
   TcpListener,
   /// Bind to a socket address and start listening.
-  bind : (fn(addr : SocketAddr, using(io : IO)) -> Impl(Future(TcpListener, IO, Exception)))(
+  bind : (fn(addr : SocketAddr, io : IO) -> Impl(Future(TcpListener, IO, Exception)))(
     io.async((using(io : IO, exn : Exception)) => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
@@ -110,7 +110,7 @@ impl(
     })
   ),
   /// Accept an incoming connection, returning a new `TcpStream`.
-  accept : (fn(self : Self, using(io : IO)) -> Impl(Future(TcpStream, IO, Exception)))({
+  accept : (fn(self : Self, io : IO) -> Impl(Future(TcpStream, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       // Allocate space for the peer address
@@ -145,7 +145,7 @@ impl(
     self._local_addr
   ),
   /// Close the listener socket.
-  close : (fn(self : Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  close : (fn(self : Self, io : IO) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       cond(
@@ -190,7 +190,7 @@ export(TcpListener);
 impl(
   TcpStream,
   /// Connect to a remote address, returning a new `TcpStream`.
-  connect : (fn(addr : SocketAddr, using(io : IO)) -> Impl(Future(TcpStream, IO, Exception)))(
+  connect : (fn(addr : SocketAddr, io : IO) -> Impl(Future(TcpStream, IO, Exception)))(
     io.async((using(io : IO, exn : Exception)) => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
@@ -219,7 +219,7 @@ impl(
   ),
   /// Read bytes from the stream into `buf`.
   /// Returns the number of bytes read, or 0 if the peer closed the connection.
-  read : (fn(self : Self, buf : *(u8), size : usize, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  read : (fn(self : Self, buf : *(u8), size : usize, io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_tcp.recv(fd, buf, size, i32(0)));
@@ -228,7 +228,7 @@ impl(
   }),
   /// Write a `str` to the stream.
   /// Returns the number of bytes written.
-  write_str : (fn(self : Self, data : str, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  write_str : (fn(self : Self, data : str, io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     s := String.from(data);
     s_bytes := s.as_bytes();
@@ -239,7 +239,7 @@ impl(
   }),
   /// Write a `String` to the stream.
   /// Returns the number of bytes written.
-  write_string : (fn(self : Self, data : String, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  write_string : (fn(self : Self, data : String, io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     data_bytes := data.as_bytes();
     io.async((using(io : IO, exn : Exception)) => {
@@ -249,7 +249,7 @@ impl(
   }),
   /// Write raw bytes from an `ArrayList(u8)` to the stream.
   /// Returns the number of bytes written.
-  write_bytes : (fn(self : Self, data : ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  write_bytes : (fn(self : Self, data : ArrayList(u8), io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_tcp.send(fd, data.ptr().unwrap(), data.len(), i32(0)));
@@ -257,7 +257,7 @@ impl(
     })
   }),
   /// Read all available data from the stream into a byte list.
-  read_bytes : (fn(self : Self, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))({
+  read_bytes : (fn(self : Self, io : IO) -> Impl(Future(ArrayList(u8), IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       buf_size := usize(4096);
@@ -290,7 +290,7 @@ impl(
   }),
   /// Shut down part or all of the connection.
   /// `how`: 0 = read, 1 = write, 2 = both.
-  shutdown : (fn(self : Self, how : i32, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  shutdown : (fn(self : Self, how : i32, io : IO) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       r := io.await(IO_tcp.shutdown(fd, how));
@@ -303,7 +303,7 @@ impl(
     })
   }),
   /// Close the stream.
-  close : (fn(self : Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  close : (fn(self : Self, io : IO) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       cond(
@@ -330,7 +330,7 @@ impl(
     self._fd
   ),
   /// Enable or disable TCP_NODELAY (disables Nagle's algorithm).
-  set_nodelay : (fn(self : Self, nodelay : bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  set_nodelay : (fn(self : Self, nodelay : bool, io : IO) -> Impl(Future(unit, IO, Exception)))({
     sock_fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       val := cond(nodelay => i32(1), true => i32(0));
@@ -345,7 +345,7 @@ impl(
     })
   }),
   /// Enable or disable SO_KEEPALIVE on the socket.
-  set_keepalive : (fn(self : Self, enabled : bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  set_keepalive : (fn(self : Self, enabled : bool, io : IO) -> Impl(Future(unit, IO, Exception)))({
     sock_fd := self._fd;
     io.async((using(io : IO, exn : Exception)) => {
       val := cond(enabled => i32(1), true => i32(0));

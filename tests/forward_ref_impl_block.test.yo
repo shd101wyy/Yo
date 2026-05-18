@@ -47,7 +47,7 @@ test("mutual recursion in single impl", {
 });
 // ---------- Test 3: forward call with effect parameters ----------
 //
-// The parser case: methods carry `using(exn : Exception)` and forward-call
+// The parser case: methods carry `exn : Exception` and forward-call
 // each other.
 MyErr :: object(msg : String);
 impl(MyErr, ToString(to_string : ((self) -> `my err`)));
@@ -55,10 +55,10 @@ impl(MyErr, Error());
 R :: struct(v : i32);
 impl(
   R,
-  outer : (fn(self : *(Self), using(exn : Exception)) -> i32)(
+  outer : (fn(self : *(Self), exn : Exception) -> i32)(
     self.inner(using(exn))
   ),
-  inner : (fn(self : *(Self), using(exn : Exception)) -> i32)(
+  inner : (fn(self : *(Self), exn : Exception) -> i32)(
     cond(
       (self.v < i32(0)) => exn.throw(dyn(MyErr(msg : `neg`))),
       true => self.v
@@ -67,7 +67,7 @@ impl(
 );
 test("forward call with effect params", {
   r := R(v : i32(99));
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       e -> {
         unwind(());
@@ -88,31 +88,31 @@ test("forward call with effect params", {
 S :: object(tag : i32);
 impl(
   S,
-  s_even : (fn(self : *(Self), i : i32, using(exn : Exception)) -> bool)(
+  s_even : (fn(self : *(Self), i : i32, exn : Exception) -> bool)(
     cond(
       (i == i32(0)) => true,
-      true => self.s_odd(i - i32(1), using(exn))
+      true => self.s_odd(i - i32(1), exn)
     )
   ),
-  s_odd : (fn(self : *(Self), i : i32, using(exn : Exception)) -> bool)(
+  s_odd : (fn(self : *(Self), i : i32, exn : Exception) -> bool)(
     cond(
       (i == i32(0)) => false,
-      true => self.s_even(i - i32(1), using(exn))
+      true => self.s_even(i - i32(1), exn)
     )
   )
 );
 test("mutual recursion with effect params (specialization-cycle)", {
   s := S(tag : i32(0));
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       e -> {
         unwind(());
       }
     )
   );
-  assert(s.s_even(i32(10), using(exn)), "10 is even");
-  assert(s.s_odd(i32(11), using(exn)), "11 is odd");
-  assert(!(s.s_even(i32(7), using(exn))), "7 is not even");
+  assert(s.s_even(i32(10), exn), "10 is even");
+  assert(s.s_odd(i32(11), exn), "11 is odd");
+  assert(!(s.s_even(i32(7), exn)), "7 is not even");
 });
 // ---------- Test 5: shell merge does not emit duplicate orphan FunctionValue
 //

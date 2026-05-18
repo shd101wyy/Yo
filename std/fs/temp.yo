@@ -5,7 +5,7 @@
 //! ```rust
 //! { TempDir } :: import "std/fs/temp";
 //!
-//! main :: (fn(using(io : IO)) -> unit)({
+//! main :: (fn(io : IO) -> unit)({
 //!   given(exn) : Exception = {
 //!     throw : (fn(forall(T : Type), error: AnyError) -> T)(
 //!       { println(error.to_string()); exit(i32(1)); }
@@ -59,7 +59,7 @@ TempDir :: object(
 impl(
   TempDir,
   // Create a temporary directory in the given parent directory.
-  new_in : (fn(parent : Path, using(io : IO)) -> Impl(Future(TempDir, IO, Exception)))(
+  new_in : (fn(parent : Path, io : IO) -> Impl(Future(TempDir, IO, Exception)))(
     io.async((using(io, exn)) => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
@@ -84,7 +84,7 @@ impl(
     })
   ),
   // Create a temporary directory in the system temp dir.
-  new : (fn(using(io : IO)) -> Impl(Future(TempDir, IO, Exception)))(
+  new : (fn(io : IO) -> Impl(Future(TempDir, IO, Exception)))(
     TempDir.new_in(Path.new(_default_tmp_dir()))
   ),
   // Get the path of the temporary directory.
@@ -92,7 +92,7 @@ impl(
     self._path
   ),
   // Remove the temporary directory.
-  remove : (fn(self : Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  remove : (fn(self : Self, io : IO) -> Impl(Future(unit, IO, Exception)))({
     self_path := self._path;
     io.async(
       (using(io, exn)) =>
@@ -116,7 +116,7 @@ TempFile :: object(
 impl(
   TempFile,
   // Create a temporary file in the given parent directory.
-  new_in : (fn(parent : Path, using(io : IO)) -> Impl(Future(TempFile, IO, Exception)))(
+  new_in : (fn(parent : Path, io : IO) -> Impl(Future(TempFile, IO, Exception)))(
     io.async((using(io, exn)) => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
@@ -142,7 +142,7 @@ impl(
     })
   ),
   // Create a temporary file in the system temp dir.
-  new : (fn(using(io : IO)) -> Impl(Future(TempFile, IO, Exception)))(
+  new : (fn(io : IO) -> Impl(Future(TempFile, IO, Exception)))(
     TempFile.new_in(Path.new(_default_tmp_dir()))
   ),
   // Get the underlying File object.
@@ -154,7 +154,7 @@ impl(
     self._path
   ),
   // Remove the temporary file.
-  remove : (fn(self : Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
+  remove : (fn(self : Self, io : IO) -> Impl(Future(unit, IO, Exception)))({
     self_file := self._file;
     self_path := self._path;
     io.async(

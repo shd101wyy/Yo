@@ -13,7 +13,7 @@ open(import("std/fmt"));
 // Convenience function tests
 // ============================================================================
 test("write_file and read_string round-trip", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         println(`  unexpected error: ${err}`);
@@ -33,7 +33,7 @@ test("write_file and read_string round-trip", {
   io.await(fs_dir.remove_file(fpath));
 });
 test("write_file_cstr and read_string_cstr", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -53,7 +53,7 @@ test("write_file_cstr and read_string_cstr", {
   io.await(fs_dir.remove_file(Path.new(fpath_s)));
 });
 test("read_file returns bytes", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -73,7 +73,7 @@ test("read_file returns bytes", {
   io.await(fs_dir.remove_file(fpath));
 });
 test("append_file appends to existing content", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -91,7 +91,7 @@ test("append_file appends to existing content", {
   io.await(fs_dir.remove_file(fpath));
 });
 test("exists returns true for existing file", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -102,14 +102,14 @@ test("exists returns true for existing file", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_exists.txt`));
   io.await(fs_file.write_file(fpath, String.from("exists")));
-  e := io.await(fs_file.exists(fpath, using(io)));
+  e := io.await(fs_file.exists(fpath, io));
   printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
   assert(e, "file should exist");
   io.await(fs_dir.remove_file(fpath));
 });
 test("exists returns false for nonexistent file", {
   fpath := Path.new(`/nonexistent/path/yo_fs_no_such_file.txt`);
-  e := io.await(fs_file.exists(fpath, using(io)));
+  e := io.await(fs_file.exists(fpath, io));
   printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
   assert(!(e), "file should not exist");
 });
@@ -117,7 +117,7 @@ test("exists returns false for nonexistent file", {
 // File object tests
 // ============================================================================
 test("File.open write and read_string", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         println(`  unexpected error: ${err}`);
@@ -143,7 +143,7 @@ test("File.open write and read_string", {
 });
 test("File.open nonexistent returns error", {
   fpath := Path.new(`/nonexistent/path/yo_fs_no_such.txt`);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         printf("  got error as expected\n");
@@ -155,7 +155,7 @@ test("File.open nonexistent returns error", {
   assert(false, "should not open nonexistent file");
 });
 test("File.size returns correct size", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -174,7 +174,7 @@ test("File.size returns correct size", {
   io.await(fs_dir.remove_file(fpath));
 });
 test("File.path returns correct path", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -197,7 +197,7 @@ test("OpenMode.CreateNew fails if file exists", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_create_new.txt`));
   // Create file first (with success handler)
-  given(setup_exn) := Exception(
+  setup_exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception during setup");
@@ -207,7 +207,7 @@ test("OpenMode.CreateNew fails if file exists", {
   );
   io.await(fs_file.write_file(fpath, String.from("first")));
   // Try CreateNew on existing file - should fail
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         printf("  CreateNew correctly failed\n");
@@ -219,7 +219,7 @@ test("OpenMode.CreateNew fails if file exists", {
   assert(false, "CreateNew should fail on existing file");
 });
 test("OpenMode.CreateNew succeeds on new file", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -231,7 +231,7 @@ test("OpenMode.CreateNew succeeds on new file", {
   fpath := Path.new(path_join(tmp, `yo_fs_file_create_new2.txt`));
   // Ensure doesn't exist
   cond(
-    io.await(fs_file.exists(fpath, using(io))) => {
+    io.await(fs_file.exists(fpath, io)) => {
       io.await(fs_dir.remove_file(fpath));
     },
     true => ()
@@ -242,7 +242,7 @@ test("OpenMode.CreateNew succeeds on new file", {
   io.await(fs_dir.remove_file(fpath));
 });
 test("File.open_cstr convenience", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");

@@ -54,7 +54,7 @@ extern(
 // ============================================================================
 // Fill a buffer with cryptographically secure random bytes.
 // ============================================================================
-random_bytes :: (fn(buf : *(u8), size : usize, using(exn : Exception)) -> unit)(
+random_bytes :: (fn(buf : *(u8), size : usize, exn : Exception) -> unit)(
   cond(
     (platform == Platform.Macos) => {
       __yo_arc4random_buf(buf, size);
@@ -104,7 +104,7 @@ export(random_bytes);
 // ============================================================================
 // Typed helpers
 // ============================================================================
-random_u32 :: (fn(using(exn : Exception)) -> u32)({
+random_u32 :: (fn(exn : Exception) -> u32)({
   buf := Array(u8, usize(4)).fill(u8(0));
   buf_ptr := &(buf(usize(0)));
   random_bytes(buf_ptr, usize(4));
@@ -113,16 +113,16 @@ random_u32 :: (fn(using(exn : Exception)) -> u32)({
       (u32(buf(usize(2))) << u32(16)) |
         (u32(buf(usize(3))) << u32(24))
       });
-random_u64 :: (fn(using(exn : Exception)) -> u64)({
+random_u64 :: (fn(exn : Exception) -> u64)({
   lo := u64(random_u32());
   hi := u64(random_u32());
   lo | (hi << u64(32))
 });
-random_f64 :: (fn(using(exn : Exception)) -> f64)(
+random_f64 :: (fn(exn : Exception) -> f64)(
   f64(random_u64()) / f64(18446744073709551615.0)
 );
 // Return a random integer in the half-open range [min, max).
-random_range :: (fn(min : i64, max : i64, using(exn : Exception)) -> i64)({
+random_range :: (fn(min : i64, max : i64, exn : Exception) -> i64)({
   span := (max - min);
   cond(
     (span <= i64(0)) => min,
@@ -137,7 +137,7 @@ export(random_u32, random_u64, random_f64, random_range);
 // UUID v4
 // ============================================================================
 // Generate a random UUID v4 string: "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
-uuid_v4 :: (fn(using(exn : Exception)) -> String)({
+uuid_v4 :: (fn(exn : Exception) -> String)({
   bytes := ArrayList(u8).with_capacity(usize(16));
   buf := Array(u8, usize(16)).fill(u8(0));
   buf_ptr := &(buf(usize(0)));

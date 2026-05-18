@@ -13,7 +13,7 @@ fs_dir :: import("std/fs/dir");
 // is_file tests
 // ============================================================================
 test("is_file returns true for a regular file", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -24,13 +24,13 @@ test("is_file returns true for a regular file", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_file.txt`));
   io.await(fs_file.write_file(fpath, String.from("hello")));
-  r := io.await(fs_file.is_file(fpath, using(io)));
+  r := io.await(fs_file.is_file(fpath, io));
   printf("  is_file = %d\n", cond(r => i32(1), true => i32(0)));
   assert(r, "should be a file");
   io.await(fs_dir.remove_file(fpath));
 });
 test("is_file returns false for a directory", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -41,14 +41,14 @@ test("is_file returns false for a directory", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_conv_is_file_dir`));
   io.await(fs_dir.create_dir(dpath));
-  r := io.await(fs_file.is_file(dpath, using(io)));
+  r := io.await(fs_file.is_file(dpath, io));
   printf("  is_file on dir = %d\n", cond(r => i32(1), true => i32(0)));
   assert(!(r), "directory should not be a file");
   io.await(fs_dir.remove_dir(dpath));
 });
 test("is_file returns false for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_no_such_file.txt`);
-  r := io.await(fs_file.is_file(fpath, using(io)));
+  r := io.await(fs_file.is_file(fpath, io));
   printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
   assert(!(r), "nonexistent path should return false");
 });
@@ -56,7 +56,7 @@ test("is_file returns false for nonexistent path", {
 // is_dir tests
 // ============================================================================
 test("is_dir returns true for a directory", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -67,13 +67,13 @@ test("is_dir returns true for a directory", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir`));
   io.await(fs_dir.create_dir(dpath));
-  r := io.await(fs_file.is_dir(dpath, using(io)));
+  r := io.await(fs_file.is_dir(dpath, io));
   printf("  is_dir = %d\n", cond(r => i32(1), true => i32(0)));
   assert(r, "should be a directory");
   io.await(fs_dir.remove_dir(dpath));
 });
 test("is_dir returns false for a file", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
@@ -84,14 +84,14 @@ test("is_dir returns false for a file", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir_file.txt`));
   io.await(fs_file.write_file(fpath, String.from("test")));
-  r := io.await(fs_file.is_dir(fpath, using(io)));
+  r := io.await(fs_file.is_dir(fpath, io));
   printf("  is_dir on file = %d\n", cond(r => i32(1), true => i32(0)));
   assert(!(r), "file should not be a directory");
   io.await(fs_dir.remove_file(fpath));
 });
 test("is_dir returns false for nonexistent path", {
   dpath := Path.new(`/nonexistent/yo_fs_conv_no_such_dir`);
-  r := io.await(fs_file.is_dir(dpath, using(io)));
+  r := io.await(fs_file.is_dir(dpath, io));
   printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
   assert(!(r), "nonexistent path should return false");
 });
@@ -99,7 +99,7 @@ test("is_dir returns false for nonexistent path", {
 // canonical tests
 // ============================================================================
 test("canonical resolves a real path", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         println(`  unexpected error: ${err}`);
@@ -118,7 +118,7 @@ test("canonical resolves a real path", {
   io.await(fs_dir.remove_file(fpath));
 });
 test("canonical resolves dot-dot segments", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         println(`  unexpected error: ${err}`);
@@ -149,7 +149,7 @@ test("canonical resolves dot-dot segments", {
 });
 test("canonical throws for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_canonical_missing`);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         printf("  got expected error\n");

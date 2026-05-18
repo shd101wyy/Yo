@@ -8,7 +8,7 @@
 //! { json_parse, json_stringify, JsonValue } :: import "std/encoding/json";
 //! { Exception } :: import "std/error";
 //!
-//! given(exn) := Exception(throw : ((err) -> { unwind (); }));
+//! exn := Exception(throw : ((err) -> { unwind (); }));
 //! v := json_parse(`{"x": 1}`);
 //! println(json_stringify(v));
 //! ```
@@ -553,7 +553,7 @@ _parse_value :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
 // Public API
 // ============================================================================
 /// Parse a JSON string into a `JsonValue` tree. Throws via `Exception` on invalid input.
-json_parse :: (fn(s : str, using(exn : Exception)) -> JsonValue)({
+json_parse :: (fn(s : str, exn : Exception) -> JsonValue)({
   p := _Parser.new(s);
   match(
     _parse_value(p),
