@@ -13,6 +13,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  type AtomExpr,
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionValue } from "../../function-value";
@@ -1174,7 +1175,11 @@ export function generateOtherFunctionCall(
             }
 
             // unwind check for direct handler calls (only when functionValue
-            // is not available — indicating a local variable, not a module fn)
+            // is not available — indicating a local variable, not a module fn).
+            // Install vs propagate: the call site is a handler installation
+            // point only when the function value (atom) is bound in a local
+            // begin-block frame within the current function; if the atom
+            // refers to a function parameter, the unwind must propagate.
             if (
               isFunctionType(functionType) &&
               exprIsAtom(expr.func) &&
@@ -1183,7 +1188,7 @@ export function generateOtherFunctionCall(
               emitEffectUnwindCheck(
                 indent,
                 context as FunctionGenerationContext,
-                true,
+                isHandlerAtomBoundLocally(expr.func, expr),
                 expr
               );
             }
@@ -1258,12 +1263,15 @@ export function generateOtherFunctionCall(
                 generateDeferredDropExpressions(expr, indent, context);
               }
 
-              // unwind check for direct handler calls
+              // unwind check for direct handler calls. Install vs propagate:
+              // install only when the atom is bound in a local begin-block
+              // frame within the current function; a function parameter is a
+              // propagation point and must not extract __yo_unwind_value.
               if (isFunctionType(functionType) && exprIsAtom(expr.func)) {
                 emitEffectUnwindCheck(
                   indent,
                   context as FunctionGenerationContext,
-                  true,
+                  isHandlerAtomBoundLocally(expr.func, expr),
                   expr
                 );
               }
@@ -2234,6 +2242,33 @@ export function generateOtherFunctionCall(
     const indexCode = generateExpr(expr.args[0]!, indent, context);
     return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
   }
+}
+
+/**
+ * Determine whether a function-valued atom is a locally bound handler in the
+ * enclosing function (handler installation point) rather than a parameter or
+ * captured variable (propagation point).
+ *
+ * The decision is data-flow based: walk the atom's environment frames and
+ * find where the variable is bound. If the innermost binding lives in a
+ * begin-block frame above the function's parameter frame, the call site is
+ * the install site for any unwind triggered by the handler. Otherwise the
+ * call site must propagate the unwind to a transitive caller.
+ */
+function isHandlerAtomBoundLocally(
+  funcExpr: AtomExpr,
+  callExpr: FnCallExpr
+): boolean {
+  const varName = funcExpr.token.value;
+  const callEnv = funcExpr.$?.env ?? callExpr.$?.env;
+  if (!callEnv) return false;
+  const frameIdx = findInnermostFrameWithGivenVariable(
+    callEnv,
+    (v) => v.name === varName
+  );
+  if (frameIdx < 0) return false;
+  const frame = callEnv.frames[frameIdx];
+  return !!frame?.isBeginBlockFrame;
 }
 
 /**

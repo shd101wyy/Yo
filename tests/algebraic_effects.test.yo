@@ -467,14 +467,14 @@ test("Test given variable shadowing (inner scope shadows outer) with unwind", {
     }
   );
   {
-    // Define a new `raise` that overrides the outer one, simulating multi-level propagation
+    // Define a new handler that unwinds; pass it explicitly to safe_divide.
     (raise2 : Raise) = (
       (msg) -> {
         println(msg);
         unwind(());
       }
     );
-    result := safe_divide(10, 0, raise);
+    result := safe_divide(10, 0, raise2);
     assert(false, "multi-level propagation: should not reach here");
   };
   assert(false, "should not reach here");
