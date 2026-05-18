@@ -765,9 +765,14 @@ export function generateOtherFunctionCall(
           // Specialized effectful functions transitively call handlers.
           // Functions whose body has effects may also trigger escape transitively.
           const callMayUnwind =
-            functionValue.isControlFunction ||
-            functionValue.isEffectRecordMember ||
-            functionValue.body?.$?.effectAnalysis?.hasEffects;
+            (isFunctionValue(functionValue) &&
+              functionValue.isControlFunction) ||
+            (isFunctionValue(functionValue) &&
+              functionValue.isEffectRecordMember) ||
+            (isFunctionValue(functionValue) &&
+              functionValue.body?.$?.effectAnalysis?.hasEffects) ||
+            // Fallback: check if the function type has evidence params
+            (functionType && getEvidenceParameters(functionType).length > 0);
 
           // For specialized effectful functions, check if this is the handler
           // installation point (where the unwind value should be extracted
@@ -775,8 +780,9 @@ export function generateOtherFunctionCall(
           let callIsHandlerInstallation = false;
           if (callMayUnwind) {
             if (
-              functionValue.isControlFunction ||
-              functionValue.isEffectRecordMember
+              isFunctionValue(functionValue) &&
+              (functionValue.isControlFunction ||
+                functionValue.isEffectRecordMember)
             ) {
               // Direct call to a control/handler function.
               // Check if the function was bound via `given` in a begin-block
@@ -789,7 +795,8 @@ export function generateOtherFunctionCall(
                   callEnv,
                   (v) =>
                     isFunctionValue(v.value?.[0]) &&
-                    v.value![0].funcId === functionValue.funcId
+                    v.value![0].funcId ===
+                      (functionValue as FunctionValue).funcId
                 );
                 if (
                   frameIdx >= 0 &&
@@ -799,7 +806,10 @@ export function generateOtherFunctionCall(
                   callIsHandlerInstallation = true;
                 }
               }
-            } else if (functionValue.specializedType) {
+            } else if (
+              isFunctionValue(functionValue) &&
+              functionValue.specializedType
+            ) {
               // For specialized effectful functions, check if any of the
               // callee's evidence parameters were provided by a local `given`
               // binding in a begin-block frame (handler installation) vs
