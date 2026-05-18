@@ -561,59 +561,68 @@ Migrated and type-checks clean (`./yo-cli check std/`):
 
 Whole `std/` passes `./yo-cli check`: **148/148**.
 
-### Phase 2 known issues (encountered during migration)
+### Phase 2 fixes (landed)
 
 - **Install-site detection in fn-ptr atom calls.** Codegen at
   `other-fn-call.ts:1178`, `:1262` previously assumed install for any
   function-typed-atom call, breaking propagation through bare fn-typed
   effect parameters. Fixed via env-frame check
   (`isHandlerAtomBoundLocally`). See §4 "Known codegen pitfall".
+- **Main with explicit `(io : IO, exn : Exception)` codegen.** Fixed
+  in `src/codegen/types/{collection,generation}.ts` and
+  `src/codegen/functions/{declarations,generation}.ts`:
+  - Type collection now registers struct types whose only `SomeType`
+    content lives inside function-typed fields (IO / Exception have
+    forall fn-ptr fields; the struct itself is concrete at C level).
+  - Forward declaration + struct typedef emission gets the same
+    exemption so `__yo_struct_<id>` shows up in the C output.
+  - `hasGenericParams` skip filter exempts `__yo_user_main` so the
+    user-main body emits with its flattened fn-ptr params.
+  - C main wrapper constructs zero-initialized values for each main
+    parameter. IO field calls (`io.async`, `io.await`, etc.) are
+    inlined by codegen, so the struct field values are never invoked
+    through fn-ptrs. Exception's throw field would crash if reached
+    with the wrapper's default; programs should install a real handler
+    before throwing.
+- **Test-runner main declares `io : IO, exn : Exception`.** Generated
+  main signature is now `(io : IO, exn : Exception) -> unit` so test
+  bodies can reference `io` and `exn` directly. The C main wrapper
+  injects the runtime values per the bullet above.
+
+### Phase 2 known remaining issues
+
 - **MyException(i32) — "No C type name found".** A struct type
   produced by a comptime function (`MyException :: (fn(ErrorType) ->
 comptime(Type))(struct(throw : (fn(forall(R : Type), ...) -> R)))`)
   is referenced in C output but not registered in the type table.
   Reproduces when more than one test in the `algebraic_effects` file
-  uses the same shape and they share a batch. Open issue to file
-  separately; not strictly a Phase 2 regression but exposed by the
-  Phase 2 test churn.
-- **Tests that exploited implicit shadowing.** `Test given variable
-shadowing (inner scope shadows outer) with unwind` migrated to pass
-  `raise2` explicitly; the original test's "type-matching shadowing"
-  semantics do not translate cleanly under explicit args.
-- **Main with explicit `io : IO` parameter fails codegen.** The C-side
-  main wrapper at `src/codegen/functions/generation.ts:573-655` reads
-  evidence params from `mainFunctionValue.type` via
-  `getEvidenceParameters`, which only inspects `implicitParameters`.
-  Under explicit effects, `io` and `exn` are _regular_ parameters, so
-  the wrapper falls through to `__yo_user_main()` (no args) while the
-  generated body expects the flattened fn-ptr params. The user_main
-  body itself is also dropped silently. Fix path: detect IO and
-  Exception in the regular parameter list, construct values from
-  `__yo_io_async / await / state / spawn` and a default exn throw
-  helper, and pass them flattened. This blocks every test that uses
-  `io.X` because the test-runner-generated main has no `io` binding.
-- **`No C type name found for struct IO`** when an `io` local is bound
-  to `__yo_builtin_io` inside a function body. The `IO` struct type
-  doesn't get registered in the C type table because the prelude's
-  declaration site doesn't carry through to codegen for the embedded
-  use. Workaround unknown; needs investigation.
+  uses the same shape and they share a batch. Separate issue.
+- **`async_await.test.yo` inference failure.** After migration,
+  `result := io.await(task, io); result == i32(1)` fails with "No
+  matching call found" — `result`'s type isn't being inferred to a
+  concrete i32 because the closure passed to `io.async` doesn't have
+  an explicit return-type annotation and the `Future(T, E)` `T` isn't
+  flowing back. Either annotate the closure return type or fix the
+  inferencer's backward-flow for `Impl(Fn(e : E) -> T)`.
+- **Pre-existing issues unrelated to explicit effects:**
+  - `tests/basic.test.yo` — comptime parse issue.
+  - `tests/circular_deps/*.yo` — test-runner doesn't handle file-level
+    tests (these are imported by `circular_import.test.yo`).
+  - `tests/fn.test.yo` — remaining `comptime(c) : i32` parse error
+    in an unrelated test.
+  - `tests/module.test.yo` — `export(ModuleB : Struct, d)` declares
+    `ModuleB` after a `ModuleB :: impl(...)` binding; shadowing.
 
-### Phase 2g remaining work
+### Phase 2g/2f progress summary
 
-`./yo-cli check tests/` reports **89/155 files type-check** after the
-std/ migration. The 66 failures break down roughly into:
-
-- **"Too few arguments for function call"** (~40 files): tests using
-  migrated stdlib APIs without the new `io` / `e` arguments. Will
-  resolve test-by-test as the tests are mechanically migrated to pass
-  effects explicitly.
-- **Test-runner main needs `io` and `exn`** (~10 files): the
-  `imm_threading`, `worker`, `arc`, etc. tests fail at parameter-count
-  checks because the generated main has zero parameters. Blocked by
-  the main-with-explicit-IO codegen bug above.
-- **Unrelated**: `basic.test.yo` (comptime parser issue),
-  `circular_deps/*` (test-runner doesn't yet handle file-level tests),
-  `fn.test.yo` (operator-precedence error in test source).
+- `./yo-cli check std/` → **148/148 files pass.**
+- `./yo-cli check tests/` → **126/135 files type-check** (up from 89
+  pre-migration). The 9 remaining are listed above; only `async_await`
+  is migration-blocking, the others are pre-existing.
+- Runnable test suites confirmed passing (sample):
+  algebraic_effects (61 cases), encoding/{base64,hex,json,utf16}
+  (82 cases combined), fs/\* (53 cases), closure (9), dyn (8),
+  comptime (28), derive (30), array (12), error (7).
 
 Suggested order for finishing 2f / 2g:
 
