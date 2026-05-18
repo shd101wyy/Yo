@@ -307,7 +307,8 @@ export function getEvidenceParameters(
     }
   }
 
-  // Also scan regular parameters for effect-like function/struct types
+  // Also scan regular parameters for function-typed params (bare fn effects).
+  // Struct-typed params are handled separately (their fields become evidence).
   for (const param of functionType.parameters) {
     if (isFunctionType(param.type)) {
       result.push({
@@ -317,13 +318,6 @@ export function getEvidenceParameters(
         fieldFunctionType: param.type,
         cParamName: sanitizeForCIdentifier(param.label),
       });
-    } else if (isSourceNamespaceType(param.type) || isStructType(param.type)) {
-      collectEvidenceFromRecord(
-        param.label,
-        param.type as SourceNamespaceType,
-        [],
-        result
-      );
     }
   }
 
