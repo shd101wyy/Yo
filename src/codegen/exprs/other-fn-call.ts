@@ -771,9 +771,9 @@ export function generateOtherFunctionCall(
               functionValue.isEffectRecordMember) ||
             (isFunctionValue(functionValue) &&
               functionValue.body?.$?.effectAnalysis?.hasEffects) ||
-            // Fallback: check if the function type has evidence params
-            (functionType && getEvidenceParameters(functionType).length > 0);
-
+            // Fallback: function has function-typed params that may be handlers
+            (functionType &&
+              functionType.parameters.some((p) => isFunctionType(p.type)));
           // For specialized effectful functions, check if this is the handler
           // installation point (where the unwind value should be extracted
           // rather than just propagated).
@@ -834,6 +834,29 @@ export function generateOtherFunctionCall(
                       callIsHandlerInstallation = true;
                       break;
                     }
+                  }
+                }
+              }
+            }
+            // Fallback for explicit params (Phase 2): if the callee has function-typed
+            // regular params, check if any matching variable is locally bound in a
+            // begin-block frame — this indicates a handler installation point.
+            if (!callIsHandlerInstallation && functionType) {
+              const callEnv2 = expr.func.$?.env ?? expr.$?.env;
+              if (callEnv2) {
+                for (const param of functionType.parameters) {
+                  if (!isFunctionType(param.type)) continue;
+                  const frameIdx = findInnermostFrameWithGivenVariable(
+                    callEnv2,
+                    (v) => v.name === param.label
+                  );
+                  if (
+                    frameIdx >= 0 &&
+                    frameIdx > callEnv2.functionDeclarationFrameLevel &&
+                    callEnv2.frames[frameIdx]?.isBeginBlockFrame
+                  ) {
+                    callIsHandlerInstallation = true;
+                    break;
                   }
                 }
               }
@@ -2766,6 +2789,18 @@ function resolveEvidenceArgsForCallSite(
               resolved = true;
             }
           }
+        }
+        // Fallback: if we found a variable by name but couldn't resolve the value
+        // (runtime variables after Phase 2), use the C variable name directly.
+        if (!resolved && givenVar) {
+          const callEnvForName = expr.func.$?.env ?? expr.$?.env;
+          const cName = getVariableNameForCodegen(
+            givenVar.name,
+            callEnvForName
+          );
+          result.push(cName);
+          resolved = true;
+          isHandlerInstallation = true;
         }
         if (resolved) {
           isHandlerInstallation = true;
