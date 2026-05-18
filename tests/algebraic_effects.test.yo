@@ -474,7 +474,7 @@ test("Test given variable shadowing (inner scope shadows outer) with unwind", {
         unwind(());
       }
     );
-    result := safe_divide(10, 0, raise);
+  result := safe_divide(10, 0, raise2);
     assert(false, "multi-level propagation: should not reach here");
   };
   assert(false, "should not reach here");
@@ -1493,9 +1493,9 @@ test("Test multiple struct-record effects in same scope", {
         return(i32(1));
       }
   );
-  result := compute(10, 2, raise_mod);
+  result := compute(10, 2, raise_mod, log_mod);
   assert(result == 5, "multi-struct-record: 10/2 = 5");
-  result2 := compute(10, 0, raise_mod);
+  result2 := compute(10, 0, raise_mod, log_mod);
   assert(result2 == 0, "multi-struct-record: raise returns 0");
 });
 // ---------------------------------------------------------------------------
@@ -1524,9 +1524,9 @@ test("Test effect handler conditional resume or unwind based on argument", {
       }
     );
     sum := Box(i32)(0);
-    sum.* = (sum.* + safe_divide(10, 0, i32(1)));
-    sum.* = (sum.* + safe_divide(20, 0, i32(2)));
-    sum.* = (sum.* + safe_divide(30, 0, i32(3)));
+    sum.* = (sum.* + safe_divide(10, 0, i32(1), raise));
+    sum.* = (sum.* + safe_divide(20, 0, i32(2), raise));
+    sum.* = (sum.* + safe_divide(30, 0, i32(3), raise));
     return(sum.*);
   });
   result := run_test();
@@ -1540,7 +1540,7 @@ test("Test recursive function with effect via recur", {
   sum_to :: (fn(n : i32, raise : Raise) -> i32)(
     cond(
       (n <= 0) => raise(`reached zero`),
-      true => (n + recur(n - 1))
+      true => (n + recur(n - 1, raise))
     )
   );
   (raise : Raise) = (
@@ -1559,7 +1559,7 @@ test("Test recursive function with effect unwind during recursion", {
   sum_to :: (fn(n : i32, raise : Raise) -> i32)(
     cond(
       (n <= 0) => i32(0),
-      true => (raise(n) + recur(n - 1))
+      true => (raise(n) + recur(n - 1, raise))
     )
   );
   run_test :: (fn() -> i32)({
@@ -1575,7 +1575,7 @@ test("Test recursive function with effect unwind during recursion", {
         );
       }
     );
-    sum_to(i32(5))
+    sum_to(i32(5), raise)
   });
   result := run_test();
   assert(result == i32(42), "recur+unwind: should unwind with 42 at n=3");
@@ -1602,11 +1602,11 @@ test("Test effect with Option return type", {
       );
     }
   );
-  result1 := get_or_default(i32(3), i32(-(1)));
+  result1 := get_or_default(i32(3), i32(-(1)), lookup);
   assert(result1 == i32(30), "option effect: key=3 -> 30");
-  result2 := get_or_default(i32(0), i32(-(1)));
+  result2 := get_or_default(i32(0), i32(-(1)), lookup);
   assert(result2 == i32(-(1)), "option effect: key=0 -> default -1");
-  result3 := get_or_default(i32(-(5)), i32(99));
+  result3 := get_or_default(i32(-(5)), i32(99), lookup);
   assert(result3 == i32(99), "option effect: key=-5 -> default 99");
 });
 // ---------------------------------------------------------------------------
@@ -1647,7 +1647,7 @@ test("Test transitive SM with struct-record effect in while loop", {
     fn(
       forall(E : Struct),
       limit : i32,
-      e : E
+      counter : Counter, e : E
     ) -> i32
   )({
     sum := Box(i32)(0);
@@ -1666,7 +1666,7 @@ test("Test transitive SM with struct-record effect in while loop", {
         return(current + i32(1));
       }
   );
-  result := loop_with_effect(i32(4), { yield });
+  result := loop_with_effect(i32(4), counter, {});
   assert(result == i32(10), "transitive SM struct record: 1+2+3+4 = 10");
 });
 // Regression: regular -> functions cannot capture outer runtime variables.
@@ -1719,8 +1719,8 @@ test("Test struct-based effect with resume", {
         return(i32(0));
       }
   );
-  result := safe_divide(10, 0, raise);
+  result := safe_divide(10, 0, raise_mod);
   assert(result == 0, "struct-based effect with resume: should be 0");
-  result2 := safe_divide(10, 2, raise);
+  result2 := safe_divide(10, 2, raise_mod);
   assert(result2 == 5, "struct-based effect with resume: should be 5");
 });
