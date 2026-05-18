@@ -1066,7 +1066,7 @@ test("Struct-record effect with forall handler — unwind in while loop", {
   )({
     i := usize(0);
     while(i < S, i = (i + 1), {
-      safe_divide(i32(42), arr(i, exn));
+      safe_divide(i32(42), arr(i), exn);
     });
   });
   arr := Array(i32, 4)(1, 2, 0, 3);
@@ -1142,7 +1142,7 @@ test("Struct-record effect with forall handler — break after resume in while l
       )
     );
     while(runtime(true), {
-      result := safe_op(counter.* - i32(2));
+      result := safe_op(counter.* - i32(2), exn);
       counter.* = (counter.* + 1);
       cond(
         (counter.* >= i32(5)) => {
@@ -1180,7 +1180,7 @@ test("Struct-record effect with forall handler — continue after resume in whil
     while(runtime(counter.* < i32(6)), {
       i := counter.*;
       counter.* = (counter.* + 1);
-      result := safe_op(i - i32(2));
+      result := safe_op(i - i32(2), exn);
       // result: negative inputs → 0 (resumed), non-negative → identity
       // i=0→-2→0, i=1→-1→0, i=2→0, i=3→1, i=4→2, i=5→3
       cond(
@@ -1219,7 +1219,7 @@ test("Struct-record effect with forall handler — early return after resume in 
       )
     );
     while(runtime(counter.* < i32(10)), {
-      result := safe_op(counter.* - i32(3));
+      result := safe_op(counter.* - i32(3), exn);
       counter.* = (counter.* + 1);
       cond(
         (result > i32(0)) => {
@@ -1230,7 +1230,7 @@ test("Struct-record effect with forall handler — early return after resume in 
     });
     return(i32(-(1)));
   });
-  result := find_first_positive({ yield });
+  result := find_first_positive();
   // counter: 0→-3→0, 1→-2→0, 2→-1→0, 3→0, 4→1>0 → return 1
   assert(result == i32(1), "early return after struct-record resume: should find 1");
 });
