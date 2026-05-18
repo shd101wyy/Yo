@@ -22,6 +22,7 @@ import {
   isArrayType,
   isDynType,
   isEnumType,
+  isFunctionType,
   isIsoType,
   isSourceNamespaceType,
   isPtrType,
@@ -33,6 +34,23 @@ import {
   isUnionType,
 } from "../../types/guards";
 import { typeContainsSomeType } from "../../types/utils";
+
+/**
+ * A struct whose only SomeType content lives inside function-typed fields
+ * is still registerable as a concrete C type — the fn-ptr fields get
+ * type-erased at the C ABI (forall functions become void*-cast call sites).
+ * IO, Exception, and other effect-record structs match this shape.
+ */
+function structSomeTypeIsOnlyInFunctionFields(type: Type): boolean {
+  if (!isStructType(type)) return false;
+  for (const field of type.fields) {
+    // Function-typed fields are fine — they become fn-ptrs in C.
+    if (isFunctionType(field.type)) continue;
+    // Non-function field that contains SomeType blocks registration.
+    if (typeContainsSomeType(field.type)) return false;
+  }
+  return true;
+}
 import {
   isFunctionValue,
   isStructValue,
@@ -336,10 +354,15 @@ export function collectType(type: Type, context: CodeGenContext): void {
     return;
   }
 
-  // Skip collecting any types that contain SomeType (generic type parameters)
-  // Note: Extern types like __YO_THREAD_SYNC_TYPE are excluded by typeContainsSomeType
+  // Skip collecting any types that contain SomeType (generic type parameters).
+  // Exception: struct types whose only SomeType content lives inside
+  // function-typed fields (e.g., IO, Exception with forall fn-ptr fields).
+  // Such structs are concrete at C level — the fn-ptr fields are
+  // type-erased at the C ABI; the containing struct is registerable.
   if (typeContainsSomeType(type)) {
-    return;
+    if (!isStructType(type) || !structSomeTypeIsOnlyInFunctionFields(type)) {
+      return;
+    }
   }
 
   if (
@@ -367,8 +390,11 @@ export function collectType(type: Type, context: CodeGenContext): void {
 
     // For struct types, collect functions from the module (___dup, ___drop, etc.)
     if (isStructType(type)) {
-      // Recursively collect types from struct fields
+      // Recursively collect types from struct fields. Skip function-typed
+      // fields — function types aren't registered as C types; their
+      // signatures are emitted inline at call sites.
       for (const field of getRuntimeStructFields(type)) {
+        if (isFunctionType(field.type)) continue;
         collectType(field.type, context);
       }
     }

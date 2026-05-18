@@ -13,6 +13,7 @@ import type {
 import {
   isDynType,
   isEnumType,
+  isFunctionType,
   isFutureTraitType,
   isPtrType,
   isSomeType,
@@ -22,6 +23,19 @@ import {
   isUnitType,
 } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
+
+/**
+ * Local helper: struct whose only SomeType content lives inside function-typed
+ * fields. Such structs are concrete at C level (the fn-ptr fields are
+ * type-erased) and should still be emitted as typedefs.
+ */
+function structSomeTypeIsOnlyInFunctionFieldsLocal(type: StructType): boolean {
+  for (const field of type.fields) {
+    if (isFunctionType(field.type)) continue;
+    if (typeContainsSomeType(field.type)) return false;
+  }
+  return true;
+}
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -262,7 +276,14 @@ typedef struct __yo_io_future_t {
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
-      continue; // Skip types that contain `SomeType` as they are not concrete types
+      // Exception: struct whose SomeType is only inside function-typed fields
+      // (effect records like IO, Exception). These are concrete at C level.
+      if (
+        !isStructType(type) ||
+        !structSomeTypeIsOnlyInFunctionFieldsLocal(type)
+      ) {
+        continue; // Skip types that contain `SomeType` as they are not concrete types
+      }
     }
 
     // Skip forward declarations for extern C types — the C header provides them
@@ -349,7 +370,15 @@ typedef struct __yo_io_future_t {
   for (const typeId in context.types) {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
-      continue;
+      // Exception: struct whose only SomeType source is its function-typed
+      // fields (e.g., IO, Exception with forall fn-ptr fields). At C level
+      // these become concrete structs of fn-ptrs; emit their typedef.
+      if (
+        !isStructType(type) ||
+        !structSomeTypeIsOnlyInFunctionFieldsLocal(type)
+      ) {
+        continue;
+      }
     }
     // Skip extern C types — the C header provides their definition
     if (type.isExtern === "c" && type.externName) {

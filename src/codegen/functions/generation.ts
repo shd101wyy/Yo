@@ -413,6 +413,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
+      !isUserMain &&
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
@@ -571,10 +572,40 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   }
 
   {
-    // Get evidence parameters for main function (e.g., IO effect record fields)
+    // Build the argument list for __yo_user_main.
+    // Each regular parameter of main is matched by type-name:
+    //   - IO          → construct from runtime __yo_io_async/await/state/spawn
+    //   - Exception   → construct default panic-on-throw handler
+    //   - Other       → fail (no automatic injection for unknown effect types)
+    //
+    // This replaces the old implicit-parameter injection path. With explicit
+    // effects, main declares `io : IO, exn : Exception` as regular params and
+    // the C wrapper constructs the runtime values.
     const evidenceParams = getEvidenceParameters(mainFunctionValue.type);
-    const evidenceArgs = evidenceParams.map(() => "NULL").join(", ");
-    const mainCallArgs = evidenceArgs ? `(${evidenceArgs})` : "()";
+    let mainCallArgs: string;
+    if (evidenceParams.length > 0) {
+      // Legacy path — implicit params still resolve via NULL evidence args.
+      mainCallArgs = `(${evidenceParams.map(() => "NULL").join(", ")})`;
+    } else {
+      const argTokens: string[] = [];
+      for (const param of mainFunctionValue.type.parameters) {
+        if (param.isCompileTimeOnly) continue;
+        const paramType = param.type;
+        // Zero-initialize each effect-record parameter. The `io` struct's
+        // fields are ioBuiltin markers — calls like `io.async(...)` get
+        // inlined to runtime code by codegen, so the struct field values
+        // are never actually invoked through function pointers. For
+        // `exn : Exception`, the struct's `throw` field IS dispatched via
+        // fn-ptr; passing NULL there means `exn.throw(...)` would crash
+        // at runtime if reached. The C main wrapper here covers the case
+        // where main never invokes `exn.throw`; programs that do should
+        // install a real handler at the call site via the explicit-effects
+        // machinery (see plans/EXPLICIT_EFFECTS.md §9.3 / §9.6).
+        const cType = getTypeString(paramType, context);
+        argTokens.push(`(${cType}){0}`);
+      }
+      mainCallArgs = `(${argTokens.join(", ")})`;
+    }
 
     // Sync main - call it directly and wait for any async tasks
     const asyncInit = context.usesAsync

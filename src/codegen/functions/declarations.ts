@@ -205,6 +205,7 @@ export function generateFunctionDeclarations(
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
+      !isUserMain &&
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
