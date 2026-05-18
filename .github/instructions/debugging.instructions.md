@@ -28,6 +28,10 @@ Key facts:
 - Always use `| head` or `| tail` to limit command output.
 - If a command produces no output for a long time, redirect: `./yo-cli compile src/tests/fixme.yo --release &> compile_output.txt`
 
+## Evaluator-only checking
+
+When you only need to surface evaluator/type errors (no codegen, no C compile), use `./yo-cli check <path>`. It runs the evaluator on a single file or every `.yo` file in a directory and prints any errors. Much faster than `compile` for "does this still type-check?" loops, and it's the right tool for bulk migration sanity passes (`./yo-cli check std/` after touching a swathe of files).
+
 ## Design docs for context
 
 - Compile-time RC ownership: `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`

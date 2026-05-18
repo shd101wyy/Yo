@@ -20,6 +20,12 @@ description: "Use when running tests, setting up test files, or debugging test f
 - `--test-name-pattern "Test XXX"` — run specific test by name
 - Tests automatically use AddressSanitizer for leak detection.
 
+## Evaluator-only check (no codegen)
+
+- `./yo-cli check <file-or-dir>` — runs the evaluator on a single `.yo` file or every `.yo` under a directory and prints any type / evaluator errors. No C generation, no C compile.
+- Much faster than `compile` for "does this still type-check?" iteration during refactors or migrations.
+- Useful as a bulk sanity pass after touching many files: `./yo-cli check std/` to confirm std still type-checks before running any test.
+
 ## Build system tests
 
 - Run: `bun test src/tests/build-system.test.ts --timeout 10000`

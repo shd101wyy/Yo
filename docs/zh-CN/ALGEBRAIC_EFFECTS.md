@@ -77,15 +77,40 @@ result := run(pure_func, {});
 
 ### 异步 + 效应
 
+`Future` 在类型层是**单参数**的：`Future(T, E)`，其中 `E` 是承载效应捆绑的结构体类型。捆绑的类型与值结构一致。
+
 ```rust
 effects := { raise, log };
 
-fut := io.async((e : typeof(effects)) => {
+fut := io.async((e) => {
   e.raise("err");
   e.log("hello");
 });
 
 result := io.await(fut, effects);
+```
+
+单效应 Future 直接传效应值，因为效应类型本身就是结构体：
+
+```rust
+// Future(T, IO) — E = IO，e = io
+fut1 : Impl(Future(i32, IO));
+x := io.await(fut1, io);
+```
+
+多效应 Future 使用结构体别名。常见捆绑在 `std/error.yo` 中：
+
+```rust
+// IOErr :: struct(io : IO, exn : Exception)
+fut2 : Impl(Future(i32, IOErr));
+y := io.await(fut2, { io, exn });
+```
+
+宽度匹配**严格** — Yo 的结构体是名义类型。如果调用方持有 `e : IOErr` 但被调用方只需要 `IO`，必须显式投影：
+
+```rust
+// fut 需要 IO；投影到 e.io
+result := io.await(fut, e.io);
 ```
 
 ## 对比：之前 vs 之后
@@ -129,6 +154,28 @@ my_logger := Logger(
 - 续延是**一次性**的 — `return` 最多可调用一次。
 - 处理器函数不能捕获外部运行时变量（C 代码生成限制）。
 - `...(E)` 效应行展开被 `E : Struct` 取代（forall 泛型约束）。
+
+### 处理器安装点
+
+处理器的调用点是**安装点** — `unwind` 跳回的函数帧。编译器通过数据流判定安装与传播：
+
+| 绑定的来源                                       | 处理     |
+| ------------------------------------------------ | -------- |
+| 当前 begin-block 帧内的本地定义 (`raise := ...`) | **安装** |
+| 函数参数                                         | 传播     |
+| 闭包捕获的外层处理器                             | 传播     |
+| 重新绑定 (`r2 := r1`) — 取最内层绑定             | **安装** |
+
+### 处理器值的逃逸限制
+
+函数值的体中包含 `unwind` 时，它**栈绑定**于安装帧，不允许超过该帧的生命周期。编译器拒绝：
+
+- 从函数中 `return(handler)`
+- 将处理器存入堆分配值（`Box`、`Rc` 等）
+- 模块层级绑定处理器
+- 闭包捕获处理器后闭包可能超过安装帧生命周期
+
+这些约束取代了旧的 `isInsideGivenHandler` 门槛。基于数据流 — 每个计算出控制函数值的表达式带有 `originFrameId` 标签，在逃逸点检查。
 
 ## 代码生成
 

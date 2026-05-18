@@ -91,15 +91,46 @@ result := run(pure_func, {});
 
 ### Async + effects
 
+`Future` is **single-arg** at the type level: `Future(T, E)` where `E` is
+a struct type holding the effect bundle. The bundle's type and value
+mirror each other.
+
 ```rust
 effects := { raise, log };
 
-fut := io.async((e : typeof(effects)) => {
+fut := io.async((e) => {
   e.raise("err");
   e.log("hello");
 });
 
 result := io.await(fut, effects);
+```
+
+Single-effect futures pass the effect value directly because the effect
+type is itself a struct:
+
+```rust
+// Future(T, IO) — E = IO, e = io
+fut1 : Impl(Future(i32, IO));
+x := io.await(fut1, io);
+```
+
+Multi-effect futures use a struct alias. Common bundles live in
+`std/error.yo`:
+
+```rust
+// IOErr :: struct(io : IO, exn : Exception)
+fut2 : Impl(Future(i32, IOErr));
+y := io.await(fut2, { io, exn });
+```
+
+Width matching is **strict** — Yo structs are nominal. If a caller has
+`e : IOErr` but the nested future only needs `IO`, the caller must
+project:
+
+```rust
+// fut needs IO; project to e.io
+result := io.await(fut, e.io);
 ```
 
 ## Comparison: Before vs After
@@ -164,6 +195,33 @@ result := log_and_check(42, my_logger);
 - Continuations are **one-shot** — `return` can be called at most once.
 - Handler functions cannot capture outer runtime variables (C codegen requirement).
 - `...(E)` effect row spreads are replaced by `E : Struct` (a forall generic constraint).
+
+### Handler Install-Site
+
+The call site of a handler is the _install site_ — the function frame
+where `unwind` lands. The compiler decides install vs propagate by
+data flow:
+
+| Site of binding                                          | Treatment   |
+| -------------------------------------------------------- | ----------- |
+| Local definition (`raise := ...`) in a begin-block frame | **Install** |
+| Function parameter                                       | Propagate   |
+| Closure capture of an outer handler                      | Propagate   |
+| Re-binding (`r2 := r1`) — uses the innermost binding     | **Install** |
+
+### Handler Value Escape Restrictions
+
+A function value whose body contains `unwind` is _stack-bound_ to its
+install frame. It may not outlive that frame. The compiler rejects:
+
+- `return(handler)` from a function
+- Storing a handler in a heap-allocated value (`Box`, `Rc`, etc.)
+- Module-level bindings of handlers
+- Closure captures where the closure may outlive the install frame
+
+These constraints replace the old `isInsideGivenHandler` gate. They are
+data-flow based — every expression that evaluates to a control-function
+value carries an `originFrameId` tag, checked at escape sites.
 
 ## Code Generation
 
