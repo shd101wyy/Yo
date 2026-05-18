@@ -23,7 +23,7 @@ test("UdpSocket bind and close", {
       }
     )
   );
-  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0))), io);
+  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), io);
   printf("  socket fd = %d\n", sock.fd());
   assert(sock.fd() >= i32(0), "fd should be valid");
   io.await(sock.close(), io);
@@ -38,7 +38,7 @@ test("UdpSocket local_addr", {
       }
     )
   );
-  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0))), io);
+  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), io);
   la := sock.local_addr();
   printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap());
   assert(la.ip.is_loopback(), "should be loopback");
@@ -54,9 +54,9 @@ test("UdpSocket send_to and recv", {
     )
   );
   server_addr := SocketAddr.loopback(u16(19910));
-  server := io.await(UdpSocket.bind(server_addr), io);
+  server := io.await(UdpSocket.bind(server_addr, io), io);
   client_addr := SocketAddr.loopback(u16(19911));
-  client := io.await(UdpSocket.bind(client_addr), io);
+  client := io.await(UdpSocket.bind(client_addr, io), io);
   // Client sends to server
   data := ArrayList(u8).new();
   data.push(u8(72)); // H
@@ -91,9 +91,9 @@ test("UdpSocket recv_from gets source address", {
     )
   );
   server_addr := SocketAddr.loopback(u16(19912));
-  server := io.await(UdpSocket.bind(server_addr), io);
+  server := io.await(UdpSocket.bind(server_addr, io), io);
   client_addr := SocketAddr.loopback(u16(19913));
-  client := io.await(UdpSocket.bind(client_addr), io);
+  client := io.await(UdpSocket.bind(client_addr, io), io);
   // Client sends
   data := ArrayList(u8).new();
   data.push(u8(65)); // A
@@ -131,7 +131,7 @@ test("UdpSocket set_broadcast", {
       }
     )
   );
-  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0))), io);
+  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), io);
   io.await(sock.set_broadcast(true), io);
   printf("  broadcast ok\n");
   io.await(sock.close(), io);

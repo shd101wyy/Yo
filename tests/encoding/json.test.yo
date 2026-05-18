@@ -12,7 +12,7 @@ test("json_parse null", {
       }
     )
   );
-  v := json_parse("null");
+  v := json_parse("null", exn);
   is_null := match(v,.Null => true, _ => false);
   assert(is_null, "should be Null");
 });
@@ -25,7 +25,7 @@ test("json_parse true", {
       }
     )
   );
-  v := json_parse("true");
+  v := json_parse("true", exn);
   assert(v.as_bool().unwrap() == true, "should be true");
 });
 test("json_parse false", {
@@ -37,7 +37,7 @@ test("json_parse false", {
       }
     )
   );
-  v := json_parse("false");
+  v := json_parse("false", exn);
   assert(v.as_bool().unwrap() == false, "should be false");
 });
 test("json_parse integer", {
@@ -49,7 +49,7 @@ test("json_parse integer", {
       }
     )
   );
-  v := json_parse("42");
+  v := json_parse("42", exn);
   assert(v.as_number().unwrap() == f64(42), "should be 42");
 });
 test("json_parse negative number", {
@@ -61,7 +61,7 @@ test("json_parse negative number", {
       }
     )
   );
-  v := json_parse("-17");
+  v := json_parse("-17", exn);
   assert(v.as_number().unwrap() == f64(-(17)), "should be -17");
 });
 test("json_parse float", {
@@ -73,7 +73,7 @@ test("json_parse float", {
       }
     )
   );
-  v := json_parse("3.14");
+  v := json_parse("3.14", exn);
   n := v.as_number().unwrap();
   assert((n > f64(3.139)) && (n < f64(3.141)), "should be approximately 3.14");
 });
@@ -86,7 +86,7 @@ test("json_parse string", {
       }
     )
   );
-  v := json_parse("\"hello\"");
+  v := json_parse("\"hello\"", exn);
   assert(v.as_string().unwrap().as_str() == "hello", "should be hello");
 });
 test("json_parse string with escapes", {
@@ -98,7 +98,7 @@ test("json_parse string with escapes", {
       }
     )
   );
-  v := json_parse("\"line1\\nline2\"");
+  v := json_parse("\"line1\\nline2\"", exn);
   s := v.as_string().unwrap();
   bytes := s.as_bytes();
   assert(bytes.len() == usize(11), "escaped string should have 11 bytes");
@@ -113,7 +113,7 @@ test("json_parse empty string", {
       }
     )
   );
-  v := json_parse("\"\"");
+  v := json_parse("\"\"", exn);
   assert(v.as_string().unwrap().as_str() == "", "should be empty string");
 });
 // ===== Parse Arrays =====
@@ -126,7 +126,7 @@ test("json_parse empty array", {
       }
     )
   );
-  v := json_parse("[]");
+  v := json_parse("[]", exn);
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(0), "empty array should have 0 elements");
 });
@@ -139,7 +139,7 @@ test("json_parse array of numbers", {
       }
     )
   );
-  v := json_parse("[1, 2, 3]");
+  v := json_parse("[1, 2, 3]", exn);
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(3), "should have 3 elements");
   assert(arr.get(usize(0)).unwrap().as_number().unwrap() == f64(1), "element 0");
@@ -155,7 +155,7 @@ test("json_parse mixed array", {
       }
     )
   );
-  v := json_parse("[1, \"two\", true, null]");
+  v := json_parse("[1, \"two\", true, null]", exn);
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(4), "should have 4 elements");
   assert(arr.get(usize(0)).unwrap().as_number().unwrap() == f64(1), "element 0 is 1");
@@ -174,7 +174,7 @@ test("json_parse empty object", {
       }
     )
   );
-  v := json_parse("{}");
+  v := json_parse("{}", exn);
   entries := v.as_object().unwrap();
   assert(entries.len() == usize(0), "empty object should have 0 entries");
 });
@@ -187,7 +187,7 @@ test("json_parse simple object", {
       }
     )
   );
-  v := json_parse("{\"name\": \"test\", \"value\": 42}");
+  v := json_parse("{\"name\": \"test\", \"value\": 42}", exn);
   name := v.get(String.from("name"));
   assert(name.is_some(), "should have name key");
   assert(name.unwrap().as_string().unwrap().as_str() == "test", "name should be test");
@@ -204,7 +204,7 @@ test("json_parse nested object", {
       }
     )
   );
-  v := json_parse("{\"outer\": {\"inner\": 99}}");
+  v := json_parse("{\"outer\": {\"inner\": 99}}", exn);
   outer := v.get(String.from("outer")).unwrap();
   inner := outer.get(String.from("inner")).unwrap();
   assert(inner.as_number().unwrap() == f64(99), "inner value should be 99");
@@ -218,7 +218,7 @@ test("json_parse nested array in object", {
       }
     )
   );
-  v := json_parse("{\"items\": [10, 20, 30]}");
+  v := json_parse("{\"items\": [10, 20, 30]}", exn);
   items := v.get(String.from("items")).unwrap().as_array().unwrap();
   assert(items.len() == usize(3), "items array should have 3 elements");
   assert(items.get(usize(1)).unwrap().as_number().unwrap() == f64(20), "second item should be 20");
@@ -233,7 +233,7 @@ test("json_parse with whitespace", {
       }
     )
   );
-  v := json_parse("  {  \"key\"  :  \"value\"  }  ");
+  v := json_parse("  {  \"key\"  :  \"value\"  }  ", exn);
   assert(v.get(String.from("key")).unwrap().as_string().unwrap().as_str() == "value", "should parse correctly with whitespace");
 });
 // ===== Parse Errors =====
@@ -245,7 +245,7 @@ test("json_parse empty input", {
       }
     )
   );
-  json_parse("");
+  json_parse("", exn);
   assert(false, "empty input should throw");
 });
 test("json_parse unclosed string error", {
@@ -256,7 +256,7 @@ test("json_parse unclosed string error", {
       }
     )
   );
-  json_parse("\"hello");
+  json_parse("\"hello", exn);
   assert(false, "unclosed string should throw");
 });
 // ===== Stringify =====
@@ -320,7 +320,7 @@ test("json roundtrip simple object", {
     )
   );
   input := "{\"name\":\"test\",\"value\":42}";
-  parsed := json_parse(input);
+  parsed := json_parse(input, exn);
   output := json_stringify(parsed);
   assert(output.as_str() == input, "roundtrip should preserve simple object");
 });
@@ -334,7 +334,7 @@ test("json roundtrip nested", {
     )
   );
   input := "{\"a\":[1,2,3],\"b\":{\"c\":true}}";
-  parsed := json_parse(input);
+  parsed := json_parse(input, exn);
   output := json_stringify(parsed);
   assert(output.as_str() == input, "roundtrip should preserve nested structure");
 });
@@ -348,7 +348,7 @@ test("json roundtrip booleans and null", {
     )
   );
   input := "[true,false,null]";
-  parsed := json_parse(input);
+  parsed := json_parse(input, exn);
   output := json_stringify(parsed);
   assert(output.as_str() == input, "roundtrip should preserve booleans and null");
 });
@@ -362,7 +362,7 @@ test("JsonValue.get missing key", {
       }
     )
   );
-  result := json_parse("{\"a\": 1}");
+  result := json_parse("{\"a\": 1}", exn);
   assert(result.get(String.from("b")).is_none(), "missing key should return None");
 });
 test("JsonValue.get on non-object", {
@@ -374,7 +374,7 @@ test("JsonValue.get on non-object", {
       }
     )
   );
-  result := json_parse("42");
+  result := json_parse("42", exn);
   assert(result.get(String.from("a")).is_none(), "get on number should return None");
 });
 test("JsonValue.at valid index", {
@@ -386,7 +386,7 @@ test("JsonValue.at valid index", {
       }
     )
   );
-  result := json_parse("[10, 20, 30]");
+  result := json_parse("[10, 20, 30]", exn);
   assert(result.at(usize(1)).unwrap().as_number().unwrap() == f64(20), "at(1) should be 20");
 });
 test("JsonValue.at on non-array", {
@@ -398,6 +398,6 @@ test("JsonValue.at on non-array", {
       }
     )
   );
-  result := json_parse("42");
+  result := json_parse("42", exn);
   assert(result.at(usize(0)).is_none(), "at on number should return None");
 });

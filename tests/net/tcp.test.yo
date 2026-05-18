@@ -23,7 +23,7 @@ test("TcpListener bind and close", {
       }
     )
   );
-  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0))), io);
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), io);
   printf("  listener fd = %d\n", listener.fd());
   assert(listener.fd() >= i32(0), "fd should be valid");
   io.await(listener.close(), io);
@@ -38,7 +38,7 @@ test("TcpListener local_addr returns bound address", {
       }
     )
   );
-  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0))), io);
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), io);
   la := listener.local_addr();
   printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap());
   assert(la.ip.is_loopback(), "should be loopback");
@@ -57,9 +57,9 @@ test("TCP connect to listener and accept", {
     )
   );
   addr := SocketAddr.loopback(u16(19900));
-  listener := io.await(TcpListener.bind(addr), io);
+  listener := io.await(TcpListener.bind(addr, io), io);
   printf("  listener fd = %d\n", listener.fd());
-  client := io.await(TcpStream.connect(addr), io);
+  client := io.await(TcpStream.connect(addr, io), io);
   printf("  client fd = %d\n", client.fd());
   server_stream := io.await(listener.accept(), io);
   printf("  accepted fd = %d\n", server_stream.fd());
@@ -78,8 +78,8 @@ test("TCP echo with write_str and read", {
     )
   );
   addr := SocketAddr.loopback(u16(19901));
-  listener := io.await(TcpListener.bind(addr), io);
-  client := io.await(TcpStream.connect(addr), io);
+  listener := io.await(TcpListener.bind(addr, io), io);
+  client := io.await(TcpStream.connect(addr, io), io);
   server_stream := io.await(listener.accept(), io);
   // Client sends
   n := io.await(client.write_str("Hello Net!"), io);
@@ -110,8 +110,8 @@ test("TCP echo with write String", {
     )
   );
   addr := SocketAddr.loopback(u16(19902));
-  listener := io.await(TcpListener.bind(addr), io);
-  client := io.await(TcpStream.connect(addr), io);
+  listener := io.await(TcpListener.bind(addr, io), io);
+  client := io.await(TcpStream.connect(addr, io), io);
   server_stream := io.await(listener.accept(), io);
   // Write using String
   msg := `Hello String!`;
@@ -138,8 +138,8 @@ test("TCP write_bytes", {
     )
   );
   addr := SocketAddr.loopback(u16(19903));
-  listener := io.await(TcpListener.bind(addr), io);
-  client := io.await(TcpStream.connect(addr), io);
+  listener := io.await(TcpListener.bind(addr, io), io);
+  client := io.await(TcpStream.connect(addr, io), io);
   server_stream := io.await(listener.accept(), io);
   // Write bytes
   data := ArrayList(u8).new();
@@ -174,8 +174,8 @@ test("TCP set_nodelay and set_keepalive", {
     )
   );
   addr := SocketAddr.loopback(u16(19904));
-  listener := io.await(TcpListener.bind(addr), io);
-  client := io.await(TcpStream.connect(addr), io);
+  listener := io.await(TcpListener.bind(addr, io), io);
+  client := io.await(TcpStream.connect(addr, io), io);
   io.await(client.set_nodelay(true), io);
   printf("  nodelay ok\n");
   io.await(client.set_keepalive(true), io);
@@ -193,8 +193,8 @@ test("TCP shutdown", {
     )
   );
   addr := SocketAddr.loopback(u16(19905));
-  listener := io.await(TcpListener.bind(addr), io);
-  client := io.await(TcpStream.connect(addr), io);
+  listener := io.await(TcpListener.bind(addr, io), io);
+  client := io.await(TcpStream.connect(addr, io), io);
   server_stream := io.await(listener.accept(), io);
   io.await(client.shutdown(SHUT_RDWR), io);
   printf("  shutdown ok\n");
@@ -212,8 +212,8 @@ test("TCP peer_addr returns remote address", {
     )
   );
   addr := SocketAddr.loopback(u16(19906));
-  listener := io.await(TcpListener.bind(addr), io);
-  client := io.await(TcpStream.connect(addr), io);
+  listener := io.await(TcpListener.bind(addr, io), io);
+  client := io.await(TcpStream.connect(addr, io), io);
   pa := client.peer_addr();
   printf("  peer_addr = %s\n", pa.to_string().to_cstr().ptr().unwrap());
   assert(pa.ip.is_loopback(), "peer should be loopback");
@@ -231,8 +231,8 @@ test("TCP read_bytes gets all data", {
     )
   );
   addr := SocketAddr.loopback(u16(19907));
-  listener := io.await(TcpListener.bind(addr), io);
-  client := io.await(TcpStream.connect(addr), io);
+  listener := io.await(TcpListener.bind(addr, io), io);
+  client := io.await(TcpStream.connect(addr, io), io);
   server_stream := io.await(listener.accept(), io);
   // Client sends data then closes write side
   io.await(client.write_str("ABCDE"), io);

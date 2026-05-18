@@ -21,7 +21,7 @@ test("TempDir.new creates a directory", {
       }
     )
   );
-  td := io.await(TempDir.new(), io);
+  td := io.await(TempDir.new(io), io);
   p := td.path().to_string();
   printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
   assert(p.len() > usize(0), "path should not be empty");
@@ -29,7 +29,7 @@ test("TempDir.new creates a directory", {
   e := io.await(fs_file.exists(td.path(), io), io);
   assert(e, "temp dir should exist");
   // Remove
-  io.await(td.remove(), io);
+  io.await(td.remove(io), io);
   printf("  removed ok\n");
   // Verify removed
   e2 := io.await(fs_file.exists(td.path(), io), io);
@@ -46,12 +46,12 @@ test("TempDir.new_in creates in specified parent", {
   );
   tmp := temp_dir();
   parent := Path.new(tmp);
-  td := io.await(TempDir.new_in(parent), io);
+  td := io.await(TempDir.new_in(parent, io), io);
   p := td.path().to_string();
   printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
   // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
   assert(td.path().starts_with(parent), "path should start with parent");
-  io.await(td.remove(), io);
+  io.await(td.remove(io), io);
 });
 test("TempDir.remove is idempotent", {
   exn := Exception(
@@ -62,10 +62,10 @@ test("TempDir.remove is idempotent", {
       }
     )
   );
-  td := io.await(TempDir.new(), io);
-  io.await(td.remove(), io);
+  td := io.await(TempDir.new(io), io);
+  io.await(td.remove(io), io);
   // Second remove should succeed (no-op)
-  io.await(td.remove(), io);
+  io.await(td.remove(io), io);
   printf("  second remove ok\n");
 });
 // ============================================================================
@@ -80,7 +80,7 @@ test("TempFile.new creates a file", {
       }
     )
   );
-  tf := io.await(TempFile.new(), io);
+  tf := io.await(TempFile.new(io), io);
   p := tf.path().to_string();
   printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
   assert(p.len() > usize(0), "path should not be empty");
@@ -88,7 +88,7 @@ test("TempFile.new creates a file", {
   e := io.await(fs_file.exists(tf.path(), io), io);
   assert(e, "temp file should exist");
   // Remove
-  io.await(tf.remove(), io);
+  io.await(tf.remove(io), io);
   printf("  removed ok\n");
   // Verify removed
   e2 := io.await(fs_file.exists(tf.path(), io), io);
@@ -105,12 +105,12 @@ test("TempFile.new_in creates in specified parent", {
   );
   tmp := temp_dir();
   parent := Path.new(tmp);
-  tf := io.await(TempFile.new_in(parent), io);
+  tf := io.await(TempFile.new_in(parent, io), io);
   p := tf.path().to_string();
   printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
   // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
   assert(tf.path().starts_with(parent), "path should start with parent");
-  io.await(tf.remove(), io);
+  io.await(tf.remove(io), io);
 });
 test("TempFile.file returns usable File", {
   exn := Exception(
@@ -121,16 +121,16 @@ test("TempFile.file returns usable File", {
       }
     )
   );
-  tf := io.await(TempFile.new(), io);
+  tf := io.await(TempFile.new(io), io);
   f := tf.file();
   // Write to the file
-  n := io.await(f.write_string(`temp file content`), io);
+  n := io.await(f.write_string(`temp file content`, io), io);
   printf("  wrote %d bytes\n", n);
   // Read it back using the path
-  s := io.await(fs_file.read_string(tf.path()), io);
+  s := io.await(fs_file.read_string(tf.path(), io), io);
   printf("  read: %s\n", s.to_cstr().ptr().unwrap());
   assert(s == `temp file content`, "temp file content mismatch");
-  io.await(tf.remove(), io);
+  io.await(tf.remove(io), io);
 });
 test("TempFile.remove is idempotent", {
   exn := Exception(
@@ -141,9 +141,9 @@ test("TempFile.remove is idempotent", {
       }
     )
   );
-  tf := io.await(TempFile.new(), io);
-  io.await(tf.remove(), io);
+  tf := io.await(TempFile.new(io), io);
+  io.await(tf.remove(io), io);
   // Second remove should succeed (no-op)
-  io.await(tf.remove(), io);
+  io.await(tf.remove(io), io);
   printf("  second remove ok\n");
 });
