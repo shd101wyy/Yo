@@ -37,7 +37,7 @@ test("Unix stream socket echo", {
       return;
     }
   );
-  bind_result := io.await(unix.bind(server_fd, addr_buf, addr.len, io), io);
+  bind_result := io.await(unix.bind(server_fd, addr_buf, addr.len), io);
   printf("  bind = %d\n", bind_result);
   assert(bind_result == i32(0), "bind failed");
   listen_result := io.await(unix.listen(server_fd, i32(16)), io);
@@ -46,7 +46,7 @@ test("Unix stream socket echo", {
   client_fd := io.await(unix.socket_stream(), io);
   printf("  client fd = %d\n", client_fd);
   assert(client_fd >= i32(0), "client socket_stream failed");
-  conn_result := io.await(unix.connect(client_fd, addr_buf, addr.len, io), io);
+  conn_result := io.await(unix.connect(client_fd, addr_buf, addr.len), io);
   printf("  connect = %d\n", conn_result);
   assert(conn_result == i32(0), "connect failed");
   peer_size := sockaddr_storage_size();
@@ -57,11 +57,11 @@ test("Unix stream socket echo", {
   printf("  accepted fd = %d\n", accepted_fd);
   assert(accepted_fd >= i32(0), "accept failed");
   msg := *(u8)("Hello Unix!");
-  sent := io.await(unix.send(client_fd, msg, usize(11), i32(0), io), io);
+  sent := io.await(unix.send(client_fd, msg, usize(11), i32(0)), io);
   printf("  sent = %d\n", sent);
   assert(sent == i32(11), "send length mismatch");
   recv_buf := *(u8)(malloc(usize(64)).unwrap());
-  received := io.await(unix.recv(accepted_fd, recv_buf, usize(64), i32(0), io), io);
+  received := io.await(unix.recv(accepted_fd, recv_buf, usize(64), i32(0)), io);
   printf("  received = %d\n", received);
   assert(received == i32(11), "recv length mismatch");
   // Verify "Hello Unix!"

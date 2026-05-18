@@ -32,7 +32,7 @@ test("Phase 4c: migrated struct effect record unwind", {
         unwind(());
       }
   );
-  divide(10, 0);
+  divide(10, 0, r);
   assert(false, "should not reach here after unwind");
 });
 test("Phase 4c: migrated struct effect record resume", {
@@ -49,7 +49,7 @@ test("Phase 4c: migrated struct effect record resume", {
         return(());
       }
   );
-  shout("hello-effect".to_string());
+  shout("hello-effect".to_string(), l);
   // If we reach here, the continuation resumed correctly.
   assert(true, "logger resumed");
 });
@@ -70,7 +70,7 @@ test("Baseline: struct(...) builds a usable effect record type", {
         unwind(());
       }
   );
-  divide(10, 0);
+  divide(10, 0, r);
   assert(false, "should not reach here after unwind");
 });
 test("Baseline: given/using round-trip with resume (struct)", {
@@ -88,7 +88,7 @@ test("Baseline: given/using round-trip with resume (struct)", {
         return(());
       }
   );
-  shout("hello-effect".to_string());
+  shout("hello-effect".to_string(), l);
   // If we reach here, the continuation resumed correctly.
   assert(true, "logger resumed");
 });
@@ -111,10 +111,10 @@ test("Phase 4a: given(struct) inside a runtime branch", {
   flag := true;
   if(flag, {
     (t : Tag) = Tag(name : (() -> "alpha"));
-    assert(speak() == "alpha", "branch-true picked alpha");
+    assert(speak(t) == "alpha", "branch-true picked alpha");
   }, {
     (t : Tag) = Tag(name : (() -> "beta"));
-    assert(speak() == "beta", "branch-false picked beta");
+    assert(speak(t) == "beta", "branch-false picked beta");
   });
 });
 test("Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
@@ -128,7 +128,7 @@ test("Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
   sum := Box(i32)(0);
   while(runtime(i.* < 3), {
     (c : Counter) = Counter(next : (() -> i32(7)));
-    sum.* = (sum.* + step());
+    sum.* = (sum.* + step(c));
     i.* = (i.* + 1);
   });
   assert(sum.* == 21, "3 iterations × 7 = 21");
@@ -149,18 +149,18 @@ test("Phase 4b: given(struct) bound to runtime function-returned value", {
   flag := true;
   if(flag, {
     (c : Counter) = make_counter(true);
-    assert(step() == 1, "use_a=true -> 1");
+    assert(step(c) == 1, "use_a=true -> 1");
   }, {
     (c : Counter) = make_counter(false);
-    assert(step() == 2, "use_a=false -> 2");
+    assert(step(c) == 2, "use_a=false -> 2");
   });
   flag2 := false;
   if(flag2, {
     (c : Counter) = make_counter(true);
-    assert(step() == 1, "unreachable");
+    assert(step(c) == 1, "unreachable");
   }, {
     (c : Counter) = make_counter(false);
-    assert(step() == 2, "use_a=false -> 2");
+    assert(step(c) == 2, "use_a=false -> 2");
   });
 });
 test("Phase 1: comptime-only struct fields are erased from C layout", {

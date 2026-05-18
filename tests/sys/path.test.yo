@@ -29,7 +29,7 @@ test("realpath resolves . and ..", {
   fd := io.await(file.openat(AT_FDCWD, file_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("realpath data");
-  wr := io.await(file.write(fd, data, u32(13), u64(0), io), io);
+  wr := io.await(file.write(fd, data, u32(13), u64(0)), io);
   assert(wr == i32(13));
   io.await(file.close(fd), io);
   dot_dir_str := path_join(sub_dir_str, `..`);
@@ -72,7 +72,7 @@ test("realpath resolves symlink target", {
   fd := io.await(file.openat(AT_FDCWD, target_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("symlink target");
-  wr := io.await(file.write(fd, data, u32(14), u64(0), io), io);
+  wr := io.await(file.write(fd, data, u32(14), u64(0)), io);
   assert(wr == i32(14));
   io.await(file.close(fd), io);
   sym_result := io.await(dir.symlink(target_path, AT_FDCWD, link_path), io);

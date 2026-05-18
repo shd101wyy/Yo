@@ -21,7 +21,7 @@ test("copyfile copies file contents", {
   assert(src_fd >= i32(0));
   data := *(u8)("copyfile data");
   data_len := u32(13);
-  wr := io.await(file.write(src_fd, data, data_len, u64(0), io), io);
+  wr := io.await(file.write(src_fd, data, data_len, u64(0)), io);
   assert(wr == i32(data_len));
   c1 := io.await(file.close(src_fd), io);
   assert(c1 == i32(0));
@@ -32,7 +32,7 @@ test("copyfile copies file contents", {
   assert(dst_fd >= i32(0));
   buf_uninit := MaybeUninit(Array(u8, usize(32))).new();
   buf := *(u8)(buf_uninit.as_ptr());
-  rd := io.await(file.read(dst_fd, buf, u32(32), u64(0), io), io);
+  rd := io.await(file.read(dst_fd, buf, u32(32), u64(0)), io);
   assert(rd == i32(data_len));
   assert((buf &+ usize(0)).* == u8(99));
   assert((buf &+ usize(4)).* == u8(102));
@@ -57,7 +57,7 @@ test("sendfile transfers bytes", {
   assert(src_fd >= i32(0));
   data := *(u8)("sendfile ok");
   data_len := u32(11);
-  wr := io.await(file.write(src_fd, data, data_len, u64(0), io), io);
+  wr := io.await(file.write(src_fd, data, data_len, u64(0)), io);
   assert(wr == i32(data_len));
   c1 := io.await(file.close(src_fd), io);
   assert(c1 == i32(0));
@@ -76,7 +76,7 @@ test("sendfile transfers bytes", {
   assert(dst_fd >= i32(0));
   buf_uninit := MaybeUninit(Array(u8, usize(32))).new();
   buf := *(u8)(buf_uninit.as_ptr());
-  rd := io.await(file.read(dst_fd, buf, u32(32), u64(0), io), io);
+  rd := io.await(file.read(dst_fd, buf, u32(32), u64(0)), io);
   assert(rd == i32(data_len));
   assert((buf &+ usize(0)).* == u8(115));
   assert((buf &+ usize(4)).* == u8(102));
