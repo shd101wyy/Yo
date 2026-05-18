@@ -6591,7 +6591,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       );
       ctx.make_impl(
         quote(
-          Eq(...(#(trait_params)))(
+          Eq(...#(trait_params))(
             (==) : ((lhs, rhs) -> #(eq_body))
           )
         )
@@ -6661,7 +6661,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       match_body :: __s3("match(lhs,\n    ", eq_branches, "\n  )");
       ctx.make_impl(
         quote(
-          Eq(...(#(trait_params)))(
+          Eq(...#(trait_params))(
             (==) : ((lhs, rhs) -> #(match_body.to_expr()))
           )
         )
@@ -6670,7 +6670,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
     true =>
       ctx.make_impl(
         quote(
-          Eq(...(#(trait_params)))(
+          Eq(...#(trait_params))(
             (==) : ((lhs, rhs) -> true)
           )
         )
@@ -6951,7 +6951,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
         (fc == 0) =>
           ctx.make_impl(
             quote(
-              Ord(...(#(trait_params)))(
+              Ord(...#(trait_params))(
                 (<) : ((lhs, rhs) -> false),
                 (<=) : ((lhs, rhs) -> true),
                 (>) : ((lhs, rhs) -> false),
@@ -6966,7 +6966,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
           ge_body :: __derive_ord_struct_body(T, ">=");
           ctx.make_impl(
             quote(
-              Ord(...(#(trait_params)))(
+              Ord(...#(trait_params))(
                 (<) : ((lhs, rhs) -> #(lt_body.to_expr())),
                 (<=) : ((lhs, rhs) -> #(le_body.to_expr())),
                 (>) : ((lhs, rhs) -> #(gt_body.to_expr())),
@@ -7037,7 +7037,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
       ge_match :: __gen_op_branches(">=", "true");
       ctx.make_impl(
         quote(
-          Ord(...(#(trait_params)))(
+          Ord(...#(trait_params))(
             (<) : ((lhs, rhs) -> #(lt_match.to_expr())),
             (<=) : ((lhs, rhs) -> #(le_match.to_expr())),
             (>) : ((lhs, rhs) -> #(gt_match.to_expr())),
@@ -7049,7 +7049,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
     true =>
       ctx.make_impl(
         quote(
-          Ord(...(#(trait_params)))(
+          Ord(...#(trait_params))(
             (<) : ((lhs, rhs) -> false),
             (<=) : ((lhs, rhs) -> true),
             (>) : ((lhs, rhs) -> false),

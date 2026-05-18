@@ -281,13 +281,13 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
           )
         )
       );
-      quote(match(self, ...(#(match_branches))))
+      quote(match(self, ...#(match_branches)))
     },
     true => quote(false)
   );
   ctx.make_impl(
     quote(
-      MyEq(...(#(trait_params)))(
+      MyEq(...#(trait_params))(
         my_eq : ((self, other) -> #(eq_body))
       )
     )
