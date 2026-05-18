@@ -69,16 +69,16 @@ is at the surface-syntax + evaluator level only.
 | Effect record (struct-based) | `using(exn : Exception)` then `exn.throw(...)`                                    | `exn : Exception` then `exn.throw(...)`                                |
 | Continuation control         | `return(value)` resumes, `escape(value)` unwinds                                  | `return(value)` resumes, `unwind(value)` unwinds (renamed for clarity) |
 | Skip + fallback to given     | `safe_divide(1, 0, using(undefined))`                                             | n/a — no implicit lookup, no fallback                                  |
-| Effect row polymorphism      | `forall(T : Type, ...(E))` + `using(...(E))`                                      | `forall(T : Type, E : Effects)` + `e : E` (see §2)                     |
+| Effect row polymorphism      | `forall(T : Type, ...(E))` + `using(...(E))`                                      | `forall(T : Type, E : Type)` + `e : E` (see §2)                        |
 
 Removed keywords: `using`, `given`. Renamed: `escape` → `unwind`.
 
-## 2. Effect Row Polymorphism — `E : Effects` as Generic Constraint
+## 2. Effect Row Polymorphism — `E : Type` as Generic Constraint
 
 Today's `forall(...(E))` declares effect row variables as a special spread
 construct, and `using(...(E))` spreads them as implicit parameters. The
 explicit replacement models an effect row as a **generic parameter bound
-by the `Effects` constraint** — it composes with existing `forall` /
+by the standard `Type` constraint** — it composes with existing `forall` /
 generic syntax that the LLM already knows.
 
 ### Before
@@ -94,7 +94,7 @@ result := run(might_fail);   // E inferred from might_fail's signature
 ### After
 
 ```rust
-run :: (fn(forall(T : Type, E : Effects),
+run :: (fn(forall(T : Type, E : Type),
     f : (fn(e : E) -> T),
     e : E) -> T)(f(e));
 
@@ -102,9 +102,9 @@ effects := { yield : my_yield, log : my_log };
 result := run(might_fail, effects);
 ```
 
-### Why `E : Effects` over `...(E)`
+### Why `E : Type` over `...(E)`
 
-| Property                                      | `...(E)`                   | `E : Effects`                 |
+| Property                                      | `...(E)`                   | `E : Type`                    |
 | --------------------------------------------- | -------------------------- | ----------------------------- |
 | Follows existing patterns                     | No — unique spread syntax  | Yes — normal `forall` generic |
 | LLM prior knowledge                           | Must learn a new concept   | Already knows generics        |
@@ -113,11 +113,11 @@ result := run(might_fail, effects);
 
 ### Specifics
 
-- `E : Effects` is a **generic constraint** in `forall` — just like
+- `E : Type` is a **generic constraint** in `forall` — just like
   `T : Type` today. `Effects` is a built-in constraint that says "this
   type is a struct whose fields are fn-pointer evidence values."
 - `e : E` in function signatures is a regular typed parameter. The
-  compiler knows `E` is bound to `Effects`, so it applies evidence-passing
+  compiler knows `E` is bound as a regular type parameter, so it applies evidence-passing
   codegen to `E`'s fields (flattening them into fn-ptr C parameters).
 - Effect records are constructed with ordinary anonymous struct syntax:
   ```rust
@@ -244,16 +244,16 @@ codegen reads it the same way today.
 
 Files touched:
 
-| Area                                                 | Approximate change                                                                                                                                                                                                          |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Lexer / parser** (`src/lexer.ts`, `src/parser.ts`) | Drop `using` and `given` keyword tokens. Drop `...(E)` spread parsing in `using`. Keep `forall(...)` with `E : Effects` generic constraint.                                                                                 |
-| **Evaluator** (`src/evaluator/`)                     | Remove `using` / `given` handling. Remove `...(E)` row-spread evaluation. `E : Effects` is a normal forall generic — the constraint signals effect-record semantics. Add data-flow tagging for install-site detection.      |
-| **Codegen** (`src/codegen/`)                         | Drop `using`-param emission paths. Existing fn-ptr param emission stays. Install-site frame setup reads new data-flow tag. Rename `__yo_effect_escape_value` → `__yo_unwind_value`.                                         |
-| **Prelude** (`std/prelude.yo`)                       | Rewrite ~30–50 fn signatures: convert `using(exn : Exception)` → `exn : Exception`. Update internal call sites. Wrap bare-fn effects (e.g. `Raise`) in single-field structs. Replace `using(...(E))` with `e : E` patterns. |
-| **Stdlib** (`std/**/*.yo`)                           | Same pattern as prelude. `std/error.yo`, `std/io/*`, `std/collections/*` are likely the largest.                                                                                                                            |
-| **Test suite** (`tests/**/*.test.yo`)                | `tests/algebraic_effects.test.yo` (57 cases) gets the largest churn. Other tests touch `Exception` calls that need explicit `exn` arg threading.                                                                            |
-| **yo-self port** (`yo-self/**/*.yo`)                 | Mirror the TS-side changes one-to-one. Evaluator + codegen + prelude.                                                                                                                                                       |
-| **Docs** (`docs/en-US/`, `docs/zh-CN/`)              | Rewrite `ALGEBRAIC_EFFECTS.md` to describe the explicit model. Update `ASYNC_AWAIT.md` cross-references.                                                                                                                    |
+| Area                                                 | Approximate change                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Lexer / parser** (`src/lexer.ts`, `src/parser.ts`) | Drop `using` and `given` keyword tokens. Drop `...(E)` spread parsing in `using`. Keep `forall(...)` with `E : Type` generic constraint.                                                                                                                                  |
+| **Evaluator** (`src/evaluator/`)                     | Remove `using` / `given` handling. Remove `...(E)` row-spread evaluation. `E : Type` is a normal forall generic — the constraint is just a regular forall type — the compiler detects effect records at specialization. Add data-flow tagging for install-site detection. |
+| **Codegen** (`src/codegen/`)                         | Drop `using`-param emission paths. Existing fn-ptr param emission stays. Install-site frame setup reads new data-flow tag. Rename `__yo_effect_escape_value` → `__yo_unwind_value`.                                                                                       |
+| **Prelude** (`std/prelude.yo`)                       | Rewrite ~30–50 fn signatures: convert `using(exn : Exception)` → `exn : Exception`. Update internal call sites. Wrap bare-fn effects (e.g. `Raise`) in single-field structs. Replace `using(...(E))` with `e : E` patterns.                                               |
+| **Stdlib** (`std/**/*.yo`)                           | Same pattern as prelude. `std/error.yo`, `std/io/*`, `std/collections/*` are likely the largest.                                                                                                                                                                          |
+| **Test suite** (`tests/**/*.test.yo`)                | `tests/algebraic_effects.test.yo` (57 cases) gets the largest churn. Other tests touch `Exception` calls that need explicit `exn` arg threading.                                                                                                                          |
+| **yo-self port** (`yo-self/**/*.yo`)                 | Mirror the TS-side changes one-to-one. Evaluator + codegen + prelude.                                                                                                                                                                                                     |
+| **Docs** (`docs/en-US/`, `docs/zh-CN/`)              | Rewrite `ALGEBRAIC_EFFECTS.md` to describe the explicit model. Update `ASYNC_AWAIT.md` cross-references.                                                                                                                                                                  |
 
 ### Suggested phasing
 
@@ -268,7 +268,7 @@ Files touched:
 
 3. **Phase 2 — Parser + evaluator: explicit params.** 🔄 IN PROGRESS.
    Drop `using` / `given` keywords. Replace `forall(...(E))` + `using(...(E))`
-   with `forall(E : Effects)` + `e : E`. Migrate prelude + stdlib + tests.
+   with `forall(E : Type)` + `e : E`. Migrate prelude + stdlib + tests.
    This is the big-bang.
 
 4. **Phase 3 — Codegen install-site detection on data-flow tags.**
@@ -286,17 +286,17 @@ breaker. Phases 3+ can land incrementally as gen-output audits succeed.
 Given the size (~2000+ occurrences across `tests/`, `std/`, `yo-self/`),
 Phase 2 is broken into sub-phases:
 
-| Step | Description                                      | Scope                                                |
-| ---- | ------------------------------------------------ | ---------------------------------------------------- |
-| 2a   | Drop `using`/`given` from lexer/parser tokens    | `src/lexer.ts`, `src/parser.ts`                      |
-| 2b   | Drop `using`/`given` from evaluator              | `src/evaluator/**/*.ts`                              |
-| 2c   | Replace `...(E)` with `E : Effects` in evaluator | `src/evaluator/**/*.ts`                              |
-| 2d   | Drop `using`/`given` from codegen                | `src/codegen/**/*.ts`                                |
-| 2e   | Remove `isImplicit` etc. flags                   | `src/expr.ts`, `src/env.ts`, `src/function-value.ts` |
-| 2f   | Migrate `tests/` `.yo` files                     | `tests/**/*.test.yo`                                 |
-| 2g   | Migrate `std/` `.yo` files                       | `std/**/*.yo`                                        |
-| 2h   | Migrate `yo-self/` `.yo` files                   | `yo-self/**/*.yo`                                    |
-| 2i   | Migrate docs                                     | `docs/en-US/`, `docs/zh-CN/`                         |
+| Step | Description                                   | Status                                  |
+| ---- | --------------------------------------------- | --------------------------------------- |
+| 2a   | Drop `using`/`given` from lexer/parser tokens | ✅ DONE (`bd88c32`)                     |
+| 2b   | Drop `using`/`given` from evaluator           | ✅ DONE (`bd88c32`)                     |
+| 2c   | Replace `...(E)` with `E : Type` in evaluator | 🔲 Postponed (dead code, safe to leave) |
+| 2d   | Drop `using`/`given` from codegen             | ✅ DONE (`bd88c32`)                     |
+| 2e   | Remove `isImplicit` etc. flags                | 🔲 Postponed (dead code, safe)          |
+| 2f   | Migrate `tests/` `.yo` files                  | Pending (~800 occurrences)              |
+| 2g   | Migrate `std/` `.yo` files                    | 🔄 NEXT — prelude + stdlib (~300)       |
+| 2h   | Migrate `yo-self/` `.yo` files                | Pending (~1700 occurrences)             |
+| 2i   | Migrate docs                                  | `docs/en-US/`, `docs/zh-CN/`            |
 
 ## 8. Implementation Details — What Gets Removed
 
@@ -312,30 +312,30 @@ This section documents the specific compiler artifacts associated with
 
 ### 8.2 Evaluator changes (`src/evaluator/`)
 
-| Artifact                           | File                                                 | Action                                                                                                                        |
-| ---------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `isImplicit` variable flag         | `initialization-assignment.ts:432`, `binding.ts:224` | Remove. Variables are just variables.                                                                                         |
-| `isCompileTimeOnly` forced `true`  | `initialization-assignment.ts:170`                   | Remove. Handlers are runtime fn ptrs.                                                                                         |
-| `isReassignable` forced `false`    | `initialization-assignment.ts:431`                   | Remove. Handler params are non-reassignable by default (param semantics); local `:=` bindings should be reassignable.         |
-| `isInsideGivenHandler` context     | `context.ts:249-254`                                 | Remove. `unwind` is valid in any function body. Handler detection is auto via `evaluatedBodyContainsEscape`.                  |
-| `isEffectRecordMember` flag set    | `initialization-assignment.ts:305`                   | Keep the flag but set it via body analysis (already done in `anonymous-function.ts:1084-1089`).                               |
-| `throwExprIsImplicitVariableError` | `utils.ts:53-82`                                     | Remove entirely. No implicit variables to guard against.                                                                      |
-| `stripImplicitVariablesFromEnv`    | `env.ts:2152-2158`                                   | Remove. Closures capture handlers like regular variables.                                                                     |
-| `using` param resolution           | `implicit-resolution*`, `using-param*`               | Remove all implicit lookup logic.                                                                                             |
-| `using(undefined)` handling        | Various                                              | Remove. No fallback mechanism.                                                                                                |
-| `given` ambiguity / missing errors | Various                                              | Remove. No implicit resolution = no ambiguity.                                                                                |
-| `...(E)` spread evaluation         | Evaluator files handling `forall` + `using` spread   | Replace with `E : Effects` generic constraint evaluation. `...(E)` becomes a regular forall type variable bound to `Effects`. |
+| Artifact                           | File                                                 | Action                                                                                                                                    |
+| ---------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `isImplicit` variable flag         | `initialization-assignment.ts:432`, `binding.ts:224` | Remove. Variables are just variables.                                                                                                     |
+| `isCompileTimeOnly` forced `true`  | `initialization-assignment.ts:170`                   | Remove. Handlers are runtime fn ptrs.                                                                                                     |
+| `isReassignable` forced `false`    | `initialization-assignment.ts:431`                   | Remove. Handler params are non-reassignable by default (param semantics); local `:=` bindings should be reassignable.                     |
+| `isInsideGivenHandler` context     | `context.ts:249-254`                                 | Remove. `unwind` is valid in any function body. Handler detection is auto via `evaluatedBodyContainsEscape`.                              |
+| `isEffectRecordMember` flag set    | `initialization-assignment.ts:305`                   | Keep the flag but set it via body analysis (already done in `anonymous-function.ts:1084-1089`).                                           |
+| `throwExprIsImplicitVariableError` | `utils.ts:53-82`                                     | Remove entirely. No implicit variables to guard against.                                                                                  |
+| `stripImplicitVariablesFromEnv`    | `env.ts:2152-2158`                                   | Remove. Closures capture handlers like regular variables.                                                                                 |
+| `using` param resolution           | `implicit-resolution*`, `using-param*`               | Remove all implicit lookup logic.                                                                                                         |
+| `using(undefined)` handling        | Various                                              | Remove. No fallback mechanism.                                                                                                            |
+| `given` ambiguity / missing errors | Various                                              | Remove. No implicit resolution = no ambiguity.                                                                                            |
+| `...(E)` spread evaluation         | Evaluator files handling `forall` + `using` spread   | Replace with `E : Type` generic constraint evaluation. `...(E)` becomes a regular forall type variable bound as a regular type parameter. |
 
 ### 8.3 Codegen changes (`src/codegen/`)
 
-| Artifact                               | Action                                                                                                                            |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `generateGiven` / given emit paths     | Remove. Handlers are regular variable declarations, emit like `:=`.                                                               |
-| `generateEscape` → `generateUnwind`    | Rename. Body unchanged (still sets flag + propagates).                                                                            |
-| `__yo_effect_escape_value`             | Rename to `__yo_unwind_value`.                                                                                                    |
-| `emitEffectEscapeCheck`                | Rename to `emitEffectUnwindCheck`. Keep logic.                                                                                    |
-| `using`-param evidence emission        | Remove. Evidence params are already emitted as fn-ptr params via regular parameter codegen.                                       |
-| `...(E)` spread in codegen param lists | Replace with record flattening: when a param is typed `E : Effects`, flatten its struct fields into separate C fn-ptr parameters. |
+| Artifact                               | Action                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `generateGiven` / given emit paths     | Remove. Handlers are regular variable declarations, emit like `:=`.                                                            |
+| `generateEscape` → `generateUnwind`    | Rename. Body unchanged (still sets flag + propagates).                                                                         |
+| `__yo_effect_escape_value`             | Rename to `__yo_unwind_value`.                                                                                                 |
+| `emitEffectEscapeCheck`                | Rename to `emitEffectUnwindCheck`. Keep logic.                                                                                 |
+| `using`-param evidence emission        | Remove. Evidence params are already emitted as fn-ptr params via regular parameter codegen.                                    |
+| `...(E)` spread in codegen param lists | Replace with record flattening: when a param is typed `E : Type`, flatten its struct fields into separate C fn-ptr parameters. |
 
 ### 8.4 `isControlFunction` detection flow (unchanged)
 
@@ -394,7 +394,7 @@ body, and `isControlFunction` handles the rest.
    not match the enclosing function's return type → compile error. This
    check already exists in `escape.ts:47-60`.
 
-8. **`Effects` as first-class constraint.** `E : Effects` is a new built-in
+8. **`Type` constraint for effect rows.** `E : Type` is a new built-in
    constraint analogous to `T : Type` / `T : Trait`. It signals to the
    evaluator and codegen that `E` is an effect record whose fields should
    be flattened into fn-ptr C parameters. The constraint is compiler-intrinsic —
