@@ -18,20 +18,20 @@ test("realpath resolves . and ..", {
   base_dir := base_dir_c.ptr().unwrap();
   sub_dir := sub_dir_c.ptr().unwrap();
   file_path := file_c.ptr().unwrap();
-  io.await(dir.unlink(AT_FDCWD, file_path, i32(0)));
-  io.await(dir.unlink(AT_FDCWD, sub_dir, AT_REMOVEDIR));
-  io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR));
-  mk_base := io.await(dir.mkdir(AT_FDCWD, base_dir, i32(0o755)));
+  io.await(dir.unlink(AT_FDCWD, file_path, i32(0)), io);
+  io.await(dir.unlink(AT_FDCWD, sub_dir, AT_REMOVEDIR), io);
+  io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR), io);
+  mk_base := io.await(dir.mkdir(AT_FDCWD, base_dir, i32(0o755)), io);
   assert(mk_base == i32(0));
-  mk_sub := io.await(dir.mkdir(AT_FDCWD, sub_dir, i32(0o755)));
+  mk_sub := io.await(dir.mkdir(AT_FDCWD, sub_dir, i32(0o755)), io);
   assert(mk_sub == i32(0));
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-  fd := io.await(file.openat(AT_FDCWD, file_path, write_flags, i32(0o644)));
+  fd := io.await(file.openat(AT_FDCWD, file_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("realpath data");
-  wr := io.await(file.write(fd, data, u32(13), u64(0)));
+  wr := io.await(file.write(fd, data, u32(13), u64(0)), io);
   assert(wr == i32(13));
-  io.await(file.close(fd));
+  io.await(file.close(fd), io);
   dot_dir_str := path_join(sub_dir_str, `..`);
   dot_path_str := path_join(dot_dir_str, file_name);
   dot_path_c := dot_path_str.to_cstr();
@@ -48,9 +48,9 @@ test("realpath resolves . and ..", {
   resolved_str := String.from_cstr(buf).unwrap();
   expected_str := String.from_cstr(expected_buf).unwrap();
   assert(resolved_str == expected_str);
-  io.await(dir.unlink(AT_FDCWD, file_path, i32(0)));
-  io.await(dir.unlink(AT_FDCWD, sub_dir, AT_REMOVEDIR));
-  io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR));
+  io.await(dir.unlink(AT_FDCWD, file_path, i32(0)), io);
+  io.await(dir.unlink(AT_FDCWD, sub_dir, AT_REMOVEDIR), io);
+  io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR), io);
 });
 test("realpath resolves symlink target", {
   tmp := temp_dir();
@@ -63,19 +63,19 @@ test("realpath resolves symlink target", {
   base_dir := base_dir_c.ptr().unwrap();
   target_path := target_c.ptr().unwrap();
   link_path := link_c.ptr().unwrap();
-  io.await(dir.unlink(AT_FDCWD, link_path, i32(0)));
-  io.await(dir.unlink(AT_FDCWD, target_path, i32(0)));
-  io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR));
-  mk_base := io.await(dir.mkdir(AT_FDCWD, base_dir, i32(0o755)));
+  io.await(dir.unlink(AT_FDCWD, link_path, i32(0)), io);
+  io.await(dir.unlink(AT_FDCWD, target_path, i32(0)), io);
+  io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR), io);
+  mk_base := io.await(dir.mkdir(AT_FDCWD, base_dir, i32(0o755)), io);
   assert(mk_base == i32(0));
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-  fd := io.await(file.openat(AT_FDCWD, target_path, write_flags, i32(0o644)));
+  fd := io.await(file.openat(AT_FDCWD, target_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("symlink target");
-  wr := io.await(file.write(fd, data, u32(14), u64(0)));
+  wr := io.await(file.write(fd, data, u32(14), u64(0)), io);
   assert(wr == i32(14));
-  io.await(file.close(fd));
-  sym_result := io.await(dir.symlink(target_path, AT_FDCWD, link_path));
+  io.await(file.close(fd), io);
+  sym_result := io.await(dir.symlink(target_path, AT_FDCWD, link_path), io);
   printf("  symlink = %d\n", sym_result);
   cond(
     (sym_result == i32(0)) => {
@@ -94,16 +94,16 @@ test("realpath resolves symlink target", {
     },
     true => ()
   );
-  io.await(dir.unlink(AT_FDCWD, link_path, i32(0)));
-  io.await(dir.unlink(AT_FDCWD, target_path, i32(0)));
-  io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR));
+  io.await(dir.unlink(AT_FDCWD, link_path, i32(0)), io);
+  io.await(dir.unlink(AT_FDCWD, target_path, i32(0)), io);
+  io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR), io);
 });
 test("realpath on nonexistent returns error", {
   tmp := temp_dir();
   bad_path_str := path_join(tmp, `yo_io_realpath_missing_999`);
   bad_path_c := bad_path_str.to_cstr();
   bad_path := bad_path_c.ptr().unwrap();
-  io.await(dir.unlink(AT_FDCWD, bad_path, i32(0)));
+  io.await(dir.unlink(AT_FDCWD, bad_path, i32(0)), io);
   buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
   buf := *(u8)(buf_uninit.as_ptr());
   rp := path_io.realpath(bad_path, buf);

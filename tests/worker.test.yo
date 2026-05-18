@@ -55,9 +55,9 @@ test("Worker with async task", {
   Worker.set_num_threads(2);
   Worker.spawn((io) => {
     task := io.async((io : IO) => {
-      io.await(yield());
+      io.await(yield(), io);
     });
-    io.await(task);
+    io.await(task, io);
   });
 });
 test("Worker with async returning value", {
@@ -66,10 +66,10 @@ test("Worker with async returning value", {
     x := 10;
     y := 20;
     task := io.async((io : IO) => {
-      io.await(yield());
+      io.await(yield(), io);
       return(x + y);
     });
-    result := io.await(task);
+    result := io.await(task, io);
     assert(result == i32(30), "async result should be 30");
   });
 });
@@ -80,11 +80,11 @@ test("Worker with async loop", {
       counter := 0;
       while(runtime(counter < i32(3)), {
         counter = (counter + 1);
-        io.await(yield());
+        io.await(yield(), io);
       });
       return(counter);
     });
-    result := io.await(task);
+    result := io.await(task, io);
     assert(result == i32(3), "counter should be 3");
   });
 });

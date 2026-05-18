@@ -52,8 +52,8 @@ test("fcntl setfl toggles O_NONBLOCK on pipe", {
       assert(restore == i32(0));
     }
   );
-  c1 := io.await(file.close(read_fd));
-  c2 := io.await(file.close(write_fd));
+  c1 := io.await(file.close(read_fd), io);
+  c2 := io.await(file.close(write_fd), io);
   assert(c1 == i32(0));
   assert(c2 == i32(0));
 });
@@ -89,8 +89,8 @@ test("fcntl getfd/setfd toggles FD_CLOEXEC", {
   restore := fcntl_io.setfd(read_fd, fd_flags_before);
   printf("  restore = %d\n", restore);
   assert(restore == i32(0));
-  c1 := io.await(file.close(read_fd));
-  c2 := io.await(file.close(write_fd));
+  c1 := io.await(file.close(read_fd), io);
+  c2 := io.await(file.close(write_fd), io);
   assert(c1 == i32(0));
   assert(c2 == i32(0));
 });

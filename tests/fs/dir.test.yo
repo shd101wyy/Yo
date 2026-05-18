@@ -25,18 +25,18 @@ test("create_dir and remove_dir", {
   dpath := Path.new(path_join(tmp, `yo_fs_dir_create`));
   // Cleanup any leftover
   cond(
-    io.await(fs_file.exists(dpath, io)) => {
-      io.await(fs_dir.remove_dir(dpath));
+    io.await(fs_file.exists(dpath, io), io) => {
+      io.await(fs_dir.remove_dir(dpath), io);
     },
     true => ()
   );
-  io.await(fs_dir.create_dir(dpath));
+  io.await(fs_dir.create_dir(dpath), io);
   printf("  create_dir ok\n");
   // Verify it exists
-  e := io.await(fs_file.exists(dpath, io));
+  e := io.await(fs_file.exists(dpath, io), io);
   assert(e, "dir should exist after create");
   // Remove
-  io.await(fs_dir.remove_dir(dpath));
+  io.await(fs_dir.remove_dir(dpath), io);
   printf("  remove_dir ok\n");
 });
 test("create_dir_str", {
@@ -51,14 +51,14 @@ test("create_dir_str", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_dir_str`));
   cond(
-    io.await(fs_file.exists(dpath, io)) => {
-      io.await(fs_dir.remove_dir(dpath));
+    io.await(fs_file.exists(dpath, io), io) => {
+      io.await(fs_dir.remove_dir(dpath), io);
     },
     true => ()
   );
-  io.await(fs_dir.create_dir(dpath));
+  io.await(fs_dir.create_dir(dpath), io);
   printf("  create_dir_str ok\n");
-  io.await(fs_dir.remove_dir(dpath));
+  io.await(fs_dir.remove_dir(dpath), io);
 });
 test("create_dir on existing returns error", {
   tmp := temp_dir();
@@ -73,12 +73,12 @@ test("create_dir on existing returns error", {
     )
   );
   cond(
-    io.await(fs_file.exists(dpath, io)) => {
-      io.await(fs_dir.remove_dir(dpath));
+    io.await(fs_file.exists(dpath, io), io) => {
+      io.await(fs_dir.remove_dir(dpath), io);
     },
     true => ()
   );
-  io.await(fs_dir.create_dir(dpath));
+  io.await(fs_dir.create_dir(dpath), io);
   // Second create should fail
   exn := Exception(
     throw : (
@@ -88,7 +88,7 @@ test("create_dir on existing returns error", {
       }
     )
   );
-  io.await(fs_dir.create_dir(dpath));
+  io.await(fs_dir.create_dir(dpath), io);
   assert(false, "create_dir on existing should fail");
 });
 // ============================================================================
@@ -105,15 +105,15 @@ test("create_dir_all creates nested directories", {
   );
   tmp := temp_dir();
   nested := Path.new(path_join(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`), `sub2`));
-  io.await(fs_dir.create_dir_all(nested));
+  io.await(fs_dir.create_dir_all(nested), io);
   printf("  create_dir_all ok\n");
   // Verify exists
-  e := io.await(fs_file.exists(nested, io));
+  e := io.await(fs_file.exists(nested, io), io);
   assert(e, "nested dir should exist");
   // Cleanup nested dirs
-  io.await(fs_dir.remove_dir(nested));
-  io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`))));
-  io.await(fs_dir.remove_dir(Path.new(path_join(tmp, `yo_fs_dir_all`))));
+  io.await(fs_dir.remove_dir(nested), io);
+  io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`))), io);
+  io.await(fs_dir.remove_dir(Path.new(path_join(tmp, `yo_fs_dir_all`))), io);
 });
 test("create_dir_all on existing directory succeeds", {
   exn := Exception(
@@ -127,16 +127,16 @@ test("create_dir_all on existing directory succeeds", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_dir_all_exists`));
   cond(
-    io.await(fs_file.exists(dpath, io)) => {
-      io.await(fs_dir.remove_dir(dpath));
+    io.await(fs_file.exists(dpath, io), io) => {
+      io.await(fs_dir.remove_dir(dpath), io);
     },
     true => ()
   );
-  io.await(fs_dir.create_dir_all(dpath));
+  io.await(fs_dir.create_dir_all(dpath), io);
   // Calling again should not error
-  io.await(fs_dir.create_dir_all(dpath));
+  io.await(fs_dir.create_dir_all(dpath), io);
   printf("  create_dir_all on existing ok\n");
-  io.await(fs_dir.remove_dir(dpath));
+  io.await(fs_dir.remove_dir(dpath), io);
 });
 // ============================================================================
 // remove_file
@@ -152,11 +152,11 @@ test("remove_file removes a file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_dir_rm_file.txt`));
-  io.await(fs_file.write_file(fpath, String.from("to remove")));
-  io.await(fs_dir.remove_file(fpath));
+  io.await(fs_file.write_file(fpath, String.from("to remove")), io);
+  io.await(fs_dir.remove_file(fpath), io);
   printf("  remove_file ok\n");
   // Verify gone
-  e := io.await(fs_file.exists(fpath, io));
+  e := io.await(fs_file.exists(fpath, io), io);
   assert(!(e), "file should not exist after remove");
 });
 test("remove_file nonexistent returns error", {
@@ -169,7 +169,7 @@ test("remove_file nonexistent returns error", {
       }
     )
   );
-  io.await(fs_dir.remove_file(fpath));
+  io.await(fs_dir.remove_file(fpath), io);
   assert(false, "remove nonexistent should fail");
 });
 // ============================================================================
@@ -188,21 +188,21 @@ test("rename moves a file", {
   old_path := Path.new(path_join(tmp, `yo_fs_rename_old.txt`));
   new_path := Path.new(path_join(tmp, `yo_fs_rename_new.txt`));
   cond(
-    io.await(fs_file.exists(new_path, io)) => {
-      io.await(fs_dir.remove_file(new_path));
+    io.await(fs_file.exists(new_path, io), io) => {
+      io.await(fs_dir.remove_file(new_path), io);
     },
     true => ()
   );
-  io.await(fs_file.write_file(old_path, String.from("rename me")));
-  io.await(fs_dir.rename(old_path, new_path));
+  io.await(fs_file.write_file(old_path, String.from("rename me")), io);
+  io.await(fs_dir.rename(old_path, new_path), io);
   printf("  rename ok\n");
   // Old should not exist
-  old_ex := io.await(fs_file.exists(old_path, io));
+  old_ex := io.await(fs_file.exists(old_path, io), io);
   assert(!(old_ex), "old path should not exist");
   // New should exist with correct content
-  s := io.await(fs_file.read_string(new_path));
+  s := io.await(fs_file.read_string(new_path), io);
   assert(s == `rename me`, "renamed content mismatch");
-  io.await(fs_dir.remove_file(new_path));
+  io.await(fs_dir.remove_file(new_path), io);
 });
 // ============================================================================
 // hard_link
@@ -225,19 +225,19 @@ test("hard_link creates a link", {
   src := Path.new(path_join(tmp, `yo_fs_link_src.txt`));
   dst := Path.new(path_join(tmp, `yo_fs_link_dst.txt`));
   cond(
-    io.await(fs_file.exists(dst, io)) => {
-      io.await(fs_dir.remove_file(dst));
+    io.await(fs_file.exists(dst, io), io) => {
+      io.await(fs_dir.remove_file(dst), io);
     },
     true => ()
   );
-  io.await(fs_file.write_file(src, String.from("link data")));
-  io.await(fs_dir.hard_link(src, dst));
+  io.await(fs_file.write_file(src, String.from("link data")), io);
+  io.await(fs_dir.hard_link(src, dst), io);
   printf("  hard_link ok\n");
   // Read via link
-  s := io.await(fs_file.read_string(dst));
+  s := io.await(fs_file.read_string(dst), io);
   assert(s == `link data`, "link content mismatch");
-  io.await(fs_dir.remove_file(src));
-  io.await(fs_dir.remove_file(dst));
+  io.await(fs_dir.remove_file(src), io);
+  io.await(fs_dir.remove_file(dst), io);
 });
 // ============================================================================
 // symlink
@@ -255,18 +255,18 @@ test("symlink creates a symbolic link", {
     )
   );
   cond(
-    io.await(fs_file.exists(lnk, io)) => {
-      io.await(fs_dir.remove_file(lnk));
+    io.await(fs_file.exists(lnk, io), io) => {
+      io.await(fs_dir.remove_file(lnk), io);
     },
     true => ()
   );
   cond(
-    io.await(fs_file.exists(src, io)) => {
-      io.await(fs_dir.remove_file(src));
+    io.await(fs_file.exists(src, io), io) => {
+      io.await(fs_dir.remove_file(src), io);
     },
     true => ()
   );
-  io.await(fs_file.write_file(src, String.from("symlink data")));
+  io.await(fs_file.write_file(src, String.from("symlink data")), io);
   // Symlink may fail with PermissionDenied on Windows
   sym_exn := Exception(
     throw : (
@@ -290,7 +290,7 @@ test("symlink creates a symbolic link", {
       }
     )
   );
-  io.await(fs_dir.symlink(src, lnk));
+  io.await(fs_dir.symlink(src, lnk), io);
   printf("  symlink ok\n");
   // Read via symlink
   exn := Exception(
@@ -301,10 +301,10 @@ test("symlink creates a symbolic link", {
       }
     )
   );
-  s := io.await(fs_file.read_string(lnk));
+  s := io.await(fs_file.read_string(lnk), io);
   assert(s == `symlink data`, "symlink content mismatch");
-  io.await(fs_dir.remove_file(lnk));
-  io.await(fs_dir.remove_file(src));
+  io.await(fs_dir.remove_file(lnk), io);
+  io.await(fs_dir.remove_file(src), io);
 });
 // ============================================================================
 // read_dir
@@ -320,13 +320,13 @@ test("read_dir lists directory entries", {
   );
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_read_dir`));
-  io.await(fs_dir.create_dir_all(dpath));
+  io.await(fs_dir.create_dir_all(dpath), io);
   // Create some files inside
-  io.await(fs_file.write_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `a.txt`)), String.from("a")));
-  io.await(fs_file.write_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `b.txt`)), String.from("b")));
+  io.await(fs_file.write_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `a.txt`)), String.from("a")), io);
+  io.await(fs_file.write_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `b.txt`)), String.from("b")), io);
   // Create a subdirectory
-  io.await(fs_dir.create_dir(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `subdir`))));
-  entries := io.await(fs_dir.read_dir(dpath));
+  io.await(fs_dir.create_dir(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `subdir`))), io);
+  entries := io.await(fs_dir.read_dir(dpath), io);
   printf("  entries count = %lld\n", i64(entries.len()));
   assert(entries.len() == usize(3), "expected 3 entries");
   // Check that we find the expected names
@@ -358,10 +358,10 @@ test("read_dir lists directory entries", {
   assert(found_b, "should find b.txt");
   assert(found_sub, "should find subdir");
   // Cleanup
-  io.await(fs_dir.remove_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `a.txt`))));
-  io.await(fs_dir.remove_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `b.txt`))));
-  io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `subdir`))));
-  io.await(fs_dir.remove_dir(dpath));
+  io.await(fs_dir.remove_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `a.txt`))), io);
+  io.await(fs_dir.remove_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `b.txt`))), io);
+  io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `subdir`))), io);
+  io.await(fs_dir.remove_dir(dpath), io);
 });
 test("read_dir on nonexistent returns error", {
   dpath := Path.new(`/nonexistent/yo_fs_read_dir_nope`);
@@ -373,6 +373,6 @@ test("read_dir on nonexistent returns error", {
       }
     )
   );
-  io.await(fs_dir.read_dir(dpath));
+  io.await(fs_dir.read_dir(dpath), io);
   assert(false, "read_dir nonexistent should fail");
 });

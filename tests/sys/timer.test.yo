@@ -11,13 +11,13 @@ test("Test IO timer", {
     assert(value.* == 0); // 0
     value.* = (value.* + 1); // 1
     printf("Timer test: sleeping 50ms...\n");
-    result := io.await(sleep(u64(50)));
+    result := io.await(sleep(u64(50)), io);
     printf("Timer test: woke up with result=%d\n", result);
     assert(result > i32(0));
     assert(value.* == 3); // yield() resumed block2 first, which set it to 3
     value.* = (value.* + 1); // 4
     printf("Timer test: sleeping 3000ms...\n");
-    result2 := io.await(sleep(u64(3000)));
+    result2 := io.await(sleep(u64(3000)), io);
     printf("Timer test: woke up with result=%d\n", result2);
     assert(result2 > i32(0));
     assert(value.* == 4); // 4
@@ -26,12 +26,12 @@ test("Test IO timer", {
   task2 := io.async((io : IO) => {
     assert(value.* == 1); // 1
     value.* = (value.* + 1); // 2
-    io.await(yield());
+    io.await(yield(), io);
     assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
     value.* = (value.* + 1); // 3
   });
   io.spawn(task1);
   io.spawn(task2);
-  io.await(task1);
-  io.await(task2);
+  io.await(task1, io);
+  io.await(task2, io);
 });

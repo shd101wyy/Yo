@@ -25,12 +25,12 @@ test("sync open nonexistent returns negative errno", {
 });
 test("async openat, read, close", {
   async_path := *(u8)("tests/fixtures/test_file.txt");
-  open_result := io.await(openat(AT_FDCWD, async_path, O_RDONLY, i32(0)));
+  open_result := io.await(openat(AT_FDCWD, async_path, O_RDONLY, i32(0)), io);
   printf("  openat result = %d\n", open_result);
   assert(open_result >= i32(0));
   afd := open_result;
   buf := *(u8)(malloc(usize(256)).unwrap());
-  read_result := io.await(read(afd, buf, u32(256), u64(0)));
+  read_result := io.await(read(afd, buf, u32(256), u64(0)), io);
   printf("  read result = %d\n", read_result);
   assert(read_result > i32(0));
   // "Hello from Yo async I/O!\n" - check first 5 bytes: H=72, e=101, l=108, l=108, o=111
@@ -39,7 +39,7 @@ test("async openat, read, close", {
   assert((buf &+ usize(2)).* == u8(108));
   assert((buf &+ usize(3)).* == u8(108));
   assert((buf &+ usize(4)).* == u8(111));
-  close_result := io.await(close(afd));
+  close_result := io.await(close(afd), io);
   printf("  close result = %d\n", close_result);
   assert(close_result == i32(0));
   free(.Some(*(void)(buf)));
@@ -50,29 +50,29 @@ test("async write and read back", {
   write_path_str := path_join(tmp, `yo_io_file_test.txt`);
   write_path_c := write_path_str.to_cstr();
   write_path := write_path_c.ptr().unwrap();
-  open_result := io.await(openat(AT_FDCWD, write_path, write_open_flags, i32(0o644)));
+  open_result := io.await(openat(AT_FDCWD, write_path, write_open_flags, i32(0o644)), io);
   printf("  write openat result = %d\n", open_result);
   assert(open_result >= i32(0));
   wfd := open_result;
   data := *(u8)("Hello from Yo file test!");
-  write_result := io.await(write(wfd, data, u32(24), u64(0)));
+  write_result := io.await(write(wfd, data, u32(24), u64(0)), io);
   printf("  write result = %d\n", write_result);
   assert(write_result == i32(24));
-  close1 := io.await(close(wfd));
+  close1 := io.await(close(wfd), io);
   assert(close1 == i32(0));
   // Read back
-  open_result2 := io.await(openat(AT_FDCWD, write_path, O_RDONLY, i32(0)));
+  open_result2 := io.await(openat(AT_FDCWD, write_path, O_RDONLY, i32(0)), io);
   assert(open_result2 >= i32(0));
   rfd := open_result2;
   buf := *(u8)(malloc(usize(64)).unwrap());
-  read_result := io.await(read(rfd, buf, u32(64), u64(0)));
+  read_result := io.await(read(rfd, buf, u32(64), u64(0)), io);
   printf("  read back result = %d\n", read_result);
   assert(read_result == i32(24));
   // Check: H=72, space=32 after "Hello", f=102
   assert((buf &+ usize(0)).* == u8(72));
   assert((buf &+ usize(5)).* == u8(32));
   assert((buf &+ usize(6)).* == u8(102));
-  close2 := io.await(close(rfd));
+  close2 := io.await(close(rfd), io);
   assert(close2 == i32(0));
   free(.Some(*(void)(buf)));
 });

@@ -10,7 +10,7 @@ test("clock_gettime monotonic is non-decreasing", {
   s1 := (t1 &+ usize(0)).*;
   ns1 := (t1 &+ usize(1)).*;
   assert((ns1 >= i64(0)) && (ns1 < i64(1000000000)), "first CLOCK_MONOTONIC nsec must be in [0, 1e9)");
-  sleep_result := io.await(sleep(u64(10)));
+  sleep_result := io.await(sleep(u64(10)), io);
   assert(sleep_result > i32(0), "sleep should complete successfully");
   t2_uninit := MaybeUninit(Array(i64, usize(2))).new();
   t2 := *(i64)(t2_uninit.as_ptr());

@@ -22,7 +22,7 @@ test("lookup_host localhost returns loopback", {
       }
     )
   );
-  addrs := io.await(lookup_host(`localhost`));
+  addrs := io.await(lookup_host(`localhost`), io);
   printf("  addrs.len = %zu\n", addrs.len());
   assert(addrs.len() > usize(0), "should resolve at least one address");
   // Check that at least one address is loopback
@@ -50,7 +50,7 @@ test("lookup_host invalid host fails", {
       }
     )
   );
-  addrs := io.await(lookup_host(`this.host.does.not.exist.invalid`));
+  addrs := io.await(lookup_host(`this.host.does.not.exist.invalid`), io);
   // Some systems may resolve any domain; if so, skip assertion
   printf("  unexpectedly resolved %zu addresses\n", addrs.len());
 });
@@ -63,7 +63,7 @@ test("resolve localhost returns socket addresses", {
       }
     )
   );
-  addrs := io.await(resolve(`localhost`, u16(8080)));
+  addrs := io.await(resolve(`localhost`, u16(8080)), io);
   printf("  addrs.len = %zu\n", addrs.len());
   assert(addrs.len() > usize(0), "should resolve at least one address");
   i := usize(0);

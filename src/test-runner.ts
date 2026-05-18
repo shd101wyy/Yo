@@ -333,12 +333,18 @@ function generateBatchedTestProgram(
 
   // Import env module for env var dispatch (unique name to avoid conflicts)
   lines.push('__yo_batch_env :: import("std/env");');
+  // Import Exception so the generated main signature can reference it
+  lines.push('__yo_test_exn :: import("std/error");');
   lines.push("");
 
   // Inline all test bodies into main's cond branches.
   // We can't use separate functions because tests with algebraic effects
   // (unwind/given) need to be in the same codegen scope as main.
-  lines.push(`main :: (fn() -> unit)({`);
+  //
+  // main declares `io : IO, exn : Exception` so test bodies can reference
+  // `io` (for io.await/io.async) and `exn` (for exn.throw) directly. The
+  // C main wrapper injects the runtime values for these params.
+  lines.push(`main :: (fn(io : IO, exn : __yo_test_exn.Exception) -> unit)({`);
   lines.push("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),");
   lines.push("    .Some(__yo_test_idx) => cond(");
   for (let i = 0; i < tests.length; i++) {
