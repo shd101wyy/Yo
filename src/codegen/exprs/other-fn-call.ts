@@ -251,7 +251,22 @@ export function generateOtherFunctionCall(
             );
 
           // Generate the argument expression and declare it as a temp variable
-          const argCode = generateExpr(arg, indent, context);
+          let argCode = generateExpr(arg, indent, context);
+
+          // If the arg is a function-typed variable, look up its FunctionValue
+          // in the env and use the function C name.
+          if (exprIsAtom(arg) && arg.$.variableName && arg.$.env) {
+            const argVars = getVariablesFromEnv(arg.$.env, arg.$.variableName);
+            const argVar = argVars[argVars.length - 1];
+            const argVal = argVar?.value?.[0];
+            if (
+              argVal &&
+              isFunctionValue(argVal) &&
+              context.functions[argVal.funcId]?.cName
+            ) {
+              argCode = context.functions[argVal.funcId]!.cName!;
+            }
+          }
 
           // Check if this is a compile-time-only constant (e.g., AF_INET :: i32(2)).
           // In that case, generateExpr already inlined the value (e.g., "2"),

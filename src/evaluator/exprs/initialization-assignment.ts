@@ -403,7 +403,12 @@ Use \`::\` for compile-time definitions inside impl.`,
         name: varName,
         type: finalLhsType,
         isCompileTimeOnly: effectiveIsCompileTimeOnly,
-        value: actualLhs.$.value ? [actualLhs.$.value] : undefined,
+        value:
+          rhsValue && isFunctionValue(rhsValue)
+            ? [rhsValue]
+            : actualLhs.$.value
+              ? [actualLhs.$.value]
+              : undefined,
         token: actualLhs.token,
         initializedAtToken: actualLhs.token,
         consumedAtToken: undefined, // Not consumed yet
