@@ -529,9 +529,13 @@ io.await(IO_dir.mkdir(...), e);       // ✗ type mismatch
 
 The std/ migration is a mechanical pass over four patterns:
 
-1. **Common bundle aliases land in `std/prelude.yo`** alongside `IO`
-   and `Exception`. Start with `IOErr :: struct(io : IO, exn :
-Exception);` and add more as the migration discovers them.
+1. **Common bundle aliases land in `std/error.yo`** alongside
+   `Exception` — since `Exception` itself isn't in prelude, the alias
+   has to live where it can reference both `IO` (prelude) and
+   `Exception` (error.yo). Consumers already import `std/error` when
+   they need `Exception`. Start with `IOErr :: struct(io : IO, exn :
+Exception);` and add more as the migration discovers them. A later
+   refactor could promote `Exception` and the bundles to prelude.
 2. **`io.await(fut)` → `io.await(fut, io)`** when fut's effect bundle
    is just IO. Most stdlib calls fall here.
 3. **`io.await(fut)` → `io.await(fut, e.io)` or `io.await(fut, e)`**
