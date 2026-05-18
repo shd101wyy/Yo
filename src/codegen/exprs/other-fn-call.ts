@@ -2791,13 +2791,18 @@ function resolveEvidenceArgsForCallSite(
           }
         }
         // Fallback: if we found a variable by name but couldn't resolve the value
-        // (runtime variables after Phase 2), use the C variable name directly.
+        // (runtime variables after Phase 2), look up function C name from context.
         if (!resolved && givenVar) {
-          const callEnvForName = expr.func.$?.env ?? expr.$?.env;
-          const cName = getVariableNameForCodegen(
-            givenVar.name,
-            callEnvForName
-          );
+          let cName: string | undefined;
+          // Try to find the function C name from the variable's value
+          const funcVal = givenVar.value?.find((v) => isFunctionValue(v));
+          if (funcVal) {
+            cName = context.functions[funcVal.funcId]?.cName;
+          }
+          if (!cName) {
+            const callEnvForName = expr.func.$?.env ?? expr.$?.env;
+            cName = getVariableNameForCodegen(givenVar.name, callEnvForName);
+          }
           result.push(cName);
           resolved = true;
           isHandlerInstallation = true;

@@ -390,6 +390,14 @@ export function generateAtom(
           return generateComptimeValue(expr.$.value, context, expr);
         }
       }
+      // If the variable holds a FunctionValue, use its C function name
+      if (
+        expr.$?.value &&
+        isFunctionValue(expr.$.value) &&
+        context.functions[expr.$.value.funcId]?.cName
+      ) {
+        return context.functions[expr.$.value.funcId]!.cName!;
+      }
       return getVariableNameForCodegen(expr.$.variableName, expr.$.env);
     }
   }
