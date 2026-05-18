@@ -608,15 +608,8 @@ function generateUnwind(
 
   // effect record member function (e.g., Exception.throw handler):
   // Set thread-local flag so the calling SM knows this handler escaped.
-  // Also set for functions with evidence parameters (evidence passing),
-  // so the caller can check the flag and propagate the escape.
-  if (
-    functionContext.isEffectRecordMemberFunction ||
-    (functionContext.currentEvidenceParams &&
-      functionContext.currentEvidenceParams.size > 0)
-  ) {
-    functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
-  }
+  // Always set for any function that uses unwind (Phase 2).
+  functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
 
   if (!arg) {
     // Emit handler param drops before returning

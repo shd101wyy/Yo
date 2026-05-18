@@ -793,24 +793,14 @@ export function generateOtherFunctionCall(
               functionValue.isEffectRecordMember) ||
             (isFunctionValue(functionValue) &&
               functionValue.body?.$?.effectAnalysis?.hasEffects) ||
-            // Fallback: function has function-typed params
+            // Fallback: function has function-typed params that may be handlers
             (functionType &&
               functionType.parameters.some((p) => isFunctionType(p.type))) ||
-            // Fallback: direct call to a variable whose value is a control function
+            // Fallback: direct call to an atom whose type is a function type
+            // (but functionValue may not be a FunctionValue after Phase 2)
             (functionType &&
               isFunctionType(functionType) &&
-              exprIsAtom(expr.func) &&
-              (() => {
-                const callEnv = expr.$?.env ?? expr.func.$?.env;
-                if (!callEnv) return false;
-                const vars = getVariablesFromEnv(
-                  callEnv,
-                  expr.func.token.value
-                );
-                const v = vars[vars.length - 1];
-                const val = v?.value?.[0];
-                return isFunctionValue(val) && val.isControlFunction;
-              })());
+              exprIsAtom(expr.func));
           // For specialized effectful functions, check if this is the handler
           // installation point (where the unwind value should be extracted
           // rather than just propagated).
