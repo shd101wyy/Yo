@@ -255,12 +255,15 @@ export function generateOtherFunctionCall(
 
           // If the arg is a function-typed variable, look up its FunctionValue
           // in the call site env and use the function C name.
-          const callSiteEnv = expr.$?.env ?? expr.func.$?.env;
+          const callSiteEnv = expr.$?.env ?? expr.func.$?.env ?? arg.$?.env;
           if (exprIsAtom(arg) && arg.$.variableName && callSiteEnv) {
-            const argVars = getVariablesFromEnv(
-              callSiteEnv,
-              arg.$.variableName
-            );
+            const varName = arg.$.variableName;
+            const argVars = getVariablesFromEnv(callSiteEnv, varName);
+            if (argVars.length === 0 && arg.$?.env) {
+              // Fallback: try the arg's own env
+              const fallbackVars = getVariablesFromEnv(arg.$.env, varName);
+              argVars.push(...fallbackVars);
+            }
             const argVar = argVars[argVars.length - 1];
             const argVal = argVar?.value?.[0];
             if (

@@ -982,11 +982,17 @@ export function getVariableNameForCodegen(
   const variables = getVariablesFromEnv(env, variableName);
   if (variables.length > 0) {
     const variable = variables[variables.length - 1]!;
-    // Always use the actual variable name, not the parameterAlias
-    return sanitizeForCIdentifier(
+    // If the env variable name is a generated C name (fn_*_*), use the
+    // original variableName instead (Phase 2: function-typed vars in env).
+    const varEnvName = sanitizeForCIdentifier(
       variable.name,
       variable.type.isExtern === "c"
     );
+    if (varEnvName !== variableName && /^fn_/.test(varEnvName)) {
+      return sanitizeForCIdentifier(variableName);
+    }
+    // Always use the actual variable name, not the parameterAlias
+    return varEnvName;
   }
 
   return sanitizeForCIdentifier(variableName);
