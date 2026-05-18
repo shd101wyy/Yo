@@ -79,15 +79,28 @@ result := run(pure_func, {});
 
 `Future` 在类型层是**单参数**的：`Future(T, E)`，其中 `E` 是承载效应捆绑的结构体类型。捆绑的类型与值结构一致。
 
+传给 `io.async` 的闭包必须显式标注 `e` 的类型 — 类型推断器无法从孤立的闭包字面量推出 `E`。顶层调用点用 `typeof(effects)`；位于带返回类型注解的函数体内时，可省略闭包参数注解。
+
 ```rust
 effects := { raise, log };
 
-fut := io.async((e) => {
+// 顶层：用 typeof(effects) 标注 e
+fut := io.async((e : typeof(effects)) => {
   e.raise("err");
   e.log("hello");
 });
 
 result := io.await(fut, effects);
+```
+
+```rust
+// 函数体内、返回类型已标注 — E 由返回类型固定，闭包参数可不标注：
+do_work :: (fn(io : IO) -> Impl(Future(unit, IOErr)))(
+  io.async((e) => {
+    e.io.await(some_io_call(...), e.io);
+    e.exn.throw(...);
+  })
+);
 ```
 
 单效应 Future 直接传效应值，因为效应类型本身就是结构体：

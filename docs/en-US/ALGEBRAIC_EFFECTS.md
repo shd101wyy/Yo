@@ -95,15 +95,32 @@ result := run(pure_func, {});
 a struct type holding the effect bundle. The bundle's type and value
 mirror each other.
 
+The closure passed to `io.async` must pin `e`'s type — the inferencer
+cannot derive it from the bare closure literal. Use `typeof(effects)`
+at top-level call sites, or rely on the enclosing function's annotated
+return type when the closure is inside a function body.
+
 ```rust
 effects := { raise, log };
 
-fut := io.async((e) => {
+// Top-level: annotate e with typeof(effects)
+fut := io.async((e : typeof(effects)) => {
   e.raise("err");
   e.log("hello");
 });
 
 result := io.await(fut, effects);
+```
+
+```rust
+// Inside a function with annotated return type — the return type
+// pins E, so `(e)` without an annotation is fine:
+do_work :: (fn(io : IO) -> Impl(Future(unit, IOErr)))(
+  io.async((e) => {
+    e.io.await(some_io_call(...), e.io);
+    e.exn.throw(...);
+  })
+);
 ```
 
 Single-effect futures pass the effect value directly because the effect
