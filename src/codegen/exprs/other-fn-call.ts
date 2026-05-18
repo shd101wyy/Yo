@@ -1173,6 +1173,21 @@ export function generateOtherFunctionCall(
               generateDeferredDropExpressions(expr, indent, context);
             }
 
+            // unwind check for direct handler calls (only when functionValue
+            // is not available — indicating a local variable, not a module fn)
+            if (
+              isFunctionType(functionType) &&
+              exprIsAtom(expr.func) &&
+              !functionValue
+            ) {
+              emitEffectUnwindCheck(
+                indent,
+                context as FunctionGenerationContext,
+                true,
+                expr
+              );
+            }
+
             if (isEffectRecordCapture) {
               context.emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
               // Drop RC-typed arguments that won't be dropped by the escaped handler
@@ -1241,6 +1256,16 @@ export function generateOtherFunctionCall(
               // Handle deferred drop expressions if they exist
               if (expr.$?.deferredDropExpressions) {
                 generateDeferredDropExpressions(expr, indent, context);
+              }
+
+              // unwind check for direct handler calls
+              if (isFunctionType(functionType) && exprIsAtom(expr.func)) {
+                emitEffectUnwindCheck(
+                  indent,
+                  context as FunctionGenerationContext,
+                  true,
+                  expr
+                );
               }
 
               if (isEffectRecordCapture) {
