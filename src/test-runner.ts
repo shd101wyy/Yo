@@ -337,8 +337,8 @@ function generateBatchedTestProgram(
 
   // Inline all test bodies into main's cond branches.
   // We can't use separate functions because tests with algebraic effects
-  // (escape/given) need to be in the same codegen scope as main.
-  lines.push("main :: (fn(using(io : IO)) -> unit)({");
+  // (unwind/given) need to be in the same codegen scope as main.
+  lines.push(`main :: (fn() -> unit)({`);
   lines.push("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),");
   lines.push("    .Some(__yo_test_idx) => cond(");
   for (let i = 0; i < tests.length; i++) {

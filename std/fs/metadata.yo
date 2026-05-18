@@ -108,7 +108,7 @@ extern(
 // Internal helper to stat a path
 // ============================================================================
 _stat_path :: (fn(path : Path, flags : i32, io : IO) -> Impl(Future(Metadata, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();

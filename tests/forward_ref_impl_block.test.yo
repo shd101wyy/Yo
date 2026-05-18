@@ -56,7 +56,7 @@ R :: struct(v : i32);
 impl(
   R,
   outer : (fn(self : *(Self), exn : Exception) -> i32)(
-    self.inner(using(exn))
+    self.inner(exn)
   ),
   inner : (fn(self : *(Self), exn : Exception) -> i32)(
     cond(
@@ -74,7 +74,7 @@ test("forward call with effect params", {
       }
     )
   );
-  result := r.outer(using(exn));
+  result := r.outer(exn);
   assert(result == i32(99), "outer should return 99");
 });
 // ---------- Test 4: mutual recursion with effect parameters ----------

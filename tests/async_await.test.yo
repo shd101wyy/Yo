@@ -1362,8 +1362,8 @@ test("Test basic spawn of two futures", {
   handle1 := io.spawn(task1);
   handle2 := io.spawn(task2);
   // After spawn, both are running — handle.await waits and returns Option(T).
-  result1 := handle1.await(using(io));
-  result2 := handle2.await(using(io));
+  result1 := handle1.await(io);
+  result2 := handle2.await(io);
   // Both tasks completed successfully (no unwind), results are Some.
   assert(result1.is_some(), "task1 should complete successfully");
   assert(result2.is_some(), "task2 should complete successfully");
@@ -1383,7 +1383,7 @@ test("Test spawn single future", {
     return(counter.*);
   });
   handle := io.spawn(task);
-  result := handle.await(using(io));
+  result := handle.await(io);
   assert(counter.* == i32(50), "counter should be 50 after single spawn");
   assert(result.is_some(), "task should complete successfully");
   assert(result.unwrap() == i32(50), "result should be 50");
@@ -1425,8 +1425,8 @@ test("Test spawn with multi-yield futures", {
   });
   handle1 := io.spawn(task1);
   handle2 := io.spawn(task2);
-  result1 := handle1.await(using(io));
-  result2 := handle2.await(using(io));
+  result1 := handle1.await(io);
+  result2 := handle2.await(io);
   // Both tasks completed successfully, results are Some.
   assert(result1.is_some(), "multi-yield task1 should complete");
   assert(result2.is_some(), "multi-yield task2 should complete");
@@ -1443,7 +1443,7 @@ test("Test code after spawn", {
     flag.* = true;
   });
   handle := io.spawn(task);
-  handle.await(using(io));
+  handle.await(io);
   // After spawn + await, flag should be set
   assert(flag.*, "flag should be true after spawn + await");
   // Code after should execute normally
@@ -1634,7 +1634,7 @@ test("Test type-level Impl Future with individual effects", {
       println(msg);
     }
   );
-  task := io.async((using(io : IO, raise : Raise, log : Log)) => {
+  task := io.async((io : IO, raise : Raise, log : Log) => {
     log(`type-level test`);
     io.await(yield());
     i32(100)
@@ -1659,7 +1659,7 @@ test("Test type-level Impl Future with spread of named type", {
       println(msg);
     }
   );
-  task := io.async((using(io : IO, raise : Raise, log : Log)) => {
+  task := io.async((io : IO, raise : Raise, log : Log) => {
     io.await(yield());
     i32(200)
   });
@@ -1682,7 +1682,7 @@ test("Test type-level Impl Future with individual then spread", {
       println(msg);
     }
   );
-  task := io.async((using(io : IO, raise : Raise, log : Log)) => {
+  task := io.async((io : IO, raise : Raise, log : Log) => {
     log(`testing individual then spread`);
     io.await(yield());
     i32(300)
@@ -1706,7 +1706,7 @@ test("Test explicit Future type annotation on task", {
       println(msg);
     }
   );
-  (task : Impl(Future(i32, IO, Raise, Log))) = io.async((using(io : IO, raise : Raise, log : Log)) => {
+  (task : Impl(Future(i32, IO, Raise, Log))) = io.async((io : IO, raise : Raise, log : Log) => {
     log(`testing explicit type annotation`);
     io.await(yield());
     i32(400)
@@ -1716,7 +1716,7 @@ test("Test explicit Future type annotation on task", {
 });
 // ---------------------------------------------------------------------------
 // 67c. Explicit Impl(Future(i32, IO, Log, Raise)) — effects in different
-//      order than closure's using(io : IO, raise : Raise, log : Log)
+//      order than closure's io : IO, raise : Raise, log : Log
 // ---------------------------------------------------------------------------
 test("Test explicit Future type annotation with reordered effects", {
   Raise :: (fn(msg : String) -> i32);
@@ -1731,7 +1731,7 @@ test("Test explicit Future type annotation with reordered effects", {
       println(msg);
     }
   );
-  (task : Impl(Future(i32, IO, Log, Raise))) = io.async((using(io : IO, raise : Raise, log : Log)) => {
+  (task : Impl(Future(i32, IO, Log, Raise))) = io.async((io : IO, raise : Raise, log : Log) => {
     log(`testing reordered effects in type annotation`);
     io.await(yield());
     i32(500)
@@ -1755,7 +1755,7 @@ test("Test explicit Future type annotation with closure value without specifical
       println(msg);
     }
   );
-  (task : Impl(Future(i32, IO, Log, Raise))) = io.async((using(_io, _log, _raise)) => {
+  (task : Impl(Future(i32, IO, Log, Raise))) = io.async((_io, _log, _raise) => {
     _log(`testing reordered effects in type annotation with unnamed using variables`);
     _io.await(yield());
     i32(500)
@@ -1834,8 +1834,8 @@ test("Test io.state completed after spawn", {
   });
   handle_a := io.spawn(task_a);
   handle_b := io.spawn(task_b);
-  handle_a.await(using(io));
-  handle_b.await(using(io));
+  handle_a.await(io);
+  handle_b.await(io);
   sa := io.state(task_a);
   sb := io.state(task_b);
   assert(sa == FutureState.Completed, "spawned task_a should be Completed");
@@ -1872,7 +1872,7 @@ test("Test unwind in async closure", {
       assert(false, "expected task to unwind already");
     });
     // I expect 'task' to have type Impl(Future(i32, IO, Raise))
-    task := io.async((using(io : IO, raise : Raise)) => {
+    task := io.async((io : IO, raise : Raise) => {
       raise(`This task should be aborted, not awaited!`);
       return(i32(12));
     });
@@ -1893,7 +1893,7 @@ test("Test unwind in async closure", {
       return(result);
     });
     // I expect 'task' to have type Impl(Future(i32, IO, Raise))
-    task := io.async((using(io : IO, raise : Raise)) => {
+    task := io.async((io : IO, raise : Raise) => {
       raise(`This task should be aborted, not awaited!`);
       return(i32(12));
     });
@@ -1905,7 +1905,7 @@ test("Test unwind in async closure", {
   };
 });
 // ============================================================================
-// JoinHandle Tests — verify handle := io.spawn(task) + handle.await(using(io))
+// JoinHandle Tests — verify handle := io.spawn(task) + handle.await(io)
 // ============================================================================
 // ---------------------------------------------------------------------------
 // JoinHandle.await returns Option(T) — .Some on success, .None on unwind
@@ -1916,7 +1916,7 @@ test("Test JoinHandle await returns Some on success", {
     return(i32(42));
   });
   handle := io.spawn(task);
-  result := handle.await(using(io));
+  result := handle.await(io);
   assert(result.is_some(), "successful task should return Some");
   assert(result.unwrap() == i32(42), "result should be 42");
 });
@@ -1925,7 +1925,7 @@ test("Test JoinHandle await returns Some on success", {
 // ---------------------------------------------------------------------------
 test("Test JoinHandle await returns None on unwind", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
-  task := io.async((using(io : IO, raise : Raise)) => {
+  task := io.async((io : IO, raise : Raise) => {
     io.await(yield());
     raise(`aborting task`);
     return(i32(99));
@@ -1935,7 +1935,7 @@ test("Test JoinHandle await returns None on unwind", {
       unwind(());
     };
   handle := io.spawn(task, io, raise);
-  result := handle.await(using(io));
+  result := handle.await(io);
   assert(result.is_none(), "escaped task should return None");
 });
 // ---------------------------------------------------------------------------
@@ -1943,12 +1943,12 @@ test("Test JoinHandle await returns None on unwind", {
 // ---------------------------------------------------------------------------
 test("Test JoinHandle two tasks one escapes", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
-  task1 := io.async((using(io : IO, raise : Raise)) => {
+  task1 := io.async((io : IO, raise : Raise) => {
     io.await(yield());
     raise(`task1 escapes`);
     return(i32(0));
   });
-  task2 := io.async((using(io : IO, raise : Raise)) => {
+  task2 := io.async((io : IO, raise : Raise) => {
     io.await(yield());
     return(i32(42));
   });
@@ -1958,8 +1958,8 @@ test("Test JoinHandle two tasks one escapes", {
     };
   handle1 := io.spawn(task1, io, raise);
   handle2 := io.spawn(task2, io, raise);
-  result1 := handle1.await(using(io));
-  result2 := handle2.await(using(io));
+  result1 := handle1.await(io);
+  result2 := handle2.await(io);
   assert(result1.is_none(), "task1 should unwind → None");
   assert(result2.is_some(), "task2 should succeed → Some");
   assert(result2.unwrap() == i32(42), "task2 should return 42");
@@ -1973,7 +1973,7 @@ test("Test JoinHandle two tasks one escapes", {
 // ---------------------------------------------------------------------------
 test("Test effect injection via io.await on sync future", {
   Log :: (fn(msg : String) -> unit);
-  task := io.async((using(io : IO, log : Log)) => {
+  task := io.async((io : IO, log : Log) => {
     log(`effect injected`);
   });
   (log1 : Log) =
@@ -1990,7 +1990,7 @@ test("Test effect injection via io.await on sync future", {
 // ---------------------------------------------------------------------------
 test("Test effect injection set-once via io.spawn then io.await", {
   Log :: (fn(msg : String) -> unit);
-  task := io.async((using(io : IO, log : Log)) => {
+  task := io.async((io : IO, log : Log) => {
     log(`spawn first`);
   });
   (log1 : Log) =
@@ -2003,7 +2003,7 @@ test("Test effect injection set-once via io.spawn then io.await", {
       assert(false, "log2 should not be called (set-once semantics)");
     };
   handle := io.spawn(task, io, log1);
-  handle.await(using(io));
+  handle.await(io);
   printf("set-once via spawn OK\n");
 });
 // ---------------------------------------------------------------------------
@@ -2011,7 +2011,7 @@ test("Test effect injection set-once via io.spawn then io.await", {
 // ---------------------------------------------------------------------------
 test("Test effect injection via io.await on SM future", {
   Log :: (fn(msg : String) -> unit);
-  task := io.async((using(io : IO, log : Log)) => {
+  task := io.async((io : IO, log : Log) => {
     log(`before yield`);
     io.await(yield());
     log(`after yield`);
@@ -2122,7 +2122,7 @@ test("Test mixed break and continue in Option match in async while loop", {
 // ---------------------------------------------------------------------------
 test("Test effect resume inside async closure", {
   Raise :: (fn(msg : String) -> i32);
-  task := io.async((using(io : IO, raise : Raise)) => {
+  task := io.async((io : IO, raise : Raise) => {
     a := raise(`first`);
     io.await(yield());
     b := raise(`second`);
@@ -2144,7 +2144,7 @@ test("Test effect resume inside async closure", {
 test("Test effect resume across multiple yields", {
   Raise :: (fn(msg : String) -> i32);
   counter := Box(i32)(0);
-  task := io.async((using(io : IO, raise : Raise)) => {
+  task := io.async((io : IO, raise : Raise) => {
     a := raise(`before yield 1`);
     counter.* = (counter.* + a);
     io.await(yield());
@@ -2172,7 +2172,7 @@ test("Test effect resume across multiple yields", {
 test("Test two effects injected via io.await", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
-  task := io.async((using(io : IO, raise : Raise, log : Log)) => {
+  task := io.async((io : IO, raise : Raise, log : Log) => {
     log(`hello`);
     result := raise(`fail`);
     log(`resumed`);
@@ -2198,7 +2198,7 @@ test("Test two effects injected via io.await", {
 test("Test two effects injected via io.spawn", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
-  task := io.async((using(io : IO, raise : Raise, log : Log)) => {
+  task := io.async((io : IO, raise : Raise, log : Log) => {
     log(`spawned`);
     io.await(yield());
     result := raise(`check`);
@@ -2217,7 +2217,7 @@ test("Test two effects injected via io.spawn", {
     }
   );
   handle := io.spawn(task, io, raise, log);
-  result := handle.await(using(io));
+  result := handle.await(io);
   assert(result.is_some(), "task should succeed");
   assert(result.unwrap() == i32(7), "raise should resume with 7");
 });
@@ -2229,7 +2229,7 @@ test("Test effect resume in async while loop", {
   GetValue :: (fn() -> i32);
   sum := Box(i32)(0);
   counter := Box(i32)(0);
-  task := io.async((using(io : IO, get_value : GetValue)) => {
+  task := io.async((io : IO, get_value : GetValue) => {
     while(runtime(counter.* < i32(4)), {
       v := get_value();
       sum.* = (sum.* + v);
@@ -2255,7 +2255,7 @@ test("Test effect resume in async while loop with break", {
   GetValue :: (fn() -> i32);
   sum := Box(i32)(0);
   counter := Box(i32)(0);
-  task := io.async((using(io : IO, get_value : GetValue)) => {
+  task := io.async((io : IO, get_value : GetValue) => {
     while(runtime(true), {
       counter.* = (counter.* + i32(1));
       v := get_value();
@@ -2287,7 +2287,7 @@ test("Test effect resume in async while loop with break", {
 test("Test unwind via injected effect aborts future", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   test_unwind :: (fn(io : IO) -> i32)({
-    task := io.async((using(io : IO, raise : Raise)) => {
+    task := io.async((io : IO, raise : Raise) => {
       io.await(yield());
       raise(`abort now`);
       return(i32(999));
@@ -2309,7 +2309,7 @@ test("Test unwind via injected effect aborts future", {
 // ---------------------------------------------------------------------------
 test("Test JoinHandle unwind via spawn-injected effect", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
-  task := io.async((using(io : IO, raise : Raise)) => {
+  task := io.async((io : IO, raise : Raise) => {
     io.await(yield());
     raise(`aborting`);
     return(i32(0));
@@ -2319,7 +2319,7 @@ test("Test JoinHandle unwind via spawn-injected effect", {
       unwind(());
     };
   handle := io.spawn(task, io, raise);
-  result := handle.await(using(io));
+  result := handle.await(io);
   assert(result.is_none(), "escaped task should return None");
 });
 // ---------------------------------------------------------------------------
@@ -2402,7 +2402,7 @@ test("Regression: async unwind RC no double-decrement UAF", {
   // again after the SM already self-decremented, causing a double-free.
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   test_and_check :: (fn(io : IO) -> i32)({
-    task := io.async((using(io : IO, raise : Raise)) => {
+    task := io.async((io : IO, raise : Raise) => {
       io.await(yield());
       raise(`abort now`);
       return(i32(999));

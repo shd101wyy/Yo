@@ -840,7 +840,7 @@ test("Effect row inline typed declaration name : Type", {
     result := e.yield(v);
     assert(result == v, "inline typed: yield should return the value");
     sum.* = (sum.* + result);
-  });
+  }, { yield, log });
   assert(sum.* == 10, "inline typed: sum should be 10");
 });
 test("Mixed unwind and return in effect handler", {
@@ -898,7 +898,7 @@ test("Transitive SM while loop with break", {
     counter := Box(i32)(0);
     sum := Box(i32)(0);
     while(runtime(true), {
-      result := yield(counter.*);
+      result := e.yield(counter.*);
       sum.* = (sum.* + result);
       counter.* = (counter.* + 1);
       cond(
@@ -915,7 +915,7 @@ test("Transitive SM while loop with break", {
       return(v * i32(2));
     };
   result := count_until(i32(4), { yield });
-  // yield(0)*2=0, yield(1)*2=2, yield(2)*2=4, yield(3)*2=6 => sum = 12
+  // e.yield(0)*2=0, e.yield(1)*2=2, e.yield(2)*2=4, e.yield(3)*2=6 => sum = 12
   assert(result == i32(12), "transitive break: sum should be 0+2+4+6 = 12");
 });
 test("Transitive SM while loop with continue", {
@@ -930,7 +930,7 @@ test("Transitive SM while loop with continue", {
     counter := Box(i32)(0);
     sum := Box(i32)(0);
     while(runtime(counter.* < i32(8)), {
-      result := yield(counter.*);
+      result := e.yield(counter.*);
       counter.* = (counter.* + 1);
       cond(
         ((result % i32(2)) != i32(0)) => {
@@ -947,8 +947,8 @@ test("Transitive SM while loop with continue", {
       return(v);
     };
   result := sum_even({ yield });
-  // yield(0)=0, yield(1)=1(skip), yield(2)=2, yield(3)=3(skip),
-  // yield(4)=4, yield(5)=5(skip), yield(6)=6, yield(7)=7(skip) => 0+2+4+6 = 12
+  // e.yield(0)=0, e.yield(1)=1(skip), e.yield(2)=2, e.yield(3)=3(skip),
+  // e.yield(4)=4, e.yield(5)=5(skip), e.yield(6)=6, e.yield(7)=7(skip) => 0+2+4+6 = 12
   assert(result == i32(12), "transitive continue: sum of even should be 12");
 });
 test("Transitive SM while loop with mixed continue and break", {
@@ -964,7 +964,7 @@ test("Transitive SM while loop with mixed continue and break", {
     sum := Box(i32)(0);
     while(runtime(true), {
       counter.* = (counter.* + 1);
-      yield(counter.*);
+      e.yield(counter.*);
       cond(
         (counter.* <= i32(2)) => {
           continue;
@@ -1000,7 +1000,7 @@ test("Transitive SM while loop with step expr and continue", {
     i := Box(i32)(0);
     sum := Box(i32)(0);
     while(runtime(i.* < i32(6)), i.* = (i.* + 1), {
-      result := yield(i.*);
+      result := e.yield(i.*);
       cond(
         ((result % i32(2)) != i32(0)) => {
           continue;
@@ -1015,8 +1015,8 @@ test("Transitive SM while loop with step expr and continue", {
     (v) -> {
       return(v);
     };
-  result := sum_with_step();
-  // yield(0)=0, yield(1)=1(skip), yield(2)=2, yield(3)=3(skip), yield(4)=4, yield(5)=5(skip) => 0+2+4 = 6
+  result := sum_with_step({ yield });
+  // e.yield(0)=0, e.yield(1)=1(skip), e.yield(2)=2, e.yield(3)=3(skip), e.yield(4)=4, e.yield(5)=5(skip) => 0+2+4 = 6
   assert(result == i32(6), "transitive step+continue: sum of even should be 6");
 });
 test("Transitive SM while loop with early return", {
@@ -1030,7 +1030,7 @@ test("Transitive SM while loop with early return", {
   )({
     i := Box(i32)(0);
     while(runtime(i.* < i32(10)), i.* = (i.* + 1), {
-      result := yield(i.*);
+      result := e.yield(i.*);
       cond(
         (result >= threshold) => {
           return(result);
@@ -1071,7 +1071,7 @@ test("Struct-record effect with forall handler — unwind in while loop", {
   )({
     i := usize(0);
     while(i < S, i = (i + 1), {
-      safe_divide(i32(42), arr(i));
+      safe_divide(i32(42), arr(i), exn);
     });
   });
   arr := Array(i32, 4)(1, 2, 0, 3);
@@ -1082,7 +1082,7 @@ test("Struct-record effect with forall handler — unwind in while loop", {
       }
     )
   );
-  traverse(arr, exn);
+  traverse(arr, exn, {});
   assert(false, "Should not reach here after unwind");
 });
 test("Struct-record effect with forall handler — resume in while loop", {
@@ -1147,7 +1147,7 @@ test("Struct-record effect with forall handler — break after resume in while l
       )
     );
     while(runtime(true), {
-      result := safe_op(counter.* - i32(2));
+      result := safe_op(counter.* - i32(2), exn);
       counter.* = (counter.* + 1);
       cond(
         (counter.* >= i32(5)) => {
@@ -1185,7 +1185,7 @@ test("Struct-record effect with forall handler — continue after resume in whil
     while(runtime(counter.* < i32(6)), {
       i := counter.*;
       counter.* = (counter.* + 1);
-      result := safe_op(i - i32(2));
+      result := safe_op(i - i32(2), exn);
       // result: negative inputs → 0 (resumed), non-negative → identity
       // i=0→-2→0, i=1→-1→0, i=2→0, i=3→1, i=4→2, i=5→3
       cond(
@@ -1224,7 +1224,7 @@ test("Struct-record effect with forall handler — early return after resume in 
       )
     );
     while(runtime(counter.* < i32(10)), {
-      result := safe_op(counter.* - i32(3));
+      result := safe_op(counter.* - i32(3), exn);
       counter.* = (counter.* + 1);
       cond(
         (result > i32(0)) => {
@@ -1500,7 +1500,7 @@ test("Test multiple struct-record effects in same scope", {
   );
   result := compute(10, 2, raise_mod, log_mod);
   assert(result == 5, "multi-struct-record: 10/2 = 5");
-  result2 := compute(10, 0, raise);
+  result2 := compute(10, 0, raise_mod, log_mod);
   assert(result2 == 0, "multi-struct-record: raise returns 0");
 });
 // ---------------------------------------------------------------------------
@@ -1652,7 +1652,7 @@ test("Test transitive SM with struct-record effect in while loop", {
     fn(
       forall(E : Struct),
       limit : i32,
-      e : E
+      counter : Counter, e : E
     ) -> i32
   )({
     sum := Box(i32)(0);
@@ -1671,7 +1671,7 @@ test("Test transitive SM with struct-record effect in while loop", {
         return(current + i32(1));
       }
   );
-  result := loop_with_effect(i32(4));
+  result := loop_with_effect(i32(4), counter, {});
   assert(result == i32(10), "transitive SM struct record: 1+2+3+4 = 10");
 });
 // Regression: regular -> functions cannot capture outer runtime variables.

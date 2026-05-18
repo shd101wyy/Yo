@@ -156,7 +156,7 @@ _spawn_with_fds :: (
     stdout_fd : i32,
     stderr_fd : i32, io : IO, exn : Exception) -> Impl(Future(i32, IO, Exception))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     storage := _build_cstr_storage(self);
     argc := storage.len();
     // Allocate argv buffer: argc entries + 1 null terminator.
@@ -195,7 +195,7 @@ _spawn_with_fds :: (
 // Read all available bytes from `fd` into a freshly returned ArrayList(u8)
 // until EOF (read returns 0).
 _drain_fd :: (fn(fd : i32, io : IO, exn : Exception) -> Impl(Future(ArrayList(u8), IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     buf_size := usize(4096);
     buf := *(u8)(malloc(buf_size).unwrap());
     out := ArrayList(u8).new();
@@ -228,7 +228,7 @@ impl(
   /// Spawn the child with stdio inherited from the parent, wait for it to
   /// exit, and return its `ExitStatus`.
   status : (fn(self : *(Self), io : IO) -> Impl(Future(ExitStatus, IO, Exception)))(
-    io.async((using(io, exn)) => {
+    io.async((io, exn) => {
       pid := io.await(_spawn_with_fds(self, i32(-(1)), i32(-(1)), i32(-(1))));
       raw := io.await(IO_process.waitpid(pid, i32(0)));
       IOError.check(raw);
@@ -238,7 +238,7 @@ impl(
   /// Spawn the child with stdout and stderr captured through pipes. Waits for
   /// the child to exit and returns the exit status plus the captured bytes.
   output : (fn(self : *(Self), io : IO) -> Impl(Future(Output, IO, Exception)))(
-    io.async((using(io, exn)) => {
+    io.async((io, exn) => {
       // Create stdout and stderr pipes.
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := *(i32)(out_fd_buf.as_ptr());

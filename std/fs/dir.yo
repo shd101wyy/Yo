@@ -62,7 +62,7 @@ export(DirEntry);
 // ============================================================================
 /// Create a directory at the given path.
 create_dir :: (fn(path : Path, io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     result := io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)));
@@ -79,7 +79,7 @@ create_dir_str :: (fn(path : str, io : IO) -> Impl(Future(unit, IO, Exception)))
 /// Create a directory and all missing parent directories.
 /// Does not error if the directory already exists.
 create_dir_all :: (fn(path : Path, io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     path_s := path.to_string();
     cstr_bytes := path_s.to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -164,7 +164,7 @@ create_dir_all_str :: (fn(path : str, io : IO) -> Impl(Future(unit, IO, Exceptio
 );
 /// Remove an empty directory. Throws if the directory is not empty.
 remove_dir :: (fn(path : Path, io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     result := io.await(IO_dir.unlink(AT_FDCWD, cstr, AT_REMOVEDIR));
@@ -179,7 +179,7 @@ remove_dir_str :: (fn(path : str, io : IO) -> Impl(Future(unit, IO, Exception)))
 );
 /// Remove a file at the given path.
 remove_file :: (fn(path : Path, io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     result := io.await(IO_dir.unlink(AT_FDCWD, cstr, i32(0)));
@@ -192,7 +192,7 @@ remove_file :: (fn(path : Path, io : IO) -> Impl(Future(unit, IO, Exception)))(
 remove_file_str :: (fn(path : str, io : IO) -> Impl(Future(unit, IO, Exception)))(remove_file(Path.new(String.from(path))));
 /// Rename or move a file or directory from `from` to `to`.
 rename :: (fn(from : Path, to : Path, io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     from_cstr_bytes := from.to_string().to_cstr();
     from_cstr := from_cstr_bytes.ptr().unwrap();
     to_cstr_bytes := to.to_string().to_cstr();
@@ -207,7 +207,7 @@ rename :: (fn(from : Path, to : Path, io : IO) -> Impl(Future(unit, IO, Exceptio
 rename_str :: (fn(from : str, to : str, io : IO) -> Impl(Future(unit, IO, Exception)))(rename(Path.new(String.from(from)), Path.new(String.from(to))));
 /// Create a hard link from `src` to `dst`.
 hard_link :: (fn(src : Path, dst : Path, io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     src_cstr_bytes := src.to_string().to_cstr();
     src_cstr := src_cstr_bytes.ptr().unwrap();
     dst_cstr_bytes := dst.to_string().to_cstr();
@@ -222,7 +222,7 @@ hard_link :: (fn(src : Path, dst : Path, io : IO) -> Impl(Future(unit, IO, Excep
 hard_link_str :: (fn(src : str, dst : str, io : IO) -> Impl(Future(unit, IO, Exception)))(hard_link(Path.new(String.from(src)), Path.new(String.from(dst))));
 /// Create a symbolic link at `dst` pointing to `src`.
 symlink :: (fn(src : Path, dst : Path, io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     src_cstr_bytes := src.to_string().to_cstr();
     src_cstr := src_cstr_bytes.ptr().unwrap();
     dst_cstr_bytes := dst.to_string().to_cstr();
@@ -241,7 +241,7 @@ symlink_str :: (fn(src : str, dst : str, io : IO) -> Impl(Future(unit, IO, Excep
 /// Read all entries from a directory, returning an `ArrayList(DirEntry)`.
 /// Skips the `.` and `..` entries.
 read_dir :: (fn(path : Path, io : IO) -> Impl(Future(ArrayList(DirEntry), IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     // Open the directory

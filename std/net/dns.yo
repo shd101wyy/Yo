@@ -36,7 +36,7 @@ IO_dns :: import("../sys/dns");
 // ============================================================================
 /// Resolve a hostname to a list of IP addresses.
 lookup_host :: (fn(host : String, io : IO) -> Impl(Future(ArrayList(IpAddr), IO, Exception)))(
-  io.async((using(io : IO, exn : Exception)) => {
+  io.async((io : IO, exn : Exception) => {
     host_cstr_bytes := host.to_cstr();
     host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
@@ -87,7 +87,7 @@ lookup_host :: (fn(host : String, io : IO) -> Impl(Future(ArrayList(IpAddr), IO,
 );
 /// Resolve a hostname and port to a list of socket addresses.
 resolve :: (fn(host : String, port : u16, io : IO) -> Impl(Future(ArrayList(SocketAddr), IO, Exception)))(
-  io.async((using(io : IO, exn : Exception)) => {
+  io.async((io : IO, exn : Exception) => {
     addrs := io.await(lookup_host(host, io));
     result := ArrayList(SocketAddr).new();
     i := usize(0);

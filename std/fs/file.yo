@@ -63,7 +63,7 @@ impl(
       _open_mode_needs_perm(mode) => i32(perm.mode),
       true => i32(0)
     );
-    io.async((using(io, exn)) => {
+    io.async((io, exn) => {
       path_str := path.to_string();
       cstr_bytes := path_str.to_cstr();
       cstr := cstr_bytes.ptr().unwrap();
@@ -100,7 +100,7 @@ impl(
   /// Returns the number of bytes actually read.
   read : (fn(self : Self, buf : *(u8), size : u32, io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
-    io.async((using(io, exn)) => {
+    io.async((io, exn) => {
       result := io.await(IO_file.read(fd, buf, size, u64(0)));
       IOError.check(result)
     })
@@ -109,7 +109,7 @@ impl(
   /// Returns the number of bytes written.
   write_string : (fn(self : Self, data : String, io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
-    io.async((using(io, exn)) => {
+    io.async((io, exn) => {
       data_bytes := data.as_bytes();
       cond(
         (data_bytes.len() == usize(0)) => i32(0),
@@ -125,7 +125,7 @@ impl(
   write_bytes : (fn(self : Self, data : ArrayList(u8), io : IO) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async(
-      (using(io, exn)) =>
+      (io, exn) =>
         cond(
           (data.len() == usize(0)) => i32(0),
           true => {
@@ -138,7 +138,7 @@ impl(
   /// Read the entire file contents into an `ArrayList(u8)`.
   read_bytes : (fn(self : Self, io : IO) -> Impl(Future(ArrayList(u8), IO, Exception)))({
     fd := self._fd;
-    io.async((using(io, exn)) => {
+    io.async((io, exn) => {
       buf_size := usize(4096);
       buf := *(u8)(malloc(buf_size).unwrap());
       result := ArrayList(u8).new();
@@ -167,7 +167,7 @@ impl(
   }),
   /// Read the entire file contents into a `String`.
   read_string : (fn(self : Self, io : IO) -> Impl(Future(String, IO, Exception)))(
-    io.async((using(io, exn)) => {
+    io.async((io, exn) => {
       bytes := io.await(self.read_bytes());
       String.from_bytes(bytes)
     })
@@ -175,7 +175,7 @@ impl(
   /// Flush (fsync) file data to disk.
   flush : (fn(self : Self, io : IO) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
-    io.async((using(io, exn)) => {
+    io.async((io, exn) => {
       result := io.await(IO_file.fsync(fd));
       cond(
         (result < i32(0)) => exn.throw(dyn(IOError.from_errno(i32(0) - result))),
@@ -203,7 +203,7 @@ impl(
   close : (fn(self : Self, io : IO) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async(
-      (using(io, exn)) =>
+      (io, exn) =>
         cond(
           self._is_closed => (),
           true => {
@@ -250,7 +250,7 @@ export(File, OpenMode, FilePermission, SeekFrom);
 // ============================================================================
 /// Read an entire file into a `String`.
 read_string :: (fn(path : Path, io : IO) -> Impl(Future(String, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     file := io.await(File.open(path,.Read));
     content := io.await(file.read_string());
     io.await(file.close());
@@ -267,7 +267,7 @@ read_string_cstr :: (fn(path : *(u8), io : IO) -> Impl(Future(String, IO, Except
 );
 /// Read an entire file into a byte list (`ArrayList(u8)`).
 read_file :: (fn(path : Path, io : IO) -> Impl(Future(ArrayList(u8), IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     file := io.await(File.open(path,.Read));
     content := io.await(file.read_bytes());
     io.await(file.close());
@@ -284,7 +284,7 @@ read_file_cstr :: (fn(path : *(u8), io : IO) -> Impl(Future(ArrayList(u8), IO, E
 );
 /// Write a `String` to a file, creating or truncating it.
 write_file :: (fn(path : Path, data : String, io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     file := io.await(File.open(path,.Write));
     io.await(file.write_string(data));
     io.await(file.close());
@@ -300,7 +300,7 @@ write_file_cstr :: (fn(path : *(u8), data : str, io : IO) -> Impl(Future(unit, I
 );
 /// Write bytes to a file, creating or truncating it.
 write_bytes :: (fn(path : Path, data : ArrayList(u8), io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     file := io.await(File.open(path,.Write));
     io.await(file.write_bytes(data));
     io.await(file.close());
@@ -308,7 +308,7 @@ write_bytes :: (fn(path : Path, data : ArrayList(u8), io : IO) -> Impl(Future(un
 );
 /// Append a `String` to a file, creating it if it does not exist.
 append_file :: (fn(path : Path, data : String, io : IO) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     file := io.await(File.open(path,.Append));
     io.await(file.write_string(data));
     io.await(file.close());
@@ -402,7 +402,7 @@ is_dir_cstr :: (fn(path : *(u8), io : IO) -> Impl(Future(bool, IO)))(
 /// Resolve a path to its canonical absolute form (resolves symlinks, `.` and `..`).
 /// Throws if the path does not exist.
 canonical :: (fn(path : Path, io : IO) -> Impl(Future(Path, IO, Exception)))(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     path_str := path.to_string();
     cstr_bytes := path_str.to_cstr();
     cstr := cstr_bytes.ptr().unwrap();

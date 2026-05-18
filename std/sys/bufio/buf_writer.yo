@@ -10,7 +10,7 @@
 //!
 //! writer := BufWriter.new(fd);
 //! io.await(writer.write_string(`hello\n`, io));
-//! io.await(writer.flush(using(io)));
+//! io.await(writer.flush(io));
 //! ```
 { ArrayList } :: import("../../collections/array_list");
 open(import("../../string"));
@@ -101,7 +101,7 @@ impl(
         cond(
           (space == usize(0)) => {
             // Buffer full, flush it
-            flush_result := io.await(self._flush_inner(using(io)));
+            flush_result := io.await(self._flush_inner(io));
             match(
               flush_result,
               .Err(e) => {
@@ -150,7 +150,7 @@ impl(
   // Flush all buffered data to the underlying file descriptor.
   flush : (fn(self : Self, io : IO) -> Impl(Future(Result(unit, IOError), IO)))(
     io.async((io : IO) => {
-      flush_result := io.await(self._flush_inner(using(io)));
+      flush_result := io.await(self._flush_inner(io));
       flush_result
     })
   )

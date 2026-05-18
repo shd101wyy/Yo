@@ -10,7 +10,7 @@
 //! IO_file :: import "std/sys/file";
 //!
 //! reader := BufReader.new(fd);
-//! line := io.await(reader.read_line(using(io)));
+//! line := io.await(reader.read_line(io));
 //! match(line,
 //!   .Ok(.Some(s)) => println(s),
 //!   .Ok(.None) => println("EOF"),
@@ -275,7 +275,7 @@ impl(
   // Read all remaining data as a String.
   read_to_string : (fn(self : Self, io : IO) -> Impl(Future(Result(String, IOError), IO)))(
     io.async((io : IO) => {
-      bytes_result := io.await(self.read_bytes(using(io)));
+      bytes_result := io.await(self.read_bytes(io));
       match(
         bytes_result,
         .Ok(bytes) =>.Ok(String.from_bytes(bytes)),
