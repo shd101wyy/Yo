@@ -8,12 +8,8 @@
 //   { fetch, HttpResponse } :: import "std/http";
 //   { Exception } :: import "std/error";
 //
-//   main :: (fn(io : IO) -> unit)({
-//     exn := Exception(throw : ((err) -> {
-//       println(err.message());
-//       unwind ();
-//     }));
-//     resp := io.await(fetch(`http://example.com/api/data`, io));
+//   main :: (fn(io : IO, exn : Exception) -> unit)({
+//     resp := io.await(fetch(`http://example.com/api/data`, io), { io, exn });
 //     println(resp.body);
 //   });
 open(import("../string"));
@@ -21,7 +17,7 @@ open(import("../string"));
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
 open(import("../fmt"));
-{ Error, AnyError, Exception } :: import("../error");
+{ Error, AnyError, Exception, IOErr } :: import("../error");
 { TcpStream } :: import("../net/tcp");
 { IpAddr, SocketAddr } :: import("../net/addr");
 { lookup_host } :: import("../net/dns");
@@ -179,14 +175,14 @@ _find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
 // ============================================================================
 // Internal: read full HTTP response from a TCP stream
 // ============================================================================
-_read_http_response :: (fn(stream : TcpStream, io : IO, exn : Exception) -> String)({
+_read_http_response :: (fn(stream : TcpStream, e : IOErr) -> String)({
   buf_size := usize(8192);
   buf := *(u8)(malloc(buf_size).unwrap());
   result := ArrayList(u8).new();
   // Read until connection closes or we've read the full response
   done := false;
   while(runtime(!(done)), {
-    n := io.await(stream.read(buf, buf_size, io));
+    n := e.io.await(stream.read(buf, buf_size, e.io), e);
     cond(
       (n <= i32(0)) => {
         done = true;
@@ -243,15 +239,15 @@ _read_http_response :: (fn(stream : TcpStream, io : IO, exn : Exception) -> Stri
 ///
 /// ```rust
 /// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
-/// resp := io.await(fetch_with(`http://example.com/api`, opts, io));
+/// resp := io.await(fetch_with(`http://example.com/api`, opts, io), { io, exn });
 /// ```
 fetch_with :: (
   fn(url_str : String, opts : FetchOptions, io : IO) ->
-    Impl(Future(HttpResponse, IO, Exception))
+    Impl(Future(HttpResponse, IOErr))
 )(
-  io.async((io : IO, exn : Exception) => {
+  io.async((e) => {
     // Parse URL
-    url := Url.parse(url_str.as_str(), exn);
+    url := Url.parse(url_str.as_str(), e.exn);
     // Validate scheme
     scheme := url.scheme();
     is_http := (scheme == `http`);
@@ -259,7 +255,7 @@ fetch_with :: (
     cond(
       (is_http || is_https) => (),
       true => {
-        exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
+        e.exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
       }
     );
     // Extract host
@@ -267,7 +263,7 @@ fetch_with :: (
       url.host(),
       .Some(h) => h,
       .None => {
-        exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
+        e.exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
         `_` // unreachable
       }
     );
@@ -281,17 +277,17 @@ fetch_with :: (
       )
     );
     // Resolve hostname to IP
-    addrs := io.await(lookup_host(host, io));
+    addrs := e.io.await(lookup_host(host, e.io), e);
     cond(
       (addrs.len() == usize(0)) => {
-        exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${host}`)));
+        e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${host}`)));
       },
       true => ()
     );
     ip := addrs.get(usize(0)).unwrap();
     addr := SocketAddr.new(ip, port);
     // Connect
-    stream := io.await(TcpStream.connect(addr, io));
+    stream := e.io.await(TcpStream.connect(addr, e.io), e);
     // Build the request path (include query string if present)
     req_path := url.path();
     cond(
@@ -329,17 +325,17 @@ fetch_with :: (
     req.set_header(`Connection`, `close`);
     // Send request
     req_str := req.to_string();
-    io.await(stream.write_string(req_str, io));
+    e.io.await(stream.write_string(req_str, e.io), e);
     // Read response
-    raw_response := _read_http_response(stream, io, exn);
+    raw_response := _read_http_response(stream, e);
     // Close connection
-    io.await(stream.close(io));
+    e.io.await(stream.close(e.io), e);
     // Parse response
     match(
       parse_response(raw_response),
       .Ok(resp) => resp,
-      .Err(e) => {
-        exn.throw(dyn(HttpError.Other(e)));
+      .Err(err) => {
+        e.exn.throw(dyn(HttpError.Other(err)));
         HttpResponse.new(i32(0), ``) // unreachable
       }
     )
@@ -352,15 +348,15 @@ export(fetch_with);
 /// # Example
 ///
 /// ```rust
-/// resp := io.await(fetch(`http://example.com`, io));
+/// resp := io.await(fetch(`http://example.com`, io), { io, exn });
 /// cond(resp.is_ok() => println(resp.body), true => println(`Error`));
 /// ```
 fetch :: (
   fn(url_str : String, io : IO) ->
-    Impl(Future(HttpResponse, IO, Exception))
+    Impl(Future(HttpResponse, IOErr))
 )(
-  io.async((io : IO, exn : Exception) => {
-    return(io.await(fetch_with(url_str, FetchOptions.new(), io)));
+  io.async((e) => {
+    return(e.io.await(fetch_with(url_str, FetchOptions.new(), e.io), e));
   })
 );
 export(fetch);
