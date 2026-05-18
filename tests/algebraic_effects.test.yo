@@ -1357,17 +1357,17 @@ test("Test three-level effect propagation via using parameter", {
     )
   );
   level2 :: (fn(x : i32, raise : Raise) -> i32)(
-    level3(x) + i32(1)
+    level3(x, raise) + i32(1)
   );
   level1 :: (fn(x : i32, raise : Raise) -> i32)(
-    level2(x) + i32(10)
+    level2(x, raise) + i32(10)
   );
   (raise : Raise) = (
     (msg) -> {
       return(i32(0));
     }
   );
-  result1 := level1(i32(5));
+  result1 := level1(i32(5), raise);
   assert(result1 == i32(21), "3-level propagation: 5*2+1+10 = 21");
   result2 := level1(i32(-(1)), raise);
   assert(result2 == i32(11), "3-level propagation with raise: 0+1+10 = 11");
@@ -1385,10 +1385,10 @@ test("Test three-level effect propagation with unwind", {
     )
   );
   level2 :: (fn(x : i32, raise : Raise) -> i32)(
-    level3(x) + i32(1)
+    level3(x, raise) + i32(1)
   );
   level1 :: (fn(x : i32, raise : Raise) -> i32)(
-    level2(x) + i32(10)
+    level2(x, raise) + i32(10)
   );
   run_test :: (fn() -> i32)({
     (raise : Raise) = (
@@ -1396,7 +1396,7 @@ test("Test three-level effect propagation with unwind", {
         unwind(i32(99));
       }
     );
-    level1(i32(-(1)))
+    level1(i32(-(1)), raise)
   });
   result := run_test();
   assert(result == i32(99), "3-level unwind: should get 99");
@@ -1458,7 +1458,7 @@ test("Test struct-record effect with multiple function members", {
         return(current);
       }
   );
-  result := log_messages({ logger });
+  result := log_messages(logger);
   assert(result == 3, "multi-member struct record: count(3) should return 3");
 });
 // ---------------------------------------------------------------------------
