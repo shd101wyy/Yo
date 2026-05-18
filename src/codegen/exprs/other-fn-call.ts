@@ -254,9 +254,13 @@ export function generateOtherFunctionCall(
           let argCode = generateExpr(arg, indent, context);
 
           // If the arg is a function-typed variable, look up its FunctionValue
-          // in the env and use the function C name.
-          if (exprIsAtom(arg) && arg.$.variableName && arg.$.env) {
-            const argVars = getVariablesFromEnv(arg.$.env, arg.$.variableName);
+          // in the call site env and use the function C name.
+          const callSiteEnv = expr.$?.env ?? expr.func.$?.env;
+          if (exprIsAtom(arg) && arg.$.variableName && callSiteEnv) {
+            const argVars = getVariablesFromEnv(
+              callSiteEnv,
+              arg.$.variableName
+            );
             const argVar = argVars[argVars.length - 1];
             const argVal = argVar?.value?.[0];
             if (
