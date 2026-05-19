@@ -1023,8 +1023,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       // Check if it's a FutureTraitType
       if (isFutureTraitType(traitType)) {
         const parts = [typeToString(traitType.isFuture.outputType, visited)];
-        for (const effect of traitType.isFuture.effects) {
-          parts.push(typeToString(effect.type, visited));
+        if (traitType.isFuture.effect) {
+          parts.push(typeToString(traitType.isFuture.effect.type, visited));
         }
         return `Future(${parts.join(", ")})`;
       }

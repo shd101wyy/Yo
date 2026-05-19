@@ -519,38 +519,24 @@ export function areTypesCompatible(
         ) {
           return false;
         }
-        // Compare effects: flatten spreads and compare as sets (order-independent)
-        // If one side has no effects, they're still compatible
-        // (backwards compatibility with Future(T) without effects)
-        const expectedFlat = expected.type.isFuture.effects;
-        const givenFlat = given.type.isFuture.effects;
-        if (expectedFlat.length > 0 && givenFlat.length > 0) {
-          if (expectedFlat.length !== givenFlat.length) {
+        // Compare the optional effect bundle. If either side omits its
+        // effect annotation, treat the Futures as compatible — this keeps
+        // unannotated `Future(T)` interoperable with annotated
+        // `Future(T, E)` at use sites.
+        const expectedEffect = expected.type.isFuture.effect;
+        const givenEffect = given.type.isFuture.effect;
+        if (expectedEffect && givenEffect) {
+          if (
+            !areTypesCompatible(
+              { type: expectedEffect.type, env: expected.env },
+              { type: givenEffect.type, env: given.env },
+              requireExactMatch,
+              visitedPairs
+            )
+          ) {
             return false;
           }
-          // Set-based matching: for each expected effect, find a matching given effect
-          const used = new Set<number>();
-          for (const exp of expectedFlat) {
-            let found = false;
-            for (let j = 0; j < givenFlat.length; j++) {
-              if (used.has(j)) continue;
-              if (
-                areTypesCompatible(
-                  { type: exp.type, env: expected.env },
-                  { type: givenFlat[j]!.type, env: given.env },
-                  requireExactMatch,
-                  visitedPairs
-                )
-              ) {
-                used.add(j);
-                found = true;
-                break;
-              }
-            }
-            if (!found) return false;
-          }
         }
-        // FutureTraitType matched structurally
         return true;
       }
 

@@ -1292,8 +1292,10 @@ function bindTempTraitKind(
     const childTmp = bindTempType(env, traitType.isFuture.outputType, context);
     env = childTmp.env;
 
-    // Build effects list as ComptimeList(TraitInfo)
-    const effectTypes = traitType.isFuture.effects.map((e) => e.type);
+    // Build effects list as ComptimeList(TraitInfo) — 0 or 1 entries.
+    const effectTypes = traitType.isFuture.effect
+      ? [traitType.isFuture.effect.type]
+      : [];
     const effectsTmp = bindTempTraitInfoList(env, effectTypes, context, "eff");
     env = effectsTmp.env;
 

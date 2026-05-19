@@ -108,10 +108,11 @@ function occursCheck(
     if (occursCheck(someTypeId, type.isFuture.outputType, visited)) {
       return true;
     }
-    for (const effect of type.isFuture.effects) {
-      if (occursCheck(someTypeId, effect.type, visited)) {
-        return true;
-      }
+    if (
+      type.isFuture.effect &&
+      occursCheck(someTypeId, type.isFuture.effect.type, visited)
+    ) {
+      return true;
     }
     return false;
   }
@@ -426,8 +427,8 @@ export function synthesizeTypes(
             expected.env = expectedEnv;
             given.env = givenEnv;
             synthesizeFutureEffects(
-              expectedTrait.isFuture.effects,
-              matchingGiven.traitType.isFuture.effects,
+              expectedTrait.isFuture.effect,
+              matchingGiven.traitType.isFuture.effect,
               expected,
               given,
               checkedTypePairs,
@@ -536,8 +537,8 @@ export function synthesizeTypes(
             expected.env = expectedEnv;
             given.env = givenEnv;
             synthesizeFutureEffects(
-              traitType.isFuture.effects,
-              given.type.isFuture.effects,
+              traitType.isFuture.effect,
+              given.type.isFuture.effect,
               expected,
               given,
               checkedTypePairs,
@@ -991,8 +992,8 @@ export function synthesizeTypes(
     expected.env = expectedEnv;
     given.env = givenEnv;
     synthesizeFutureEffects(
-      expected.type.isFuture.effects,
-      given.type.isFuture.effects,
+      expected.type.isFuture.effect,
+      given.type.isFuture.effect,
       expected,
       given,
       checkedTypePairs,
@@ -1107,44 +1108,31 @@ Given: "${typeToString(given.type)}"`
 }
 
 /**
- * Synthesize effects between two FutureTraitTypes.
- * Uses set-based matching with the "at most one unsolved spread" rule:
- * 1. Separate expected effects into concrete, solved spreads, unsolved spreads
- * 2. At most one unsolved spread is allowed (error if multiple)
- * 3. Match concrete expected and solved spread effects against given (set-based)
- * 4. Bind the single unsolved spread to the remaining unmatched given effects
+ * Synthesize the optional effect bundle between two FutureTraitTypes.
+ * Each Future carries at most one effect bundle; when both sides have one
+ * and their type ids match, recurse into the bundle types so any forall
+ * variables they mention get bound.
  */
 function synthesizeFutureEffects(
-  expectedEffects: FutureEffect[],
-  givenEffects: FutureEffect[],
+  expectedEffect: FutureEffect | undefined,
+  givenEffect: FutureEffect | undefined,
   expected: { env: Environment },
   given: { env: Environment },
   checkedTypePairs: { expected: Type; given: Type }[],
   options?: SynthesizeTypesOptions
 ): void {
-  if (expectedEffects.length === 0 && givenEffects.length === 0) {
+  if (!expectedEffect || !givenEffect) {
     return;
   }
-
-  // Track which given effects have been matched
-  const matchedGiven = new Set<number>();
-
-  // Match concrete expected effects against given (set-based by type id)
-  for (const exp of expectedEffects) {
-    for (let j = 0; j < givenEffects.length; j++) {
-      if (matchedGiven.has(j)) continue;
-      if (exp.type.id === givenEffects[j]!.type.id) {
-        const { expectedEnv, givenEnv } = synthesizeTypes(
-          { type: exp.type, env: expected.env },
-          { type: givenEffects[j]!.type, env: given.env },
-          checkedTypePairs,
-          options
-        );
-        expected.env = expectedEnv;
-        given.env = givenEnv;
-        matchedGiven.add(j);
-        break;
-      }
-    }
+  if (expectedEffect.type.id !== givenEffect.type.id) {
+    return;
   }
+  const { expectedEnv, givenEnv } = synthesizeTypes(
+    { type: expectedEffect.type, env: expected.env },
+    { type: givenEffect.type, env: given.env },
+    checkedTypePairs,
+    options
+  );
+  expected.env = expectedEnv;
+  given.env = givenEnv;
 }

@@ -77,29 +77,20 @@ To combine multiple effects, declare a struct that bundles them and pass that st
 
   const outputType = evaluatedElementTypeExpr.$.value.value;
 
-  // Handle effect arguments (args[1..N])
-  // Each arg can be:
-  //   - ...(E)  — effect row spread (resolved from forall)
-  //   - Raise   — individual effect type
-  const effects: FutureEffect[] = [];
-  for (let i = 1; i < expr.args.length; i++) {
-    const effectExpr = expr.args[i]!;
-    const result = resolveEffectArg(effectExpr, env, context);
-    effects.push(result.effect);
+  // Optional second argument: a single effect bundle struct.
+  let effect: FutureEffect | undefined;
+  if (expr.args.length === 2) {
+    const result = resolveEffectArg(expr.args[1]!, env, context);
+    effect = result.effect;
     env = result.env;
   }
 
-  // Create the Future trait type (similar to how Fn trait type is created)
   const futureTraitType = createTraitType(env);
+  futureTraitType.isFuture = { outputType, effect };
 
-  // Set the isFuture field with output type and effects array
-  futureTraitType.isFuture = { outputType, effects };
-
-  // Use canonical ID format to match createFutureTraitType
-  // Include all effect IDs for uniqueness
-  const effectsSuffix =
-    effects.length > 0 ? `_${effects.map((e) => e.type.id).join("_")}` : "";
-  futureTraitType.id = `future_trait_${outputType.id}${effectsSuffix}`;
+  // Canonical ID format mirrors createFutureTraitType.
+  const effectSuffix = effect ? `_${effect.type.id}` : "";
+  futureTraitType.id = `future_trait_${outputType.id}${effectSuffix}`;
 
   expr.$ = {
     env,

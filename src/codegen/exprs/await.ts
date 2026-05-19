@@ -153,14 +153,12 @@ export function generateAwait(
     // always panic regardless of algebraic effects.
     // Non-effectful futures being aborted is always unexpected, so panic for those too.
     const futureModuleForCheck = extractFutureTraitFromType(futureType);
+    const futureEffect = futureModuleForCheck?.isFuture.effect;
     const hasAlgebraicEffects =
-      futureModuleForCheck?.isFuture.effects?.some(
-        (e) =>
-          isFunctionType(e.type) ||
-          isSourceNamespaceType(e.type) ||
-          isStructType(e.type) ||
-          false
-      ) ?? false;
+      futureEffect !== undefined &&
+      (isFunctionType(futureEffect.type) ||
+        isSourceNamespaceType(futureEffect.type) ||
+        isStructType(futureEffect.type));
     if (hasAlgebraicEffects) {
       // Only panic if the future was already aborted before this await
       emitter.emitLine(`${indent}    if (${preAwaitStateVar} == -2) {`);
@@ -480,36 +478,30 @@ function isAwaitUnwindHandlerInstallation(
   futureTraitType: ReturnType<typeof extractFutureTraitFromType> & object,
   context: FunctionGenerationContext
 ): boolean {
-  const effects = futureTraitType.isFuture.effects;
-  if (!effects?.length) return false;
+  const effect = futureTraitType.isFuture.effect;
+  if (!effect) return false;
 
-  const expandedEffects = effects;
   const evidenceParams = context.currentEvidenceParams;
 
-  for (const effect of expandedEffects) {
-    if (isFunctionType(effect.type)) {
-      // Function-type effect (e.g., Raise): key is "label.label"
-      const key = `${effect.label}.${effect.label}`;
-      if (!evidenceParams?.has(key)) {
-        return true; // Not forwarded → locally installed
-      }
-    } else if (
-      isSourceNamespaceType(effect.type) ||
-      isStructType(effect.type)
-    ) {
-      // Record-type effect (e.g., Exception/IO): check if any member is in evidence
-      let isForwarded = false;
-      if (evidenceParams) {
-        for (const [key] of evidenceParams) {
-          if (key.startsWith(`${effect.label}.`)) {
-            isForwarded = true;
-            break;
-          }
+  if (isFunctionType(effect.type)) {
+    // Function-type effect (e.g., Raise): key is "label.label"
+    const key = `${effect.label}.${effect.label}`;
+    if (!evidenceParams?.has(key)) {
+      return true; // Not forwarded → locally installed
+    }
+  } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
+    // Record-type effect (e.g., Exception/IO): check if any member is in evidence
+    let isForwarded = false;
+    if (evidenceParams) {
+      for (const [key] of evidenceParams) {
+        if (key.startsWith(`${effect.label}.`)) {
+          isForwarded = true;
+          break;
         }
       }
-      if (!isForwarded) {
-        return true; // Not forwarded → locally installed
-      }
+    }
+    if (!isForwarded) {
+      return true; // Not forwarded → locally installed
     }
   }
 
@@ -583,44 +575,40 @@ function emitEffectInjectionForAwait(
   if (!futureArg?.$?.type) return;
 
   const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
-  if (!futureTraitType?.isFuture.effects?.length) return;
+  const effect = futureTraitType?.isFuture.effect;
+  if (!effect) return;
 
-  const expandedEffects = futureTraitType.isFuture.effects;
   const functionContext = context as FunctionGenerationContext;
 
-  // Resolve each effect from the surrounding scope. `using(...)` is gone
-  // in explicit-effects, so there is no per-call-site arg list to consult.
-  for (const effect of expandedEffects) {
-    if (isFunctionType(effect.type)) {
-      const handlerCode = resolveEffectFieldFromScope(
-        effect.label,
-        functionContext,
-        expr
-      );
-      if (handlerCode) {
-        emitFutureEffectInjectionLine(
-          futureArg.$.type,
-          futureVar,
-          effect.label,
-          handlerCode,
-          indent,
-          functionContext
-        );
-      }
-    } else if (
-      isSourceNamespaceType(effect.type) ||
-      isStructType(effect.type)
-    ) {
-      emitEffectRecordInjection(
-        effect.type,
+  // Resolve the effect bundle from the surrounding scope. `using(...)` is
+  // gone in explicit-effects, so there is no per-call-site arg list to
+  // consult.
+  if (isFunctionType(effect.type)) {
+    const handlerCode = resolveEffectFieldFromScope(
+      effect.label,
+      functionContext,
+      expr
+    );
+    if (handlerCode) {
+      emitFutureEffectInjectionLine(
         futureArg.$.type,
         futureVar,
+        effect.label,
+        handlerCode,
         indent,
-        undefined,
-        functionContext,
-        expr
+        functionContext
       );
     }
+  } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
+    emitEffectRecordInjection(
+      effect.type,
+      futureArg.$.type,
+      futureVar,
+      indent,
+      undefined,
+      functionContext,
+      expr
+    );
   }
 }
 

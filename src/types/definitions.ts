@@ -566,14 +566,15 @@ export interface TraitType extends Type {
   isFn?: { callType: FunctionType };
 
   /**
-   * If this trait represents a Future type, this contains the output type and effects.
-   * Set for traits created via `Future(T)` or `Future(T, E1, E2, ...)` syntax.
+   * If this trait represents a Future type, this contains the output type
+   * and (optionally) a single effect bundle.
+   * Set for traits created via `Future(T)` or `Future(T, E)` syntax.
    *
-   * Each entry in `effects` is an effect bundle type. The label is
-   * derived from the type's name (struct `typeName`, SomeType `name`,
-   * or expression text as a fallback).
+   * `effect` carries the bundle's type and a display/capture-struct
+   * field label derived from the type's name. Multiple effects are
+   * packed into a single struct by the user before being passed here.
    */
-  isFuture?: { outputType: Type; effects: FutureEffect[] };
+  isFuture?: { outputType: Type; effect?: FutureEffect };
 
   /**
    * If this trait represents a Concrete type marker, this contains the concrete type.
@@ -636,7 +637,7 @@ export interface FutureEffect {
  * - Dyn(Future(i32)) for dynamic dispatch
  */
 export type FutureTraitType = TraitType & {
-  isFuture: { outputType: Type; effects: FutureEffect[] };
+  isFuture: { outputType: Type; effect?: FutureEffect };
 };
 
 /**

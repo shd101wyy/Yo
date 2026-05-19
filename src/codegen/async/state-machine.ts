@@ -2429,45 +2429,39 @@ function emitEffectInjectionForSM(
   if (!futureArg?.$?.type) return;
 
   const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
-  if (!futureTraitType?.isFuture.effects?.length) return;
+  const effect = futureTraitType?.isFuture.effect;
+  if (!effect) return;
 
-  const expandedEffects = futureTraitType.isFuture.effects;
-
-  // Resolve each effect from the surrounding state-machine scope.
+  // Resolve the effect bundle from the surrounding state-machine scope.
   // `using(...)` is gone in explicit-effects, so there is no per-call-site
   // arg list to consult; injection always comes from the active SM env.
-  for (const effect of expandedEffects) {
-    if (isFunctionType(effect.type)) {
-      if (effect.type.forallParameters.length > 0) continue;
-      const handlerCode = resolveEffectFieldFromSMScope(
-        effect.label,
-        context,
-        awaitExpr
-      );
-      if (handlerCode) {
-        emitFutureEffectInjectionLine(
-          futureArg.$.type,
-          futureAccess,
-          effect.label,
-          handlerCode,
-          indent,
-          context
-        );
-      }
-    } else if (
-      isSourceNamespaceType(effect.type) ||
-      isStructType(effect.type)
-    ) {
-      emitEffectRecordInjectionForSM(
-        effect.type,
+  if (isFunctionType(effect.type)) {
+    if (effect.type.forallParameters.length > 0) return;
+    const handlerCode = resolveEffectFieldFromSMScope(
+      effect.label,
+      context,
+      awaitExpr
+    );
+    if (handlerCode) {
+      emitFutureEffectInjectionLine(
         futureArg.$.type,
         futureAccess,
+        effect.label,
+        handlerCode,
         indent,
-        undefined,
-        context,
-        awaitExpr
+        context
       );
     }
+  } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
+    emitEffectRecordInjectionForSM(
+      effect.type,
+      futureArg.$.type,
+      futureAccess,
+      indent,
+      undefined,
+      context,
+      awaitExpr
+    );
   }
 }
 

@@ -378,7 +378,8 @@ function getInjectableFutureEffectFieldMappings(
     }
   };
 
-  for (const effect of futureTraitType.isFuture.effects) {
+  const effect = futureTraitType.isFuture.effect;
+  if (effect) {
     if (isFunctionType(effect.type)) {
       const captureField =
         captureType.fields.find((field) => field.label === effect.label) ??

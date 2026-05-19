@@ -1087,15 +1087,14 @@ let futureTraitCounter = 0;
 export function createFutureTraitType(
   outputType: Type,
   env: Environment,
-  effects: FutureEffect[] = []
+  effect?: FutureEffect
 ): FutureTraitType {
   // Create a unique ID for each async block's FutureTraitType
   // This ensures different async blocks with the same output type don't share the same FutureTraitType
   const futureTraitId = `future_trait_${outputType.id}_${futureTraitCounter++}`;
   const trait = createTraitType(env);
 
-  // Set the isFuture field to make this a FutureTraitType
-  trait.isFuture = { outputType, effects };
+  trait.isFuture = { outputType, effect };
   trait.id = futureTraitId;
 
   trait.receiverType = undefined;
