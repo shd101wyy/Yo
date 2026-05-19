@@ -18,6 +18,7 @@ open(import("std/fmt"));
   ast_expr_to_string,
   BK_FN,
   BK_UNSAFE_FN,
+  BK_CTL,
   BK_FN_TRAIT,
   BK_ATOMIC,
   BK_OBJECT,
@@ -425,14 +426,19 @@ _evaluate_expression :: (
               ast_expr_is_fn_call(arg0) &&
                 (
                   ast_expr_is_fn_call_of(arg0, BK_FN,.None) ||
-                    ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN,.None)
+                    (ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN,.None) ||
+                      ast_expr_is_fn_call_of(arg0, BK_CTL,.None))
                 )
             ) => {
               is_unsafe := ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN,.None);
+              is_control := ast_expr_is_fn_call_of(arg0, BK_CTL,.None);
               old_is_unsafe := ctx.is_unsafe_function_type;
+              old_is_control := ctx.is_control_function_type;
               ctx.is_unsafe_function_type = is_unsafe;
+              ctx.is_control_function_type = is_control;
               result := evaluate_function_type(expr, env, ctx, exn);
               ctx.is_unsafe_function_type = old_is_unsafe;
+              ctx.is_control_function_type = old_is_control;
               result
             },
             (

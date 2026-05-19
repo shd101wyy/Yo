@@ -528,10 +528,20 @@ yo --version                     Show version number
           console.error(`check: no .yo files found at ${targetPath}`);
           process.exit(1);
         }
+        // Reuse a single CodeGenerator across files so the
+        // ModuleManager's module cache persists. Without this, every
+        // file in a directory reloads the prelude + all transitive
+        // imports from scratch — for large trees (e.g. yo-self/, 223
+        // files) the cost compounds dramatically.
+        //
+        // With reuse, a file that was already loaded as a dependency
+        // of an earlier file is a cache hit on the second pass; we
+        // still re-run the "evaluator OK" report so the user sees
+        // each file marked, but no real work happens.
+        const codeGenerator = new CodeGenerator();
         let failed = 0;
         for (const file of files) {
           const absolutePath = `file://` + fs.realpathSync(file);
-          const codeGenerator = new CodeGenerator();
           try {
             codeGenerator.compileModule(absolutePath, {
               output: "/tmp/yo_check_noop",

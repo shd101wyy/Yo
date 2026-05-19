@@ -204,6 +204,10 @@ EvalContext :: object(
   current_module_path : Option(String),
   /// Whether the function type being evaluated is marked unsafe.
   is_unsafe_function_type : bool,
+  /// Whether the function type being evaluated was declared `ctl(...)
+  /// -> ret`. Control functions may contain `unwind` in their body and
+  /// are frame-bound (escape boundaries reject them).
+  is_control_function_type : bool,
   /// Return type of the enclosing (parent) function; enables `unwind(expr)`.
   enclosing_function_return_type : Option(TypeValue),
   /// Whether the enclosing specialized function has control-flow implicit params.
@@ -268,6 +272,7 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     std_path : std_path,
     current_module_path : Option(String).Some(module_path),
     is_unsafe_function_type : false,
+    is_control_function_type : false,
     enclosing_function_return_type : Option(TypeValue).None,
     has_control_function_implicit_params : false,
     is_inside_where_clause : false,

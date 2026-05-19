@@ -28,6 +28,7 @@ open(import("std/fmt"));
   BK_COLON,
   BK_FN,
   BK_UNSAFE_FN,
+  BK_CTL,
   BK_TUPLE
 }
 :: import("../../expr.yo");
@@ -2827,16 +2828,19 @@ evaluate_function_type :: (
   expr_args := _fn_call_args(expr);
   arg_list_expr := match(expr_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   return_expr := match(expr_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-  // Expect fn(...) or unsafe_fn(...)
+  // Expect fn(...), unsafe_fn(...), or ctl(...). `ctl` is the
+  // control-function type constructor — parallel to `fn`, but its body
+  // may contain `unwind` and the value is frame-bound.
   if(!(
     ast_expr_is_fn_call_of(arg_list_expr, BK_FN, Option(usize).None) ||
-      ast_expr_is_fn_call_of(arg_list_expr, BK_UNSAFE_FN, Option(usize).None)
+      (ast_expr_is_fn_call_of(arg_list_expr, BK_UNSAFE_FN, Option(usize).None) ||
+        ast_expr_is_fn_call_of(arg_list_expr, BK_CTL, Option(usize).None))
   ), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(arg_list_expr),
-          `Expected a "fn" or "unsafe_fn" call for parameter list, got:\n${ast_expr_to_string(arg_list_expr)}`,
+          `Expected a "fn", "ctl", or "unsafe_fn" call for parameter list, got:\n${ast_expr_to_string(arg_list_expr)}`,
           false,
           .None
         )
