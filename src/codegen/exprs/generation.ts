@@ -5,10 +5,7 @@ import {
   isIoStateCall,
   isJoinHandleAwaitCall,
 } from "../../evaluator/async/await-analysis";
-import {
-  extractFutureTraitFromType,
-  typeImplementsFuture,
-} from "../../evaluator/trait-checking";
+import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -21,23 +18,8 @@ import {
   type FnCallExpr,
   hasAnyControlFlow,
 } from "../../expr";
-import type {
-  FunctionParameter,
-  SourceNamespaceType,
-  StructType,
-  Type,
-} from "../../types/definitions";
-import {
-  isEffectsRowType,
-  isFunctionType,
-  isSourceNamespaceType,
-  isPtrType,
-  isSomeType,
-  isStructType,
-  isUnitType,
-} from "../../types/guards";
-import { isFunctionValue, isStructValue, isUnknownValue } from "../../value";
-import { getVariablesFromEnvByFilter } from "../../env";
+import { isPtrType, isSomeType, isUnitType } from "../../types/guards";
+import { isFunctionValue, isUnknownValue } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -112,87 +94,6 @@ import { generateTypeId } from "./typeid";
 import { generateWhileLoop } from "./while";
 
 let indexTraitTempCounter = 0;
-
-/**
- * Expand effect row spreads from a FutureTraitType's effects into individual
- * implicit parameters. Each expanded parameter has a `label` matching the
- * capture struct field name and a `type` for checking if it's function-typed.
- */
-function expandFutureEffects(
-  effects: FunctionParameter[]
-): FunctionParameter[] {
-  const result: FunctionParameter[] = [];
-  for (const effect of effects) {
-    if (effect.isEffectRowSpread) {
-      // Expand the spread: the type is either an EffectsRowType directly,
-      // or a SomeType with resolvedConcreteType pointing to an EffectsRowType.
-      let effectsRow = effect.type;
-      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
-        effectsRow = effectsRow.resolvedConcreteType;
-      }
-      if (isEffectsRowType(effectsRow)) {
-        result.push(...effectsRow.implicitParameters);
-      }
-    } else {
-      result.push(effect);
-    }
-  }
-  return result;
-}
-
-function usesGenericFutureInterface(
-  futureType: Type,
-  context: FunctionGenerationContext
-): boolean {
-  if (!isSomeType(futureType) || !typeImplementsFuture(futureType)) {
-    return false;
-  }
-  if (context.types[futureType.id]) {
-    return false;
-  }
-  if (futureType.resolvedConcreteType) {
-    if (
-      isSomeType(futureType.resolvedConcreteType) &&
-      context.types[futureType.resolvedConcreteType.id]
-    ) {
-      return false;
-    }
-    if (isStructType(futureType.resolvedConcreteType)) {
-      const captureStructId = futureType.resolvedConcreteType.id;
-      for (const entry of Object.values(context.types)) {
-        if (
-          isSomeType(entry.type) &&
-          typeImplementsFuture(entry.type) &&
-          entry.type.resolvedConcreteType &&
-          isStructType(entry.type.resolvedConcreteType) &&
-          entry.type.resolvedConcreteType.id === captureStructId
-        ) {
-          return false;
-        }
-      }
-    }
-  }
-  return !!extractFutureTraitFromType(futureType);
-}
-
-function emitFutureEffectInjectionLine(
-  futureType: Type,
-  futureVar: string,
-  fieldLabel: string,
-  memberCode: string,
-  indent: string,
-  context: FunctionGenerationContext
-): void {
-  if (usesGenericFutureInterface(futureType, context)) {
-    context.emitter.emitLine(
-      `${indent}  if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, ${JSON.stringify(fieldLabel)}, (void*)${memberCode});`
-    );
-    return;
-  }
-  context.emitter.emitLine(
-    `${indent}  ${futureVar}->__capture.${fieldLabel} = (void*)${memberCode};`
-  );
-}
 
 /**
  * Generate C code for Index trait dispatch: value(i) → *index_fn(&value, i)
@@ -309,198 +210,6 @@ function generateIndexTraitCall(
   // when the result is consumed (assignment, function argument, return).
   // We do NOT dup inline here, as that would leak for unassigned uses like y(0).*.
   return `(*${callCode})`;
-}
-
-/**
- * Generate effect injection code for io.spawn/io.await call sites.
- * Injects function-typed effect handler values from using(...) args
- * into the future's capture struct fields before cold-starting.
- * Only injects when state == 0 (set-once semantics).
- */
-function emitEffectInjection(
-  expr: FnCallExpr,
-  futureVar: string,
-  indent: string,
-  context: CodeGenContext
-): void {
-  const futureArg = expr.args[0];
-  if (!futureArg?.$?.type) return;
-
-  // Find the using(...) expression in the call arguments
-  // REMOVED: `using` keyword is gone. Effects are now explicit params.
-  const usingExpr = undefined as unknown as FnCallExpr; // dead code, using removed
-  if (!usingExpr) return;
-
-  // Extract the FutureTraitType to get effect labels
-  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
-  if (!futureTraitType?.isFuture.effects?.length) return;
-
-  // Expand effect row spreads into individual effect parameters
-  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
-
-  const usingArgs = usingExpr.args;
-  const functionContext = context as FunctionGenerationContext;
-
-  for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
-    const effect = expandedEffects[i]!;
-    const usingArg = usingArgs[i]!;
-
-    if (isFunctionType(effect.type)) {
-      // Function-typed effect (e.g., Raise). Resolve the handler from scope.
-      const fieldName = effect.label;
-      let handlerCode: string | undefined;
-
-      // Try caller's evidence params first
-      if (functionContext.currentEvidenceParams) {
-        for (const ep of functionContext.currentEvidenceParams.values()) {
-          if (ep.fieldLabel === fieldName) {
-            handlerCode = ep.cParamName;
-            break;
-          }
-        }
-      }
-
-      // Try SM capture variables
-      if (!handlerCode && functionContext.stateMachineVariables) {
-        for (const [, capturedVar] of functionContext.stateMachineVariables) {
-          if (capturedVar.name === fieldName && capturedVar.kind === "outer") {
-            handlerCode = `sm->__capture.${fieldName}`;
-            break;
-          }
-        }
-      }
-
-      // Try given bindings (local function definitions)
-      if (!handlerCode) {
-        const usingArgValue = usingArg.$?.value;
-        if (usingArgValue && isFunctionValue(usingArgValue)) {
-          const funcEntry = context.functions[usingArgValue.funcId];
-          if (funcEntry) {
-            handlerCode = funcEntry.cName;
-          }
-        }
-      }
-
-      // Fallback: generate the expression directly
-      if (!handlerCode) {
-        handlerCode = generateExpr(usingArg, indent, context);
-      }
-
-      if (handlerCode) {
-        emitFutureEffectInjectionLine(
-          futureArg.$.type,
-          futureVar,
-          fieldName,
-          handlerCode,
-          indent,
-          functionContext
-        );
-      }
-    } else if (
-      isSourceNamespaceType(effect.type) ||
-      isStructType(effect.type)
-    ) {
-      // Record-typed effect (e.g., IO). Inject each function member individually.
-      const sourceNamespaceType = effect.type;
-      for (const field of sourceNamespaceType.fields) {
-        if (!isFunctionType(field.type)) continue;
-        let memberCode: string | undefined;
-
-        // Inside SM: member is captured in state machine variables
-        if (functionContext.stateMachineVariables) {
-          for (const [, capturedVar] of functionContext.stateMachineVariables) {
-            if (
-              capturedVar.name === field.label &&
-              capturedVar.kind === "outer"
-            ) {
-              memberCode = `sm->__capture.${field.label}`;
-              break;
-            }
-          }
-        }
-
-        // Resolve from using arg's effect record value (concrete record)
-        if (!memberCode) {
-          const usingArgValue = usingArg.$?.value;
-          if (usingArgValue && isStructValue(usingArgValue)) {
-            const fieldIndex = sourceNamespaceType.fields.indexOf(field);
-            const memberValue = usingArgValue.fields[fieldIndex];
-            if (memberValue && isFunctionValue(memberValue)) {
-              const funcEntry = context.functions[memberValue.funcId];
-              if (funcEntry) {
-                memberCode = funcEntry.cName;
-              }
-            }
-          }
-        }
-
-        // Resolve from caller's evidence params (evidence passing)
-        if (!memberCode && functionContext.currentEvidenceParams) {
-          for (const ep of functionContext.currentEvidenceParams.values()) {
-            if (ep.fieldLabel === field.label) {
-              memberCode = ep.cParamName;
-              break;
-            }
-          }
-        }
-
-        // Resolve from given bindings in the call environment
-        if (!memberCode) {
-          memberCode = resolveEvidenceFieldFromGivenBindingsForSpawn(
-            field.label,
-            sourceNamespaceType,
-            functionContext,
-            expr
-          );
-        }
-
-        if (memberCode) {
-          emitFutureEffectInjectionLine(
-            futureArg.$.type,
-            futureVar,
-            field.label,
-            memberCode,
-            indent,
-            functionContext
-          );
-        }
-      }
-    }
-  }
-}
-
-/**
- * Resolvean effect record field from given bindings in the call environment.
- * Mirrors resolveEvidenceFieldFromGivenBindings in await.ts.
- */
-function resolveEvidenceFieldFromGivenBindingsForSpawn(
-  fieldLabel: string,
-  sourceNamespaceType: SourceNamespaceType | StructType,
-  functionContext: FunctionGenerationContext,
-  expr: FnCallExpr
-): string | undefined {
-  const callEnv = expr.$?.env ?? expr.func.$?.env;
-  if (!callEnv) return undefined;
-
-  const implicitVars = getVariablesFromEnvByFilter(
-    callEnv,
-    (_v) => true /* removed isImplicit check — Phase 2 */
-  );
-  for (let i = implicitVars.length - 1; i >= 0; i--) {
-    const v = implicitVars[i]!;
-    const val = v.value?.[v.value.length - 1];
-    if (val && isStructValue(val)) {
-      const fieldIdx = val.type.fields.findIndex((f) => f.label === fieldLabel);
-      if (fieldIdx >= 0) {
-        const fieldVal = val.fields[fieldIdx];
-        if (fieldVal && isFunctionValue(fieldVal)) {
-          const cName = functionContext.functions[fieldVal.funcId]?.cName;
-          if (cName) return cName;
-        }
-      }
-    }
-  }
-  return undefined;
 }
 
 /**
@@ -1042,8 +751,6 @@ function generateFuncCall(
       emitter.emitLine(
         `${indent}if (${spawnStateVar} == 0 && ${spawnVar}->__yo_resume_fn) {`
       );
-      // Inject effect handler values into capture struct before cold-starting
-      emitEffectInjection(expr, spawnVar, indent, context);
       emitter.emitLine(`${indent}  __yo_incr_rc((void*)${spawnVar});`);
       emitter.emitLine(
         `${indent}  ${spawnVar}->__yo_resume_fn((void*)${spawnVar});`

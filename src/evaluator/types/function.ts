@@ -1695,16 +1695,6 @@ export function evaluateFunctionParameters({
     }
   }
 
-  // Using pass: find and process using() implicit parameters
-  // REMOVED: `using` keyword is gone. All params are regular.
-  // eslint-disable-next-line no-constant-condition
-  if (false) {
-    // was: processing using() implicit params, now dead code
-    for (let i = 0; i < parameterExprs.length; i++) {
-      // ... using() parameter processing removed ...
-    }
-  }
-
   // Second pass: pre-add all comptime parameters to the environment
   // This is necessary because where clauses may reference comptime parameters that appear
   // later in the parameter list. For example:
