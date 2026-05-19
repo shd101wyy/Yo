@@ -1798,7 +1798,6 @@ Got:   ${typeToString(typeValue.type)}`,
           const givenEffectVars = getVariablesFromEnvByFilter(
             callerEnv,
             (v) =>
-              v.isImplicit === true &&
               (v.isCompileTimeOnly === true || isStructType(v.type)) &&
               (isFunctionType(v.type) || isEffectRecordType(v.type))
           );
@@ -1830,7 +1829,6 @@ Got:   ${typeToString(typeValue.type)}`,
                     name: gv.name,
                     type: gv.type,
                     isCompileTimeOnly: true,
-                    isImplicit: true,
                     isFromEffectSpread: true,
                     value: [givenValue],
                     token: PlaceholderToken,
@@ -1893,7 +1891,6 @@ Got:   ${typeToString(typeValue.type)}`,
           const givenVariables = getVariablesFromEnvByFilter(
             callerEnv,
             (v) =>
-              v.isImplicit === true &&
               (v.isCompileTimeOnly === true || isStructType(v.type)) &&
               v.name === concreteParam.label &&
               areTypesCompatible(
@@ -1908,7 +1905,6 @@ Got:   ${typeToString(typeValue.type)}`,
             const givenByType = getVariablesFromEnvByFilter(
               callerEnv,
               (v) =>
-                v.isImplicit === true &&
                 (v.isCompileTimeOnly === true || isStructType(v.type)) &&
                 areTypesCompatible(
                   { type: resolvedConcreteType, env: calleeEnv },
@@ -1943,7 +1939,6 @@ Please ensure a given variable of matching type is in scope.`,
                 name: concreteParam.label,
                 type: resolvedConcreteType,
                 isCompileTimeOnly: true,
-                isImplicit: true,
                 isFromEffectSpread: true,
                 value: [givenValue],
                 token: PlaceholderToken,
@@ -1982,7 +1977,6 @@ Please ensure a given variable of matching type is in scope.`,
                 name: concreteParam.label,
                 type: resolvedConcreteType,
                 isCompileTimeOnly: true,
-                isImplicit: true,
                 isFromEffectSpread: true,
                 value: [givenValue],
                 token: PlaceholderToken,
@@ -2084,7 +2078,6 @@ Got:      ${typeToString(argType)}`,
             calleeEnv = updateExistingVariable(calleeEnv, existingVar, {
               ...existingVar,
               type: resolvedImplicitType,
-              isImplicit: true,
               value: [argValue],
             });
           } else {
@@ -2094,7 +2087,6 @@ Got:      ${typeToString(argType)}`,
                 name: implicitParam.label,
                 type: resolvedImplicitType,
                 isCompileTimeOnly: true,
-                isImplicit: true,
                 value: [argValue],
                 token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
                 initializedAtToken:
@@ -2115,7 +2107,6 @@ Got:      ${typeToString(argType)}`,
         const givenVariables = getVariablesFromEnvByFilter(
           callerEnv,
           (v) =>
-            v.isImplicit === true &&
             (v.isCompileTimeOnly === true || isStructType(v.type)) &&
             areTypesCompatible(
               { type: resolvedImplicitType, env: calleeEnv },
@@ -2179,7 +2170,6 @@ Add it explicitly:
           const innermostFrameIdx = findInnermostFrameWithGivenVariable(
             callerEnv,
             (v) =>
-              v.isImplicit === true &&
               (v.isCompileTimeOnly === true || isStructType(v.type)) &&
               areTypesCompatible(
                 { type: resolvedImplicitType, env: calleeEnv },
@@ -2190,7 +2180,6 @@ Add it explicitly:
             const frame = callerEnv.frames[innermostFrameIdx]!;
             const innermostMatches = frame.variables.filter(
               (v) =>
-                v.isImplicit === true &&
                 (v.isCompileTimeOnly === true || isStructType(v.type)) &&
                 areTypesCompatible(
                   { type: resolvedImplicitType, env: calleeEnv },
@@ -2245,7 +2234,6 @@ Please use explicit using() to disambiguate.`,
             name: implicitParam.label,
             type: resolvedImplicitType,
             isCompileTimeOnly: true,
-            isImplicit: true,
             value: [givenValue],
             token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
             initializedAtToken:

@@ -84,7 +84,6 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
 
   // Evaluate the lhs expression
   let isCompileTimeOnly = false;
-  const isImplicit = false;
 
   isCompileTimeOnly =
     isCompileTimeOnly || context.forceCompileTimeBindings === true;
@@ -184,7 +183,6 @@ Use \`::\` for compile-time definitions inside impl.`,
       consumedAtToken: undefined,
       isReassignable: true,
       isOwningTheRcValue: typeContainsRcType(userDefinedType),
-      isImplicit,
       isModuleLevel,
       docComment,
     },

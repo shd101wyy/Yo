@@ -184,12 +184,6 @@ export interface Variable {
   parameterAlias?: string;
 
   /**
-   * Whether this variable is declared with `given`, making it available
-   * for implicit parameter resolution (`using` parameters in function calls).
-   */
-  isImplicit?: boolean;
-
-  /**
    * Whether this variable was injected into the environment from an effect row
    * spread (e.g., `using(...(E))`) expansion. Such variables should NOT be used
    * to satisfy concrete, named implicit parameter requirements — the function
@@ -2152,15 +2146,9 @@ export function keepTopLevelFrameAndComptimeVariablesFromEnv(
       return frame; // Keep the first frame as is
     }
 
-    const newVariables = frame.variables.filter((variable) => {
-      if (!variable.isCompileTimeOnly) {
-        return false;
-      }
-      if (variable.isImplicit) {
-        return false;
-      }
-      return true;
-    });
+    const newVariables = frame.variables.filter(
+      (variable) => variable.isCompileTimeOnly
+    );
     return { ...frame, variables: newVariables };
   });
 

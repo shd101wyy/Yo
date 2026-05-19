@@ -53,7 +53,6 @@ import {
   createEnumValue,
   createStructValue,
   createTupleValue,
-  createUnknownValue,
   isArrayValue,
   isEnumValue,
   isFunctionValue,
@@ -487,23 +486,11 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
 
       // Initialize the variable
       // For value semantics, use cloneValue to ensure deep copy
-      // This prevents mutations to one variable from affecting another
-      // Phase 4b: when an `isImplicit` (given) variable of struct type
-      // is assigned a runtime value (no comptime rhsValue), record an
-      // UnknownValue so downstream resolution knows the binding exists
-      // even though its concrete value is only available at runtime.
-      // (Helper.ts still rejects this for now; later sub-steps will
-      // route it through runtime evidence params.)
+      // This prevents mutations to one variable from affecting another.
       const valueToStore =
         variable.isCompileTimeOnly && rhsValue
           ? cloneValue(rhsValue)
-          : variable.isImplicit && isStructType(variableType)
-            ? createUnknownValue(variableType, {
-                variableName,
-                env,
-                context,
-              })
-            : undefined;
+          : undefined;
 
       // Under the new simplified ownership model:
       // Variables created by := always own their values

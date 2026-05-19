@@ -125,7 +125,6 @@ export function evaluateTest({
     value: [ioUnknownValue],
     isCompileTimeOnly: true,
     isOwningTheRcValue: false,
-    isImplicit: true,
     isReassignable: false,
     initializedAtToken: expr.token,
     consumedAtToken: undefined,

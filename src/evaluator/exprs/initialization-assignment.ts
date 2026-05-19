@@ -87,7 +87,6 @@ export function evaluateInitializationAssignment({
   const lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
 
-  const isImplicit = false;
   const actualLhs = lhs;
 
   // Prevent declaring variable type using :: or :=
@@ -171,11 +170,8 @@ Define handlers inside the function that uses them:
       });
     }
 
-    // When using given, force compile-time only regardless of := or ::
-    const effectiveIsCompileTimeOnly = isImplicit || isCompileTimeOnly;
-    const effectiveShouldConvertToRuntimeType = isImplicit
-      ? false
-      : shouldConvertToRuntimeType;
+    const effectiveIsCompileTimeOnly = isCompileTimeOnly;
+    const effectiveShouldConvertToRuntimeType = shouldConvertToRuntimeType;
 
     // Set the variable type
     let rhsType = rhs.$?.type;
@@ -437,8 +433,7 @@ Use \`::\` for compile-time definitions inside impl.`,
         // Only set shared ownership for Copy types (shared references)
         // If RHS was moved, LHS becomes the primary owner
         isOwningTheSameRcValueAs,
-        isReassignable: !isImplicit,
-        isImplicit,
+        isReassignable: true,
         isModuleLevel,
         docComment,
       },
@@ -450,14 +445,6 @@ Use \`::\` for compile-time definitions inside impl.`,
       actualLhs.$.variableName = varName;
     }
     actualLhs.$.env = env;
-    if (isImplicit) {
-      lhs.$ = {
-        env,
-        value: VUnit,
-        type: VUnit.type,
-        pathCollection: [],
-      };
-    }
     expr.$ = {
       env,
       value: VUnit,
@@ -467,13 +454,13 @@ Use \`::\` for compile-time definitions inside impl.`,
     };
     return expr;
   } else {
-    const effectiveIsCompileTimeOnly = isImplicit || isCompileTimeOnly;
+    const effectiveIsCompileTimeOnly = isCompileTimeOnly;
     const { env: nextEnv, runtimeDestructurings } =
       evaluateDestructuringAssignment({
         lhs: actualLhs,
         rhs,
         env,
-        isCompileTimeOnly: isImplicit || isCompileTimeOnly,
+        isCompileTimeOnly,
         context: { ...context },
       });
     env = nextEnv;

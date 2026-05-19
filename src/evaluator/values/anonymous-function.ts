@@ -2,7 +2,6 @@ import {
   addVariableToEnv,
   type Environment,
   getVariablesFromEnv,
-  getVariablesFromEnvByFilter,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
@@ -682,26 +681,6 @@ Got:      "${paramName}"`,
           }
         }
       }
-      // Fallback: search by type compatibility among given (implicit) variables.
-      // This handles the case where the effect label from the Future type annotation
-      // (e.g., "Log") doesn't match the given handler name (e.g., "log").
-      if (!resolvedHandlerValue) {
-        const givenByType = getVariablesFromEnvByFilter(
-          outerEnv,
-          (v) =>
-            v.isImplicit === true &&
-            v.isCompileTimeOnly === true &&
-            isFunctionValue(v.value?.[0]) &&
-            areTypesCompatible(
-              { type: expectedParam.type, env: outerEnv },
-              { type: v.type, env: outerEnv }
-            )
-        );
-        const byTypeVar = givenByType.at(-1);
-        if (byTypeVar?.value?.[0] && isFunctionValue(byTypeVar.value[0])) {
-          resolvedHandlerValue = byTypeVar.value[0];
-        }
-      }
     }
 
     const paramValue = resolvedHandlerValue
@@ -764,7 +743,6 @@ Got:      "${paramName}"`,
         name: paramName,
         type: expectedParam.type,
         isCompileTimeOnly: !isEffectParamInAsyncClosure,
-        isImplicit: true,
         value: isEffectParamInAsyncClosure ? undefined : [paramValue],
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
