@@ -8,6 +8,8 @@
 
 https://shd101wyy.github.io/Yo
 
+**LLM-friendly to write, human-friendly to read.**
+
 A multi-paradigm, general-purpose, compiled programming language.
 Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 

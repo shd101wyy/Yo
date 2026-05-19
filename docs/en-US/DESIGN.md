@@ -157,6 +157,12 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 
 ## Philosophy
 
+**LLM-friendly to write, human-friendly to read.** The two goals
+align: a snippet that an LLM can produce without scope-chain reasoning
+is also a snippet a human reviewer can understand in a diff. The
+design lever is _explicitness_ — every effect, parameter, and capture
+is visible at the call site, so what you see is what runs.
+
 **Key Design Principles:**
 
 - **Simple syntax inspired by Lisp** (no keywords, minimal)
