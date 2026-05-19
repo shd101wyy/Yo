@@ -1,0 +1,82 @@
+open(import("std/libc/stdio.yo"));
+
+/// Tests for the `unsafe(...)` builtin (Phase A of plans/MEMORY_SAFETY.md).
+///
+/// `unsafe(expr)` is a compile-time marker that permits pointer
+/// dereference and arithmetic inside `expr`. Outside `unsafe(...)`,
+/// those operations are compile errors.
+///
+/// NOTE: This file lives under `tests/` which is currently treated as
+/// implicitly unsafe-capable while Phase C (the pragma mechanism) is
+/// pending. Pointer ops therefore work without explicit wraps here
+/// too. The tests below explicitly *use* `unsafe(...)` to verify the
+/// builtin behaves as designed (transparent compile-time marker, no
+/// runtime cost).
+
+test("unsafe(p.*) reads through a pointer", {
+  x := i32(42);
+  p := &(x);
+  v := unsafe(p.*);
+  assert((v == i32(42)), "deref via unsafe");
+});
+
+test("unsafe(p.* = v) writes through a pointer", {
+  x := i32(0);
+  p := &(x);
+  unsafe(p.* = i32(100));
+  assert((x == i32(100)), "write via unsafe deref");
+});
+
+test("unsafe(p &+ n) does pointer arithmetic", {
+  x := i32(7);
+  p := &(x);
+  q := unsafe(p &+ usize(0));
+  assert((p &== q), "pointer + 0 is same address");
+});
+
+test("unsafe(...) accepts a begin-block with semicolons", {
+  x := i32(0);
+  p := &(x);
+  unsafe({
+    p.* = i32(11);
+    p.* = (p.* + i32(31));
+  });
+  assert((x == i32(42)), "begin-block writes propagate");
+});
+
+test("unsafe(...) is transparent — returns the inner value", {
+  x := i32(5);
+  p := &(x);
+  doubled := unsafe((p.* * i32(2)));
+  assert((doubled == i32(10)), "value/type passes through unsafe");
+});
+
+test("nested unsafe(unsafe(...)) is permitted", {
+  x := i32(9);
+  p := &(x);
+  v := unsafe(unsafe(p.*));
+  assert((v == i32(9)), "nested unsafe deref");
+});
+
+test("unsafe(cond(...)) wraps a cond without braces", {
+  x := i32(3);
+  p := &(x);
+  fallback := i32(0);
+  v := unsafe(cond(
+    (x > i32(0)) => p.*,
+    true => fallback
+  ));
+  assert((v == i32(3)), "cond inside unsafe");
+});
+
+test("unsafe(match(...)) wraps a match", {
+  y := i32(77);
+  ptr_opt :: Option(*(i32)).Some(&(y));
+  fallback := i32(0);
+  v := unsafe(match(
+    ptr_opt,
+    .Some(p) => p.*,
+    .None => fallback
+  ));
+  assert((v == i32(77)), "match inside unsafe");
+});

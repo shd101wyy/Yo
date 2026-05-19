@@ -34,6 +34,7 @@ import { evaluateYoComptimeStringFunctions } from "../builtins/comptime-string-f
 import { evaluateYoComptimeIndexFunctions } from "../builtins/comptime-index-fns";
 import { evaluateConsume } from "../builtins/consume";
 import { evaluateUnsafe } from "../builtins/unsafe";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { evaluateDowncast } from "../builtins/downcast";
 import { evaluateDrop } from "../builtins/drop";
 import { evaluateDup } from "../builtins/dup";
@@ -1185,7 +1186,12 @@ ${exprToString(expr)}`,
       // Memory safety gate: pointer arithmetic requires `unsafe(...)`.
       // See plans/MEMORY_SAFETY.md. Pointer comparison (__yo_ptr_eq,
       // __yo_ptr_lt, etc.) stays safe — addresses are just data.
-      if (!context.unsafeContext) {
+      // Files under std/ and yo-self/ are implicitly unsafe-capable
+      // (Phase C will replace this with the explicit pragma mechanism).
+      if (
+        !context.unsafeContext &&
+        !isImplicitlyUnsafeCapableFile(expr.token.modulePath)
+      ) {
         const fnName = exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)
           ? "&+"
           : exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)
@@ -1200,7 +1206,8 @@ Wrap the expression as: unsafe(${exprToString(expr)})
 Raw pointer arithmetic produces addresses usually destined to dereference, which may access invalid memory. See plans/MEMORY_SAFETY.md.`,
         });
       }
-      // Permitted under unsafe(...); fall through to normal call eval.
+      // Permitted under unsafe(...) or in unsafe-capable file; fall
+      // through to normal call eval.
       return evaluateFunctionCall({
         expr,
         env,
