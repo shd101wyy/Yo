@@ -567,14 +567,13 @@ export interface TraitType extends Type {
 
   /**
    * If this trait represents a Future type, this contains the output type and effects.
-   * Set for traits created via `Future(T)`, `Future(T, ...(E))`, or `Future(T, Raise, ...(E))` syntax.
+   * Set for traits created via `Future(T)` or `Future(T, E1, E2, ...)` syntax.
    *
-   * The `effects` array stores individual effects and effect row spreads, mirroring
-   * how `using(...)` clauses store implicit parameters:
-   * - Individual effect: `{ label: "Raise", type: TraitType, isEffectRowSpread: false }`
-   * - Effect row spread: `{ label: "E", type: SomeType, isEffectRowSpread: true }`
+   * Each entry in `effects` is an effect bundle type. The label is
+   * derived from the type's name (struct `typeName`, SomeType `name`,
+   * or expression text as a fallback).
    */
-  isFuture?: { outputType: Type; effects: FunctionParameter[] };
+  isFuture?: { outputType: Type; effects: FutureEffect[] };
 
   /**
    * If this trait represents a Concrete type marker, this contains the concrete type.
@@ -618,6 +617,16 @@ export interface TraitType extends Type {
 export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
 
 /**
+ * A single effect bundle entry on a Future trait.
+ */
+export interface FutureEffect {
+  /** Display / capture-struct field name derived from the effect type. */
+  label: string;
+  /** The effect bundle type (typically a struct type or a forall-bound SomeType). */
+  type: Type;
+}
+
+/**
  * FutureTraitType represents an async/await future for stackless coroutines.
  * This replaces the old FutureType - now futures are just TraitTypes with isFuture set.
  *
@@ -627,7 +636,7 @@ export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
  * - Dyn(Future(i32)) for dynamic dispatch
  */
 export type FutureTraitType = TraitType & {
-  isFuture: { outputType: Type; effects: FunctionParameter[] };
+  isFuture: { outputType: Type; effects: FutureEffect[] };
 };
 
 /**

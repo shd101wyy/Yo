@@ -527,9 +527,6 @@ export function typeRequiresInference(type?: Type): boolean {
         functionType.forallParameters.some((param) =>
           typeRequiresInference(param.type)
         ) ||
-        ([] as FunctionParameter[]).some((param) =>
-          typeRequiresInference(param.type)
-        ) ||
         (functionType.variadicParameter
           ? typeRequiresInference(functionType.variadicParameter.type)
           : false)

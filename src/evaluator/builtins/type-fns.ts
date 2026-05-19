@@ -19,6 +19,7 @@ import {
 } from "../../types/creators";
 import type {
   EnumType,
+  FunctionParameter,
   StructType,
   TraitType,
   Type,
@@ -34,7 +35,6 @@ import type {
   TypeHierarchyType,
   ComptimeListType,
   TypeField,
-  FunctionParameter,
 } from "../../types/definitions";
 import { TypeTag } from "../../types/tags";
 import {

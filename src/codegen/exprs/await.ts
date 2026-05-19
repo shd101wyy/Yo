@@ -6,7 +6,6 @@ import {
 } from "../../evaluator/trait-checking";
 import { exprIsFunctionCall, type FnCallExpr } from "../../expr";
 import type {
-  FunctionParameter,
   SourceNamespaceType,
   StructType,
   Type,
@@ -484,7 +483,7 @@ function isAwaitUnwindHandlerInstallation(
   const effects = futureTraitType.isFuture.effects;
   if (!effects?.length) return false;
 
-  const expandedEffects = expandFutureEffects(effects);
+  const expandedEffects = effects;
   const evidenceParams = context.currentEvidenceParams;
 
   for (const effect of expandedEffects) {
@@ -515,13 +514,6 @@ function isAwaitUnwindHandlerInstallation(
   }
 
   return false; // All algebraic effects are forwarded
-}
-
-function expandFutureEffects(
-  effects: FunctionParameter[]
-): FunctionParameter[] {
-  // Effect row spreads are gone — each effect is individual now.
-  return effects.slice();
 }
 
 function usesGenericFutureInterface(
@@ -593,7 +585,7 @@ function emitEffectInjectionForAwait(
   const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
   if (!futureTraitType?.isFuture.effects?.length) return;
 
-  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
+  const expandedEffects = futureTraitType.isFuture.effects;
   const functionContext = context as FunctionGenerationContext;
 
   // Resolve each effect from the surrounding scope. `using(...)` is gone

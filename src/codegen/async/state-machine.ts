@@ -32,7 +32,6 @@ import {
 import { exprContainsAwait } from "../../expr-traversal";
 import type {
   DynType,
-  FunctionParameter,
   SourceNamespaceType,
   SomeType,
   StructType,
@@ -2363,16 +2362,6 @@ function exprContainsReturn(expr: Expr): boolean {
   return false;
 }
 
-/**
- * Expand effect row spreads into individual implicit parameters.
- */
-function expandFutureEffects(
-  effects: FunctionParameter[]
-): FunctionParameter[] {
-  // Effect row spreads are gone — each effect is an individual type now.
-  return effects.slice();
-}
-
 function usesGenericFutureInterface(
   futureType: Type,
   context: FunctionGenerationContext
@@ -2442,7 +2431,7 @@ function emitEffectInjectionForSM(
   const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
   if (!futureTraitType?.isFuture.effects?.length) return;
 
-  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
+  const expandedEffects = futureTraitType.isFuture.effects;
 
   // Resolve each effect from the surrounding state-machine scope.
   // `using(...)` is gone in explicit-effects, so there is no per-call-site

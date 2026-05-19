@@ -83,22 +83,6 @@ function getEffectiveNegativeTraitTypes(
   return [...traitMap.values()];
 }
 
-import type { FunctionParameter } from "./definitions";
-
-/**
- * Flatten Future effects by resolving spreads into individual effects.
- * - If a spread's type is EffectsRowType, extract its implicitParameters (recursively)
- * - If a spread's type is an unresolved SomeType effect row variable, keep as-is
- * - Individual (non-spread) effects are kept as-is
- * Note: ...(ConcreteType) is no longer allowed. Use concrete types directly.
- */
-function flattenFutureEffects(
-  effects: FunctionParameter[]
-): FunctionParameter[] {
-  // Each effect is an individual type — no spreads to expand.
-  return effects.slice();
-}
-
 /**
  * Check if two types are compatible.
  * @param requireExactMatch If true, requires exact type equality rather than compatibility.
@@ -538,10 +522,8 @@ export function areTypesCompatible(
         // Compare effects: flatten spreads and compare as sets (order-independent)
         // If one side has no effects, they're still compatible
         // (backwards compatibility with Future(T) without effects)
-        const expectedFlat = flattenFutureEffects(
-          expected.type.isFuture.effects
-        );
-        const givenFlat = flattenFutureEffects(given.type.isFuture.effects);
+        const expectedFlat = expected.type.isFuture.effects;
+        const givenFlat = given.type.isFuture.effects;
         if (expectedFlat.length > 0 && givenFlat.length > 0) {
           if (expectedFlat.length !== givenFlat.length) {
             return false;

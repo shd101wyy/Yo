@@ -1,11 +1,8 @@
 import { type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, type Expr, type FnCallExpr } from "../../expr";
-import {
-  createTraitType,
-  getFunctionParameterExprs,
-} from "../../types/creators";
-import type { FunctionParameter, Type } from "../../types/definitions";
+import { createTraitType } from "../../types/creators";
+import type { FutureEffect, Type } from "../../types/definitions";
 import { isSourceNamespaceType, isSomeType } from "../../types/guards";
 import { typeOfType } from "../../types/hierarchy";
 import { createTypeValue, isTypeValue } from "../../value";
@@ -83,7 +80,7 @@ export function evaluateFutureType({
   // Each arg can be:
   //   - ...(E)  — effect row spread (resolved from forall)
   //   - Raise   — individual effect type
-  const effects: FunctionParameter[] = [];
+  const effects: FutureEffect[] = [];
   for (let i = 1; i < expr.args.length; i++) {
     const effectExpr = expr.args[i]!;
     const result = resolveEffectArg(effectExpr, env, context);
@@ -123,8 +120,8 @@ function resolveEffectArg(
   effectExpr: Expr,
   env: Environment,
   context: EvaluatorContext
-): { effect: FunctionParameter; env: Environment } {
-  // Evaluate as an individual effect type (e.g. Raise, Log)
+): { effect: FutureEffect; env: Environment } {
+  // Evaluate as an individual effect type (e.g. Raise, Log, IOErr)
   const evaluatedExpr = evaluateExpression({
     expr: effectExpr,
     env,
@@ -134,7 +131,7 @@ function resolveEffectArg(
   if (!evaluatedExpr.$ || !isTypeValue(evaluatedExpr.$.value)) {
     throw formatErrorMessage({
       token: effectExpr.token,
-      errorMessage: `Future effect argument must be an effect type or ...(E) spread, but got:\n${exprToString(
+      errorMessage: `Future effect argument must be an effect type, but got:\n${exprToString(
         effectExpr
       )}`,
     });
@@ -143,25 +140,10 @@ function resolveEffectArg(
   const effectType = evaluatedExpr.$.value.value;
   env = evaluatedExpr.$.env;
 
-  // Derive a label from the type
-  const label = getEffectLabel(effectType, effectExpr);
-
-  const effect: FunctionParameter = {
-    label,
-    type: effectType,
-    isCompileTimeOnly: true as const,
-    isQuote: false,
-    isOwningTheRcValue: false,
-    exprs: getFunctionParameterExprs({
-      expr: effectExpr,
-      labelExpr: undefined,
-      typeExpr: effectExpr,
-      defaultValueExpr: undefined,
-      assignedValueExpr: undefined,
-    }),
+  return {
+    effect: { label: getEffectLabel(effectType, effectExpr), type: effectType },
+    env,
   };
-
-  return { effect, env };
 }
 
 /**

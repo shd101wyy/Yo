@@ -20,7 +20,6 @@ import {
 } from "../../expr";
 import type {
   DynType,
-  FunctionParameter,
   FutureTraitType,
   SomeType,
   StructType,
@@ -360,12 +359,6 @@ export function generateAsyncBlock(
   }
 }
 
-function expandFutureEffects(
-  effects: FunctionParameter[]
-): FunctionParameter[] {
-  return effects.slice();
-}
-
 function getInjectableFutureEffectFieldMappings(
   futureTraitType: FutureTraitType,
   captureType: StructType | undefined
@@ -385,7 +378,7 @@ function getInjectableFutureEffectFieldMappings(
     }
   };
 
-  for (const effect of expandFutureEffects(futureTraitType.isFuture.effects)) {
+  for (const effect of futureTraitType.isFuture.effects) {
     if (isFunctionType(effect.type)) {
       const captureField =
         captureType.fields.find((field) => field.label === effect.label) ??

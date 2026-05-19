@@ -22,6 +22,7 @@ import type {
   FunctionForallParameter,
   FunctionParameter,
   FunctionParameterExprs,
+  FutureEffect,
   FunctionReturn,
   FunctionType,
   FutureTraitType,
@@ -1086,7 +1087,7 @@ let futureTraitCounter = 0;
 export function createFutureTraitType(
   outputType: Type,
   env: Environment,
-  effects: FunctionParameter[] = []
+  effects: FutureEffect[] = []
 ): FutureTraitType {
   // Create a unique ID for each async block's FutureTraitType
   // This ensures different async blocks with the same output type don't share the same FutureTraitType

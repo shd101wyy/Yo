@@ -5,7 +5,7 @@ import {
   updateExistingVariable,
 } from "../../env";
 import { PlaceholderToken, type Token } from "../../token";
-import type { FunctionParameter, Type } from "../../types/definitions";
+import type { FutureEffect, Type } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,
@@ -1115,8 +1115,8 @@ Given: "${typeToString(given.type)}"`
  * 4. Bind the single unsolved spread to the remaining unmatched given effects
  */
 function synthesizeFutureEffects(
-  expectedEffects: FunctionParameter[],
-  givenEffects: FunctionParameter[],
+  expectedEffects: FutureEffect[],
+  givenEffects: FutureEffect[],
   expected: { env: Environment },
   given: { env: Environment },
   checkedTypePairs: { expected: Type; given: Type }[],
@@ -1126,23 +1126,17 @@ function synthesizeFutureEffects(
     return;
   }
 
-  // Effects are individual types now — no spread handling required.
-  const concreteExpected: FunctionParameter[] = expectedEffects.slice();
-  const solvedSpreads: FunctionParameter[] = [];
-  const unsolvedSpreads: FunctionParameter[] = [];
-  const givenConcrete: FunctionParameter[] = givenEffects.slice();
-
   // Track which given effects have been matched
   const matchedGiven = new Set<number>();
 
-  // 1. Match concrete expected effects against given (set-based by type id)
-  for (const exp of concreteExpected) {
-    for (let j = 0; j < givenConcrete.length; j++) {
+  // Match concrete expected effects against given (set-based by type id)
+  for (const exp of expectedEffects) {
+    for (let j = 0; j < givenEffects.length; j++) {
       if (matchedGiven.has(j)) continue;
-      if (exp.type.id === givenConcrete[j]!.type.id) {
+      if (exp.type.id === givenEffects[j]!.type.id) {
         const { expectedEnv, givenEnv } = synthesizeTypes(
           { type: exp.type, env: expected.env },
-          { type: givenConcrete[j]!.type, env: given.env },
+          { type: givenEffects[j]!.type, env: given.env },
           checkedTypePairs,
           options
         );
@@ -1153,8 +1147,4 @@ function synthesizeFutureEffects(
       }
     }
   }
-
-  // Spread handling is gone — there are no solved or unsolved spreads.
-  void solvedSpreads;
-  void unsolvedSpreads;
 }
