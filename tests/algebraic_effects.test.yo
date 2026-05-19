@@ -2,7 +2,7 @@ open(import("std/string")); // Let's use `String` instead of `str`
 open(import("std/fmt"));
 { Exception } :: import("std/error");
 test("Test fn unwind and return via using parameter", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Use an effect in a function (effect becomes an implicit parameter)
   safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
     cond(
@@ -41,7 +41,7 @@ test("Test fn unwind and return via using parameter", {
   assert(result2 == i64(60));
 });
 test("Test fn resume called directly without intermediate using function", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // The fn function is called directly. The handler uses `return(value)` to
   // resume the continuation — execution continues after the raise(...) call
   // and `result` receives the handler's returned value.
@@ -60,7 +60,7 @@ test("Test fn resume called directly without intermediate using function", {
   run_test();
 });
 test("Test fn unwind called directly without intermediate using function", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // The fn function is called directly in the handler scope — no intermediate
   // function with `raise : Raise`. The handler runs, prints the messages,
   // and aborts with `()`, matching the enclosing function's return type (unit).
@@ -78,7 +78,7 @@ test("Test fn unwind called directly without intermediate using function", {
   run_test();
 });
 test("Test zero-arg unwind exits unit function", {
-  Raise :: (fn() -> unit);
+  Raise :: (ctl() -> unit);
   run_test :: (fn() -> unit)({
     (raise : Raise) = (
       () -> {
@@ -91,7 +91,7 @@ test("Test zero-arg unwind exits unit function", {
   run_test();
 });
 test("Test nested fn unwind inside resume handler", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),
   // which becomes the result of the outer raise call (since unwind exits the
   // nearest enclosing fn handler, which is raise's handler).
@@ -118,7 +118,7 @@ test("Test nested fn unwind inside resume handler", {
   run_test();
 });
 test("Test nested fn resume inside resume handler", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   RaiseF32 :: (fn(msg : String, msg2 : String) -> f32);
   // raise2 is defined inside raise's handler body. raise2 resumes with f32(3.14),
   // then raise resumes with i32(16). Both handlers use return (resume) so
@@ -146,7 +146,7 @@ test("Test nested fn resume inside resume handler", {
   run_test();
 });
 test("Test while loop calling fn with resume", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Analogous to async_await test #13: While loop with await inside.
   // Each iteration calls the fn handler which resumes with i32(10).
   run_test :: (fn() -> unit)({
@@ -168,7 +168,7 @@ test("Test while loop calling fn with resume", {
   run_test();
 });
 test("Test while loop with break after fn resume", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Analogous to async_await test #14: While loop with break after await.
   // The handler resumes, then break is used after the fn call.
   run_test :: (fn() -> unit)({
@@ -193,7 +193,7 @@ test("Test while loop with break after fn resume", {
   run_test();
 });
 test("Test while loop with continue after fn resume", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Analogous to async_await test #24: Continue in async while loop.
   // Loop calls fn with resume, then continues (skips sum) on odd iterations.
   run_test :: (fn() -> unit)({
@@ -222,7 +222,7 @@ test("Test while loop with continue after fn resume", {
   run_test();
 });
 test("Test break from cond after fn resume", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Analogous to async_await test #25: Break from cond in async while loop.
   // while(true), call fn, increment counter, break from cond when counter >= 5.
   // sum = 1+2+3+4 = 10
@@ -251,7 +251,7 @@ test("Test break from cond after fn resume", {
   run_test();
 });
 test("Test break drops local allocations after fn resume", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Analogous to async_await test #27: Break drops local allocations.
   // Allocate a Box each iteration; break at iteration 3.
   // ASan will catch leaks of the Box or String fn args.
@@ -278,7 +278,7 @@ test("Test break drops local allocations after fn resume", {
   run_test();
 });
 test("Test mixed continue then break after fn resume", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Analogous to async_await test #32: Mixed continue then break.
   // 1,2 continue; 3,4 accumulate; 5 breaks. sum = 3+4 = 7.
   run_test :: (fn() -> unit)({
@@ -312,7 +312,7 @@ test("Test mixed continue then break after fn resume", {
   run_test();
 });
 test("Test early return inside loop after fn resume", {
-  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Analogous to async_await test #37: Early return inside loop after continue.
   // Continue on even numbers; early-return at first odd >= 5.
   find_first_odd :: (fn() -> i32)({
@@ -344,7 +344,7 @@ test("Test early return inside loop after fn resume", {
   assert(result == i32(5), "first odd value >= 5 should be 5");
 });
 test("Test two different fn types in same scope (Log + Raise)", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   Log :: (fn(msg : String, counter : Box(i32)) -> unit);
   log_count := box(i32(0));
   (log : Log) = (
@@ -367,7 +367,7 @@ test("Test two different fn types in same scope (Log + Raise)", {
   assert(result == i32(42), "result should be 42");
 });
 test("Test single-level effect propagation via using parameter", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
     cond(
       (y == 0) => raise(`division by zero`),
@@ -384,7 +384,7 @@ test("Test single-level effect propagation via using parameter", {
   assert(result == i32(0), "single-level propagation: should return 0");
 });
 test("Test two-level effect propagation via using parameter", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
     cond(
       (y == 0) => raise(`division by zero`),
@@ -404,7 +404,7 @@ test("Test two-level effect propagation via using parameter", {
   assert(result == i32(10), "two-level propagation: 0 + 10 = 10");
 });
 test("Test two-level effect propagation via using parameter with unwind", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
     cond(
       (y == 0) => raise(`division by zero`),
@@ -424,7 +424,7 @@ test("Test two-level effect propagation via using parameter with unwind", {
   assert(false, "Expected to unwind");
 });
 test("Test given variable shadowing (inner scope shadows outer)", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
     cond(
       (y == 0) => raise(`division by zero`),
@@ -451,7 +451,7 @@ test("Test given variable shadowing (inner scope shadows outer)", {
   assert(result3 == i32(0), "outer handler should still work after inner scope");
 });
 test("Test given variable shadowing (inner scope shadows outer) with unwind", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   // Function that USES the effect (propagates via using parameter)
   safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
     cond(
@@ -480,7 +480,7 @@ test("Test given variable shadowing (inner scope shadows outer) with unwind", {
   assert(false, "should not reach here");
 });
 test("Test effect polymorphism with using spread", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   might_fail :: (fn(raise : Raise) -> i32)(
     raise(`oops`)
   );
@@ -502,7 +502,7 @@ test("Test effect polymorphism with using spread", {
   assert(result == i32(42), "effect polymorphism: should be 42");
 });
 test("Test effect polymorphism with using spread and unwind", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   might_fail :: (fn(raise : Raise) -> i32)(
     raise(`oops`)
   );
@@ -525,7 +525,7 @@ test("Test effect polymorphism with using spread and unwind", {
 });
 test("Test struct-record effect with unwind", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
@@ -545,7 +545,7 @@ test("Test struct-record effect with unwind", {
 });
 test("Test struct-record effect with resume", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
@@ -567,7 +567,7 @@ test("Test struct-record effect with resume", {
 });
 test("Test nested struct-record effect with unwind", {
   Errors :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   Effects :: struct(
     errors : Errors
@@ -592,7 +592,7 @@ test("Test nested struct-record effect with unwind", {
 });
 test("Test nested struct-record effect with resume", {
   Errors :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   Effects :: struct(
     errors : Errors
@@ -619,7 +619,7 @@ test("Test nested struct-record effect with resume", {
 });
 test("Test struct record labeled name : Type with unwind", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
@@ -639,7 +639,7 @@ test("Test struct record labeled name : Type with unwind", {
 });
 test("Test struct record labeled name : Type with resume", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
@@ -660,7 +660,7 @@ test("Test struct record labeled name : Type with resume", {
   assert(result2 == 5, "struct record labeled with resume: should be 5");
 });
 test("Test multiple effect row spreads with resume", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
   might_fail :: (fn(raise : Raise) -> i32)(
     raise(`oops`)
@@ -696,7 +696,7 @@ test("Test multiple effect row spreads with resume", {
   assert(result == i32(42), "multiple spreads resume: should be 42");
 });
 test("Test multiple effect row spreads with unwind", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
   might_fail :: (fn(raise : Raise) -> i32)(
     raise(`oops`)
@@ -1357,7 +1357,7 @@ test("Test mixed break and continue in Option match after fn resume", {
 // Tests that evidence pointers are forwarded correctly through 3 call levels.
 // ---------------------------------------------------------------------------
 test("Test three-level effect propagation via using parameter", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   level3 :: (fn(x : i32, raise : Raise) -> i32)(
     cond(
       (x < 0) => raise(`negative`),
@@ -1385,7 +1385,7 @@ test("Test three-level effect propagation via using parameter", {
 // Escape at the deepest level should propagate all the way out.
 // ---------------------------------------------------------------------------
 test("Test three-level effect propagation with unwind", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   level3 :: (fn(x : i32, raise : Raise) -> i32)(
     cond(
       (x < 0) => raise(`negative`),
@@ -1414,7 +1414,7 @@ test("Test three-level effect propagation with unwind", {
 // ---------------------------------------------------------------------------
 test("Test struct-record effect unwind with non-unit value", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
@@ -1475,7 +1475,7 @@ test("Test struct-record effect with multiple function members", {
 // ---------------------------------------------------------------------------
 test("Test multiple struct-record effects in same scope", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   Log :: struct(
     log : (fn(msg : String) -> i32)
@@ -1511,7 +1511,7 @@ test("Test multiple struct-record effects in same scope", {
 // Handler decides at runtime whether to resume or unwind.
 // ---------------------------------------------------------------------------
 test("Test effect handler conditional resume or unwind based on argument", {
-  Raise :: (fn(msg : String, attempt : i32) -> i32);
+  Raise :: (ctl(msg : String, attempt : i32) -> i32);
   safe_divide :: (fn(x : i32, y : i32, attempt : i32, raise : Raise) -> i32)(
     cond(
       (y == 0) => raise(`div-by-zero`, attempt),
@@ -1544,7 +1544,7 @@ test("Test effect handler conditional resume or unwind based on argument", {
 // Recursive function with effects (recur + using)
 // ---------------------------------------------------------------------------
 test("Test recursive function with effect via recur", {
-  Raise :: (fn(msg : String) -> i32);
+  Raise :: (ctl(msg : String) -> i32);
   sum_to :: (fn(n : i32, raise : Raise) -> i32)(
     cond(
       (n <= 0) => raise(`reached zero`),
@@ -1563,7 +1563,7 @@ test("Test recursive function with effect via recur", {
 // Recursive function with effect — unwind during recursion
 // ---------------------------------------------------------------------------
 test("Test recursive function with effect unwind during recursion", {
-  Raise :: (fn(val : i32) -> i32);
+  Raise :: (ctl(val : i32) -> i32);
   sum_to :: (fn(n : i32, raise : Raise) -> i32)(
     cond(
       (n <= 0) => i32(0),
@@ -1623,7 +1623,7 @@ test("Test effect with Option return type", {
 // ---------------------------------------------------------------------------
 test("Test effect polymorphism with struct-record effect spread", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   might_fail :: (fn(raise_mod : Raise) -> i32)(
     raise_mod.raise(`oops`)
@@ -1682,7 +1682,7 @@ test("Test transitive SM with struct-record effect in while loop", {
 // Runtime struct evidence does not turn a regular handler function into a closure.
 test("regular fn struct handler cannot capture outer runtime variable", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   outer_val := i32(42);
   comptime_expect_error(
@@ -1693,7 +1693,7 @@ test("regular fn struct handler cannot capture outer runtime variable", {
 });
 test("Test struct-based effect with unwind", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
@@ -1713,7 +1713,7 @@ test("Test struct-based effect with unwind", {
 });
 test("Test struct-based effect with resume", {
   Raise :: struct(
-    raise : (fn(msg : String) -> i32)
+    raise : (ctl(msg : String) -> i32)
   );
   safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(

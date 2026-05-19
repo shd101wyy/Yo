@@ -15,15 +15,19 @@ export(AnyError);
 impl(String, Error());
 /// Non-resumable exception handling effect record.
 /// Use `throw` to raise an `AnyError` and abort the current computation.
+/// `throw` is `ctl(...)` — handler body may contain `unwind`, and the
+/// handler value is frame-bound (see plans/EXPLICIT_EFFECTS.md §4).
 Exception :: struct(
-  throw : (fn(forall(ResumeType : Type), error : AnyError) -> ResumeType)
+  throw : (ctl(forall(ResumeType : Type), error : AnyError) -> ResumeType)
 );
 export(Exception);
 /// Creates a resumable exception effect record parameterized by the resume type.
 /// Unlike `Exception`, the handler can return a value to resume the computation.
+/// `throw` is still `ctl(...)` because the handler MAY choose to unwind;
+/// regular `fn` returns are also valid via subtyping `fn <: ctl`.
 ResumableException :: (fn(comptime(ResumeType) : Type) -> comptime(Type))(
   struct(
-    throw : (fn(error : AnyError) -> ResumeType)
+    throw : (ctl(error : AnyError) -> ResumeType)
   )
 );
 export(ResumableException);
