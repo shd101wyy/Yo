@@ -59,7 +59,7 @@ _extract_type_val :: (
     arg : AstExpr,
     info : ExprInfo,
     fn_name : str,
-    using(exn : Exception)
+    exn : Exception
   ) -> TypeValue
 )(
   match(
@@ -103,7 +103,7 @@ evaluate_yo_type_to_string :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -187,7 +187,7 @@ evaluate_yo_are_types_compatible :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -301,7 +301,7 @@ evaluate_yo_are_types_equal :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -390,7 +390,7 @@ evaluate_yo_type_contains_rc_type :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -452,7 +452,7 @@ evaluate_yo_type_can_form_rc_cycle :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -514,7 +514,7 @@ evaluate_yo_type_impls :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -570,7 +570,7 @@ evaluate_yo_type_impls :: (
       )
     );
   });
-  target_type := _extract_type_val(arg0, info0, "__yo_type_impls", using(exn));
+  target_type := _extract_type_val(arg0, info0, "__yo_type_impls", exn);
   // Evaluate arg1 (the trait to check for).
   eval1 := evaluate_expression(arg1, cur_env, ctx);
   info1 := match(
@@ -709,10 +709,10 @@ _ti_eval_code :: (
     env_ptr : *(Environment),
     code : String,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> Option(EvalValue)
 )({
-  code_expr := generate_expr_from_code(code.as_str(), using(exn));
+  code_expr := generate_expr_from_code(code.as_str(), exn);
   old_force := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
   result_ast := evaluate_expression(code_expr, env_ptr.*, ctx);
@@ -735,12 +735,12 @@ _ti_bind_comptime_list :: (
     type_name : String,
     var_prefix : String,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> String
 )({
   elem_type := if(values.len() > usize(0), match(values.get(usize(0)),.Some(v) => type_of_eval_value(v),.None => t_unit()), {
     // Evaluate the type name to discover the element type.
-    type_ast := generate_expr_from_code(type_name.as_str(), using(exn));
+    type_ast := generate_expr_from_code(type_name.as_str(), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
     type_result_ast := evaluate_expression(type_ast, env_ptr.*, ctx);
@@ -781,14 +781,14 @@ _ti_build_type_field_info :: (
     label : String,
     field_ty : TypeValue,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> EvalValue
 )({
   ty_name := _ti_bind_type(env_ptr, field_ty, ctx);
   escaped_label := _ti_escape_str(label);
   code := format_type_field_info_call(escaped_label, ty_name);
   match(
-    _ti_eval_code(env_ptr, code, ctx, using(exn)),
+    _ti_eval_code(env_ptr, code, ctx, exn),
     .Some(v) => v,
     .None => EvalValue.UnitVal
   )
@@ -801,7 +801,7 @@ _ti_bind_type_field_list :: (
     labels : ArrayList(String),
     types : ArrayList(TypeValue),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> String
 )({
   fi_vals := ArrayList(EvalValue).new();
@@ -810,11 +810,11 @@ _ti_bind_type_field_list :: (
   while(runtime(i < n), {
     label := match(labels.get(i),.Some(l) => l,.None => String.from(""));
     field_ty := match(types.get(i),.Some(t) => t,.None => t_unit());
-    fi_val := _ti_build_type_field_info(env_ptr, label, field_ty, ctx, using(exn));
+    fi_val := _ti_build_type_field_info(env_ptr, label, field_ty, ctx, exn);
     _push := fi_vals.push(fi_val);
     i = (i + usize(1));
   });
-  _ti_bind_comptime_list(env_ptr, fi_vals, String.from("TypeFieldInfo"), String.from("fl"), ctx, using(exn))
+  _ti_bind_comptime_list(env_ptr, fi_vals, String.from("TypeFieldInfo"), String.from("fl"), ctx, exn)
 });
 /// Build a VariantInfo value from the variant's name, field list, enum type, and index.
 /// Evaluates `VariantInfo("name", fl_var, et_var, usize(idx))` via code string.
@@ -827,16 +827,16 @@ _ti_build_variant_info :: (
     enum_ty : TypeValue,
     v_idx : usize,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> EvalValue
 )({
   et_name := _ti_bind_type(env_ptr, enum_ty, ctx);
-  fl_name := _ti_bind_type_field_list(env_ptr, v_field_labels, v_field_types, ctx, using(exn));
+  fl_name := _ti_bind_type_field_list(env_ptr, v_field_labels, v_field_types, ctx, exn);
   escaped_name := _ti_escape_str(v_name);
   idx_str := v_idx.to_string();
   code := format_variant_info_call(escaped_name, fl_name, et_name, idx_str);
   match(
-    _ti_eval_code(env_ptr, code, ctx, using(exn)),
+    _ti_eval_code(env_ptr, code, ctx, exn),
     .Some(v) => v,
     .None => EvalValue.UnitVal
   )
@@ -851,7 +851,7 @@ _ti_bind_variant_info_list :: (
     variant_fields : ArrayList(ArrayList(TypeValue)),
     variant_field_labels : ArrayList(ArrayList(String)),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> String
 )({
   vi_vals := ArrayList(EvalValue).new();
@@ -861,11 +861,11 @@ _ti_bind_variant_info_list :: (
     v_name := match(variant_names.get(i),.Some(nm) => nm,.None => String.from(""));
     v_fields := match(variant_fields.get(i),.Some(f) => f,.None => ArrayList(TypeValue).new());
     v_field_labels := match(variant_field_labels.get(i),.Some(l) => l,.None => ArrayList(String).new());
-    vi_val := _ti_build_variant_info(env_ptr, v_name, v_field_labels, v_fields, enum_ty, i, ctx, using(exn));
+    vi_val := _ti_build_variant_info(env_ptr, v_name, v_field_labels, v_fields, enum_ty, i, ctx, exn);
     _push := vi_vals.push(vi_val);
     i = (i + usize(1));
   });
-  _ti_bind_comptime_list(env_ptr, vi_vals, String.from("VariantInfo"), String.from("vl"), ctx, using(exn))
+  _ti_bind_comptime_list(env_ptr, vi_vals, String.from("VariantInfo"), String.from("vl"), ctx, exn)
 });
 // ---------------------------------------------------------------------------
 // Phase 3 builtin implementations
@@ -877,7 +877,7 @@ evaluate_yo_type_get_info :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -913,10 +913,10 @@ evaluate_yo_type_get_info :: (
     }
   );
   (local_env : Environment) = info0.env;
-  type_val := _extract_type_val(arg0, info0, "__yo_type_get_info", using(exn));
+  type_val := _extract_type_val(arg0, info0, "__yo_type_get_info", exn);
   // SomeType → return UnknownVal with TypeInfo type (avoid calling constructors).
   if(is_some_type(type_val), {
-    unit_ast := generate_expr_from_code("TypeInfo.Unit", using(exn));
+    unit_ast := generate_expr_from_code("TypeInfo.Unit", exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
     unit_result := evaluate_expression(unit_ast, local_env, ctx);
@@ -1003,11 +1003,11 @@ evaluate_yo_type_get_info :: (
       (String.from("TypeInfo.ComptimeList(") + cn) + String.from(")")
     },
     .Tuple(labels, types) => {
-      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, using(exn));
+      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, exn);
       (String.from("TypeInfo.Tuple(") + fl_name) + String.from(")")
     },
     .Struct(_, _, labels, types, is_ref, is_atomic, is_newtype) => {
-      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, using(exn));
+      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, exn);
       kind_str := cond(
         is_newtype => String.from("StructKind.NewType"),
         is_atomic => String.from("StructKind.AtomicObject"),
@@ -1017,15 +1017,15 @@ evaluate_yo_type_get_info :: (
       (((String.from("TypeInfo.Struct(") + fl_name) + String.from(", ")) + kind_str) + String.from(")")
     },
     .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _) => {
-      vl_name := _ti_bind_variant_info_list(&(local_env), type_val, variant_names, variant_fields, variant_field_labels, ctx, using(exn));
+      vl_name := _ti_bind_variant_info_list(&(local_env), type_val, variant_names, variant_fields, variant_field_labels, ctx, exn);
       (String.from("TypeInfo.Enum(") + vl_name) + String.from(")")
     },
     .Union(_, labels, types) => {
-      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, using(exn));
+      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, exn);
       (String.from("TypeInfo.Union(") + fl_name) + String.from(")")
     },
     .ModuleT(_, _, labels, types) => {
-      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, using(exn));
+      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, exn);
       (String.from("TypeInfo.Module(") + fl_name) + String.from(")")
     },
     _ => {
@@ -1043,7 +1043,7 @@ evaluate_yo_type_get_info :: (
     }
   );
   // Evaluate the TypeInfo constructor code string.
-  info_expr := generate_expr_from_code(code.as_str(), using(exn));
+  info_expr := generate_expr_from_code(code.as_str(), exn);
   old_force := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
   result_ast := evaluate_expression(info_expr, local_env, ctx);
@@ -1077,7 +1077,7 @@ evaluate_comptime_eval :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -1134,7 +1134,7 @@ evaluate_comptime_eval :: (
     raw
   );
   // Parse and evaluate each expression in the code string.
-  code_exprs := generate_exprs_from_code(code_str.as_str(), using(exn));
+  code_exprs := generate_exprs_from_code(code_str.as_str(), exn);
   (ci : usize) = usize(0);
   n_exprs := code_exprs.len();
   while(runtime(ci < n_exprs), {
@@ -1175,7 +1175,7 @@ evaluate_comptime_string_to_expr :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -1251,7 +1251,7 @@ evaluate_comptime_string_to_expr :: (
     raw
   );
   // Parse a single expression.
-  parsed_expr := generate_expr_from_code(code_str.as_str(), using(exn));
+  parsed_expr := generate_expr_from_code(code_str.as_str(), exn);
   expr_val := EvalValue.ExprVal(box(parsed_expr));
   out := new_expr_info(local_env, t_expr_t());
   out.value = Option(EvalValue).Some(expr_val);
@@ -1266,7 +1266,7 @@ evaluate_type_join_fields :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -1317,7 +1317,7 @@ evaluate_type_join_fields :: (
     }
   );
   (local_env : Environment) = info0.env;
-  target_type := _extract_type_val(arg0, info0, "__yo_type_join_fields", using(exn));
+  target_type := _extract_type_val(arg0, info0, "__yo_type_join_fields", exn);
   // SomeType → return UnknownVal(Expr).
   if(is_some_type(target_type), {
     unknown_val := create_unknown_val(t_expr_t());
@@ -1487,7 +1487,7 @@ evaluate_type_join_fields :: (
     ft_name := _ti_bind_type(&(local_env), field_ty, ctx);
     escaped_label := _ti_escape_str(label);
     fi_code := ((((String.from("FieldInfo(\"") + escaped_label) + String.from("\", ")) + ft_name) + String.from(")"));
-    fi_val_opt := _ti_eval_code(&(local_env), fi_code, ctx, using(exn));
+    fi_val_opt := _ti_eval_code(&(local_env), fi_code, ctx, exn);
     fi_val := match(fi_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
     fi_type := type_of_eval_value(fi_val);
     // Bind FieldInfo to temp var, then call mapper(fi_name).
@@ -1504,7 +1504,7 @@ evaluate_type_join_fields :: (
       synthetic_token(String.from(fi_name.as_str()), local_env.module_path)
     );
     call_code := (((mapper_name + String.from("(")) + fi_name) + String.from(")"));
-    call_ast := generate_expr_from_code(call_code.as_str(), using(exn));
+    call_ast := generate_expr_from_code(call_code.as_str(), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
     call_result := evaluate_expression(call_ast, local_env, ctx);
@@ -1577,7 +1577,7 @@ evaluate_type_map_variants :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -1621,7 +1621,7 @@ evaluate_type_map_variants :: (
     }
   );
   (local_env : Environment) = info0.env;
-  target_type := _extract_type_val(arg0, info0, "__yo_type_map_variants", using(exn));
+  target_type := _extract_type_val(arg0, info0, "__yo_type_map_variants", exn);
   // SomeType → return UnknownVal(ComptimeList(Expr)).
   if(is_some_type(target_type), {
     list_type := t_comptime_list(t_expr_t());
@@ -1717,7 +1717,7 @@ evaluate_type_map_variants :: (
     v_fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
     v_field_labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
     // Build VariantInfo value.
-    vi_val := _ti_build_variant_info(&(local_env), v_name, v_field_labels, v_fields, target_type, vi, ctx, using(exn));
+    vi_val := _ti_build_variant_info(&(local_env), v_name, v_field_labels, v_fields, target_type, vi, ctx, exn);
     vi_type := type_of_eval_value(vi_val);
     // Bind VariantInfo to temp var, then call mapper(vi_var_name).
     vi_name := `__dvi_${random_id(local_env.module_path)}`;
@@ -1733,7 +1733,7 @@ evaluate_type_map_variants :: (
       synthetic_token(String.from(vi_name.as_str()), local_env.module_path)
     );
     call_code := (((mapper_name + String.from("(")) + vi_name) + String.from(")"));
-    call_ast := generate_expr_from_code(call_code.as_str(), using(exn));
+    call_ast := generate_expr_from_code(call_code.as_str(), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
     call_result := evaluate_expression(call_ast, local_env, ctx);

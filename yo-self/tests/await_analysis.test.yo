@@ -45,7 +45,7 @@ make_token_at :: (fn(kind : TokenKind, v : str, character : usize) -> Token)(
 make_ident :: (fn(v : str) -> AstExpr)(
   AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, v))
 );
-// Creates a call `io.await(arg)` with `io.await` as infix dot access
+// Creates a call `io.await(arg, io)` with `io.await` as infix dot access
 make_io_method_call :: (fn(method : str, arg : AstExpr, call_char : usize) -> AstExpr)({
   dot_args := ArrayList(AstExpr).new();
   dot_args.push(make_ident("io"));
@@ -67,7 +67,7 @@ make_io_method_call :: (fn(method : str, arg : AstExpr, call_char : usize) -> As
     make_token_at(TokenKind.Identifier, method, call_char)
   )
 });
-// Creates a call `handle.await(using_arg)` for JoinHandle await detection
+// Creates a call `handle.await(using_arg, handle)` for JoinHandle await detection
 make_handle_await_call :: (fn(handle_name : str, arg : AstExpr) -> AstExpr)({
   dot_args := ArrayList(AstExpr).new();
   dot_args.push(make_ident(handle_name));
@@ -194,7 +194,7 @@ test("is_io_async_call: io.async(f) returns true", {
   expr := make_io_method_call("async", make_ident("f"), usize(5));
   assert(is_io_async_call(expr), "io.async should return(true)");
 });
-test("is_io_async_call: io.await(f) returns false", {
+test("is_io_async_call: io.await(f, io) returns false", {
   expr := make_io_method_call("await", make_ident("f"), usize(5));
   assert(!(is_io_async_call(expr)), "io.await should not be io.async");
 });
@@ -205,7 +205,7 @@ test("is_io_async_call: atom returns false", {
 // ---------------------------------------------------------------------------
 // is_io_await_call
 // ---------------------------------------------------------------------------
-test("is_io_await_call: io.await(f) returns true", {
+test("is_io_await_call: io.await(f, io) returns true", {
   expr := make_io_method_call("await", make_ident("f"), usize(5));
   assert(is_io_await_call(expr), "io.await should return(true)");
 });
@@ -224,7 +224,7 @@ test("is_io_state_call: io.state(f) returns true", {
   expr := make_io_method_call("state", make_ident("f"), usize(5));
   assert(is_io_state_call(expr), "io.state should return(true)");
 });
-test("is_io_state_call: io.await(f) returns false", {
+test("is_io_state_call: io.await(f, io) returns false", {
   expr := make_io_method_call("await", make_ident("f"), usize(5));
   assert(!(is_io_state_call(expr)), "io.await should not be io.state");
 });
@@ -235,18 +235,18 @@ test("is_io_spawn_call: io.spawn(f) returns true", {
   expr := make_io_method_call("spawn", make_ident("f"), usize(5));
   assert(is_io_spawn_call(expr), "io.spawn should return(true)");
 });
-test("is_io_spawn_call: io.await(f) returns false", {
+test("is_io_spawn_call: io.await(f, io) returns false", {
   expr := make_io_method_call("await", make_ident("f"), usize(5));
   assert(!(is_io_spawn_call(expr)), "io.await should not be io.spawn");
 });
 // ---------------------------------------------------------------------------
 // is_join_handle_await_call
 // ---------------------------------------------------------------------------
-test("is_join_handle_await_call: handle.await(using_io) returns true", {
+test("is_join_handle_await_call: handle.await(using_io, handle) returns true", {
   expr := make_handle_await_call("handle", make_ident("using_io"));
   assert(is_join_handle_await_call(expr), "handle.await should return(true)");
 });
-test("is_join_handle_await_call: io.await(f) returns false", {
+test("is_join_handle_await_call: io.await(f, io) returns false", {
   // io.await is excluded by the !is_io_await_call guard
   expr := make_io_method_call("await", make_ident("f"), usize(5));
   assert(!(is_join_handle_await_call(expr)), "io.await should not be join handle await");
@@ -284,7 +284,7 @@ test("analyze_await_points: non-await fncall body => no await points", {
   assert(!(result.has_awaits), "has_awaits should be false");
 });
 test("analyze_await_points: io.await with None get_info => no await points (type unknown)", {
-  // io.await(task) — but get_info returns None so type is unknown, no suspension point
+  // io.await(task, io) — but get_info returns None so type is unknown, no suspension point
   expr := make_io_method_call("await", make_ident("task"), usize(10));
   result := analyze_await_points(expr, get_info_none);
   // Since get_info returns None, the detect function exits early and no SP is pushed

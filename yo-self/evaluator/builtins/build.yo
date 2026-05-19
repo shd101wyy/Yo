@@ -158,7 +158,7 @@ impl(
       cli_options : HashMap(String, String).new()
     )
   ),
-  register_executable : (fn(self : *(Self), artifact : BuildArtifact, using(exn : Exception)) -> unit)({
+  register_executable : (fn(self : *(Self), artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.as_str());
     self.*.artifacts.push(
       BuildArtifact(
@@ -184,7 +184,7 @@ impl(
       )
     );
   }),
-  register_static_library : (fn(self : *(Self), artifact : BuildArtifact, using(exn : Exception)) -> unit)({
+  register_static_library : (fn(self : *(Self), artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.as_str());
     self.*.artifacts.push(
       BuildArtifact(
@@ -210,7 +210,7 @@ impl(
       )
     );
   }),
-  register_shared_library : (fn(self : *(Self), artifact : BuildArtifact, using(exn : Exception)) -> unit)({
+  register_shared_library : (fn(self : *(Self), artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.as_str());
     self.*.artifacts.push(
       BuildArtifact(
@@ -505,7 +505,7 @@ impl(
     self.*.doc_configs = ArrayList(BuildDocConfig).new();
     self.*.cli_options = HashMap(String, String).new();
   }),
-  _check_duplicate_artifact_name : (fn(self : *(Self), name : str, using(exn : Exception)) -> unit)({
+  _check_duplicate_artifact_name : (fn(self : *(Self), name : str, exn : Exception) -> unit)({
     i := usize(0);
     n := self.*.artifacts.len();
     while(runtime(i < n), {
@@ -538,7 +538,7 @@ evaluate_yo_build_functions :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   _ := env;

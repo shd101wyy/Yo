@@ -64,7 +64,7 @@ stub_evaluate_module :: (
 });
 test("evaluate_open: module — adds each field as a comptime variable", {
   set_evaluate_expression_fn(stub_evaluate_module);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -75,7 +75,7 @@ test("evaluate_open: module — adds each field as a comptime variable", {
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   env := Environment.new(String.from("test"));
   call := mk_open_call(usize(7), "m", usize(42));
-  result := evaluate_open(call, env, &(ctx), using(exn));
+  result := evaluate_open(call, env, &(ctx), exn);
   // Side-effect: ExprInfo for the open call is set with type unit + UnitVal.
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
   assert(match(info_opt,.Some(_) => true,.None => false), "open did not record an ExprInfo");

@@ -86,7 +86,7 @@ evaluate_tuple_element_value :: (
     env_in : Environment,
     ctx : *(EvalContext),
     runtime_arg_exprs_in_order : ArrayList(AstExpr),
-    using(exn : Exception)
+    exn : Exception
   ) -> EvalTupleElementResult
 )({
   (env : Environment) = env_in;
@@ -224,7 +224,7 @@ evaluate_tuple_elements_value :: (
     args : ArrayList(AstExpr),
     env_in : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> EvalTupleElementsValueResult
 )({
   (env : Environment) = env_in;
@@ -241,7 +241,7 @@ evaluate_tuple_elements_value :: (
       env,
       ctx,
       runtime_arg_exprs_in_order,
-      using(exn)
+      exn
     );
     field_labels.push(i.to_string());
     field_types.push(result.ty);
@@ -265,7 +265,7 @@ evaluate_tuple_value :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   if(!(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None)), {
@@ -288,7 +288,7 @@ evaluate_tuple_value :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });
-  result := evaluate_tuple_elements_value(args, env, ctx, using(exn));
+  result := evaluate_tuple_elements_value(args, env, ctx, exn);
   // Build the resulting tuple type and (if all elements known) tuple value.
   tuple_ty := TypeValue.Tuple(result.field_labels, result.field_types);
   (all_known : bool) = true;

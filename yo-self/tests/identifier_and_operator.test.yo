@@ -51,7 +51,7 @@ stub_eval :: (
 // ---------------------------------------------------------------------------
 test("evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -62,7 +62,7 @@ test("evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
   env := Environment.new(String.from("test"));
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(1), "i32");
-  evaluate_identifier_and_operator(expr, env, &(ctx), true, using(exn));
+  evaluate_identifier_and_operator(expr, env, &(ctx), true, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
   assert(info_opt.is_some(), "ExprInfo set for i32");
   match(
@@ -80,7 +80,7 @@ test("evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
 });
 test("evaluate_identifier_and_operator: builtin keyword bool → TypeVal", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -91,7 +91,7 @@ test("evaluate_identifier_and_operator: builtin keyword bool → TypeVal", {
   env := Environment.new(String.from("test"));
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(2), "bool");
-  evaluate_identifier_and_operator(expr, env, &(ctx), true, using(exn));
+  evaluate_identifier_and_operator(expr, env, &(ctx), true, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
   assert(info_opt.is_some(), "ExprInfo set for bool");
   match(
@@ -102,7 +102,7 @@ test("evaluate_identifier_and_operator: builtin keyword bool → TypeVal", {
 });
 test("evaluate_identifier_and_operator: defined variable returns type and value", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -129,7 +129,7 @@ test("evaluate_identifier_and_operator: defined variable returns type and value"
   );
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(3), "x");
-  evaluate_identifier_and_operator(expr, env, &(ctx), true, using(exn));
+  evaluate_identifier_and_operator(expr, env, &(ctx), true, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
   assert(info_opt.is_some(), "ExprInfo set for x");
   match(
@@ -151,7 +151,7 @@ test("evaluate_identifier_and_operator: defined variable returns type and value"
 });
 test("evaluate_identifier_and_operator: undefined variable throws", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         unwind(());
@@ -161,13 +161,13 @@ test("evaluate_identifier_and_operator: undefined variable throws", {
   env := Environment.new(String.from("test"));
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(4), "undefined_var");
-  evaluate_identifier_and_operator(expr, env, &(ctx), true, using(exn));
+  evaluate_identifier_and_operator(expr, env, &(ctx), true, exn);
   // If no exception was thrown, we reach here → test fails
   assert(false, "should have thrown for undefined variable");
 });
 test("evaluate_identifier_and_operator: throw_error_on_undefined=false on uninitialized", {
   set_evaluate_expression_fn(stub_eval);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "should not throw when throw_error_on_undefined=false");
@@ -197,6 +197,6 @@ test("evaluate_identifier_and_operator: throw_error_on_undefined=false on uninit
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(5), "y");
   // throw_error_on_undefined=false: no error expected
-  evaluate_identifier_and_operator(expr, env, &(ctx), false, using(exn));
+  evaluate_identifier_and_operator(expr, env, &(ctx), false, exn);
   // Reaching here means no exception was thrown — correct
 });

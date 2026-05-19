@@ -5,9 +5,9 @@
 //! Creates a FutureTraitT type with output type and optional effect rows.
 //! Supports:
 //!   Future(T)                          — basic future
-//!   Future(T, ...(E))                  — future with effect row spread
+//!   Future(T, E : Struct)                  — future with effect row spread
 //!   Future(T, Raise)                   — future with individual effect
-//!   Future(T, Raise, ...(E))           — mixed
+//!   Future(T, Raise, E : Struct)           — mixed
 open(import("std/string"));
 {
   AstExpr,
@@ -52,7 +52,7 @@ _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> Stri
     _ => ast_expr_to_string(effect_expr)
   )
 );
-/// Resolve a spread effect row `...(E)`.
+/// Resolve a spread effect row `E : Struct`.
 /// Pushes the resolved label/type/spread into the output lists.
 /// Mirrors `resolveEffectRowSpread` from future-trait.ts.
 _resolve_effect_row_spread :: (
@@ -62,10 +62,10 @@ _resolve_effect_row_spread :: (
     out_labels : ArrayList(String),
     out_types : ArrayList(TypeValue),
     out_spreads : ArrayList(bool),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
-  // effect_expr is `...(E)` — extract the row var name
+  // effect_expr is `E : Struct` — extract the row var name
   spread_args := _future_args(effect_expr);
   row_arg := match(spread_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   row_var_name_str := ast_expr_token(row_arg).value;
@@ -244,7 +244,7 @@ _resolve_effect_row_spread :: (
     }
   );
 });
-/// Resolve a single effect argument (either `...(E)` spread or individual effect type).
+/// Resolve a single effect argument (either `E : Struct` spread or individual effect type).
 /// Pushes the result into out_labels/out_types/out_spreads and returns updated env.
 /// Mirrors `resolveEffectArg` from future-trait.ts.
 _resolve_effect_arg :: (
@@ -255,10 +255,10 @@ _resolve_effect_arg :: (
     out_labels : ArrayList(String),
     out_types : ArrayList(TypeValue),
     out_spreads : ArrayList(bool),
-    using(exn : Exception)
+    exn : Exception
   ) -> Environment
 )({
-  // Check if this is a spread expression ...(E) with one atom arg
+  // Check if this is a spread expression E : Struct with one atom arg
   is_spread := (
     ast_expr_is_fn_call(effect_expr) &&
       ast_expr_is_fn_call_of(effect_expr, "...",.Some(usize(1))) &&
@@ -266,7 +266,7 @@ _resolve_effect_arg :: (
   );
   cond(
     is_spread => {
-      _resolve_effect_row_spread(effect_expr, env, out_labels, out_types, out_spreads, using(exn));
+      _resolve_effect_row_spread(effect_expr, env, out_labels, out_types, out_spreads, exn);
       env
     },
     true => {
@@ -281,7 +281,7 @@ _resolve_effect_arg :: (
               dyn(
                 format_error_message(
                   ast_expr_token(effect_expr),
-                  `Future effect argument must be an effect type or ...(E) spread, but got:\n${ast_expr_to_string(effect_expr)}`,
+                  `Future effect argument must be an effect type or E : Struct spread, but got:\n${ast_expr_to_string(effect_expr)}`,
                   false,
                   .None
                 )
@@ -304,7 +304,7 @@ _resolve_effect_arg :: (
             dyn(
               format_error_message(
                 ast_expr_token(effect_expr),
-                `Future effect argument must be an effect type or ...(E) spread, but got:\n${ast_expr_to_string(effect_expr)}`,
+                `Future effect argument must be an effect type or E : Struct spread, but got:\n${ast_expr_to_string(effect_expr)}`,
                 false,
                 .None
               )
@@ -328,7 +328,7 @@ evaluate_future_type :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   expr_args := _future_args(expr);
@@ -337,7 +337,7 @@ evaluate_future_type :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Future type constructor expects at least 1 argument (output type). Usage: Future(T), Future(T, ...(E)), Future(T, Raise, ...(E))"),
+          String.from("Future type constructor expects at least 1 argument (output type). Usage: Future(T), Future(T, E : Struct), Future(T, Raise, E : Struct)"),
           false,
           .None
         )
@@ -397,7 +397,7 @@ evaluate_future_type :: (
         break;
       }
     );
-    env_mut = _resolve_effect_arg(effect_expr, env_mut, ctx, effect_labels, effect_types, effect_spreads, using(exn));
+    env_mut = _resolve_effect_arg(effect_expr, env_mut, ctx, effect_labels, effect_types, effect_spreads, exn);
     ei = (ei + usize(1));
   });
   // Build the FutureTraitT

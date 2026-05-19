@@ -5,7 +5,7 @@
 //! Handles:
 //!   - `name := rhs`              — runtime variable declaration
 //!   - `name :: rhs`              — compile-time constant declaration
-//!   - `given(name) := handler`   — implicit parameter declaration
+//!   - `name := handler`   — implicit parameter declaration
 //!   - `_ := rhs`                 — discard (renamed to a temp var)
 //!
 //! Phase 2w stubs (deferred to Phase 3):
@@ -84,7 +84,7 @@ evaluate_initialization_assignment :: (
     expr : AstExpr,
     env_in : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -214,7 +214,7 @@ evaluate_initialization_assignment :: (
   match(
     rhs_info_opt,
     .Some(rhs_info) => {
-      prohibit_void_type(rhs_info.ty, ast_expr_token(rhs), using(exn));
+      prohibit_void_type(rhs_info.ty, ast_expr_token(rhs), exn);
     },
     .None => ()
   );
@@ -225,7 +225,7 @@ evaluate_initialization_assignment :: (
       if(has_any_control_flow(rhs_info.control_flow), {
         match(
           rhs_info.control_flow,
-          .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs, cf, using(exn)),
+          .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs, cf, exn),
           .None => ()
         );
       });
@@ -233,7 +233,7 @@ evaluate_initialization_assignment :: (
     .None => ()
   );
   // Disallow implicit variables as the RHS of non-given assignment.
-  throw_expr_is_implicit_variable_error(rhs, env, ctx, using(exn));
+  throw_expr_is_implicit_variable_error(rhs, env, ctx, exn);
   // --------------------------------------------------------------------------
   // Branch: atom LHS vs destructuring LHS
   // --------------------------------------------------------------------------
@@ -242,7 +242,7 @@ evaluate_initialization_assignment :: (
     // Atom LHS: `name := rhs`
     // -------------------------------------------------------------------
     // Check if the RHS variable has been consumed (moved).
-    require_expr_not_consumed(rhs, env, ctx, using(exn));
+    require_expr_not_consumed(rhs, env, ctx, exn);
     // Insert dup (Phase 2w: stub, no-op).
     set_expr_as_needs_to_call_dup(rhs, ctx);
     // Re-read env in case set_expr_as_needs_to_call_dup updated it.
@@ -532,7 +532,7 @@ Use \`::\` for compile-time definitions inside impl.`,
     );
     ali_final.env = env;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(actual_lhs), ali_final);
-    // If given(name) := handler, set ExprInfo on the outer given(...) wrapper.
+    // If name := handler, set ExprInfo on the outer given(...) wrapper.
     if(is_implicit, {
       lhs_info := new_expr_info(env, t_unit());
       lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
@@ -555,7 +555,7 @@ Use \`::\` for compile-time definitions inside impl.`,
       env,
       effective_is_compile_time_only,
       ctx,
-      using(exn)
+      exn
     );
     env = destr_result.env;
     expr_info := new_expr_info(env, t_unit());

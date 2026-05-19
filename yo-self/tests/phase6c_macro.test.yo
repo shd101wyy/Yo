@@ -19,7 +19,7 @@ noop_loader :: (fn(_path : String) -> Option(EvalValue))(
   Option(EvalValue).None
 );
 test("Phase6c verify: identity macro expands correctly", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -33,7 +33,7 @@ test("Phase6c verify: identity macro expands correctly", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   match(
     eval.get_module_error(),
@@ -93,7 +93,7 @@ test("Phase6c verify: identity macro expands correctly", {
   );
 });
 test("Phase6c verify: two-arg macro builds sum AST", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -107,7 +107,7 @@ test("Phase6c verify: two-arg macro builds sum AST", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   match(
     eval.get_module_error(),

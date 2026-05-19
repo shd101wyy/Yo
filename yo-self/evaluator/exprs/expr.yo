@@ -26,14 +26,14 @@ EvaluateExprRawFn :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 );
 /// Module-level function pointer — set once during evaluator initialization.
 (g_evaluate_expression : Option(EvaluateExprFn)) = Option(EvaluateExprFn).None;
 /// Module-level raw function pointer — stores `_evaluate_expression` directly.
 /// Unlike `g_evaluate_expression`, this bypasses the panic wrapper so callers
-/// can supply their own exception handler via `using(exn : Exception)`.
+/// can supply their own exception handler via `exn : Exception`.
 (g_evaluate_expression_raw : Option(EvaluateExprRawFn)) = Option(EvaluateExprRawFn).None;
 /// Set the global evaluate_expression function pointer.
 /// Called once during evaluator initialization before any evaluation begins.
@@ -70,13 +70,13 @@ evaluate_expression_raw :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )(
   match(
     g_evaluate_expression_raw,
     .None => panic("evaluate_expression_raw called before set_evaluate_expression_raw_fn"),
-    .Some(f) => f(expr, env, ctx, using(exn))
+    .Some(f) => f(expr, env, ctx, exn)
   )
 );
 export(EvaluateExprFn, EvaluateExprRawFn);

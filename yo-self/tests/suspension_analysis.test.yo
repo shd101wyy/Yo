@@ -100,7 +100,7 @@ test("extract_target_variable_id: non-assign parent => None", {
   assert(is_none, "non-:= parent should return(None)");
 });
 test("extract_target_variable_id: := parent but get_info returns None => None", {
-  // x := io.await(task)
+  // x := io.await(task, io)
   rhs := make_fncall_expr("io.await");
   parent := make_assign_expr("x", rhs);
   result := extract_target_variable_id(Option(AstExpr).Some(parent), get_info_none);
@@ -130,7 +130,7 @@ test("analyze_suspension_points: fncall body — noop detector → 0 points", {
 // analyze_suspension_points — with suspension detection
 // ---------------------------------------------------------------------------
 test("analyze_suspension_points: fncall body — detect_all detector → 1 point", {
-  // Body is a single FnCall: `io.await(task)`.
+  // Body is a single FnCall: `io.await(task, io)`.
   body := make_fncall_expr("io.await");
   detector := make_detect_all_detector();
   result := analyze_suspension_points(body, get_info_none, detector);

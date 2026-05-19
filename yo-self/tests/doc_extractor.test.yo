@@ -15,12 +15,12 @@ open(import("std/error"));
   ParensResult
 } :: import("../doc/extractor.yo");
 // Tokenize source, panicking on any lexer error.
-lex_ :: (fn(source : String, using(exn : Exception)) -> ArrayList(Token))(
-  tokenize(source, `test.yo`, using(exn))
+lex_ :: (fn(source : String, exn : Exception) -> ArrayList(Token))(
+  tokenize(source, `test.yo`, exn)
 );
 // Extract inline docs from inside the first (...) of the token list.
-inline_docs_from_source_ :: (fn(source : String, using(exn : Exception)) -> HashMap(String, String))({
-  tokens := lex_(source, using(exn));
+inline_docs_from_source_ :: (fn(source : String, exn : Exception) -> HashMap(String, String))({
+  tokens := lex_(source, exn);
   match(
     find_matching_parens(tokens, usize(0)),
     .None => HashMap(String, String).new(),
@@ -77,7 +77,7 @@ test("strip_doc_block_comment preserves markdown formatting", {
 });
 // ─── extract_doc_comments ────────────────────────────────────────────────────
 test("extracts a single /// doc comment for a declaration", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -85,7 +85,7 @@ test("extracts a single /// doc comment for a declaration", {
       }
     )
   );
-  tokens := lex_(`/// A trait.\nFoo :: trait();\n`, using(exn));
+  tokens := lex_(`/// A trait.\nFoo :: trait();\n`, exn);
   result := extract_doc_comments(tokens);
   has_module_doc := match(result.module_doc,.Some(_) => true,.None => false);
   assert(!(has_module_doc), "no module doc");
@@ -100,7 +100,7 @@ test("extracts a single /// doc comment for a declaration", {
   );
 });
 test("merges consecutive /// lines", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -109,7 +109,7 @@ test("merges consecutive /// lines", {
     )
   );
   source := `/// First line.\n/// Second line.\n/// Third line.\nMyType :: struct();\n`;
-  tokens := lex_(source, using(exn));
+  tokens := lex_(source, exn);
   result := extract_doc_comments(tokens);
   assert(result.declarations.len() == usize(1), "one declaration");
   match(
@@ -122,7 +122,7 @@ test("merges consecutive /// lines", {
   );
 });
 test("extracts block doc comment", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -131,7 +131,7 @@ test("extracts block doc comment", {
     )
   );
   source := `/**\n * A dynamic array.\n *\n * Supports resizing.\n */\nArrayList :: struct();\n`;
-  tokens := lex_(source, using(exn));
+  tokens := lex_(source, exn);
   result := extract_doc_comments(tokens);
   assert(result.declarations.len() == usize(1), "one declaration");
   match(
@@ -144,7 +144,7 @@ test("extracts block doc comment", {
   );
 });
 test("extracts //! as module doc", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -153,7 +153,7 @@ test("extracts //! as module doc", {
     )
   );
   source := `//! This is the module doc.\n//! It has two lines.\n\nFoo :: struct();\n`;
-  tokens := lex_(source, using(exn));
+  tokens := lex_(source, exn);
   result := extract_doc_comments(tokens);
   match(
     result.module_doc,
@@ -165,7 +165,7 @@ test("extracts //! as module doc", {
   );
 });
 test("extracts /*! */ as module doc", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -174,7 +174,7 @@ test("extracts /*! */ as module doc", {
     )
   );
   source := `/*! Module-level block doc. */\nFoo :: struct();\n`;
-  tokens := lex_(source, using(exn));
+  tokens := lex_(source, exn);
   result := extract_doc_comments(tokens);
   match(
     result.module_doc,
@@ -183,7 +183,7 @@ test("extracts /*! */ as module doc", {
   );
 });
 test("handles multiple doc comments for different declarations", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -192,7 +192,7 @@ test("handles multiple doc comments for different declarations", {
     )
   );
   source := `/// First type.\nFoo :: struct();\n\n/// Second type.\nBar :: enum();\n`;
-  tokens := lex_(source, using(exn));
+  tokens := lex_(source, exn);
   result := extract_doc_comments(tokens);
   assert(result.declarations.len() == usize(2), "two declarations");
   match(
@@ -210,7 +210,7 @@ test("handles multiple doc comments for different declarations", {
   );
 });
 test("ignores regular comments, only extracts doc comments", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -219,7 +219,7 @@ test("ignores regular comments, only extracts doc comments", {
     )
   );
   source := `// regular comment\n/// doc comment\nFoo :: struct();\n`;
-  tokens := lex_(source, using(exn));
+  tokens := lex_(source, exn);
   result := extract_doc_comments(tokens);
   assert(result.declarations.len() == usize(1), "one declaration");
   match(
@@ -229,7 +229,7 @@ test("ignores regular comments, only extracts doc comments", {
   );
 });
 test("handles module doc and declaration docs together", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -238,7 +238,7 @@ test("handles module doc and declaration docs together", {
     )
   );
   source := `//! Module documentation.\n\n/// A type.\nFoo :: struct();\n`;
-  tokens := lex_(source, using(exn));
+  tokens := lex_(source, exn);
   result := extract_doc_comments(tokens);
   match(
     result.module_doc,
@@ -253,7 +253,7 @@ test("handles module doc and declaration docs together", {
   );
 });
 test("handles empty token stream", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -261,14 +261,14 @@ test("handles empty token stream", {
       }
     )
   );
-  tokens := lex_(``, using(exn));
+  tokens := lex_(``, exn);
   result := extract_doc_comments(tokens);
   has_module_doc := match(result.module_doc,.Some(_) => true,.None => false);
   assert(!(has_module_doc), "no module doc");
   assert(result.declarations.len() == usize(0), "no declarations");
 });
 test("extracts doc from real std-lib-like code", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -277,7 +277,7 @@ test("extracts doc from real std-lib-like code", {
     )
   );
   source := `//! Core traits for the Yo type system.\n\n/// Comptime trait - indicates a type that can be used at compile-time.\n/// Examples: i32, bool, Type\nComptime :: trait(\n  id := \"Comptime\"\n);\nexport(Comptime);\n\n/// Runtime trait - indicates a type that can be used at runtime.\n/// Examples: i32, bool, *(i32), void\nRuntime :: trait(\n  id := \"Runtime\"\n);\nexport(Runtime);\n`;
-  tokens := lex_(source, using(exn));
+  tokens := lex_(source, exn);
   result := extract_doc_comments(tokens);
   match(
     result.module_doc,
@@ -301,7 +301,7 @@ test("extracts doc from real std-lib-like code", {
 });
 // ─── find_matching_parens ────────────────────────────────────────────────────
 test("find_matching_parens finds parens for struct", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -309,7 +309,7 @@ test("find_matching_parens finds parens for struct", {
       }
     )
   );
-  tokens := lex_(`Point :: struct(x : f64, y : f64);`, using(exn));
+  tokens := lex_(`Point :: struct(x : f64, y : f64);`, exn);
   match(
     find_matching_parens(tokens, usize(0)),
     .None => assert(false, "expected parens"),
@@ -328,7 +328,7 @@ test("find_matching_parens finds parens for struct", {
   );
 });
 test("find_matching_parens handles nested parens", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -336,7 +336,7 @@ test("find_matching_parens handles nested parens", {
       }
     )
   );
-  tokens := lex_(`Shape :: enum(Circle(radius: f64), Rect(w: f64, h: f64));`, using(exn));
+  tokens := lex_(`Shape :: enum(Circle(radius: f64), Rect(w: f64, h: f64));`, exn);
   match(
     find_matching_parens(tokens, usize(0)),
     .None => assert(false, "expected parens"),
@@ -364,7 +364,7 @@ test("find_matching_parens handles nested parens", {
   );
 });
 test("find_matching_parens returns None when no parens found", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -372,7 +372,7 @@ test("find_matching_parens returns None when no parens found", {
       }
     )
   );
-  tokens := lex_(`x :: 42;`, using(exn));
+  tokens := lex_(`x :: 42;`, exn);
   match(
     find_matching_parens(tokens, usize(0)),
     .None => (),
@@ -381,7 +381,7 @@ test("find_matching_parens returns None when no parens found", {
   );
 });
 test("find_matching_parens starts searching from given index", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -389,7 +389,7 @@ test("find_matching_parens starts searching from given index", {
       }
     )
   );
-  tokens := lex_(`a(1); b(2);`, using(exn));
+  tokens := lex_(`a(1); b(2);`, exn);
   // Find semicolon index
   semi_idx := usize(0);
   i := usize(0);
@@ -422,7 +422,7 @@ test("find_matching_parens starts searching from given index", {
 });
 // ─── extract_inline_docs ─────────────────────────────────────────────────────
 test("extracts /// docs for struct fields", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -431,7 +431,7 @@ test("extracts /// docs for struct fields", {
     )
   );
   source := `Point :: struct(\n  /// The x coordinate.\n  x : f64,\n  /// The y coordinate.\n  y : f64\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
   x_val := match(docs.get(`x`),.Some(v) => v,.None => ``);
   assert(x_val == `The x coordinate.`, "x doc");
@@ -439,7 +439,7 @@ test("extracts /// docs for struct fields", {
   assert(y_val == `The y coordinate.`, "y doc");
 });
 test("handles struct with only some fields documented", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -448,7 +448,7 @@ test("handles struct with only some fields documented", {
     )
   );
   source := `Config :: struct(\n  /// The hostname.\n  host : str,\n  port : u16,\n  /// Enable TLS.\n  tls : bool\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
   host_val := match(docs.get(`host`),.Some(v) => v,.None => ``);
   assert(host_val == `The hostname.`, "host doc");
@@ -458,7 +458,7 @@ test("handles struct with only some fields documented", {
   assert(!(has_port), "port not documented");
 });
 test("handles struct with no documented fields", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -466,11 +466,11 @@ test("handles struct with no documented fields", {
       }
     )
   );
-  docs := inline_docs_from_source_(`Empty :: struct(x : i32, y : i32);`, using(exn));
+  docs := inline_docs_from_source_(`Empty :: struct(x : i32, y : i32);`, exn);
   assert(docs.size == usize(0), "no docs");
 });
 test("merges consecutive /// lines for a struct field", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -479,13 +479,13 @@ test("merges consecutive /// lines for a struct field", {
     )
   );
   source := `Config :: struct(\n  /// Maximum number of connections.\n  /// Must be > 0.\n  max_conns : u32\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(1), "one doc");
   val := match(docs.get(`max_conns`),.Some(v) => v,.None => ``);
   assert(val == `Maximum number of connections.\nMust be > 0.`, "merged doc");
 });
 test("extracts block doc for struct fields", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -494,7 +494,7 @@ test("extracts block doc for struct fields", {
     )
   );
   source := `Config :: struct(\n  /** The host address. */\n  host : str,\n  /** The port number. */\n  port : u16\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
   host_val := match(docs.get(`host`),.Some(v) => v,.None => ``);
   assert(host_val == `The host address.`, "host doc");
@@ -502,7 +502,7 @@ test("extracts block doc for struct fields", {
   assert(port_val == `The port number.`, "port doc");
 });
 test("extracts /// docs for enum variants", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -511,7 +511,7 @@ test("extracts /// docs for enum variants", {
     )
   );
   source := `Color :: enum(\n  /// Red color.\n  Red,\n  /// Green color.\n  Green,\n  /// Blue color.\n  Blue\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(3), "three docs");
   red_val := match(docs.get(`Red`),.Some(v) => v,.None => ``);
   assert(red_val == `Red color.`, "red doc");
@@ -521,7 +521,7 @@ test("extracts /// docs for enum variants", {
   assert(blue_val == `Blue color.`, "blue doc");
 });
 test("extracts docs for enum variants with fields", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -530,7 +530,7 @@ test("extracts docs for enum variants with fields", {
     )
   );
   source := `Shape :: enum(\n  /// A circle with given radius.\n  Circle(radius : f64),\n  /// A rectangle.\n  Rectangle(width : f64, height : f64)\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
   circle_val := match(docs.get(`Circle`),.Some(v) => v,.None => ``);
   assert(circle_val == `A circle with given radius.`, "circle doc");
@@ -538,7 +538,7 @@ test("extracts docs for enum variants with fields", {
   assert(rect_val == `A rectangle.`, "rectangle doc");
 });
 test("handles empty token range", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -546,12 +546,12 @@ test("handles empty token range", {
       }
     )
   );
-  tokens := lex_(`struct();`, using(exn));
+  tokens := lex_(`struct();`, exn);
   result := extract_inline_docs(tokens, usize(2), usize(2));
   assert(result.docs.size == usize(0), "no docs");
 });
 test("does not pick up regular // comments", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -560,7 +560,7 @@ test("does not pick up regular // comments", {
     )
   );
   source := `S :: struct(\n  // regular comment\n  x : i32,\n  /// Doc comment.\n  y : i32\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(1), "one doc");
   has_x := match(docs.get(`x`),.Some(_) => true,.None => false);
   assert(!(has_x), "x not documented");
@@ -568,7 +568,7 @@ test("does not pick up regular // comments", {
   assert(y_val == `Doc comment.`, "y doc");
 });
 test("handles mixed block and line doc comments", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -577,7 +577,7 @@ test("handles mixed block and line doc comments", {
     )
   );
   source := `S :: struct(\n  /** Block doc for x. */\n  x : i32,\n  /// Line doc for y.\n  y : i32\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
   x_val := match(docs.get(`x`),.Some(v) => v,.None => ``);
   assert(x_val == `Block doc for x.`, "x doc");
@@ -585,7 +585,7 @@ test("handles mixed block and line doc comments", {
   assert(y_val == `Line doc for y.`, "y doc");
 });
 test("handles single-line struct with block docs", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -593,7 +593,7 @@ test("handles single-line struct with block docs", {
       }
     )
   );
-  docs := inline_docs_from_source_(`P :: struct(/** X */ x : f64, /** Y */ y : f64);`, using(exn));
+  docs := inline_docs_from_source_(`P :: struct(/** X */ x : f64, /** Y */ y : f64);`, exn);
   assert(docs.size == usize(2), "two docs");
   x_val := match(docs.get(`x`),.Some(v) => v,.None => ``);
   assert(x_val == `X`, "x doc");
@@ -601,7 +601,7 @@ test("handles single-line struct with block docs", {
   assert(y_val == `Y`, "y doc");
 });
 test("preserves markdown formatting in inline docs", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -610,13 +610,13 @@ test("preserves markdown formatting in inline docs", {
     )
   );
   source := `S :: struct(\n  /// The **bold** value.\n  ///\n  /// Example: \`x = 42\`\n  x : i32\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(1), "one doc");
   x_val := match(docs.get(`x`),.Some(v) => v,.None => ``);
   assert(x_val == `The **bold** value.\n\nExample: \`x = 42\``, "markdown preserved");
 });
 test("handles doc comment at end of range with no following identifier", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -625,11 +625,11 @@ test("handles doc comment at end of range with no following identifier", {
     )
   );
   source := `S :: struct(\n  /// Orphan doc.\n);`;
-  docs := inline_docs_from_source_(source, using(exn));
+  docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(0), "no docs");
 });
 test("extracts top-level doc for ?= field via extractDocComments", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -638,7 +638,7 @@ test("extracts top-level doc for ?= field via extractDocComments", {
     )
   );
   source := `/// Target doc.\n(target : i32) ?= 0;\n`;
-  tokens := lex_(source, using(exn));
+  tokens := lex_(source, exn);
   result := extract_doc_comments(tokens);
   assert(result.declarations.len() == usize(1), "one declaration");
   match(

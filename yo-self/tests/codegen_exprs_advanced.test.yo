@@ -245,7 +245,7 @@ make_param :: (fn(name : str, ty_name : str) -> AstExpr)(
     make_atom_expr(TokenKind.Identifier, ty_name)
   )
 );
-/// Build a `using(name : Type)` evidence param expression.
+/// Build a `name : Type` evidence param expression.
 make_using_param :: (fn(ev_name : str, ty_name : str) -> AstExpr)({
   inner := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, ev_name),
@@ -1043,13 +1043,13 @@ test("handle_while: break inside body emits break statement in C code", {
   assert(code.contains(String.from("break")), "break present in while body");
 });
 // =============================================================================
-// Phase 5n: using(name) unwrapping and given(name) := expr codegen
+// Phase 5n: name unwrapping and name := expr codegen
 // =============================================================================
-test("Phase 5n: using(name) in arg list passes inner name", {
-  // f(x, using(ctx)) → gen_arg_list should emit "x, ctx"
+test("Phase 5n: name in arg list passes inner name", {
+  // f(x, ctx) → gen_arg_list should emit "x, ctx"
   args := ArrayList(AstExpr).new();
   args.push(make_atom_expr(TokenKind.Integer, "42"));
-  // Build using(ctx)
+  // Build ctx
   using_args := ArrayList(AstExpr).new();
   using_args.push(make_atom_expr(TokenKind.Identifier, "ctx"));
   using_call := make_fncall_expr("using", using_args);
@@ -1061,21 +1061,21 @@ test("Phase 5n: using(name) in arg list passes inner name", {
     .None => assert(false, "gen returned None for call with using"),
     .Some(s) => {
       assert(s.contains(String.from("my_func")), "call name present");
-      assert(s.contains(String.from("ctx")), "using(ctx) unwrapped to ctx");
+      assert(s.contains(String.from("ctx")), "ctx unwrapped to ctx");
       assert(s.contains(String.from("42")), "regular arg present");
     }
   );
 });
-test("Phase 5n: using(name) as standalone expression returns the identifier", {
-  // using(exn) standalone → just emits the inner name "exn"
+test("Phase 5n: name as standalone expression returns the identifier", {
+  // exn standalone → just emits the inner name "exn"
   using_args := ArrayList(AstExpr).new();
   using_args.push(make_atom_expr(TokenKind.Identifier, "exn"));
   using_call := make_fncall_expr("using", using_args);
   result := run_gen(using_call);
   match(
     result,
-    .None => assert(false, "using(exn) returned None"),
-    .Some(s) => assert(s == String.from("exn"), "using(exn) emits 'exn'")
+    .None => assert(false, "exn returned None"),
+    .Some(s) => assert(s == String.from("exn"), "exn emits 'exn'")
   );
 });
 test("Phase 5n: given(name) as standalone expression returns 0", {
@@ -1090,8 +1090,8 @@ test("Phase 5n: given(name) as standalone expression returns 0", {
     .Some(s) => assert(s == String.from("0"), "given(ctx) standalone is no-op '0'")
   );
 });
-test("Phase 5n: given(name) := rhs emits __auto_type define", {
-  // given(handler) := 42  →  __auto_type handler = 42;
+test("Phase 5n: name := rhs emits __auto_type define", {
+  // handler := 42  →  __auto_type handler = 42;
   given_args := ArrayList(AstExpr).new();
   given_args.push(make_atom_expr(TokenKind.Identifier, "handler"));
   given_call := make_fncall_expr("given", given_args);
@@ -1571,7 +1571,7 @@ test("lift_non_capturing_lambda: multi param emits correct params", {
   );
 });
 test("validation: function pointer parameter call is not treated as Index", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
@@ -1580,7 +1580,7 @@ test("validation: function pointer parameter call is not treated as Index", {
     )
   );
   src := String.from("use_cb :: (fn(v : i32, cb : (fn(u : i32) -> i32)) -> i32)({ return(cb(v)); }); main :: (fn() -> unit)({ x := use_cb(10, (u) -> (u + 1)); assert(x == 11, \"callback\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "fn_ptr_callback_module", "main");
   match(
     opt_c,
@@ -1593,7 +1593,7 @@ test("validation: function pointer parameter call is not treated as Index", {
   );
 });
 test("validation: Impl Fn parameter callbacks lower through carrier", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
@@ -1602,7 +1602,7 @@ test("validation: Impl Fn parameter callbacks lower through carrier", {
     )
   );
   src := String.from("use_cb :: (fn(v : i32, cb : Impl(Fn(u : i32) -> i32)) -> i32)({ return(cb(v)); }); main :: (fn() -> unit)({ a := i32(2); x := use_cb(i32(10), (u) => ((u + i32(1)) + a)); y := use_cb(i32(20), (u) => (u * i32(2))); b := Box(i32)(i32(5)); z := use_cb(i32(10), (u) => ((u + i32(1)) + b.*)); assert((x == i32(13)), \"x\"); assert((y == i32(40)), \"y\"); assert((z == i32(16)), \"z\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "impl_fn_callback_module", "main");
   match(
     opt_c,
@@ -1617,7 +1617,7 @@ test("validation: Impl Fn parameter callbacks lower through carrier", {
   );
 });
 test("validation: Dyn Fn parameter callbacks lower through carrier", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
@@ -1626,7 +1626,7 @@ test("validation: Dyn Fn parameter callbacks lower through carrier", {
     )
   );
   src := String.from("use_cb :: (fn(v : i32, cb : Dyn(Fn(u : i32) -> i32)) -> i32)({ return(cb(v)); }); main :: (fn() -> unit)({ a := i32(2); x := use_cb(i32(10), dyn((u) => ((u + i32(1)) + a))); y := use_cb(i32(20), dyn(box((u) => (u * i32(2))))); assert((x == i32(13)), \"x\"); assert((y == i32(40)), \"y\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "dyn_fn_callback_module", "main");
   match(
     opt_c,
@@ -1639,7 +1639,7 @@ test("validation: Dyn Fn parameter callbacks lower through carrier", {
   );
 });
 test("validation: typeof anonymous struct methods inline at call site", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
@@ -1648,7 +1648,7 @@ test("validation: typeof anonymous struct methods inline at call site", {
     )
   );
   src := String.from("main :: (fn() -> unit)({ x := i32(1); y := i32(2); closure := { x, y }; impl(typeof(closure), call : (fn(self : Self, z : i32) -> i32)(self.x + (self.y + z))); result := closure.call(i32(3)); assert((result == i32(6)), \"Expected 6\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "anon_typeof_method_module", "main");
   match(
     opt_c,

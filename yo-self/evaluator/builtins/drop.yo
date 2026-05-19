@@ -29,7 +29,7 @@ evaluate_drop :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -90,7 +90,7 @@ evaluate_drop :: (
   match(
     variable_name_opt,
     .Some(vname) => {
-      set_variable_as_consumed(vname, ast_expr_token(arg_expr), cur_env, true, is_tv, using(exn));
+      set_variable_as_consumed(vname, ast_expr_token(arg_expr), cur_env, true, is_tv, exn);
     },
     .None => ()
   );

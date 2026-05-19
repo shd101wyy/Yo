@@ -9,7 +9,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { env } :: import("std/env");
 { Path } :: import("std/path");
-{ AnyError, Exception } :: import("std/error");
+{ AnyError, Exception, IOErr } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { cwd } :: import("std/env");
 { exists, write_file } :: import("std/fs/file");
@@ -134,10 +134,10 @@ A project written in Yo programming language.
 init_project :: (
   fn(
     options : InitOptions,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(unit, IO, Exception))
+    io : IO, exn : Exception
+  ) -> Impl(Future(unit, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     // Resolve user CWD (yo-cli overrides this env var when it changes directory)
     user_cwd_str := match(
       env.get(String.from("YO_ORIGINAL_CWD")),
@@ -165,44 +165,44 @@ init_project :: (
     );
     project_name := sanitize_project_name(raw_name);
     // Create directory structure
-    io.await(create_dir_all(project_dir, using(io)));
-    io.await(create_dir_all(project_dir.join(Path.new(String.from("src"))), using(io)));
-    io.await(create_dir_all(project_dir.join(Path.new(String.from("tests"))), using(io)));
+    io.await(create_dir_all(project_dir, io), io);
+    io.await(create_dir_all(project_dir.join(Path.new(String.from("src"))), io), io);
+    io.await(create_dir_all(project_dir.join(Path.new(String.from("tests"))), io), io);
     // build.yo — abort if already exists
     build_yo_path := project_dir.join(Path.new(String.from("build.yo")));
-    if(io.await(exists(build_yo_path, using(io))), {
+    if(io.await(exists(build_yo_path, io), io), {
       exn.throw(dyn(`Error: ${build_yo_path.to_string()} already exists. Aborting.`));
     });
-    io.await(write_file(build_yo_path, generate_build_yo(project_name), using(io)));
+    io.await(write_file(build_yo_path, generate_build_yo(project_name), io), io);
     // deps.yo
     deps_yo_path := project_dir.join(Path.new(String.from("deps.yo")));
-    if(!(io.await(exists(deps_yo_path, using(io)))), {
-      io.await(write_file(deps_yo_path, String.from(generate_deps_yo()), using(io)));
+    if(!(io.await(exists(deps_yo_path, io), io)), {
+      io.await(write_file(deps_yo_path, String.from(generate_deps_yo()), io), io);
     });
     // src/main.yo
     main_path := project_dir.join(Path.new(String.from("src/main.yo")));
-    if(!(io.await(exists(main_path, using(io)))), {
-      io.await(write_file(main_path, String.from(generate_main_source()), using(io)));
+    if(!(io.await(exists(main_path, io), io)), {
+      io.await(write_file(main_path, String.from(generate_main_source()), io), io);
     });
     // src/lib.yo
     lib_path := project_dir.join(Path.new(String.from("src/lib.yo")));
-    if(!(io.await(exists(lib_path, using(io)))), {
-      io.await(write_file(lib_path, String.from(generate_lib_source()), using(io)));
+    if(!(io.await(exists(lib_path, io), io)), {
+      io.await(write_file(lib_path, String.from(generate_lib_source()), io), io);
     });
     // tests/main.test.yo
     test_path := project_dir.join(Path.new(String.from("tests/main.test.yo")));
-    if(!(io.await(exists(test_path, using(io)))), {
-      io.await(write_file(test_path, String.from(generate_test_file()), using(io)));
+    if(!(io.await(exists(test_path, io), io)), {
+      io.await(write_file(test_path, String.from(generate_test_file()), io), io);
     });
     // .gitignore
     gitignore_path := project_dir.join(Path.new(String.from(".gitignore")));
-    if(!(io.await(exists(gitignore_path, using(io)))), {
-      io.await(write_file(gitignore_path, String.from(generate_gitignore()), using(io)));
+    if(!(io.await(exists(gitignore_path, io), io)), {
+      io.await(write_file(gitignore_path, String.from(generate_gitignore()), io), io);
     });
     // README.md
     readme_path := project_dir.join(Path.new(String.from("README.md")));
-    if(!(io.await(exists(readme_path, using(io)))), {
-      io.await(write_file(readme_path, generate_readme(project_name), using(io)));
+    if(!(io.await(exists(readme_path, io), io)), {
+      io.await(write_file(readme_path, generate_readme(project_name), io), io);
     });
     // Success message
     println(`\nInitialized Yo project "${project_name}" in ${project_dir.to_string()}`);

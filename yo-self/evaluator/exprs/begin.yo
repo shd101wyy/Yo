@@ -110,7 +110,7 @@ _check_keyword_position :: (
     n_args : usize,
     begin_args : ArrayList(AstExpr),
     keyword : String,
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   if(n_args == usize(0), {
@@ -160,7 +160,7 @@ evaluate_begin_expression :: (
     ctx : *(EvalContext),
     variables_to_add : ArrayList(Variable),
     _is_evaluating_function_body_begin_block : bool,
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -285,7 +285,7 @@ evaluate_begin_expression :: (
           // (Full synthesize_types support is Phase 3; we pass None here.)
           old_expected := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).None;
-          evaluated_ret_arg := evaluate_expression_raw(ret_arg, env, ctx, using(exn));
+          evaluated_ret_arg := evaluate_expression_raw(ret_arg, env, ctx, exn);
           ctx.expected_type = old_expected;
           ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg));
           if(ret_info_opt.is_none(), {
@@ -401,7 +401,7 @@ evaluate_begin_expression :: (
         ctx.expected_type = Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(ty : enclosing_ret, env : env)
         );
-        evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, using(exn));
+        evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, exn);
         ctx.expected_type = old_expected;
         esc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg));
         if(esc_info_opt.is_none(), {
@@ -457,7 +457,7 @@ evaluate_begin_expression :: (
         if(!(is_last_in_loop), {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
         });
-        evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, using(exn));
+        evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, exn);
         ctx.expected_type = old_expected;
         ev_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
         match(

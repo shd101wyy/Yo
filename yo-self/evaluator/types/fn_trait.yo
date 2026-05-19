@@ -53,7 +53,7 @@ evaluate_fn_trait_type :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   // expr is the `->` expression with Fn(...) on the left and return type on the right
@@ -92,11 +92,11 @@ evaluate_fn_trait_type :: (
   prev_is_eval_fn_type := ctx.is_evaluating_function_type;
   ctx.is_evaluating_function_type = true;
   (env_mut : Environment) = env;
-  params_result := evaluate_function_parameters(param_exprs, &(env_mut), ctx, using(exn));
+  params_result := evaluate_function_parameters(param_exprs, &(env_mut), ctx, exn);
   // Evaluate the return type via the raw evaluator path so any
   // throw propagates cleanly to the caller's `exn` (the non-raw
   // wrapper's panic would otherwise swallow surfacing errors).
-  evaluated_ret_expr := evaluate_expression_raw(return_type_expr, env_mut, ctx, using(exn));
+  evaluated_ret_expr := evaluate_expression_raw(return_type_expr, env_mut, ctx, exn);
   ctx.is_evaluating_function_type = prev_is_eval_fn_type;
   // Extract return TypeValue from expr info
   ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_expr));

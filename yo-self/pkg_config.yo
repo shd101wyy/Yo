@@ -7,7 +7,7 @@
 /// Mirrors: src/pkg-config.ts
 open(import("std/string"));
 { Command, ExitStatus, Output } :: import("std/process/command");
-{ Exception } :: import("std/error");
+{ Exception, IOErr } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 /// Resolved compiler and linker flags for a system library.
 PkgConfigResult :: object(
@@ -216,13 +216,13 @@ _merge_into :: (fn(dst : PkgConfigResult, src : PkgConfigResult) -> unit)({
 /// Check if `pkg-config` is available on this system.
 is_pkg_config_available :: (
   fn(
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(bool, IO, Exception))
+    io : IO, exn : Exception
+  ) -> Impl(Future(bool, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     cmd := Command.new(String.from("pkg-config"));
     cmd.arg(String.from("--version"));
-    status := io.await(cmd.status(using(io, exn)));
+    status := io.await(cmd.status(io, exn), io);
     status.success()
   })
 );
@@ -231,15 +231,15 @@ is_pkg_config_available :: (
 query_pkg_config :: (
   fn(
     pkg_name : String,
-    using(io : IO, exn : Exception)
+    io : IO, exn : Exception
   ) -> Impl(Future(Option(PkgConfigResult), IO, Exception))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     // Run pkg-config --cflags
     cflags_cmd := Command.new(String.from("pkg-config"));
     cflags_cmd.arg(String.from("--cflags"));
     cflags_cmd.arg(pkg_name);
-    cflags_out := io.await(cflags_cmd.output(using(io, exn)));
+    cflags_out := io.await(cflags_cmd.output(io, exn), io);
     if(!(cflags_out.status.success()), {
       return(Option(PkgConfigResult).None);
     });
@@ -247,7 +247,7 @@ query_pkg_config :: (
     ldflags_cmd := Command.new(String.from("pkg-config"));
     ldflags_cmd.arg(String.from("--libs"));
     ldflags_cmd.arg(pkg_name);
-    ldflags_out := io.await(ldflags_cmd.output(using(io, exn)));
+    ldflags_out := io.await(ldflags_cmd.output(io, exn), io);
     if(!(ldflags_out.status.success()), {
       return(Option(PkgConfigResult).None);
     });
@@ -264,13 +264,13 @@ resolve_system_library :: (
   fn(
     lib : BuildSystemLibrary,
     verbose : bool,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(PkgConfigResult, IO, Exception))
+    io : IO, exn : Exception
+  ) -> Impl(Future(PkgConfigResult, IOErr))
 )(
-  io.async((using(io, exn)) => {
-    pkg_available := io.await(is_pkg_config_available());
+  io.async((io, exn) => {
+    pkg_available := io.await(is_pkg_config_available(), io);
     if(pkg_available, {
-      pkg_result := io.await(query_pkg_config(lib.name));
+      pkg_result := io.await(query_pkg_config(lib.name), io);
       match(
         pkg_result,
         .Some(r) => {
@@ -288,10 +288,10 @@ resolve_all_system_libraries :: (
   fn(
     libs : ArrayList(BuildSystemLibrary),
     verbose : bool,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(PkgConfigResult, IO, Exception))
+    io : IO, exn : Exception
+  ) -> Impl(Future(PkgConfigResult, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     merged := _empty_result();
     k := usize(0);
     n := libs.len();
@@ -305,7 +305,7 @@ resolve_all_system_libraries :: (
         },
         .Some(p) => p
       );
-      resolved := io.await(resolve_system_library(lib, verbose));
+      resolved := io.await(resolve_system_library(lib, verbose), io);
       _merge_into(merged, resolved);
       k = (k + usize(1));
     });

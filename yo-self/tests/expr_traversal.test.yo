@@ -12,8 +12,8 @@ open(import("std/error"));
 { parse } :: import("../parser.yo");
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 parse_one :: (fn(src : String) -> AstExpr)({
-  given(exn) := Exception(throw : ((err) -> panic("parse_one: unexpected parse error")));
-  prog := parse(src, `test.yo`, using(exn));
+  exn := Exception(throw : ((err) -> panic("parse_one: unexpected parse error")));
+  prog := parse(src, `test.yo`, exn);
   match(
     prog.get(usize(0)),
     .None => {

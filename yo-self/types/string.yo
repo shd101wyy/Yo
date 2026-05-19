@@ -127,7 +127,7 @@ type_to_string :: (fn(t : TypeValue) -> String)(
         });
         ii = (ii + usize(1));
       });
-      using_suffix := if(ibody.len() > usize(0), ` using(${ibody})`, String.from(""));
+      using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
       `fn(${forall_prefix}${body}) -> ${recur(ret.*)}${using_suffix}`
     },
     .Struct(_, name, _, _, _, _, _) => name,
@@ -270,7 +270,7 @@ type_to_string :: (fn(t : TypeValue) -> String)(
         i = (i + usize(1));
       });
       cond(
-        (body.len() > usize(0)) => `Future[${bn}](${recur(out.*)}) using(${body})`,
+        (body.len() > usize(0)) => `Future[${bn}](${recur(out.*)}) ${body}`,
         true => `Future[${bn}](${recur(out.*)})`
       )
     }

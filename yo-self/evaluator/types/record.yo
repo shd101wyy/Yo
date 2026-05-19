@@ -69,7 +69,7 @@ evaluate_module_field :: (
     env : Environment,
     ctx : *(EvalContext),
     is_for_module_type : bool,
-    using(exn : Exception)
+    exn : Exception
   ) -> EvalModuleFieldResult
 )({
   _ := module_field_idx;
@@ -145,7 +145,7 @@ evaluate_module_field :: (
   label := ast_expr_token(label_expr).value;
   (env_mut : Environment) = env;
   // Evaluate type expression
-  evaluated_te := evaluate_expression_raw(type_expr, env_mut, ctx, using(exn));
+  evaluated_te := evaluate_expression_raw(type_expr, env_mut, ctx, exn);
   te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
   te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env_mut, TypeValue.Unit));
   env_mut = te_info.env;
@@ -185,7 +185,7 @@ evaluate_module_type :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   if(!(ast_expr_is_fn_call_of(expr, BK_MODULE, Option(usize).None)), {
@@ -222,7 +222,7 @@ evaluate_module_type :: (
       );
     });
     // Normal module field
-    result := evaluate_module_field(arg, i, env_mut, ctx, true, using(exn));
+    result := evaluate_module_field(arg, i, env_mut, ctx, true, exn);
     // Check for duplicate labels
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;

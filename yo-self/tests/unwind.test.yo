@@ -56,7 +56,7 @@ stub_evaluate_i32 :: (
 });
 test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   set_evaluate_expression_fn(stub_evaluate_i32);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -71,7 +71,7 @@ test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   ctx_ptr.is_inside_given_handler = true;
   env := Environment.new(String.from("test"));
   call := mk_escape_call(usize(21), "0", usize(22));
-  result := evaluate_unwind(call, env, &(ctx), using(exn));
+  result := evaluate_unwind(call, env, &(ctx), exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
   assert(match(info_opt,.Some(_) => true,.None => false), "unwind(did not record an ExprInfo)");
   info := match(

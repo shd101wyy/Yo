@@ -5,10 +5,10 @@ open(import("std/error"));
 { evaluate_module_body } :: import("../evaluator/eval.yo");
 empty_env :: (fn() -> Environment)(Environment.new(`leak_test`));
 main :: (fn() -> unit)({
-  given(exn) := Exception(throw : ((_err) -> unwind(())));
+  exn := Exception(throw : ((_err) -> unwind(())));
   src := "MyOpt :: enum(None, Some(i32)); val := MyOpt.Some(i32(42)); export(val);";
   env := empty_env();
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   _result := evaluate_module_body(exprs, &(env));
 });
 export(main);

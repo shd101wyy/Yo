@@ -122,16 +122,16 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
 find_yo_version_file :: (
   fn(
     start_dir : Path,
-    using(io : IO)
+    io : IO
   ) -> Impl(Future(Option(Path), IO))
 )(
-  io.async((using(io : IO)) => {
+  io.async((io : IO) => {
     result := Option(Path).None;
     keep_going := true;
     current := start_dir;
     while(runtime(keep_going), {
       candidate := current.join(Path.new(String.from(YO_VERSION_FILE)));
-      found := io.await(exists(candidate, using(io)));
+      found := io.await(exists(candidate, io), io);
       if(found, {
         result =.Some(candidate);
         keep_going = false;
@@ -160,16 +160,16 @@ find_yo_version_file :: (
 read_yo_version :: (
   fn(
     start_dir : Path,
-    using(io : IO, exn : Exception)
+    io : IO, exn : Exception
   ) -> Impl(Future(Option(String), IO, Exception))
 )(
-  io.async((using(io, exn)) => {
-    path_opt := io.await(find_yo_version_file(start_dir, using(io)));
+  io.async((io, exn) => {
+    path_opt := io.await(find_yo_version_file(start_dir, io), io);
     match(
       path_opt,
       .None => Option(String).None,
       .Some(path) => {
-        content := io.await(read_string(path, using(io)));
+        content := io.await(read_string(path, io), io);
         match(
           parse_yo_version(content),
           .Err(e) => exn.throw(dyn(e)),

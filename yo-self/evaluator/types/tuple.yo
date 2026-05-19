@@ -48,7 +48,7 @@ evaluate_tuple_elements_type :: (
     env_in : Environment,
     ctx : *(EvalContext),
     for_type : str,
-    using(exn : Exception)
+    exn : Exception
   ) -> EvalTupleElementsResult
 )({
   (env : Environment) = env_in;
@@ -58,7 +58,7 @@ evaluate_tuple_elements_type :: (
   (i : usize) = usize(0);
   while(runtime(i < args.len()), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
-    result := evaluate_type_field(arg, i, env, ctx, for_type, using(exn));
+    result := evaluate_type_field(arg, i, env, ctx, for_type, exn);
     field := result.field;
     // Check for duplicate labels (only when the field has an explicit label).
     if(field.label.len() > usize(0), {
@@ -108,7 +108,7 @@ evaluate_tuple_type :: (
     expr : AstExpr,
     env_in : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -125,7 +125,7 @@ evaluate_tuple_type :: (
     return(expr);
   });
   // Evaluate each tuple element.
-  result := evaluate_tuple_elements_type(args, env, ctx, "tuple", using(exn));
+  result := evaluate_tuple_elements_type(args, env, ctx, "tuple", exn);
   env = result.env;
   // Reject default values: tuples may not have `field : T = default`.
   (j : usize) = usize(0);

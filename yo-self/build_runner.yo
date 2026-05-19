@@ -10,7 +10,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ Exception } :: import("std/error");
+{ Exception, IOErr } :: import("std/error");
 { Path } :: import("std/path");
 { cwd } :: import("std/env");
 { exists } :: import("std/fs/file");
@@ -304,10 +304,10 @@ compile_artifact :: (
   fn(
     artifact : BuildArtifact,
     ctx : *(ExecutionContext),
-    using(io : IO, exn : Exception)
+    io : IO, exn : Exception
   ) -> Impl(Future(Result(unit, String), IO, Exception))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     effective_target := match(
       ctx.*.target_triple,
       .Some(t) => t,
@@ -366,14 +366,14 @@ compile_artifact :: (
       cmd.arg(artifact.include_paths(i));
       i = (i + usize(1));
     });
-    given(compile_exn) := Exception(
+    compile_exn := Exception(
       throw : (
         (err) -> {
           return(Result(unit, String).Err(err.to_string()));
         }
       )
     );
-    out := io.await(cmd.output(using(io, compile_exn)));
+    out := io.await(cmd.output(io, compile_exn), io);
     if(out.status.success(), Result(unit, String).Ok(()), {
       stderr_str := String.from_bytes(out.stderr).trim();
       Result(unit, String).Err(`Compilation failed: ${stderr_str}`)
@@ -388,10 +388,10 @@ run_executable :: (
     artifact : BuildArtifact,
     args : ArrayList(String),
     ctx : *(ExecutionContext),
-    using(io : IO, exn : Exception)
+    io : IO, exn : Exception
   ) -> Impl(Future(Result(unit, String), IO, Exception))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     effective_target := match(
       ctx.*.target_triple,
       .Some(t) => t,
@@ -413,14 +413,14 @@ run_executable :: (
       cmd.arg(args(i));
       i = (i + usize(1));
     });
-    given(run_exn) := Exception(
+    run_exn := Exception(
       throw : (
         (err) -> {
           return(Result(unit, String).Err(err.to_string()));
         }
       )
     );
-    out := io.await(cmd.output(using(io, run_exn)));
+    out := io.await(cmd.output(io, run_exn), io);
     if(out.status.success(), Result(unit, String).Ok(()), {
       code := out.status.code();
       Result(unit, String).Err(`Executable exited with code ${code}`)
@@ -434,10 +434,10 @@ run_test_suite :: (
   fn(
     suite : BuildTestSuite,
     ctx : *(ExecutionContext),
-    using(io : IO, exn : Exception)
+    io : IO, exn : Exception
   ) -> Impl(Future(Result(unit, String), IO, Exception))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     test_path := Path.new(ctx.*.project_dir).join(Path.new(suite.root));
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("test"));
@@ -449,14 +449,14 @@ run_test_suite :: (
       cmd.arg(suite.parallel.to_string());
     });
     if(ctx.*.verbose, cmd.arg(String.from("--verbose")));
-    given(test_exn) := Exception(
+    test_exn := Exception(
       throw : (
         (err) -> {
           return(Result(unit, String).Err(err.to_string()));
         }
       )
     );
-    out := io.await(cmd.output(using(io, test_exn)));
+    out := io.await(cmd.output(io, test_exn), io);
     if(out.status.success(), Result(unit, String).Ok(()), {
       code := out.status.code();
       Result(unit, String).Err(`Tests failed (exit ${code})`)
@@ -471,10 +471,10 @@ execute_node :: (
   fn(
     node : DAGNode,
     ctx : *(ExecutionContext),
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(StepResult, IO, Exception))
+    io : IO, exn : Exception
+  ) -> Impl(Future(StepResult, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     description := String.from(node.name.as_str());
     success := true;
     match(
@@ -491,7 +491,7 @@ execute_node :: (
               .Executable => "exe"
             );
             description = `compile ${kind_label} ${artifact.name}`;
-            result := io.await(compile_artifact(artifact, ctx));
+            result := io.await(compile_artifact(artifact, ctx), io);
             match(
               result,
               .Ok(_) => (),
@@ -509,7 +509,7 @@ execute_node :: (
           .None => (),
           .Some(suite) => {
             description = `test ${suite.name}`;
-            result := io.await(run_test_suite(suite, ctx));
+            result := io.await(run_test_suite(suite, ctx), io);
             match(
               result,
               .Ok(_) => (),
@@ -530,7 +530,7 @@ execute_node :: (
               ctx.*.registry.find_artifact(run_step.artifact_name.as_str()),
               .None => (),
               .Some(artifact) => {
-                result := io.await(run_executable(artifact, run_step.args, ctx));
+                result := io.await(run_executable(artifact, run_step.args, ctx), io);
                 match(
                   result,
                   .Ok(_) => (),
@@ -571,10 +571,10 @@ execute_dag :: (
   fn(
     dag : ArrayList(DAGNode),
     ctx : *(ExecutionContext),
-    using(io : IO, exn : Exception)
+    io : IO, exn : Exception
   ) -> Impl(Future(HashMap(String, StepResult), IO, Exception))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     results := HashMap(String, StepResult).new();
     n := dag.len();
     if(n == usize(0), return(results));
@@ -627,7 +627,7 @@ execute_dag :: (
       k := usize(0);
       while(runtime(k < rn), {
         node := ready(k);
-        result := io.await(execute_node(node, ctx));
+        result := io.await(execute_node(node, ctx), io);
         results.set(node.name, result);
         k = (k + usize(1));
       });
@@ -760,10 +760,10 @@ execute_step :: (
   fn(
     step_name : str,
     ctx : *(ExecutionContext),
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(unit, IO, Exception))
+    io : IO, exn : Exception
+  ) -> Impl(Future(unit, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     match(
       ctx.*.registry.find_step(step_name),
       .None => {
@@ -789,7 +789,7 @@ execute_step :: (
       },
       .None => ()
     );
-    results := io.await(execute_dag(dag, ctx));
+    results := io.await(execute_dag(dag, ctx), io);
     if(ctx.*.summary, print_build_summary(results, dag, step_name));
   })
 );
@@ -829,10 +829,10 @@ evaluate_build_file :: (
   fn(
     build_file : String,
     defines : HashMap(String, String),
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(BuildRegistry, IO, Exception))
+    io : IO, exn : Exception
+  ) -> Impl(Future(BuildRegistry, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     cmd := Command.new(String.from("yo-cli"));
     cmd.arg(String.from("build"));
     cmd.arg(String.from("--build-file"));
@@ -860,7 +860,7 @@ evaluate_build_file :: (
       cmd.arg(`-D${k}=${v}`);
       i = (i + usize(1));
     });
-    out := io.await(cmd.output());
+    out := io.await(cmd.output(), io);
     if(!(out.status.success()), {
       stderr_str := String.from_bytes(out.stderr).trim();
       exn.throw(dyn(`Error evaluating build file: ${stderr_str}`));
@@ -874,12 +874,12 @@ evaluate_build_file :: (
 run_build :: (
   fn(
     options : BuildOptions,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(unit, IO, Exception))
+    io : IO, exn : Exception
+  ) -> Impl(Future(unit, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     build_file_path := Path.new(options.build_file);
-    build_file_exists := io.await(exists(build_file_path));
+    build_file_exists := io.await(exists(build_file_path), io);
     if(!(build_file_exists), {
       exn.throw(dyn(`Error: Build file not found: ${build_file_path.to_string()}`));
     });
@@ -904,7 +904,7 @@ run_build :: (
         build_file_path.to_string(),
         options.defines
       )
-    );
+    , io);
     if(options.list_steps, {
       print_steps(&(registry));
       return(());
@@ -927,7 +927,7 @@ run_build :: (
     i := usize(0);
     n := requested.len();
     while(runtime(i < n), {
-      io.await(execute_step(requested(i).as_str(), &(ctx)));
+      io.await(execute_step(requested(i).as_str(), &(ctx)), io);
       i = (i + usize(1));
     });
   })

@@ -4,12 +4,12 @@
 //!
 //! Implements the full multi-pass parameter evaluation algorithm:
 //!   Pass 1 — process forall type parameters (create SomeTypes)
-//!   Pass 2 — process using() implicit parameters
+//!   Pass 2 — process  implicit parameters
 //!   Pass 3 — pre-add comptime parameters to env (so where clauses can reference them)
 //!   Pass 4 — scan where clause and try to evaluate constraints (with pending retry)
 //!   Pass 5 — process regular parameters; retry pending constraints after each
 //!
-//! Phase 3w: effect-row forall `...(E)` and effect-row spread `...(E)` in using() are now fully implemented.
+//! Phase 3w: effect-row forall `E : Struct` and effect-row spread `E : Struct` in  are now fully implemented.
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -203,10 +203,10 @@ _get_expr_type :: (
     expr : AstExpr,
     env_mut : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> TypeValue
 )({
-  evaluated := evaluate_expression_raw(expr, env_mut, ctx, using(exn));
+  evaluated := evaluate_expression_raw(expr, env_mut, ctx, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   info := match(
     info_opt,
@@ -250,10 +250,10 @@ _eval_and_update_env :: (
     expr : AstExpr,
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> Option(TypeValue)
 )({
-  evaluated := evaluate_expression_raw(expr, env_mut.*, ctx, using(exn));
+  evaluated := evaluate_expression_raw(expr, env_mut.*, ctx, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
     info_opt,
@@ -276,7 +276,7 @@ _eval_and_update_env :: (
 });
 /// Pre-pass helper: tries to evaluate a comptime type expr.
 /// Uses outer exn (hard failure) — the `given/unwind` soft-failure pattern is
-/// avoided here because passing a `given` binding via `using(exn_x)` in a call
+/// avoided here because passing a `given` binding via `exn_x` in a call
 /// generates an incomplete C call (missing exn__throw arg).
 /// Since evaluate_expression already panics on errors (via _evaluate_expression_wrapper),
 /// the soft-failure was dead code anyway.
@@ -285,7 +285,7 @@ _try_eval_comptime_type :: (
     type_expr : AstExpr,
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> Option(TypeValue)
 )(
   _eval_and_update_env(type_expr, env_mut, ctx)
@@ -421,7 +421,7 @@ evaluate_function_parameter :: (
     ctx : *(EvalContext),
     is_parameter_comptime_by_default : bool,
     allow_shadowing : bool,
-    using(exn : Exception)
+    exn : Exception
   ) -> FuncParam
 )({
   (label : Option(String)) = Option(String).None;
@@ -643,7 +643,7 @@ evaluate_function_parameter :: (
   match(
     assigned_value_expr,
     .Some(ave) => {
-      av_ty_opt := _eval_and_update_env(ave, env_mut, ctx, using(exn));
+      av_ty_opt := _eval_and_update_env(ave, env_mut, ctx, exn);
       if(av_ty_opt.is_none(), {
         exn.throw(
           dyn(
@@ -677,7 +677,7 @@ evaluate_function_parameter :: (
   match(
     type_expr,
     .Some(te) => {
-      ty_opt := _eval_and_update_env(te, env_mut, ctx, using(exn));
+      ty_opt := _eval_and_update_env(te, env_mut, ctx, exn);
       if(ty_opt.is_none(), {
         exn.throw(
           dyn(
@@ -709,7 +709,7 @@ evaluate_function_parameter :: (
       // Use raw evaluator path so throws (e.g. propagated from
       // nested type evaluations) reach the caller's exn cleanly
       // instead of via the panic wrapper.
-      evaluated_dve := evaluate_expression_raw(dve, env_mut.*, ctx, using(exn));
+      evaluated_dve := evaluate_expression_raw(dve, env_mut.*, ctx, exn);
       info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dve));
       match(
         info_opt,
@@ -863,7 +863,7 @@ evaluate_function_parameter :: (
   });
   // Prohibit void type as parameter type
   if(!(ctx.is_unsafe_function_type), {
-    prohibit_void_type(final_param_type, match(type_expr,.Some(e) => ast_expr_token(e),.None => ast_expr_token(expr)), using(exn));
+    prohibit_void_type(final_param_type, match(type_expr,.Some(e) => ast_expr_token(e),.None => ast_expr_token(expr)), exn);
   });
   // Validate trait type must have receiver type already set (error if not)
   if(is_trait_type(final_param_type), {
@@ -1130,7 +1130,7 @@ validate_concrete_type_constraints :: (
     constraint_expr : AstExpr,
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   // Collect (trait_expr, is_negated) pairs.
@@ -1181,7 +1181,7 @@ validate_concrete_type_constraints :: (
       }
     );
     (negated : bool) = match(trait_negated.get(j),.Some(b) => b,.None => false);
-    evaled_t := evaluate_expression_raw(t_expr, env_mut.*, ctx, using(exn));
+    evaled_t := evaluate_expression_raw(t_expr, env_mut.*, ctx, exn);
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_t));
     _ := evaled_t;
     info := match(
@@ -1305,7 +1305,7 @@ apply_single_trait_constraint :: (
     original_constraint_expr : AstExpr,
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> bool
 )({
   // Check if trait expression is negated: !(Trait)
@@ -1340,7 +1340,7 @@ apply_single_trait_constraint :: (
               // Concrete type — validate constraint using validate_concrete_type_constraints.
               // Use outer exn directly (hard failure) — the given/using soft-failure pattern
               // generates incomplete C calls (missing exn__throw argument).
-              validate_concrete_type_constraints(b.*, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, using(exn));
+              validate_concrete_type_constraints(b.*, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, exn);
               return(true);
             });
           },
@@ -1356,7 +1356,7 @@ apply_single_trait_constraint :: (
   }, {
     // Evaluate LHS expression
     (lhs_ty : TypeValue) = TypeValue.Unit;
-    evaluated := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn));
+    evaluated := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, exn);
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
     info := match(
       info_opt,
@@ -1374,7 +1374,7 @@ apply_single_trait_constraint :: (
       some_ty_opt =.Some(lhs_ty);
     }, {
       // Concrete type — use outer exn (hard failure)
-      validate_concrete_type_constraints(lhs_ty, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, using(exn));
+      validate_concrete_type_constraints(lhs_ty, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, exn);
       return(true);
     });
   });
@@ -1387,7 +1387,7 @@ apply_single_trait_constraint :: (
   );
   // Evaluate trait expression (unwrapped)
   (trait_ty : TypeValue) = TypeValue.Unit;
-  evaluated_rhs := evaluate_expression_raw(unwrapped_trait_expr, env_mut.*, ctx, using(exn));
+  evaluated_rhs := evaluate_expression_raw(unwrapped_trait_expr, env_mut.*, ctx, exn);
   info_rhs_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
   info_rhs := match(
     info_rhs_opt,
@@ -1443,7 +1443,7 @@ parse_where_clause_constraints :: (
     env_mut : *(Environment),
     ctx : *(EvalContext),
     collect_pending : bool,
-    using(exn : Exception)
+    exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
   pending_traits := ArrayList(PendingConstraint).new();
@@ -1495,7 +1495,7 @@ parse_where_clause_constraints :: (
                   // The given/using soft-failure pattern generates incomplete C calls.
                   // collect_pending behavior is simplified: hard failure on constraint violation.
                   is_concrete_type = true;
-                  validate_concrete_type_constraints(b.*, rhs_expr, constraint_expr, env_mut, ctx, using(exn));
+                  validate_concrete_type_constraints(b.*, rhs_expr, constraint_expr, env_mut, ctx, exn);
                   skip_constraint = true;
                 });
               },
@@ -1558,7 +1558,7 @@ parse_where_clause_constraints :: (
     }, {
       // Evaluate LHS expression
       // Note: errors propagate via outer exn (simplified from TS try/catch pattern)
-      evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn));
+      evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, exn);
       lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
       lhs_info := match(
         lhs_info_opt,
@@ -1609,7 +1609,7 @@ parse_where_clause_constraints :: (
       }, {
         // Concrete type — use outer exn (hard failure).
         // The given/using soft-failure pattern generates incomplete C calls.
-        validate_concrete_type_constraints(lhs_tv, rhs_expr, constraint_expr, env_mut, ctx, using(exn));
+        validate_concrete_type_constraints(lhs_tv, rhs_expr, constraint_expr, env_mut, ctx, exn);
         skip_constraint = true;
       });
     });
@@ -1655,7 +1655,7 @@ parse_where_clause_constraints :: (
       // Try to evaluate trait expression
       // Note: errors propagate via outer exn (collect_pending fallback simplified)
       (trait_ty2 : TypeValue) = TypeValue.Unit;
-      evaluated_trait := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn));
+      evaluated_trait := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, exn);
       trait_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_trait));
       (skip_iter : bool) = false;
       trait_info := match(
@@ -1745,11 +1745,11 @@ apply_where_clause_constraints :: (
     constraint_exprs : ArrayList(AstExpr),
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )(
   if(constraint_exprs.len() == usize(0), (), {
-    _pending := parse_where_clause_constraints(constraint_exprs, env_mut, ctx, false, using(exn));
+    _pending := parse_where_clause_constraints(constraint_exprs, env_mut, ctx, false, exn);
     ()
   })
 );
@@ -1765,7 +1765,7 @@ prepare_where_clause_variables :: (
     constraint_exprs : ArrayList(AstExpr),
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
   pending := ArrayList(PendingConstraint).new();
@@ -1821,7 +1821,7 @@ prepare_where_clause_variables :: (
     // Try to evaluate the constraint, collecting pending failures
     one_expr := ArrayList(AstExpr).new();
     one_expr.push(constraint_expr);
-    new_pending := parse_where_clause_constraints(one_expr, env_mut, ctx, true, using(exn));
+    new_pending := parse_where_clause_constraints(one_expr, env_mut, ctx, true, exn);
     (pi : usize) = usize(0);
     while(runtime(pi < new_pending.len()), {
       pc := match(
@@ -1849,7 +1849,7 @@ retry_pending_constraints :: (
     pending : ArrayList(PendingConstraint),
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
   still_pending := ArrayList(PendingConstraint).new();
@@ -1870,7 +1870,7 @@ retry_pending_constraints :: (
       pc.original_constraint_expr,
       env_mut,
       ctx,
-      using(exn)
+      exn
     );
     if(!(success), {
       still_pending.push(pc);
@@ -1892,7 +1892,7 @@ evaluate_function_parameters :: (
     param_exprs : ArrayList(AstExpr),
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> FuncParamsResult
 )({
   _ := env_mut.push_frame(false);
@@ -1922,7 +1922,7 @@ evaluate_function_parameters :: (
       while(runtime(j < forall_args.len()), {
         tp_expr := match(forall_args.get(j),.Some(a) => a,.None => make_err_expr());
         j = (j + usize(1));
-        // Detect ...(E) — effect row variable declaration
+        // Detect E : Struct — effect row variable declaration
         (is_eff_row_forall : bool) = false;
         if(ast_expr_is_fn_call_of(tp_expr, "...",.Some(usize(1))) &&
           ast_expr_is_atom(match(_fn_call_args(tp_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
@@ -2003,7 +2003,7 @@ evaluate_function_parameters :: (
         if(is_eff_row_forall, {
           continue;
         });
-        param := evaluate_function_parameter(tp_expr, env_mut, ctx, true, true, using(exn));
+        param := evaluate_function_parameter(tp_expr, env_mut, ctx, true, true, exn);
         // Duplicate check
         dup_found := false;
         (di : usize) = usize(0);
@@ -2039,7 +2039,7 @@ evaluate_function_parameters :: (
     });
   });
   // --------------------------------------------------------------------------
-  // Pass 2 — process using() implicit parameters
+  // Pass 2 — process  implicit parameters
   // --------------------------------------------------------------------------
   (using_count : usize) = usize(0);
   (ui : usize) = usize(0);
@@ -2055,7 +2055,7 @@ evaluate_function_parameters :: (
         dyn(
           format_error_message(
             ast_expr_token(param_expr),
-            `Only one "using(...)" clause is allowed per function signature. Combine all implicit parameters into a single using(), e.g.: using(a : TypeA, b : TypeB)`,
+            `Only one "..." clause is allowed per function signature. Combine all implicit parameters into a single , e.g.: a : TypeA, b : TypeB`,
             false,
             .None
           )
@@ -2067,7 +2067,7 @@ evaluate_function_parameters :: (
     while(runtime(uj < using_args.len()), {
       impl_expr := match(using_args.get(uj),.Some(a) => a,.None => make_err_expr());
       uj = (uj + usize(1));
-      // Detect ...(E) — effect row spread in using()
+      // Detect E : Struct — effect row spread in 
       (is_eff_row_using : bool) = false;
       if(ast_expr_is_fn_call_of(impl_expr, "...",.Some(usize(1))) &&
         ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
@@ -2275,14 +2275,14 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(impl_expr),
-              `Implicit parameter requires a label. Use "using(name : Type)" instead of "using(Type)".`,
+              `Implicit parameter requires a label. Use "name : Type" instead of "Type".`,
               false,
               .None
             )
           )
         );
       });
-      param := evaluate_function_parameter(impl_expr, env_mut, ctx, true, true, using(exn));
+      param := evaluate_function_parameter(impl_expr, env_mut, ctx, true, true, exn);
       // Duplicate checks
       (dup_forall : bool) = false;
       (dfi : usize) = usize(0);
@@ -2465,7 +2465,7 @@ evaluate_function_parameters :: (
         );
       });
       // First pass of where clause: create SomeTypes and try constraints
-      pending_constraints = prepare_where_clause_variables(where_clause_exprs, env_mut, ctx, using(exn));
+      pending_constraints = prepare_where_clause_variables(where_clause_exprs, env_mut, ctx, exn);
     });
   });
   // --------------------------------------------------------------------------
@@ -2575,7 +2575,7 @@ evaluate_function_parameters :: (
             });
           });
           // Evaluate type expression
-          vtype_opt := _eval_and_update_env(vtype_arg, env_mut, ctx, using(exn));
+          vtype_opt := _eval_and_update_env(vtype_arg, env_mut, ctx, exn);
           vparam_type = match(
             vtype_opt,
             .Some(t) => t,
@@ -2697,7 +2697,7 @@ evaluate_function_parameters :: (
           )
         );
       });
-      param := evaluate_function_parameter(param_expr, env_mut, ctx, false, true, using(exn));
+      param := evaluate_function_parameter(param_expr, env_mut, ctx, false, true, exn);
       // Duplicate check
       (dup_p : bool) = false;
       (dpi : usize) = usize(0);
@@ -2736,7 +2736,7 @@ evaluate_function_parameters :: (
       params.push(param);
       // Retry pending constraints now that we have a new variable
       if(pending_constraints.len() > usize(0), {
-        pending_constraints = retry_pending_constraints(pending_constraints, env_mut, ctx, using(exn));
+        pending_constraints = retry_pending_constraints(pending_constraints, env_mut, ctx, exn);
       });
     });
   });
@@ -2770,7 +2770,7 @@ evaluate_function_parameters :: (
   });
   // Final retry of pending constraints
   if(pending_constraints.len() > usize(0), {
-    pending_constraints = retry_pending_constraints(pending_constraints, env_mut, ctx, using(exn));
+    pending_constraints = retry_pending_constraints(pending_constraints, env_mut, ctx, exn);
     if(pending_constraints.len() > usize(0), {
       failed := match(
         pending_constraints.get(usize(0)),
@@ -2789,7 +2789,7 @@ evaluate_function_parameters :: (
       // Re-evaluate the failed constraint to get the error message
       one_failed := ArrayList(AstExpr).new();
       one_failed.push(failed.original_constraint_expr);
-      _retry_errors := parse_where_clause_constraints(one_failed, env_mut, ctx, false, using(exn));
+      _retry_errors := parse_where_clause_constraints(one_failed, env_mut, ctx, false, exn);
     });
   });
   FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param)
@@ -2809,7 +2809,7 @@ evaluate_function_type :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   if(!(ast_expr_is_fn_call_of(expr, "->",.Some(usize(2)))), {
@@ -2849,7 +2849,7 @@ evaluate_function_type :: (
   ctx.is_evaluating_function_type = true;
   // Evaluate parameters (pushes a new env frame, doesn't pop it)
   (env_mut : Environment) = env;
-  params_result := evaluate_function_parameters(arg_list, &(env_mut), ctx, using(exn));
+  params_result := evaluate_function_parameters(arg_list, &(env_mut), ctx, exn);
   // Restore context flag
   ctx.is_evaluating_function_type = prev_is_eval_fn_type;
   // Parse return type
@@ -3011,7 +3011,7 @@ evaluate_function_type :: (
   // Evaluate return type expression
   prev_eval_fn := ctx.is_evaluating_function_type;
   ctx.is_evaluating_function_type = true;
-  ret_type_opt := _eval_and_update_env(return_type_expr, &(env_mut), ctx, using(exn));
+  ret_type_opt := _eval_and_update_env(return_type_expr, &(env_mut), ctx, exn);
   ctx.is_evaluating_function_type = prev_eval_fn;
   ret_type_val := match(
     ret_type_opt,
@@ -3050,7 +3050,7 @@ evaluate_function_type :: (
   });
   // Prohibit void return type
   if(!(ctx.is_unsafe_function_type), {
-    prohibit_void_type(return_type, ast_expr_token(return_type_expr), using(exn));
+    prohibit_void_type(return_type, ast_expr_token(return_type_expr), exn);
   });
   if(is_return_comptime_only &&
     !(type_contains_some_type(return_type)) &&

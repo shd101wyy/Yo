@@ -42,7 +42,7 @@ evaluate_macro_expand :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
@@ -224,7 +224,7 @@ evaluate_macro_expand :: (
               t_unit(),
               Option(EvalValue).None,
               ctx,
-              using(exn)
+              exn
             );
             expanded_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expanded_expr));
             match(
@@ -265,7 +265,7 @@ evaluate_macro_expand :: (
           });
         });
         // Process unquotes in the final expression.
-        final_expr := process_unquotes_in_expr(current_expr, current_env, ctx, using(exn));
+        final_expr := process_unquotes_in_expr(current_expr, current_env, ctx, exn);
         out := new_expr_info(current_env, t_expr_t());
         out.value = Option(EvalValue).Some(EvalValue.ExprVal(box(final_expr)));
         out.path_collection = arg_info.path_collection;

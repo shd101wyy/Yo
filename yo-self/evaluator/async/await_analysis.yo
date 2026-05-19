@@ -73,7 +73,7 @@ AwaitPointExtra :: object(
 // ---------------------------------------------------------------------------
 /// Returns true if `expr` is a call of the form `obj_name.method_name(...)`.
 ///
-/// IO builtin calls like `io.await(task)` parse as:
+/// IO builtin calls like `io.await(task, io)` parse as:
 ///   FnCall(func=FnCall(func=Atom(dot), args=[Atom("io"), Atom("await")],
 ///                      is_infix=true), args=[Atom("task")])
 ///
@@ -132,7 +132,7 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
 is_io_async_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "async")
 );
-/// Checks if an expression is an io.await(future) call.
+/// Checks if an expression is an io.await(future, io) call.
 ///
 /// Mirrors `isIoAwaitCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_await_call :: (fn(expr : AstExpr) -> bool)(
@@ -150,12 +150,12 @@ is_io_state_call :: (fn(expr : AstExpr) -> bool)(
 is_io_spawn_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "spawn")
 );
-/// Checks if an expression is a JoinHandle.await(using(io)) call.
-/// Structurally: any `x.await(...)` where x is NOT "io".
+/// Checks if an expression is a JoinHandle.await(io, JoinHandle) call.
+/// Structurally: any `x.await(..., x)` where x is NOT "io".
 ///
 /// Mirrors `isJoinHandleAwaitCall` in `src/evaluator/async/await-analysis.ts`.
 is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
-  // Check if this is any X.await(...) method call
+  // Check if this is any X.await(..., X) method call
   is_method_await := match(
     (&(expr)).clone(),
     .Atom(_, _) => false,

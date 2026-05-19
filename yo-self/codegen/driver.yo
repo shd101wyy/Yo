@@ -12,7 +12,7 @@
 //!
 //! Limitations (simplified for Phase 4j+):
 //!   - Only simple atomic type names (i32, u8, bool, unit, str, …) are mapped.
-//!   - `using(…)` evidence params are emitted as `void*`.
+//!   - `…` evidence params are emitted as `void*`.
 //!   - No type declarations, RC helpers, or async support yet.
 //!
 //! **Structural mapping vs src/**: this file is the **bootstrap codegen
@@ -437,7 +437,7 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                   out_param_tys.push(p_ty_c);
                                 });
                               },
-                              // using(…) evidence param — emit as void* ev_<name>
+                              // … evidence param — emit as void* ev_<name>
                               (pftok.value.as_str() == "using") => match(
                                 pargs.get(usize(0)),
                                 // If no inner arg — skip this param
@@ -445,9 +445,9 @@ extract_fn_def :: (fn(expr : AstExpr) -> Option(FnDef))(
                                 .Some(using_inner) => {
                                   ev_name := match(
                                     using_inner,
-                                    // using(name) — bare evidence reference
+                                    // name — bare evidence reference
                                     .Atom(_, utok) => utok.value.as_str(),
-                                    // using(name : Type) — typed evidence
+                                    // name : Type — typed evidence
                                     .FnCall(_, uf, uargs, _, _) => match(
                                       uf.*,
                                       .Atom(_, uftok) => cond(

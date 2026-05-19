@@ -82,7 +82,7 @@ _analyze_ctfe_capability :: (
     func_type : TypeValue,
     env : Environment,
     ctx_p : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> Option(TypeValue)
 )({
   // Build a fresh environment: add captured variables, then push a frame.
@@ -202,7 +202,7 @@ evaluate_comptime_fn :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
@@ -225,7 +225,7 @@ evaluate_comptime_fn :: (
     }
   );
   // Evaluate the argument.
-  evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, using(exn));
+  evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
   arg_info := match(
     arg_info_opt,
@@ -384,7 +384,7 @@ evaluate_comptime_fn :: (
     comptime_func_type,
     env,
     ctx,
-    using(exn)
+    exn
   );
   match(
     ctfe_result,

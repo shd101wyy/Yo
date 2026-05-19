@@ -45,7 +45,7 @@ set_variable_as_consumed :: (
     env : Environment,
     allow_consume_again : bool,
     is_type_val : bool,
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   // Don't consume type values — they should be reusable.
@@ -106,7 +106,7 @@ evaluate_consume :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -157,7 +157,7 @@ evaluate_consume :: (
   match(
     variable_name_opt,
     .Some(vname) => {
-      set_variable_as_consumed(vname, ast_expr_token(arg_expr), cur_env, false, is_tv, using(exn));
+      set_variable_as_consumed(vname, ast_expr_token(arg_expr), cur_env, false, is_tv, exn);
     },
     .None => ()
   );

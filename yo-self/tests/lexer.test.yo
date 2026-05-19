@@ -5,8 +5,8 @@ open(import("std/error"));
 { Token, TokenKind, find_matching_bracket } :: import("../token.yo");
 { LexerError, tokenize } :: import("../lexer.yo");
 // Tokenize source, panicking on any lexer error.
-lex_or_panic :: (fn(source : String, using(exn : Exception)) -> ArrayList(Token))(
-  tokenize(source, `test.yo`, using(exn))
+lex_or_panic :: (fn(source : String, exn : Exception) -> ArrayList(Token))(
+  tokenize(source, `test.yo`, exn)
 );
 // Filter out Whitespace tokens.
 non_ws :: (fn(toks : ArrayList(Token)) -> ArrayList(Token))({
@@ -29,7 +29,7 @@ non_ws :: (fn(toks : ArrayList(Token)) -> ArrayList(Token))({
 });
 // ─── Identifiers ─────────────────────────────────────────────────────────────
 test("Single identifier", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -37,7 +37,7 @@ test("Single identifier", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`hello`, using(exn)));
+  toks := non_ws(lex_or_panic(`hello`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -49,7 +49,7 @@ test("Single identifier", {
   );
 });
 test("Identifier with digits and underscore", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -57,7 +57,7 @@ test("Identifier with digits and underscore", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`my_var_2`, using(exn)));
+  toks := non_ws(lex_or_panic(`my_var_2`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -69,7 +69,7 @@ test("Identifier with digits and underscore", {
   );
 });
 test("Bool literals true and false", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -77,7 +77,7 @@ test("Bool literals true and false", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`true false`, using(exn)));
+  toks := non_ws(lex_or_panic(`true false`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
   match(
     toks.get(usize(0)),
@@ -98,7 +98,7 @@ test("Bool literals true and false", {
 });
 // ─── Numbers ─────────────────────────────────────────────────────────────────
 test("Decimal integer", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -106,7 +106,7 @@ test("Decimal integer", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`42`, using(exn)));
+  toks := non_ws(lex_or_panic(`42`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -118,7 +118,7 @@ test("Decimal integer", {
   );
 });
 test("Hex integer", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -126,7 +126,7 @@ test("Hex integer", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`0xFF`, using(exn)));
+  toks := non_ws(lex_or_panic(`0xFF`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -138,7 +138,7 @@ test("Hex integer", {
   );
 });
 test("Binary integer", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -146,7 +146,7 @@ test("Binary integer", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`0b1010`, using(exn)));
+  toks := non_ws(lex_or_panic(`0b1010`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -158,7 +158,7 @@ test("Binary integer", {
   );
 });
 test("Octal integer", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -166,7 +166,7 @@ test("Octal integer", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`0o777`, using(exn)));
+  toks := non_ws(lex_or_panic(`0o777`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -178,7 +178,7 @@ test("Octal integer", {
   );
 });
 test("Float with decimal point", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -186,7 +186,7 @@ test("Float with decimal point", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`3.14`, using(exn)));
+  toks := non_ws(lex_or_panic(`3.14`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -198,7 +198,7 @@ test("Float with decimal point", {
   );
 });
 test("Float with exponent", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -206,7 +206,7 @@ test("Float with exponent", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`1e10`, using(exn)));
+  toks := non_ws(lex_or_panic(`1e10`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -218,7 +218,7 @@ test("Float with exponent", {
   );
 });
 test("Float with negative exponent", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -226,7 +226,7 @@ test("Float with negative exponent", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`2.5e-3`, using(exn)));
+  toks := non_ws(lex_or_panic(`2.5e-3`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -239,7 +239,7 @@ test("Float with negative exponent", {
 });
 // ─── String and template literals ────────────────────────────────────────────
 test("Double-quoted string literal", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -247,7 +247,7 @@ test("Double-quoted string literal", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`"hello"`, using(exn)));
+  toks := non_ws(lex_or_panic(`"hello"`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -259,7 +259,7 @@ test("Double-quoted string literal", {
   );
 });
 test("Template string content", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -272,7 +272,7 @@ test("Template string content", {
   sb.write_str("hello");
   sb.write_byte(u8(0x60));
   src := sb.to_string();
-  toks := non_ws(lex_or_panic(src, using(exn)));
+  toks := non_ws(lex_or_panic(src, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -285,7 +285,7 @@ test("Template string content", {
 });
 // ─── Operators and brackets ──────────────────────────────────────────────────
 test("Arrow operator", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -293,7 +293,7 @@ test("Arrow operator", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`->`, using(exn)));
+  toks := non_ws(lex_or_panic(`->`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -305,7 +305,7 @@ test("Arrow operator", {
   );
 });
 test("Dot token", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -313,7 +313,7 @@ test("Dot token", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`.`, using(exn)));
+  toks := non_ws(lex_or_panic(`.`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -325,7 +325,7 @@ test("Dot token", {
   );
 });
 test("Range operator ..", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -333,7 +333,7 @@ test("Range operator ..", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`..`, using(exn)));
+  toks := non_ws(lex_or_panic(`..`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -345,7 +345,7 @@ test("Range operator ..", {
   );
 });
 test("Range-inclusive operator ..=", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -353,7 +353,7 @@ test("Range-inclusive operator ..=", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`..=`, using(exn)));
+  toks := non_ws(lex_or_panic(`..=`, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -365,7 +365,7 @@ test("Range-inclusive operator ..=", {
   );
 });
 test("All bracket kinds", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -373,7 +373,7 @@ test("All bracket kinds", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`()[]{}`, using(exn)));
+  toks := non_ws(lex_or_panic(`()[]{}`, exn));
   assert(toks.len() == usize(6), "expected 6 tokens");
   match(toks.get(usize(0)),.None => assert(false, "0"),.Some(tok) => assert(tok.kind == TokenKind.LParen, "0: LParen"));
   match(toks.get(usize(1)),.None => assert(false, "1"),.Some(tok) => assert(tok.kind == TokenKind.RParen, "1: RParen"));
@@ -383,7 +383,7 @@ test("All bracket kinds", {
   match(toks.get(usize(5)),.None => assert(false, "5"),.Some(tok) => assert(tok.kind == TokenKind.RCurlyBracket, "5: RCurlyBracket"));
 });
 test("Comma and semicolon", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -391,14 +391,14 @@ test("Comma and semicolon", {
       }
     )
   );
-  toks := non_ws(lex_or_panic(`,;`, using(exn)));
+  toks := non_ws(lex_or_panic(`,;`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
   match(toks.get(usize(0)),.None => assert(false, "0"),.Some(tok) => assert(tok.kind == TokenKind.Comma, "0: Comma"));
   match(toks.get(usize(1)),.None => assert(false, "1"),.Some(tok) => assert(tok.kind == TokenKind.Semicolon, "1: Semicolon"));
 });
 // ─── Comments ────────────────────────────────────────────────────────────────
 test("Single-line comment //", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -406,7 +406,7 @@ test("Single-line comment //", {
       }
     )
   );
-  toks := tokenize(`// this is a comment`, `test.yo`, using(exn));
+  toks := tokenize(`// this is a comment`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -418,7 +418,7 @@ test("Single-line comment //", {
   );
 });
 test("Outer doc-line comment ///", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -426,7 +426,7 @@ test("Outer doc-line comment ///", {
       }
     )
   );
-  toks := tokenize(`/// docs`, `test.yo`, using(exn));
+  toks := tokenize(`/// docs`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -438,7 +438,7 @@ test("Outer doc-line comment ///", {
   );
 });
 test("Inner doc comment //!", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -446,7 +446,7 @@ test("Inner doc comment //!", {
       }
     )
   );
-  toks := tokenize(`//! inner doc`, `test.yo`, using(exn));
+  toks := tokenize(`//! inner doc`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -455,7 +455,7 @@ test("Inner doc comment //!", {
   );
 });
 test("Block comment /* */", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -463,7 +463,7 @@ test("Block comment /* */", {
       }
     )
   );
-  toks := tokenize(`/* block */`, `test.yo`, using(exn));
+  toks := tokenize(`/* block */`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -475,7 +475,7 @@ test("Block comment /* */", {
   );
 });
 test("Nested block comment", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -483,7 +483,7 @@ test("Nested block comment", {
       }
     )
   );
-  toks := tokenize(`/* outer /* inner */ end */`, `test.yo`, using(exn));
+  toks := tokenize(`/* outer /* inner */ end */`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -492,7 +492,7 @@ test("Nested block comment", {
   );
 });
 test("Doc block comment /**", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -500,7 +500,7 @@ test("Doc block comment /**", {
       }
     )
   );
-  toks := tokenize(`/** doc */`, `test.yo`, using(exn));
+  toks := tokenize(`/** doc */`, `test.yo`, exn);
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -510,7 +510,7 @@ test("Doc block comment /**", {
 });
 // ─── Row and column tracking ─────────────────────────────────────────────────
 test("Token row tracking across newlines", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -523,7 +523,7 @@ test("Token row tracking across newlines", {
   sb.write_byte(u8(10));
   sb.write_str("world");
   src := sb.to_string();
-  toks := non_ws(tokenize(src, `test.yo`, using(exn)));
+  toks := non_ws(tokenize(src, `test.yo`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
   match(
     toks.get(usize(0)),
@@ -543,7 +543,7 @@ test("Token row tracking across newlines", {
   );
 });
 test("Column offset within a line", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -551,7 +551,7 @@ test("Column offset within a line", {
       }
     )
   );
-  toks := non_ws(tokenize(`abc def`, `test.yo`, using(exn)));
+  toks := non_ws(tokenize(`abc def`, `test.yo`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
   match(
     toks.get(usize(0)),
@@ -566,7 +566,7 @@ test("Column offset within a line", {
 });
 // ─── find_matching_bracket ───────────────────────────────────────────────────
 test("find_matching_bracket basic paren", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -574,7 +574,7 @@ test("find_matching_bracket basic paren", {
       }
     )
   );
-  toks := non_ws(tokenize(`(a, b)`, `test.yo`, using(exn)));
+  toks := non_ws(tokenize(`(a, b)`, `test.yo`, exn));
   // indices: 0=(  1=a  2=,  3=b  4=)
   result := find_matching_bracket(toks, usize(0));
   match(
@@ -584,7 +584,7 @@ test("find_matching_bracket basic paren", {
   );
 });
 test("find_matching_bracket nested parens", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -592,7 +592,7 @@ test("find_matching_bracket nested parens", {
       }
     )
   );
-  toks := non_ws(tokenize(`((a))`, `test.yo`, using(exn)));
+  toks := non_ws(tokenize(`((a))`, `test.yo`, exn));
   // 0=(  1=(  2=a  3=)  4=)
   result := find_matching_bracket(toks, usize(0));
   match(
@@ -602,7 +602,7 @@ test("find_matching_bracket nested parens", {
   );
 });
 test("find_matching_bracket curly", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -610,7 +610,7 @@ test("find_matching_bracket curly", {
       }
     )
   );
-  toks := non_ws(tokenize(`{x}`, `test.yo`, using(exn)));
+  toks := non_ws(tokenize(`{x}`, `test.yo`, exn));
   result := find_matching_bracket(toks, usize(0));
   match(
     result,
@@ -619,7 +619,7 @@ test("find_matching_bracket curly", {
   );
 });
 test("find_matching_bracket returns None for non-bracket", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -627,13 +627,13 @@ test("find_matching_bracket returns None for non-bracket", {
       }
     )
   );
-  toks := non_ws(tokenize(`hello`, `test.yo`, using(exn)));
+  toks := non_ws(tokenize(`hello`, `test.yo`, exn));
   result := find_matching_bracket(toks, usize(0));
   assert(result ==.None, "identifier has no matching bracket");
 });
 // ─── Error handling ───────────────────────────────────────────────────────────
 test("Unterminated string literal raises LexerError", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         match(
@@ -645,11 +645,11 @@ test("Unterminated string literal raises LexerError", {
       }
     )
   );
-  tokenize(`"unterminated`, `test.yo`, using(exn));
+  tokenize(`"unterminated`, `test.yo`, exn);
   assert(false, "expected a lexer error to be raised");
 });
 test("Unterminated block comment raises LexerError", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         match(
@@ -661,11 +661,11 @@ test("Unterminated block comment raises LexerError", {
       }
     )
   );
-  tokenize(`/* unterminated`, `test.yo`, using(exn));
+  tokenize(`/* unterminated`, `test.yo`, exn);
   assert(false, "expected a lexer error to be raised");
 });
 test("Unterminated template string raises LexerError", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         match(
@@ -681,6 +681,6 @@ test("Unterminated template string raises LexerError", {
   sb.write_byte(u8(0x60));
   sb.write_str("unterminated");
   src := sb.to_string();
-  tokenize(src, `test.yo`, using(exn));
+  tokenize(src, `test.yo`, exn);
   assert(false, "expected a lexer error to be raised");
 });

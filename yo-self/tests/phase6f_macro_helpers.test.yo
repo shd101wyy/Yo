@@ -21,7 +21,7 @@ test("Phase6f: ExprVal Atom equality (callee == quote(=>))", {
   ();
 });
 test("Phase6f: gensym produces fresh atoms", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -30,7 +30,7 @@ test("Phase6f: gensym produces fresh atoms", {
     )
   );
   src := String.from("// @skip_prelude\nmake_pair :: (fn() -> unquote(Expr))({ a :: gensym(\"u\"); b :: gensym(\"v\"); quote({ unquote(a) := 3; unquote(b) := 4; (unquote(a) + unquote(b)) }) });\nv := make_pair();\nexport(v);\n");
-  eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, src, using(exn));
+  eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, src, exn);
   match(
     eval.get_module_error(),
     .Some(_) => {
@@ -89,7 +89,7 @@ test("Phase6f: gensym produces fresh atoms", {
   );
 });
 test("Phase6f: .cdr on ComptimeListVal", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
@@ -98,7 +98,7 @@ test("Phase6f: .cdr on ComptimeListVal", {
     )
   );
   src := String.from("// @skip_prelude\ncdr_len :: (fn(quote(e) : Expr) -> unquote(Expr))(cond((e.get_args().cdr().len() == 1) => quote(1), true => quote(0)));\nv := cdr_len((3 + 4));\nexport(v);\n");
-  eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, src, using(exn));
+  eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, src, exn);
   match(
     eval.get_module_error(),
     .Some(_) => {

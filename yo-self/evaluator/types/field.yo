@@ -101,7 +101,7 @@ evaluate_type_field :: (
     env_in : Environment,
     ctx : *(EvalContext),
     for_type : str,
-    using(exn : Exception)
+    exn : Exception
   ) -> EvalTypeFieldResult
 )({
   (env : Environment) = env_in;
@@ -276,7 +276,7 @@ evaluate_type_field :: (
     }, {
       ctx.expected_type = Option(ExpectedTypeCtx).None;
     });
-    evaluated_te := evaluate_expression_raw(te, env, ctx, using(exn));
+    evaluated_te := evaluate_expression_raw(te, env, ctx, exn);
     ctx.expected_type = old_expected;
     te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
     te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env, TypeValue.Unit));
@@ -342,7 +342,7 @@ evaluate_type_field :: (
     ctx.expected_type = field_expected_ctx;
     // Do not propagate forceCompileTimeBindings when evaluating type field values.
     ctx.force_compile_time_bindings = false;
-    evaluated_av := evaluate_expression_raw(av_expr, env, ctx, using(exn));
+    evaluated_av := evaluate_expression_raw(av_expr, env, ctx, exn);
     ctx.expected_type = old_expected;
     ctx.force_compile_time_bindings = old_force_ct;
     av_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_av));
@@ -421,7 +421,7 @@ evaluate_type_field :: (
     );
     old_expected := ctx.expected_type;
     ctx.expected_type = field_expected_ctx;
-    evaluated_dv := evaluate_expression_raw(dv_expr, env, ctx, using(exn));
+    evaluated_dv := evaluate_expression_raw(dv_expr, env, ctx, exn);
     ctx.expected_type = old_expected;
     dv_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dv));
     dv_info := match(
@@ -537,7 +537,7 @@ evaluate_type_field :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
   });
   // --- Prohibit void type ---
-  prohibit_void_type(final_type, ast_expr_token(expr), using(exn));
+  prohibit_void_type(final_type, ast_expr_token(expr), exn);
   // --- Prohibit Impl(Fn(...)) as field type for struct/enum/union ---
   // Runtime size of `Impl(Fn(...))` depends on the concrete closure capture
   // struct; it cannot live in a fixed-size field. Use `Dyn(Fn(...))` instead.
