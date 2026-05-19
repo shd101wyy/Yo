@@ -832,6 +832,7 @@ export function createFunctionType({
   SelfType,
   SelfTraitType,
   isClosure,
+  isControl,
 }: {
   parameters: FunctionParameter[];
   forallParameters: FunctionForallParameter[];
@@ -844,6 +845,7 @@ export function createFunctionType({
   SelfType?: Type;
   SelfTraitType?: Type;
   isClosure?: boolean;
+  isControl?: boolean;
 }): FunctionType {
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
@@ -863,6 +865,7 @@ export function createFunctionType({
     SelfTraitType,
     trait,
     isClosure,
+    isControl,
   };
   trait.receiverType = functionType;
 

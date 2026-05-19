@@ -657,6 +657,7 @@ export const BuiltinKeywords = {
   recur: ["recur"],
   fn: ["fn"],
   unsafe_fn: ["unsafe_fn"], // The function that skips the prohibitVoidType check
+  ctl: ["ctl"], // Control function type — parallel to `fn`, may contain `unwind`
   unwind: ["unwind"],
   extern: ["extern"],
   cond: ["cond"],

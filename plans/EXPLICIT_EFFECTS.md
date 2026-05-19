@@ -87,12 +87,13 @@ is at the surface-syntax + evaluator level only.
 
 | Concept                      | Today                                                                             | Proposed                                                               |
 | ---------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Declare effect               | `Raise :: (fn(msg : str) -> i32);`                                                | `Raise :: struct(raise : (fn(msg : str) -> i32));` (see §3)            |
+| Declare effect               | `Raise :: (fn(msg : str) -> i32);`                                                | `Raise :: struct(raise : (ctl(msg : str) -> i32));` (see §3, §4)       |
 | Fn param taking effect       | `safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)`              | `safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)`          |
 | Call site                    | `safe_divide(1, 0)` (implicit lookup) **or** `safe_divide(1, 0, using(my_raise))` | `safe_divide(1, 0, my_raise)` — always explicit                        |
-| Install handler              | `given(raise) := (msg) -> { escape(42); };`                                       | `raise := (msg) -> { unwind(42); };`                                   |
+| Install handler              | `given(raise) := (msg) -> { escape(42); };`                                       | `(raise : Raise) = ((msg) -> { unwind(42); });`                        |
 | Propagating function         | `wrapper :: (fn(x, using(raise : Raise)) -> i32)(safe_divide(x, 0))`              | `wrapper :: (fn(x, raise : Raise) -> i32)(safe_divide(x, 0, raise))`   |
 | Effect record (struct-based) | `using(exn : Exception)` then `exn.throw(...)`                                    | `exn : Exception` then `exn.throw(...)`                                |
+| Control function type        | implicit (body-scan for `escape`)                                                 | explicit: `ctl(args) -> ret` parallel to `fn(args) -> ret` (see §4)    |
 | Continuation control         | `return(value)` resumes, `escape(value)` unwinds                                  | `return(value)` resumes, `unwind(value)` unwinds (renamed for clarity) |
 | Skip + fallback to given     | `safe_divide(1, 0, using(undefined))`                                             | n/a — no implicit lookup, no fallback                                  |
 | Effect row polymorphism      | `forall(T : Type, ...(E))` + `using(...(E))`                                      | `forall(T : Type, E : Type.Struct)` + `e : E` (see §2)                 |
@@ -335,7 +336,7 @@ Note: the compiler already auto-detects handler functions via
 becomes unnecessary — `unwind` is valid in any function body, and the
 compiler detects handlers by body analysis alone.
 
-### Handler value escape restrictions
+### Handler value unwind-escape restrictions — `ctl()` type constructor
 
 A **control function** is a function value whose body (transitively)
 contains `unwind`. Calling one _can_ unwind the caller; the unwind
@@ -344,69 +345,229 @@ bound (its install frame). If the install frame has already returned
 when the control function runs, the unwind jumps to a dead frame —
 undefined behaviour.
 
-The old `escape` gate (`isInsideGivenHandler`) prevented this by
-construction: only `given(name) := handler` could bind a handler, and
-`given` bindings were specially restricted. With `given` removed, the
-compiler must enforce the same invariant via data-flow on the value.
+#### Design choice: type-level marking via `ctl(...) -> ...`
 
-**Rule.** A control-function value is **stack-bound to its install
-frame**. It may be used only in ways that don't outlive that frame.
+Earlier drafts of this plan proposed a value-level `originFrameId`
+data-flow analysis to track which expressions yield control-function
+values and reject escapes. The current design **replaces that with a
+type-level marking**: a new function-type constructor `ctl(args) -> ret`
+sits parallel to `fn(args) -> ret` and identifies control functions
+purely from the type signature.
 
-**Allowed uses:**
+**Why type-level wins:**
 
-- Immediate call: `((msg) -> { unwind(42); })(arg)` — the value never
-  outlives the call expression.
-- Argument to a function call: `safe_divide(1, 0, handler)` — the
-  callee runs synchronously inside the install frame.
-- Local binding in a begin-block frame: `(raise : Raise) = handler` or
-  `raise := handler` — the first such binding defines the install
-  frame.
-- Re-binding to another local in the same or nested begin-block frame:
-  `r2 := r`. The install site is fixed at the _first_ local binding;
-  aliases don't shift it.
-- Field access through a locally bound record: `r := { raise : handler };
-r.raise(...)` — the record is local, so it shares the install frame.
+| Property                                          | Value-level (originFrameId) | Type-level (`ctl`)          |
+| ------------------------------------------------- | --------------------------- | --------------------------- |
+| Visible at the call site without callee lookup    | No                          | Yes — type tells you        |
+| LLM-friendly (signature is documentation)         | No                          | Yes                         |
+| Soundness                                         | Best-effort, layered        | Static, complete            |
+| Implementation cost                               | Open-ended data-flow        | Bounded type-system change  |
+| Catches closure capture / heap escape             | Needs propagation rules     | Automatic via type contains |
+| Requires runtime backstop (`__yo_effect_escaped`) | Yes                         | No (still kept for codegen) |
 
-**Disallowed uses (compile-time error):**
+The trade-off is one keyword + a one-time migration of stdlib effect
+records. The result is LLM-readable types that say "this parameter may
+unwind your caller."
 
-| Site                                                     | Why it would break                                                                  |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `return(handler)` from a function                        | The caller's frame is not the install frame; unwind would jump to a returned frame. |
-| Storing in `Box`, `Rc`, or any heap-allocated value      | Heap outlives the install frame.                                                    |
-| Module-level binding (`top_handler :: handler`)          | Module scope outlives every call frame.                                             |
-| Closure capture where the closure may outlive the frame  | The captured handler outlives its install site.                                     |
-| Field of a struct value that is itself returned / stored | Inherits the storage's lifetime.                                                    |
+#### Surface syntax
 
-**Implementation sketch.**
+```rust
+// Regular function type — must not contain `unwind` in its body
+processor :: (fn(x : i32) -> i32);
 
-The evaluator already tags each function value with `isControlFunction`
-via body analysis. Extend each evaluated expression with an
-`originFrameId : FrameId | undefined` annotation that points to the
-install frame of the (innermost) control-function value the expression
-yields. Propagation rules:
+// Control function type — body may contain `unwind`; the value is
+// frame-bound to its install site.
+raise :: (ctl(msg : String) -> i32);
 
-- Anonymous fn literal whose body contains `unwind` → `originFrameId =
-currentBeginBlockFrameId`.
-- Local binding (`:=` or `=`) of a control-function expr → the bound
-  variable inherits the `originFrameId`; subsequent reads carry it.
-- Function call result → no `originFrameId` unless the callee's
-  signature is statically known to return a control function (rare,
-  and itself an error by the rule below).
-- Struct construction → if any field is a control-function value, the
-  whole struct inherits the most-restrictive `originFrameId`.
+// Effect records carry ctl-typed fields:
+Raise :: struct(raise : (ctl(msg : String) -> i32));
+Exception :: struct(throw : (ctl(msg : String) -> never));
 
-Check sites (compile error if a value with non-undefined
-`originFrameId` reaches them, and the target outlives that frame):
+// Higher-order: a callback parameter that may unwind
+run :: (fn(f : (ctl() -> i32)) -> i32)(f());
+```
 
-- `return` expressions.
-- Right-hand side of module-level `::` / `:=`.
-- Closure capture analysis.
-- RC / Box construction.
-- Struct field assignment that escapes the install frame.
+`ctl` is a parallel type constructor to `fn` — not a modifier on `fn`.
+Both take `(args) -> ret`; the difference is whether `unwind` is
+permitted in the body and how the value's lifetime is constrained.
 
-Error message: name the offending fn literal location, the install
-frame, and the escape site. The reader should see _which_ value is
-escaping, not just "control function escape" in the abstract.
+#### Typing rules
+
+1. **`unwind` is valid only inside a `ctl(...) -> ...` body.**
+   A regular `fn` body containing `unwind` is a type error.
+
+2. **Anonymous function literal — explicit annotation required.**
+   An inline lambda whose body contains `unwind` must have an
+   explicit `ctl(...) -> ret` type — supplied either by the
+   binding's typed LHS or by a written annotation on the lambda
+   itself. Inference from body content is **not** performed; the
+   author must commit to the type. (Note: there is no operator
+   precedence in Yo — the RHS lambda needs extra parens, e.g.
+   `(raise : Raise) = ((msg) -> { unwind(42); });`.)
+
+3. **Closures cannot be control functions.** A closure literal
+   (anonymous function with captures) whose body contains `unwind`
+   is a type error. Closures are heap-allocated values designed to
+   be passed around / stored / called later; they are
+   conceptually incompatible with the frame-bound discipline of
+   `ctl`. Handlers must be bare (non-capturing) anonymous functions.
+
+4. **Closures cannot capture `ctl` values.** Even if a closure's
+   own body has no `unwind`, capturing a `ctl`-typed parameter or
+   local in its environment is a type error. The closure value
+   carries the captured CF; closure values may escape (return,
+   heap-store), and the captured CF would escape with them. If you
+   need a closure-like wrapper around a handler, rewrite as a
+   regular function that takes the handler as a parameter.
+
+5. **Subtyping (covariant in unwind-allowance).**
+   `fn(T) -> R` is a subtype of `ctl(T) -> R`. A non-unwinder is a valid
+   value where unwind is permitted. The reverse is unsafe and rejected.
+
+6. **Generics over function kinds.** `forall(T : Type)` can bind
+   `T` to either `fn(...)` or `ctl(...)`. Uses of `T` are handled
+   uniformly because `ctl` is a regular type constructor at the type
+   level. No separate kind constraint is needed.
+
+7. **Control-bound types.** A type `T` is **control-bound** iff `T`
+   transitively contains a `ctl(...) -> ...` type — either directly,
+   as a struct/tuple/enum field, as an array element, or as a
+   parameter/return of a containing function type. Predicate:
+   `typeIsControlBound(T)`.
+
+8. **Escape boundaries — control-bound types are rejected as:**
+
+   - The return type of a function.
+   - The type of a module-level `::` / `:=` binding.
+   - The type parameter of `Box(T)`, `Rc(T)`, or any heap-allocating
+     constructor.
+   - A closure capture type (covered by rule 4).
+   - The pointee of a pointer/reference type (covered by rule 11).
+
+9. **Allowed uses (unchanged from the prior design):**
+
+   - Immediate call.
+   - Argument to a function (callee runs inside the install frame).
+   - Local binding in a function-body frame (this becomes the install
+     frame).
+   - Re-binding / aliasing within the same or nested frame.
+   - Field access through a locally bound record.
+
+10. **Middle-tier functions propagate effects naturally.** A
+    function that takes a `ctl`-typed parameter or a struct
+    containing one, and forwards it to a callee, does **not** itself
+    need to be `ctl` — the unwind targets the CF's install frame,
+    which lives above this function in the call stack. Example:
+    `wrap :: (fn(x : i32, raise : Raise) -> i32)(safe_divide(x, 0,
+raise))` is plain `fn`, even though `safe_divide` may unwind.
+
+11. **No mutable reference to control-bound storage.** A pointer
+    type `&T` (or any reference-like wrapper) is rejected when
+    `typeIsControlBound(T)`. This prevents escape via
+    pointer-write:
+
+    ```rust
+    // REJECTED — &Raise is forbidden
+    write_handler :: (fn(slot : &Raise) -> unit)({
+      (local_cf : Raise) = ((msg) -> { unwind(...); });
+      slot.* = local_cf;  // would let local_cf outlive its frame
+    });
+    ```
+
+    Control-bound storage is reachable only via direct variable
+    binding, not through indirection. Read-only access works via
+    pass-by-value — handlers are fn-ptr-sized, copying is free.
+
+    Affects: `&Raise`, `&Holder` (where `Holder` contains a `ctl`
+    field), `&Array(Raise)`, etc. Also the return type of any
+    function (rule 8 already covers value returns; rule 11 closes
+    the address-of channel).
+
+#### Codegen invariant (load-bearing for soundness)
+
+The static rules above are sound **only if** every handler body's
+compiled form runs in its install frame's stack — sharing access
+to outer-frame locals directly, not through a heap-allocated env.
+The current codegen achieves this by inlining handlers into the
+install site / threading them through state machines.
+
+If future codegen ever lifts a handler body into a standalone C
+function with a heap-allocated env (making it closure-like), the
+soundness rests on that lifting also enforcing the frame-bound
+rule — e.g. by allocating the env on the stack, or by treating
+the synthesised closure as control-bound itself.
+
+This invariant should be asserted in code where handler-body
+codegen happens, so a future implementer is forced to confront it
+before changing the lowering strategy.
+
+#### Why this is sufficient
+
+The four escape boundaries above are exactly the places a value can
+outlive its install frame:
+
+- **Return** — leaves the current frame upward.
+- **Module-level binding** — outlives every frame.
+- **Heap (`Box`/`Rc`)** — outlives every stack frame.
+- **Escaping closure** — the captured value rides the closure to its
+  escape site.
+
+Argument-passing, immediate calls, and same-frame bindings all keep the
+value at or below the install frame in the stack — safe.
+
+#### Implementation sketch
+
+1. **Lexer/parser**: recognise `ctl` as a keyword; parse `ctl(args) ->
+ret` analogously to `fn(args) -> ret`.
+2. **`FunctionType`** (`src/types/definitions.ts`): add
+   `isControl: boolean` (or a separate `ControlFunctionType`).
+3. **`typeIsControlBound(T, env)`** in `src/types/utils.ts`:
+   recursive walk over types.
+4. **`unwind` body check**: the existing evaluator path that flags
+   `isControlFunction` becomes a _type-check_ rather than a _value-tag_
+   — `unwind` only valid when the enclosing function's type is `ctl`.
+5. **Subtyping** (`src/types/compatibility.ts`): regular `fn` accepted
+   where `ctl` expected; reverse rejected.
+6. **Escape checks** at the four boundaries, each one line:
+   `if (typeIsControlBound(...)) throw ...;`
+7. **Migration**: stdlib `Exception` / `Raise` patterns, tests,
+   yo-self ports.
+8. **Codegen** unchanged: the C-level fn-ptr + `__yo_effect_escaped`
+   flag stays. `ctl(...) -> ret` lowers to the same C as `fn(...) ->
+ret` today; the type-level distinction is compile-time only.
+
+#### What gets deleted
+
+- `isControlFunction` flag on `FunctionValue` (or it becomes a derived
+  query from the function's type).
+- The current value-level minimal checks in `begin.ts` (return-site)
+  and `initialization-assignment.ts` (module-level) become type-level
+  checks on the binding's / function's declared type.
+- The `originFrameId` data-flow plan from earlier drafts is dropped.
+
+#### Migration sketch
+
+Every place that today binds `(name : SomeFnType) = ((msg) -> { unwind(...)
+})` needs `SomeFnType` to be `(ctl(...) -> ret)`. Concretely:
+
+```rust
+// Before
+Raise :: (fn(msg : String) -> i32);
+(raise : Raise) = ((msg) -> { unwind(...); });
+
+// After
+Raise :: (ctl(msg : String) -> i32);
+(raise : Raise) = ((msg) -> { unwind(...); });  // unchanged at the binding
+```
+
+(Note: the RHS lambda is parenthesised — Yo has no operator
+precedence, so a bare lambda on the right of `=` would not parse
+without the outer parens.)
+
+Mechanical pass over `std/error.yo`, `std/io/*.yo`, `tests/`,
+`yo-self/`. Effect records expose `ctl`-typed fields; downstream code
+threading them gains nothing visible at use sites (still `e.raise(...)`)
+but readers and LLMs see the unwind capability in the type.
 
 ## 5. Rename `escape` → `unwind`
 
@@ -676,16 +837,32 @@ Items intentionally not done in this pass; tracked for follow-up:
    five recognised kinds (Struct, Enum, Union, Trait, Function).
    `Struct :: Type` removed from prelude. Migration of `: Struct` →
    `: Type.Struct` applied across std/, tests/, yo-self/.
-6. **§4 handler-value escape check.** ✅ Minimal version landed —
-   `return(handler)` where `handler.isControlFunction === true` now
-   errors with a pointer to §4. Most "return a handler" patterns are
-   already caught by the existing unwind-type check (the handler's
-   unwind value type rarely matches the outer function's return type
-   when that outer type is the handler itself); the new check adds
-   defense-in-depth where the type checker would otherwise let a
-   control function escape. Full originFrameId data-flow analysis
-   (Box/Rc/module-bind/outliving-capture) is the next step but no
-   currently-failing test depends on it.
+6. **§4 handler-value unwind-escape check.** 🟡 Approach changed,
+   incremental landing in progress.
+
+   **Current state** (placeholder, value-level): Two layered checks
+   are in tree, using the body-scan `isControlFunction` flag:
+
+   - **Return-site check** (`begin.ts`): rejects
+     `return(handler)` where the returned value is a CF.
+   - **Module-level init check**
+     (`initialization-assignment.ts`): rejects module-level
+     `::` / `:=` of a CF value.
+
+   Both are tested in `tests/algebraic_effects.test.yo`.
+
+   **Chosen final design**: type-level `ctl(args) -> ret`
+   constructor (parallel to `fn`), see §4 "Handler value
+   unwind-escape restrictions — `ctl()` type constructor".
+   The current value-level checks act as the placeholder until the
+   type-level migration lands; the check sites stay, only their
+   implementation switches from a value flag to a type predicate
+   (`typeIsControlBound`).
+
+   Remaining work tracked under §4 implementation sketch (keyword,
+   FunctionType.isControl, subtyping, escape-boundary type checks,
+   stdlib migration).
+
 7. **§7 sub-phase 2e dead-code cleanup.** Skipped. `isImplicit`
    flags, `stripImplicitVariablesFromEnv`, `...(E)` evaluator paths
    etc. are leftover code that doesn't affect behaviour under
@@ -708,23 +885,26 @@ This section documents the specific compiler artifacts associated with
   keyword; the evaluator short-circuits the property-access path for
   these names. Remove the existing `Struct :: Type` alias from
   `std/prelude.yo`.
+- Add `ctl` as a new keyword (parallel to `fn`) for control-function
+  type construction. Parse `ctl(args) -> ret` as a `FunctionType`
+  with `isControl: true`. See §4.
 
 ### 8.2 Evaluator changes (`src/evaluator/`)
 
-| Artifact                           | File                                                 | Action                                                                                                                                                                                           |
-| ---------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `isImplicit` variable flag         | `initialization-assignment.ts:432`, `binding.ts:224` | Remove. Variables are just variables.                                                                                                                                                            |
-| `isCompileTimeOnly` forced `true`  | `initialization-assignment.ts:170`                   | Remove. Handlers are runtime fn ptrs.                                                                                                                                                            |
-| `isReassignable` forced `false`    | `initialization-assignment.ts:431`                   | Remove. Handler params are non-reassignable by default (param semantics); local `:=` bindings should be reassignable.                                                                            |
-| `isInsideGivenHandler` context     | `context.ts:249-254`                                 | Remove. `unwind` is valid in any function body. Handler detection is auto via `evaluatedBodyContainsEscape`.                                                                                     |
-| `isEffectRecordMember` flag set    | `initialization-assignment.ts:305`                   | Keep the flag but set it via body analysis (already done in `anonymous-function.ts:1084-1089`).                                                                                                  |
-| `throwExprIsImplicitVariableError` | `utils.ts:53-82`                                     | Remove entirely. No implicit variables to guard against.                                                                                                                                         |
-| `stripImplicitVariablesFromEnv`    | `env.ts:2152-2158`                                   | Remove. Closures capture handlers like regular variables.                                                                                                                                        |
-| `using` param resolution           | `implicit-resolution*`, `using-param*`               | Remove all implicit lookup logic.                                                                                                                                                                |
-| `using(undefined)` handling        | Various                                              | Remove. No fallback mechanism.                                                                                                                                                                   |
-| `given` ambiguity / missing errors | Various                                              | Remove. No implicit resolution = no ambiguity.                                                                                                                                                   |
-| `...(E)` spread evaluation         | Evaluator files handling `forall` + `using` spread   | Replace with `E : Type.Struct` generic constraint evaluation. `...(E)` becomes a forall type variable with the compiler-intrinsic `Struct` constraint.                                           |
-| Control-function escape check      | New analysis + check sites                           | Track `originFrameId` on expression results for control-function values; reject `return`, heap-store, module-level bind, and outlives-frame capture. See §4 "Handler value escape restrictions". |
+| Artifact                             | File                                                 | Action                                                                                                                                                                                                                                                                                           |
+| ------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `isImplicit` variable flag           | `initialization-assignment.ts:432`, `binding.ts:224` | Remove. Variables are just variables.                                                                                                                                                                                                                                                            |
+| `isCompileTimeOnly` forced `true`    | `initialization-assignment.ts:170`                   | Remove. Handlers are runtime fn ptrs.                                                                                                                                                                                                                                                            |
+| `isReassignable` forced `false`      | `initialization-assignment.ts:431`                   | Remove. Handler params are non-reassignable by default (param semantics); local `:=` bindings should be reassignable.                                                                                                                                                                            |
+| `isInsideGivenHandler` context       | `context.ts:249-254`                                 | Remove. `unwind` is valid in any function body. Handler detection is auto via `evaluatedBodyContainsEscape`.                                                                                                                                                                                     |
+| `isEffectRecordMember` flag set      | `initialization-assignment.ts:305`                   | Keep the flag but set it via body analysis (already done in `anonymous-function.ts:1084-1089`).                                                                                                                                                                                                  |
+| `throwExprIsImplicitVariableError`   | `utils.ts:53-82`                                     | Remove entirely. No implicit variables to guard against.                                                                                                                                                                                                                                         |
+| `stripImplicitVariablesFromEnv`      | `env.ts:2152-2158`                                   | Remove. Closures capture handlers like regular variables.                                                                                                                                                                                                                                        |
+| `using` param resolution             | `implicit-resolution*`, `using-param*`               | Remove all implicit lookup logic.                                                                                                                                                                                                                                                                |
+| `using(undefined)` handling          | Various                                              | Remove. No fallback mechanism.                                                                                                                                                                                                                                                                   |
+| `given` ambiguity / missing errors   | Various                                              | Remove. No implicit resolution = no ambiguity.                                                                                                                                                                                                                                                   |
+| `...(E)` spread evaluation           | Evaluator files handling `forall` + `using` spread   | Replace with `E : Type.Struct` generic constraint evaluation. `...(E)` becomes a forall type variable with the compiler-intrinsic `Struct` constraint.                                                                                                                                           |
+| Control-function unwind-escape check | New type-level check + check sites                   | Add `isControl: boolean` to `FunctionType`, `typeIsControlBound(T)` predicate; reject control-bound types as function return, module-level binding type, heap-allocation type param, and escaping closure capture. See §4 "Handler value unwind-escape restrictions — `ctl()` type constructor". |
 
 ### 8.3 Codegen changes (`src/codegen/`)
 

@@ -45,11 +45,12 @@ function isFunctionBoundaryArrow(expr: Expr): boolean {
   // isAnonymousFunctionDefinition was not set.
   if (expr.$?.value !== undefined && isFunctionValue(expr.$.value)) return true;
 
-  // Case 2: Function type arrow — fn(...) -> T or Fn(...) -> T
+  // Case 2: Function type arrow — fn(...) -> T, ctl(...) -> T, or Fn(...) -> T
   if (
     exprIsFunctionCall(expr) &&
     exprIsFunctionCall(expr.func) &&
     (exprIsFunctionCallOf(expr.func, BuiltinKeywords.fn) ||
+      exprIsFunctionCallOf(expr.func, BuiltinKeywords.ctl) ||
       exprIsFunctionCallOf(expr.func, BuiltinKeywords.unsafe_fn) ||
       exprIsFunctionCallOf(expr.func, BuiltinKeywords.Fn))
   ) {

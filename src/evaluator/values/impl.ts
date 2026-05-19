@@ -455,6 +455,7 @@ function tryCreateForwardShell({
     !exprIsFunctionCall(fnHeadExpr) ||
     !(
       exprIsFunctionCallOf(fnHeadExpr, BuiltinKeywords.fn) ||
+      exprIsFunctionCallOf(fnHeadExpr, BuiltinKeywords.ctl) ||
       exprIsFunctionCallOf(fnHeadExpr, BuiltinKeywords.unsafe_fn)
     )
   ) {

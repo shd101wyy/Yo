@@ -2202,17 +2202,21 @@ export function evaluateFunctionType({
   // Handle different forms of parameter lists
   let argList: Expr[] = [];
 
-  // For both regular functions and closures, expect fn(...) syntax
+  // For both regular functions and closures, expect fn(...), ctl(...),
+  // or unsafe_fn(...) syntax. `ctl` is the control-function type
+  // constructor — parallel to `fn`, but its body may contain `unwind`
+  // and the value is frame-bound (escape boundaries reject it).
   if (
     exprIsFunctionCall(argListExpr) &&
     (exprIsFunctionCallOf(argListExpr, BuiltinKeywords.fn) ||
+      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.ctl) ||
       exprIsFunctionCallOf(argListExpr, BuiltinKeywords.unsafe_fn))
   ) {
     argList = argListExpr.args;
   } else {
     throw formatErrorMessage({
       token: argListExpr.token,
-      errorMessage: `Expected a "fn" or "unsafe_fn" call for parameter list, got:\n${exprToString(argListExpr)}`,
+      errorMessage: `Expected a "fn", "ctl", or "unsafe_fn" call for parameter list, got:\n${exprToString(argListExpr)}`,
     });
   }
 
@@ -2492,6 +2496,7 @@ ${typeToString(returnType)}`,
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
     SelfTraitType: context.SelfTraitType,
+    isControl: context.isControlFunctionType,
   });
 
   // Pop the environment frame

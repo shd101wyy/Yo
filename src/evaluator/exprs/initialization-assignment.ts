@@ -132,6 +132,31 @@ export function evaluateInitializationAssignment({
   // Disallow using implicit variables (or property access of them) as the RHS
   throwExprIsImplicitVariableError(rhs);
 
+  // §4 handler-value unwind-escape check: reject binding a
+  // control-function value at module level. Module-level bindings
+  // outlive every call frame, so a stored handler would be invokable
+  // long after its install frame has returned — invoking it would
+  // unwind to a dead frame. Inside function bodies, the binding's
+  // own frame becomes the install site, which is the intended use.
+  {
+    const isAtModuleLevel = !context.isEvaluatingFunctionBodyOrAsyncBlock;
+    if (isAtModuleLevel) {
+      const rhsValue = rhs.$?.value;
+      if (rhsValue && isFunctionValue(rhsValue) && rhsValue.isControlFunction) {
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Cannot bind a control-function value at module level. The handler's body uses \`unwind\`, which targets the frame where the handler is first locally bound (its install site). Module-level bindings outlive every call frame; invoking the handler later would unwind to a dead frame.
+
+Define handlers inside the function that uses them:
+  use_it :: (fn(...) -> ...)({
+    (raise : Raise) = ((msg) -> { unwind(...); });
+    some_call(args, raise);
+  });`,
+        });
+      }
+    }
+  }
+
   if (exprIsAtom(actualLhs)) {
     // Check if the RHS variable has been consumed (moved)
     requireExprNotConsumed(rhs, env);

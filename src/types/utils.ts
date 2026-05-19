@@ -207,6 +207,83 @@ export function typeContainsRcType(
 }
 
 /**
+ * Check if a type is "control-bound" — i.e., a value of this type carries
+ * (transitively) a control-function value. Control-bound values are
+ * frame-bound: they cannot escape via function return, module-level
+ * binding, heap allocation, closure capture, or pointer indirection.
+ *
+ * See plans/EXPLICIT_EFFECTS.md §4 "Handler value unwind-escape
+ * restrictions — `ctl()` type constructor".
+ *
+ * Rules:
+ * - `ctl(...) -> ret` (FunctionType with `isControl === true`) → true.
+ * - Regular `fn(...) -> ret` → false (a fn pointer doesn't carry a CF,
+ *   even if its parameters/return reference ctl types).
+ * - Aggregates (Struct, Tuple, Enum, Union, Array, Slice) → true iff
+ *   any field/element type is control-bound.
+ * - `&T` (Ptr) → true iff T is control-bound. Pointers to control-bound
+ *   storage are themselves rejected (rule 11) to prevent escape via
+ *   pointer-write to outer-frame storage.
+ * - Other types (numbers, strings, types, etc.) → false.
+ */
+export function typeIsControlBound(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  if (checkedTypes.includes(type)) {
+    return false;
+  }
+  checkedTypes.push(type);
+
+  switch (type.tag) {
+    case TypeTag.Function: {
+      // Only a `ctl(...) -> ret` function value is itself control-bound.
+      // A regular `fn(...) -> ret` is a plain fn pointer; even if its
+      // parameter or return types reference ctl, the function value does
+      // not carry a CF — it merely calls one provided by the caller.
+      return (type as FunctionType).isControl === true;
+    }
+    case TypeTag.Struct:
+      return (type as StructType).fields.some((field) =>
+        typeIsControlBound(field.type, checkedTypes)
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeIsControlBound(field.type, checkedTypes)
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeIsControlBound(field.type, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeIsControlBound(param.type, checkedTypes)
+        )
+      );
+    case TypeTag.Array:
+      return typeIsControlBound((type as ArrayType).childType, checkedTypes);
+    case TypeTag.Slice:
+      return typeIsControlBound((type as SliceType).childType, checkedTypes);
+    case TypeTag.Ptr:
+      return typeIsControlBound((type as PtrType).childType, checkedTypes);
+    case TypeTag.SomeType: {
+      const someType = type as SomeType;
+      if (someType.resolvedConcreteType) {
+        return typeIsControlBound(someType.resolvedConcreteType, checkedTypes);
+      }
+      return false;
+    }
+    default:
+      return false;
+  }
+}
+
+/**
  * Check if a type contains SomeType.
  */
 export function typeContainsSomeType(

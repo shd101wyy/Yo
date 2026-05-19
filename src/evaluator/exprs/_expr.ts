@@ -257,9 +257,10 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, "->", 2)) {
       // Function type
       if (
-        // (fn(x : i32) -> i32)
+        // (fn(x : i32) -> i32), (ctl(x : i32) -> i32), or unsafe_fn(...)
         exprIsFunctionCall(expr.args[0]) &&
         (exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn) ||
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.ctl) ||
           exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.unsafe_fn))
       ) {
         return evaluateFunctionType({
@@ -270,6 +271,10 @@ ${exprToString(expr)}`,
             isUnsafeFunctionType: exprIsFunctionCallOf(
               expr.args[0],
               BuiltinKeywords.unsafe_fn
+            ),
+            isControlFunctionType: exprIsFunctionCallOf(
+              expr.args[0],
+              BuiltinKeywords.ctl
             ),
           },
         });

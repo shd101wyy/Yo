@@ -889,6 +889,16 @@ export interface FunctionType extends Type {
    *
    */
   isClosure?: boolean;
+
+  /**
+   * Whether this function type is a control function — declared with
+   * `ctl(...) -> ret` rather than `fn(...) -> ret`. Control functions
+   * may contain `unwind` in their body; their values are frame-bound
+   * (cannot escape via return, module-level binding, heap allocation,
+   * closure capture, or pointer indirection). See
+   * plans/EXPLICIT_EFFECTS.md §4.
+   */
+  isControl?: boolean;
 }
 
 export interface PtrType extends Type {

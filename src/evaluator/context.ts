@@ -170,6 +170,14 @@ export interface EvaluatorContext {
   isUnsafeFunctionType?: boolean;
 
   /**
+   * Whether the function type being evaluated was declared with `ctl(...)
+   * -> ret` (the control-function constructor). Control functions may
+   * contain `unwind` in their body and are frame-bound — see
+   * plans/EXPLICIT_EFFECTS.md §4 for the type-system rules.
+   */
+  isControlFunctionType?: boolean;
+
+  /**
    * The return type of the enclosing (parent) function.
    * This is set when evaluating a nested function body, enabling `escape expr`
    * to return from the enclosing function. `escape` is valid in any function

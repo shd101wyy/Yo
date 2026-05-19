@@ -673,7 +673,8 @@ test("Test multiple effect row spreads with resume", {
       forall(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
       f1 : (fn(e1 : E1) -> T1),
       f2 : (fn(e2 : E2) -> T2),
-      e1 : E1, e2 : E2
+      e1 : E1,
+      e2 : E2
     ) -> T1
   )({
     f2(e2);
@@ -708,7 +709,8 @@ test("Test multiple effect row spreads with unwind", {
       forall(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
       f1 : (fn(e1 : E1) -> T1),
       f2 : (fn(e2 : E2) -> T2),
-      e1 : E1, e2 : E2
+      e1 : E1,
+      e2 : E2
     ) -> T1
   )({
     f2(e2);
@@ -880,7 +882,7 @@ test("Mixed unwind and return in effect handler", {
     result := e.yield(v);
     assert(result == v, "mixed handler: yield should return the value");
     sum.* = (sum.* + result);
-  
+
   }, { yield, log });
   assert(false, "This line should not be reached due to unwind in yield");
 });
@@ -1066,7 +1068,8 @@ test("Struct-record effect with forall handler — unwind in while loop", {
     fn(
       forall(S : usize, E : Type.Struct),
       arr : Array(i32, S),
-      exn : MyException(i32), e : E
+      exn : MyException(i32),
+      e : E
     ) -> unit
   )({
     i := usize(0);
@@ -1652,7 +1655,8 @@ test("Test transitive SM with struct-record effect in while loop", {
     fn(
       forall(E : Type.Struct),
       limit : i32,
-      counter : Counter, e : E
+      counter : Counter,
+      e : E
     ) -> i32
   )({
     sum := Box(i32)(0);
@@ -1729,3 +1733,29 @@ test("Test struct-based effect with resume", {
   result2 := safe_divide(10, 2, raise_mod);
   assert(result2 == 5, "struct-based effect with resume: should be 5");
 });
+// Unwind-escape check: a function cannot return a control-function value.
+// `unwind` targets the frame where the handler was first locally bound; if
+// the value is returned, the install frame is gone by the time a caller
+// invokes it. Caught at the `return` site.
+test("unwind-escape: cannot return a control-function value", {
+  comptime_expect_error(
+    (fn() -> (fn(msg : String) -> i32))({
+      (handler : (fn(msg : String) -> i32)) = (
+        (msg) -> {
+          unwind(i32(0));
+        }
+      );
+      return(handler);
+    })()
+  );
+});
+// Unwind-escape check: cannot bind a control-function value at module level.
+// Module-level bindings outlive every call frame, so a stored handler would
+// be invokable long after its install frame has returned.
+comptime_expect_error(
+  (escaped_handler : (fn(msg : String) -> i32)) = (
+    (msg) -> {
+      unwind(i32(0));
+    }
+  )
+);
