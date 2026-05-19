@@ -17,7 +17,6 @@ import type {
   ArrayType,
   ComptimeListType,
   DynType,
-  EffectsRowType,
   EnumType,
   FnTraitType,
   FunctionForallParameter,
@@ -1002,48 +1001,9 @@ const cachedTypeMap: Map<
   Map<Type | undefined, TypeHierarchyType>
 > = new Map();
 /**
- * Creates a SomeType that represents an effect row variable (declared via `...(E)` in forall).
- * Unlike createSomeType, this does NOT require level 0 and does NOT attach Runtime/RC functions
- * since effect row variables are purely compile-time constructs.
+ * Note: createEffectsRowSomeType / createEffectsRowType were removed —
+ * the `...(E)` effect-row spread machinery is gone in explicit-effects.
  */
-export function createEffectsRowSomeType(
-  variableName: string,
-  env: Environment
-): SomeType {
-  const trait = createTraitType(env);
-  const parentType = createTypeHierarchy(1); // Effect rows are at Type(1) level like Module/Trait
-  const someType: SomeType = {
-    id: `effects_row_sometype_${randomId(env.modulePath)}`,
-    tag: TypeTag.SomeType,
-    name: variableName,
-    definitionFrameLevel:
-      env.frames.length > 0 ? env.frames.length - 1 : undefined,
-    parentType,
-    size: undefined,
-    requiredTraits: [],
-    negativeTraits: [],
-    trait,
-    isEffectsRow: true,
-  };
-  trait.receiverType = someType;
-  return someType;
-}
-
-export function createEffectsRowType(
-  implicitParameters: FunctionParameter[]
-): EffectsRowType {
-  const emptyEnv = createEmptyEnv();
-  const trait = createTraitType(emptyEnv);
-  const type: EffectsRowType = {
-    id: `EffectsRow_${randomId(emptyEnv.modulePath)}`,
-    tag: TypeTag.EffectsRow,
-    implicitParameters,
-    trait,
-  };
-  trait.receiverType = type;
-  return type;
-}
-
 export function createTypeHierarchy(
   level: number,
   baseType?: Type

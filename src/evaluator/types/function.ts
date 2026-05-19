@@ -25,12 +25,10 @@ import { PlaceholderToken, type Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
   createComptimeListType,
-  createEffectsRowSomeType,
   createExprListType,
   createFunctionType,
   createSomeType,
   createType0,
-  createTypeHierarchy,
   getFunctionParameterExprs,
 } from "../../types/creators";
 import type {
@@ -1600,70 +1598,8 @@ export function evaluateFunctionParameters({
       for (let j = 0; j < typeParameterExprs.length; j++) {
         const typeParameterExpr = typeParameterExprs[j]!;
 
-        // Detect ...(E) — effect row variable declaration
-        if (
-          exprIsFunctionCall(typeParameterExpr) &&
-          exprIsFunctionCallOf(typeParameterExpr, "...") &&
-          typeParameterExpr.args.length === 1 &&
-          exprIsAtom(typeParameterExpr.args[0]!)
-        ) {
-          const rowVarName = typeParameterExpr.args[0]!.token.value;
-
-          // Duplicate check
-          const duplicateLabel = forallParameters.find(
-            (element) => element.label === rowVarName
-          );
-          if (duplicateLabel) {
-            throw formatErrorMessage({
-              token: typeParameterExpr.token,
-              errorMessage: `Duplicate label "${rowVarName}" in type parameter`,
-            });
-          }
-
-          // Create a SomeType marked as an effect row variable
-          const effRowSomeType = createEffectsRowSomeType(rowVarName, env);
-          const rowKindType = createTypeHierarchy(1); // Type(1) level
-
-          // Add E to env (initially unbound — will be bound at call-site synthesis)
-          const { env: nextEnv } = addVariableToEnv({
-            env,
-            variable: {
-              name: rowVarName,
-              type: rowKindType,
-              isCompileTimeOnly: true,
-              value: [createTypeValue(effRowSomeType)],
-              token: typeParameterExpr.args[0]!.token,
-              initializedAtToken: typeParameterExpr.args[0]!.token,
-              consumedAtToken: undefined,
-              isOwningTheRcValue: false,
-            },
-          });
-          env = nextEnv;
-
-          typeParameterExpr.$ = {
-            env,
-            type: rowKindType,
-            value: createTypeValue(effRowSomeType),
-            pathCollection: [],
-          };
-
-          const forallParam: FunctionForallParameter = {
-            label: rowVarName,
-            type: rowKindType,
-            isCompileTimeOnly: true,
-            isQuote: false,
-            isOwningTheRcValue: false,
-            exprs: getFunctionParameterExprs({
-              expr: typeParameterExpr,
-              labelExpr: typeParameterExpr.args[0],
-              typeExpr: typeParameterExpr.args[0]!,
-              defaultValueExpr: undefined,
-              assignedValueExpr: undefined,
-            }),
-          };
-          forallParameters.push(forallParam);
-          continue;
-        }
+        // `...(E)` effect-row variable declarations are gone — every
+        // forall parameter is processed by the standard path below.
 
         const { parameter, env: nextEnv } = evaluateFunctionParameter({
           expr: typeParameterExpr,

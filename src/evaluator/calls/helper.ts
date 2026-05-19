@@ -38,7 +38,6 @@ import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
-  createEffectsRowSomeType,
   createExprType,
   createFunctionType,
   createSomeType,
@@ -1028,25 +1027,11 @@ Got:   ${regularArgsToCheck.length} arguments`,
     if (forallParameter.exprs.labelExpr && forallParameter.label) {
       // console.log("(12) addVariableToEnv");
 
-      // Detect effect row forall parameters (e.g., ...(E) in forall(T : Type, ...(E))).
-      // These have TypeHierarchy level 1 and their expr is a ...(name) call.
-      // For these, create an effects row SomeType instead of an UnknownValue,
-      // so that synthesis can resolve the effect row from closure implicit parameters.
-      const isEffectsRowForall =
-        isTypeHierarchyType(forallParameter.type) &&
-        forallParameter.type.level === 1 &&
-        exprIsFunctionCall(forallParameter.exprs.expr) &&
-        exprIsFunctionCallOf(forallParameter.exprs.expr, "...", 1);
-
-      const initialValue = isEffectsRowForall
-        ? createTypeValue(
-            createEffectsRowSomeType(forallParameter.label, calleeEnv)
-          )
-        : createUnknownValue(forallParameter.type, {
-            variableName: forallParameter.label,
-            env: calleeEnv,
-            context,
-          });
+      const initialValue = createUnknownValue(forallParameter.type, {
+        variableName: forallParameter.label,
+        env: calleeEnv,
+        context,
+      });
 
       const { env: nextEnv, variable } = addVariableToEnv({
         env: calleeEnv,

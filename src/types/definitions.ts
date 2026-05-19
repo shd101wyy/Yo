@@ -224,30 +224,12 @@ export interface SomeType extends Type {
   };
 
   /**
-   * If true, this SomeType represents an effect row variable (declared via `...(E)` in forall).
-   * When bound, its value will be an EffectsRowType containing the concrete implicit parameters.
-   */
-  isEffectsRow?: boolean;
-
-  /**
    * When present, this SomeType represents a higher-kinded type variable with a function-type kind.
    * For example, `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))` creates a SomeType
    * with kindFunctionType set to the `fn(comptime(T) : Type) -> comptime(Type)` function type.
    * This enables HKT support — F can be passed `Option`, `ArrayList`, etc. as concrete constructors.
    */
   kindFunctionType?: FunctionType;
-}
-
-/**
- * EffectsRowType holds the concrete list of implicit parameters that an effect row variable
- * (declared via `...(E)` in forall) was bound to.
- * For example, after `run(might_fail)` with might_fail : fn(using(raise : Raise)) -> i32,
- * E is bound to EffectsRowType { implicitParameters: [{ label: "raise", type: RaiseType }] }.
- */
-export interface EffectsRowType extends Type {
-  tag: TypeTag.EffectsRow;
-  implicitParameters: FunctionParameter[];
-  trait: TraitType;
 }
 
 /**

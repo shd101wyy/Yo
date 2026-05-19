@@ -1101,10 +1101,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       return `ComptimeList(${typeToString((type as ComptimeListType).childType)})`;
     }
 
-    case TypeTag.EffectsRow: {
-      return "EffectsRow()";
-    }
-
     case TypeTag.Dyn: {
       const dynType = type as DynType;
       // If typeName is available, use it

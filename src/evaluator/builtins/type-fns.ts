@@ -645,8 +645,6 @@ function typeTagToVariantName(tag: string): string {
       return "Expr";
     case TypeTag.ComptimeList:
       return "ComptimeList";
-    case TypeTag.EffectsRow:
-      return "EffectsRow";
     case TypeTag.TypeApplication:
       return "TypeApplication";
     default:
@@ -728,7 +726,6 @@ export function evaluateYoTypeGetInfo({
     case TypeTag.LongDouble:
     case TypeTag.Void:
     case TypeTag.Expr:
-    case TypeTag.EffectsRow:
     case TypeTag.TypeApplication: {
       const variantName = typeTagToVariantName(type.tag);
       code = `TypeInfo.${variantName}`;

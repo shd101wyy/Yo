@@ -5,12 +5,7 @@ import {
   updateExistingVariable,
 } from "../../env";
 import { PlaceholderToken, type Token } from "../../token";
-import { createEffectsRowType } from "../../types/creators";
-import type {
-  EffectsRowType,
-  FunctionParameter,
-  Type,
-} from "../../types/definitions";
+import type { FunctionParameter, Type } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,
@@ -1159,68 +1154,7 @@ function synthesizeFutureEffects(
     }
   }
 
-  // 2. Match solved spreads' expanded effects against given
-  for (const spread of solvedSpreads) {
-    const expandedEffects = (spread.type as EffectsRowType).implicitParameters;
-    for (const exp of expandedEffects) {
-      for (let j = 0; j < givenConcrete.length; j++) {
-        if (matchedGiven.has(j)) continue;
-        if (exp.type.id === givenConcrete[j]!.type.id) {
-          const { expectedEnv, givenEnv } = synthesizeTypes(
-            { type: exp.type, env: expected.env },
-            { type: givenConcrete[j]!.type, env: given.env },
-            checkedTypePairs,
-            options
-          );
-          expected.env = expectedEnv;
-          given.env = givenEnv;
-          matchedGiven.add(j);
-          break;
-        }
-      }
-    }
-  }
-
-  // 3. Bind the single unsolved spread to remaining unmatched given effects
-  if (unsolvedSpreads.length === 1) {
-    const unsolvedSpread = unsolvedSpreads[0]!;
-    const remaining: FunctionParameter[] = [];
-    for (let j = 0; j < givenConcrete.length; j++) {
-      if (!matchedGiven.has(j)) {
-        remaining.push(givenConcrete[j]!);
-      }
-    }
-
-    if (isSomeType(unsolvedSpread.type) && unsolvedSpread.type.isEffectsRow) {
-      const effectsRow = createEffectsRowType(remaining);
-      const typeValue = createTypeValue(effectsRow);
-
-      const existingVars = getVariablesFromEnv(
-        expected.env,
-        unsolvedSpread.type.name
-      );
-      const variable = existingVars[existingVars.length - 1];
-      if (!variable) {
-        const { env: nextEnv } = addVariableToEnv({
-          env: expected.env,
-          variable: {
-            name: unsolvedSpread.type.name,
-            value: [typeValue],
-            type: typeValue.type,
-            isCompileTimeOnly: true,
-            token: options?.token ?? PlaceholderToken,
-            initializedAtToken: options?.token ?? PlaceholderToken,
-            consumedAtToken: undefined,
-            isOwningTheRcValue: false,
-          },
-        });
-        expected.env = nextEnv;
-      } else {
-        expected.env = updateExistingVariable(expected.env, variable, {
-          ...variable,
-          value: [typeValue],
-        });
-      }
-    }
-  }
+  // Spread handling is gone — there are no solved or unsolved spreads.
+  void solvedSpreads;
+  void unsolvedSpreads;
 }
