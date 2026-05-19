@@ -596,6 +596,17 @@ Ordering :: enum(
   Greater
 );
 export(Ordering);
+/// File-level privilege flag for the `pragma(...)` builtin. Declared at
+/// the top of a Yo file as `pragma(Pragma.AllowUnsafe);` to permit raw
+/// pointer operations (`p.*`, `&+`, `&-`, `&/`, etc.) without explicit
+/// `unsafe(...)` wraps. See plans/MEMORY_SAFETY.md.
+Pragma :: enum(AllowUnsafe);
+export(Pragma);
+/// The prelude itself is unsafe-capable: the raw-pointer machinery
+/// (Clone/Hash impls for primitive types, iterator scaffolding,
+/// Box/Iso/Arc internals, …) lives in this file. User code calls into
+/// it transitively through safe public APIs.
+pragma(Pragma.AllowUnsafe);
 /// Ord trait — enables `<`, `<=`, `>`, `>=` comparison operators.
 /// Requires the type to also implement `Eq`.
 Ord :: (

@@ -1,52 +1,69 @@
 /**
- * Memory-safety helpers (Phase A → C of plans/MEMORY_SAFETY.md).
+ * Memory-safety helpers (Phase C of plans/MEMORY_SAFETY.md).
  *
- * Provides per-file "unsafe-capable" detection. Initial MVP uses a
- * path-based heuristic: files under `std/` and `yo-self/` are treated
- * as unsafe-capable, bypassing the `unsafe(...)` requirement for
- * pointer ops. Phase C will replace this with explicit per-file
- * `pragma(Pragma.AllowUnsafe);` declarations registered in a per-file
- * privilege table.
+ * Per-file privilege tracking via `pragma(Pragma.AllowUnsafe);`. When
+ * the `pragma` builtin is evaluated, it records the file's URI in the
+ * `privilegedFiles` registry. The pointer-op gates then look up the
+ * current expression's source file in this registry — files that
+ * declared the pragma bypass the unsafe-wrap requirement.
+ *
+ * This replaces the Phase A MVP path-based heuristic. The only
+ * remaining bypass is `auto-generated://...` URIs (macro/derive
+ * expansions), which inherit the surrounding file's privilege via
+ * the expansion site.
  */
 
+/** Pragma flags a file can declare. */
+export type PragmaKind = "AllowUnsafe";
+
 /**
- * Is the module path under a directory that is implicitly
- * unsafe-capable?
+ * Per-file pragma registry. Keyed by canonical module URI (the
+ * value of `token.modulePath`, e.g. `file:///path/to/foo.yo`).
+ */
+const privilegedFiles: Map<string, Set<PragmaKind>> = new Map();
+
+/** Record that `modulePath` declared `pragma(Pragma.X);`. */
+export function registerFilePragma(modulePath: string, kind: PragmaKind): void {
+  let set = privilegedFiles.get(modulePath);
+  if (!set) {
+    set = new Set();
+    privilegedFiles.set(modulePath, set);
+  }
+  set.add(kind);
+}
+
+/** Has `modulePath` declared a given pragma? */
+export function fileHasPragma(
+  modulePath: string | undefined,
+  kind: PragmaKind
+): boolean {
+  if (!modulePath) return false;
+  const set = privilegedFiles.get(modulePath);
+  return !!set && set.has(kind);
+}
+
+/** Reset the registry. Used by tests and the LSP between sessions. */
+export function _clearPragmaRegistry(): void {
+  privilegedFiles.clear();
+}
+
+/**
+ * Is the module path implicitly unsafe-capable for pointer ops?
  *
- * Until the proper pragma mechanism lands (Phase C), every file under
- * `std/` and `yo-self/` is treated as `pragma(Pragma.AllowUnsafe);`.
- * Pointer deref, arithmetic, and consume-of-deref are permitted in
- * those files without an explicit `unsafe(...)` wrap.
+ * Returns true if:
+ * - The file declared `pragma(Pragma.AllowUnsafe);` at the top, OR
+ * - The expression came from compiler-synthesized code (macros,
+ *   derive expansions) whose URI is `auto-generated://...`. These
+ *   originate from a privileged caller; the wrap policy of the
+ *   expanded code is the caller's responsibility.
  *
- * User code (any file outside those directories) must wrap pointer
- * operations in `unsafe(...)`.
+ * User code that hasn't declared the pragma must wrap pointer
+ * operations in `unsafe(...)` explicitly.
  */
 export function isImplicitlyUnsafeCapableFile(
   modulePath: string | undefined
 ): boolean {
   if (!modulePath) return false;
-  // Normalize: strip file:// prefix if present.
-  let path = modulePath;
-  if (path.startsWith("file://")) {
-    path = path.slice("file://".length);
-  }
-  // Compiler-synthesized code (macros, derive expansions, etc.) has
-  // an `auto-generated://` URI. It always originates from prelude or
-  // user-defined macros expanding pointer ops — treat as unsafe-
-  // capable so the surrounding pragma decides the policy.
-  if (path.startsWith("auto-generated://")) return true;
-
-  // Match anything under std/, yo-self/, or tests/.
-  // Examples:
-  //   /Users/.../Yo/std/prelude.yo
-  //   /Users/.../Yo/std/collections/array_list.yo
-  //   /Users/.../Yo/yo-self/lexer.yo
-  //   /Users/.../Yo/tests/ptr.test.yo
-  // We match by directory-substring rather than by absolute prefix so
-  // this still works for relocated checkouts.
-  //
-  // `tests/` is included so existing pointer-exercising tests work
-  // without modification; once Phase C lands they should be updated
-  // to declare `pragma(Pragma.AllowUnsafe);` explicitly.
-  return /\/(std|yo-self|tests)\//.test(path);
+  if (modulePath.startsWith("auto-generated://")) return true;
+  return fileHasPragma(modulePath, "AllowUnsafe");
 }

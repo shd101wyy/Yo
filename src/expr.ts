@@ -746,6 +746,7 @@ export const BuiltinFunctions = {
   downcast: ["downcast"],
   consume: ["consume"],
   unsafe: ["unsafe"],
+  pragma: ["pragma"],
   macro_expand: ["macro_expand"],
   as: ["as"],
   the: ["the"],

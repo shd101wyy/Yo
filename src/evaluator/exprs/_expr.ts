@@ -33,6 +33,7 @@ import { evaluateComptimePrint } from "../builtins/comptime-print";
 import { evaluateYoComptimeStringFunctions } from "../builtins/comptime-string-fns";
 import { evaluateYoComptimeIndexFunctions } from "../builtins/comptime-index-fns";
 import { evaluateConsume } from "../builtins/consume";
+import { evaluatePragma } from "../builtins/pragma";
 import { evaluateUnsafe } from "../builtins/unsafe";
 import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { evaluateDowncast } from "../builtins/downcast";
@@ -653,6 +654,13 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.unsafe)) {
       // unsafe
       return evaluateUnsafe({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.pragma)) {
+      // pragma — file-level privilege declaration
+      return evaluatePragma({
         expr,
         env,
         context: { ...context },
