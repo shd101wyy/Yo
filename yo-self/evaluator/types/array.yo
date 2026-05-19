@@ -36,7 +36,7 @@ evaluate_array_type :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   // Verify this is `Array(T, N)` with exactly 2 arguments.
@@ -73,7 +73,7 @@ evaluate_array_type :: (
     );
   });
   // Evaluate the element type expression.
-  evaluated_elem_type := evaluate_expression_raw(element_type_expr, env, ctx, using(exn));
+  evaluated_elem_type := evaluate_expression_raw(element_type_expr, env, ctx, exn);
   elem_type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem_type));
   if(elem_type_info_opt.is_none(), {
     exn.throw(
@@ -141,7 +141,7 @@ evaluate_array_type :: (
   // Evaluate the length expression with expected type usize.
   old_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_usize(), env : env_after_elem));
-  evaluated_length := evaluate_expression_raw(length_expr, env_after_elem, ctx, using(exn));
+  evaluated_length := evaluate_expression_raw(length_expr, env_after_elem, ctx, exn);
   ctx.expected_type = old_expected;
   len_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_length));
   if(len_info_opt.is_none(), {

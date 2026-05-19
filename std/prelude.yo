@@ -113,7 +113,7 @@ extern(
   __yo_process_node_version : (fn() -> comptime(comptime_string))
 );
 export(__yo_as);
-/// The `unsafe` module — provides low-level escape hatches.
+/// The `unsafe` module — provides low-level unwind hatches.
 unsafe :: impl({
   /// Manually drop `value`, running its destructor immediately.
   drop :: (fn(quote(value) : Expr) -> unquote(Expr))(quote(___drop(unquote(value))));
@@ -5903,6 +5903,12 @@ impl(
 );
 _Type :: Type;
 export(Type : _Type);
+// Kind-constraint syntax `Type.Struct`, `Type.Enum`, `Type.Union`,
+// `Type.Trait`, `Type.Function` is recognised by the evaluator (see
+// `src/evaluator/exprs/property-access.ts`). Use `T : Type.Struct` for
+// forall type-variable constraints that signal an effect record (or
+// other kind-restricted type). The legacy `Struct :: Type` alias was
+// removed in favour of this syntax.
 /// Type reflection metadata structs — used by `Type.get_info()`.
 /// StructKind — discriminant for struct flavors.
 StructKind :: enum(
@@ -6591,7 +6597,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       );
       ctx.make_impl(
         quote(
-          Eq(...(#(trait_params)))(
+          Eq(...#(trait_params))(
             (==) : ((lhs, rhs) -> #(eq_body))
           )
         )
@@ -6661,7 +6667,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       match_body :: __s3("match(lhs,\n    ", eq_branches, "\n  )");
       ctx.make_impl(
         quote(
-          Eq(...(#(trait_params)))(
+          Eq(...#(trait_params))(
             (==) : ((lhs, rhs) -> #(match_body.to_expr()))
           )
         )
@@ -6670,7 +6676,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
     true =>
       ctx.make_impl(
         quote(
-          Eq(...(#(trait_params)))(
+          Eq(...#(trait_params))(
             (==) : ((lhs, rhs) -> true)
           )
         )
@@ -6951,7 +6957,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
         (fc == 0) =>
           ctx.make_impl(
             quote(
-              Ord(...(#(trait_params)))(
+              Ord(...#(trait_params))(
                 (<) : ((lhs, rhs) -> false),
                 (<=) : ((lhs, rhs) -> true),
                 (>) : ((lhs, rhs) -> false),
@@ -6966,7 +6972,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
           ge_body :: __derive_ord_struct_body(T, ">=");
           ctx.make_impl(
             quote(
-              Ord(...(#(trait_params)))(
+              Ord(...#(trait_params))(
                 (<) : ((lhs, rhs) -> #(lt_body.to_expr())),
                 (<=) : ((lhs, rhs) -> #(le_body.to_expr())),
                 (>) : ((lhs, rhs) -> #(gt_body.to_expr())),
@@ -7037,7 +7043,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
       ge_match :: __gen_op_branches(">=", "true");
       ctx.make_impl(
         quote(
-          Ord(...(#(trait_params)))(
+          Ord(...#(trait_params))(
             (<) : ((lhs, rhs) -> #(lt_match.to_expr())),
             (<=) : ((lhs, rhs) -> #(le_match.to_expr())),
             (>) : ((lhs, rhs) -> #(gt_match.to_expr())),
@@ -7049,7 +7055,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
     true =>
       ctx.make_impl(
         quote(
-          Ord(...(#(trait_params)))(
+          Ord(...#(trait_params))(
             (<) : ((lhs, rhs) -> false),
             (<=) : ((lhs, rhs) -> true),
             (>) : ((lhs, rhs) -> false),
@@ -8145,7 +8151,7 @@ FutureState :: enum(
   Running = 1,
   /// The future completed successfully.
   Completed = -(1),
-  /// The future was aborted (e.g., via `escape`).
+  /// The future was aborted (e.g., via `unwind`).
   Aborted = -(2)
 );
 impl(FutureState, Acyclic());
@@ -8172,27 +8178,27 @@ export(JoinHandle);
 /// IO module — the async runtime effect.
 ///
 /// Provides `io.async`, `io.await`, `io.spawn`, and `io.state` operations.
-/// Automatically injected into `main` when declared with `using(io : IO)`.
+/// Automatically injected into `main` when declared with `io : IO`.
 IO :: struct(
   /// Create a new `Future` from an async closure.
-  async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
+  async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   /// Await a `Future`, suspending until its result is ready.
-  await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
+  await : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
   /// Inspect the current state of a `Future` without blocking.
-  state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
+  state : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
-  spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
+  spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 export(IO);
 extern(
   "Yo",
-  __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
-  __yo_io_await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
-  __yo_io_state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
-  __yo_io_spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
+  __yo_io_async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  __yo_io_await : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
+  __yo_io_state : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
+  __yo_io_spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 /// Built-in IO module instance. Automatically injected for `main` functions
-/// with `using(io : IO)`.
+/// with `io : IO`.
 __yo_builtin_io :: IO(
   async : __yo_io_async,
   await : __yo_io_await,
@@ -8200,10 +8206,10 @@ __yo_builtin_io :: IO(
   spawn : __yo_io_spawn
 );
 export(__yo_builtin_io);
-/// JoinHandle methods — defined after IO so `using(io : IO)` resolves.
+/// JoinHandle methods — defined after IO so `io : IO` resolves.
 extern(
   "Yo",
-  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), using(io : IO)) -> Option(T))
+  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), io : IO) -> Option(T))
 );
 impl(
   forall(T : Type),

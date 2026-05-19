@@ -127,7 +127,6 @@ function functionParamsToDocParams(
     name: p.label,
     type: typeToString(p.type),
     isComptime: p.isCompileTimeOnly,
-    isImplicit: p.isImplicit,
     defaultValue: p.exprs.defaultValueExpr
       ? String(p.exprs.defaultValueExpr)
       : undefined,
@@ -143,20 +142,6 @@ function forallParamsToDocParams(
     name: p.label,
     type: typeToString(p.type),
     isComptime: true,
-    isImplicit: false,
-    doc: docLookup?.get(p.label),
-  }));
-}
-
-function implicitParamsToDocParams(
-  params: FunctionType["implicitParameters"],
-  docLookup?: DocLookup
-): DocParam[] {
-  return params.map((p) => ({
-    name: p.label,
-    type: typeToString(p.type),
-    isComptime: true,
-    isImplicit: true,
     doc: docLookup?.get(p.label),
   }));
 }
@@ -186,10 +171,7 @@ function buildDocFunction(
       funcType.forallParameters.length > 0
         ? forallParamsToDocParams(funcType.forallParameters, docLookup)
         : undefined,
-    effects:
-      funcType.implicitParameters.length > 0
-        ? implicitParamsToDocParams(funcType.implicitParameters, docLookup)
-        : undefined,
+    effects: undefined,
     isMethod,
     selfType,
     returns: parsed?.sections.get("returns"),
@@ -728,7 +710,6 @@ function extractTraitBodyMembers(
                         name: paramName,
                         type: paramType,
                         isComptime: false,
-                        isImplicit: false,
                       });
                     }
                     p = typeArgEnd;

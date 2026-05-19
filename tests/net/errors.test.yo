@@ -35,41 +35,41 @@ test("NetError.from_io wraps unknown error in IO variant", {
   printf("  err = %s\n", s.to_cstr().ptr().unwrap());
 });
 test("NetError.check positive value returns value", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  n := NetError.check(i32(42));
+  n := NetError.check(i32(42), exn);
   printf("  ok = %d\n", n);
   assert(n == i32(42), "should be 42");
 });
 test("NetError.check zero returns zero", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  n := NetError.check(i32(0));
+  n := NetError.check(i32(0), exn);
   printf("  ok = %d\n", n);
   assert(n == i32(0), "should be 0");
 });
 test("NetError.check negative value throws", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(());
+        unwind(());
       }
     )
   );
   // -111 is ECONNREFUSED on Linux
-  NetError.check(i32(-(111)));
+  NetError.check(i32(-(111)), exn);
   assert(false, "should have thrown");
 });
 test("NetError DNSFailed to_string", {

@@ -63,12 +63,9 @@ function renderFunction(fn: DocFunction): string {
     lines.push("");
     for (const p of fn.parameters) {
       const comptime = p.isComptime ? " *(comptime)*" : "";
-      const implicit = p.isImplicit ? " *(implicit)*" : "";
       const dflt = p.defaultValue ? ` = \`${p.defaultValue}\`` : "";
       const doc = p.doc ? ` — ${p.doc}` : "";
-      lines.push(
-        `- \`${p.name}\` : \`${p.type}\`${comptime}${implicit}${dflt}${doc}`
-      );
+      lines.push(`- \`${p.name}\` : \`${p.type}\`${comptime}${dflt}${doc}`);
     }
     lines.push("");
   }

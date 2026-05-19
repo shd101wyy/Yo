@@ -8,6 +8,8 @@
 
 https://shd101wyy.github.io/Yo
 
+**LLM 友好地编写，人类友好地阅读。**
+
 一种多范式、通用型、编译型编程语言。
 Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 
@@ -51,7 +53,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - 编译时求值（Compile-time evaluation）。
 - 同像性（Homoiconicity）和元编程（**Yo** 语法受 **Lisp** S 表达式启发。简单的语法规则，对人类和 AI 友好）。
 - 闭包（Closure）。
-- [代数效应与处理器](./ALGEBRAIC_EFFECTS.md)（一次性 delimited continuation、尾调用恢复式、通过 `using`/`given` 的隐式参数、通过 `return`/`escape` 的效应处理器，基于 [证据传递/Evidence Passing](https://xnning.github.io/papers/multip.pdf)）。
+- [代数效应与处理器](./ALGEBRAIC_EFFECTS.md)（一次性 delimited continuation、尾调用恢复式、通过 `using`/`given` 的隐式参数、通过 `return`/`unwind` 的效应处理器，基于 [证据传递/Evidence Passing](https://xnning.github.io/papers/multip.pdf)）。
 - [Async/Await](./ASYNC_AWAIT.md)（内置 `IO` 效应。无栈协程与合作式多任务。惰性 Future、多 await、通过状态机转换实现的单线程并发）。
 - 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的 `object` 类型。
 - [基于所有权和生命周期分析的编译时引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。

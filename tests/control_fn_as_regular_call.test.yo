@@ -1,10 +1,10 @@
 // Regression test for: a top-level `fn` whose body installs a
-// `given(exn) := Exception(throw: ((err) -> { escape(); }))` handler
+// `exn := Exception(throw: ((err) -> { unwind(); }))` handler
 // must still be registered as a standalone C function when called as
 // a regular (non-handler) function from multiple call sites.
 //
 // Bug: Previously `collection.ts` flagged such functions as
-// `isControlFunction=true` (because the body contains `escape`) and
+// `isControlFunction=true` (because the body contains `unwind`) and
 // only inlined via state machine, never registering a named C function.
 // This caused "Unhandled function call" errors when the function was
 // called from several sites (e.g. main thread + spawned workers).
@@ -19,17 +19,17 @@ Worker :: import("std/worker");
 // Top-level fn with a locally installed effect handler that escapes.
 // The body pattern mirrors a server accept loop: install handler,
 // perform some async operations, return via `return ()` on early exit.
-do_work :: (fn(iterations : i32, using(io : IO)) -> i32)({
-  given(exn) := Exception(
+do_work :: (fn(iterations : i32, io : IO) -> i32)({
+  exn := Exception(
     throw : (
       (err) -> {
         printf("do_work: unexpected exception\n");
-        escape(i32(-(1)));
+        unwind(i32(-(1)));
       }
     )
   );
   // An await forces this function to be a state-machine function.
-  io.await(yield());
+  io.await(yield(), io);
   total := i32(0);
   i := i32(0);
   while(runtime(i < iterations), {
@@ -39,15 +39,15 @@ do_work :: (fn(iterations : i32, using(io : IO)) -> i32)({
   return(total);
 });
 test("control fn called as regular function from single site", {
-  result := do_work(i32(10), using(io));
+  result := do_work(i32(10), io);
   assert(result == i32(45), "sum 0..9 should be 45");
 });
 test("control fn called as regular function from multiple sites", {
   // Multiple direct call sites in the same scope — exercises that the
   // function is registered once and dispatched by name at each site.
-  a := do_work(i32(5), using(io));
-  b := do_work(i32(6), using(io));
-  c := do_work(i32(7), using(io));
+  a := do_work(i32(5), io);
+  b := do_work(i32(6), io);
+  c := do_work(i32(7), io);
   assert(a == i32(10), "sum 0..4");
   assert(b == i32(15), "sum 0..5");
   assert(c == i32(21), "sum 0..6");
@@ -56,10 +56,10 @@ test("control fn called from worker closures", {
   // Match the yo_http_benchmark multi-threaded pattern: call the
   // control fn from main AND from a Worker.spawn closure.
   Worker.set_num_threads(2);
-  Worker.spawn((using(io)) => {
-    r := do_work(i32(4), using(io));
+  Worker.spawn((io) => {
+    r := do_work(i32(4), io);
     assert(r == i32(6), "worker sum 0..3 should be 6");
   });
-  main_result := do_work(i32(4), using(io));
+  main_result := do_work(i32(4), io);
   assert(main_result == i32(6), "main sum 0..3 should be 6");
 });

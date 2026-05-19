@@ -78,7 +78,7 @@ _signal_num :: (fn(sig : Signal) -> i32)(
 // on_signal / off_signal
 // ============================================================================
 /// Register a handler for the given signal.
-on_signal :: (fn(sig : Signal, handler : SignalHandler, using(exn : Exception)) -> unit)({
+on_signal :: (fn(sig : Signal, handler : SignalHandler, exn : Exception) -> unit)({
   num := _signal_num(sig);
   r := _on_signal(num, handler);
   cond(
@@ -89,7 +89,7 @@ on_signal :: (fn(sig : Signal, handler : SignalHandler, using(exn : Exception)) 
   );
 });
 /// Remove the handler for the given signal.
-off_signal :: (fn(sig : Signal, using(exn : Exception)) -> unit)({
+off_signal :: (fn(sig : Signal, exn : Exception) -> unit)({
   num := _signal_num(sig);
   r := _off_signal(num);
   cond(

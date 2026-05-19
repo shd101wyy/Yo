@@ -101,7 +101,7 @@ _get_or_create_some_ty_for_trait :: (
     self_type : TypeValue,
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> _SomeTyResolvedResult
 )({
   // "Self" case
@@ -190,7 +190,7 @@ _get_or_create_some_ty_for_trait :: (
   // try/catch around `getOrCreateSomeTypeForTraitWhereClause`).
   old_self_type := ctx.self_type;
   ctx.self_type =.Some(self_type);
-  evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, using(exn));
+  evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut.*, ctx, exn);
   ctx.self_type = old_self_type;
   lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
   lhs_info := match(
@@ -275,7 +275,7 @@ _apply_single_constraint_for_trait :: (
     trait_ty : TypeValue,
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> bool
 )({
   // Check if negated
@@ -292,7 +292,7 @@ _apply_single_constraint_for_trait :: (
   // Resolve LHS (use outer exn — hard failure).
   // The given/using soft-failure pattern generates incomplete C calls.
   (resolved_opt : Option(_SomeTyResolvedResult)) = Option(_SomeTyResolvedResult).None;
-  resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, using(exn));
+  resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, exn);
   resolved_opt =.Some(resolved);
   res := match(
     resolved_opt,
@@ -305,7 +305,7 @@ _apply_single_constraint_for_trait :: (
   (trait_ty2 : TypeValue) = TypeValue.Unit;
   old_self_type := ctx.self_type;
   ctx.self_type =.Some(self_type);
-  evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn));
+  evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, exn);
   ctx.self_type = old_self_type;
   te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
   te_info := match(
@@ -364,7 +364,7 @@ _parse_trait_where_clauses :: (
     collect_pending : bool,
     env_mut : *(Environment),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> ArrayList(_PendingTraitConstraint)
 )({
   pending_traits := ArrayList(_PendingTraitConstraint).new();
@@ -409,7 +409,7 @@ _parse_trait_where_clauses :: (
       pending_traits.push(_PendingTraitConstraint(lhs_expr, rhs_expr, constraint_expr));
       continue;
     });
-    resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, using(exn));
+    resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, exn);
     res := resolved;
     // Collect RHS trait exprs (single or tuple)
     rhs_trait_exprs := ArrayList(AstExpr).new();
@@ -447,7 +447,7 @@ _parse_trait_where_clauses :: (
       old_self_trait_type := ctx.self_trait_type;
       ctx.self_type =.Some(self_type);
       ctx.self_trait_type =.Some(trait_ty);
-      evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, using(exn));
+      evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut.*, ctx, exn);
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
@@ -549,7 +549,7 @@ _parse_trait_where_clauses :: (
 ///
 /// Lives in its own function because Yo effect-handler bodies cannot
 /// capture outer runtime vars — wrapping the call this way lets the
-/// `escape(())` exit only this helper, leaving the calling loop's
+/// `unwind(())` exit only this helper, leaving the calling loop's
 /// state untouched.
 _drop_where_constraint_failures :: (
   fn(
@@ -560,8 +560,8 @@ _drop_where_constraint_failures :: (
     ctx : *(EvalContext)
   ) -> unit
 )({
-  given(retry_exn) := Exception(
-    throw : ((_err) -> escape(()))
+  retry_exn := Exception(
+    throw : ((_err) -> unwind(()))
   );
   _ := _parse_trait_where_clauses(
     retry_list,
@@ -570,7 +570,7 @@ _drop_where_constraint_failures :: (
     false,
     env_mut,
     ctx,
-    using(retry_exn)
+    retry_exn
   );
 });
 // ---------------------------------------------------------------------------
@@ -591,7 +591,7 @@ _evaluate_trait_field :: (
     env_mut : *(Environment),
     ctx : *(EvalContext),
     is_for_evaluating_trait_ty : bool,
-    using(exn : Exception)
+    exn : Exception
   ) -> _TraitFieldResult
 )({
   // Phase 1: detect `?=` outer wrapper
@@ -1057,7 +1057,7 @@ evaluate_trait_type :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   if(!(ast_expr_is_fn_call_of(expr, BK_TRAIT,.None)), {
@@ -1141,7 +1141,7 @@ evaluate_trait_type :: (
           true,
           &(env_mut),
           ctx,
-          using(exn)
+          exn
         );
         ctx.self_type = old_self_type;
         ctx.self_trait_type = old_self_trait_type;
@@ -1189,7 +1189,7 @@ evaluate_trait_type :: (
       &(env_mut),
       ctx,
       true,
-      using(exn)
+      exn
     );
     field_index = (field_index + usize(1));
     // Check for duplicate labels

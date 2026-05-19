@@ -6,6 +6,7 @@ import {
   type Expr,
   type FnCallExpr,
 } from "../../expr";
+import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
 import type {
@@ -15,7 +16,7 @@ import type {
   Type,
 } from "../../types/definitions";
 import { isDynType, isSomeType } from "../../types/guards";
-import { typeToString } from "../../types/utils";
+import { typeIsControlBound, typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import type { EvaluatorContext } from "../context";
@@ -122,8 +123,52 @@ export function tryToImplementClosureByFnTraitType({
   }
   env = evaluatedClosureBody.$.env;
 
+  // §4 typing rule 3: closure body cannot contain `unwind`. A closure
+  // is a heap-allocated value designed to be passed around / stored /
+  // called later; this is incompatible with the frame-bound discipline
+  // of control functions. Handlers must be bare anonymous functions
+  // (`ctl(...) -> ret`), not closures.
+  if (evaluatedBodyContainsEscape(evaluatedClosureBody)) {
+    throw formatErrorMessage({
+      token: closureBodyExpr.token,
+      errorMessage: `Closure bodies cannot contain \`unwind\`. Closures are heap-allocated values that may be stored or passed around and outlive their enclosing frame; \`unwind\` requires a frame-bound \`ctl(...) -> ret\` function.
+
+If you need a handler, define a bare anonymous function:
+  (raise : Raise) = ((msg) -> { unwind(...); });`,
+    });
+  }
+
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
+
+  // §4 typing rule 4: closure cannot capture a value of control-bound
+  // type. The closure value carries the captured value in its env;
+  // closures may escape (return, heap-store), and the captured CF
+  // would escape with them. If a handler needs to be threaded through
+  // closure-like code, take it as a regular function parameter
+  // instead.
+  if (capturedVariables && capturedVariables.size > 0) {
+    for (const [varName, captureInfo] of capturedVariables.entries()) {
+      if (captureInfo.frameLevel < callerEnv.frames.length) {
+        const frame = callerEnv.frames[captureInfo.frameLevel]!;
+        const variable = frame.variables.find((v) => v.name === varName);
+        if (
+          variable &&
+          !variable.isCompileTimeOnly &&
+          typeIsControlBound(variable.type)
+        ) {
+          throw formatErrorMessage({
+            token: captureInfo.token,
+            errorMessage: `Closures cannot capture a value of control-bound type. The captured value \`${varName}\` has type \`${typeToString(
+              variable.type
+            )}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
+
+Pass \`${varName}\` as a regular function parameter instead of capturing it in a closure.`,
+          });
+        }
+      }
+    }
+  }
 
   // Check if the closure body type matches the closure return type
   const closureBodyReturnType = evaluatedClosureBody.$.type;

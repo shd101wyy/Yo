@@ -20,11 +20,11 @@ test("umask affects file creation mode and can be restored", {
   old_mask := umask_io.umask(i32(0));
   set_prev := umask_io.umask(i32(0o022));
   open_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-  fd := io.await(file.openat(AT_FDCWD, test_path, open_flags, i32(0o666)));
-  close_result := io.await(file.close(fd));
+  fd := io.await(file.openat(AT_FDCWD, test_path, open_flags, i32(0o666)), io);
+  close_result := io.await(file.close(fd), io);
   statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
   stat_buf := *(u8)(statx_uninit.as_ptr());
-  sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf));
+  sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf), io);
   st := Statx(stat_buf, usize(256));
   mode_bits := (st.mode() & u32(0o777));
   restore_prev := umask_io.umask(old_mask);
@@ -40,7 +40,7 @@ test("umask affects file creation mode and can be restored", {
       assert(mode_bits == u32(0o644), "created file mode should reflect umask 022 (0666 -> 0644)")
   );
   assert(restore_prev == i32(0o022), "restoring old umask should return current mask 022");
-  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
+  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)), io);
   assert(cleanup == i32(0), "cleanup unlink should succeed");
   printf("  umask behavior validated\n");
 });

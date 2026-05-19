@@ -64,24 +64,24 @@ test("utf8_to_utf16 four-byte UTF-8 surrogate pair", {
 });
 // ===== UTF-16 to UTF-8 =====
 test("utf16_to_utf8 empty", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
   data := ArrayList(u16).new();
-  result := utf16_to_utf8(data);
+  result := utf16_to_utf8(data, exn);
   assert(result.as_str() == "", "should be empty string");
 });
 test("utf16_to_utf8 ASCII", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -91,22 +91,22 @@ test("utf16_to_utf8 ASCII", {
   data.push(u16(108));
   data.push(u16(108));
   data.push(u16(111));
-  result := utf16_to_utf8(data);
+  result := utf16_to_utf8(data, exn);
   assert(result.as_str() == "Hello", "should be Hello");
 });
 test("utf16_to_utf8 BMP character", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
   // U+20AC = € (euro sign)
   data := ArrayList(u16).new();
   data.push(u16(0x20AC));
-  s := utf16_to_utf8(data);
+  s := utf16_to_utf8(data, exn);
   bytes := s.as_bytes();
   assert(bytes.len() == usize(3), "euro sign should be 3 UTF-8 bytes");
   assert(bytes.get(usize(0)).unwrap() == u8(0xE2), "byte 0");
@@ -114,11 +114,11 @@ test("utf16_to_utf8 BMP character", {
   assert(bytes.get(usize(2)).unwrap() == u8(0xAC), "byte 2");
 });
 test("utf16_to_utf8 surrogate pair", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -126,7 +126,7 @@ test("utf16_to_utf8 surrogate pair", {
   data := ArrayList(u16).new();
   data.push(u16(0xD83D));
   data.push(u16(0xDE00));
-  s := utf16_to_utf8(data);
+  s := utf16_to_utf8(data, exn);
   bytes := s.as_bytes();
   assert(bytes.len() == usize(4), "U+1F600 should be 4 UTF-8 bytes");
   assert(bytes.get(usize(0)).unwrap() == u8(0xF0), "byte 0");
@@ -136,47 +136,47 @@ test("utf16_to_utf8 surrogate pair", {
 });
 // ===== Roundtrip =====
 test("utf16 roundtrip ASCII", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
   input := "Hello, World!";
   utf16 := utf8_to_utf16(input);
-  result := utf16_to_utf8(utf16);
+  result := utf16_to_utf8(utf16, exn);
   assert(result.as_str() == input, "ASCII roundtrip should preserve string");
 });
 test("utf16 roundtrip two-byte", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
   // é = U+00E9 as UTF-8 bytes
   input := _make_str_2(u8(0xC3), u8(0xA9));
   utf16 := utf8_to_utf16(input.as_str());
-  result := utf16_to_utf8(utf16);
+  result := utf16_to_utf8(utf16, exn);
   assert(result.as_str() == input.as_str(), "two-byte roundtrip should preserve string");
 });
 test("utf16 roundtrip surrogate pair", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
   // U+1F600 as UTF-8 bytes
   input := _make_str_4(u8(0xF0), u8(0x9F), u8(0x98), u8(0x80));
   utf16 := utf8_to_utf16(input.as_str());
-  result := utf16_to_utf8(utf16);
+  result := utf16_to_utf8(utf16, exn);
   bytes := result.as_bytes();
   assert(bytes.len() == usize(4), "roundtrip should preserve length");
   assert(bytes.get(usize(0)).unwrap() == u8(0xF0), "roundtrip byte 0");

@@ -106,17 +106,17 @@ test("RwLock write lock is exclusive - cannot nest writes", {
 test("RwLock concurrent readers across threads", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
-  t1 := Thread.spawn(() => {
+  t1 := Thread.spawn((io) => {
     lock.read_lock();
     sleep(usize(10));
     lock.read_unlock();
   });
-  t2 := Thread.spawn(() => {
+  t2 := Thread.spawn((io) => {
     lock.read_lock();
     sleep(usize(10));
     lock.read_unlock();
   });
-  t3 := Thread.spawn(() => {
+  t3 := Thread.spawn((io) => {
     lock.read_lock();
     sleep(usize(10));
     lock.read_unlock();
@@ -132,7 +132,7 @@ test("RwLock writer thread modifies shared data", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
   data := SharedCounter(i32(0));
-  t := Thread.spawn(() => {
+  t := Thread.spawn((io) => {
     lock.write_lock();
     data.value = i32(42);
     lock.write_unlock();
@@ -146,7 +146,7 @@ test("RwLock two writer threads increment counter", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock.new();
   data := SharedCounter(i32(0));
-  t1 := Thread.spawn(() => {
+  t1 := Thread.spawn((io) => {
     i := i32(0);
     while(runtime(i < i32(100)), {
       lock.write_lock();
@@ -155,7 +155,7 @@ test("RwLock two writer threads increment counter", {
       i = (i + i32(1));
     });
   });
-  t2 := Thread.spawn(() => {
+  t2 := Thread.spawn((io) => {
     i := i32(0);
     while(runtime(i < i32(100)), {
       lock.write_lock();
@@ -175,7 +175,7 @@ test("RwLock readers wait for writer across threads", {
   lock := RwLock.new();
   data := SharedCounter(i32(0));
   // Writer runs first, holds lock while sleeping
-  writer := Thread.spawn(() => {
+  writer := Thread.spawn((io) => {
     lock.write_lock();
     sleep(usize(50));
     data.value = i32(99);
@@ -184,13 +184,13 @@ test("RwLock readers wait for writer across threads", {
   // Give writer time to acquire lock
   sleep(usize(10));
   // Readers will block until writer releases
-  t1 := Thread.spawn(() => {
+  t1 := Thread.spawn((io) => {
     lock.read_lock();
     val := data.value;
     assert(val == i32(99), "reader 1 should see 99");
     lock.read_unlock();
   });
-  t2 := Thread.spawn(() => {
+  t2 := Thread.spawn((io) => {
     lock.read_lock();
     val := data.value;
     assert(val == i32(99), "reader 2 should see 99");
@@ -209,17 +209,17 @@ test("RwLock with Workers concurrent reads", {
   wg := WaitGroup.new();
   Worker.set_num_threads(2);
   wg.add(i32(3));
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     lock.read_lock();
     lock.read_unlock();
     wg.done();
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     lock.read_lock();
     lock.read_unlock();
     wg.done();
   });
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     lock.read_lock();
     lock.read_unlock();
     wg.done();
@@ -234,7 +234,7 @@ test("RwLock with Workers write then read", {
   Worker.set_num_threads(2);
   // Writer worker
   wg.add(i32(1));
-  Worker.spawn(() => {
+  Worker.spawn((io) => {
     lock.write_lock();
     data.value = i32(77);
     lock.write_unlock();

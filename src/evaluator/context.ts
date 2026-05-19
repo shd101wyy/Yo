@@ -170,10 +170,18 @@ export interface EvaluatorContext {
   isUnsafeFunctionType?: boolean;
 
   /**
+   * Whether the function type being evaluated was declared with `ctl(...)
+   * -> ret` (the control-function constructor). Control functions may
+   * contain `unwind` in their body and are frame-bound — see
+   * plans/EXPLICIT_EFFECTS.md §4 for the type-system rules.
+   */
+  isControlFunctionType?: boolean;
+
+  /**
    * The return type of the enclosing (parent) function.
    * This is set when evaluating a nested function body, enabling `escape expr`
    * to return from the enclosing function. `escape` is valid in any function
-   * that has an enclosing function - the escape value's type must match this type.
+   * that has an enclosing function - the unwind value's type must match this type.
    */
   enclosingFunctionReturnType?: Type;
 
@@ -245,13 +253,6 @@ export interface EvaluatorContext {
    * (kind: "async-block") so that `await` expressions are allowed inside.
    */
   isInsideIoAsyncCall?: boolean;
-
-  /**
-   * Whether we are currently evaluating the RHS of a `given(...)` assignment.
-   * When true, `escape` is allowed inside handler functions.
-   * `escape` is only valid inside given handler definitions.
-   */
-  isInsideGivenHandler?: boolean;
 
   /**
    * Whether we are currently re-evaluating type expressions during generic impl

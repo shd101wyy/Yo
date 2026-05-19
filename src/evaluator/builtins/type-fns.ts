@@ -19,6 +19,7 @@ import {
 } from "../../types/creators";
 import type {
   EnumType,
+  FunctionParameter,
   StructType,
   TraitType,
   Type,
@@ -34,7 +35,6 @@ import type {
   TypeHierarchyType,
   ComptimeListType,
   TypeField,
-  FunctionParameter,
 } from "../../types/definitions";
 import { TypeTag } from "../../types/tags";
 import {
@@ -645,8 +645,6 @@ function typeTagToVariantName(tag: string): string {
       return "Expr";
     case TypeTag.ComptimeList:
       return "ComptimeList";
-    case TypeTag.EffectsRow:
-      return "EffectsRow";
     case TypeTag.TypeApplication:
       return "TypeApplication";
     default:
@@ -728,7 +726,6 @@ export function evaluateYoTypeGetInfo({
     case TypeTag.LongDouble:
     case TypeTag.Void:
     case TypeTag.Expr:
-    case TypeTag.EffectsRow:
     case TypeTag.TypeApplication: {
       const variantName = typeTagToVariantName(type.tag);
       code = `TypeInfo.${variantName}`;
@@ -1104,7 +1101,7 @@ function bindTempFunctionInfo(
   // Implicit params
   const implicitTmp = bindTempImplicitParamInfoList(
     env,
-    fnType.implicitParameters,
+    [] as FunctionParameter[],
     context
   );
   env = implicitTmp.env;
@@ -1295,8 +1292,10 @@ function bindTempTraitKind(
     const childTmp = bindTempType(env, traitType.isFuture.outputType, context);
     env = childTmp.env;
 
-    // Build effects list as ComptimeList(TraitInfo)
-    const effectTypes = traitType.isFuture.effects.map((e) => e.type);
+    // Build effects list as ComptimeList(TraitInfo) — 0 or 1 entries.
+    const effectTypes = traitType.isFuture.effect
+      ? [traitType.isFuture.effect.type]
+      : [];
     const effectsTmp = bindTempTraitInfoList(env, effectTypes, context, "eff");
     env = effectsTmp.env;
 

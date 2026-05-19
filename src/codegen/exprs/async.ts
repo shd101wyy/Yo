@@ -20,7 +20,6 @@ import {
 } from "../../expr";
 import type {
   DynType,
-  FunctionImplicitParameter,
   FutureTraitType,
   SomeType,
   StructType,
@@ -29,7 +28,6 @@ import type {
 import {
   isAtomicObjectType,
   isDynType,
-  isEffectsRowType,
   isFunctionType,
   isIsoType,
   isSourceNamespaceType,
@@ -361,26 +359,6 @@ export function generateAsyncBlock(
   }
 }
 
-function expandFutureEffects(
-  effects: FunctionImplicitParameter[]
-): FunctionImplicitParameter[] {
-  const result: FunctionImplicitParameter[] = [];
-  for (const effect of effects) {
-    if (effect.isEffectRowSpread) {
-      let effectsRow = effect.type;
-      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
-        effectsRow = effectsRow.resolvedConcreteType;
-      }
-      if (isEffectsRowType(effectsRow)) {
-        result.push(...effectsRow.implicitParameters);
-      }
-    } else {
-      result.push(effect);
-    }
-  }
-  return result;
-}
-
 function getInjectableFutureEffectFieldMappings(
   futureTraitType: FutureTraitType,
   captureType: StructType | undefined
@@ -400,7 +378,8 @@ function getInjectableFutureEffectFieldMappings(
     }
   };
 
-  for (const effect of expandFutureEffects(futureTraitType.isFuture.effects)) {
+  const effect = futureTraitType.isFuture.effect;
+  if (effect) {
     if (isFunctionType(effect.type)) {
       const captureField =
         captureType.fields.find((field) => field.label === effect.label) ??

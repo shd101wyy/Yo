@@ -245,7 +245,7 @@ make_param :: (fn(name : str, ty_name : str) -> AstExpr)(
     make_atom_expr(TokenKind.Identifier, ty_name)
   )
 );
-/// Build a `using(name : Type)` evidence param expression.
+/// Build a `name : Type` evidence param expression.
 make_using_param :: (fn(ev_name : str, ty_name : str) -> AstExpr)({
   inner := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, ev_name),
@@ -397,16 +397,16 @@ test("compile_module_to_c: fn with i32 param emits correct signature", {
 // They are the "Phase 4 validation milestone": compile hello_world.yo end-to-end
 // through the Yo-written compiler.
 test("validation: parse and compile trivial main() -> unit", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "hello_module", "main");
   match(
     opt_c,
@@ -420,16 +420,16 @@ test("validation: parse and compile trivial main() -> unit", {
   );
 });
 test("validation: parse and compile fn with i32 parameter", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("add :: (fn(x : i32, y : i32) -> i32)({ x; }); export(add);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "arith_module", "add");
   match(
     opt_c,
@@ -442,16 +442,16 @@ test("validation: parse and compile fn with i32 parameter", {
   );
 });
 test("validation: Array(T, _) constructor infers C array length", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ arr1 := Array(i32, _)(1, 2, 3); arr2 := [i32 ; _](4, 5); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "array_infer_module", "main");
   match(
     opt_c,
@@ -464,16 +464,16 @@ test("validation: Array(T, _) constructor infers C array length", {
   );
 });
 test("validation: Option/Result runtime constructors lower to payload values", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ x := Option(i32).Some(i32(42)); assert(x.unwrap() == i32(42)); assert(x.is_some()); assert(!(x.is_none())); y := Result(i32, bool).Ok(i32(7)); assert(y.unwrap() == i32(7)); assert(y.is_ok()); assert(!(y.is_err())); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "option_result_runtime_module", "main");
   match(
     opt_c,
@@ -487,16 +487,16 @@ test("validation: Option/Result runtime constructors lower to payload values", {
   );
 });
 test("validation: Option/Result unwrap method extraction lowers to macro alias", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ f :: Option(i32).unwrap; x := Option(i32).Some(i32(42)); val := f(x); assert(val == i32(42)); g :: Result(i32, bool).unwrap; y := Result(i32, bool).Ok(i32(7)); got := g(y); assert(got == i32(7)); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "option_result_method_extract_module", "main");
   match(
     opt_c,
@@ -510,16 +510,16 @@ test("validation: Option/Result unwrap method extraction lowers to macro alias",
   );
 });
 test("validation: generic option-like Some match lowers to payload branch", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("MyOption :: (fn(comptime(T) : Type) -> comptime(Type))(enum(None, Some(value : T))); main :: (fn() -> unit)({ op := MyOption(i32).Some(i32(12)); match(op, .Some(_) => { assert(op.comptime_unwrap() == i32(12)); }, .None => { y := add(i32(4), i32(5)); assert(y == i32(9)); }); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "generic_option_like_some_match_module", "main");
   match(
     opt_c,
@@ -533,16 +533,16 @@ test("validation: generic option-like Some match lowers to payload branch", {
   );
 });
 test("validation: Option Some curly binding lowers to payload binding", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ o := Option(i32).Some(i32(42)); v := match(o, .Some({ value }) => value, .None => i32(0)); assert(v == i32(42)); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "option_some_curly_match_module", "main");
   match(
     opt_c,
@@ -556,16 +556,16 @@ test("validation: Option Some curly binding lowers to payload binding", {
   );
 });
 test("validation: ArrayList(u8) value return can be indexed directly", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("get_list :: (fn() -> ArrayList(u8))({ (list : ArrayList(u8)) = ArrayList(u8).new(); list.push(u8(10)); list.push(u8(20)); list }); main :: (fn() -> unit)({ (val : u8) = get_list()(usize(1)); assert(val == u8(20)); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "arraylist_u8_return_index_module", "main");
   match(
     opt_c,
@@ -579,16 +579,16 @@ test("validation: ArrayList(u8) value return can be indexed directly", {
   );
 });
 test("validation: ArrayList(i32) direct Index call lowers to data access", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ (list : ArrayList(i32)) = ArrayList(i32).new(); list.push(i32(10)); list.push(i32(20)); assert(list(usize(1)) == i32(20)); p := &(list(usize(0))); p.* = i32(99); assert(list(usize(0)) == i32(99)); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "arraylist_direct_index_module", "main");
   match(
     opt_c,
@@ -601,16 +601,16 @@ test("validation: ArrayList(i32) direct Index call lowers to data access", {
   );
 });
 test("validation: discard binding and ArrayList dispose lower to statements", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("Marker :: struct(active : bool, is_image : bool); main :: (fn() -> unit)({ (markers : ArrayList(Marker)) = ArrayList(Marker).new(); _ := markers.push(Marker(active : true, is_image : false)); _ := markers.push(Marker(active : true, is_image : true)); assert(!(markers(usize(0)).is_image), \"not image\"); markers.dispose(); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "arraylist_discard_dispose_module", "main");
   match(
     opt_c,
@@ -624,16 +624,16 @@ test("validation: discard binding and ArrayList dispose lower to statements", {
   );
 });
 test("validation: String bytes_len lowers for ArrayList Index loop element", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ (list : ArrayList(String)) = ArrayList(String).new(); list.push(`alpha`); (i : usize) = usize(0); while(i < list.len(), { (elem : String) = list(i); assert(elem.bytes_len() > usize(0), \"element should not be empty\"); i = (i + usize(1)); }); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "arraylist_string_bytes_len_module", "main");
   match(
     opt_c,
@@ -646,16 +646,16 @@ test("validation: String bytes_len lowers for ArrayList Index loop element", {
   );
 });
 test("validation: String Index remains callable while function pointer calls stay calls", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("use_cb :: (fn(v : i32, cb : (fn(u : i32) -> i32)) -> i32)({ return(cb(v)); }); main :: (fn() -> unit)({ (s : String) = `Hello`; assert(s(usize(0)) == u8(72), \"string index\"); x := use_cb(10, (u) -> (u + 1)); assert(x == 11, \"callback\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "string_index_callback_module", "main");
   match(
     opt_c,
@@ -667,16 +667,16 @@ test("validation: String Index remains callable while function pointer calls sta
   );
 });
 test("validation: nested ArrayList value type lowers through Index", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ (outer : ArrayList(ArrayList(u8))) = ArrayList(ArrayList(u8)).new(); (inner : ArrayList(u8)) = ArrayList(u8).new(); inner.push(u8(42)); outer.push(inner); (extracted : ArrayList(u8)) = outer(usize(0)); assert(extracted.len() == usize(1), \"len\"); assert(extracted(usize(0)) == u8(42), \"value\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "nested_arraylist_index_module", "main");
   match(
     opt_c,
@@ -690,16 +690,16 @@ test("validation: nested ArrayList value type lowers through Index", {
   );
 });
 test("validation: Deque value type lowers push, pop, and Index", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ (d : Deque(i32)) = Deque(i32).new(); d.push_back(i32(1)); d.push_back(i32(2)); d.push_back(i32(3)); d.pop_front(); d.pop_front(); d.push_back(i32(4)); d.push_back(i32(5)); assert(d(usize(0)) == i32(3), \"first\"); &(d(usize(1))).* = i32(40); assert(d(usize(1)) == i32(40), \"mutated\"); assert(d(usize(2)) == i32(5), \"third\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "deque_index_module", "main");
   match(
     opt_c,
@@ -715,16 +715,16 @@ test("validation: Deque value type lowers push, pop, and Index", {
   );
 });
 test("validation: map value types lower set and Index", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ (hm : HashMap(i32, i32)) = HashMap(i32, i32).new(); hm.set(i32(1), i32(100)); &(hm(i32(1))).* = i32(101); assert(hm(i32(1)) == i32(101), \"hash map\"); (bt : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new(); bt.set(i32(3), i32(300)); &(bt(i32(3))).* = i32(301); assert(bt(i32(3)) == i32(301), \"btree map\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "map_index_module", "main");
   match(
     opt_c,
@@ -742,16 +742,16 @@ test("validation: map value types lower set and Index", {
   );
 });
 test("validation: struct runtime Index call lowers to field pointer selection", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("MyArray :: struct(data0 : i32, data1 : i32, data2 : i32); main :: (fn() -> unit)({ (arr : MyArray) = MyArray(i32(10), i32(20), i32(30)); value := arr(usize(1)); assert(value == i32(20)); p := &(arr(usize(2))); p.* = i32(99); assert(arr(usize(2)) == i32(99)); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "struct_runtime_index_module", "main");
   match(
     opt_c,
@@ -764,16 +764,16 @@ test("validation: struct runtime Index call lowers to field pointer selection", 
   );
 });
 test("validation: generic struct runtime Index lowers through concrete instance", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T)); main :: (fn() -> unit)({ gp1 := GenericPoint(i32)(i32(5), i32(6)); assert(gp1(usize(0)) == i32(5)); gp1(usize(0)) = i32(50); assert(gp1(usize(0)) == i32(50)); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "generic_struct_index_module", "main");
   match(
     opt_c,
@@ -786,16 +786,16 @@ test("validation: generic struct runtime Index lowers through concrete instance"
   );
 });
 test("validation: Array(i32, n).fill returns indexable array wrapper", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("return_array :: (fn(comptime(n) : usize) -> [i32 ; n])({ return(Array(i32, n).fill(10)); }); comptime_return_array :: (fn(comptime(n) : usize) -> comptime([i32 ; n]))(Array(i32, n).fill(30)); main :: (fn() -> unit)({ arr2 := return_array(5); assert(arr2.len() == 5); assert(arr2(0) == 10); arr3 := comptime_return_array(10); assert(arr3.len() == 10); assert(arr3(0) == 30); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "array_fill_wrapper_module", "main");
   match(
     opt_c,
@@ -812,16 +812,16 @@ test("validation: Array(i32, n).fill returns indexable array wrapper", {
   );
 });
 test("validation: assignment expression bindings preserve old value", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ x := 1; y := (x = 2); assert(x == 2); assert(y == 1); (arr : [i32 ; 3]) = [1, 2, 3]; old := (arr = [2, 3, 4]); assert(arr(0) == 2); assert(old(0) == 1); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "assignment_old_value_module", "main");
   match(
     opt_c,
@@ -837,16 +837,16 @@ test("validation: assignment expression bindings preserve old value", {
   );
 });
 test("validation: single-field struct destructuring binds alias", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("Point :: struct(x : i32, y : f64); main :: (fn() -> unit)({ point := Point(3, 4.5); { x : another_x } := point; assert(another_x == 3); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "single_field_destructuring_module", "main");
   match(
     opt_c,
@@ -859,16 +859,16 @@ test("validation: single-field struct destructuring binds alias", {
   );
 });
 test("validation: single-field struct destructuring binds shorthand", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("Point :: struct(x : i32, y : f64); main :: (fn() -> unit)({ point := Point(3, 4.5); { x } := point; assert(x == 3); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "single_field_shorthand_destructuring_module", "main");
   match(
     opt_c,
@@ -881,16 +881,16 @@ test("validation: single-field struct destructuring binds shorthand", {
   );
 });
 test("validation: same-named local enums merge distinct variants", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ { Shape :: enum(Circle(r : i32), Rectangle(width : i32, height : i32)); a := Shape.Rectangle(1, 2); }; { Shape :: enum(Circle(radius : i32) = 2, Square(side : i32) = 4, Triangle(base : i32, height : i32)); b := Shape.Triangle(3, 4); }; }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "merged_local_enum_module", "main");
   match(
     opt_c,
@@ -905,16 +905,16 @@ test("validation: same-named local enums merge distinct variants", {
   );
 });
 test("validation: return single-field struct literal coerces to return type", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("Withdraw :: struct(balance : i32); make :: (fn() -> Withdraw)({ (balance : i32) = 100; return({ balance }); }); main :: (fn() -> unit)({ bank := make(); assert(bank.balance == 100); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "return_single_field_struct_module", "main");
   match(
     opt_c,
@@ -926,16 +926,16 @@ test("validation: return single-field struct literal coerces to return type", {
   );
 });
 test("validation: anonymous struct constructors emit direct declarations", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ p := (struct(x : i32, y : i32))(3, 4); assert(p.x == 3); (p2 : struct(x : i32, y : i32)) = _(3, 4); assert(p2.y == 4); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "anon_struct_constructor_module", "main");
   match(
     opt_c,
@@ -949,16 +949,16 @@ test("validation: anonymous struct constructors emit direct declarations", {
   );
 });
 test("validation: value receiver method calls use inferred function return type", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("Withdraw :: struct(balance : i32); impl(Withdraw, withdraw : (fn(self : *(Self), amount : i32) -> i32)({ self.balance = (self.balance - amount); return(self.balance); })); make_bank :: (fn() -> Withdraw)({ return(Withdraw(100)); }); main :: (fn() -> unit)({ bank := make_bank(); left := bank.withdraw(50); assert(left == 50); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "value_receiver_method_module", "main");
   match(
     opt_c,
@@ -971,16 +971,16 @@ test("validation: value receiver method calls use inferred function return type"
   );
 });
 test("validation: local tuple aliases and struct defaults lower to C aggregates", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ { Point :: struct(x : i32, (y : i32) ?= 12); p4 :: Point(14); assert(p4.y == 12); }; { SomeStruct :: struct(x : i32, y : bool); Complex :: Tuple(s : SomeStruct); (c : Complex) = (_(3, true),); assert(c.0.x == 3); }; }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "local_tuple_defaults_module", "main");
   match(
     opt_c,
@@ -994,16 +994,16 @@ test("validation: local tuple aliases and struct defaults lower to C aggregates"
   );
 });
 test("validation: generic single-field struct methods lower through concrete value type", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(struct(value : T)); impl(forall(T : Type), MyStruct(T), new : (fn(v : T) -> Self)(Self(v)), another_new : (fn(v : T) -> Self)(Self.new(v)), add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({ self.value = (self.value + value); }), another_add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({ self.add(value); })); main :: (fn() -> unit)({ value := 10; x := MyStruct(i32).new(value); y := MyStruct(i32).another_new(value); x.add(3); y.another_add(4); assert(x.value == 13); assert(y.value == 14); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "generic_value_struct_module", "main");
   match(
     opt_c,

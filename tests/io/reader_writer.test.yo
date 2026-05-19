@@ -16,7 +16,7 @@ impl(
 impl(
   TestBuf,
   Writer(
-    write : (fn(self : *(Self), buf : *(u8), size : usize, using(exn : Exception)) -> usize)({
+    write : (fn(self : *(Self), buf : *(u8), size : usize, exn : Exception) -> usize)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
         ((&(self.*._data(0))) &+ (self.*._len + i)).* = (buf &+ i).*;
@@ -24,7 +24,7 @@ impl(
       self.*._len = (self.*._len + size);
       size
     }),
-    flush : (fn(self : *(Self), using(exn : Exception)) -> unit)(
+    flush : (fn(self : *(Self), exn : Exception) -> unit)(
       ()
     )
   )
@@ -32,7 +32,7 @@ impl(
 impl(
   TestBuf,
   Reader(
-    read : (fn(self : *(Self), buf : *(u8), size : usize, using(exn : Exception)) -> usize)({
+    read : (fn(self : *(Self), buf : *(u8), size : usize, exn : Exception) -> usize)({
       available := (self.*._len - self.*._pos);
       to_read := cond(
         (size < available) => size,
@@ -48,18 +48,18 @@ impl(
   )
 );
 test("Write and read bytes through traits", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
   buf := TestBuf.new();
-  written := buf.write(*(u8)("Hello"), usize(5), using(exn));
+  written := buf.write(*(u8)("Hello"), usize(5), exn);
   assert(written == usize(5), "should write 5 bytes");
   read_buf := Array(u8, 16).fill(0);
-  n := buf.read(&(read_buf(0)), usize(16), using(exn));
+  n := buf.read(&(read_buf(0)), usize(16), exn);
   assert(n == usize(5), "should read 5 bytes");
 });

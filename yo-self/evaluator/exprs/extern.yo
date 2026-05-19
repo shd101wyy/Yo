@@ -34,7 +34,7 @@ evaluate_extern :: (
     expr : AstExpr,
     env_in : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   if(!(ast_expr_is_fn_call_of(expr, BK_EXTERN,.None)), {
@@ -133,7 +133,7 @@ evaluate_extern :: (
   (field_idx : usize) = usize(0);
   while(runtime(args_idx < all_args.len()), {
     arg := match(all_args.get(args_idx),.Some(a) => a,.None => expr);
-    result := evaluate_module_field(arg, field_idx, env, ctx, false, using(exn));
+    result := evaluate_module_field(arg, field_idx, env, ctx, false, exn);
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;

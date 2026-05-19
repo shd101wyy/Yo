@@ -27,9 +27,9 @@ syn match yoNumber /\v\<\d+(\.\d+)?([eE][+-]?\d+)?\>/
 syn match yoOperator /[-=+*\/<>@$~&%|!?^.:#∀]\+/
 
 " Keywords
-syn keyword yoKeyword let var while for select forall mut const in out inout ref break continue pass return escape pure recur use borrow comptime runt resume shift reset panic assert test thread_local atomic
-syn keyword yoKeyword open import export from as extern trait c_include using exists where
-syn keyword yoKeyword type fn macro enum struct newtype union object actor impl dyn box chan static
+syn keyword yoKeyword let var while for select forall mut const in out inout ref break continue pass return unwind pure recur use borrow comptime runt resume shift reset panic assert test thread_local atomic
+syn keyword yoKeyword open import export from as extern trait c_include exists where
+syn keyword yoKeyword type fn ctl macro enum struct newtype union object actor impl dyn box chan static
 syn keyword yoKeyword if cond then else switch case default match try with
 syn keyword yoKeyword sizeof alignof typeof gensym consume take drop clone dup quote unquote unquote_splicing comptime_expect_error comptime_assert downcast array tuple comptime_list begin and or not the macro_expand runtime asm global_asm
 syn keyword yoKeyword async await spawn infix infixl infixr

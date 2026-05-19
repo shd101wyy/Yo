@@ -8,12 +8,12 @@ open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, make_err_expr } :: import("../expr.yo");
-{ evaluated_body_contains_escape, expr_tree_contains_return } :: import("../expr_traversal.yo");
+{ evaluated_body_contains_unwind, expr_tree_contains_return } :: import("../expr_traversal.yo");
 { parse } :: import("../parser.yo");
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 parse_one :: (fn(src : String) -> AstExpr)({
-  given(exn) := Exception(throw : ((err) -> panic("parse_one: unexpected parse error")));
-  prog := parse(src, `test.yo`, using(exn));
+  exn := Exception(throw : ((err) -> panic("parse_one: unexpected parse error")));
+  prog := parse(src, `test.yo`, exn);
   match(
     prog.get(usize(0)),
     .None => {
@@ -32,17 +32,17 @@ test("expr_tree_contains_return: literal return atom matches", {
   e := parse_one(`return`);
   assert(expr_tree_contains_return(e) == true, "atom 'return' should match");
 });
-test("expr_tree_contains_return: literal escape atom matches", {
-  e := parse_one(`escape`);
-  assert(expr_tree_contains_return(e) == true, "atom 'escape' should match");
+test("expr_tree_contains_return: literal unwind atom matches", {
+  e := parse_one(`unwind`);
+  assert(expr_tree_contains_return(e) == true, "atom 'unwind' should match");
 });
 test("expr_tree_contains_return: return(x) call matches", {
   e := parse_one(`return(x)`);
   assert(expr_tree_contains_return(e) == true, "return call should match");
 });
-test("expr_tree_contains_return: escape(x) call matches", {
-  e := parse_one(`escape(x)`);
-  assert(expr_tree_contains_return(e) == true, "escape call should match");
+test("expr_tree_contains_return: unwind(x) call matches", {
+  e := parse_one(`unwind(x)`);
+  assert(expr_tree_contains_return(e) == true, "unwind call should match");
 });
 test("expr_tree_contains_return: ordinary call does not match", {
   e := parse_one(`f(x)`);
@@ -81,26 +81,26 @@ test("expr_tree_contains_return: descends into match branches", {
     "return inside a match arm should be found"
   );
 });
-// ─── evaluated_body_contains_escape ──────────────────────────────────────────
-test("evaluated_body_contains_escape: plain identifier is false", {
+// ─── evaluated_body_contains_unwind ──────────────────────────────────────────
+test("evaluated_body_contains_unwind: plain identifier is false", {
   e := parse_one(`foo`);
-  assert(evaluated_body_contains_escape(e) == false, "atom 'foo' should not contain escape");
+  assert(evaluated_body_contains_unwind(e) == false, "atom 'foo' should not contain unwind");
 });
-test("evaluated_body_contains_escape: escape atom matches", {
-  e := parse_one(`escape`);
-  assert(evaluated_body_contains_escape(e) == true, "atom 'escape' should match");
+test("evaluated_body_contains_unwind: unwind atom matches", {
+  e := parse_one(`unwind`);
+  assert(evaluated_body_contains_unwind(e) == true, "atom 'unwind' should match");
 });
-test("evaluated_body_contains_escape: return does NOT match", {
+test("evaluated_body_contains_unwind: return does NOT match", {
   e := parse_one(`return(x)`);
   assert(
-    evaluated_body_contains_escape(e) == false,
-    "return is not escape — only the contains-return helper catches both"
+    evaluated_body_contains_unwind(e) == false,
+    "return is not unwind — only the contains-return helper catches both"
   );
 });
-test("evaluated_body_contains_escape: descends into cond branch", {
-  e := parse_one(`cond(true => escape(1), false => 2)`);
+test("evaluated_body_contains_unwind: descends into cond branch", {
+  e := parse_one(`cond(true => unwind(1), false => 2)`);
   assert(
-    evaluated_body_contains_escape(e) == true,
-    "escape inside a cond branch should be found"
+    evaluated_body_contains_unwind(e) == true,
+    "unwind inside a cond branch should be found"
   );
 });

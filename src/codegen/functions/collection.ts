@@ -447,13 +447,10 @@ export function findFunctionCallsInExpr(
             // Check both original and specialized types: the original type may be
             // "hard-generic" due to implicit params, but having evidence parameters
             // means those implicits are handled via evidence passing.
-            const checkType =
-              functionValue.specializedType ?? functionValue.type;
-            isGenericOnlyDueToImplicitParams =
-              checkType.implicitParameters.length > 0 &&
-              (getEvidenceParameters(checkType).length > 0 ||
-                (!isFunctionTypeHardGeneric(functionValue.type) &&
-                  functionValue.type.implicitParameters.length > 0));
+            // No implicit parameters exist post-EXPLICIT_EFFECTS;
+            // this whole "specialize-only-for-implicit-params" path
+            // is no longer reachable.
+            isGenericOnlyDueToImplicitParams = false;
             if (!isGenericOnlyDueToImplicitParams) {
               return;
             }
@@ -546,7 +543,7 @@ export function findFunctionCallsInExpr(
     // Ctl handler functions (isControlFunction=true) are normally inlined at call
     // sites by generateDirectCtlCall. However, when used as evidence handlers
     // (passed as fn ptr evidence args), they must be standalone C functions.
-    // Collect them and mark as effect members so generateEscape sets the escape flag.
+    // Collect them and mark as effect members so generateUnwind sets the unwind flag.
     if (isFunctionValue(functionValue) && functionValue.isControlFunction) {
       functionValue.isEffectRecordMember = true;
       if (!context.functions[functionValue.funcId]) {

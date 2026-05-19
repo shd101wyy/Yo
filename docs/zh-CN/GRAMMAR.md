@@ -189,7 +189,7 @@ Separator ::= ',' | ';'
 
    - 有效：`func(arg1, arg2)`
    - 无效：`func (arg1, arg2)` 或 `func arg1, arg2`
-   - 前缀运算符也是调用：请写 `&(x)`、`!(ready)`、`return(value)`、`return()`、`escape(value)` 或 `escape()`
+   - 前缀运算符也是调用：请写 `&(x)`、`!(ready)`、`return(value)`、`return()`、`unwind(value)` 或 `unwind()`
 
 3. **中缀运算符**：空格影响优先级
    - 行首的运算符具有左结合性

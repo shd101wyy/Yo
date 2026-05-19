@@ -115,6 +115,10 @@ bun test src/tests/build-system.test.ts --timeout 10000
 # Full integration test suite (~30 min on Mac Mini M4, safe to run locally)
 ./yo-cli test --bail
 
+# Evaluator-only check (fast, no codegen — useful for type-check iteration during refactors)
+./yo-cli check ./std
+./yo-cli check ./src/tests/fixme.yo
+
 # Emit C only (inspect generated code)
 ./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release
 

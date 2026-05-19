@@ -142,7 +142,7 @@ can_comptime_float_cast_to :: (fn(target_type : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// Throw if `ty` is the `Void` type.
 /// Mirrors `prohibitVoidType` in `src/types/utils.ts`.
-prohibit_void_type :: (fn(ty : TypeValue, token : Token, using(exn : Exception)) -> unit)(
+prohibit_void_type :: (fn(ty : TypeValue, token : Token, exn : Exception) -> unit)(
   match(
     ty,
     .Void => {
@@ -597,7 +597,7 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     ),
     // Slice: fat pointer (pointer + length) = 2 × pointer size
     .Slice(_) =>.Some(usize(u32(2) * get_target_pointer_size_bits())),
-    // Complex types: Struct / EnumT / Union / Tuple require is_newtype /
+    // Complex types : Type.Struct / EnumT / Union / Tuple require is_newtype /
     // is_reference_semantics — return `.None` until Phase 3.
     _ =>.None
   )

@@ -187,7 +187,7 @@ evaluate_function_call :: (
     given_type : TypeValue,
     given_value : Option(EvalValue),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   _ := given_type;
@@ -237,7 +237,7 @@ evaluate_function_call :: (
     );
   });
   // Evaluate the callee.
-  evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, using(exn));
+  evaluated_callee := evaluate_expression_raw(func_expr, env, ctx, exn);
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
   callee_value := match(
     callee_info_opt,
@@ -274,7 +274,7 @@ evaluate_function_call :: (
                 )
               );
             });
-            try_to_implement_function_by_function_type(expr, func_type, callee_env, ctx, using(exn))
+            try_to_implement_function_by_function_type(expr, func_type, callee_env, ctx, exn)
           },
           // FnTraitT (Fn(A, B) -> C as a type) — try closure creation.
           .FnTraitT(_, _, _, _, _, _, _) => {
@@ -284,7 +284,7 @@ evaluate_function_call :: (
               func_type,
               callee_env,
               ctx,
-              using(exn)
+              exn
             );
             match(
               result_opt,
@@ -316,7 +316,7 @@ evaluate_function_call :: (
                   func_type,
                   callee_env,
                   ctx,
-                  using(exn)
+                  exn
                 );
                 match(
                   result_opt,
@@ -362,7 +362,7 @@ evaluate_function_call :: (
                   func_type,
                   callee_env,
                   ctx,
-                  using(exn)
+                  exn
                 );
                 match(
                   result_opt,
@@ -425,7 +425,7 @@ evaluate_function_call :: (
                 tf
               }
             );
-            call_result_s := try_to_call_type_with_arguments(fields, func_expr, args, callee_env, ctx, false, using(exn));
+            call_result_s := try_to_call_type_with_arguments(fields, func_expr, args, callee_env, ctx, false, exn);
             // Treat default UnknownVal fields as compile-time placeholders (mirrors
             // TS createUnknownValue's default `isRuntimeOnly: false/undefined`).
             // Only `.None` positions (no value at all) make the struct non-comptime.
@@ -550,7 +550,7 @@ evaluate_function_call :: (
               );
               tfi_e = (tfi_e + usize(1));
             });
-            call_result_e := try_to_call_type_with_arguments(tf_e, func_expr, args, callee_env, ctx, false, using(exn));
+            call_result_e := try_to_call_type_with_arguments(tf_e, func_expr, args, callee_env, ctx, false, exn);
             // Mirror TS enum value construction: default UnknownVal fields are
             // compile-time placeholders (isRuntimeOnly: false/undefined) and
             // therefore still produce a comptime EnumVal. Only missing values
@@ -624,7 +624,7 @@ evaluate_function_call :: (
               );
               tfi_u = (tfi_u + usize(1));
             });
-            call_result_u := try_to_call_type_with_arguments(tf_u, func_expr, args, callee_env, ctx, true, using(exn));
+            call_result_u := try_to_call_type_with_arguments(tf_u, func_expr, args, callee_env, ctx, true, exn);
             out_u := new_expr_info(call_result_u.caller_env, func_type);
             out_u.value = Option(EvalValue).None;
             out_u.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_u.runtime_arg_exprs_in_order);
@@ -641,7 +641,7 @@ evaluate_function_call :: (
               args,
               callee_env,
               ctx,
-              using(exn)
+              exn
             );
             out_m := new_expr_info(result_m.caller_env, type_of_eval_value(result_m.module_value));
             out_m.value = Option(EvalValue).Some(result_m.module_value);
@@ -673,7 +673,7 @@ evaluate_function_call :: (
                 args,
                 callee_env,
                 ctx,
-                using(exn)
+                exn
               );
               out_ts := new_expr_info(result_ts.caller_env, t_type());
               out_ts.value = Option(EvalValue).Some(EvalValue.TypeVal(box(result_ts.specialized_trait_type)));
@@ -686,7 +686,7 @@ evaluate_function_call :: (
                 args,
                 callee_env,
                 ctx,
-                using(exn)
+                exn
               );
               out_ti := new_expr_info(result_ti.caller_env, type_of_eval_value(result_ti.trait_value));
               out_ti.value = Option(EvalValue).Some(result_ti.trait_value);
@@ -698,22 +698,22 @@ evaluate_function_call :: (
           // Array construction: ArrayType(elem1, elem2, ...).
           // ----------------------------------------------------------------
           .Array(_, _) =>
-            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, using(exn)),
+            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, exn),
           // ----------------------------------------------------------------
           // Slice construction (routed to array handler).
           // ----------------------------------------------------------------
           .Slice(_) =>
-            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, using(exn)),
+            try_to_implement_array_by_array_type(expr, func_type, args, callee_env, ctx, exn),
           // ----------------------------------------------------------------
           // ComptimeList construction: ComptimeListT(elem1, elem2, ...).
           // ----------------------------------------------------------------
           .ComptimeListT(_) =>
-            try_to_implement_comptime_list_by_comptime_list_type(expr, func_type, args, callee_env, ctx, using(exn)),
+            try_to_implement_comptime_list_by_comptime_list_type(expr, func_type, args, callee_env, ctx, exn),
           // ----------------------------------------------------------------
           // Iso value wrapping: IsoType(value).
           // ----------------------------------------------------------------
           .IsoT(_) =>
-            evaluate_iso_value_call(expr, callee_env, ctx, func_type, using(exn)),
+            evaluate_iso_value_call(expr, callee_env, ctx, func_type, exn),
           // ----------------------------------------------------------------
           // Pointer type cast: *(T)(value).
           // ----------------------------------------------------------------
@@ -735,7 +735,7 @@ evaluate_function_call :: (
                 make_err_expr()
               }
             );
-            result_ptr := try_to_convert_to_pointer_type(func_type, arg_expr_p, expr, callee_env, ctx, using(exn));
+            result_ptr := try_to_convert_to_pointer_type(func_type, arg_expr_p, expr, callee_env, ctx, exn);
             match(
               result_ptr,
               .Some(e_ptr) => e_ptr,
@@ -777,7 +777,7 @@ evaluate_function_call :: (
                   make_err_expr()
                 }
               );
-              result_n := try_to_convert_to_numeric_type(func_type, arg_expr_n, expr, callee_env, ctx, using(exn));
+              result_n := try_to_convert_to_numeric_type(func_type, arg_expr_n, expr, callee_env, ctx, exn);
               match(
                 result_n,
                 .Some(e_n) => e_n,
@@ -841,7 +841,7 @@ evaluate_function_call :: (
         (ai : usize) = usize(0);
         while(runtime(ai < n_a), {
           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
-          evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, using(exn));
+          evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
           arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
           arg_info := match(
             arg_info_opt,
@@ -1022,7 +1022,7 @@ evaluate_function_call :: (
           ctx,
           ArrayList(Variable).new(),
           true,
-          using(exn)
+          exn
         );
         ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
         ctx.enclosing_function_return_type = old_ret_ty;
@@ -1063,7 +1063,7 @@ evaluate_function_call :: (
           false,
           false,
           false,
-          using(exn)
+          exn
         );
         ret_type_rt := call_result_rt.return_type;
         out_rt := new_expr_info(call_result_rt.caller_env, ret_type_rt);
@@ -1108,7 +1108,7 @@ evaluate_function_call :: (
             true,
             false,
             false,
-            using(exn)
+            exn
           );
           out_m := new_expr_info(call_result_m.caller_env, call_result_m.return_type);
           out_m.value = Option(EvalValue).Some(create_unknown_val(call_result_m.return_type));
@@ -1135,7 +1135,7 @@ evaluate_function_call :: (
             false,
             false,
             false,
-            using(exn)
+            exn
           );
           ret_type_none := call_result_none.return_type;
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);

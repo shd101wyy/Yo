@@ -53,7 +53,6 @@ import {
   createEnumValue,
   createStructValue,
   createTupleValue,
-  createUnknownValue,
   isArrayValue,
   isEnumValue,
   isFunctionValue,
@@ -69,10 +68,7 @@ import {
 import { type EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import {
-  findRcValueOwnerRelationship,
-  throwExprIsImplicitVariableError,
-} from "../utils";
+import { findRcValueOwnerRelationship } from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer-and-operator";
@@ -239,9 +235,6 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       context: {
         ...context,
         expectedType: { type: variable.type, env },
-        isInsideGivenHandler: variable.isImplicit
-          ? true
-          : context.isInsideGivenHandler,
       },
     });
     if (!rhs.$) {
@@ -267,9 +260,6 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
 
     // Check if the RHS variable has been consumed (moved)
     requireExprNotConsumed(rhs, env);
-
-    // Disallow using implicit variables (or property access of them) as the RHS
-    throwExprIsImplicitVariableError(rhs);
 
     // Under the new ownership model, all assignments transfer ownership
     // so we always need to call dup on the RHS
@@ -496,23 +486,11 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
 
       // Initialize the variable
       // For value semantics, use cloneValue to ensure deep copy
-      // This prevents mutations to one variable from affecting another
-      // Phase 4b: when an `isImplicit` (given) variable of struct type
-      // is assigned a runtime value (no comptime rhsValue), record an
-      // UnknownValue so downstream resolution knows the binding exists
-      // even though its concrete value is only available at runtime.
-      // (Helper.ts still rejects this for now; later sub-steps will
-      // route it through runtime evidence params.)
+      // This prevents mutations to one variable from affecting another.
       const valueToStore =
         variable.isCompileTimeOnly && rhsValue
           ? cloneValue(rhsValue)
-          : variable.isImplicit && isStructType(variableType)
-            ? createUnknownValue(variableType, {
-                variableName,
-                env,
-                context,
-              })
-            : undefined;
+          : undefined;
 
       // Under the new simplified ownership model:
       // Variables created by := always own their values
@@ -758,9 +736,6 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
 
     // Check if the RHS variable has been consumed (moved)
     requireExprNotConsumed(rhs, env);
-
-    // Disallow using implicit variables (or property access of them) as the RHS
-    throwExprIsImplicitVariableError(rhs);
 
     setExprAsNeedsToCallDup(rhs, context);
     env = rhs.$.env;

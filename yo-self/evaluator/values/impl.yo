@@ -268,12 +268,12 @@ try_match_generic_impl :: (
   // 3. Try synthesize_types(receiver_pattern, unify_env, concrete_type, env).
   //    If it throws, return false (no match).
   (matched : bool) = false;
-  given(exn_match) := Exception(
+  exn_match := Exception(
     throw : (
       (err) -> {
         // Synthesis failed → no match.
         _ := err;
-        escape(false);
+        unwind(false);
       }
     )
   );
@@ -286,7 +286,7 @@ try_match_generic_impl :: (
     env,
     &(checked),
     opts,
-    using(exn_match)
+    exn_match
   );
   // Synthesis succeeded — all forall params should now be bound in expected_env.
   // Verify each forall param was actually bound to a concrete type.
@@ -588,7 +588,7 @@ evaluate_module_value :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   (local_env : Environment) = env;
@@ -634,7 +634,7 @@ evaluate_module_value :: (
       local_env,
       ctx,
       false,
-      using(exn)
+      exn
     );
     ctx.*.expected_type = saved_expected;
     local_env = result.env;
@@ -722,7 +722,7 @@ evaluate_module_value :: (
     // Evaluate receiver type with SomeTs in scope.
     saved_expected2 := ctx.*.expected_type;
     ctx.*.expected_type =.None;
-    eval_rcv2 := evaluate_expression_raw(receiver_type_expr2, forall_env, ctx, using(exn));
+    eval_rcv2 := evaluate_expression_raw(receiver_type_expr2, forall_env, ctx, exn);
     ctx.*.expected_type = saved_expected2;
     (receiver_type_pattern : TypeValue) = t_unit();
     match(
@@ -768,7 +768,7 @@ evaluate_module_value :: (
         mname := (&(mname_tok.value)).clone();
         saved3 := ctx.*.expected_type;
         ctx.*.expected_type =.None;
-        eval_mval := evaluate_expression_raw(mval_expr, forall_env, ctx, using(exn));
+        eval_mval := evaluate_expression_raw(mval_expr, forall_env, ctx, exn);
         ctx.*.expected_type = saved3;
         match(
           expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(eval_mval)),
@@ -833,7 +833,7 @@ evaluate_module_value :: (
   receiver_type_expr := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   saved_expected := ctx.*.expected_type;
   ctx.*.expected_type =.None;
-  eval_receiver := evaluate_expression_raw(receiver_type_expr, local_env, ctx, using(exn));
+  eval_receiver := evaluate_expression_raw(receiver_type_expr, local_env, ctx, exn);
   ctx.*.expected_type = saved_expected;
   // Get receiver type name for qualifying method names.
   rcv_tok := ast_expr_token(receiver_type_expr);
@@ -991,7 +991,7 @@ evaluate_module_value :: (
                 .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : local_env)),
                 .None => Option(ExpectedTypeCtx).None
               );
-              eval_val := evaluate_expression_raw(val_expr, local_env, ctx, using(exn));
+              eval_val := evaluate_expression_raw(val_expr, local_env, ctx, exn);
               ctx.*.expected_type = saved2;
               match(
                 expr_info_table_get(ctx.*.expr_info_table, ast_expr_id(eval_val)),

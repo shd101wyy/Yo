@@ -154,7 +154,7 @@ test("TypeInfo compound: Slice element", {
   elem_is_i32 :: match(slice_info,.Slice(elem) => __yo_are_types_compatible(elem, i32), _ => false);
   comptime_assert(elem_is_i32, "slice element should be i32");
 });
-test("TypeInfo compound: Struct fields and kind", {
+test("TypeInfo compound : Type.Struct fields and kind", {
   info :: Type.get_info(TIPoint);
   comptime_assert(info.is_struct(), "should be struct");
   field_count :: match(info,.Struct(f, _) => f.len(), _ => usize(0));
@@ -212,7 +212,7 @@ test("TypeInfo compound: Function info includes variadic params", {
   type_is_list :: match(fn_info,.Function(fi) => Type.eq(fi.params.get(usize(1)).param_type, ComptimeList(Type)), _ => false);
   comptime_assert(type_is_list, "variadic param type should be ComptimeList(Type)");
 });
-test("TypeInfo compound: Struct kind - NewType", {
+test("TypeInfo compound : Type.Struct kind - NewType", {
   MyNewType :: newtype(value : i32);
   info :: Type.get_info(MyNewType);
   comptime_assert(info.is_struct(), "newtype should be struct");
@@ -221,14 +221,14 @@ test("TypeInfo compound: Struct kind - NewType", {
   field_count :: match(info,.Struct(f, _) => f.len(), _ => usize(0));
   comptime_assert(field_count == usize(1), "newtype should have 1 field");
 });
-test("TypeInfo compound: Struct kind - Object", {
+test("TypeInfo compound : Type.Struct kind - Object", {
   MyObj :: object(x : i32, y : i32);
   info :: Type.get_info(MyObj);
   comptime_assert(info.is_struct(), "object should be struct");
   is_object_kind :: match(info,.Struct(_, k) => match(k,.Object => true, _ => false), _ => false);
   comptime_assert(is_object_kind, "should be Object kind");
 });
-test("TypeInfo compound: Struct kind - AtomicObject", {
+test("TypeInfo compound : Type.Struct kind - AtomicObject", {
   MyAtomicObj :: atomic(object(x : i32, y : i32));
   info :: Type.get_info(MyAtomicObj);
   comptime_assert(info.is_struct(), "atomic object should be struct");

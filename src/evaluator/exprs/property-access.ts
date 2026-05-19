@@ -48,6 +48,21 @@ import {
 } from "../values/impl";
 import { evaluateExpression } from "./expr";
 
+/**
+ * Kind-constraint refinements of `Type`. Used in `forall(T : Type.Struct, ...)`
+ * positions. Each refinement resolves to the same `TypeHierarchyType` value
+ * `Type` itself returns — the kind is documentation/intent today, with
+ * future enforcement (reject non-struct bindings) tracked separately. See
+ * plans/EXPLICIT_EFFECTS.md §9.8.
+ */
+const TYPE_KIND_REFINEMENTS = new Set([
+  "Struct",
+  "Enum",
+  "Union",
+  "Trait",
+  "Function",
+]);
+
 export function evaluatePropertyAccess({
   expr,
   env,
@@ -62,6 +77,34 @@ export function evaluatePropertyAccess({
       token: expr.token,
       errorMessage: `Expected "." for property access, got:\n${exprToString(expr)}`,
     });
+  }
+
+  // Short-circuit: Type.<KindName> is a kind-constraint syntactic form.
+  // The result is the same TypeHierarchyType value `Type` alone returns,
+  // letting `forall(E : Type.Struct, ...)` parse without a new keyword.
+  if (
+    exprIsFunctionCallOf(expr, ".", 2) &&
+    exprIsAtom(expr.args[0]!) &&
+    expr.args[0]!.token.value === "Type" &&
+    exprIsAtom(expr.args[1]!) &&
+    TYPE_KIND_REFINEMENTS.has(expr.args[1]!.token.value)
+  ) {
+    const typeAtom = expr.args[0]!;
+    const evaluatedType = evaluateExpression({
+      expr: typeAtom,
+      env,
+      context: { ...context, expectedType: undefined },
+    });
+    if (evaluatedType.$) {
+      expr.$ = {
+        env: evaluatedType.$.env,
+        type: evaluatedType.$.type,
+        value: evaluatedType.$.value,
+        pathCollection: [],
+      };
+      expr.args[1]!.$ = expr.$;
+      return expr;
+    }
   }
 
   if (exprIsFunctionCallOf(expr, ".", 1)) {

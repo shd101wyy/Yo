@@ -8,23 +8,14 @@
  * providing the effect-specific suspension point detection (ctl calls, transitive calls).
  */
 
-import { type Environment, getVariablesFromEnv } from "../../env";
 import { type Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
-import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
-import {
-  isEffectsRowType,
-  isFunctionType,
-  isSourceNamespaceType,
-  isSomeType,
-} from "../../types/guards";
-import { isTypeValue } from "../../value";
+import { isFunctionType } from "../../types/guards";
 import { isIoAsyncCall } from "../async/await-analysis";
 import {
   analyzeSuspensionPoints,
   extractTargetVariableId,
   type SuspensionPointDetector,
 } from "../shared/suspension-analysis";
-import { extractFnTraitFromType } from "../trait-checking";
 
 export type {
   EffectAnalysisResult,
@@ -32,11 +23,7 @@ export type {
   EffectCapturedVariable,
 } from "./effect-analysis-types";
 
-import type {
-  EffectsRowType,
-  FunctionType,
-  Type,
-} from "../../types/definitions";
+import type { FunctionType, Type } from "../../types/definitions";
 import type {
   EffectAnalysisResult,
   EffectCallPoint,
@@ -267,114 +254,10 @@ function isTransitiveEffectCall(
   expr: Expr,
   effectParameterName: string
 ): { matched: true; viaClosure: boolean } | undefined {
-  if (expr.tag !== ExprTag.FnCall) return undefined;
-
-  const funcType = expr.func.$?.type;
-  if (!funcType) return undefined;
-
-  // Check direct function type
-  if (isFunctionType(funcType)) {
-    if (!funcType.implicitParameters) return undefined;
-    for (const implicitParam of funcType.implicitParameters) {
-      if (
-        implicitParam.label === effectParameterName &&
-        (isFunctionType(implicitParam.type) ||
-          isSourceNamespaceType(implicitParam.type))
-      ) {
-        return { matched: true, viaClosure: false };
-      }
-      // Handle effect row spread: ...(E) — resolve E to check for the effect
-      if (implicitParam.isEffectRowSpread) {
-        if (
-          hasEffectInSpread(
-            implicitParam,
-            effectParameterName,
-            expr.func.$?.env
-          )
-        ) {
-          return { matched: true, viaClosure: false };
-        }
-      }
-    }
-    return undefined;
-  }
-
-  // Check Impl(Fn(...)) / Dyn(Fn(...)) types by extracting the callType
-  const fnTrait = extractFnTraitFromType(funcType);
-  if (fnTrait) {
-    const callType = fnTrait.isFn.callType;
-    if (callType.implicitParameters) {
-      for (const implicitParam of callType.implicitParameters) {
-        if (
-          implicitParam.label === effectParameterName &&
-          (isFunctionType(implicitParam.type) ||
-            isSourceNamespaceType(implicitParam.type))
-        ) {
-          return { matched: true, viaClosure: true };
-        }
-        // Handle effect row spread: ...(E) — resolve E to check for the effect
-        if (implicitParam.isEffectRowSpread) {
-          if (
-            hasEffectInSpread(
-              implicitParam,
-              effectParameterName,
-              expr.func.$?.env
-            )
-          ) {
-            return { matched: true, viaClosure: true };
-          }
-        }
-      }
-    }
-  }
-
+  // Post-EXPLICIT_EFFECTS: functions have no implicit parameters. The
+  // old logic walked them looking for `effectParameterName`; now there
+  // are none to walk, so the lookup always misses.
+  void expr;
+  void effectParameterName;
   return undefined;
-}
-
-/**
- * Check if an effect row spread parameter contains the target effect.
- * Resolves the SomeType from the env to get the concrete EffectsRowType.
- */
-function hasEffectInSpread(
-  implicitParam: { label: string; type: Type; isEffectRowSpread?: boolean },
-  effectParameterName: string,
-  env: Environment | undefined
-): boolean {
-  if (!env) return false;
-  const paramType = implicitParam.type;
-
-  // Try to resolve the SomeType to an EffectsRowType
-  let effectsRowType: EffectsRowType | undefined;
-  if (isSomeType(paramType) && paramType.isEffectsRow) {
-    // Look up by variable name
-    const eVars = getVariablesFromEnv(env, implicitParam.label);
-    const eVarValue = eVars.at(-1)?.value?.[0];
-    if (
-      eVarValue &&
-      isTypeValue(eVarValue) &&
-      isEffectsRowType(eVarValue.value)
-    ) {
-      effectsRowType = eVarValue.value;
-    } else {
-      const boundType = getValueOfSomeTypeFromEnv(env, paramType);
-      if (isEffectsRowType(boundType)) {
-        effectsRowType = boundType;
-      }
-    }
-  } else if (isEffectsRowType(paramType)) {
-    effectsRowType = paramType as EffectsRowType;
-  }
-
-  if (effectsRowType) {
-    for (const innerParam of effectsRowType.implicitParameters) {
-      if (
-        innerParam.label === effectParameterName &&
-        (isFunctionType(innerParam.type) ||
-          isSourceNamespaceType(innerParam.type))
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
 }

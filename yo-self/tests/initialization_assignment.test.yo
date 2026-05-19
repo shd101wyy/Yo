@@ -5,7 +5,7 @@
 ///   - `name := rhs` — runtime variable declaration, variable added to env
 ///   - `name :: rhs` — compile-time constant declaration, variable added
 ///   - `_ := rhs` — discard: renamed to temp var (ExprInfo.variable_name set)
-///   - `given(name) := handler` — given wrapper detection
+///   - `name := handler` — given wrapper detection
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
@@ -103,10 +103,10 @@ stub_eval_i32 :: (
 /// Returns true iff evaluate_initialization_assignment throws on invalid shape.
 test_invalid_shape_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(true);
+        unwind(true);
       }
     )
   );
@@ -120,7 +120,7 @@ test_invalid_shape_throws :: (fn() -> bool)({
   args.push(lhs);
   args.push(rhs);
   expr := mk_op_call(usize(10), "=", args);
-  _r := evaluate_initialization_assignment(expr, env, &(ctx), using(exn));
+  _r := evaluate_initialization_assignment(expr, env, &(ctx), exn);
   false
 });
 test("init_assign: invalid shape (not := or ::) throws", {
@@ -131,11 +131,11 @@ test("init_assign: invalid shape (not := or ::) throws", {
 // ---------------------------------------------------------------------------
 test("init_assign: name := rhs adds variable to env", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -145,7 +145,7 @@ test("init_assign: name := rhs adds variable to env", {
   lhs := mk_ident(usize(3), "myvar");
   rhs := mk_ident(usize(4), "true");
   expr := mk_init_assign(usize(20), lhs, rhs);
-  result := evaluate_initialization_assignment(expr, env, &(ctx), using(exn));
+  result := evaluate_initialization_assignment(expr, env, &(ctx), exn);
   // Variable should be findable in env.
   var_opt := env.lookup(String.from("myvar"));
   match(
@@ -169,11 +169,11 @@ test("init_assign: name := rhs adds variable to env", {
 // ---------------------------------------------------------------------------
 test("init_assign: name :: rhs adds non-reassignable variable to env", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -183,7 +183,7 @@ test("init_assign: name :: rhs adds non-reassignable variable to env", {
   lhs := mk_ident(usize(5), "constvar");
   rhs := mk_ident(usize(6), "true");
   expr := mk_const(usize(30), lhs, rhs);
-  result := evaluate_initialization_assignment(expr, env, &(ctx), using(exn));
+  result := evaluate_initialization_assignment(expr, env, &(ctx), exn);
   var_opt := env.lookup(String.from("constvar"));
   match(
     var_opt,
@@ -201,11 +201,11 @@ test("init_assign: name :: rhs adds non-reassignable variable to env", {
 // ---------------------------------------------------------------------------
 test("init_assign: _ := rhs renames to temp var", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -216,7 +216,7 @@ test("init_assign: _ := rhs renames to temp var", {
   lhs := mk_ident(usize(7), "_");
   rhs := mk_ident(usize(8), "true");
   expr := mk_init_assign(usize(40), lhs, rhs);
-  result := evaluate_initialization_assignment(expr, env, &(ctx), using(exn));
+  result := evaluate_initialization_assignment(expr, env, &(ctx), exn);
   // ExprInfo for the result should record a variable_name (the temp name).
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
   match(

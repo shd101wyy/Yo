@@ -125,7 +125,7 @@ test("path_collection_conflicts — empty collections don't conflict", {
 test("control_flow_of Return", {
   cf := control_flow_of(ControlFlowKind.Return);
   assert(cf.return_flag, "return(flag set)");
-  assert(!(cf.escape_flag), "escape(flag not set)");
+  assert(!(cf.unwind_flag), "unwind(flag not set)");
   assert(!(cf.break_flag), "break flag not set");
   assert(!(cf.continue_flag), "continue flag not set");
 });
@@ -135,8 +135,8 @@ test("control_flow_of Break", {
   assert(cf.break_flag, "break set");
 });
 test("has_control_flow — correct flag", {
-  cf := control_flow_of(ControlFlowKind.Escape);
-  assert(has_control_flow(.Some(cf), ControlFlowKind.Escape), "escape(set)");
+  cf := control_flow_of(ControlFlowKind.Unwind);
+  assert(has_control_flow(.Some(cf), ControlFlowKind.Unwind), "unwind(set)");
   assert(!(has_control_flow(.Some(cf), ControlFlowKind.Return)), "return(not set)");
 });
 test("has_control_flow — None", {
@@ -146,7 +146,7 @@ test("has_any_control_flow", {
   cf := control_flow_of(ControlFlowKind.Continue);
   assert(has_any_control_flow(.Some(cf)), "has any");
   assert(!(has_any_control_flow(Option(ControlFlowFlags).None)), "None has none");
-  empty := ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false);
+  empty := ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false);
   assert(!(has_any_control_flow(.Some(empty))), "all-false has none");
 });
 test("merge_control_flows", {
@@ -158,7 +158,7 @@ test("merge_control_flows", {
   merged := merge_control_flows(flows);
   assert(merged.return_flag, "return(merged)");
   assert(merged.break_flag, "break merged");
-  assert(!(merged.escape_flag), "escape(not merged)");
+  assert(!(merged.unwind_flag), "unwind(not merged)");
 });
 test("control_flow_to_string — single flag", {
   cf := control_flow_of(ControlFlowKind.Return);
@@ -166,9 +166,9 @@ test("control_flow_to_string — single flag", {
   assert(s == String.from("return"), "single flag string");
 });
 test("control_flow_to_string — multiple flags", {
-  cf := ControlFlowFlags(return_flag : true, escape_flag : true, break_flag : false, continue_flag : false);
+  cf := ControlFlowFlags(return_flag : true, unwind_flag : true, break_flag : false, continue_flag : false);
   s := control_flow_to_string(cf);
-  assert(s == String.from("return+escape"), "two flags string");
+  assert(s == String.from("return+unwind"), "two flags string");
 });
 // ---------------------------------------------------------------------------
 // ComptimeRef construction

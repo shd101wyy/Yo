@@ -86,23 +86,23 @@ Index methods backed by builtins (e.g., `__yo_array_index`) are detected by `isF
 
 ## Algebraic effects codegen
 
-- Functions with `forall(...(E))` spread effect parameters have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
+- Functions with `forall(E : Type.Struct)` polymorphic over an effect bundle have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
 
 ### Evidence passing for effects
 
 **All** effects — both struct-record (e.g., `Exception`, `Raise`) and function-type — use **evidence passing**. A struct effect record is an evidence record; at runtime, its function fields are passed as function pointers. Therefore there is no distinction between struct-record effects and function effects in codegen — both compile to passing function pointers as explicit C parameters.
 
-`forall(...)` remains compile-time-only, while `using(...)`/`given(...)` resolve statically and pass runtime evidence. Evidence passing is how that runtime behavior is realized.
+`forall(...)` remains compile-time-only. Effect parameters are explicit `fn`/`ctl` parameters at the language level; codegen lowers them to function-pointer C parameters. Evidence passing is how that runtime behavior is realized.
 
 For the full design document with overhead analysis and language semantics, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
 **How it works:**
 
-- A function with `using(exn : Exception)` gets an extra C parameter: `void (*throw)(AnyError)`
-- A function with `using(raise_mod : Raise)` where `Raise :: struct(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(__yo_string)`
+- A function with `exn : Exception` gets an extra C parameter: `void (*throw)(AnyError)`
+- A function with `raise_mod : Raise` where `Raise :: struct(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(__yo_string)`
 - The function body calls the effect operation directly via the function pointer — no SM needed
 - Call sites pass the function pointer from their context:
-  - Sync: the handler function address from `given(exn) := Exception(throw: handler_fn)`
+  - Sync: the handler function address from `exn := Exception(throw: handler_fn)` (or `(exn : Exception) = Exception(...)` when the LHS needs the annotation)
   - Async SM: `sm->__capture.throw` from the Future's capture struct
   - Transitive: forwarded from the caller's own evidence parameter
 
@@ -115,18 +115,18 @@ For the full design document with overhead analysis and language semantics, see 
 
 See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale.
 
-**Forall function-type effects (e.g., `Raise :: fn(forall(T), msg: String) -> T`):**
+**Forall function-type effects (e.g., `Raise :: ctl(forall(T), msg: String) -> T`):**
 
-- Bare function-type effect handlers from `given` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This historical flag means "effect member function" and ensures their C function body is generated despite having forall parameters (the forall types are erased at runtime).
+- Bare function-type effect handlers from local `(raise : Raise) = ((msg) -> { ... })` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This historical flag means "effect member function" and ensures their C function body is generated despite having forall parameters (the forall types are erased at runtime).
 - The evaluator includes forall function effects in async closure capture structs (`isEffectParamInAsyncClosure` in `anonymous-function.ts`). They are stored as `void*` and cast at each call site.
 - Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both struct-record and forall function-type effects (`emitEffectInjectionForAwait` in `await.ts`).
 
-**Mixed escape+return handlers:**
+**Mixed unwind+return handlers:**
 
-- A handler may `return` in one branch and `escape` in another. Both paths work with evidence passing:
+- A handler may `return` in one branch and `unwind` in another. Both paths work with evidence passing:
   - Return path: handler function returns normally; caller uses the resume value
   - Escape path: handler sets `__yo_effect_escaped = 1` and returns a dummy; caller checks the flag and propagates
-- Non-unit `escape(value)` is supported — the escape value is stored in a thread-local and retrieved at the handler installation site.
+- Non-unit `unwind(value)` is supported — the unwind value is stored in a thread-local and retrieved at the handler installation site.
 
 ### Escape detection in sync_fut_t resume functions
 
@@ -147,46 +147,46 @@ void resume(void* ptr) {
 }
 ```
 
-**Event loop RC convention:** ALL futures (both sync_fut_t and full SM) self-decrement the event loop reference on BOTH completion AND escape. The synchronous await abort path (`await.ts`) does NOT decrement — this prevents double-free/UAF. The awaiter's pending deferred drops handle the ownership reference for locally-owned futures.
+**Event loop RC convention:** ALL futures (both sync_fut_t and full SM) self-decrement the event loop reference on BOTH completion AND unwind. The synchronous await abort path (`await.ts`) does NOT decrement — this prevents double-free/UAF. The awaiter's pending deferred drops handle the ownership reference for locally-owned futures.
 
 ### When SM is still needed
 
 The SM approach is still needed for **multi-yield resumable effects** where the handler body interleaves with the computation (e.g., deep handlers that resume multiple times from different yield points within the same function body). This is rare in practice; most effects are tail-resumptive.
 
-### Thread-local escape flag
+### Thread-local unwind flag
 
-Because effect handlers are called via function pointer (evidence passing), the codegen cannot statically detect whether the handler calls `escape()`. A thread-local flag `__yo_effect_escaped` is used for runtime detection:
+Because effect handlers are called via function pointer (evidence passing), the codegen cannot statically detect whether the handler calls `unwind()`. A thread-local flag `__yo_effect_escaped` is used for runtime detection:
 
 1. Before calling an effect handler via function pointer, the flag is reset to 0.
-2. If the handler calls `escape()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
-3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments and propagates the escape:
+2. If the handler calls `unwind()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
+3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments and propagates the unwind:
    - In async SM: aborts the Future (state = -2), spawns the continuation, self-decrements event loop RC, returns.
    - In sync_fut_t resume: sets state = -2 (aborted), self-decrements event loop RC, returns.
    - In sync context (evidence passing): drops locals, returns a dummy value. Each caller in the transitive chain checks the flag and propagates.
 
-The `__yo_effect_escaped` and `__yo_effect_escape_value` variables are declared via `emitDeclarationLine` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.
+The `__yo_effect_escaped` and `__yo_unwind_value` variables are declared via `emitDeclarationLine` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.
 
-Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (declaration + context flag), `exprs/generation.ts` (flag set in `generateEscape`), `other-fn-call.ts` (flag check + abort at call site), `async.ts` (escape check in sync_fut_t resume).
+Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (declaration + context flag), `exprs/generation.ts` (flag set in `generateEscape`), `other-fn-call.ts` (flag check + abort at call site), `async.ts` (unwind check in sync_fut_t resume).
 
 ### Function collection for evidence-bearing functions
 
-Functions with evidence parameters (from `using(io: IO)` or algebraic effect bindings) need special handling in `collection.ts`. Three skip conditions must allow these functions through:
+Functions with evidence parameters (from `io: IO` or algebraic effect parameters) need special handling in `collection.ts`. Three skip conditions must allow these functions through:
 
-1. **`isFunctionTypeHardGeneric` check** — A specialized function may still appear "hard-generic" because the implicit params are compile-time-only. If `getEvidenceParameters(specializedType).length > 0`, the function is valid for codegen — evidence params become C function pointers.
+1. **`isFunctionTypeHardGeneric` check** — A specialized function may still appear "hard-generic" because evidence params trace back to a comptime-only `forall(...)` binding. If `getEvidenceParameters(specializedType).length > 0`, the function is valid for codegen — evidence params become C function pointers.
 
-2. **`exprContainsUnknownValue` check** — Functions with implicit params may have `UnknownValue` in their body for compile-time parameter references. Check both original and specialized types: if either has evidence parameters, the function is valid.
+2. **`exprContainsUnknownValue` check** — Functions with effect params may have `UnknownValue` in their body for compile-time parameter references. Check both original and specialized types: if either has evidence parameters, the function is valid.
 
 3. **SomeType ARC function filter** — `___drop`/`___dup` for SomeType(Future) are skipped because SomeType has no C representation. But user-defined functions (e.g., `test_escape(task: Impl(Future(...)))`) with evidence params should NOT be skipped — their SomeType params are resolved at call sites.
 
-### Await escape value handling: handler installation vs propagation
+### Await unwind value handling: handler installation vs propagation
 
 When an `io.await` detects a Future abort (state == -2), the behavior depends on whether the current function is the **handler installation point** or a **propagation point**:
 
-- **Handler installation** — The function has a `given(raise) := ...` binding that locally installs the effect handler. When escaped, it clears `__yo_effect_escaped = 0`, extracts the escape value from `__yo_effect_escape_value` via `memcpy`, and returns it.
+- **Handler installation** — The function has a local `(raise : Raise) = ((msg) -> { ... })` binding that installs the effect handler. When escaped, it clears `__yo_effect_escaped = 0`, extracts the unwind value from `__yo_unwind_value` via `memcpy`, and returns it.
 
-- **Propagation** — The function receives the effect via evidence parameters (`using`). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the escape.
+- **Propagation** — The function receives the effect via an evidence parameter (e.g. `raise : Raise` in its own signature). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the unwind.
 
-The helper `isAwaitEscapeHandlerInstallation()` in `await.ts` determines this by checking if ANY algebraic effect in the Future is NOT in the current function's `currentEvidenceParams`. If an effect's key is missing from evidence params, it must be locally installed via `given`.
+The helper `isAwaitEscapeHandlerInstallation()` in `await.ts` determines this by checking if ANY algebraic effect in the Future is NOT in the current function's `currentEvidenceParams`. If an effect's key is missing from evidence params, it must be locally installed.
 
 ### Effect member return types
 
@@ -195,7 +195,7 @@ Handler functions marked `isModuleEffectMember = true` with SomeType return type
 - **Declaration** (`declarations.ts`): passes `undefined` for body → no body-type override → `getTypeString(SomeType)` → `void`
 - **Definition** (`generation.ts`): skips SomeType body override when `isModuleEffectMember` is true
 
-This consistency prevents type mismatches between forward declarations and definitions. The escape value is communicated through `__yo_effect_escape_value` (thread-local), not through the C return value.
+This consistency prevents type mismatches between forward declarations and definitions. The unwind value is communicated through `__yo_unwind_value` (thread-local), not through the C return value.
 
 The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actual C return type derived from the body, used by `generateEscape` to emit correct dummy return values when the SomeType-based return maps to `void` but the declaration uses a concrete type.
 
@@ -203,7 +203,7 @@ The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actu
 
 When calling an evidence handler through a function pointer cast in `generateEvidenceFnPtrCall`, the cast return type **must** match the handler's actual C return type. For forall handlers (e.g., `Exception.throw :: fn(forall(T), error: AnyError) -> T`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
 
-The `handlerReturnsVoid` flag in `generateEvidenceFnPtrCall` handles this: declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates escape. See `issues/evidence-fn-ptr-void-return-abi-mismatch.md`.
+The `handlerReturnsVoid` flag in `generateEvidenceFnPtrCall` handles this: declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates unwind. See `issues/evidence-fn-ptr-void-return-abi-mismatch.md`.
 
 ### Handler functions are standalone, not closures
 
@@ -219,7 +219,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 
 ### io.spawn codegen
 
-`io.spawn(task, using(io, effects...))` generates:
+`io.spawn(task, ctx)` (where `ctx` is the task's effect bundle) generates:
 
 1. Store the future pointer in a local variable
 2. Check abort state (panic if already aborted)
@@ -236,20 +236,20 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 1. SM capture variables (`sm->__capture.<field>`)
 2. Struct value fields (concrete `StructValue` from evaluator)
 3. Caller's evidence params (`currentEvidenceParams` map)
-4. Given bindings in the call environment
+4. Locally installed handler bindings in the call environment
 
 **Function effects (e.g., Raise):** Including forall function effects:
 
 1. Caller's evidence params
 2. SM capture variables
-3. Using arg's function value (from evaluator)
-4. Fallback: `generateExpr(usingArg)`
+3. The bound handler's function value (from evaluator)
+4. Fallback: `generateExpr(handlerArg)`
 
-**Important:** Forall function-type effects (e.g., `Raise :: fn(forall(T), ...) -> T`) are NOT skipped. They are runtime function pointers passed as `void*` in evidence passing.
+**Important:** Forall function-type effects (e.g., `Raise :: ctl(forall(T), ...) -> T`) are NOT skipped. They are runtime function pointers passed as `void*` in evidence passing.
 
 ### JoinHandle.await codegen
 
-`handle.await(using(io))` generates (`generateJoinHandleAwait` in `await.ts`):
+`handle.await(io)` generates (`generateJoinHandleAwait` in `await.ts`):
 
 1. Extract `void*` future pointer from handle's `__future` field
 2. Cast to inline header struct to read `state` and `result` fields

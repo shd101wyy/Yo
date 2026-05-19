@@ -21,7 +21,7 @@ parse_char_literal :: (fn(tok_value : str) -> u32)({
   // b1 is the byte at index 1 (after the opening `'`)
   b1 := tok_value.bytes(usize(1));
   cond(
-    // Escape sequence: tok_value looks like '\x' — b1 is backslash (92)
+    // Unwind sequence: tok_value looks like '\x' — b1 is backslash (92)
     (b1 == u8(92)) => {
       b2 := tok_value.bytes(usize(2));
       cond(
@@ -59,7 +59,7 @@ evaluate_char_literal :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);

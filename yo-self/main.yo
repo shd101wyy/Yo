@@ -77,17 +77,17 @@ try_populate_expr_info_table :: (
     module_path : String
   ) -> Option(ExprInfoTable)
 )({
-  // Local exception handler: on any throw from the evaluator, escape this
+  // Local exception handler: on any throw from the evaluator, unwind this
   // helper with `.None`. The handler is scoped to this function so the
   // outer compile / test pipeline keeps its own top-level handler intact.
-  given(local_exn) := Exception(
+  local_exn := Exception(
     throw : (
-      (_err) -> escape(Option(ExprInfoTable).None)
+      (_err) -> unwind(Option(ExprInfoTable).None)
     )
   );
   // Build a fresh Environment + EvalContext for this compilation. std_path
   // is resolved from `YO_STD` (or `./std` fallback) so the modular import
-  // handler can find `std/...` modules. The local exception escape catches
+  // handler can find `std/...` modules. The local exception unwind catches
   // any evaluator coverage gap (e.g. unported HKT/RC features in prelude).
   env := Environment.new(module_path);
   ctx := eval_context_new(resolve_std_path(), module_path);
@@ -101,7 +101,7 @@ try_populate_expr_info_table :: (
     env,
     &(ctx),
     false,
-    using(local_exn)
+    local_exn
   );
   Option(ExprInfoTable).Some(ctx.expr_info_table)
 });
@@ -184,7 +184,8 @@ collect_module_deps :: (
     std_base : str,
     visited : *(ArrayList(String)),
     all_exprs : *(ArrayList(AstExpr)),
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   // Standard library imports: when std_base is empty, skip (legacy behavior —
@@ -216,13 +217,13 @@ collect_module_deps :: (
   });
   // Handle directory modules: if path.yo doesn't exist but path/index.yo does, use the latter.
   (abs_path : String) = String.from(abs_path_raw.as_str());
-  (file_found : bool) = io.await(exists(Path.new(String.from(abs_path_raw.as_str()))));
+  (file_found : bool) = io.await(exists(Path.new(String.from(abs_path_raw.as_str()))), io);
   if(!(file_found), {
     // Strip the trailing .yo (3 chars) to get the base name, then try index.yo
     base_len := abs_path_raw.len();
     base_no_ext := abs_path_raw.substring(usize(0), base_len - usize(3));
     index_path := `${base_no_ext.as_str()}/index.yo`;
-    index_found := io.await(exists(Path.new(index_path)));
+    index_found := io.await(exists(Path.new(index_path)), io);
     cond(
       index_found => {
         abs_path = index_path;
@@ -260,9 +261,9 @@ collect_module_deps :: (
     .Some(p) => p.to_string()
   );
   // Read and parse the imported module
-  src_bytes := io.await(read_file(Path.new(String.from(abs_path.as_str()))));
+  src_bytes := io.await(read_file(Path.new(String.from(abs_path.as_str()))), io);
   src := String.from_bytes(src_bytes);
-  mod_exprs := parse(src, String.from(mod_base_dir.as_str()), using(exn));
+  mod_exprs := parse(src, String.from(mod_base_dir.as_str()), exn);
   // Recursively collect dependencies of this module first (post-order DFS)
   nm := mod_exprs.len();
   (im : usize) = usize(0);
@@ -281,7 +282,8 @@ collect_module_deps :: (
             std_base,
             visited,
             all_exprs,
-            using(io, exn)
+            io,
+            exn
           );
         }
       )
@@ -306,10 +308,11 @@ _walk_check_dir :: (
   fn(
     dir : String,
     out : *(ArrayList(String)),
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
-  entries := io.await(read_dir(Path.new((&(dir)).clone())));
+  entries := io.await(read_dir(Path.new((&(dir)).clone())), io);
   (n : usize) = entries.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {
@@ -332,7 +335,7 @@ _walk_check_dir :: (
               true => false
             );
             if(!(skip), {
-              recur(full, out, using(io, exn));
+              recur(full, out, io, exn);
             });
           },
           .File => {
@@ -357,18 +360,19 @@ _walk_check_dir :: (
 collect_check_files :: (
   fn(
     path_str : String,
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> ArrayList(String)
 )({
   out := ArrayList(String).new();
-  meta := io.await(metadata(Path.new((&(path_str)).clone())));
+  meta := io.await(metadata(Path.new((&(path_str)).clone()), io), io);
   cond(
     meta.is_file() => {
       if(path_str.ends_with(String.from(".yo")), {
         out.push((&(path_str)).clone());
       });
     },
-    meta.is_dir() => _walk_check_dir(path_str, &(out), using(io, exn)),
+    meta.is_dir() => _walk_check_dir(path_str, &(out), io, exn),
     true => ()
   );
   out
@@ -383,20 +387,21 @@ check_single_file :: (
   fn(
     input_path : String,
     std_path : String,
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> bool
 )({
   // Local exception handler escapes the function body with `false`.
   // Effect-handler bodies cannot capture outer runtime vars (per
   // Yo's `->` rule), so we can't print here — the caller logs the
   // file's pass/fail status from the bool return.
-  given(local_exn) := Exception(
-    throw : ((_err) -> escape(false))
+  local_exn := Exception(
+    throw : ((_err) -> unwind(false))
   );
   println(`check: parsing ${input_path}`);
-  src_bytes := io.await(read_file(Path.new((&(input_path)).clone())));
+  src_bytes := io.await(read_file(Path.new((&(input_path)).clone())), io);
   src := String.from_bytes(src_bytes);
-  exprs := parse(src, (&(input_path)).clone(), using(local_exn));
+  exprs := parse(src, (&(input_path)).clone(), local_exn);
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
   visited := ArrayList(String).new();
   dep_exprs := ArrayList(AstExpr).new();
@@ -407,7 +412,8 @@ check_single_file :: (
     std_path.as_str(),
     &(visited),
     &(dep_exprs),
-    using(io, local_exn)
+    io,
+    local_exn
   );
   println(`check: pre-loaded prelude — ${dep_exprs.len().to_string()} expr(s) so far`);
   input_base_dir := match(
@@ -432,7 +438,8 @@ check_single_file :: (
             std_path.as_str(),
             &(visited),
             &(dep_exprs),
-            using(io, local_exn)
+            io,
+            local_exn
           );
         }
       )
@@ -475,7 +482,7 @@ check_single_file :: (
     env,
     &(ctx),
     false,
-    using(local_exn)
+    local_exn
   );
   println(`check: ${input_path} — evaluator OK`);
   true
@@ -493,14 +500,15 @@ check_single_file :: (
 run_check :: (
   fn(
     argv : ArrayList(String),
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
     exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
   });
   target_path := argv.get(usize(2)).unwrap();
-  files := collect_check_files((&(target_path)).clone(), using(io, exn));
+  files := collect_check_files((&(target_path)).clone(), io, exn);
   if(files.len() == usize(0), {
     exn.throw(dyn(`check: no .yo files found at ${target_path}`));
   });
@@ -513,7 +521,7 @@ run_check :: (
       files.get(fi),
       .None => (),
       .Some(file_path) => {
-        if(!(check_single_file(file_path, (&(std_path)).clone(), using(io, exn))), {
+        if(!(check_single_file(file_path, (&(std_path)).clone(), io, exn)), {
           failed = (failed + usize(1));
         });
       }
@@ -532,7 +540,8 @@ run_check :: (
 run_compile :: (
   fn(
     argv : ArrayList(String),
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -550,10 +559,10 @@ run_compile :: (
   // Derive module id from input filename
   mod_id := module_id_from_path(input_path);
   // Read the input .yo file
-  src_bytes := io.await(read_file(Path.new(input_path)));
+  src_bytes := io.await(read_file(Path.new(input_path)), io);
   src := String.from_bytes(src_bytes);
   // Parse with the self-hosted parser
-  exprs := parse(src, input_path, using(exn));
+  exprs := parse(src, input_path, exn);
   // Stream A: try to populate the typed AST metadata table from the proper
   // evaluator. On failure (evaluator coverage gap), fall back to no metadata
   // so the codegen dispatcher uses its AST-only bootstrap heuristics.
@@ -566,14 +575,14 @@ run_compile :: (
     .Some(c) => c
   );
   // Write C to temp file
-  io.await(write_file(Path.new(String.from(C_TMP)), c_src));
+  io.await(write_file(Path.new(String.from(C_TMP)), c_src), io);
   // Compile C with system C compiler
   cc := Command.new(`cc`);
   cc.arg(String.from(C_TMP));
   cc.arg(`-w`);
   cc.arg(`-o`);
   cc.arg(output_path);
-  st := io.await(cc.status());
+  st := io.await(cc.status(), io);
   if(!(st.success()), {
     exn.throw(dyn(`compile: C compilation failed`));
   });
@@ -585,7 +594,8 @@ run_compile :: (
 run_test :: (
   fn(
     argv : ArrayList(String),
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -601,9 +611,9 @@ run_test :: (
     });
   });
   // Read and parse the test file
-  src_bytes := io.await(read_file(Path.new(input_path)));
+  src_bytes := io.await(read_file(Path.new(input_path)), io);
   src := String.from_bytes(src_bytes);
-  exprs := parse(src, input_path, using(exn));
+  exprs := parse(src, input_path, exn);
   // Phase 5g: resolve transitive imports and collect all module declarations.
   // dep_exprs will contain declarations from all transitively imported modules,
   // in post-order (dependencies before dependents) for correct C ordering.
@@ -631,7 +641,8 @@ run_test :: (
             "",
             &(visited),
             &(dep_exprs),
-            using(io, exn)
+            io,
+            exn
           );
         }
       )
@@ -698,20 +709,20 @@ run_test :: (
                 // Generate C for this test body (includes all imported declarations)
                 c_src := compile_test_body_to_c(body, "test_module", all_module_exprs);
                 // Write to temp C file
-                io.await(write_file(Path.new(String.from(C_TMP)), c_src));
+                io.await(write_file(Path.new(String.from(C_TMP)), c_src), io);
                 // Compile with cc
                 cc := Command.new(`cc`);
                 cc.arg(String.from(C_TMP));
                 cc.arg(`-w`);
                 cc.arg(`-o`);
                 cc.arg(String.from(TEST_BIN_TMP));
-                compile_st := io.await(cc.status());
+                compile_st := io.await(cc.status(), io);
                 if(compile_st.success(), {
                   // Run the test binary (with a timeout to avoid hangs)
                   run := Command.new(`timeout`);
                   run.arg(String.from("3"));
                   run.arg(String.from(TEST_BIN_TMP));
-                  run_st := io.await(run.status());
+                  run_st := io.await(run.status(), io);
                   cond(
                     run_st.success() => {
                       println(`  ✓ ${test_name}`);
@@ -760,7 +771,8 @@ run_test :: (
 run_fmt :: (
   fn(
     argv : ArrayList(String),
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   // Parse arguments — collect positional paths, detect --check flag.
@@ -780,7 +792,7 @@ run_fmt :: (
     ai = (ai + usize(1));
   });
   options := FormatYoFilesOptions(check : check_mode, cwd : String.from("."));
-  result := format_yo_files(input_paths, options, using(io, exn));
+  result := format_yo_files(input_paths, options, io, exn);
   // Report.
   cn := result.changed.len();
   cond(
@@ -811,13 +823,13 @@ run_fmt :: (
     }
   );
 });
-main :: (fn(using(io : IO)) -> unit)({
-  given(exn) := Exception(
+main :: (fn(io : IO) -> unit)({
+  exn := Exception(
     throw : (
       (err) -> {
         eprintln(`yo-self: error: ${err.to_string()}`);
         exit(int(1));
-        escape();
+        unwind();
       }
     )
   );
@@ -827,10 +839,10 @@ main :: (fn(using(io : IO)) -> unit)({
   });
   subcmd := argv.get(usize(1)).unwrap();
   cond(
-    (subcmd.as_str() == "compile") => run_compile(argv, using(io, exn)),
-    (subcmd.as_str() == "test") => run_test(argv, using(io, exn)),
-    (subcmd.as_str() == "fmt") => run_fmt(argv, using(io, exn)),
-    (subcmd.as_str() == "check") => run_check(argv, using(io, exn)),
+    (subcmd.as_str() == "compile") => run_compile(argv, io, exn),
+    (subcmd.as_str() == "test") => run_test(argv, io, exn),
+    (subcmd.as_str() == "fmt") => run_fmt(argv, io, exn),
+    (subcmd.as_str() == "check") => run_check(argv, io, exn),
     true => exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check> ...`))
   );
 });

@@ -45,11 +45,12 @@ function isFunctionBoundaryArrow(expr: Expr): boolean {
   // isAnonymousFunctionDefinition was not set.
   if (expr.$?.value !== undefined && isFunctionValue(expr.$.value)) return true;
 
-  // Case 2: Function type arrow — fn(...) -> T or Fn(...) -> T
+  // Case 2: Function type arrow — fn(...) -> T, ctl(...) -> T, or Fn(...) -> T
   if (
     exprIsFunctionCall(expr) &&
     exprIsFunctionCall(expr.func) &&
     (exprIsFunctionCallOf(expr.func, BuiltinKeywords.fn) ||
+      exprIsFunctionCallOf(expr.func, BuiltinKeywords.ctl) ||
       exprIsFunctionCallOf(expr.func, BuiltinKeywords.unsafe_fn) ||
       exprIsFunctionCallOf(expr.func, BuiltinKeywords.Fn))
   ) {
@@ -105,7 +106,7 @@ function traverseCondMatchBranches(
  */
 export function evaluatedBodyContainsEscape(expr: Expr): boolean {
   if (exprIsAtom(expr)) {
-    return exprIsAtomOf(expr, BuiltinKeywords.escape);
+    return exprIsAtomOf(expr, BuiltinKeywords.unwind);
   }
   if (exprIsFunctionCall(expr)) {
     if (expr.$?.macroExpansion) {
@@ -162,12 +163,12 @@ export function exprTreeContainsReturn(expr: Expr): boolean {
   if (exprIsAtom(expr)) {
     return (
       exprIsAtomOf(expr, BuiltinKeywords.return) ||
-      exprIsAtomOf(expr, BuiltinKeywords.escape)
+      exprIsAtomOf(expr, BuiltinKeywords.unwind)
     );
   }
   if (exprIsFunctionCall(expr)) {
     if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) return true;
-    if (exprIsFunctionCallOf(expr, BuiltinKeywords.escape)) return true;
+    if (exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)) return true;
 
     if (expr.$?.macroExpansion) {
       return exprTreeContainsReturn(expr.$.macroExpansion);
@@ -284,12 +285,12 @@ export function exprContainsLoopTerminator(expr: Expr): boolean {
     return (
       exprIsAtomOf(expr, BuiltinKeywords.break) ||
       exprIsAtomOf(expr, BuiltinKeywords.return) ||
-      exprIsAtomOf(expr, BuiltinKeywords.escape)
+      exprIsAtomOf(expr, BuiltinKeywords.unwind)
     );
   }
   if (exprIsFunctionCall(expr)) {
     if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) return true;
-    if (exprIsFunctionCallOf(expr, BuiltinKeywords.escape)) return true;
+    if (exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)) return true;
 
     if (expr.$?.macroExpansion) {
       return exprContainsLoopTerminator(expr.$.macroExpansion);

@@ -2,7 +2,6 @@ import { addVariableToEnv, type Environment } from "../../env";
 import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
-  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -20,6 +19,7 @@ import {
   convertComptimeTypeToRuntimeType,
   prohibitVoidType,
   typeContainsRcType,
+  typeIsControlBound,
   typeProhibitsComptimeModifier,
   typeRequiresComptimeModifier,
   typeToString,
@@ -34,11 +34,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import {
-  findRcValueOwnerRelationship,
-  isValidVariableName,
-  throwExprIsImplicitVariableError,
-} from "../utils";
+import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring-assignment";
@@ -91,22 +87,7 @@ export function evaluateInitializationAssignment({
   const lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
 
-  // Detect given(name) wrapper on LHS for implicit parameter declaration
-  let isImplicit = false;
-  let actualLhs = lhs;
-  if (
-    exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
-  ) {
-    if (lhs.args.length !== 1) {
-      throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Expected exactly one argument for "given", got ${lhs.args.length}`,
-      });
-    }
-    isImplicit = true;
-    actualLhs = lhs.args[0]!;
-  }
+  const actualLhs = lhs;
 
   // Prevent declaring variable type using :: or :=
   if (exprIsFunctionCall(actualLhs) && exprIsFunctionCallOf(actualLhs, ":")) {
@@ -126,7 +107,6 @@ export function evaluateInitializationAssignment({
     context: {
       ...context,
       expectedType: undefined,
-      isInsideGivenHandler: isImplicit ? true : context.isInsideGivenHandler,
     },
   });
 
@@ -144,8 +124,32 @@ export function evaluateInitializationAssignment({
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$!.controlFlow!);
   }
 
-  // Disallow using implicit variables (or property access of them) as the RHS
-  throwExprIsImplicitVariableError(rhs);
+  // §4 escape boundary 2: module-level binding type cannot be
+  // control-bound. Module-level bindings outlive every call frame, so
+  // a stored handler (or aggregate containing one) would be invokable
+  // long after its install frame has returned. Type-level check via
+  // `typeIsControlBound` catches direct CF values, structs/tuples with
+  // CF fields, etc.
+  {
+    const isAtModuleLevel = !context.isEvaluatingFunctionBodyOrAsyncBlock;
+    if (isAtModuleLevel) {
+      const rhsType = rhs.$?.type;
+      if (rhsType && typeIsControlBound(rhsType)) {
+        throw formatErrorMessage({
+          token: rhs.token,
+          errorMessage: `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
+
+Bound type: ${typeToString(rhsType)}
+
+Define handlers inside the function that uses them:
+  use_it :: (fn(...) -> ...)({
+    (raise : Raise) = ((msg) -> { unwind(...); });
+    some_call(args, raise);
+  });`,
+        });
+      }
+    }
+  }
 
   if (exprIsAtom(actualLhs)) {
     // Check if the RHS variable has been consumed (moved)
@@ -166,11 +170,8 @@ export function evaluateInitializationAssignment({
       });
     }
 
-    // When using given, force compile-time only regardless of := or ::
-    const effectiveIsCompileTimeOnly = isImplicit || isCompileTimeOnly;
-    const effectiveShouldConvertToRuntimeType = isImplicit
-      ? false
-      : shouldConvertToRuntimeType;
+    const effectiveIsCompileTimeOnly = isCompileTimeOnly;
+    const effectiveShouldConvertToRuntimeType = shouldConvertToRuntimeType;
 
     // Set the variable type
     let rhsType = rhs.$?.type;
@@ -298,10 +299,9 @@ ${exprToString(expr)}`,
     }
 
     // Mark bare function-type effect handlers for codegen.
-    // When given(name) = handler and handler is a function value,
-    // mark it as an effect member so its body is generated as a concrete
-    // C function for evidence passing (even if it has forall parameters).
-    if (isImplicit && isFunctionValue(rhsValue)) {
+    // When a handler function value uses unwind, mark it as an effect member
+    // so its body is generated as a concrete C function for evidence passing.
+    if (isFunctionValue(rhsValue) && rhsValue.isControlFunction) {
       rhsValue.isEffectRecordMember = true;
     }
 
@@ -419,7 +419,12 @@ Use \`::\` for compile-time definitions inside impl.`,
         name: varName,
         type: finalLhsType,
         isCompileTimeOnly: effectiveIsCompileTimeOnly,
-        value: actualLhs.$.value ? [actualLhs.$.value] : undefined,
+        value:
+          rhsValue && isFunctionValue(rhsValue)
+            ? [rhsValue]
+            : actualLhs.$.value
+              ? [actualLhs.$.value]
+              : undefined,
         token: actualLhs.token,
         initializedAtToken: actualLhs.token,
         consumedAtToken: undefined, // Not consumed yet
@@ -428,8 +433,7 @@ Use \`::\` for compile-time definitions inside impl.`,
         // Only set shared ownership for Copy types (shared references)
         // If RHS was moved, LHS becomes the primary owner
         isOwningTheSameRcValueAs,
-        isReassignable: !isImplicit,
-        isImplicit,
+        isReassignable: true,
         isModuleLevel,
         docComment,
       },
@@ -441,14 +445,6 @@ Use \`::\` for compile-time definitions inside impl.`,
       actualLhs.$.variableName = varName;
     }
     actualLhs.$.env = env;
-    if (isImplicit) {
-      lhs.$ = {
-        env,
-        value: VUnit,
-        type: VUnit.type,
-        pathCollection: [],
-      };
-    }
     expr.$ = {
       env,
       value: VUnit,
@@ -458,13 +454,13 @@ Use \`::\` for compile-time definitions inside impl.`,
     };
     return expr;
   } else {
-    const effectiveIsCompileTimeOnly = isImplicit || isCompileTimeOnly;
+    const effectiveIsCompileTimeOnly = isCompileTimeOnly;
     const { env: nextEnv, runtimeDestructurings } =
       evaluateDestructuringAssignment({
         lhs: actualLhs,
         rhs,
         env,
-        isCompileTimeOnly: isImplicit || isCompileTimeOnly,
+        isCompileTimeOnly,
         context: { ...context },
       });
     env = nextEnv;

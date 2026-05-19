@@ -16,13 +16,13 @@ test("fadvise sequential hint returns success", {
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
   assert(fd >= i32(0), "mkstemp for fadvise test should return a valid fd");
-  trunc := io.await(file.ftruncate(fd, i64(4096)));
+  trunc := io.await(file.ftruncate(fd, i64(4096)), io);
   assert(trunc == i32(0), "ftruncate for fadvise test should succeed");
   ret := advise_io.fadvise(fd, i64(0), i64(4096), advise_io.POSIX_FADV_SEQUENTIAL);
   assert(ret == i32(0), "fadvise should return success");
-  close_ret := io.await(file.close(fd));
+  close_ret := io.await(file.close(fd), io);
   assert(close_ret == i32(0), "closing fadvise test file should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
   assert(rm == i32(0), "unlinking fadvise test file should succeed");
 });
 test("madvise dontneed on anonymous mapping returns success", {

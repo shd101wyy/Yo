@@ -6,15 +6,15 @@ open(import("std/string"));
 // Basic parsing
 // ============================================================================
 test("Url parse simple HTTP URL", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://example.com");
+  url := Url.parse("http://example.com", exn);
   assert(url.scheme() == String.from("http"), "scheme should be http");
   assert(url.host().is_some(), "host should be present");
   assert(url.host().unwrap() == String.from("example.com"), "host should be example.com");
@@ -23,72 +23,72 @@ test("Url parse simple HTTP URL", {
   assert(url.fragment().is_none(), "fragment should be None");
 });
 test("Url parse HTTPS URL with path", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("https://example.com/path/to/resource");
+  url := Url.parse("https://example.com/path/to/resource", exn);
   assert(url.scheme() == String.from("https"), "scheme should be https");
   assert(url.host().unwrap() == String.from("example.com"), "host should be example.com");
   assert(url.path() == String.from("/path/to/resource"), "path should be /path/to/resource");
 });
 test("Url parse URL with port", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://localhost:8080/api");
+  url := Url.parse("http://localhost:8080/api", exn);
   assert(url.host().unwrap() == String.from("localhost"), "host should be localhost");
   assert(url.port().is_some(), "port should be present");
   assert(url.port().unwrap() == u16(8080), "port should be 8080");
   assert(url.path() == String.from("/api"), "path should be /api");
 });
 test("Url parse URL with query", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://example.com/search?q=hello&lang=en");
+  url := Url.parse("http://example.com/search?q=hello&lang=en", exn);
   assert(url.path() == String.from("/search"), "path should be /search");
   assert(url.query().is_some(), "query should be present");
   assert(url.query().unwrap() == String.from("q=hello&lang=en"), "query should be q=hello&lang=en");
 });
 test("Url parse URL with fragment", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://example.com/page#section1");
+  url := Url.parse("http://example.com/page#section1", exn);
   assert(url.path() == String.from("/page"), "path should be /page");
   assert(url.fragment().is_some(), "fragment should be present");
   assert(url.fragment().unwrap() == String.from("section1"), "fragment should be section1");
 });
 test("Url parse full URL with all components", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("https://user:pass@example.com:443/path?key=val#frag");
+  url := Url.parse("https://user:pass@example.com:443/path?key=val#frag", exn);
   assert(url.scheme() == String.from("https"), "scheme");
   assert(url.userinfo().unwrap() == String.from("user:pass"), "userinfo");
   assert(url.host().unwrap() == String.from("example.com"), "host");
@@ -101,27 +101,27 @@ test("Url parse full URL with all components", {
 // Scheme handling
 // ============================================================================
 test("Url parse normalizes scheme to lowercase", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("HTTP://EXAMPLE.COM");
+  url := Url.parse("HTTP://EXAMPLE.COM", exn);
   assert(url.scheme() == String.from("http"), "scheme should be lowercased to http");
 });
 test("Url parse FTP scheme", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("ftp://files.example.com/pub/data.txt");
+  url := Url.parse("ftp://files.example.com/pub/data.txt", exn);
   assert(url.scheme() == String.from("ftp"), "scheme should be ftp");
   assert(url.host().unwrap() == String.from("files.example.com"), "host");
   assert(url.path() == String.from("/pub/data.txt"), "path");
@@ -130,141 +130,141 @@ test("Url parse FTP scheme", {
 // Edge cases
 // ============================================================================
 test("Url parse empty path with query", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://example.com?q=1");
+  url := Url.parse("http://example.com?q=1", exn);
   assert(url.path().is_empty(), "path should be empty");
   assert(url.query().unwrap() == String.from("q=1"), "query should be q=1");
 });
 test("Url parse empty path with fragment", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://example.com#top");
+  url := Url.parse("http://example.com#top", exn);
   assert(url.path().is_empty(), "path should be empty");
   assert(url.fragment().unwrap() == String.from("top"), "fragment should be top");
 });
 test("Url parse trailing slash", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://example.com/");
+  url := Url.parse("http://example.com/", exn);
   assert(url.path() == String.from("/"), "path should be /");
 });
 test("Url parse port 0", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://localhost:0/test");
+  url := Url.parse("http://localhost:0/test", exn);
   assert(url.port().unwrap() == u16(0), "port should be 0");
 });
 test("Url parse port 65535", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://localhost:65535");
+  url := Url.parse("http://localhost:65535", exn);
   assert(url.port().unwrap() == u16(65535), "port should be 65535");
 });
 // ============================================================================
 // Error cases
 // ============================================================================
 test("Url parse empty input returns error", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(());
+        unwind(());
       }
     )
   );
-  Url.parse("");
+  Url.parse("", exn);
   assert(false, "should fail on empty input");
 });
 test("Url parse missing scheme returns error", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(());
+        unwind(());
       }
     )
   );
-  Url.parse("://example.com");
+  Url.parse("://example.com", exn);
   assert(false, "should fail without scheme");
 });
 test("Url parse invalid port returns error", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(());
+        unwind(());
       }
     )
   );
-  Url.parse("http://example.com:abc");
+  Url.parse("http://example.com:abc", exn);
   assert(false, "should fail on non-numeric port");
 });
 test("Url parse port out of range returns error", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(());
+        unwind(());
       }
     )
   );
-  Url.parse("http://example.com:99999");
+  Url.parse("http://example.com:99999", exn);
   assert(false, "should fail on port > 65535");
 });
 // ============================================================================
 // to_string round-trip
 // ============================================================================
 test("Url to_string simple URL", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://example.com/path");
+  url := Url.parse("http://example.com/path", exn);
   s := url.to_string();
   assert(s == String.from("http://example.com/path"), "to_string should reconstruct URL");
 });
 test("Url to_string full URL round-trip", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
   input := "https://user:pass@example.com:8080/path?q=1#frag";
-  url := Url.parse(input);
+  url := Url.parse(input, exn);
   s := url.to_string();
   assert(s == String.from(input), "to_string should round-trip");
 });
@@ -272,43 +272,43 @@ test("Url to_string full URL round-trip", {
 // Accessors
 // ============================================================================
 test("Url host_port with port", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://example.com:8080/path");
+  url := Url.parse("http://example.com:8080/path", exn);
   hp := url.host_port();
   assert(hp.is_some(), "host_port should be present");
   assert(hp.unwrap() == String.from("example.com:8080"), "host_port should be example.com:8080");
 });
 test("Url host_port without port", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("http://example.com/path");
+  url := Url.parse("http://example.com/path", exn);
   hp := url.host_port();
   assert(hp.is_some(), "host_port should be present");
   assert(hp.unwrap() == String.from("example.com"), "host_port should just be host");
 });
 test("Url origin", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("https://example.com:443/path?q=1");
+  url := Url.parse("https://example.com:443/path?q=1", exn);
   o := url.origin();
   assert(o == String.from("https://example.com:443"), "origin should be scheme://host:port");
 });
@@ -316,29 +316,29 @@ test("Url origin", {
 // Opaque URIs (no authority)
 // ============================================================================
 test("Url parse mailto URI", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("mailto:user@example.com");
+  url := Url.parse("mailto:user@example.com", exn);
   assert(url.scheme() == String.from("mailto"), "scheme should be mailto");
   assert(url.host().is_none(), "no host for mailto");
   assert(url.path() == String.from("user@example.com"), "path should be user@example.com");
 });
 test("Url parse data URI", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  url := Url.parse("data:text/plain;base64,SGVsbG8=");
+  url := Url.parse("data:text/plain;base64,SGVsbG8=", exn);
   assert(url.scheme() == String.from("data"), "scheme should be data");
   assert(url.host().is_none(), "no host for data URI");
   assert(url.path() == String.from("text/plain;base64,SGVsbG8="), "path should contain data");

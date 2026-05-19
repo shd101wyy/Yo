@@ -112,15 +112,15 @@ stub_eval_i32 :: (
 /// Returns true iff calling `throw_rhs_contains_control_flow_expression_error`
 /// with the given expression throws.
 cf_error_throws :: (fn(rhs : AstExpr) -> bool)({
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(true);
+        unwind(true);
       }
     )
   );
   cf := control_flow_of(ControlFlowKind.Return);
-  throw_rhs_contains_control_flow_expression_error(rhs, cf, using(exn));
+  throw_rhs_contains_control_flow_expression_error(rhs, cf, exn);
   false
 });
 test("cf_error: cond rhs throws", {
@@ -150,11 +150,11 @@ test("cf_error: other rhs throws", {
 // ---------------------------------------------------------------------------
 test("evaluate_assignment: atom LHS — ExprInfo set with unit type", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -176,17 +176,17 @@ test("evaluate_assignment: atom LHS — ExprInfo set with unit type", {
   lhs := mk_ident(usize(1), "x");
   rhs := mk_ident(usize(2), "true");
   expr := mk_assign(usize(10), lhs, rhs);
-  result := evaluate_assignment(expr, env, &(ctx), using(exn));
+  result := evaluate_assignment(expr, env, &(ctx), exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
   assert(match(info_opt,.Some(_) => true,.None => false), "ExprInfo should be set on assignment expr");
 });
 test("evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -208,7 +208,7 @@ test("evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
   lhs := mk_ident(usize(3), "x");
   rhs := mk_ident(usize(4), "true");
   expr := mk_assign(usize(20), lhs, rhs);
-  result := evaluate_assignment(expr, env, &(ctx), using(exn));
+  result := evaluate_assignment(expr, env, &(ctx), exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
   match(
     info_opt,
@@ -230,10 +230,10 @@ test("evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
 /// Returns true iff evaluate_assignment throws when the variable is absent.
 test_assign_missing_var_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(true);
+        unwind(true);
       }
     )
   );
@@ -244,7 +244,7 @@ test_assign_missing_var_throws :: (fn() -> bool)({
   lhs := mk_ident(usize(50), "missing_var");
   rhs := mk_ident(usize(51), "true");
   expr := mk_assign(usize(500), lhs, rhs);
-  _r := evaluate_assignment(expr, env, &(ctx), using(exn));
+  _r := evaluate_assignment(expr, env, &(ctx), exn);
   false
 });
 test("evaluate_assignment: variable not found throws", {
@@ -253,10 +253,10 @@ test("evaluate_assignment: variable not found throws", {
 /// Returns true iff evaluate_assignment throws for a non-reassignable variable.
 test_assign_non_reassignable_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_bool);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(true);
+        unwind(true);
       }
     )
   );
@@ -279,7 +279,7 @@ test_assign_non_reassignable_throws :: (fn() -> bool)({
   lhs := mk_ident(usize(60), "x");
   rhs := mk_ident(usize(61), "true");
   expr := mk_assign(usize(600), lhs, rhs);
-  _r := evaluate_assignment(expr, env, &(ctx), using(exn));
+  _r := evaluate_assignment(expr, env, &(ctx), exn);
   false
 });
 test("evaluate_assignment: non-reassignable variable throws", {
@@ -288,10 +288,10 @@ test("evaluate_assignment: non-reassignable variable throws", {
 /// Returns true iff evaluate_assignment throws for a type mismatch (bool var, i32 rhs).
 test_assign_type_mismatch_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_eval_i32);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(true);
+        unwind(true);
       }
     )
   );
@@ -313,7 +313,7 @@ test_assign_type_mismatch_throws :: (fn() -> bool)({
   lhs := mk_ident(usize(70), "x");
   rhs := mk_ident(usize(71), "42");
   expr := mk_assign(usize(700), lhs, rhs);
-  _r := evaluate_assignment(expr, env, &(ctx), using(exn));
+  _r := evaluate_assignment(expr, env, &(ctx), exn);
   false
 });
 test("evaluate_assignment: type mismatch throws", {

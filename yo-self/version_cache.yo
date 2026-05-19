@@ -13,7 +13,7 @@
 open(import("std/string"));
 open(import("std/fmt"));
 { Command } :: import("std/process/command");
-{ AnyError, Exception } :: import("std/error");
+{ AnyError, Exception, IOErr } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
 { read_string, exists } :: import("std/fs/file");
@@ -43,12 +43,13 @@ NPM_PACKAGE_PATH :: "/@shd101wyy/yo";
 _remove_dir_all :: (
   fn(
     path : Path,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(unit, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(unit, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
-    entries := io.await(walk_with(path, opts));
+    entries := io.await(walk_with(path, opts, io), io);
     n := entries.len();
     while(runtime(n > usize(0)), {
       n = (n - usize(1));
@@ -59,15 +60,15 @@ _remove_dir_all :: (
           match(
             entry.file_type,
             .Directory => {
-              io.await(remove_dir(entry.path));
+              io.await(remove_dir(entry.path), io);
             },
             _ => {
-              io.await(remove_file(entry.path));
+              io.await(remove_file(entry.path), io);
             }
           )
       );
     });
-    io.await(remove_dir(path));
+    io.await(remove_dir(path), io);
   })
 );
 /// Extract the string value of a JSON field named `key`.
@@ -131,7 +132,7 @@ _json_extract_version_keys :: (fn(json : String) -> ArrayList(String))({
       pos := scan_start;
       depth := i32(1); // already inside the opening '{'
       in_string := false;
-      escape_next := false;
+      unwind_next := false;
       while(runtime((pos < json_len) && (depth > i32(0))), {
         byte_opt := bytes.get(pos);
         pos = (pos + usize(1)); // advance BEFORE dispatch
@@ -141,14 +142,14 @@ _json_extract_version_keys :: (fn(json : String) -> ArrayList(String))({
             depth = i32(0);
           },
           .Some(b) => {
-            if(escape_next, {
-              escape_next = false;
+            if(unwind_next, {
+              unwind_next = false;
             }, {
               cond(
                 // ── Inside a string value (depth > 1) ──────────────────
                 in_string => cond(
                   (b == u8(92)) => {
-                    escape_next = true;
+                    unwind_next = true;
                   },
                   // '\'
                   (b == u8(34)) => {
@@ -274,12 +275,13 @@ _sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
 is_version_cached :: (
   fn(
     version : String,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(bool, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(bool, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     version_dir := get_version_cache_dir(version);
-    dir_exists := io.await(exists(Path.new(version_dir)));
+    dir_exists := io.await(exists(Path.new(version_dir)), io);
     if(!(dir_exists), {
       return(false);
     });
@@ -287,20 +289,20 @@ is_version_cached :: (
       p := version_dir.concat(String.from("/package.json"));
       p
     };
-    pkg_exists := io.await(exists(Path.new(pkg_json_path)));
+    pkg_exists := io.await(exists(Path.new(pkg_json_path)), io);
     if(!(pkg_exists), {
       return(false);
     });
     // Check if dependencies need to be installed.
     // Reads package.json to check whether "dependencies" key is non-empty.
-    content := io.await(read_string(Path.new(pkg_json_path)));
+    content := io.await(read_string(Path.new(pkg_json_path)), io);
     has_deps_key := content.contains(String.from("\"dependencies\""));
     is_empty_1 := content.contains(String.from("\"dependencies\":{}"));
     is_empty_2 := content.contains(String.from("\"dependencies\": {}"));
     has_deps := (has_deps_key && ((!(is_empty_1)) && (!(is_empty_2))));
     if(has_deps, {
       node_modules_path := version_dir.concat(String.from("/node_modules"));
-      nm_exists := io.await(exists(Path.new(node_modules_path)));
+      nm_exists := io.await(exists(Path.new(node_modules_path)), io);
       if(!(nm_exists), {
         return(false);
       });
@@ -312,16 +314,17 @@ is_version_cached :: (
 /// Returns an ArrayList sorted by semver (ascending).
 list_cached_versions :: (
   fn(
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(ArrayList(String), IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(ArrayList(String), IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     versions_dir := get_global_versions_cache_dir();
-    dir_exists := io.await(exists(Path.new(versions_dir)));
+    dir_exists := io.await(exists(Path.new(versions_dir)), io);
     if(!(dir_exists), {
       return(ArrayList(String).new());
     });
-    entries := io.await(read_dir(Path.new(versions_dir)));
+    entries := io.await(read_dir(Path.new(versions_dir)), io);
     versions := ArrayList(String).new();
     i := usize(0);
     while(runtime(i < entries.len()), {
@@ -331,7 +334,7 @@ list_cached_versions :: (
         .Some(entry) => {
           if(match(entry.file_type,.Directory => true, _ => false), {
             pkg_path := versions_dir.concat(String.from("/")).concat(entry.name).concat(String.from("/package.json"));
-            pkg_exists := io.await(exists(Path.new(pkg_path)));
+            pkg_exists := io.await(exists(Path.new(pkg_path)), io);
             if(pkg_exists, {
               versions.push(entry.name);
             });
@@ -347,24 +350,25 @@ list_cached_versions :: (
 clean_version_cache :: (
   fn(
     version_opt : Option(String),
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(unit, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(unit, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     match(
       version_opt,
       .Some(version) => {
         version_dir := get_version_cache_dir(version);
-        dir_exists := io.await(exists(Path.new(version_dir)));
+        dir_exists := io.await(exists(Path.new(version_dir)), io);
         if(dir_exists, {
-          io.await(_remove_dir_all(Path.new(version_dir)));
+          io.await(_remove_dir_all(Path.new(version_dir)), io);
         });
       },
       .None => {
         versions_dir := get_global_versions_cache_dir();
-        dir_exists := io.await(exists(Path.new(versions_dir)));
+        dir_exists := io.await(exists(Path.new(versions_dir)), io);
         if(dir_exists, {
-          io.await(_remove_dir_all(Path.new(versions_dir)));
+          io.await(_remove_dir_all(Path.new(versions_dir)), io);
         });
       }
     );
@@ -375,16 +379,17 @@ clean_version_cache :: (
 install_dependencies :: (
   fn(
     version_dir : String,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(unit, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(unit, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     pkg_json_path := version_dir.concat(String.from("/package.json"));
-    pkg_exists := io.await(exists(Path.new(pkg_json_path)));
+    pkg_exists := io.await(exists(Path.new(pkg_json_path)), io);
     if(!(pkg_exists), {
       return(());
     });
-    content := io.await(read_string(Path.new(pkg_json_path)));
+    content := io.await(read_string(Path.new(pkg_json_path)), io);
     has_key := content.contains(String.from("\"dependencies\""));
     is_empty_1 := content.contains(String.from("\"dependencies\":{}"));
     is_empty_2 := content.contains(String.from("\"dependencies\": {}"));
@@ -399,7 +404,7 @@ install_dependencies :: (
     npm_cmd := Command.new(String.from("sh"));
     npm_cmd.arg(String.from("-c"));
     npm_cmd.arg(npm_script);
-    npm_out := io.await(npm_cmd.output());
+    npm_out := io.await(npm_cmd.output(), io);
     if(npm_out.status.success(), {
       return(());
     });
@@ -407,7 +412,7 @@ install_dependencies :: (
     bun_cmd := Command.new(String.from("sh"));
     bun_cmd.arg(String.from("-c"));
     bun_cmd.arg(bun_script);
-    bun_out := io.await(bun_cmd.output());
+    bun_out := io.await(bun_cmd.output(), io);
     if(bun_out.status.success(), {
       return(());
     });
@@ -423,10 +428,11 @@ install_dependencies :: (
 _http_get :: (
   fn(
     url : String,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(String, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(String, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     cmd := Command.new(String.from("curl"));
     cmd.arg(String.from("--silent"));
     cmd.arg(String.from("--location"));
@@ -436,7 +442,7 @@ _http_get :: (
     cmd.arg(String.from("-H"));
     cmd.arg(String.from("Accept: application/json"));
     cmd.arg(url);
-    out := io.await(cmd.output());
+    out := io.await(cmd.output(), io);
     if(!(out.status.success()), {
       msg := String.from("HTTP request failed for: ");
       msg.push_string(url);
@@ -450,10 +456,11 @@ _download_file :: (
   fn(
     url : String,
     dest_path : String,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(unit, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(unit, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     cmd := Command.new(String.from("curl"));
     cmd.arg(String.from("--silent"));
     cmd.arg(String.from("--location"));
@@ -463,7 +470,7 @@ _download_file :: (
     cmd.arg(String.from("-o"));
     cmd.arg(dest_path);
     cmd.arg(url);
-    out := io.await(cmd.output());
+    out := io.await(cmd.output(), io);
     if(!(out.status.success()), {
       msg := String.from("Failed to download: ");
       msg.push_string(url);
@@ -476,12 +483,13 @@ _download_file :: (
 _fetch_tarball_url :: (
   fn(
     version : String,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(String, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(String, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     pkg_url := `${NPM_REGISTRY_URL}${NPM_PACKAGE_PATH}/${version}`;
-    body := io.await(_http_get(pkg_url));
+    body := io.await(_http_get(pkg_url), io);
     // npm returns {"error":"Not found"} for non-existent versions.
     if(body.contains(String.from("\"error\":")), {
       msg := `Yo version ${version} is not available on npm.\nRun 'yo version list --remote'`;
@@ -504,49 +512,50 @@ _fetch_tarball_url :: (
 download_version :: (
   fn(
     version : String,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(String, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(String, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     // 1. Fetch tarball URL from npm registry.
-    tarball_url := io.await(_fetch_tarball_url(version));
+    tarball_url := io.await(_fetch_tarball_url(version), io);
     // 2. Create version cache directory.
     version_dir := get_version_cache_dir(version);
-    io.await(create_dir_all(Path.new(version_dir)));
+    io.await(create_dir_all(Path.new(version_dir)), io);
     // 3. Download tarball to a temp directory.
     println(`Downloading Yo v${version} from npm...`);
-    tmp_dir := io.await(TempDir.new());
+    tmp_dir := io.await(TempDir.new(io), io);
     tmp_path_str := tmp_dir.path().to_string();
     tarball_name := `yo-${version}.tgz`;
     tarball_path := `${tmp_path_str}/${tarball_name}`;
-    io.await(_download_file(tarball_url, tarball_path));
+    io.await(_download_file(tarball_url, tarball_path), io);
     // 4. Extract tarball. npm tarballs always contain a `package/` root dir.
     tar_cmd := Command.new(String.from("tar"));
     tar_cmd.arg(String.from("xzf"));
     tar_cmd.arg(tarball_path);
     tar_cmd.arg(String.from("-C"));
     tar_cmd.arg(tmp_path_str);
-    tar_out := io.await(tar_cmd.output());
+    tar_out := io.await(tar_cmd.output(), io);
     if(!(tar_out.status.success()), {
       exn.throw(dyn(`Failed to extract tarball for Yo v${version}`));
     });
     // 5. Move contents from `package/` to the version cache directory.
     extracted_dir := `${tmp_path_str}/package`;
-    extracted_exists := io.await(exists(Path.new(extracted_dir)));
+    extracted_exists := io.await(exists(Path.new(extracted_dir)), io);
     if(!(extracted_exists), {
       exn.throw(dyn(`Unexpected tarball structure: no 'package/' directory found`));
     });
     // Remove any existing partial extraction.
-    ver_exists := io.await(exists(Path.new(version_dir)));
+    ver_exists := io.await(exists(Path.new(version_dir)), io);
     if(ver_exists, {
-      io.await(_remove_dir_all(Path.new(version_dir)));
+      io.await(_remove_dir_all(Path.new(version_dir)), io);
     });
-    io.await(rename(Path.new(extracted_dir), Path.new(version_dir)));
+    io.await(rename(Path.new(extracted_dir), Path.new(version_dir)), io);
     // 6. Install production dependencies (older versions may need external packages).
-    io.await(install_dependencies(version_dir));
+    io.await(install_dependencies(version_dir), io);
     println(`Installed Yo v${version} to ${version_dir}`);
     // 7. Clean up temp directory (best-effort; does not fail if it errors).
-    io.await(_remove_dir_all(tmp_dir.path()));
+    io.await(_remove_dir_all(tmp_dir.path()), io);
     version_dir
   })
 );
@@ -555,27 +564,29 @@ download_version :: (
 ensure_cached_version :: (
   fn(
     version : String,
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(String, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(String, IOErr))
 )(
-  io.async((using(io, exn)) => {
-    cached := io.await(is_version_cached(version));
+  io.async((io, exn) => {
+    cached := io.await(is_version_cached(version), io);
     if(cached, {
       return(get_version_cache_dir(version));
     });
-    io.await(download_version(version))
+    io.await(download_version(version), io)
   })
 );
 /// Fetch all available versions of @shd101wyy/yo from the npm registry.
 /// Returns an ArrayList sorted by semver (ascending).
 fetch_remote_versions :: (
   fn(
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(ArrayList(String), IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(ArrayList(String), IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     pkg_url := `${NPM_REGISTRY_URL}${NPM_PACKAGE_PATH}`;
-    body := io.await(_http_get(pkg_url));
+    body := io.await(_http_get(pkg_url), io);
     keys := _json_extract_version_keys(body);
     _sort_by_semver(keys)
   })
@@ -585,21 +596,22 @@ fetch_remote_versions :: (
 /// Throws if neither is found.
 find_js_runtime :: (
   fn(
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(String, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(String, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     // Try node first.
     node_cmd := Command.new(String.from("node"));
     node_cmd.arg(String.from("--version"));
-    node_out := io.await(node_cmd.output());
+    node_out := io.await(node_cmd.output(), io);
     if(node_out.status.success(), {
       return(String.from("node"));
     });
     // Try bun.
     bun_cmd := Command.new(String.from("bun"));
     bun_cmd.arg(String.from("--version"));
-    bun_out := io.await(bun_cmd.output());
+    bun_out := io.await(bun_cmd.output(), io);
     if(bun_out.status.success(), {
       return(String.from("bun"));
     });

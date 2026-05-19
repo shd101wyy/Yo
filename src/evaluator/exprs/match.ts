@@ -1172,7 +1172,7 @@ Supported patterns:
       (body) =>
         body.$ &&
         !hasControlFlow(body.$.controlFlow, "return") &&
-        !hasControlFlow(body.$.controlFlow, "escape")
+        !hasControlFlow(body.$.controlFlow, "unwind")
     );
 
     // For compile-time known enum value, find the matched body's value.
@@ -1291,18 +1291,18 @@ Supported patterns:
         pathCollection: [],
         controlFlow: finalControlFlow,
       };
-    } else if (hasControlFlow(finalControlFlow, "escape")) {
+    } else if (hasControlFlow(finalControlFlow, "unwind")) {
       // All cases are escaping (returning from enclosing function)
       if (!context.enclosingFunctionReturnType) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `All cases in match use "escape", but not inside a function with an enclosing function.`,
+          errorMessage: `All cases in match use "unwind", but not inside a function with an enclosing function.`,
         });
       }
-      const escapeType = context.enclosingFunctionReturnType;
+      const unwindType = context.enclosingFunctionReturnType;
       expr.$ = {
         env,
-        type: escapeType,
+        type: unwindType,
         value: undefined,
         pathCollection: [],
         controlFlow: finalControlFlow,
@@ -1521,7 +1521,7 @@ function evaluatePrimitiveMatch({
               (body) =>
                 body.$ &&
                 !hasControlFlow(body.$.controlFlow, "return") &&
-                !hasControlFlow(body.$.controlFlow, "escape")
+                !hasControlFlow(body.$.controlFlow, "unwind")
             )
           );
 
@@ -1860,7 +1860,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       (body) =>
         body.$ &&
         !hasControlFlow(body.$.controlFlow, "return") &&
-        !hasControlFlow(body.$.controlFlow, "escape")
+        !hasControlFlow(body.$.controlFlow, "unwind")
     );
     if (
       scrutineeValue !== undefined &&
@@ -1948,17 +1948,17 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         controlFlow: finalControlFlow,
         isPrimitiveMatch: true,
       };
-    } else if (hasControlFlow(finalControlFlow, "escape")) {
+    } else if (hasControlFlow(finalControlFlow, "unwind")) {
       if (!context.enclosingFunctionReturnType) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `All cases in match use "escape", but not inside a function with an enclosing function.`,
+          errorMessage: `All cases in match use "unwind", but not inside a function with an enclosing function.`,
         });
       }
-      const escapeType = context.enclosingFunctionReturnType;
+      const unwindType = context.enclosingFunctionReturnType;
       expr.$ = {
         env,
-        type: escapeType,
+        type: unwindType,
         value: undefined,
         pathCollection: [],
         controlFlow: finalControlFlow,

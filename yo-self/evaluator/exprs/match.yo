@@ -174,7 +174,7 @@ evaluate_primitive_match :: (
     scrutinee_expr : AstExpr,
     scrutinee_type : TypeValue,
     scrutinee_val_opt : Option(EvalValue),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -280,7 +280,7 @@ evaluate_primitive_match :: (
         cf_wc := match(
           body_info_wc.control_flow,
           .Some(f) => f,
-          .None => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false)
+          .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
         );
         control_flows.push(cf_wc);
         if(has_control_flow(body_info_wc.control_flow,.Return), {
@@ -352,7 +352,7 @@ evaluate_primitive_match :: (
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_wc)),
               .None => (),
               .Some(bi) => {
-                if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Escape)), {
+                if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Unwind)), {
                   filtered_wc.push(b_wc);
                 });
               }
@@ -550,7 +550,7 @@ evaluate_primitive_match :: (
         cf_lit := match(
           body_info_lit.control_flow,
           .Some(f) => f,
-          .None => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false)
+          .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
         );
         control_flows.push(cf_lit);
         if(has_control_flow(body_info_lit.control_flow,.Return), {
@@ -724,7 +724,7 @@ evaluate_primitive_match :: (
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_pm)),
         .None => (),
         .Some(bi) => {
-          if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Escape)), {
+          if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Unwind)), {
             non_return_pm.push(b_pm);
           });
         }
@@ -888,13 +888,13 @@ evaluate_primitive_match :: (
           }
         );
       },
-      has_control_flow(final_cf_pm,.Escape) => {
+      has_control_flow(final_cf_pm,.Unwind) => {
         if(ctx.enclosing_function_return_type.is_none(), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `All cases in match use "escape", but not inside a function with an enclosing function.`,
+                `All cases in match use "unwind", but not inside a function with an enclosing function.`,
                 false,
                 .None
               )
@@ -965,7 +965,7 @@ evaluate_match :: (
     expr : AstExpr,
     env_in : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -1304,7 +1304,7 @@ evaluate_match :: (
           cf_fl := match(
             body_info_fl.control_flow,
             .Some(f) => f,
-            .None => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false)
+            .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
           );
           control_flows_em.push(cf_fl);
           if(has_control_flow(body_info_fl.control_flow,.Return), {
@@ -1857,7 +1857,7 @@ evaluate_match :: (
             cf_wf := match(
               body_info_wf.control_flow,
               .Some(f) => f,
-              .None => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : false)
+              .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
             );
             control_flows_em.push(cf_wf);
             if(has_control_flow(body_info_wf.control_flow,.Return), {
@@ -2048,7 +2048,7 @@ Supported patterns:
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_em)),
         .None => (),
         .Some(bi) => {
-          if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Escape)), {
+          if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Unwind)), {
             non_return_em.push(b_em);
           });
         }
@@ -2255,13 +2255,13 @@ Supported patterns:
           }
         );
       },
-      has_control_flow(final_cf_em,.Escape) => {
+      has_control_flow(final_cf_em,.Unwind) => {
         if(ctx.enclosing_function_return_type.is_none(), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `All cases in match use "escape", but not inside a function with an enclosing function.`,
+                `All cases in match use "unwind", but not inside a function with an enclosing function.`,
                 false,
                 .None
               )

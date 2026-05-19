@@ -10,7 +10,7 @@
 //! IO_file :: import "std/sys/file";
 //!
 //! reader := BufReader.new(fd);
-//! line := io.await(reader.read_line(using(io)));
+//! line := io.await(reader.read_line(io));
 //! match(line,
 //!   .Ok(.Some(s)) => println(s),
 //!   .Ok(.None) => println("EOF"),
@@ -68,9 +68,9 @@ impl(
   // Read a line from the reader (up to and including '\n').
   // Returns .None on EOF when no data is available.
   // Returns .Some(line) with the line content (without the trailing '\n').
-  read_line : (fn(self : Self, using(io : IO)) -> Impl(Future(Result(Option(String), IOError), IO)))({
+  read_line : (fn(self : Self, io : IO) -> Impl(Future(Result(Option(String), IOError), IO)))({
     the_fd := self._fd;
-    io.async((using(io : IO)) => {
+    io.async((io) => {
       line_bytes := ArrayList(u8).new();
       found_newline := false;
       hit_eof := false;
@@ -95,7 +95,7 @@ impl(
           },
           true => {
             raw_buf := *(u8)(malloc(self._capacity).unwrap());
-            n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset));
+            n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset), io);
             cond(
               (n < i32(0)) => {
                 free(.Some(*(void)(raw_buf)));
@@ -134,9 +134,9 @@ impl(
   }),
   // Read up to `size` bytes into a provided buffer.
   // Returns the number of bytes actually read.
-  read : (fn(self : Self, buf : *(u8), size : u32, using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
+  read : (fn(self : Self, buf : *(u8), size : u32, io : IO) -> Impl(Future(Result(i32, IOError), IO)))({
     the_fd := self._fd;
-    io.async((using(io : IO)) => {
+    io.async((io) => {
       available := (self._filled - self._pos);
       (read_err : Option(IOError)) =.None;
       (read_n : i32) = i32(0);
@@ -163,7 +163,7 @@ impl(
       // Buffer is empty and large read: bypass buffer
       cond(
         ((!(done)) && (usize(size) >= self._capacity)) => {
-          n := io.await(IO_file.read(the_fd, buf, size, self._offset));
+          n := io.await(IO_file.read(the_fd, buf, size, self._offset), io);
           cond(
             (n < i32(0)) => {
               read_err =.Some(IOError.from_errno(i32(0) - n));
@@ -181,7 +181,7 @@ impl(
       cond(
         (!(done)) => {
           raw_buf := *(u8)(malloc(self._capacity).unwrap());
-          n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset));
+          n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset), io);
           cond(
             (n < i32(0)) => {
               free(.Some(*(void)(raw_buf)));
@@ -227,9 +227,9 @@ impl(
     })
   }),
   // Read all remaining data into an ArrayList of bytes.
-  read_bytes : (fn(self : Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))({
+  read_bytes : (fn(self : Self, io : IO) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))({
     the_fd := self._fd;
-    io.async((using(io : IO)) => {
+    io.async((io) => {
       result := ArrayList(u8).new();
       // First drain any buffered data
       cond(
@@ -247,7 +247,7 @@ impl(
       raw_buf := *(u8)(malloc(self._capacity).unwrap());
       (read_err : Option(IOError)) =.None;
       while(runtime(true), {
-        n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset));
+        n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset), io);
         cond(
           (n < i32(0)) => {
             read_err =.Some(IOError.from_errno(i32(0) - n));
@@ -273,9 +273,9 @@ impl(
     })
   }),
   // Read all remaining data as a String.
-  read_to_string : (fn(self : Self, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))(
-    io.async((using(io : IO)) => {
-      bytes_result := io.await(self.read_bytes(using(io)));
+  read_to_string : (fn(self : Self, io : IO) -> Impl(Future(Result(String, IOError), IO)))(
+    io.async((io) => {
+      bytes_result := io.await(self.read_bytes(io), io);
       match(
         bytes_result,
         .Ok(bytes) =>.Ok(String.from_bytes(bytes)),

@@ -16,12 +16,12 @@ test("access F_OK R_OK W_OK on existing file", {
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-  fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)));
+  fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("perm test data");
-  wr := io.await(file.write(fd, data, u32(14), u64(0)));
+  wr := io.await(file.write(fd, data, u32(14), u64(0)), io);
   assert(wr == i32(14));
-  cr := io.await(file.close(fd));
+  cr := io.await(file.close(fd), io);
   assert(cr == i32(0));
   ret_f := perm.access(AT_FDCWD, test_path, F_OK);
   assert(ret_f == i32(0));
@@ -29,7 +29,7 @@ test("access F_OK R_OK W_OK on existing file", {
   assert(ret_r == i32(0));
   ret_w := perm.access(AT_FDCWD, test_path, W_OK);
   assert(ret_w == i32(0));
-  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
+  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)), io);
   assert(cleanup == i32(0));
 });
 test("access on nonexistent file returns -ENOENT", {
@@ -42,12 +42,12 @@ test("chmodat changes and restores permissions", {
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-  fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)));
+  fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("chmod test");
-  wr := io.await(file.write(fd, data, u32(10), u64(0)));
+  wr := io.await(file.write(fd, data, u32(10), u64(0)), io);
   assert(wr == i32(10));
-  cr := io.await(file.close(fd));
+  cr := io.await(file.close(fd), io);
   assert(cr == i32(0));
   // chmod to read-only (0o444)
   ret := perm.chmodat(AT_FDCWD, test_path, u32(0o444), i32(0));
@@ -61,7 +61,7 @@ test("chmodat changes and restores permissions", {
   // Restore to 0644
   ret_b := perm.chmodat(AT_FDCWD, test_path, u32(0o644), i32(0));
   assert(ret_b == i32(0));
-  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
+  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)), io);
   assert(cleanup == i32(0));
 });
 test("fchmod by fd sets executable bit", {
@@ -70,14 +70,14 @@ test("fchmod by fd sets executable bit", {
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-  fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)));
+  fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd_w >= i32(0));
   data := *(u8)("fchmod test");
-  wr := io.await(file.write(fd_w, data, u32(11), u64(0)));
+  wr := io.await(file.write(fd_w, data, u32(11), u64(0)), io);
   assert(wr == i32(11));
-  cr_w := io.await(file.close(fd_w));
+  cr_w := io.await(file.close(fd_w), io);
   assert(cr_w == i32(0));
-  fd := io.await(file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0)));
+  fd := io.await(file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0)), io);
   assert(fd >= i32(0));
   // fchmod to 0o755 (rwxr-xr-x)
   ret := perm.fchmod(fd, u32(0o755));
@@ -88,9 +88,9 @@ test("fchmod by fd sets executable bit", {
   // Restore to 0644
   ret_b := perm.fchmod(fd, u32(0o644));
   assert(ret_b == i32(0));
-  cr := io.await(file.close(fd));
+  cr := io.await(file.close(fd), io);
   assert(cr == i32(0));
-  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
+  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)), io);
   assert(cleanup == i32(0));
 });
 test("chmodat on nonexistent file returns -ENOENT", {
@@ -103,20 +103,20 @@ test("fchown with -1 -1 succeeds (no change)", {
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
   write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-  fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)));
+  fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd_w >= i32(0));
   data := *(u8)("chown test");
-  wr := io.await(file.write(fd_w, data, u32(10), u64(0)));
+  wr := io.await(file.write(fd_w, data, u32(10), u64(0)), io);
   assert(wr == i32(10));
-  cr_w := io.await(file.close(fd_w));
+  cr_w := io.await(file.close(fd_w), io);
   assert(cr_w == i32(0));
-  fd := io.await(file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0)));
+  fd := io.await(file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0)), io);
   assert(fd >= i32(0));
   // chown to -1, -1 (no change) should succeed
   ret := perm.fchown(fd, u32(4294967295), u32(4294967295));
   assert(ret == i32(0));
-  cr := io.await(file.close(fd));
+  cr := io.await(file.close(fd), io);
   assert(cr == i32(0));
-  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
+  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)), io);
   assert(cleanup == i32(0));
 });

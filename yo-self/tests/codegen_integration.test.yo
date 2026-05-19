@@ -245,7 +245,7 @@ make_param :: (fn(name : str, ty_name : str) -> AstExpr)(
     make_atom_expr(TokenKind.Identifier, ty_name)
   )
 );
-/// Build a `using(name : Type)` evidence param expression.
+/// Build a `name : Type` evidence param expression.
 make_using_param :: (fn(ev_name : str, ty_name : str) -> AstExpr)({
   inner := make_colon_expr(
     make_atom_expr(TokenKind.Identifier, ev_name),
@@ -1295,20 +1295,20 @@ test("validation: sizeof Option(T) lowers through type_expr_to_c", {
     }
   );
 });
-test("validation: using(io) without local evidence lowers to NULL", {
+test("validation: io without local evidence lowers to NULL", {
   using_args := ArrayList(AstExpr).new();
   using_args.push(make_atom_expr(TokenKind.Identifier, "io"));
   using_expr := make_fncall_expr("using", using_args);
   result := run_gen(using_expr);
   match(
     result,
-    .None => assert(false, "using(io) should generate"),
+    .None => assert(false, "io should generate"),
     .Some(code) => {
       assert(code == String.from("NULL"), "missing test-body io evidence should lower to NULL");
     }
   );
 });
-test("validation: io.await(yield()) lowers to no-op", {
+test("validation: io.await(yield(), io) lowers to no-op", {
   yield_args := ArrayList(AstExpr).new();
   await_args := ArrayList(AstExpr).new();
   await_args.push(make_fncall_expr("yield", yield_args));
@@ -1350,16 +1350,16 @@ test("validation: String.concat lowers to bootstrap concat helper", {
   );
 });
 test("validation: ArrayList(Token) has concrete bootstrap value layout", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("Token :: object(name : String); to_str :: (fn(toks : ArrayList(Token), i : usize) -> String)({ n := toks.len(); match(toks.get(i), .Some(p) => String.concat(p.name, `tail`), .None => `none`) }); main :: (fn() -> unit)({ toks := ArrayList(Token).new(); toks.push(Token(name : `a`)); s := to_str(toks, usize(0)); assert(s == `atail`, \"ok\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "arraylist_token_module", "main");
   match(
     opt_c,
@@ -1375,16 +1375,16 @@ test("validation: ArrayList(Token) has concrete bootstrap value layout", {
   );
 });
 test("validation: cond branch begin block returns inside selected branch", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("build_tag :: (fn(n : i32) -> String)(cond((n <= i32(0)) => `end`, true => { tail := recur(n - i32(1)); String.concat(`x`, tail) })); main :: (fn() -> unit)({ s := build_tag(i32(3)); assert(s == `xxxend`, \"ok\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "cond_begin_return_module", "main");
   match(
     opt_c,
@@ -1399,16 +1399,16 @@ test("validation: cond branch begin block returns inside selected branch", {
   );
 });
 test("validation: ClosureType begin body captures mutable local copy", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ x := i32(1); ClosureType :: Impl(Fn(y : i32) -> i32); T :: Type.to_comptime_string(ClosureType); closure := ClosureType({ x = (x + y); return(x); }); closure2 := closure; closure(1); closure(1); result := closure(2); assert((x == i32(1)), \"outer x\"); assert((result == i32(5)), \"result\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "closure_type_module", "main");
   match(
     opt_c,
@@ -1422,16 +1422,16 @@ test("validation: ClosureType begin body captures mutable local copy", {
   );
 });
 test("validation: typed Impl lambda captures mutable local copy", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ x := i32(1); (closure : Impl(Fn(y : i32) -> i32)) = ((y) => { x = (x + y); return(x); }); closure2 := closure; closure(1); closure(1); result := closure(2); result2 := closure2(2); assert((x == i32(1)), \"outer x\"); assert((result == i32(5)), \"result\"); assert((result2 == i32(3)), \"copy result\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "typed_closure_module", "main");
   match(
     opt_c,
@@ -1445,16 +1445,16 @@ test("validation: typed Impl lambda captures mutable local copy", {
   );
 });
 test("validation: object payload field lowers through star accessor", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("MyBox :: object((*) : i32); main :: (fn() -> unit)({ x := MyBox(i32(1)); x.* = (x.* + i32(1)); assert((x.* == i32(2)), \"payload\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "object_payload_module", "main");
   match(
     opt_c,
@@ -1467,16 +1467,16 @@ test("validation: object payload field lowers through star accessor", {
   );
 });
 test("validation: Impl closure capturing object shares payload", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("MyBox :: object((*) : i32); main :: (fn() -> unit)({ x := MyBox(i32(1)); ClosureType :: Impl(Fn(y : i32) -> i32); closure := ClosureType({ x.* = (x.* + y); return(x.*); }); closure2 := closure; result := closure(i32(4)); result2 := closure2(i32(2)); assert((result == i32(5)), \"result\"); assert((result2 == i32(7)), \"copy result\"); assert((x.* == i32(7)), \"shared box\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "rc_closure_module", "main");
   match(
     opt_c,
@@ -1491,16 +1491,16 @@ test("validation: Impl closure capturing object shares payload", {
   );
 });
 test("validation: Dyn closure captures mutable shared env", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("main :: (fn() -> unit)({ x := i32(1); (closure : Dyn(Fn(y : i32) -> i32)) = dyn(box((y) => { x = (x + y); return(x); })); closure2 := closure; closure(i32(1)); closure2(i32(1)); result := closure(i32(2)); assert((x == i32(1)), \"outer x\"); assert((result == i32(5)), \"result\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "dyn_closure_module", "main");
   match(
     opt_c,
@@ -1515,16 +1515,16 @@ test("validation: Dyn closure captures mutable shared env", {
   );
 });
 test("validation: Dyn closure capturing object shares payload", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := String.from("MyBox :: object((*) : i32); main :: (fn() -> unit)({ x := MyBox(i32(1)); (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => { x.* = (x.* + y); return(x.*); }); closure2 := closure; result := closure(i32(4)); result2 := closure2(i32(2)); assert((result == i32(5)), \"result\"); assert((result2 == i32(7)), \"copy result\"); assert((x.* == i32(7)), \"shared box\"); }); export(main);");
-  exprs := parse(src, String.from("<test>"), using(exn));
+  exprs := parse(src, String.from("<test>"), exn);
   opt_c := compile_module_to_c(exprs, "dyn_rc_closure_module", "main");
   match(
     opt_c,

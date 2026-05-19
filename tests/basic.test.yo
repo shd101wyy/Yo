@@ -2280,7 +2280,7 @@ test("index function call result", {
 test("match arm struct literal with `return` in field name", {
   ControlFlowFlags :: struct(
     return_flag : bool,
-    escape_flag : bool,
+    unwind_flag : bool,
     break_flag : bool,
     continue_flag : bool
   );
@@ -2288,17 +2288,17 @@ test("match arm struct literal with `return` in field name", {
   control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)(
     match(
       kind,
-      .Return => ControlFlowFlags(return_flag : true, escape_flag : false, break_flag : false, continue_flag : false),
-      .Escape => ControlFlowFlags(return_flag : false, escape_flag : true, break_flag : false, continue_flag : false),
-      .Break => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : true, continue_flag : false),
-      .Continue => ControlFlowFlags(return_flag : false, escape_flag : false, break_flag : false, continue_flag : true)
+      .Return => ControlFlowFlags(return_flag : true, unwind_flag : false, break_flag : false, continue_flag : false),
+      .Escape => ControlFlowFlags(return_flag : false, unwind_flag : true, break_flag : false, continue_flag : false),
+      .Break => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : true, continue_flag : false),
+      .Continue => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : true)
     )
   );
   cf := control_flow_of(ControlFlowKind.Return);
   assert(cf.return_flag, "Return arm must set return_flag = true");
-  assert(!(cf.escape_flag), "Return arm must leave escape_flag = false");
+  assert(!(cf.unwind_flag), "Return arm must leave unwind_flag = false");
   cf2 := control_flow_of(ControlFlowKind.Escape);
-  assert(cf2.escape_flag, "Escape arm must set escape_flag = true");
+  assert(cf2.unwind_flag, "Escape arm must set unwind_flag = true");
   assert(!(cf2.return_flag), "Escape arm must leave return_flag = false");
 });
 // Regression: cond arm struct literal with `return` in field name (mirrors

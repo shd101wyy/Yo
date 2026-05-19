@@ -14,7 +14,6 @@ import {
   isComptimeListType,
   isComptimeStringType,
   isDynType,
-  isEffectsRowType,
   isEnumType,
   isExprType,
   isFnTraitType,
@@ -190,8 +189,6 @@ export function typeOfType(
     return createType0(type);
   } else if (isVoidType(type)) {
     return createType0(type);
-  } else if (isEffectsRowType(type)) {
-    return createTypeHierarchy(1);
   } else {
     throw new Error(`Unknown type tag: ${type.tag}`);
   }

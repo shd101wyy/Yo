@@ -224,30 +224,12 @@ export interface SomeType extends Type {
   };
 
   /**
-   * If true, this SomeType represents an effect row variable (declared via `...(E)` in forall).
-   * When bound, its value will be an EffectsRowType containing the concrete implicit parameters.
-   */
-  isEffectsRow?: boolean;
-
-  /**
    * When present, this SomeType represents a higher-kinded type variable with a function-type kind.
    * For example, `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))` creates a SomeType
    * with kindFunctionType set to the `fn(comptime(T) : Type) -> comptime(Type)` function type.
    * This enables HKT support — F can be passed `Option`, `ArrayList`, etc. as concrete constructors.
    */
   kindFunctionType?: FunctionType;
-}
-
-/**
- * EffectsRowType holds the concrete list of implicit parameters that an effect row variable
- * (declared via `...(E)` in forall) was bound to.
- * For example, after `run(might_fail)` with might_fail : fn(using(raise : Raise)) -> i32,
- * E is bound to EffectsRowType { implicitParameters: [{ label: "raise", type: RaiseType }] }.
- */
-export interface EffectsRowType extends Type {
-  tag: TypeTag.EffectsRow;
-  implicitParameters: FunctionImplicitParameter[];
-  trait: TraitType;
 }
 
 /**
@@ -421,19 +403,6 @@ export interface FunctionParameter {
    * The parameter becomes the owner and will be dropped at function exit.
    */
   isOwningTheRcValue: boolean;
-  /**
-   * Whether this parameter is an implicit parameter (from `using(...)`).
-   * Implicit parameters are resolved from `given` variables in scope at the call site.
-   */
-  isImplicit: boolean;
-  /**
-   * If true, this entry in implicitParameters is an effect row spread marker.
-   * - Named spread `...(E)`: label = "E", type = SomeType_E (isEffectsRow: true)
-   * - Anonymous spread `...`:  label = "...", type = unit (placeholder)
-   * At call sites, spread entries are expanded to the concrete implicit params
-   * bound to the effect row variable.
-   */
-  isEffectRowSpread?: boolean;
 
   /**
    * The expression information of the parameter.
@@ -449,12 +418,6 @@ export interface FunctionParameter {
 
 export type FunctionForallParameter = FunctionParameter & {
   isCompileTimeOnly: true;
-  isImplicit: false;
-};
-
-export type FunctionImplicitParameter = FunctionParameter & {
-  isCompileTimeOnly: true;
-  isImplicit: true;
 };
 
 export interface StructType extends Type {
@@ -603,15 +566,15 @@ export interface TraitType extends Type {
   isFn?: { callType: FunctionType };
 
   /**
-   * If this trait represents a Future type, this contains the output type and effects.
-   * Set for traits created via `Future(T)`, `Future(T, ...(E))`, or `Future(T, Raise, ...(E))` syntax.
+   * If this trait represents a Future type, this contains the output type
+   * and (optionally) a single effect bundle.
+   * Set for traits created via `Future(T)` or `Future(T, E)` syntax.
    *
-   * The `effects` array stores individual effects and effect row spreads, mirroring
-   * how `using(...)` clauses store implicit parameters:
-   * - Individual effect: `{ label: "Raise", type: TraitType, isEffectRowSpread: false }`
-   * - Effect row spread: `{ label: "E", type: SomeType, isEffectRowSpread: true }`
+   * `effect` carries the bundle's type and a display/capture-struct
+   * field label derived from the type's name. Multiple effects are
+   * packed into a single struct by the user before being passed here.
    */
-  isFuture?: { outputType: Type; effects: FunctionImplicitParameter[] };
+  isFuture?: { outputType: Type; effect?: FutureEffect };
 
   /**
    * If this trait represents a Concrete type marker, this contains the concrete type.
@@ -655,6 +618,16 @@ export interface TraitType extends Type {
 export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
 
 /**
+ * A single effect bundle entry on a Future trait.
+ */
+export interface FutureEffect {
+  /** Display / capture-struct field name derived from the effect type. */
+  label: string;
+  /** The effect bundle type (typically a struct type or a forall-bound SomeType). */
+  type: Type;
+}
+
+/**
  * FutureTraitType represents an async/await future for stackless coroutines.
  * This replaces the old FutureType - now futures are just TraitTypes with isFuture set.
  *
@@ -664,7 +637,7 @@ export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
  * - Dyn(Future(i32)) for dynamic dispatch
  */
 export type FutureTraitType = TraitType & {
-  isFuture: { outputType: Type; effects: FunctionImplicitParameter[] };
+  isFuture: { outputType: Type; effect?: FutureEffect };
 };
 
 /**
@@ -821,13 +794,6 @@ export interface FunctionType extends Type {
   forallParameters: FunctionForallParameter[];
 
   /**
-   * The implicit parameters, defined in using(...):
-   * eg:
-   *   (fn(x: i32, using(add_fn : (fn(a : i32, b : i32) -> i32))) -> i32)
-   */
-  implicitParameters: FunctionImplicitParameter[];
-
-  /**
    * Variadic parameters are parameters that can take a variable number of arguments.
    * They are usually defined with a `...` syntax.
    * eg:
@@ -889,6 +855,16 @@ export interface FunctionType extends Type {
    *
    */
   isClosure?: boolean;
+
+  /**
+   * Whether this function type is a control function — declared with
+   * `ctl(...) -> ret` rather than `fn(...) -> ret`. Control functions
+   * may contain `unwind` in their body; their values are frame-bound
+   * (cannot escape via return, module-level binding, heap allocation,
+   * closure capture, or pointer indirection). See
+   * plans/EXPLICIT_EFFECTS.md §4.
+   */
+  isControl?: boolean;
 }
 
 export interface PtrType extends Type {

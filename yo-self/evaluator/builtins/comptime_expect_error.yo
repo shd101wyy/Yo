@@ -6,9 +6,9 @@
 //! compile-time error.  If the argument evaluates without error, this builtin
 //! throws "Expected compile error, but the expression was evaluated successfully".
 //!
-//! Phase 3 note: The inner exception handler (given/escape pattern) is temporarily
-//! disabled because the Yo codegen cannot pass `given` bindings via `using(exn_x)` —
-//! the generated C call is missing the exn__throw argument, and the escape handler
+//! Phase 3 note: The inner exception handler (given/unwind pattern) is temporarily
+//! disabled because the Yo codegen cannot pass `given` bindings via `exn_x` —
+//! the generated C call is missing the exn__throw argument, and the unwind handler
 //! cannot access outer function parameters.  The `comptime_expect_error` builtin
 //! therefore currently panics when the inner expression evaluates without error.
 //! Restoring full semantics requires a codegen fix for closure capture of outer params.
@@ -32,7 +32,7 @@ evaluate_comptime_expect_error :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(

@@ -62,7 +62,7 @@ call_registered_derive_rule :: (
     trait_arg_expr : AstExpr,
     caller_env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> Environment
 )({
   tok := ast_expr_token(trait_arg_expr);
@@ -286,7 +286,7 @@ call_registered_derive_rule :: (
         ctx,
         ArrayList(Variable).new(),
         true,
-        using(exn)
+        exn
       );
       ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
       ctx.enclosing_function_return_type = old_ret_ty;
@@ -370,7 +370,7 @@ process_trait_arg :: (
     forall_arg_opt : Option(AstExpr),
     where_arg_opt : Option(AstExpr),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> Environment
 )({
   tok := ast_expr_token(trait_arg_expr);
@@ -422,7 +422,7 @@ process_trait_arg :: (
     trait_arg_expr,
     env,
     ctx,
-    using(exn)
+    exn
   )
 });
 // ---------------------------------------------------------------------------
@@ -438,7 +438,7 @@ evaluate_derive :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
@@ -667,7 +667,7 @@ evaluate_derive :: (
       forall_arg_opt,
       where_arg_opt,
       ctx,
-      using(exn)
+      exn
     );
     arg_idx = (arg_idx + usize(1));
   });

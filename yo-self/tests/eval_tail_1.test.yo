@@ -514,9 +514,9 @@ make_destructure_import :: (fn(names : ArrayList(str), path : str) -> AstExpr)({
 // Phase 3n — if expressions, float arithmetic, comptime param names
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// Phase 3o — evidence params / using(name : Type) / evidence passing
+// Phase 3o — evidence params / name : Type / evidence passing
 // ---------------------------------------------------------------------------
-/// Build `using(inner_expr)` call — used both for param declarations and
+/// Build `inner_expr` call — used both for param declarations and
 /// call-site evidence passing.
 make_using_call :: (fn(inner : AstExpr) -> AstExpr)({
   ua := ArrayList(AstExpr).new();
@@ -529,7 +529,7 @@ make_using_call :: (fn(inner : AstExpr) -> AstExpr)({
     make_token(TokenKind.Identifier, "using")
   )
 });
-/// Build `using(name : Type)` param for a function definition.
+/// Build `name : Type` param for a function definition.
 make_using_param :: (fn(name : str, type_name : str) -> AstExpr)({
   ca := ArrayList(AstExpr).new();
   ca.push(make_ident(name));
@@ -576,7 +576,7 @@ make_typed_fn_def :: (
 // Phase 3 Validation Milestone — evaluate a simple hello_world-style module
 //
 // Constructs the AST for:
-//   main :: (fn(using(io : IO)) -> unit)({ io; });
+//   main :: (fn(io : IO) -> unit)({ io; });
 //   export(main);
 // and verifies evaluate_module_body produces a ModuleVal exporting a FuncVal
 // with evidence_params=["io"] and no regular params.
@@ -644,10 +644,10 @@ make_env_with_T :: (fn() -> Environment)({
 // Phase 3ap: break/for loop support
 // =============================================================================
 // ---------------------------------------------------------------------------
-// Phase 3aq: Struct field mutation — `s.field = rhs`
+// Phase 3aq : Type.Struct field mutation — `s.field = rhs`
 // ---------------------------------------------------------------------------
 // =============================================================================
-// Phase 5m: given(name) := expr binding support
+// Phase 5m: name := expr binding support
 // =============================================================================
 // ---------------------------------------------------------------------------
 // Phase 5q: more eval tests — nested blocks, function call, unary ops
@@ -688,7 +688,7 @@ make_env_with_T :: (fn() -> Environment)({
 // Phase 5ah — ArrayVal.fold/any/all
 // Phase 5ai — ArrayVal.concat/reverse
 // Phase 5aj — tuple destructuring
-// Phase 5ak — escape keyword + additional operations
+// Phase 5ak — unwind keyword + additional operations
 // Phase 5al — StrLit.as_bytes()
 // ===================================================================
 // Phase 5am: ArrayVal.enumerate(), ArrayVal.zip(), ArrayVal.slice()
@@ -1023,7 +1023,7 @@ test("evaluate_module_body: exports two bindings into ModuleVal", {
 });
 test("validation milestone: evaluate hello_world module", {
   env := empty_env();
-  // ── Build the function definition: (fn(using(io : IO)) -> unit)({ io; }) ──
+  // ── Build the function definition: (fn(io : IO) -> unit)({ io; }) ──
   params_hw := ArrayList(AstExpr).new();
   params_hw.push(make_using_param("io", "IO"));
   stmts_hw := ArrayList(AstExpr).new();
@@ -1080,18 +1080,18 @@ test("validation milestone: evaluate hello_world module", {
 test("evaluate_module_body: enum type definition binds in module env", {
   env := empty_env();
   // Parse: Color :: enum(Red, Green, Blue); export(Color);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   exprs := generate_exprs_from_code(
     "Color :: enum(Red, Green, Blue); export(Color);",
-    using(exn)
+    exn
   );
   result := evaluate_module_body(exprs, &(env));
   match(
@@ -1134,18 +1134,18 @@ test("evaluate_module_body: enum type definition binds in module env", {
 });
 test("evaluate_module_body: struct type definition binds in module env", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   exprs := generate_exprs_from_code(
     "Point :: struct(x: i32, y: i32); export(Point);",
-    using(exn)
+    exn
   );
   result := evaluate_module_body(exprs, &(env));
   match(
@@ -1182,17 +1182,17 @@ test("evaluate_module_body: struct type definition binds in module env", {
 });
 test("evaluate_module_body: generic comptime function MyOption(i32) returns EnumT", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "MyOption :: (fn(comptime(T) : Type) -> comptime(Type))(enum(None, Some(value: T))); MyI32Opt :: MyOption(i32); export(MyI32Opt);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1228,19 +1228,19 @@ test("evaluate_module_body: generic comptime function MyOption(i32) returns Enum
 });
 test("evaluate_module_body: impl non-generic method dispatch returns field value", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // Define struct, impl method, construct instance, call method.
   // The simplified evaluator stores numeric casts as IntLit, not I32Val.
   src := "Point :: struct(x: i32, y: i32); impl(Point, get_x: (fn(self: Point) -> i32)(self.x)); p := Point(x: i32(3), y: i32(4)); val := p.get_x(); export(val);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1269,18 +1269,18 @@ test("evaluate_module_body: impl non-generic method dispatch returns field value
 });
 test("evaluate_module_body: impl method with multiple params dispatch", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // Method that takes self and an additional argument. (self.count + n)
   src := "Counter :: struct(count: i32); impl(Counter, add: (fn(self: Counter, n: i32) -> i32)((self.count + n))); c := Counter(count: i32(10)); val := c.add(i32(5)); export(val);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1308,18 +1308,18 @@ test("evaluate_module_body: impl method with multiple params dispatch", {
 });
 test("evaluate_module_body: closure captures outer variable (Phase 3ac)", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // x is defined before add_x; the closure captures x from the outer scope.
   src := "x := i32(10); add_x := (fn(n : i32) -> i32)((n + x)); result := add_x(i32(5)); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1347,18 +1347,18 @@ test("evaluate_module_body: closure captures outer variable (Phase 3ac)", {
 });
 test("evaluate_module_body: higher-order function (fn passed as argument)", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // apply calls f(n); double(x) = x + x; apply(double, 7) = 14
   src := "double := (fn(x : i32) -> i32)((x + x)); apply := (fn(f : i32, n : i32) -> i32)(f(n)); result := apply(double, i32(7)); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1386,18 +1386,18 @@ test("evaluate_module_body: higher-order function (fn passed as argument)", {
 });
 test("evaluate_module_body: closure returned from function captures parameter", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // make_adder returns a closure that adds n; add5(3) should be 8
   src := "make_adder := (fn(n : i32) -> i32)((fn(x : i32) -> i32)((x + n))); add5 := make_adder(i32(5)); result := add5(i32(3)); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1425,18 +1425,18 @@ test("evaluate_module_body: closure returned from function captures parameter", 
 });
 test("evaluate_module_body: absolute value using cond and comparison (Phase 3ac)", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // abs_val: returns 0-x when x<0, else x
   src := "abs_val := (fn(x : i32) -> i32)(cond(((x < i32(0))) => (i32(0) - x), true => x)); r1 := abs_val(i32(-(5))); r2 := abs_val(i32(3)); export(r1); export(r2);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1475,18 +1475,18 @@ test("evaluate_module_body: absolute value using cond and comparison (Phase 3ac)
 });
 test("evaluate_module_body: while loop accumulates sum 1..5 = 15", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // sum_to_five: accumulate 1+2+3+4+5 using a while loop
   src := "sum_to_five := (fn() -> i32)({ (s : i32) = i32(0); (n : i32) = i32(1); while(runtime(((n <= i32(5)))), { s = (s + n); n = (n + i32(1)); }); s }); result := sum_to_five(); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1514,18 +1514,18 @@ test("evaluate_module_body: while loop accumulates sum 1..5 = 15", {
 });
 test("evaluate_module_body: match .Some(x) binding returns inner value", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // .Some(x) pattern in self-hosted parser format: FnCall(Atom(Dot), [FnCall(Atom("Some"), [Atom("x")])], false)
   src := "opt := .Some(i32(42)); result := match(opt, .Some(x) => x, .None => i32(0)); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1552,18 +1552,18 @@ test("evaluate_module_body: match .Some(x) binding returns inner value", {
 });
 test("evaluate_module_body: match .None branch taken when scrutinee is .None", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // .None scrutinee: .Some arm must not match; .None arm returns i32(99)
   src := "opt := .None; result := match(opt, .Some(x) => x, .None => i32(99)); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1590,18 +1590,18 @@ test("evaluate_module_body: match .None branch taken when scrutinee is .None", {
 });
 test("evaluate_module_body: nested function calls double(triple(2)) = 12", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // double(x)=2x, triple(x)=3x, double(triple(2)) = 2*(3*2) = 12
   src := "double := (fn(x : i32) -> i32)((x + x)); triple := (fn(x : i32) -> i32)((x + (x + x))); result := double(triple(i32(2))); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1629,17 +1629,17 @@ test("evaluate_module_body: nested function calls double(triple(2)) = 12", {
 });
 test("evaluate_module_body: boolean && short-circuit", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "x := i32(5); r1 := ((x > i32(3)) && (x < i32(10))); r2 := ((x > i32(3)) && (x > i32(10))); export(r1); export(r2);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1678,19 +1678,19 @@ test("evaluate_module_body: boolean && short-circuit", {
 });
 test("evaluate_module_body: recur factorial(1) = 1", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // Use recur for self-recursion. factorial(0)=1, factorial(1)=1.
   // Limited to fact(1) to stay safe under ASAN stack depth limits.
   src := "factorial := (fn(n : i32) -> i32)(cond((n <= i32(0)) => i32(1), true => (n * recur((n - i32(1)))))); result := factorial(i32(1)); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1718,17 +1718,17 @@ test("evaluate_module_body: recur factorial(1) = 1", {
 });
 test("evaluate_module_body: boolean || short-circuit", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "x := i32(5); r1 := ((x < i32(3)) || (x > i32(4))); r2 := ((x < i32(3)) || (x > i32(10))); export(r1); export(r2);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1767,18 +1767,18 @@ test("evaluate_module_body: boolean || short-circuit", {
 });
 test("evaluate_module_body: closure captures multiple outer variables", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // Closure captures both a and b from outer scope
   src := "a := i32(3); b := i32(7); add_ab := (fn(x : i32) -> i32)((x + (a + b))); result := add_ab(i32(1)); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1806,18 +1806,18 @@ test("evaluate_module_body: closure captures multiple outer variables", {
 });
 test("evaluate_module_body: enum variant wildcard pattern", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // Wildcard _ matches any variant
   src := "opt := .Some(i32(5)); result := match(opt, .None => i32(0), _ => i32(42)); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1845,18 +1845,18 @@ test("evaluate_module_body: enum variant wildcard pattern", {
 });
 test("evaluate_module_body: return(early exit from function)", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // sign(n) returns -1/0/1 using early return
   src := "sign := (fn(n : i32) -> i32)({ if((n < i32(0)), { return(i32(-(1))); }); if((n == i32(0)), { return(i32(0)); }); i32(1) }); r1 := sign(i32(-(5))); r2 := sign(i32(0)); r3 := sign(i32(7)); export(r1); export(r2); export(r3);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1906,18 +1906,18 @@ test("evaluate_module_body: return(early exit from function)", {
 });
 test("evaluate_module_body: struct construction and field access", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // Named struct literal (no type def needed) and field access
   src := "p := Point(x: i32(3), y: i32(4)); rx := p.x; ry := p.y; export(rx); export(ry);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -1956,18 +1956,18 @@ test("evaluate_module_body: struct construction and field access", {
 });
 test("evaluate_module_body: float arithmetic and comparison", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // f64 arithmetic: 1.5 + 2.5 = 4.0, 4.0 > 3.0
   src := "a := f64(1.5); b := f64(2.5); s := (a + b); gt := (s > f64(3.0)); export(s); export(gt);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2006,18 +2006,18 @@ test("evaluate_module_body: float arithmetic and comparison", {
 });
 test("evaluate_module_body: integer division and modulo", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // (10 / 3) = 3, (10 % 3) = 1
   src := "a := (i32(10) / i32(3)); b := (i32(10) % i32(3)); export(a); export(b);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2056,19 +2056,19 @@ test("evaluate_module_body: integer division and modulo", {
 });
 test("evaluate_module_body: function composition", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // double(n) = n + n; triple(n) = n + double(n)
   // triple(5) = 5 + double(5) = 5 + 10 = 15
   src := "double := (fn(n : i32) -> i32)((n + n)); triple := (fn(n : i32) -> i32)((n + double(n))); r := triple(i32(5)); export(r);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2095,18 +2095,18 @@ test("evaluate_module_body: function composition", {
 });
 test("evaluate_module_body: string equality in cond", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := "hello"; r := cond((s == "hello") => true, true => false)
   src := "s := \"hello\"; r := cond((s == \"hello\") => true, true => false); export(r);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2133,19 +2133,19 @@ test("evaluate_module_body: string equality in cond", {
 });
 test("evaluate_module_body: impl method call", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // impl(Point, get_x : fn that returns self_v.x)
   // p := Point(x: i32(7), y: i32(4)); rx := p.get_x()
   src := "impl(Point, get_x : (fn(self_v : Point) -> i32)(self_v.x)); p := Point(x: i32(7), y: i32(4)); rx := p.get_x(); export(rx);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2172,18 +2172,18 @@ test("evaluate_module_body: impl method call", {
 });
 test("evaluate_module_body: fieldless enum variant and match", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // Color :: enum(Red, Green, Blue); c := .Green; r := match(c, .Red => 1, .Green => 2, .Blue => 3)
   src := "Color :: enum(Red, Green, Blue); c := .Green; r := match(c, .Red => i32(1), .Green => i32(2), .Blue => i32(3)); export(r);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2210,18 +2210,18 @@ test("evaluate_module_body: fieldless enum variant and match", {
 });
 test("evaluate_module_body: boolean negation", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // x := !(false); y := !(!(true))
   src := "x := !(false); y := !(!(true)); export(x); export(y);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2258,18 +2258,18 @@ test("evaluate_module_body: boolean negation", {
 });
 test("evaluate_module_body: int to_string", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // n := i32(42); s := n.to_string()
   src := "n := i32(42); s := n.to_string(); export(s);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2296,18 +2296,18 @@ test("evaluate_module_body: int to_string", {
 });
 test("evaluate_module_body: bool to_string", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // t := true; s := t.to_string(); f := false; sf := f.to_string()
   src := "t := true; s := t.to_string(); f := false; sf := f.to_string(); export(s); export(sf);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2344,18 +2344,18 @@ test("evaluate_module_body: bool to_string", {
 });
 test("evaluate_module_body: String.from passthrough", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := String.from("hello"); export(s);
   src := "s := String.from(\"hello\"); export(s);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2382,18 +2382,18 @@ test("evaluate_module_body: String.from passthrough", {
 });
 test("evaluate_module_body: String.new empty string", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := String.new(); export(s);
   src := "s := String.new(); export(s);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2420,18 +2420,18 @@ test("evaluate_module_body: String.new empty string", {
 });
 test("evaluate_module_body: StrLit + StrLit infix concat", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := ("hello" + " world"); export(s);
   src := "s := (\"hello\" + \" world\"); export(s);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2458,18 +2458,18 @@ test("evaluate_module_body: StrLit + StrLit infix concat", {
 });
 test("evaluate_module_body: higher-order function", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // apply(f) calls f(5); double(n) = n+n; r := apply(double)
   src := "apply := (fn(f : i32) -> i32)(f(i32(5))); double := (fn(n : i32) -> i32)((n + n)); r := apply(double); export(r);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2496,18 +2496,18 @@ test("evaluate_module_body: higher-order function", {
 });
 test("evaluate_module_body: closure captures outer variable", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // base := i32(10); adder := fn captures base; adder(i32(5)) = 15
   src := "base := i32(10); adder := (fn(n : i32) -> i32)((n + base)); r := adder(i32(5)); export(r);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2534,18 +2534,18 @@ test("evaluate_module_body: closure captures outer variable", {
 });
 test("evaluate_module_body: String.as_str passthrough", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := String.from("hello"); t := s.as_str(); export(t);
   src := "s := String.from(\"hello\"); t := s.as_str(); export(t);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2572,18 +2572,18 @@ test("evaluate_module_body: String.as_str passthrough", {
 });
 test("evaluate_module_body: StrLit len method", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := String.from("hello"); n := s.len(); export(n);
   src := "s := String.from(\"hello\"); n := s.len(); export(n);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2610,18 +2610,18 @@ test("evaluate_module_body: StrLit len method", {
 });
 test("evaluate_module_body: empty string len is 0", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := String.new(); n := s.len(); export(n);
   src := "s := String.new(); n := s.len(); export(n);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2648,18 +2648,18 @@ test("evaluate_module_body: empty string len is 0", {
 });
 test("evaluate_module_body: string starts_with true", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := "hello world"; b := s.starts_with("hello"); export(b);
   src := "s := \"hello world\"; b := s.starts_with(\"hello\"); export(b);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2686,18 +2686,18 @@ test("evaluate_module_body: string starts_with true", {
 });
 test("evaluate_module_body: string starts_with false", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := "hello world"; b := s.starts_with("world"); export(b);
   src := "s := \"hello world\"; b := s.starts_with(\"world\"); export(b);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2724,18 +2724,18 @@ test("evaluate_module_body: string starts_with false", {
 });
 test("evaluate_module_body: string ends_with true", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := "hello world"; b := s.ends_with("world"); export(b);
   src := "s := \"hello world\"; b := s.ends_with(\"world\"); export(b);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2762,18 +2762,18 @@ test("evaluate_module_body: string ends_with true", {
 });
 test("evaluate_module_body: string contains true", {
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error");
-        escape(());
+        unwind(());
       }
     )
   );
   // s := "hello world"; b := s.contains("lo wo"); export(b);
   src := "s := \"hello world\"; b := s.contains(\"lo wo\"); export(b);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -2798,10 +2798,10 @@ test("evaluate_module_body: string contains true", {
       )
   );
 });
-test("Phase 5m: given(name) := rhs binds name in scope", {
-  // given(handler) := value — should look up the bound value
+test("Phase 5m: name := rhs binds name in scope", {
+  // handler := value — should look up the bound value
   env := empty_env();
-  // Build: given(handler) := 42
+  // Build: handler := 42
   handler_atom := make_ident("handler");
   given_args := ArrayList(AstExpr).new();
   given_args.push(handler_atom);
@@ -2827,10 +2827,10 @@ test("Phase 5m: given(name) := rhs binds name in scope", {
       )
   );
 });
-test("Phase 5m: given(name) := rhs binds as compile-time value", {
+test("Phase 5m: name := rhs binds as compile-time value", {
   // given bindings are always compile-time in Yo
   env := empty_env();
-  // Build: given(ctx) := true
+  // Build: ctx := true
   ctx_atom := make_ident("ctx");
   given_args := ArrayList(AstExpr).new();
   given_args.push(ctx_atom);
@@ -3332,17 +3332,17 @@ test("Phase 5r: function definition via :: and call", {
   // val := double(7);
   // val should be IntLit("14")
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error in fn def test");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "double :: (fn(comptime(x) : comptime_int) -> comptime_int)((x + x)); val := double(7); export(val);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -3376,17 +3376,17 @@ test("Phase 5r: while loop with early return", {
   // });
   // val := find_first(10);
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error in while(return(test))");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "find_first :: (fn(comptime(n) : comptime_int) -> comptime_int)({ i := 0; while(runtime((i < n)), { if((i == 3), return(i)); i = (i + 1); }); i; }); val := find_first(10); export(val);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -3459,17 +3459,17 @@ test("Phase 5r: ArrayVal push and get operations", {
   // Pre-define ArrayList as a TypeVal so ArrayList.new() works.
   env := empty_env();
   _al_idx := env.define_val(String.from("ArrayList"), TypeValue.TypeUni(usize(0)), true,.Some(EvalValue.TypeVal(box(TypeValue.Unit))));
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error in array test");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "arr := ArrayList.new(); arr.push(10); arr.push(20); val := arr.get(0); export(val);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -3525,17 +3525,17 @@ test("Phase 5r: while loop with break exits early", {
   // Test break in a while loop evaluated directly (not via function call).
   // i := 0; count := 0; while runtime((i < 5)), { count = (count + 1); i = (i + 1); }; export(count);
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error in while-break test");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "i := 0; count := 0; while(runtime((i < 5)), { count = (count + 1); i = (i + 1); }); export(count);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -3564,17 +3564,17 @@ test("Phase 5r: nested function calls with arithmetic", {
   // val := add(mul(3, 4), mul(2, 5));
   // val should be (12 + 10) = 22
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error in nested calls test");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "add :: (fn(comptime(a) : comptime_int, comptime(b) : comptime_int) -> comptime_int)((a + b)); mul :: (fn(comptime(a) : comptime_int, comptime(b) : comptime_int) -> comptime_int)((a * b)); val := add(mul(3, 4), mul(2, 5)); export(val);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -3638,17 +3638,17 @@ test("Phase 5s: array literal [1, 2, 3] produces ArrayVal with 3 elements", {
 test("Phase 5s: for loop iterates over array elements", {
   // sum := 0; for(x, [1, 2, 3], { sum = sum + x; }); export(sum);
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error in for test");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "sum := 0; arr := [1, 2, 3]; for(x, arr, { sum = (sum + x); }); export(sum);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -3675,17 +3675,17 @@ test("Phase 5s: for loop with early return(exits iteration)", {
   // for(x, [10, 20, 30], { if((x == 20), return x); }); export 0;
   // → should return ReturnVal(IntLit("20"))
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error in for-return(test)");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "arr := [10, 20, 30]; result := for(x, arr, { if((x == 20), return(x)); }); export(result);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -3735,19 +3735,19 @@ test("Phase 5s: string concatenation with + operator", {
   );
 });
 test("Phase 5s: given declaration binds value in env", {
-  // given(handler) := SomeVal; — binds handler to SomeVal in env as comptime
+  // handler := SomeVal; — binds handler to SomeVal in env as comptime
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error in given test");
-        escape(());
+        unwind(());
       }
     )
   );
-  src := "given(h) := 42; export(h);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  src := "h := 42; export(h);";
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,
@@ -3773,17 +3773,17 @@ test("Phase 5s: given declaration binds value in env", {
 test("Phase 5s: for loop with break stops iteration", {
   // count := 0; for(x, [1,2,3,4,5], { if((x > 3), break()); count = (count + 1); }); export(count);
   env := empty_env();
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         _ := err;
         assert(false, "parse error in for-break test");
-        escape(());
+        unwind(());
       }
     )
   );
   src := "count := 0; arr := [1, 2, 3, 4, 5]; for(x, arr, { if((x > 3), break()); count = (count + 1); }); export(count);";
-  exprs := generate_exprs_from_code(src, using(exn));
+  exprs := generate_exprs_from_code(src, exn);
   result := evaluate_module_body(exprs, &(env));
   match(
     result,

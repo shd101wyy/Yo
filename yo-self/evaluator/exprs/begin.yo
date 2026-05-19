@@ -28,7 +28,7 @@ open(import("std/string"));
   BK_BEGIN,
   BK_TUPLE,
   BK_RETURN,
-  BF_ESCAPE,
+  BF_UNWIND,
   BK_ASSIGN,
   BK_INIT_ASSIGN
 } :: import("../../expr.yo");
@@ -98,7 +98,7 @@ collect_dup_calls_conservatively :: (fn(_expr : AstExpr) -> DupCallsResult)(
 // ---------------------------------------------------------------------------
 // _check_keyword_position
 // ---------------------------------------------------------------------------
-/// Verify that a control-flow keyword (`return`, `break`, `continue`, `escape`)
+/// Verify that a control-flow keyword (`return`, `break`, `continue`, `unwind`)
 /// appears only as the last expression in a begin block (or as the second-to-
 /// last when the last is a unit-value `()`).
 ///
@@ -110,7 +110,7 @@ _check_keyword_position :: (
     n_args : usize,
     begin_args : ArrayList(AstExpr),
     keyword : String,
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   if(n_args == usize(0), {
@@ -160,7 +160,7 @@ evaluate_begin_expression :: (
     ctx : *(EvalContext),
     variables_to_add : ArrayList(Variable),
     _is_evaluating_function_body_begin_block : bool,
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -247,7 +247,7 @@ evaluate_begin_expression :: (
     is_return_expr := (is_return_atom || is_return_call);
     is_break_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "break"));
     is_continue_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "continue"));
-    is_escape_call := ast_expr_is_fn_call_of(expr_to_eval, BF_ESCAPE,.None);
+    is_escape_call := ast_expr_is_fn_call_of(expr_to_eval, BF_UNWIND,.None);
     cond(
       // -------------------------------------------------------------------
       // return / return(val)
@@ -285,7 +285,7 @@ evaluate_begin_expression :: (
           // (Full synthesize_types support is Phase 3; we pass None here.)
           old_expected := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).None;
-          evaluated_ret_arg := evaluate_expression_raw(ret_arg, env, ctx, using(exn));
+          evaluated_ret_arg := evaluate_expression_raw(ret_arg, env, ctx, exn);
           ctx.expected_type = old_expected;
           ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg));
           if(ret_info_opt.is_none(), {
@@ -369,16 +369,16 @@ evaluate_begin_expression :: (
         done = true;
       },
       // -------------------------------------------------------------------
-      // escape(val)
+      // unwind(val)
       // -------------------------------------------------------------------
       is_escape_call => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("escape"));
+        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("unwind"));
         if(!(ctx.enclosing_function_return_type.is_some()), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(expr_to_eval),
-                String.from("The \"escape\" keyword can only be used inside a function that has an enclosing function."),
+                String.from("The \"unwind\" keyword can only be used inside a function that has an enclosing function."),
                 false,
                 .None
               )
@@ -401,7 +401,7 @@ evaluate_begin_expression :: (
         ctx.expected_type = Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(ty : enclosing_ret, env : env)
         );
-        evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, using(exn));
+        evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, exn);
         ctx.expected_type = old_expected;
         esc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg));
         if(esc_info_opt.is_none(), {
@@ -409,7 +409,7 @@ evaluate_begin_expression :: (
             dyn(
               format_error_message(
                 ast_expr_token(esc_arg),
-                String.from("Escape expression is not evaluated correctly."),
+                String.from("Unwind expression is not evaluated correctly."),
                 false,
                 .None
               )
@@ -417,7 +417,7 @@ evaluate_begin_expression :: (
           );
         });
         esc_info := match(esc_info_opt,.Some(ei) => ei,.None => new_expr_info(env, TypeValue.Unit));
-        // Type-check escape value against the enclosing return type.
+        // Type-check unwind value against the enclosing return type.
         // Skip when the enclosing return type is an unresolved SomeType.
         esc_compat := are_types_compatible(esc_info.ty, enclosing_ret);
         if(!(is_some_type(enclosing_ret)) && !(esc_compat), {
@@ -425,7 +425,7 @@ evaluate_begin_expression :: (
             dyn(
               format_error_message(
                 ast_expr_token(esc_arg),
-                `Incompatible type for \`escape\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`,
+                `Incompatible type for \`unwind\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`,
                 false,
                 .None
               )
@@ -440,7 +440,7 @@ evaluate_begin_expression :: (
         );
         out := new_expr_info(env, esc_info.ty);
         out.value = esc_info.value;
-        out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Escape));
+        out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
         out.path_collection = esc_info.path_collection;
         out.variable_name = esc_info.variable_name;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
@@ -457,7 +457,7 @@ evaluate_begin_expression :: (
         if(!(is_last_in_loop), {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
         });
-        evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, using(exn));
+        evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, exn);
         ctx.expected_type = old_expected;
         ev_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
         match(

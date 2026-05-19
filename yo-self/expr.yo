@@ -25,7 +25,7 @@ BF_SIZEOF :: "sizeof";
 BF_ALIGNOF :: "alignof";
 BF_TYPEID :: "typeid";
 BF_RUNTIME :: "runtime";
-BF_ESCAPE :: "escape";
+BF_UNWIND :: "unwind";
 BF_RECUR :: "recur";
 BF_DOT :: ".";
 // Core builtins
@@ -229,6 +229,7 @@ BK_EXISTS :: "exists"; // `exists(T)` type-existence check
 BK_WHERE :: "where"; // `where(T <: Trait)` clause
 BK_FN :: "fn";
 BK_UNSAFE_FN :: "unsafe_fn";
+BK_CTL :: "ctl"; // Control-function type — parallel to `fn`, may contain `unwind`
 BK_FN_TRAIT :: "Fn";
 BK_ATOMIC :: "atomic";
 BK_OBJECT :: "object";
@@ -448,7 +449,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
   )
 );
 export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN);
-export(BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_ESCAPE, BF_RECUR, BF_DOT);
+export(BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
 export(BK_COMPTIME, BK_GIVEN, BK_FORALL, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH);
 export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
 export(BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_EXISTS, BK_WHERE);
@@ -591,7 +592,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
 // Expr traversal helpers
 // ---------------------------------------------------------------------------
 /// True if `expr` introduces a new function/closure boundary and should NOT
-/// be recursed into when scanning for escape/return/await.
+/// be recursed into when scanning for unwind/return/await.
 ///
 /// Mirrors `isFunctionBoundaryArrow` in `src/expr-traversal.ts`.
 /// A simplified port: checks for `->`, `=>`, `=>>` operators, and the
@@ -610,21 +611,21 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
         inner_func_box.*,
         .Atom(_, inner_tok) => {
           iv := inner_tok.value.as_str();
-          (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || (iv == BK_FN_TRAIT))
+          (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || ((iv == BK_CTL) || (iv == BK_FN_TRAIT)))
         },
         .FnCall(_, _, _, _, _) => false
       )
     )
   )
 );
-/// Traverse an evaluated expression tree checking for an `escape` keyword usage.
+/// Traverse an evaluated expression tree checking for an `unwind` keyword usage.
 /// Skips new function/closure boundaries (`->`, `=>`, function type calls).
 /// Recurses into `cond`/`match` branches without treating branch arrows as
 /// function boundaries.
 ///
-// `evaluated_body_contains_escape` and `expr_tree_contains_return` were
+// `evaluated_body_contains_unwind` and `expr_tree_contains_return` were
 // relocated to `./expr_traversal.yo` (mirrors `src/expr-traversal.ts`).
-export(BK_FN, BK_UNSAFE_FN, BK_FN_TRAIT, BK_ATOMIC, BK_OBJECT, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
+export(BK_FN, BK_UNSAFE_FN, BK_CTL, BK_FN_TRAIT, BK_ATOMIC, BK_OBJECT, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
 export(BK_MODULE, BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO);
 export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
 export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL);
@@ -683,7 +684,7 @@ expect_expr_to_be_fn_call_of :: (
     expr : AstExpr,
     func_name : str,
     arg_count : Option(usize),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   if(!(ast_expr_is_fn_call(expr)), {
@@ -741,7 +742,7 @@ expect_expr_to_be_fn_call_of_any :: (
     expr : AstExpr,
     func_names : ArrayList(str),
     arg_count : Option(usize),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   if(!(ast_expr_is_fn_call(expr)), {

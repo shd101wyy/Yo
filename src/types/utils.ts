@@ -15,7 +15,6 @@ import type {
   ArrayType,
   ComptimeListType,
   DynType,
-  EffectsRowType,
   EnumType,
   FunctionParameter,
   FunctionType,
@@ -203,6 +202,83 @@ export function typeContainsRcType(
     // No need to consider ptr/ref types, as they are not owning types
     default:
       return false; // For other types, no references are present
+  }
+}
+
+/**
+ * Check if a type is "control-bound" — i.e., a value of this type carries
+ * (transitively) a control-function value. Control-bound values are
+ * frame-bound: they cannot escape via function return, module-level
+ * binding, heap allocation, closure capture, or pointer indirection.
+ *
+ * See plans/EXPLICIT_EFFECTS.md §4 "Handler value unwind-escape
+ * restrictions — `ctl()` type constructor".
+ *
+ * Rules:
+ * - `ctl(...) -> ret` (FunctionType with `isControl === true`) → true.
+ * - Regular `fn(...) -> ret` → false (a fn pointer doesn't carry a CF,
+ *   even if its parameters/return reference ctl types).
+ * - Aggregates (Struct, Tuple, Enum, Union, Array, Slice) → true iff
+ *   any field/element type is control-bound.
+ * - `&T` (Ptr) → true iff T is control-bound. Pointers to control-bound
+ *   storage are themselves rejected (rule 11) to prevent escape via
+ *   pointer-write to outer-frame storage.
+ * - Other types (numbers, strings, types, etc.) → false.
+ */
+export function typeIsControlBound(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  if (checkedTypes.includes(type)) {
+    return false;
+  }
+  checkedTypes.push(type);
+
+  switch (type.tag) {
+    case TypeTag.Function: {
+      // Only a `ctl(...) -> ret` function value is itself control-bound.
+      // A regular `fn(...) -> ret` is a plain fn pointer; even if its
+      // parameter or return types reference ctl, the function value does
+      // not carry a CF — it merely calls one provided by the caller.
+      return (type as FunctionType).isControl === true;
+    }
+    case TypeTag.Struct:
+      return (type as StructType).fields.some((field) =>
+        typeIsControlBound(field.type, checkedTypes)
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeIsControlBound(field.type, checkedTypes)
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeIsControlBound(field.type, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeIsControlBound(param.type, checkedTypes)
+        )
+      );
+    case TypeTag.Array:
+      return typeIsControlBound((type as ArrayType).childType, checkedTypes);
+    case TypeTag.Slice:
+      return typeIsControlBound((type as SliceType).childType, checkedTypes);
+    case TypeTag.Ptr:
+      return typeIsControlBound((type as PtrType).childType, checkedTypes);
+    case TypeTag.SomeType: {
+      const someType = type as SomeType;
+      if (someType.resolvedConcreteType) {
+        return typeIsControlBound(someType.resolvedConcreteType, checkedTypes);
+      }
+      return false;
+    }
+    default:
+      return false;
   }
 }
 
@@ -451,9 +527,6 @@ export function typeRequiresInference(type?: Type): boolean {
         functionType.forallParameters.some((param) =>
           typeRequiresInference(param.type)
         ) ||
-        functionType.implicitParameters.some((param) =>
-          typeRequiresInference(param.type)
-        ) ||
         (functionType.variadicParameter
           ? typeRequiresInference(functionType.variadicParameter.type)
           : false)
@@ -617,9 +690,6 @@ export function functionParameterToString(
 
   if (parameter.isQuote) {
     label = `quote(${label})`;
-  } else if (parameter.isImplicit) {
-    // isImplicit implies isCompileTimeOnly, show as using(label)
-    // Don't wrap in comptime() since using() already implies comptime
   } else if (parameter.isCompileTimeOnly) {
     label = `comptime(${label})`;
   }
@@ -748,22 +818,11 @@ function functionTypeToString(
     }
   }
 
-  const implicitParams =
-    func.implicitParameters.length > 0
-      ? `using(${func.implicitParameters
-          .map((param) =>
-            param.isEffectRowSpread
-              ? `...(${param.label})`
-              : functionParameterToString(param, visited)
-          )
-          .join(", ")})`
-      : "";
-
-  const paramsString = [typeParams, params, implicitParams, variadicParam]
+  const paramsString = [typeParams, params, variadicParam]
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName;
-  const fnKind = "fn";
+  const fnKind = func.isControl ? "ctl" : "fn";
   return `${from ? `(${from}) ` : ""}${fnKind}(${paramsString}) -> ${returnString}`;
 }
 
@@ -964,12 +1023,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       // Check if it's a FutureTraitType
       if (isFutureTraitType(traitType)) {
         const parts = [typeToString(traitType.isFuture.outputType, visited)];
-        for (const effect of traitType.isFuture.effects) {
-          if (effect.isEffectRowSpread) {
-            parts.push(`...(${effect.label})`);
-          } else {
-            parts.push(typeToString(effect.type, visited));
-          }
+        if (traitType.isFuture.effect) {
+          parts.push(typeToString(traitType.isFuture.effect.type, visited));
         }
         return `Future(${parts.join(", ")})`;
       }
@@ -1041,14 +1096,6 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.ComptimeList: {
       return `ComptimeList(${typeToString((type as ComptimeListType).childType)})`;
-    }
-
-    case TypeTag.EffectsRow: {
-      const effectsRowType = type as EffectsRowType;
-      if (effectsRowType.implicitParameters.length === 0) {
-        return "EffectsRow()";
-      }
-      return `EffectsRow(${effectsRowType.implicitParameters.map((p) => `${p.label} : ${typeToString(p.type, visited)}`).join(", ")})`;
     }
 
     case TypeTag.Dyn: {

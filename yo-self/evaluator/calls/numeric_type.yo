@@ -165,7 +165,7 @@ _make_comptime_info :: (
     target_type : TypeValue,
     env : Environment,
     expr_tok : Token,
-    using(exn : Exception)
+    exn : Exception
   ) -> ExprInfo
 )({
   // Bounds check for integer types
@@ -234,7 +234,7 @@ try_to_convert_to_numeric_type :: (
     expr : AstExpr,
     caller_env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> Option(AstExpr)
 )({
   if(!(is_convertible_numeric_type(target_type)), {
@@ -310,7 +310,7 @@ try_to_convert_to_numeric_type :: (
       enum_disc_raw,
       .Some(disc_raw) => {
         if(is_numeric_type(target_type), {
-          out_info := _make_comptime_info(disc_raw, target_type, env, ast_expr_token(expr), using(exn));
+          out_info := _make_comptime_info(disc_raw, target_type, env, ast_expr_token(expr), exn);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
           return(.Some(expr));
         });
@@ -359,7 +359,7 @@ try_to_convert_to_numeric_type :: (
     comptime_raw,
     .Some(raw) => {
       if(is_numeric_type(target_type), {
-        out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), using(exn));
+        out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), exn);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
         return(.Some(expr));
       });
@@ -394,7 +394,7 @@ try_to_convert_to_numeric_type :: (
       comptime_raw,
       .Some(raw) => {
         // Already covered by Case 1, but handle here for completeness.
-        out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), using(exn));
+        out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), exn);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
         return(.Some(expr));
       },
@@ -427,7 +427,7 @@ try_to_convert_to_numeric_type :: (
   match(
     comptime_raw,
     .Some(raw) => {
-      out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), using(exn));
+      out_info := _make_comptime_info(raw, target_type, env, ast_expr_token(expr), exn);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       .Some(expr)
     },

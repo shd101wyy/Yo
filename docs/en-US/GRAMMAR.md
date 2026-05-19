@@ -189,7 +189,7 @@ Separator ::= ',' | ';'
 
    - Valid: `func(arg1, arg2)`
    - Invalid: `func (arg1, arg2)` or `func arg1, arg2`
-   - Prefix operators are calls too: write `&(x)`, `!(ready)`, `return(value)`, `return()`, `escape(value)`, or `escape()`
+   - Prefix operators are calls too: write `&(x)`, `!(ready)`, `return(value)`, `return()`, `unwind(value)`, or `unwind()`
 
 3. **Infix operators**: Whitespace affects precedence
    - Operators at line start have left associativity

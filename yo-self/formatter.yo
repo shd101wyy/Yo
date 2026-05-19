@@ -1485,13 +1485,13 @@ format_yo_source :: (
   fn(
     input : String,
     module_path : String,
-    using(exn : Exception)
+    exn : Exception
   ) -> String
 )(
   cond(
     (input.len() == usize(0)) => String.from(""),
     true => {
-      all_tokens := tokenize(input, module_path, using(exn));
+      all_tokens := tokenize(input, module_path, exn);
       // Filter out whitespace tokens.
       significant_tokens := ArrayList(Token).new();
       {
@@ -2323,10 +2323,11 @@ collect_yo_files :: (
   fn(
     target_path : Path,
     files : ArrayList(String),
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
-  is_file_p := io.await(is_file(target_path));
+  is_file_p := io.await(is_file(target_path), io);
   cond(
     is_file_p => {
       path_str := target_path.to_string();
@@ -2335,9 +2336,9 @@ collect_yo_files :: (
       });
     },
     true => {
-      is_dir_p := io.await(is_dir(target_path));
+      is_dir_p := io.await(is_dir(target_path), io);
       if(is_dir_p, {
-        entries := io.await(read_dir(target_path));
+        entries := io.await(read_dir(target_path), io);
         en := entries.len();
         (ei : usize) = usize(0);
         while(runtime(ei < en), {
@@ -2353,7 +2354,7 @@ collect_yo_files :: (
               );
               if(!(skip), {
                 child_path := target_path.join(Path.new((&(entry_name)).clone()));
-                recur(child_path, files, using(io, exn));
+                recur(child_path, files, io, exn);
               });
             }
           );
@@ -2369,7 +2370,8 @@ collect_yo_files :: (
 find_yo_format_files :: (
   fn(
     input_paths : ArrayList(String),
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> ArrayList(String)
 )({
   files := ArrayList(String).new();
@@ -2389,11 +2391,11 @@ find_yo_format_files :: (
       .None => (),
       .Some(p) => {
         path_obj := Path.new(p);
-        path_exists := io.await(exists(path_obj));
+        path_exists := io.await(exists(path_obj), io);
         if(!(path_exists), {
           exn.throw(dyn(`Path does not exist: ${p}`));
         });
-        collect_yo_files(path_obj, files, using(io, exn));
+        collect_yo_files(path_obj, files, io, exn);
       }
     );
     pi = (pi + usize(1));
@@ -2407,10 +2409,11 @@ format_yo_files :: (
   fn(
     input_paths : ArrayList(String),
     options : FormatYoFilesOptions,
-    using(io : IO, exn : Exception)
+    io : IO,
+    exn : Exception
   ) -> FormatYoFilesResult
 )({
-  files := find_yo_format_files(input_paths, using(io, exn));
+  files := find_yo_format_files(input_paths, io, exn);
   changed := ArrayList(String).new();
   fn := files.len();
   (fi : usize) = usize(0);
@@ -2419,13 +2422,13 @@ format_yo_files :: (
       files.get(fi),
       .None => (),
       .Some(file) => {
-        bytes := io.await(read_file(Path.new(file)));
+        bytes := io.await(read_file(Path.new(file)), io);
         original := String.from_bytes(bytes);
-        formatted := format_yo_source(original, file, using(exn));
+        formatted := format_yo_source(original, file, exn);
         if(formatted.as_str() != original.as_str(), {
           _r := changed.push(file);
           if(!(options.check), {
-            io.await(write_file(Path.new(file), formatted));
+            io.await(write_file(Path.new(file), formatted), io);
           });
         });
       }

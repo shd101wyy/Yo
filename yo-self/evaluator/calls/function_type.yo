@@ -56,7 +56,7 @@ check_deferred_generic_return_type :: (
     function_value : EvalValue,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   _ := function_body_expr;
@@ -147,6 +147,7 @@ create_function_body_evaluation_context :: (
     std_path : ctx.std_path,
     current_module_path : ctx.current_module_path,
     is_unsafe_function_type : ctx.is_unsafe_function_type,
+    is_control_function_type : ctx.is_control_function_type,
     has_control_function_implicit_params : ctx.has_control_function_implicit_params,
     is_inside_where_clause : ctx.is_inside_where_clause,
     is_lhs_of_assignment : ctx.is_lhs_of_assignment,
@@ -185,7 +186,7 @@ try_to_implement_function_by_function_type :: (
     function_type : TypeValue,
     caller_env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )(
   match(

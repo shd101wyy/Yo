@@ -19,8 +19,8 @@ function makeModel(): DocModel {
             signature: "add :: (fn(a : i32, b : i32) -> i32)",
             doc: "Add two numbers.",
             parameters: [
-              { name: "a", type: "i32", isComptime: false, isImplicit: false },
-              { name: "b", type: "i32", isComptime: false, isImplicit: false },
+              { name: "a", type: "i32", isComptime: false },
+              { name: "b", type: "i32", isComptime: false },
             ],
             returnType: "i32",
             isMethod: false,

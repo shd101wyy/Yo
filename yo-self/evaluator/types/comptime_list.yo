@@ -34,7 +34,7 @@ evaluate_comptime_list_type :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   if(!(ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE,.Some(usize(1)))), {
@@ -60,7 +60,7 @@ evaluate_comptime_list_type :: (
     .Atom(_, _) => make_err_expr()
   );
   // Evaluate the element type expression
-  evaluated := evaluate_expression_raw(elem_expr, env, ctx, using(exn));
+  evaluated := evaluate_expression_raw(elem_expr, env, ctx, exn);
   // Read the expr info for the evaluated element type
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(

@@ -121,10 +121,10 @@ impl(
     fn(
       input_string : String,
       module_path : String,
-      using(exn : Exception)
+      exn : Exception
     ) -> Self
   )({
-    toks := tokenize(input_string, module_path, using(exn));
+    toks := tokenize(input_string, module_path, exn);
     Parser(
       input_string : input_string,
       module_path : module_path,
@@ -325,7 +325,7 @@ impl(
       .Some(t) => ((t.kind == TokenKind.Whitespace) && t.value.contains(nl_str))
     )
   }),
-  parse_template_string : (fn(self : *(Self), tok : Token, index : usize, using(exn : Exception)) -> ParseResult)({
+  parse_template_string : (fn(self : *(Self), tok : Token, index : usize, exn : Exception) -> ParseResult)({
     self.has_template_string = true;
     template_value := tok.value;
     // Collect chars of the template string into an ArrayList(rune)
@@ -446,7 +446,7 @@ impl(
         is_expr => {
           // Parse the interpolated expression via the module-level holder
           // (avoids forward reference: parse_template_string → get_program cycle)
-          (inner_prog : ArrayList(AstExpr)) = Parser.new(content, self.module_path, using(exn)).get_program(using(exn));
+          (inner_prog : ArrayList(AstExpr)) = Parser.new(content, self.module_path, exn).get_program(exn);
           if(inner_prog.len() == usize(0), {
             exn.throw(dyn(make_parse_error(tok, `empty expression in template string interpolation`)));
           });
@@ -505,7 +505,7 @@ impl(
       self : *(Self),
       index : usize,
       has_whitespace : bool,
-      using(exn : Exception)
+      exn : Exception
     ) -> FnArgsResult
   )({
     args := ArrayList(AstExpr).new();
@@ -518,7 +518,7 @@ impl(
       });
     });
     while(runtime(true), {
-      arg_pr := self.parse_expression(idx, using(exn));
+      arg_pr := self.parse_expression(idx, exn);
       args.push(arg_pr.expr);
       idx = arg_pr.index;
       curr := match(
@@ -567,17 +567,17 @@ impl(
       func : AstExpr,
       index : usize,
       has_whitespace : bool,
-      using(exn : Exception)
+      exn : Exception
     ) -> ParseResult
   )({
     fn_tok := ast_expr_token(func);
-    fa := self.parse_fn_args(index, has_whitespace, using(exn));
+    fa := self.parse_fn_args(index, has_whitespace, exn);
     ParseResult(
       expr :.FnCall(self.alloc_id(), box(func), fa.args, false, fn_tok),
       index : fa.index
     )
   }),
-  parse_paren_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
+  parse_paren_expr : (fn(self : *(Self), index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -609,7 +609,7 @@ impl(
         )
       );
     });
-    pr := self.parse_expression(index + usize(1), using(exn));
+    pr := self.parse_expression(index + usize(1), exn);
     (expr : AstExpr) = pr.expr;
     idx := pr.index;
     (curr_kind : TokenKind) = match(
@@ -671,7 +671,7 @@ impl(
       if(curr2.kind == TokenKind.RParen, {
         break;
       });
-      arg_pr := self.parse_expression(idx, using(exn));
+      arg_pr := self.parse_expression(idx, exn);
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     });
@@ -696,7 +696,7 @@ impl(
       index : (idx + usize(1))
     )
   }),
-  parse_array_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
+  parse_array_expr : (fn(self : *(Self), index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -753,7 +753,7 @@ impl(
       if(curr2.kind == TokenKind.RBracket, {
         break;
       });
-      arg_pr := self.parse_expression(idx, using(exn));
+      arg_pr := self.parse_expression(idx, exn);
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     });
@@ -806,7 +806,7 @@ impl(
       )
     )
   ),
-  parse_curly_bracket_expr : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
+  parse_curly_bracket_expr : (fn(self : *(Self), index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -893,7 +893,7 @@ impl(
         });
         break;
       });
-      arg_pr := self.parse_expression(idx, using(exn));
+      arg_pr := self.parse_expression(idx, exn);
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     });
@@ -999,7 +999,7 @@ impl(
       op_tok : Token,
       rhs : AstExpr,
       index : usize,
-      using(exn : Exception)
+      exn : Exception
     ) -> ParseResult
   )({
     rhs_is_infix_non_dot := match(
@@ -1060,15 +1060,15 @@ impl(
       new_args.push(left_side);
       new_args.push(right_operand);
       (new_primary : AstExpr) =.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), rhs_func_tok)), new_args, true, rhs_func_tok);
-      self.parse_primary_end(new_primary, index, using(exn))
+      self.parse_primary_end(new_primary, index, exn)
     }, {
       simple_args := ArrayList(AstExpr).new();
       simple_args.push(primary);
       simple_args.push(rhs);
-      self.parse_primary_end(.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), op_tok)), simple_args, true, op_tok), index, using(exn))
+      self.parse_primary_end(.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), op_tok)), simple_args, true, op_tok), index, exn)
     })
   }),
-  parse_primary : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
+  parse_primary : (fn(self : *(Self), index : usize, exn : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(
       self.tokens.get(idx),
@@ -1079,11 +1079,11 @@ impl(
       // Atom kinds
       (((((((tok.kind == TokenKind.Identifier) || (tok.kind == TokenKind.Operator)) || (tok.kind == TokenKind.Bool)) || (tok.kind == TokenKind.Integer)) || (tok.kind == TokenKind.Float)) || (tok.kind == TokenKind.StringLit)) || (tok.kind == TokenKind.CharLit)) =>
         ParseResult(expr :.Atom(self.alloc_id(), tok), index : (idx + usize(1))),
-      (tok.kind == TokenKind.LParen) => self.parse_paren_expr(idx, using(exn)),
-      (tok.kind == TokenKind.LBracket) => self.parse_array_expr(idx, using(exn)),
-      (tok.kind == TokenKind.LCurlyBracket) => self.parse_curly_bracket_expr(idx, using(exn)),
+      (tok.kind == TokenKind.LParen) => self.parse_paren_expr(idx, exn),
+      (tok.kind == TokenKind.LBracket) => self.parse_array_expr(idx, exn),
+      (tok.kind == TokenKind.LCurlyBracket) => self.parse_curly_bracket_expr(idx, exn),
       (tok.kind == TokenKind.Dot) => ParseResult(expr :.Atom(self.alloc_id(), tok), index : (idx + usize(1))),
-      (tok.kind == TokenKind.TemplateString) => self.parse_template_string(tok, idx, using(exn)),
+      (tok.kind == TokenKind.TemplateString) => self.parse_template_string(tok, idx, exn),
       true => exn.throw(dyn(make_parse_error(tok, `unexpected token: ${tok.value}`)))
     )
   }),
@@ -1092,7 +1092,7 @@ impl(
       self : *(Self),
       primary_expr : AstExpr,
       index : usize,
-      using(exn : Exception)
+      exn : Exception
     ) -> ParseResult
   )({
     orig_idx := index;
@@ -1165,7 +1165,7 @@ impl(
           )
         );
         rhs_start := cond(primary_is_dot => idx, true => (idx + usize(1)));
-        rhs_pr := self.parse_primary(rhs_start, using(exn));
+        rhs_pr := self.parse_primary(rhs_start, exn);
         rhs_expr := rhs_pr.expr;
         rhs_idx := rhs_pr.index;
         dot_fn_tok := cond(
@@ -1191,19 +1191,19 @@ impl(
               if(next_dot.kind != TokenKind.Dot, {
                 break;
               });
-              chain_pr := self.parse_primary(cur_idx + usize(1), using(exn));
+              chain_pr := self.parse_primary(cur_idx + usize(1), exn);
               chain_args := array_list(cur_expr, chain_pr.expr);
               cur_expr =.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), dot_tok)), chain_args, true, dot_tok);
               cur_idx = chain_pr.index;
             }
           );
         });
-        recur(self, cur_expr, cur_idx, using(exn))
+        recur(self, cur_expr, cur_idx, exn)
       },
       // Infix operator
       ((tok.kind == TokenKind.Operator) || ((tok.kind == TokenKind.Dot) && (has_ws_fwd == false))) => {
         rhs_start := self.skip_ws_fwd(idx + usize(1));
-        rhs_pr := self.parse_expression(rhs_start, using(exn));
+        rhs_pr := self.parse_expression(rhs_start, exn);
         rhs := rhs_pr.expr;
         rhs_end := rhs_pr.index;
         // Check if rhs is an infix (non-dot) expression
@@ -1243,7 +1243,7 @@ impl(
                 self,
                 .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
                 rhs_end,
-                using(exn)
+                exn
               )
             },
             op_alone => {
@@ -1254,11 +1254,11 @@ impl(
                 self,
                 .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
                 rhs_end,
-                using(exn)
+                exn
               )
             },
             op_at_line_start =>
-              self.parse_left_assoc_op(primary_expr, tok, rhs, rhs_end, using(exn)),
+              self.parse_left_assoc_op(primary_expr, tok, rhs, rhs_end, exn),
             true => exn.throw(dyn(make_parse_error(tok, `ambiguous operator precedence near ${tok.value} — use parentheses`)))
           )
         }, {
@@ -1269,14 +1269,14 @@ impl(
             self,
             .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
             rhs_end,
-            using(exn)
+            exn
           )
         })
       },
       // Function call without whitespace: `func(arg1, arg2)`
       ((has_ws_fwd == false) && (tok.kind == TokenKind.LParen)) => {
-        fn_pr := self.parse_fn_call(primary_expr, idx + usize(1), false, using(exn));
-        recur(self, fn_pr.expr, fn_pr.index, using(exn))
+        fn_pr := self.parse_fn_call(primary_expr, idx + usize(1), false, exn);
+        recur(self, fn_pr.expr, fn_pr.index, exn)
       },
       ((has_ws_fwd == true) && (tok.kind == TokenKind.LParen)) => {
         exn.throw(dyn(make_parse_error(tok, `whitespace before '(' is not allowed in function calls`)));
@@ -1288,12 +1288,12 @@ impl(
       }
     )
   }),
-  parse_expression : (fn(self : *(Self), index : usize, using(exn : Exception)) -> ParseResult)({
+  parse_expression : (fn(self : *(Self), index : usize, exn : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
-    pr := self.parse_primary(idx, using(exn));
-    self.parse_primary_end(pr.expr, pr.index, using(exn))
+    pr := self.parse_primary(idx, exn);
+    self.parse_primary_end(pr.expr, pr.index, exn)
   }),
-  do_parse : (fn(self : *(Self), using(exn : Exception)) -> unit)({
+  do_parse : (fn(self : *(Self), exn : Exception) -> unit)({
     idx := usize(0);
     n := self.tokens.len();
     exprs := ArrayList(AstExpr).new();
@@ -1308,7 +1308,7 @@ impl(
           if(is_skip, {
             idx = (idx + usize(1));
           }, {
-            pr := self.parse_expression(idx, using(exn));
+            pr := self.parse_expression(idx, exn);
             exprs.push(pr.expr);
             idx = pr.index;
           });
@@ -1339,8 +1339,8 @@ impl(
     });
     self.program = exprs;
   }),
-  get_program : (fn(self : *(Self), using(exn : Exception)) -> ArrayList(AstExpr))({
-    self.do_parse(using(exn));
+  get_program : (fn(self : *(Self), exn : Exception) -> ArrayList(AstExpr))({
+    self.do_parse(exn);
     if(self.has_template_string, {
       import_tok := Token(
         kind : TokenKind.Identifier,
@@ -1395,11 +1395,11 @@ parse :: (
   fn(
     input_string : String,
     module_path : String,
-    using(exn : Exception)
+    exn : Exception
   ) -> ArrayList(AstExpr)
 )({
-  p := Parser.new(input_string, module_path, using(exn));
-  p.get_program(using(exn))
+  p := Parser.new(input_string, module_path, exn);
+  p.get_program(exn)
 });
 /// Parse a single Yo expression from a code string and return it.
 /// Expects exactly one expression in `code`.
@@ -1407,11 +1407,11 @@ parse :: (
 generate_expr_from_code :: (
   fn(
     code : str,
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
-  exprs := parse(String.from(code), module_path, using(exn));
+  exprs := parse(String.from(code), module_path, exn);
   n := exprs.len();
   cond(
     (n == usize(1)) => match(
@@ -1437,11 +1437,11 @@ generate_expr_from_code :: (
 generate_exprs_from_code :: (
   fn(
     code : str,
-    using(exn : Exception)
+    exn : Exception
   ) -> ArrayList(AstExpr)
 )({
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
-  parse(String.from(code), module_path, using(exn))
+  parse(String.from(code), module_path, exn)
 });
 export(ParseResult, FnArgsResult, ParseError, Parser, parse);
 export(extract_source_line, make_parse_error, make_parse_error_raw);

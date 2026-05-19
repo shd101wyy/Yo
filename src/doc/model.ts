@@ -25,7 +25,6 @@ export interface DocParam {
   name: string;
   type: string;
   isComptime: boolean;
-  isImplicit: boolean;
   defaultValue?: string;
   /** Doc comment from inline `///` above this parameter */
   doc?: string;

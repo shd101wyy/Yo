@@ -8,7 +8,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
-{ Exception } :: import("std/error");
+{ Exception, IOErr } :: import("std/error");
 { DirEntry, read_dir } :: import("std/fs/dir");
 { platform, Platform, arch, Arch : ProcessArch } :: import("std/process");
 // ── Supported architectures ───────────────────────────────────────────
@@ -155,20 +155,21 @@ _build_target_info :: (fn(a : Arch, o : Os, abi : Option(Abi)) -> TargetInfo)(
 /// On non-Linux or if /lib is unreadable, returns Abi.Gnu.
 detect_linux_abi :: (
   fn(
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(Abi, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(Abi, IOErr))
 )(
   io.async(
-    (using(io, exn)) =>
+    (io, exn) =>
       if(platform != Platform.Linux, Abi.Gnu, {
-        given(try_exn) := Exception(
+        try_exn := Exception(
           throw : (
             (err) -> {
               return(ArrayList(DirEntry).new());
             }
           )
         );
-        entries := io.await(read_dir(Path.new(String.from("/lib")), using(io, try_exn)));
+        entries := io.await(read_dir(Path.new(String.from("/lib")), io, try_exn), io);
         n := entries.len();
         k := usize(0);
         found_musl := false;
@@ -218,12 +219,13 @@ detect_host :: (fn() -> HostInfo)({
 /// Async because Linux ABI detection reads the filesystem.
 host_target :: (
   fn(
-    using(io : IO, exn : Exception)
-  ) -> Impl(Future(TargetInfo, IO, Exception))
+    io : IO,
+    exn : Exception
+  ) -> Impl(Future(TargetInfo, IOErr))
 )(
-  io.async((using(io, exn)) => {
+  io.async((io, exn) => {
     host := detect_host();
-    linux_abi := io.await(detect_linux_abi());
+    linux_abi := io.await(detect_linux_abi(), io);
     abi := cond(
       (host.platform == Os.Linux) => Option(Abi).Some(linux_abi),
       (host.platform == Os.Windows) => Option(Abi).Some(Abi.Msvc),

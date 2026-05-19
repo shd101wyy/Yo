@@ -35,7 +35,11 @@ import { generateExprFromCode } from "../../parser";
 import type { Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import { isFunctionType, isObjectType, isSomeType } from "../../types/guards";
-import { typeContainsRcType, typeToString } from "../../types/utils";
+import {
+  typeContainsRcType,
+  typeIsControlBound,
+  typeToString,
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { isFunctionValue, isTypeValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
@@ -43,7 +47,6 @@ import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsFn } from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
-import { throwExprIsImplicitVariableError } from "../utils";
 
 /**
  * For debugging the dup/drop optimization.
@@ -111,6 +114,7 @@ function isFunctionBoundaryForEarlyDrop(expr: Expr): boolean {
     exprIsFunctionCall(expr) &&
     exprIsFunctionCall(expr.func) &&
     (exprIsFunctionCallOf(expr.func, BuiltinKeywords.fn) ||
+      exprIsFunctionCallOf(expr.func, BuiltinKeywords.ctl) ||
       exprIsFunctionCallOf(expr.func, BuiltinKeywords.unsafe_fn) ||
       exprIsFunctionCallOf(expr.func, BuiltinKeywords.Fn))
   ) {
@@ -154,7 +158,7 @@ function attachEarlyReturnOnlyDropExpressionToReturns(
   if (exprIsAtom(expr)) {
     if (
       exprIsAtomOf(expr, BuiltinKeywords.return) ||
-      exprIsAtomOf(expr, BuiltinKeywords.escape)
+      exprIsAtomOf(expr, BuiltinKeywords.unwind)
     ) {
       attachIfCleanupPointNeedsDrop(expr.token);
     }
@@ -164,7 +168,7 @@ function attachEarlyReturnOnlyDropExpressionToReturns(
   if (exprIsFunctionCall(expr)) {
     if (
       exprIsFunctionCallOf(expr, BuiltinKeywords.return) ||
-      exprIsFunctionCallOf(expr, BuiltinKeywords.escape)
+      exprIsFunctionCallOf(expr, BuiltinKeywords.unwind)
     ) {
       attachIfCleanupPointNeedsDrop(
         getLastComparableTokenInExpr(expr, consumedAtToken)
@@ -1161,6 +1165,32 @@ export function evaluateBeginExpression({
           });
         }
 
+        // §4 escape boundary 1: function return type cannot be
+        // control-bound. A control-bound type carries a control function
+        // (transitively); returning it from a function takes the value
+        // past its install frame, which is then dead — invoking it
+        // later would unwind to a dead frame.
+        //
+        // Type-level check: `typeIsControlBound(returnType)` is true iff
+        // the type contains a `ctl(...) -> ret` (directly or in a struct
+        // field / tuple element / etc). This catches both bare CF
+        // returns and aggregate-containing-CF returns.
+        {
+          const returnedType = evaluatedReturnArgExpr.$?.type;
+          if (returnedType && typeIsControlBound(returnedType)) {
+            throw formatErrorMessage({
+              token: returnArg.token,
+              errorMessage: `Cannot return a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type). Control-function values are stack-bound to their install frame; returning them lets them outlive that frame, and invoking them later would unwind to a dead frame.
+
+Returned type: ${typeToString(returnedType)}
+
+Install the handler at its use site instead:
+  (raise : Raise) = ((msg) -> { unwind(...); });
+  some_call(args, raise);`,
+            });
+          }
+        }
+
         // Validate Impl return types across multiple return statements
         if (
           context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
@@ -1307,10 +1337,10 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       lastExpr = exprToEvaluate;
       break;
     }
-    // Check if it's the "escape" keyword (ctl handler discontinue)
+    // Check if it's the "unwind" keyword (ctl handler discontinue)
     else if (
       exprIsFunctionCall(exprToEvaluate) &&
-      exprIsFunctionCallOf(exprToEvaluate, BuiltinKeywords.escape)
+      exprIsFunctionCallOf(exprToEvaluate, BuiltinKeywords.unwind)
     ) {
       if (
         i !== beginExpressions.length - 1 &&
@@ -1321,14 +1351,14 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       ) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
-          errorMessage: `The "escape" keyword can only be used as the last expression.`,
+          errorMessage: `The "unwind" keyword can only be used as the last expression.`,
         });
       }
 
       if (!context.enclosingFunctionReturnType) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
-          errorMessage: `The "escape" keyword can only be used inside a function that has an enclosing function.`,
+          errorMessage: `The "unwind" keyword can only be used inside a function that has an enclosing function.`,
         });
       }
 
@@ -1337,12 +1367,12 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       if (exprToEvaluate.args.length > 1) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
-          errorMessage: `The "escape" keyword accepts at most one argument.`,
+          errorMessage: `The "unwind" keyword accepts at most one argument.`,
         });
       }
 
-      const escapeArg = exprToEvaluate.args[0];
-      if (!escapeArg) {
+      const unwindArg = exprToEvaluate.args[0];
+      if (!unwindArg) {
         if (
           !isSomeType(context.enclosingFunctionReturnType) &&
           !areTypesCompatible(
@@ -1363,14 +1393,14 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           type: VUnit.type,
           value: undefined,
           pathCollection: [],
-          controlFlow: controlFlowOf("escape"),
+          controlFlow: controlFlowOf("unwind"),
         };
         lastExpr = exprToEvaluate;
         break;
       }
 
       const evaluatedEscapeArgExpr = evaluateExpression({
-        expr: escapeArg,
+        expr: unwindArg,
         env,
         context: {
           ...context,
@@ -1382,8 +1412,8 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       });
       if (!evaluatedEscapeArgExpr.$) {
         throw formatErrorMessage({
-          token: escapeArg.token,
-          errorMessage: `Escape expression is not evaluated correctly:\n${exprToString(escapeArg)}`,
+          token: unwindArg.token,
+          errorMessage: `Escape expression is not evaluated correctly:\n${exprToString(unwindArg)}`,
         });
       }
 
@@ -1391,7 +1421,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
       // Type-check against enclosingFunctionReturnType.
       // Skip when it is a SomeType (e.g., forall T hasn't resolved yet) —
-      // the escape value's type will determine the actual return type.
+      // the unwind value's type will determine the actual return type.
       if (
         !isSomeType(context.enclosingFunctionReturnType) &&
         !areTypesCompatible(
@@ -1403,7 +1433,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         )
       ) {
         throw formatErrorMessage({
-          token: escapeArg.token,
+          token: unwindArg.token,
           errorMessage: `Incompatible type for \`escape\` argument:
 - Expected (enclosing function return type): ${typeToString(context.enclosingFunctionReturnType)}
 - Got: ${typeToString(evaluatedEscapeArgExpr.$.type)}`,
@@ -1419,7 +1449,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         value: evaluatedEscapeArgExpr.$.value,
         pathCollection: evaluatedEscapeArgExpr.$.pathCollection,
         variableName: evaluatedEscapeArgExpr.$.variableName,
-        controlFlow: controlFlowOf("escape"),
+        controlFlow: controlFlowOf("unwind"),
       };
       lastExpr = exprToEvaluate;
       break;
@@ -1585,18 +1615,6 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // Simplified ownership model for begin blocks:
   // Call dup when returning a value from an outer scope.
   // This ensures clean ownership semantics.
-
-  // Disallow returning implicit variables from begin blocks
-  if (returnExpr) {
-    const returnValueExprForCheck =
-      exprIsFunctionCall(returnExpr) &&
-      exprIsFunctionCallOf(returnExpr, BuiltinKeywords.return, 1)
-        ? returnExpr.args[0]!
-        : returnExpr;
-    throwExprIsImplicitVariableError(returnValueExprForCheck);
-  } else {
-    throwExprIsImplicitVariableError(lastExpr);
-  }
 
   let returnVariable: Variable | undefined = undefined;
   let returnValueExpr: Expr | undefined = lastExpr;
@@ -2014,7 +2032,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // When a variable is directly returned (e.g., `return out`), it's consumed
   // (ownership transferred to caller) and excluded from variablesNeedingDrop.
   // On normal return, the caller takes ownership — no drop needed.
-  // On escape propagation, the return value is discarded — the variable leaks
+  // On unwind propagation, the return value is discarded — the variable leaks
   // unless we explicitly drop it.
   //
   // NOTE: We do NOT include variables consumed by the dup/drop optimization

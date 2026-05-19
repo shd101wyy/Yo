@@ -78,10 +78,10 @@ _evaluate_discriminant :: (
     discriminant_expr : AstExpr,
     env_in : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> i64
 )({
-  evaluated_disc := evaluate_expression_raw(discriminant_expr, env_in, ctx, using(exn));
+  evaluated_disc := evaluate_expression_raw(discriminant_expr, env_in, ctx, exn);
   disc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_disc));
   disc_info := match(
     disc_info_opt,
@@ -173,7 +173,7 @@ evaluate_enum_type :: (
     expr : AstExpr,
     env_in : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -276,7 +276,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        disc := _evaluate_discriminant(discriminant_expr, env, ctx, using(exn));
+        disc := _evaluate_discriminant(discriminant_expr, env, ctx, exn);
         variant_names.push(String.from(variant_name.as_str()));
         variant_fields.push(ArrayList(TypeValue).new());
         variant_field_labels.push(ArrayList(String).new());
@@ -349,7 +349,7 @@ evaluate_enum_type :: (
           eq_args := _fn_call_args(enum_arg);
           variant_expr = match(eq_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
           discriminant_expr := match(eq_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-          d := _evaluate_discriminant(discriminant_expr, env, ctx, using(exn));
+          d := _evaluate_discriminant(discriminant_expr, env, ctx, exn);
           custom_disc = Option(i64).Some(d);
         });
         if(ast_expr_is_fn_call_of(variant_expr, ":", Option(usize).None), {
@@ -396,7 +396,7 @@ evaluate_enum_type :: (
         (j : usize) = usize(0);
         while(runtime(j < v_args.len()), {
           field_arg := match(v_args.get(j),.Some(a) => a,.None => make_err_expr());
-          result := evaluate_type_field(field_arg, j, env, ctx, "enum", using(exn));
+          result := evaluate_type_field(field_arg, j, env, ctx, "enum", exn);
           field := result.field;
           // Check for duplicate labels in this variant.
           (dup_idx : usize) = usize(0);

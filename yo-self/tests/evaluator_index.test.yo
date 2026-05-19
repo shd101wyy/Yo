@@ -115,11 +115,11 @@ test("has_comment_attribute: returns false for different attribute", {
 // Evaluator.new — basic smoke tests with skip-prelude sources
 // ---------------------------------------------------------------------------
 test("Evaluator.new: empty source with skip_prelude", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -128,7 +128,7 @@ test("Evaluator.new: empty source with skip_prelude", {
     String.from("<no-std>"),
     noop_loader,
     String.from("// @skip_prelude\n"),
-    using(exn)
+    exn
   );
   // Should parse and evaluate without error.
   match(
@@ -140,11 +140,11 @@ test("Evaluator.new: empty source with skip_prelude", {
   );
 });
 test("Evaluator.new: simple binding with skip_prelude", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -154,7 +154,7 @@ test("Evaluator.new: simple binding with skip_prelude", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   match(
     eval.get_module_error(),
@@ -173,11 +173,11 @@ test("Evaluator.new: simple binding with skip_prelude", {
   );
 });
 test("Evaluator.new: get_tokens returns non-empty list", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -187,17 +187,17 @@ test("Evaluator.new: get_tokens returns non-empty list", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   toks := eval.get_tokens();
   assert(toks.len() > usize(0), "expected non-empty token list");
 });
 test("Evaluator.new: get_program returns non-empty AST", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -207,17 +207,17 @@ test("Evaluator.new: get_program returns non-empty AST", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   prog := eval.get_program();
   assert(prog.len() > usize(0), "expected non-empty program");
 });
 test("Evaluator.new: get_env returns Some environment", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -227,7 +227,7 @@ test("Evaluator.new: get_env returns Some environment", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   match(
     eval.get_env(),
@@ -238,11 +238,11 @@ test("Evaluator.new: get_env returns Some environment", {
   );
 });
 test("Evaluator.new: module_value contains exported name", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -252,7 +252,7 @@ test("Evaluator.new: module_value contains exported name", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   match(
     eval.get_module_value(),

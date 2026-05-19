@@ -11,8 +11,8 @@ open(import("std/error"));
 } :: import("../naming_checker.yo");
 // ─── is_upper_camel_case ─────────────────────────────────────────────────────
 check_upper :: (fn(name : str) -> bool)({
-  given(exn) := Exception(throw : ((err) -> panic("unexpected throw")));
-  is_upper_camel_case(String.from(name), using(exn))
+  exn := Exception(throw : ((err) -> panic("unexpected throw")));
+  is_upper_camel_case(String.from(name), exn)
 });
 test("is_upper_camel_case: Foo is true", {
   assert(check_upper("Foo") == true, "Foo");
@@ -34,8 +34,8 @@ test("is_upper_camel_case: Foo__ strips trailing underscores", {
 });
 // ─── is_lower_camel_case ─────────────────────────────────────────────────────
 check_lower :: (fn(name : str) -> bool)({
-  given(exn) := Exception(throw : ((err) -> panic("unexpected throw")));
-  is_lower_camel_case(String.from(name), using(exn))
+  exn := Exception(throw : ((err) -> panic("unexpected throw")));
+  is_lower_camel_case(String.from(name), exn)
 });
 test("is_lower_camel_case: foo is true", {
   assert(check_lower("foo") == true, "foo");

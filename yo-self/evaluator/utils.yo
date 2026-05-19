@@ -287,7 +287,7 @@ find_rc_value_owner_relationship :: (
 // ---------------------------------------------------------------------------
 /// Throw if `rhs` resolves to an implicit (`given(...)`) variable.
 ///
-/// Implicit variables must be passed via `using()` parameters, not captured
+/// Implicit variables must be passed via `` parameters, not captured
 /// through regular assignments.
 ///
 /// Mirrors `throwExprIsImplicitVariableError` in `src/evaluator/utils.ts`.
@@ -296,7 +296,7 @@ throw_expr_is_implicit_variable_error :: (
     rhs : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   // Determine which variable name to check.
@@ -344,7 +344,7 @@ throw_expr_is_implicit_variable_error :: (
               dyn(
                 format_error_message(
                   ast_expr_token(rhs),
-                  `Cannot use implicit variable "${var_name}" in assignment. Implicit variables must be passed via using() parameters.`,
+                  `Cannot use implicit variable "${var_name}" in assignment. Implicit variables must be passed via  parameters.`,
                   false,
                   .None
                 )
@@ -368,7 +368,7 @@ require_expr_not_consumed :: (
     rhs : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   name_opt := match(
@@ -437,7 +437,7 @@ expect_expr_to_have_been_evaluated :: (
     expr : AstExpr,
     error_message : String,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> ExprInfo
 )(
   match(
@@ -483,7 +483,7 @@ set_expr_as_consumed :: (
     env : Environment,
     allow_consume_again : bool,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
@@ -642,7 +642,7 @@ merge_and_check_envs :: (
     env : Environment,
     bodies : ArrayList(AstExpr),
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> Environment
 )({
   if(bodies.len() == usize(0), {

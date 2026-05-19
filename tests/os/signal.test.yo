@@ -7,29 +7,29 @@ _noop_handler :: (fn(data : *(u8)) -> unit)({
 });
 // ===== Signal Registration =====
 test("on_signal registers handler successfully", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
   cond(
     (platform == Platform.Windows) => (),
     true => {
-      on_signal(.User1, _noop_handler);
+      on_signal(.User1, _noop_handler, exn);
       // Clean up
-      off_signal(.User1);
+      off_signal(.User1, exn);
     }
   );
 });
 test("on_signal replaces previous handler", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -40,28 +40,28 @@ test("on_signal replaces previous handler", {
         ();
       });
       // Register first handler
-      on_signal(.User2, _noop_handler);
+      on_signal(.User2, _noop_handler, exn);
       // Replace with second handler
-      on_signal(.User2, _other_handler);
+      on_signal(.User2, _other_handler, exn);
       // Clean up
-      off_signal(.User2);
+      off_signal(.User2, exn);
     }
   );
 });
 test("off_signal removes handler", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
   cond(
     (platform == Platform.Windows) => (),
     true => {
-      on_signal(.Alarm, _noop_handler);
-      off_signal(.Alarm);
+      on_signal(.Alarm, _noop_handler, exn);
+      off_signal(.Alarm, exn);
     }
   );
 });

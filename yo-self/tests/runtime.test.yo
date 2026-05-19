@@ -52,18 +52,18 @@ stub_evaluate_comptime_int :: (
 });
 test("evaluate_runtime: converts comptime_int argument to i32", {
   set_evaluate_expression_fn(stub_evaluate_comptime_int);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   env := Environment.new(String.from("test"));
   call := mk_runtime_call(usize(11), "42", usize(12));
-  result := evaluate_runtime(call, env, &(ctx), using(exn));
+  result := evaluate_runtime(call, env, &(ctx), exn);
   // Outer call's ExprInfo must be present, with i32 type and no value.
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
   assert(match(info_opt,.Some(_) => true,.None => false), "runtime did not record an ExprInfo");

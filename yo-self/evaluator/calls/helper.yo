@@ -29,7 +29,7 @@ open(import("std/string"));
   ast_expr_is_atom_of,
   make_err_expr
 } :: import("../../expr.yo");
-{ evaluated_body_contains_escape } :: import("../../expr_traversal.yo");
+{ evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 {
   Environment,
   Variable,
@@ -125,7 +125,7 @@ extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
 // _module_type_contains_ctl_field
 // ---------------------------------------------------------------------------
 /// Return true if any field of `module_type` is a "control function"
-/// (one that uses `escape` to control the continuation).
+/// (one that uses `unwind` to control the continuation).
 ///
 /// Mirrors `moduleTypeContainsCtlField` in `src/evaluator/calls/helper.ts`.
 /// Uses the global control-function registry since FuncVal has no isControlFunction flag.
@@ -214,7 +214,7 @@ generate_deferred_drop_expressions :: (
     variables_to_drop : ArrayList(Variable),
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> Option(ArrayList(AstExpr))
 )({
   n := variables_to_drop.len();
@@ -230,8 +230,8 @@ generate_deferred_drop_expressions :: (
       .Some(variable) => {
         // Build the drop expression: ___drop(varName)
         drop_code := `___drop(${variable.name})`;
-        drop_expr := generate_expr_from_code(drop_code.as_str(), using(exn));
-        evaluated := evaluate_expression_raw(drop_expr, cur_env, ctx, using(exn));
+        drop_expr := generate_expr_from_code(drop_code.as_str(), exn);
+        evaluated := evaluate_expression_raw(drop_expr, cur_env, ctx, exn);
         // Phase 3: env update from ExprInfo is skipped; cur_env stays unchanged.
         _ := evaluated;
         deferred.push(evaluated);
@@ -262,7 +262,7 @@ validate_function_return_type :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> unit
 )({
   // Skip validation if inside function-type evaluation or when expected type is set.
@@ -398,7 +398,7 @@ check_if_function_parameter_matches_argument :: (
     caller_env : Environment,
     ctx : *(EvalContext),
     runtime_arg_exprs_in_order : ArrayList(AstExpr),
-    using(exn : Exception)
+    exn : Exception
   ) -> CheckParamResult
 )({
   // Step 1: Strip "label: value" colon-label wrapper from arg if present.
@@ -417,7 +417,7 @@ check_if_function_parameter_matches_argument :: (
   // Step 3: Evaluate arg with param type as expected-type hint.
   saved_exp := ctx.expected_type;
   ctx.expected_type =.Some(ExpectedTypeCtx(ty : resolved_pt, env : callee_env_r));
-  evaled_arg := evaluate_expression_raw(actual_arg, caller_env, ctx, using(exn));
+  evaled_arg := evaluate_expression_raw(actual_arg, caller_env, ctx, exn);
   ctx.expected_type = saved_exp;
   // Extract ExprInfo for the evaluated arg.
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
@@ -483,7 +483,7 @@ check_if_function_parameter_matches_argument :: (
     caller_env_r,
     &(checked),
     synth_opts,
-    using(exn)
+    exn
   );
   callee_env_r = synth.expected_env;
   // Step 7: Re-evaluate param type with the updated callee_env.
@@ -593,7 +593,7 @@ compute_compile_time_signature :: (
     arg_values : ArgValues,
     callee_env : Environment,
     runtime_param_tys : ArrayList(TypeValue),
-    using(exn : Exception)
+    exn : Exception
   ) -> String
 )({
   parts := ArrayList(String).new();
@@ -853,7 +853,7 @@ create_specialized_function_inline :: (
     callee_env : Environment,
     caller_env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> EvalValue
 )({
   result := match(
@@ -937,7 +937,7 @@ create_specialized_function_inline :: (
           // Cache miss: create the specialization
           // ------------------------------------------------------------------
           // Compute specialized func_id
-          sig := compute_compile_time_signature(func_type, arg_values, callee_env, runtime_param_tys, using(exn));
+          sig := compute_compile_time_signature(func_type, arg_values, callee_env, runtime_param_tys, exn);
           specialized_func_id := if(
             sig.len() > usize(0),
             `${func_id}_${sig}`,
@@ -967,7 +967,7 @@ create_specialized_function_inline :: (
             ctx,
             ArrayList(Variable).new(),
             true,
-            using(exn)
+            exn
           );
           // Restore context
           ctx.currently_specializing_function = prev_spec;
@@ -1038,12 +1038,12 @@ create_specialized_function_inline :: (
             specialized_func_id
           );
           // Detect isControlFunction: set if the original was already a control
-          // function OR if the specialized body contains escape.
+          // function OR if the specialized body contains unwind.
           // Mirrors the `isControlFunction: originalFunction.isControlFunction ||
           //   evaluatedBodyContainsEscape(specializedBody)` logic in TypeScript.
           parent_is_ctl := is_control_fn(func_id.as_str());
-          body_has_escape := evaluated_body_contains_escape(specialized_body);
-          if(parent_is_ctl || body_has_escape, {
+          body_has_unwind := evaluated_body_contains_unwind(specialized_body);
+          if(parent_is_ctl || body_has_unwind, {
             mark_as_control_fn((&(specialized_func_id)).clone());
           });
           // Store in cache
@@ -1069,7 +1069,7 @@ create_specialized_function_inline :: (
 /// Inline-evaluate a control function body to produce a specialized version
 /// with the forall type parameter bound to the concrete call-site type.
 ///
-/// Called for `isControlFunction` functions (effect handlers that use `escape`)
+/// Called for `isControlFunction` functions (effect handlers that use `unwind`)
 /// when they have forall parameters. This is separate from normal specialization
 /// because the concrete type comes from the CALL SITE's enclosing function return
 /// type (not from the arguments).
@@ -1083,7 +1083,7 @@ evaluate_ctl_function_body_inline :: (
     callee_env : Environment,
     caller_env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> EvalValue
 )({
   // Extract FuncVal fields individually to avoid tuple destructuring.
@@ -1287,7 +1287,7 @@ evaluate_ctl_function_body_inline :: (
     ctx,
     ArrayList(Variable).new(),
     true,
-    using(exn)
+    exn
   );
   // Restore context fields.
   ctx.expected_type = prev_expected_type;
@@ -1299,8 +1299,8 @@ evaluate_ctl_function_body_inline :: (
   // Mirrors: funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`
   // -------------------------------------------------------------------------
   ctl_parent_is_ctl := is_control_fn(orig_func_id.as_str());
-  ctl_body_has_escape := evaluated_body_contains_escape(ctl_body);
-  if(ctl_parent_is_ctl || ctl_body_has_escape, {
+  ctl_body_has_unwind := evaluated_body_contains_unwind(ctl_body);
+  if(ctl_parent_is_ctl || ctl_body_has_unwind, {
     mark_as_control_fn((&(ctl_func_id)).clone());
   });
   // Rebuild captures (same as original + forall type bindings).
@@ -1382,7 +1382,7 @@ try_to_call_function_with_arguments :: (
     is_method_call : bool,
     skip_specialization : bool,
     skip_ctfe_execution : bool,
-    using(exn : Exception)
+    exn : Exception
   ) -> FuncCallResult
 )({
   _ := callee_expr;
@@ -1422,7 +1422,7 @@ try_to_call_function_with_arguments :: (
         });
       });
       // ----------------------------------------------------------------
-      // Step 2: Split using(…) arg out; collect regular args.
+      // Step 2: Split … arg out; collect regular args.
       // ----------------------------------------------------------------
       (using_args_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
       adjusted_args := ArrayList(AstExpr).new();
@@ -1514,7 +1514,7 @@ try_to_call_function_with_arguments :: (
               fas.get(fpi),
               .Some(fa) => {
                 if(!(ast_expr_is_atom_of(fa, "_")), {
-                  evaled_fa := evaluate_expression_raw(fa, caller_env, ctx, using(exn));
+                  evaled_fa := evaluate_expression_raw(fa, caller_env, ctx, exn);
                   fa_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_fa));
                   match(
                     fa_info_opt,
@@ -1573,7 +1573,7 @@ try_to_call_function_with_arguments :: (
           caller_env_m,
           ctx,
           rt_args,
-          using(exn)
+          exn
         );
         callee_env_m = pr.callee_env;
         caller_env_m = pr.caller_env;
@@ -1637,7 +1637,7 @@ try_to_call_function_with_arguments :: (
               et.env,
               &(checked_ret),
               synth_ret_opts,
-              using(exn)
+              exn
             );
             callee_env_m = synth_ret.expected_env;
             return_type = evaluate_function_return_type_again(ret_b.*, callee_env_m, ctx);
@@ -1656,14 +1656,14 @@ try_to_call_function_with_arguments :: (
         impl_type := match(it.get(impl_i),.Some(t) => t,.None => t_unit());
         resolved_impl_type := evaluate_function_parameter_type_again(impl_type, callee_env_m, ctx);
         (resolved : bool) = false;
-        // Check for an explicit using(…) arg at position impl_i.
+        // Check for an explicit … arg at position impl_i.
         match(
           using_args_opt,
           .Some(uas) => {
             match(
               uas.get(impl_i),
               .Some(ua_expr) => {
-                evaled_ua := evaluate_expression_raw(ua_expr, caller_env_m, ctx, using(exn));
+                evaled_ua := evaluate_expression_raw(ua_expr, caller_env_m, ctx, exn);
                 ua_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_ua));
                 match(
                   ua_info_opt,
@@ -1805,7 +1805,7 @@ try_to_call_function_with_arguments :: (
       // ----------------------------------------------------------------
       // Step 12: Validate return type and build FuncCallResult.
       // ----------------------------------------------------------------
-      validate_function_return_type(return_type, expr, callee_env_m, ctx, using(exn));
+      validate_function_return_type(return_type, expr, callee_env_m, ctx, exn);
       implicit_args_result := if(
         implicit_arg_vals.len() > usize(0),
         Option(ArrayList(ArgEntry)).Some(implicit_arg_vals),
@@ -1859,7 +1859,7 @@ try_to_call_function_with_arguments :: (
                 callee_env_m,
                 caller_env_m,
                 ctx,
-                using(exn)
+                exn
               )
             );
           });
@@ -1879,7 +1879,7 @@ try_to_call_function_with_arguments :: (
                 callee_env_m,
                 caller_env_m,
                 ctx,
-                using(exn)
+                exn
               )
             );
           });

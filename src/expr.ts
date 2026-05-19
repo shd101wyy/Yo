@@ -118,18 +118,18 @@ export interface RuntimeDestructuring {
 
 /**
  * 'return' is used for both normal function return and ctl handler resume.
- * 'escape' is used for ctl handler discontinue (early return from enclosing function).
+ * 'unwind' is used for ctl handler discontinue (early return from enclosing function).
  */
 export type ControlFlowFlags = {
   return?: boolean;
-  escape?: boolean;
+  unwind?: boolean;
   break?: boolean;
   continue?: boolean;
 };
 
 /** Create a ControlFlowFlags with a single flag set */
 export function controlFlowOf(
-  kind: "return" | "escape" | "break" | "continue"
+  kind: "return" | "unwind" | "break" | "continue"
 ): ControlFlowFlags {
   return { [kind]: true };
 }
@@ -137,7 +137,7 @@ export function controlFlowOf(
 /** Check if controlFlow has a specific flag */
 export function hasControlFlow(
   cf: ControlFlowFlags | undefined,
-  kind: "return" | "escape" | "break" | "continue"
+  kind: "return" | "unwind" | "break" | "continue"
 ): boolean {
   return cf?.[kind] === true;
 }
@@ -147,7 +147,7 @@ export function hasAnyControlFlow(cf: ControlFlowFlags | undefined): boolean {
   return (
     cf !== undefined &&
     (cf.return === true ||
-      cf.escape === true ||
+      cf.unwind === true ||
       cf.break === true ||
       cf.continue === true)
   );
@@ -158,7 +158,7 @@ export function mergeControlFlows(flows: ControlFlowFlags[]): ControlFlowFlags {
   const result: ControlFlowFlags = {};
   for (const cf of flows) {
     if (cf.return) result.return = true;
-    if (cf.escape) result.escape = true;
+    if (cf.unwind) result.unwind = true;
     if (cf.break) result.break = true;
     if (cf.continue) result.continue = true;
   }
@@ -169,7 +169,7 @@ export function mergeControlFlows(flows: ControlFlowFlags[]): ControlFlowFlags {
 export function controlFlowToString(cf: ControlFlowFlags): string {
   const parts: string[] = [];
   if (cf.return) parts.push("return");
-  if (cf.escape) parts.push("escape");
+  if (cf.unwind) parts.push("unwind");
   if (cf.break) parts.push("break");
   if (cf.continue) parts.push("continue");
   return parts.join("+");
@@ -243,7 +243,7 @@ export interface EvaluatedExprData {
   /**
    * Whether this expression carries control flow.
    * Multiple flags can be true simultaneously (e.g., a cond where some branches
-   * return and others escape).
+   * return and others unwind).
    */
   controlFlow?: ControlFlowFlags;
 
@@ -302,7 +302,7 @@ export interface EvaluatedExprData {
 
   /**
    * Drop expressions for variables that are consumed later in the same scope.
-   * They are only needed on early return/escape paths before the consume point;
+   * They are only needed on early return/unwind paths before the consume point;
    * normal scope exit must not emit them because ownership has moved.
    */
   earlyReturnOnlyDeferredDropExpressions?: Expr[];
@@ -310,7 +310,7 @@ export interface EvaluatedExprData {
   /**
    * Drop expressions for RC-typed variables that are consumed by the return value
    * (ownership transfer). These drops are NOT needed at normal scope exit (the
-   * value is moved), but ARE needed when escape propagates through the function
+   * value is moved), but ARE needed when unwind propagates through the function
    * (the return value is discarded, so the variable must be freed).
    */
   consumedVariableDropExpressions?: Expr[];
@@ -645,8 +645,6 @@ export const BuiltinKeywords = {
   ref: ["ref"], // Reference semantics for struct/enum
 
   forall: ["forall", "∀"],
-  using: ["using"],
-  given: ["given"],
   where: ["where"],
   // Exists: ["exists", "∃"],
   // In: ["in", "∈"],
@@ -659,7 +657,8 @@ export const BuiltinKeywords = {
   recur: ["recur"],
   fn: ["fn"],
   unsafe_fn: ["unsafe_fn"], // The function that skips the prohibitVoidType check
-  escape: ["escape"],
+  ctl: ["ctl"], // Control function type — parallel to `fn`, may contain `unwind`
+  unwind: ["unwind"],
   extern: ["extern"],
   cond: ["cond"],
   type: ["type"],

@@ -6,10 +6,10 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { platform, Platform } :: import("std/process");
 test("Command.new + status (echo exits 0)", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(());
+        unwind(());
       }
     )
   );
@@ -27,15 +27,15 @@ test("Command.new + status (echo exits 0)", {
       c
     }
   );
-  st := io.await(cmd.status());
+  st := io.await(cmd.status(io), io);
   assert(st.success(), "echo should succeed");
   assert(st.code() == i32(0), "echo exit code 0");
 });
 test("Command.output captures stdout", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(());
+        unwind(());
       }
     )
   );
@@ -53,7 +53,7 @@ test("Command.output captures stdout", {
       c
     }
   );
-  out := io.await(cmd.output());
+  out := io.await(cmd.output(io), io);
   assert(out.status.success(), "status success");
   assert(out.stdout.len() >= usize(11), "stdout has at least 11 bytes");
   assert(out.stdout.get(usize(0)).unwrap() == u8(121), "y");
@@ -62,10 +62,10 @@ test("Command.output captures stdout", {
   assert(out.stdout.get(usize(10)).unwrap() == u8(116), "t");
 });
 test("Command.status non-zero exit", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(());
+        unwind(());
       }
     )
   );
@@ -79,7 +79,7 @@ test("Command.status non-zero exit", {
     },
     true => Command.new(`false`)
   );
-  st := io.await(cmd.status());
+  st := io.await(cmd.status(io), io);
   assert(!(st.success()), "should not be success");
   assert(st.code() == i32(1), "exit code 1");
 });

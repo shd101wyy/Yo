@@ -822,7 +822,7 @@ handle_array_push_mutation :: (
   )
 );
 // ---------------------------------------------------------------------------
-// Phase 3aq: Struct field mutation helper — handles `s.field = rhs` where s
+// Phase 3aq : Type.Struct field mutation helper — handles `s.field = rhs` where s
 // is a bare identifier bound to a StructVal. Called from the `=` assignment
 // handler in `evaluate` when the LHS is a dot-infix expression.
 // Returns Some(UnitVal) on success, None if not applicable.
@@ -4524,11 +4524,11 @@ extract_quote_param_name :: (
   )
 );
 /// Extract the evidence parameter name from the inner expression of a
-/// `using(...)` parameter declaration.
+/// `...` parameter declaration.
 ///
-/// For `using(name : Type)` the inner expression is
+/// For `name : Type` the inner expression is
 /// `FnCall(Atom(":"), [Atom("name"), type_expr], true)` → returns `"name"`.
-/// For `using(name)` the inner expression is `Atom("name")` → returns `"name"`.
+/// For `name` the inner expression is `Atom("name")` → returns `"name"`.
 extract_evidence_param_name :: (fn(ev_inner : AstExpr) -> Option(String))(
   match(
     ev_inner,
@@ -4555,11 +4555,11 @@ extract_evidence_param_name :: (fn(ev_inner : AstExpr) -> Option(String))(
     .Atom(_, ev_bare_tok) => Option(String).Some(ev_bare_tok.value)
   )
 );
-/// Evaluate a `using(inner_expr)` form at a call site.
+/// Evaluate a `inner_expr` form at a call site.
 ///
-/// `using(name)` passes the value of `name` from the caller's environment as
+/// `name` passes the value of `name` from the caller's environment as
 /// evidence to the callee.  This allows the evaluator to resolve evidence
-/// params bound by `using(name : Type)` declarations in the callee.
+/// params bound by `name : Type` declarations in the callee.
 handle_using_call :: (
   fn(
     args : ArrayList(AstExpr),
@@ -5776,7 +5776,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                 .None => Option(EvalResult).None
                               ),
                             // typed: (x : T) := rhs  — declare with explicit type
-                            // given(name) := rhs  — implicit/effect parameter installation
+                            // name := rhs  — implicit/effect parameter installation
                             // (a, b) := rhs — tuple destructuring
                             .FnCall(_, colon_box_a, colon_args_a, _, _) =>
                               match(
@@ -5868,7 +5868,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                           ),
                                         .None => Option(EvalResult).None
                                       ),
-                                    // given(name) := rhs — implicit parameter installation.
+                                    // name := rhs — implicit parameter installation.
                                     // Mirrors TypeScript binding.ts: sets isImplicit=true, isCompileTimeOnly=true,
                                     // then binds the inner name like a regular comptime binding.
                                     (colon_tok_a.value.as_str() == "given") =>
@@ -6852,9 +6852,9 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                   )
               ),
             // -----------------------------------------------------------------
-            // escape — in comptime context, acts same as return (discards continuation)
+            // unwind — in comptime context, acts same as return (discards continuation)
             // -----------------------------------------------------------------
-            (fval == "escape") =>
+            (fval == "unwind") =>
               cond(
                 (args.len() == usize(0)) =>
                   .Some(eval_result(.ReturnVal(box(.UnitVal), t_unit()), t_unit())),
@@ -7234,8 +7234,8 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                   )
               ),
             // -----------------------------------------------------------------
-            // using(name) — Phase 3o
-            // At a call site, `using(name)` passes the value of `name` from
+            // name — Phase 3o
+            // At a call site, `name` passes the value of `name` from
             // the caller's env as evidence to the callee.
             // -----------------------------------------------------------------
             (fval == "using") => handle_using_call(args, env),
@@ -7675,7 +7675,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                                     ),
                                                     .None => ()
                                                   ),
-                                                // using(x : T) — effect param (treat as regular for now)
+                                                // x : T — effect param (treat as regular for now)
                                                 true =>
                                                   match(
                                                     pe_args.get(usize(0)),

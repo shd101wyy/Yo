@@ -48,7 +48,7 @@ evaluate_struct_type :: (
     env_in : Environment,
     ctx : *(EvalContext),
     is_atomic_rc : bool,
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -95,7 +95,7 @@ evaluate_struct_type :: (
   (i : usize) = usize(0);
   while(runtime(i < args.len()), {
     arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
-    result := evaluate_type_field(arg, i, env, ctx, "struct", using(exn));
+    result := evaluate_type_field(arg, i, env, ctx, "struct", exn);
     field := result.field;
     // Check for duplicate labels
     (dup_idx : usize) = usize(0);

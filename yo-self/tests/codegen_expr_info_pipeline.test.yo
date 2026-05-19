@@ -44,11 +44,11 @@ test("Phase 13at step 2: proper evaluator populates table, codegen reads it", {
   // Register the real evaluator (not the stub used by handler tests).
   set_evaluate_expression_fn(_evaluate_expression_wrapper);
   set_evaluate_expression_raw_fn(_evaluate_expression_raw_wrapper);
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error from real evaluator");
-        escape(());
+        unwind(());
       }
     )
   );

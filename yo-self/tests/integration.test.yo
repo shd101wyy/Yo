@@ -23,17 +23,17 @@ open(import("std/fmt"));
 C_TMP :: "/tmp/yo_bootstrap_hello.c";
 BIN_TMP :: "/tmp/yo_bootstrap_hello";
 test("Phase 4 integration: parse → C → cc → run (trivial void main)", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
   // 1. Parse
   src := String.from("main :: (fn() -> unit)({ }); export(main);");
-  exprs := parse(src, String.from("<integration_test>"), using(exn));
+  exprs := parse(src, String.from("<integration_test>"), exn);
   // 2. Compile to C
   opt_c := compile_module_to_c(exprs, "integration_module", "main");
   c_src := match(
@@ -45,25 +45,25 @@ test("Phase 4 integration: parse → C → cc → run (trivial void main)", {
     .Some(c) => c
   );
   // 3. Write C to temp file
-  io.await(write_file(Path.new(String.from(C_TMP)), c_src));
+  io.await(write_file(Path.new(String.from(C_TMP)), c_src), io);
   // 4. Compile with system C compiler
   cc := Command.new(`cc`);
   cc.arg(String.from(C_TMP));
   cc.arg(`-o`);
   cc.arg(String.from(BIN_TMP));
-  compile_st := io.await(cc.status());
+  compile_st := io.await(cc.status(), io);
   assert(compile_st.success(), "C compilation should succeed (cc returned non-zero)");
   // 5. Run the binary — must exit 0
   run := Command.new(String.from(BIN_TMP));
-  run_st := io.await(run.status());
+  run_st := io.await(run.status(), io);
   assert(run_st.success(), "compiled binary should exit 0");
 });
 test("Phase 4 integration: parse → C → cc → run (fn with i32 return)", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -71,7 +71,7 @@ test("Phase 4 integration: parse → C → cc → run (fn with i32 return)", {
   // int main(void) calls it as a statement (return value ignored), then
   // returns 0.  So exit code is always 0.
   src := String.from("main :: (fn() -> unit)({ }); export(main);");
-  exprs := parse(src, String.from("<integration_test2>"), using(exn));
+  exprs := parse(src, String.from("<integration_test2>"), exn);
   opt_c := compile_module_to_c(exprs, "integration_module2", "main");
   c_src := match(
     opt_c,
@@ -81,13 +81,13 @@ test("Phase 4 integration: parse → C → cc → run (fn with i32 return)", {
     },
     .Some(c) => c
   );
-  io.await(write_file(Path.new(String.from(C_TMP)), c_src));
+  io.await(write_file(Path.new(String.from(C_TMP)), c_src), io);
   cc := Command.new(`cc`);
   cc.arg(String.from(C_TMP));
   cc.arg(`-o`);
   cc.arg(String.from(BIN_TMP));
-  st := io.await(cc.status());
+  st := io.await(cc.status(), io);
   assert(st.success(), "C compilation (void main) should succeed");
   run := Command.new(String.from(BIN_TMP));
-  assert((io.await(run.status())).success(), "binary should exit 0");
+  assert((io.await(run.status(), io)).success(), "binary should exit 0");
 });

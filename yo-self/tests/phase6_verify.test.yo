@@ -19,11 +19,11 @@ noop_loader :: (fn(_path : String) -> Option(EvalValue))(
 // program. This must work before anything else.
 // ---------------------------------------------------------------------------
 test("Phase6 verify: trivial export(with skip_prelude evaluates cleanly)", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -33,7 +33,7 @@ test("Phase6 verify: trivial export(with skip_prelude evaluates cleanly)", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   match(
     eval.get_module_error(),
@@ -47,11 +47,11 @@ test("Phase6 verify: trivial export(with skip_prelude evaluates cleanly)", {
 // quote(<atom>) — should produce an ExprVal wrapping the atom.
 // ---------------------------------------------------------------------------
 test("Phase6 verify: quote(42) produces ExprVal", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -61,7 +61,7 @@ test("Phase6 verify: quote(42) produces ExprVal", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   match(
     eval.get_module_error(),
@@ -128,11 +128,11 @@ test("Phase6 verify: quote(42) produces ExprVal", {
 // We just verify z is an ExprVal (deeper structural equality is harder).
 // ---------------------------------------------------------------------------
 test("Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected error");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -142,7 +142,7 @@ test("Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
     String.from("<no-std>"),
     noop_loader,
     src,
-    using(exn)
+    exn
   );
   match(
     eval.get_module_error(),

@@ -92,7 +92,7 @@ export function checkDeferredGenericReturnType({
     // When mixed (return + escape), cond/match set both flags,
     // so we still check correctly when return is also set.
     if (
-      hasControlFlow(trialBody.$?.controlFlow, "escape") &&
+      hasControlFlow(trialBody.$?.controlFlow, "unwind") &&
       !hasControlFlow(trialBody.$?.controlFlow, "return")
     ) {
       return;
@@ -176,7 +176,6 @@ export function createFunctionBodyEvaluationContext(
     },
     functionReturnImplConcreteType: [], // Empty array for each function
     enclosingFunctionReturnType,
-    isInsideGivenHandler: context.isInsideGivenHandler,
 
     // Clear CTFE
     forceCompileTimeBindings: false,
@@ -438,8 +437,16 @@ export function tryToImplementFunctionByFunctionType({
   // Check if the function body type matches the function return type
   const functionBodyReturnType = evaluatedFunctionBody.$?.type;
 
-  // If the body uses `escape`, mark this function value as isControlFunction.
+  // §4 typing rule 1: `unwind` is only valid in a `ctl(...) -> ret`
+  // body. See anonymous-function.ts for the rationale and the parallel
+  // check at the inline-lambda evaluator.
   if (evaluatedBodyContainsEscape(evaluatedFunctionBody)) {
+    if (!newFunctionType.isControl && !newFunctionType.isClosure) {
+      throw formatErrorMessage({
+        token: functionBodyExpr.token,
+        errorMessage: `\`unwind\` is only valid inside a control-function body. This function is declared with \`fn(...) -> ret\`; change the declared type to \`ctl(...) -> ret\` if the body needs to unwind.`,
+      });
+    }
     functionValue.isControlFunction = true;
   }
 
@@ -452,13 +459,9 @@ export function tryToImplementFunctionByFunctionType({
   // contains SomeType (e.g. `using(exn : Exception)`). In that case the body's
   // SomeType result is a forall param of an implicit-parameter method; it will be
   // resolved when the function is specialized at a concrete call site.
-  const hasImplicitParamWithSomeType = newFunctionType.implicitParameters.some(
-    (param) => typeContainsSomeType(param.type)
-  );
   if (
     !functionValue.isControlFunction &&
     functionBodyReturnType &&
-    !(isSomeType(functionBodyReturnType) && hasImplicitParamWithSomeType) &&
     !areTypesCompatible(
       { type: newFunctionType.return.type, env },
       { type: functionBodyReturnType, env }

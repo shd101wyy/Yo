@@ -20,6 +20,12 @@ description: "Use when running tests, setting up test files, or debugging test f
 - `--test-name-pattern "Test XXX"` — run specific test by name
 - Tests automatically use AddressSanitizer for leak detection.
 
+## Evaluator-only check (no codegen)
+
+- `./yo-cli check <file-or-dir>` — runs the evaluator on a single `.yo` file or every `.yo` under a directory and prints any type / evaluator errors. No C generation, no C compile.
+- Much faster than `compile` for "does this still type-check?" iteration during refactors or migrations.
+- Useful as a bulk sanity pass after touching many files: `./yo-cli check std/` to confirm std still type-checks before running any test.
+
 ## Build system tests
 
 - Run: `bun test src/tests/build-system.test.ts --timeout 10000`
@@ -141,14 +147,14 @@ test("my test", {
 });
 ```
 
-**`io : IO` is automatically injected** into every test body — no `using` clause is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
+**`io : IO` is automatically bound** inside every test body — no parameter is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
 
 ```rust
 test("Async test", {
-  task := io.async((using(io : IO))=> {
-    io.await(yield());
+  task := io.async((io : IO) => {
+    io.await(yield(), io);
   });
-  io.await(task);
+  io.await(task, io);
 });
 ```
 
@@ -172,17 +178,20 @@ assert(false, "unexpected");
 
 ## Exception effect in yo-self tests
 
-When testing functions that require `using(exn : Exception)`, provide the effect with `given`:
+When testing a function that takes an `exn : Exception` parameter, build the handler
+locally and pass it in:
 
 ```rust
 test("my test", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); escape(); }));
-  result := my_function_that_throws(using(exn));
+  exn := Exception(throw : ((err) -> { assert(false, "unexpected error"); unwind(()); }));
+  result := my_function_that_throws(exn);
   // ...
 });
 ```
 
-This is the standard pattern from `yo-self/tests/parser.test.yo`.
+This is the standard pattern from `yo-self/tests/parser.test.yo`. The struct
+constructor `Exception(...)` pins the binding's type, so no annotation is needed
+on the LHS.
 
 Prefer `comptime_assert` over `assert` when the value being tested is compile-time known.
 

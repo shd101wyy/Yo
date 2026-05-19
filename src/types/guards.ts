@@ -5,7 +5,6 @@ import type {
   ComptimeListType,
   ConcreteTraitType,
   DynType,
-  EffectsRowType,
   EnumType,
   FnTraitType,
   FunctionType,
@@ -443,8 +442,7 @@ export function isFunctionTypeGeneric(functionType: FunctionType): boolean {
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
     !!functionType.variadicParameter?.isCompileTimeOnly ||
     !!functionType.variadicParameter?.isQuote ||
-    functionType.forallParameters.length > 0 ||
-    functionType.implicitParameters.length > 0;
+    functionType.forallParameters.length > 0;
 
   const hasSomeTypeParams = functionType.parameters.some(
     (p) =>
@@ -541,8 +539,4 @@ export function isBoxedType(
       !!type.typeName?.startsWith("Box(")
     );
   }
-}
-
-export function isEffectsRowType(type?: Type): type is EffectsRowType {
-  return type?.tag === TypeTag.EffectsRow;
 }

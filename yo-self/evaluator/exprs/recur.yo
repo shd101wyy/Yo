@@ -59,7 +59,7 @@ evaluate_recur :: (
     expr : AstExpr,
     env : Environment,
     ctx : *(EvalContext),
-    using(exn : Exception)
+    exn : Exception
   ) -> AstExpr
 )({
   // ------------------------------------------------------------------
@@ -174,7 +174,7 @@ evaluate_recur :: (
       // skipSpecialization
       true,
       // skipCtfeExecution
-      using(exn)
+      exn
     );
     // Pop the frame that tryToCallFunctionWithArguments pushed.
     caller_env := call_result.caller_env;
@@ -210,7 +210,7 @@ evaluate_recur :: (
     is_evaluating_function_body_of_type,
     func_body_ctx.func_value,
     ctx,
-    using(exn)
+    exn
   )
 });
 export(evaluate_recur);

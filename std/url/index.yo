@@ -51,7 +51,7 @@ _DOT :: u8(46); // '.'
 // ============================================================================
 // Helper: parse port number from bytes
 // ============================================================================
-_parse_port :: (fn(s : str, start : usize, end : usize, using(exn : Exception)) -> u16)({
+_parse_port :: (fn(s : str, start : usize, end : usize, exn : Exception) -> u16)({
   cond(
     (start >= end) => {
       exn.throw(dyn(UrlError.InvalidPort));
@@ -95,7 +95,7 @@ impl(
   // Parse a URL string.
   // Supports: scheme://[userinfo@]host[:port]/path[?query][#fragment]
   // Also supports scheme:path (opaque URIs like mailto:user@example.com)
-  parse : (fn(s : str, using(exn : Exception)) -> Url)({
+  parse : (fn(s : str, exn : Exception) -> Url)({
     cond(
       (s.len() == usize(0)) => {
         exn.throw(dyn(UrlError.EmptyInput));

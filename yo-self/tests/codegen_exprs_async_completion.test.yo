@@ -7,7 +7,7 @@ open(import("std/string"));
 {
   AsyncCompletionOptions,
   emit_async_future_completion,
-  emit_async_future_escape,
+  emit_async_future_unwind,
   format_indented_line,
   format_async_result_assign,
   format_async_debug_line
@@ -31,10 +31,10 @@ test("emit_async_future_completion: emits result, completed state, continuation,
   assert(out.contains(String.from("  __yo_decr_rc((void*)sm);")), "expected rc decrement");
   assert(out.contains(String.from("  return;")), "expected return");
 });
-test("emit_async_future_escape: emits escaped state without optional result/debug", {
+test("emit_async_future_unwind: emits escaped state without optional result/debug", {
   emitter := Emitter.new();
   (pemitter : *(Emitter)) = &(emitter);
-  emit_async_future_escape(
+  emit_async_future_unwind(
     AsyncCompletionOptions(
       emitter : pemitter,
       indent : String.new(),

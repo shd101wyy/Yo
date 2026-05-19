@@ -4,52 +4,42 @@ These patterns cover normal Yo async code and algebraic effects.
 
 ## Pick the right execution model
 
-| Need                       | Pattern                                                   |
-| -------------------------- | --------------------------------------------------------- |
-| Sequential async work      | `result := io.await(task)`                                |
-| Start work and wait later  | `handle := io.spawn(task)` then `handle.await(using(io))` |
-| Yield to other ready tasks | `io.await(yield())`                                       |
-| True multithreading        | Use thread or parallelism APIs, not `io.async` alone      |
+| Need                       | Pattern                                                |
+| -------------------------- | ------------------------------------------------------ |
+| Sequential async work      | `result := io.await(task, io)`                         |
+| Start work and wait later  | `handle := io.spawn(task, io)` then `handle.await(io)` |
+| Yield to other ready tasks | `io.await(yield(), io)`                                |
+| True multithreading        | Use thread or parallelism APIs, not `io.async` alone   |
 
 ## Minimal async function
 
 ```rust
 { yield } :: import("std/async");
 
-pause_then_answer :: (fn(using(io : IO)) -> Impl(Future(i32, IO)))(
-  io.async((using(io : IO)) => {
-    io.await(yield());
+pause_then_answer :: (fn(io : IO) -> Impl(Future(i32, IO)))(
+  io.async((io : IO) => {
+    io.await(yield(), io);
     i32(42)
   })
 );
 ```
 
-- `io.async(...)` is lazy
-- If a function uses `using(io : IO)` and returns a future, include `IO` in the `Future(...)` type
-- **Type annotations can be omitted** in the lambda's `using` params — the compiler infers types from the `Future(T, IO, Raise, ...)` return type. You can even rename the params:
-
-```rust
-// Equivalent — types inferred from Future(i32, IO, Raise) in the return type
-work :: (fn(using(io : IO, raise : Raise)) -> Impl(Future(i32, IO, Raise)))(
-  io.async((using(my_io, my_raise)) => {    // ← any names, no type annotations needed
-    my_io.await(yield());
-    my_raise("error")
-  })
-);
-```
+- `io.async(...)` is lazy.
+- The closure's parameter is the effect bundle. The simplest bundle is just `IO`.
+- The `Future(T, E)` return type names the same bundle type that the closure consumes.
 
 ## Sequential await
 
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(using(io : IO)) -> unit)({
-  task := io.async((using(io : IO)) => {
-    io.await(yield());
+main :: (fn(io : IO) -> unit)({
+  task := io.async((io : IO) => {
+    io.await(yield(), io);
     i32(1)
   });
 
-  result := io.await(task);
+  result := io.await(task, io);
   assert((result == i32(1)), "unexpected result");
 });
 
@@ -61,38 +51,42 @@ export(main);
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(using(io : IO)) -> unit)({
-  task1 := io.async((using(io : IO)) => {
-    io.await(yield());
+main :: (fn(io : IO) -> unit)({
+  task1 := io.async((io : IO) => {
+    io.await(yield(), io);
     i32(1)
   });
-  task2 := io.async((using(io : IO)) => {
-    io.await(yield());
+  task2 := io.async((io : IO) => {
+    io.await(yield(), io);
     i32(2)
   });
 
-  handle1 := io.spawn(task1);
-  handle2 := io.spawn(task2);
+  handle1 := io.spawn(task1, io);
+  handle2 := io.spawn(task2, io);
 
-  result1 := handle1.await(using(io));
-  result2 := handle2.await(using(io));
+  result1 := handle1.await(io);
+  result2 := handle2.await(io);
 });
 
 export(main);
 ```
 
-- `io.spawn(...)` begins execution without waiting
-- `handle.await(using(io))` returns `Option(T)` because a spawned task can abort via `escape`
+- `io.spawn(...)` begins execution without waiting.
+- `handle.await(io)` returns `Option(T)` because a spawned task can abort via `unwind`.
 
 ## Propagating and handling effects
+
+Handlers are typed `fn(...) -> R` when they only resume, and `ctl(...) -> R` when their
+body may `unwind`. Use the local binding form `(name : EffectType) = ((args) -> { ... })`
+to install a handler; lambdas on the RHS of `=` need outer parens.
 
 ```rust
 open(import("std/fmt"));
 open(import("std/string"));
 
-Raise :: (fn(msg : String) -> i32);
+Raise :: (ctl(msg : String) -> i32);
 
-safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
   cond(
     (y == i32(0)) => raise(`divide by zero`),
     true => (x / y)
@@ -100,62 +94,75 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 );
 
 resume_example :: (fn() -> i32)({
-  (given(raise) : Raise) = (fn(msg : String) -> i32)({
+  // No `unwind` in this body — type the binding as the same Raise (a `ctl` is also a `fn`-compatible value when not unwinding).
+  // Use plain `fn(...) -> i32` if you want to forbid unwind altogether at this site.
+  (raise : Raise) = ((msg) -> {
     println(msg);
     return(i32(0));
   });
 
-  safe_divide(i32(8), i32(0))
+  safe_divide(i32(8), i32(0), raise)
 });
 
 escape_example :: (fn() -> i32)({
-  (given(raise) : Raise) = (fn(msg : String) -> i32)({
+  (raise : Raise) = ((msg) -> {
     println(msg);
-    escape(i32(-1));
+    unwind(i32(-1));
   });
 
-  safe_divide(i32(8), i32(0))
+  safe_divide(i32(8), i32(0), raise)
 });
 ```
 
-| Handler action  | Meaning                                      |
-| --------------- | -------------------------------------------- |
-| `return(value)` | Resume the continuation with `value`         |
-| `escape(expr)`  | Exit the function that installed the handler |
+| Handler action  | Meaning                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------- |
+| `return(value)` | Resume the continuation with `value`                                                    |
+| `unwind(expr)`  | Exit the function that installed the handler. Only valid inside a `ctl(...) -> R` body. |
 
-## Futures with multiple effects
+## Futures with multiple effects — bundle them in a struct
+
+`Future(T, E)` accepts a single effect type `E`. To carry several effects, declare a
+bundle struct and pass that.
 
 ```rust
 { yield } :: import("std/async");
 
-work :: (fn(using(io : IO, raise : Raise)) -> Impl(Future(i32, IO, Raise)))(
-  io.async((using(io : IO, raise : Raise)) => {
-    io.await(yield());
-    safe_divide(i32(10), i32(2), using(raise))
+Raise :: (ctl(msg : String) -> i32);
+TaskCtx :: struct(io : IO, raise : Raise);
+
+work :: (fn(ctx : TaskCtx) -> Impl(Future(i32, TaskCtx)))(
+  io.async((ctx : TaskCtx) => {
+    ctx.io.await(yield(), ctx.io);
+    safe_divide(i32(10), i32(2), ctx.raise)
   })
 );
 ```
 
-- Every effect used by the future should appear in the `Future(...)` type
-- Effects propagate through `using(...)` just like other contextual parameters
+- The closure takes a single bundle parameter (e.g. `ctx : TaskCtx`).
+- Inside the body, fields are accessed via dot (`ctx.io`, `ctx.raise`).
+- The Future type names the same bundle struct: `Future(i32, TaskCtx)`.
+- Build the bundle at the call site (`ctx := TaskCtx(io: io, raise: raise)`) and
+  pass it to `io.await` / `io.spawn`.
 
 ## Async recursion — use an iterative worklist instead
 
-`recur` does **not** work inside an `io.async` lambda — it refers to the lambda's own signature, not the outer function, so the argument types will not match. Calling the outer function by name is also forbidden in Yo. Attempting either will produce a compile-time error.
+`recur` does **not** work inside an `io.async` lambda — it refers to the lambda's own signature, not the outer function. Calling the outer function by name is also forbidden in Yo. Attempting either will produce a compile-time error.
 
 **Solution**: replace async recursion with an iterative worklist using `ArrayList` as a stack:
 
 ```rust
 { read_dir, DirEntry } :: import("std/fs/dir");
 
-process_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+WalkCtx :: struct(io : IO, exn : Exception);
+
+process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
+  io.async((ctx : WalkCtx) => {
     stack := ArrayList(Path).new();
     { stack.push(root); };
 
     while(runtime((stack.len() > usize(0))), {
       cur := match(stack.pop(), .Some(p) => p, .None => return());
-      entries := io.await(read_dir(cur));
+      entries := ctx.io.await(read_dir(cur, ctx.io), ctx.io);
       // process `entries`, push subdirectories to `stack`
       n := entries.len();
       i := usize(0);
@@ -178,15 +185,18 @@ process_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(uni
 
 ## Common pitfalls
 
-- `io.async(...)` does not run immediately
-- `escape` inside async aborts the future instead of completing it normally
-- `io.await(...)` on an aborted future can panic; `JoinHandle.await(...)` converts abort into `.None`
-- Handler functions cannot capture outer variables like closures; pass required state explicitly
-- **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion
+- `io.async(...)` does not run immediately.
+- `unwind` is only valid inside a `ctl(...) -> R` body. From any other position
+  (match arm, `cond` branch, `begin` block, plain `fn` body), use `return`.
+- `unwind` inside an async task aborts the future instead of completing it normally.
+- `io.await(...)` on an already-aborted future can panic; `JoinHandle.await(...)` converts abort into `.None`.
+- Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions.
+- Pointers and references to `ctl` types (or structs containing them) are rejected.
+- **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion.
 
 ## Exception (non-resumable)
 
-`Exception` is a built-in struct-record effect for non-resumable error handling. When the handler calls `escape`, the continuation is discarded:
+`Exception` is a built-in struct-record effect for non-resumable error handling. When the handler calls `unwind`, the continuation is discarded:
 
 ```rust
 open(import("std/error"));
@@ -196,7 +206,7 @@ DivError :: enum(DivByZero);
 impl(DivError, ToString(to_string : ((self) -> `division by zero`)));
 impl(DivError, Error());
 
-safe_divide :: (fn(x : i32, y : i32, using(exn : Exception)) -> i32)(
+safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   cond(
     (y == i32(0)) => exn.throw(dyn(DivError.DivByZero)),
     true => (x / y)
@@ -204,52 +214,51 @@ safe_divide :: (fn(x : i32, y : i32, using(exn : Exception)) -> i32)(
 );
 
 main :: (fn() -> unit)({
-  given(exn) := Exception(
+  exn := Exception(
     throw : ((err) -> {
       println(`Error: ${err}`);
-      escape();
+      unwind(());
     })
   );
 
-  result := safe_divide(i32(10), i32(2));
+  result := safe_divide(i32(10), i32(2), exn);
   println(`result: ${result}`);
 
-  safe_divide(i32(10), i32(0));
+  safe_divide(i32(10), i32(0), exn);
 });
 
 export(main);
 ```
 
-- `Exception` has a single field `throw : (fn(error : AnyError) -> T)`
-- `exn.throw(dyn(error))` calls the handler with a type-erased error
-- Handler uses `escape` to discard the continuation and exit the enclosing function
-- Code after the escaped call is never reached
+- The struct constructor `Exception(...)` already pins the binding's type, so a plain `exn := Exception(...)` is enough — no `(exn : Exception) = ...` annotation needed. The annotation form is only required when the RHS is a raw lambda that has to commit to `ctl(...) -> R`.
+- `Exception` has a single field `throw : (ctl(error : AnyError) -> T)`.
+- `exn.throw(dyn(error))` calls the handler with a type-erased error.
+- Handler uses `unwind` to discard the continuation and exit the enclosing function.
+- Code after the escaped call is never reached.
 
 ### Swallowing exceptions with a fallback value (return in Exception handler)
 
-When an exception is thrown inside an async operation (e.g., `cmd.status()` or `cmd.output()`), you can **swallow the error and resume with a fallback value** by using `return` in the handler (not `escape`). The `ResumeType` is the return type of the operation that would have thrown.
+When an exception is thrown inside an async operation (e.g., `cmd.status()` or `cmd.output()`), you can **swallow the error and resume with a fallback value** by using `return` in the handler (not `unwind`). The `ResumeType` is the return type of the operation that would have thrown.
 
 ```rust
 { Command, ExitStatus, Output } :: import("std/process/command");
 
 // Check if a tool is available — returns false if it throws (e.g., not found)
-given(try_exn) := Exception(throw: ((err) -> {
+try_exn := Exception(throw: ((err) -> {
   return(ExitStatus(raw: i32(1)));  // resume with "failed" exit status
 }));
-status := io.await(cmd.status(using(io, try_exn)));
+status := io.await(cmd.status(io, try_exn), io);
 available := status.success();  // false if exception was swallowed
 
 // For cmd.output(), resume with a failed Output:
-given(out_exn) := Exception(throw: ((err) -> {
+out_exn := Exception(throw: ((err) -> {
   return(Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new()));
 }));
-out := io.await(cmd.output(using(io, out_exn)));
+out := io.await(cmd.output(io, out_exn), io);
 if((!(out.status.success())), { return(); });  // handle failure
 ```
 
-Key: the `return` inside the handler resumes the _effect invocation site_ with the provided value. The calling code then sees the fallback as if the operation returned normally. Use `escape` only when the enclosing function returns `unit` (e.g., test bodies).
-
-**`escape(T_value)` constraint**: `escape(T_value)` inside an `Exception` handler requires that the enclosing `io.async` closure's return type matches `T_value`. Due to forward type inference, the evaluator may not know the closure's return type at the point where `given` is declared. This causes a "Expected: unit" error when `escape(non_unit)` is used in a handler declared before the final return expression. Prefer `return(fallback_value)` (resume) when possible.
+Key: the `return` inside the handler resumes the _effect invocation site_ with the provided value. The calling code then sees the fallback as if the operation returned normally. Use `unwind` only when the enclosing function returns `unit` (e.g., test bodies).
 
 `ResumableException(ResumeType)` is a struct-record effect for resumable error handling. The handler uses `return` to resume with a recovery value:
 
@@ -257,7 +266,7 @@ Key: the `return` inside the handler resumes the _effect invocation site_ with t
 open(import("std/error"));
 open(import("std/fmt"));
 
-safe_divide :: (fn(x : i32, y : i32, using(exn : ResumableException(i32))) -> i32)(
+safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(
     (y == i32(0)) => exn.throw(dyn(`division by zero`)),
     true => (x / y)
@@ -265,71 +274,51 @@ safe_divide :: (fn(x : i32, y : i32, using(exn : ResumableException(i32))) -> i3
 );
 
 main :: (fn() -> unit)({
-  given(exn) := ResumableException(i32)(
+  exn := ResumableException(i32)(
     throw : ((err) -> {
       println(`Recovering from: ${err}`);
       return(i32(0));
     })
   );
 
-  result := safe_divide(i32(10), i32(0));
+  result := safe_divide(i32(10), i32(0), exn);
   assert((result == i32(0)), "recovered with 0");
 });
 
 export(main);
 ```
 
-- Handler uses `return(value)` to resume the continuation with the recovery value
-- The call site receives the returned value and continues normally
+- Handler uses `return(value)` to resume the continuation with the recovery value.
+- The call site receives the returned value and continues normally.
 
 ## Struct-record effects vs function-type effects
 
-Effects in Yo can be plain function types or struct-record types:
+Effects in Yo can be plain function/ctl types or struct-record types that group several
+operations:
 
 ```rust
-Raise :: (fn(msg : String) -> i32);
+Raise :: (ctl(msg : String) -> i32);
 
 Logger :: struct(
   log : (fn(level : i32, msg : String) -> unit)
 );
 ```
 
-Both kinds use `using(...)` / `given(...)` with the same semantics — they compile to evidence passing (function pointers as implicit C parameters). Struct-record effects group related operations under a single nominal type.
+Both kinds are passed as explicit parameters. Struct-record effects group related
+operations under a single nominal type — that pattern composes naturally with the
+"single bundle struct" Future contract.
 
-## Async with effects
+## Effect-bundle polymorphism (advanced)
 
-When an async future uses effects, include them in the `Future` type:
+A function can be polymorphic over the effect bundle a Future carries by quantifying
+over `E : Type.Struct`:
 
 ```rust
-work :: (fn(using(io : IO, exn : Exception)) -> Impl(Future(i32, IO, Exception)))(
-  io.async((using(io : IO, exn : Exception)) => {
-    io.await(yield());
-    safe_divide(i32(10), i32(2), using(exn))
-  })
+wait_then :: (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T)(
+  io.await(fut, e)
 );
 ```
 
-To spawn a task with effects, pass them explicitly via `using`:
-
-```rust
-handle := io.spawn(task, using(io, exn));
-result := handle.await(using(io));
-match(result,
-  .Some(value) => println(`got: ${value}`),
-  .None => println("task aborted via escape")
-);
-```
-
-## Effect row variables (advanced)
-
-Functions can be polymorphic over their effects using spread parameters:
-
-```rust
-wrapper :: (fn(forall(...(E)), x : i32, using(...(E))) -> i32)(
-  safe_divide(x, i32(2))
-);
-```
-
-- `forall(...(E))` introduces an effect row variable
-- `using(...(E))` forwards whatever effects the caller provides
-- See [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md) for the full design
+- `forall(E : Type.Struct)` constrains `E` to be a struct (so its fields can be looked
+  up at call sites and injected into the underlying state machine).
+- See [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md) for the full design.

@@ -25,9 +25,9 @@ test("flock exclusive lock and unlock on temp file", {
   assert(ret_lock == i32(0), "LOCK_EX on temp file should succeed");
   ret_unlock := lock_io.flock(fd, lock_io.LOCK_UN);
   assert(ret_unlock == i32(0), "LOCK_UN after LOCK_EX should succeed");
-  close_ret := io.await(file.close(fd));
+  close_ret := io.await(file.close(fd), io);
   assert(close_ret == i32(0), "closing temp file after lock test should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
   assert(rm == i32(0), "unlinking temp file after lock test should succeed");
 });
 test("flock shared lock and unlock on temp file", {
@@ -41,9 +41,9 @@ test("flock shared lock and unlock on temp file", {
   assert(ret_lock == i32(0), "LOCK_SH on temp file should succeed");
   ret_unlock := lock_io.flock(fd, lock_io.LOCK_UN);
   assert(ret_unlock == i32(0), "LOCK_UN after LOCK_SH should succeed");
-  close_ret := io.await(file.close(fd));
+  close_ret := io.await(file.close(fd), io);
   assert(close_ret == i32(0), "closing temp file after shared lock test should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
   assert(rm == i32(0), "unlinking temp file after shared lock test should succeed");
 });
 test("flock LOCK_NB exclusive lock conflict with self returns EWOULDBLOCK", {
@@ -56,7 +56,7 @@ test("flock LOCK_NB exclusive lock conflict with self returns EWOULDBLOCK", {
   ret_lock1 := lock_io.flock(fd1, lock_io.LOCK_EX);
   assert(ret_lock1 == i32(0), "first LOCK_EX should succeed");
   // Open the same file again on a different fd
-  fd2 := io.await(file.openat(AT_FDCWD, template_path, i32(2), i32(0)));
+  fd2 := io.await(file.openat(AT_FDCWD, template_path, i32(2), i32(0)), io);
   assert(fd2 >= i32(0), "opening same file on second fd should succeed");
   // Non-blocking exclusive lock on fd2 should fail with EWOULDBLOCK
   ret_lock2 := lock_io.flock(fd2, lock_io.LOCK_EX | lock_io.LOCK_NB);
@@ -69,11 +69,11 @@ test("flock LOCK_NB exclusive lock conflict with self returns EWOULDBLOCK", {
   assert(ret_lock3 == i32(0), "LOCK_EX|LOCK_NB after unlock should succeed");
   ret_unlock2 := lock_io.flock(fd2, lock_io.LOCK_UN);
   assert(ret_unlock2 == i32(0), "LOCK_UN on fd2 should succeed");
-  close1 := io.await(file.close(fd1));
+  close1 := io.await(file.close(fd1), io);
   assert(close1 == i32(0), "closing fd1 should succeed");
-  close2 := io.await(file.close(fd2));
+  close2 := io.await(file.close(fd2), io);
   assert(close2 == i32(0), "closing fd2 should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
   assert(rm == i32(0), "unlinking temp file after LOCK_NB test should succeed");
 });
 test("flock multiple shared locks coexist but block exclusive", {
@@ -83,7 +83,7 @@ test("flock multiple shared locks coexist but block exclusive", {
   template_path := template_c.ptr().unwrap();
   fd1 := temp_io.mkstemp(template_path);
   assert(fd1 >= i32(0), "mkstemp for multi-lock test should succeed");
-  fd2 := io.await(file.openat(AT_FDCWD, template_path, i32(2), i32(0)));
+  fd2 := io.await(file.openat(AT_FDCWD, template_path, i32(2), i32(0)), io);
   assert(fd2 >= i32(0), "opening same file on fd2 should succeed");
   // Both fds can hold shared locks simultaneously
   ret_sh1 := lock_io.flock(fd1, lock_io.LOCK_SH);
@@ -91,7 +91,7 @@ test("flock multiple shared locks coexist but block exclusive", {
   ret_sh2 := lock_io.flock(fd2, lock_io.LOCK_SH);
   assert(ret_sh2 == i32(0), "LOCK_SH on fd2 should succeed while fd1 has shared lock");
   // But exclusive lock should fail while shared locks are held
-  fd3 := io.await(file.openat(AT_FDCWD, template_path, i32(2), i32(0)));
+  fd3 := io.await(file.openat(AT_FDCWD, template_path, i32(2), i32(0)), io);
   assert(fd3 >= i32(0), "opening same file on fd3 should succeed");
   ret_ex := lock_io.flock(fd3, lock_io.LOCK_EX | lock_io.LOCK_NB);
   assert(ret_ex == (i32(0) - i32(EWOULDBLOCK)), "LOCK_EX|LOCK_NB should fail while shared locks are held");
@@ -105,13 +105,13 @@ test("flock multiple shared locks coexist but block exclusive", {
   assert(ret_ex2 == i32(0), "LOCK_EX|LOCK_NB should succeed after shared locks released");
   ret_un3 := lock_io.flock(fd3, lock_io.LOCK_UN);
   assert(ret_un3 == i32(0), "LOCK_UN on fd3 should succeed");
-  close1 := io.await(file.close(fd1));
+  close1 := io.await(file.close(fd1), io);
   assert(close1 == i32(0), "closing fd1 should succeed");
-  close2 := io.await(file.close(fd2));
+  close2 := io.await(file.close(fd2), io);
   assert(close2 == i32(0), "closing fd2 should succeed");
-  close3 := io.await(file.close(fd3));
+  close3 := io.await(file.close(fd3), io);
   assert(close3 == i32(0), "closing fd3 should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
   assert(rm == i32(0), "unlinking temp file after multi-lock test should succeed");
 });
 test("flock upgrade shared lock to exclusive lock", {
@@ -130,9 +130,9 @@ test("flock upgrade shared lock to exclusive lock", {
   // Unlock
   ret_un := lock_io.flock(fd, lock_io.LOCK_UN);
   assert(ret_un == i32(0), "LOCK_UN after upgrade should succeed");
-  close_ret := io.await(file.close(fd));
+  close_ret := io.await(file.close(fd), io);
   assert(close_ret == i32(0), "closing temp file after upgrade test should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
   assert(rm == i32(0), "unlinking temp file after upgrade test should succeed");
 });
 test("flock unlock without prior lock succeeds", {
@@ -145,8 +145,8 @@ test("flock unlock without prior lock succeeds", {
   // Unlocking when no lock is held should succeed (no-op)
   ret_un := lock_io.flock(fd, lock_io.LOCK_UN);
   assert(ret_un == i32(0), "LOCK_UN without prior lock should succeed (no-op)");
-  close_ret := io.await(file.close(fd));
+  close_ret := io.await(file.close(fd), io);
   assert(close_ret == i32(0), "closing temp file after no-op unlock test should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
   assert(rm == i32(0), "unlinking temp file after no-op unlock test should succeed");
 });

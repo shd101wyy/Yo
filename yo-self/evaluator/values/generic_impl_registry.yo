@@ -199,12 +199,12 @@ try_match_generic_impl :: (
   // 3. Try synthesize_types(receiver_pattern, unify_env, concrete_type, env).
   //    If it throws, return false (no match).
   (matched : bool) = false;
-  given(exn_match) := Exception(
+  exn_match := Exception(
     throw : (
       (err) -> {
         // Synthesis failed → no match.
         _ := err;
-        escape(false);
+        unwind(false);
       }
     )
   );
@@ -217,7 +217,7 @@ try_match_generic_impl :: (
     env,
     &(checked),
     opts,
-    using(exn_match)
+    exn_match
   );
   // Synthesis succeeded — all forall params should now be bound in expected_env.
   // Verify each forall param was actually bound to a concrete type.

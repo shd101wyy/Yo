@@ -58,27 +58,27 @@ test("base64_encode_url no padding", {
 });
 // ===== Decoding Tests =====
 test("base64_decode empty string", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  bytes := base64_decode("");
+  bytes := base64_decode("", exn);
   assert(bytes.len() == usize(0), "empty string should decode to 0 bytes");
 });
 test("base64_decode Hello", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  bytes := base64_decode("SGVsbG8=");
+  bytes := base64_decode("SGVsbG8=", exn);
   assert(bytes.len() == usize(5), "SGVsbG8= should decode to 5 bytes");
   assert(bytes.get(usize(0)).unwrap() == u8(72), "byte 0 = H");
   assert(bytes.get(usize(1)).unwrap() == u8(101), "byte 1 = e");
@@ -87,38 +87,38 @@ test("base64_decode Hello", {
   assert(bytes.get(usize(4)).unwrap() == u8(111), "byte 4 = o");
 });
 test("base64_decode no padding", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
-  bytes := base64_decode("TWFu");
+  bytes := base64_decode("TWFu", exn);
   assert(bytes.len() == usize(3), "TWFu should decode to 3 bytes");
   assert(bytes.get(usize(0)).unwrap() == u8(77), "byte 0 = M");
   assert(bytes.get(usize(1)).unwrap() == u8(97), "byte 1 = a");
   assert(bytes.get(usize(2)).unwrap() == u8(110), "byte 2 = n");
 });
 test("base64_decode invalid character error", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
-        escape(());
+        unwind(());
       }
     )
   );
-  base64_decode("!!!!");
+  base64_decode("!!!!", exn);
   assert(false, "invalid chars should have thrown");
 });
 // ===== Roundtrip Tests =====
 test("base64 roundtrip", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -129,7 +129,7 @@ test("base64 roundtrip", {
   });
   data.push(u8(255));
   encoded := base64_encode(data);
-  decoded := base64_decode(encoded.as_str());
+  decoded := base64_decode(encoded.as_str(), exn);
   assert(decoded.len() == usize(256), "roundtrip should preserve length");
   j := usize(0);
   while(j < usize(256), j = (j + usize(1)), {
@@ -137,11 +137,11 @@ test("base64 roundtrip", {
   });
 });
 test("base64 url roundtrip", {
-  given(exn) := Exception(
+  exn := Exception(
     throw : (
       (err) -> {
         assert(false, "unexpected exception");
-        escape(());
+        unwind(());
       }
     )
   );
@@ -150,7 +150,7 @@ test("base64 url roundtrip", {
   data.push(u8(0xFF));
   data.push(u8(0xFE));
   encoded := base64_encode_url(data);
-  decoded := base64_decode_url(encoded.as_str());
+  decoded := base64_decode_url(encoded.as_str(), exn);
   assert(decoded.len() == usize(3), "url roundtrip should preserve length");
   assert(decoded.get(usize(0)).unwrap() == u8(0xFB), "url roundtrip byte 0");
   assert(decoded.get(usize(1)).unwrap() == u8(0xFF), "url roundtrip byte 1");

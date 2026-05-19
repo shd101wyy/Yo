@@ -6175,7 +6175,7 @@ handle_define :: (
           )
         },
         // Destructuring: (a, b, c) := rhs  OR  {x, y} := rhs  OR  {x: a, y: b} := rhs
-        // Also handles: given(name) := rhs — emit as regular define of inner name.
+        // Also handles: name := rhs — emit as regular define of inner name.
         .FnCall(_, destr_func, destr_args, destr_infix, _) => cond(
           // Single-field struct destructuring `{ x : alias } := rhs` can parse as
           // the bare infix `x : alias` rather than an anonymous-struct wrapper.
@@ -6225,7 +6225,7 @@ handle_define :: (
             )
           ),
           true => {
-            // Check for `given(name) := rhs` — treat as regular variable define
+            // Check for `name := rhs` — treat as regular variable define
             is_given := match(
               destr_func.*,
               .FnCall(_, _, _, _, _) => false,
@@ -6504,7 +6504,7 @@ is_builtin_keyword :: (fn(name : str) -> bool)(
     (name == "runtime") => true,
     (name == "match") => true,
     (name == "recur") => true,
-    (name == "escape") => true,
+    (name == "unwind") => true,
     (name == "return") => true,
     (name == "assert") => true,
     (name == "comptime_assert") => true,
@@ -6524,7 +6524,7 @@ is_builtin_keyword :: (fn(name : str) -> bool)(
     (name == "array") => true,
     // Note: "open" is handled explicitly before this check in generate_expr
     (name == "import") => true,
-    // using(name) at expression level — strip wrapper, emit inner
+    // name at expression level — strip wrapper, emit inner
     (name == "using") => true,
     // given(name) at expression level — compile-time only, skip
     (name == "given") => true,
@@ -7223,7 +7223,7 @@ gen_arg_list :: (
         ok = false;
       },
       .Some(arg) => {
-        // Unwrap `using(name)` at call sites: strip the `using` wrapper and
+        // Unwrap `name` at call sites: strip the `using` wrapper and
         // generate just the inner argument. In C, the evidence param is passed
         // like a regular argument.
         actual_arg := match(
@@ -11540,8 +11540,8 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             )
           }
         ),
-        // escape(expr) — in the prototype codegen, treated identically to `return`.
-        // In the full codegen, `escape` discards the continuation and exits the
+        // unwind(expr) — in the prototype codegen, treated identically to `return`.
+        // In the full codegen, `unwind` discards the continuation and exits the
         // enclosing handler-installed function.  For prototype purposes, emitting
         // `return(expr);` is correct for all non-async, non-effect code paths.
         // If the argument is unit (empty tuple, generates None) we emit a bare `return;`.
@@ -11549,7 +11549,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           (!(is_infix)) && match(
             ident_opt,
             .None => false,
-            .Some(id) => (id.as_str() == "escape")
+            .Some(id) => (id.as_str() == "unwind")
           )
         ) => match(
           args.get(usize(0)),
@@ -11560,7 +11560,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
           },
           .Some(esc_expr) => match(
             call_gen_expr(esc_expr, ctx, indent),
-            // Unit escape (tuple() → None): emit bare return
+            // Unit unwind (tuple() → None): emit bare return
             .None => {
               ctx.*.emitter.emit_string(indent);
               ctx.*.emitter.emit_line("return;");
@@ -11765,7 +11765,7 @@ generate_expr :: (fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -
             .Some(id) => ((id.as_str() == "comptime_assert") || (id.as_str() == "comptime_expect_error"))
           )
         ) =>.Some(String.from("0")),
-        // using(name) — strip the wrapper, emit the inner argument directly.
+        // name — strip the wrapper, emit the inner argument directly.
         // At expression level this appears as passing an evidence parameter.
         (
           (!(is_infix)) && match(

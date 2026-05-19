@@ -32,7 +32,6 @@ import {
 import { exprContainsAwait } from "../../expr-traversal";
 import type {
   DynType,
-  FunctionImplicitParameter,
   SourceNamespaceType,
   SomeType,
   StructType,
@@ -41,7 +40,6 @@ import type {
 import {
   isConcreteTraitType,
   isDynType,
-  isEffectsRowType,
   isFunctionType,
   isSourceNamespaceType,
   isSomeType,
@@ -2364,29 +2362,6 @@ function exprContainsReturn(expr: Expr): boolean {
   return false;
 }
 
-/**
- * Expand effect row spreads into individual implicit parameters.
- */
-function expandFutureEffects(
-  effects: FunctionImplicitParameter[]
-): FunctionImplicitParameter[] {
-  const result: FunctionImplicitParameter[] = [];
-  for (const effect of effects) {
-    if (effect.isEffectRowSpread) {
-      let effectsRow = effect.type;
-      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
-        effectsRow = effectsRow.resolvedConcreteType;
-      }
-      if (isEffectsRowType(effectsRow)) {
-        result.push(...effectsRow.implicitParameters);
-      }
-    } else {
-      result.push(effect);
-    }
-  }
-  return result;
-}
-
 function usesGenericFutureInterface(
   futureType: Type,
   context: FunctionGenerationContext
@@ -2454,85 +2429,39 @@ function emitEffectInjectionForSM(
   if (!futureArg?.$?.type) return;
 
   const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
-  if (!futureTraitType?.isFuture.effects?.length) return;
+  const effect = futureTraitType?.isFuture.effect;
+  if (!effect) return;
 
-  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
-
-  const usingExpr = awaitExpr.args?.find(
-    (arg): arg is FnCallExpr =>
-      exprIsFunctionCall(arg) &&
-      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
-  );
-
-  if (usingExpr) {
-    // Explicit using() args: match effects to using args positionally
-    const usingArgs = usingExpr.args;
-    for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
-      const effect = expandedEffects[i]!;
-      const usingArg = usingArgs[i]!;
-
-      if (isFunctionType(effect.type)) {
-        if (effect.type.forallParameters.length > 0) continue;
-        const handlerCode = generateExpr(usingArg, indent, context);
-        const fieldName = effect.label;
-        emitFutureEffectInjectionLine(
-          futureArg.$.type,
-          futureAccess,
-          fieldName,
-          handlerCode,
-          indent,
-          context
-        );
-      } else if (
-        isSourceNamespaceType(effect.type) ||
-        isStructType(effect.type)
-      ) {
-        emitEffectRecordInjectionForSM(
-          effect.type,
-          futureArg.$.type,
-          futureAccess,
-          indent,
-          usingArg.$?.value,
-          context,
-          awaitExpr
-        );
-      }
+  // Resolve the effect bundle from the surrounding state-machine scope.
+  // `using(...)` is gone in explicit-effects, so there is no per-call-site
+  // arg list to consult; injection always comes from the active SM env.
+  if (isFunctionType(effect.type)) {
+    if (effect.type.forallParameters.length > 0) return;
+    const handlerCode = resolveEffectFieldFromSMScope(
+      effect.label,
+      context,
+      awaitExpr
+    );
+    if (handlerCode) {
+      emitFutureEffectInjectionLine(
+        futureArg.$.type,
+        futureAccess,
+        effect.label,
+        handlerCode,
+        indent,
+        context
+      );
     }
-  } else {
-    // No explicit using(): resolve effects from scope
-    for (const effect of expandedEffects) {
-      if (isFunctionType(effect.type)) {
-        if (effect.type.forallParameters.length > 0) continue;
-        const handlerCode = resolveEffectFieldFromSMScope(
-          effect.label,
-          context,
-          awaitExpr
-        );
-        if (handlerCode) {
-          emitFutureEffectInjectionLine(
-            futureArg.$.type,
-            futureAccess,
-            effect.label,
-            handlerCode,
-            indent,
-            context
-          );
-        }
-      } else if (
-        isSourceNamespaceType(effect.type) ||
-        isStructType(effect.type)
-      ) {
-        emitEffectRecordInjectionForSM(
-          effect.type,
-          futureArg.$.type,
-          futureAccess,
-          indent,
-          undefined,
-          context,
-          awaitExpr
-        );
-      }
-    }
+  } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
+    emitEffectRecordInjectionForSM(
+      effect.type,
+      futureArg.$.type,
+      futureAccess,
+      indent,
+      undefined,
+      context,
+      awaitExpr
+    );
   }
 }
 
@@ -2587,7 +2516,7 @@ function emitEffectRecordInjectionForSM(
       if (callEnv) {
         const implicitVars = getVariablesFromEnvByFilter(
           callEnv,
-          (v) => v.isImplicit === true
+          (_v) => true /* removed isImplicit check — Phase 2 */
         );
         // Iterate in reverse to get the innermost (most-recently bound) given binding,
         // since getVariablesFromEnvByFilter returns outermost-first.

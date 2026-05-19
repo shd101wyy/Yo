@@ -18,7 +18,7 @@ test("lseek SEEK_SET SEEK_CUR SEEK_END on regular file", {
   fd := temp_io.mkstemp(template_path);
   assert(fd >= i32(0), "mkstemp for seek regular test should succeed");
   payload := *(u8)("0123456789");
-  wr := io.await(file.write(fd, payload, u32(10), u64(0)));
+  wr := io.await(file.write(fd, payload, u32(10), u64(0)), io);
   assert(wr == i32(10), "writing 10-byte payload for seek regular test should succeed");
   assert(seek_io.SEEK_SET == i32(0), "SEEK_SET constant should be 0");
   assert(seek_io.SEEK_CUR == i32(1), "SEEK_CUR constant should be 1");
@@ -35,9 +35,9 @@ test("lseek SEEK_SET SEEK_CUR SEEK_END on regular file", {
   assert(pos_cur_now == i64(8), "lseek SEEK_CUR by 0 should keep current offset at 8");
   pos_end := seek_io.lseek(fd, i64(0), seek_io.SEEK_END);
   assert(pos_end == i64(10), "lseek SEEK_END by 0 should return file size 10");
-  close_ret := io.await(file.close(fd));
+  close_ret := io.await(file.close(fd), io);
   assert(close_ret == i32(0), "closing temp file after seek regular test should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
   assert(rm == i32(0), "unlinking temp file after seek regular test should succeed");
 });
 test("lseek invalid fd invalid whence and negative offset errors", {
@@ -53,9 +53,9 @@ test("lseek invalid fd invalid whence and negative offset errors", {
   assert(invalid_whence_ret == (i64(0) - i64(EINVAL)), "lseek with invalid whence should return -EINVAL");
   negative_set_ret := seek_io.lseek(fd, i64(-(1)), seek_io.SEEK_SET);
   assert(negative_set_ret == (i64(0) - i64(EINVAL)), "lseek SEEK_SET to negative offset should return -EINVAL");
-  close_ret := io.await(file.close(fd));
+  close_ret := io.await(file.close(fd), io);
   assert(close_ret == i32(0), "closing temp file after seek error test should succeed");
-  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
   assert(rm == i32(0), "unlinking temp file after seek error test should succeed");
 });
 test("lseek on pipe returns non-seekable error", {
@@ -74,8 +74,8 @@ test("lseek on pipe returns non-seekable error", {
       assert(seek_ret == (i64(0) - i64(ESPIPE)), "lseek on POSIX pipe should return -ESPIPE");
     }
   );
-  c1 := io.await(file.close(read_fd));
-  c2 := io.await(file.close(write_fd));
+  c1 := io.await(file.close(read_fd), io);
+  c2 := io.await(file.close(write_fd), io);
   assert(c1 == i32(0), "closing pipe read fd after seek-on-pipe test should succeed");
   assert(c2 == i32(0), "closing pipe write fd after seek-on-pipe test should succeed");
 });

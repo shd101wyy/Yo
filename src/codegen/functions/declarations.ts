@@ -5,14 +5,13 @@ import {
 import type { Expr } from "../../expr";
 import type { FuncValueId } from "../../function-value";
 import type {
-  FunctionImplicitParameter,
+  FunctionParameter,
   FunctionType,
   SourceNamespaceType,
   SomeType,
   Type,
 } from "../../types/definitions";
 import {
-  isEffectsRowType,
   isFunctionType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
@@ -157,23 +156,6 @@ export function generateFunctionDeclarations(
       }
     }
 
-    const hasUnresolvedFunctionImplicitParams =
-      !isUserMain &&
-      !isEffectfulFunction &&
-      !value.isEffectRecordMember &&
-      !value.type.isClosure &&
-      !value.specializedType &&
-      (value.specializedFunctionCaches?.length ?? 0) === 0 &&
-      getEvidenceParameters(value.specializedType ?? value.type).length === 0 &&
-      [
-        ...value.type.implicitParameters,
-        ...value.type.parameters.filter((p) => p.isImplicit),
-      ].some((param) => isFunctionType(param.type));
-
-    if (hasUnresolvedFunctionImplicitParams) {
-      continue;
-    }
-
     // Check if the function has evidence params (from resolved spread implicits)
     const functionTypeForCheck = value.specializedType ?? value.type;
     const hasEvidenceParams =
@@ -205,6 +187,7 @@ export function generateFunctionDeclarations(
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
+      !isUserMain &&
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
@@ -279,12 +262,10 @@ export interface EvidenceParameter {
  * function-typed field in the module, recursing into nested modules.
  */
 export function getEvidenceParameters(
-  functionType: FunctionType
+  _functionType: FunctionType
 ): EvidenceParameter[] {
   const result: EvidenceParameter[] = [];
-  const allImplicits = expandImplicitParameters(
-    functionType.implicitParameters
-  );
+  const allImplicits = expandImplicitParameters([] as FunctionParameter[]);
 
   for (const implicit of allImplicits) {
     if (isSourceNamespaceType(implicit.type) || isStructType(implicit.type)) {
@@ -349,23 +330,9 @@ function collectEvidenceFromRecord(
  * Expand effect row spreads in implicit parameters into individual parameters.
  */
 function expandImplicitParameters(
-  implicits: FunctionImplicitParameter[]
-): FunctionImplicitParameter[] {
-  const result: FunctionImplicitParameter[] = [];
-  for (const param of implicits) {
-    if (param.isEffectRowSpread) {
-      let effectsRow = param.type;
-      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
-        effectsRow = effectsRow.resolvedConcreteType;
-      }
-      if (isEffectsRowType(effectsRow)) {
-        result.push(...effectsRow.implicitParameters);
-      }
-    } else {
-      result.push(param);
-    }
-  }
-  return result;
+  implicits: FunctionParameter[]
+): FunctionParameter[] {
+  return implicits.slice();
 }
 
 /**

@@ -3,7 +3,6 @@ import {
   addVariableToEnv,
   addWhereClauseConstraintToEnv,
   type Environment,
-  findInnermostFrameWithGivenVariable,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   getVariablesNeedingDrop,
@@ -39,16 +38,12 @@ import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
-  createEffectsRowSomeType,
-  createEffectsRowType,
   createExprType,
   createFunctionType,
   createSomeType,
   createUnitType,
 } from "../../types/creators";
 import type {
-  EffectsRowType,
-  FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
   SourceNamespaceType,
@@ -60,7 +55,6 @@ import type {
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isComptimeListType,
-  isEffectsRowType,
   isExprListType,
   isExprType,
   isFunctionType,
@@ -946,38 +940,8 @@ function _tryToCallFunctionWithArgumentsImpl({
     argExprs = [argExprs[0]!, ...argExprs.slice(2)];
   }
 
-  // Split arguments: detect using(...) args for implicit parameters
-  let usingArgsExpr: FnCallExpr | undefined = undefined;
-  let adjustedArgExprs = argExprs.slice(regularArgStartIndex);
-
-  // Check if any argument is using(...) — it provides explicit values for implicit parameters
-  // Only one using() is allowed at the call site.
-  const usingArgIndex = adjustedArgExprs.findIndex(
-    (arg) =>
-      exprIsFunctionCall(arg) &&
-      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
-  );
-  if (usingArgIndex !== -1) {
-    // Verify there's only one using() at the call site
-    const secondUsingIndex = adjustedArgExprs.findIndex(
-      (arg, idx) =>
-        idx > usingArgIndex &&
-        exprIsFunctionCall(arg) &&
-        exprIsFunctionCallOf(arg, BuiltinKeywords.using)
-    );
-    if (secondUsingIndex !== -1) {
-      throw formatErrorMessage({
-        token: adjustedArgExprs[secondUsingIndex]!.token,
-        errorMessage: `Only one "using(...)" is allowed per function call. Combine all implicit arguments into a single using(), e.g.: func(..., using(a, b))`,
-      });
-    }
-    usingArgsExpr = adjustedArgExprs[usingArgIndex]! as FnCallExpr;
-    // Remove the using(...) arg from the regular args
-    adjustedArgExprs = [
-      ...adjustedArgExprs.slice(0, usingArgIndex),
-      ...adjustedArgExprs.slice(usingArgIndex + 1),
-    ];
-  }
+  // Split arguments — `using()` keyword is gone, so all args are regular.
+  const adjustedArgExprs = argExprs.slice(regularArgStartIndex);
 
   // Split arguments into regular and implicit
   // Regular parameters come first, implicit parameters come after
@@ -1063,25 +1027,11 @@ Got:   ${regularArgsToCheck.length} arguments`,
     if (forallParameter.exprs.labelExpr && forallParameter.label) {
       // console.log("(12) addVariableToEnv");
 
-      // Detect effect row forall parameters (e.g., ...(E) in forall(T : Type, ...(E))).
-      // These have TypeHierarchy level 1 and their expr is a ...(name) call.
-      // For these, create an effects row SomeType instead of an UnknownValue,
-      // so that synthesis can resolve the effect row from closure implicit parameters.
-      const isEffectsRowForall =
-        isTypeHierarchyType(forallParameter.type) &&
-        forallParameter.type.level === 1 &&
-        exprIsFunctionCall(forallParameter.exprs.expr) &&
-        exprIsFunctionCallOf(forallParameter.exprs.expr, "...", 1);
-
-      const initialValue = isEffectsRowForall
-        ? createTypeValue(
-            createEffectsRowSomeType(forallParameter.label, calleeEnv)
-          )
-        : createUnknownValue(forallParameter.type, {
-            variableName: forallParameter.label,
-            env: calleeEnv,
-            context,
-          });
+      const initialValue = createUnknownValue(forallParameter.type, {
+        variableName: forallParameter.label,
+        env: calleeEnv,
+        context,
+      });
 
       const { env: nextEnv, variable } = addVariableToEnv({
         env: calleeEnv,
@@ -1339,98 +1289,6 @@ Got:   ${typeToString(typeValue.type)}`,
       calleeEnv = expectedEnv;
     } catch {
       // Silently ignore errors - synthesis will happen again later after arguments
-    }
-  }
-
-  // Early effect row resolution: when the function has effect row spread implicit
-  // parameters (e.g., using(...(E))) and the call site provides using() args,
-  // resolve the effect rows BEFORE processing regular arguments. This is necessary
-  // because regular parameters (e.g., callback : Impl(Fn(v: i32, using(...(E))) -> unit))
-  // may reference the effect row variable E, and evaluateFunctionParameterTypeAgain
-  // needs E to be bound in calleeEnv to produce the correct expected type.
-  if (usingArgsExpr && functionType.implicitParameters.length > 0) {
-    const hasEffectRowSpread = functionType.implicitParameters.some(
-      (p) => p.isEffectRowSpread
-    );
-    if (hasEffectRowSpread) {
-      // Count non-spread implicit params to figure out which using args go to spreads
-      const nonSpreadParams = functionType.implicitParameters.filter(
-        (p) => !p.isEffectRowSpread
-      );
-      const nonSpreadCount = nonSpreadParams.length;
-
-      // The first nonSpreadCount using args correspond to named implicit params;
-      // remaining args fill the effect row spread(s) directly.
-      const spreadArgs = usingArgsExpr.args.slice(nonSpreadCount);
-
-      if (spreadArgs.length > 0) {
-        // Resolve each spread arg's type from callerEnv via variable lookup
-        const concreteImplicitParams: FunctionImplicitParameter[] = [];
-        for (const spreadArgExpr of spreadArgs) {
-          if (!exprIsAtom(spreadArgExpr)) {
-            throw formatErrorMessage({
-              token: spreadArgExpr.token,
-              errorMessage: `Expected identifier for using() argument in effect row spread, got ${exprToString(spreadArgExpr)}`,
-            });
-          }
-          const argName = spreadArgExpr.token.value;
-          const outerVariables = getVariablesFromEnv(callerEnv, argName);
-          const outerVar = outerVariables.at(-1);
-          if (!outerVar) {
-            throw formatErrorMessage({
-              token: spreadArgExpr.token,
-              errorMessage: `Variable "${argName}" not found for using() argument in effect row spread.`,
-            });
-          }
-          // Annotate the using arg expression so codegen can resolve it to
-          // the correct C function name (e.g., for effect injection).
-          spreadArgExpr.$ = {
-            env: callerEnv,
-            type: outerVar.type,
-            value: outerVar.value?.[0],
-            variableName: argName,
-            pathCollection: [],
-          };
-          concreteImplicitParams.push({
-            label: argName,
-            type: outerVar.type,
-            isCompileTimeOnly: true,
-            isImplicit: true,
-            isOwningTheRcValue: false,
-            isQuote: false,
-            exprs: {
-              expr: spreadArgExpr,
-              labelExpr: spreadArgExpr,
-              typeExpr: undefined as unknown as Expr,
-              defaultValueExpr: undefined,
-            },
-          });
-        }
-
-        // Create EffectsRowType and bind it to each effect row spread variable in calleeEnv
-        const effectsRow = createEffectsRowType(concreteImplicitParams);
-        const effectsRowTypeValue = createTypeValue(effectsRow);
-
-        for (const implicitParam of functionType.implicitParameters) {
-          if (!implicitParam.isEffectRowSpread) continue;
-          const rowVarName = implicitParam.label;
-          const variables = getVariablesFromEnv(calleeEnv, rowVarName);
-          const variable = variables.at(-1);
-          if (variable) {
-            calleeEnv = updateExistingVariable(calleeEnv, variable, {
-              ...variable,
-              value: [effectsRowTypeValue],
-            });
-          }
-          // Also set resolvedConcreteType on the SomeType if applicable
-          if (
-            isSomeType(implicitParam.type) &&
-            implicitParam.type.isEffectsRow
-          ) {
-            (implicitParam.type as SomeType).resolvedConcreteType = effectsRow;
-          }
-        }
-      }
     }
   }
 
@@ -1777,516 +1635,6 @@ Got:   ${typeToString(typeValue.type)}`,
     parameterType: Type;
     argType: Type;
   }[] = [];
-  if (functionType.implicitParameters.length > 0) {
-    for (let i = 0; i < functionType.implicitParameters.length; i++) {
-      const implicitParam = functionType.implicitParameters[i]!;
-      let resolved = false;
-
-      // Handle effect row spread: ...(E) or bare ...
-      if (implicitParam.isEffectRowSpread) {
-        // Determine the concrete implicit params from the bound effect row variable
-        let concreteParams: FunctionImplicitParameter[] = [];
-
-        // Named spread ...(E): look up E's bound EffectsRowType in calleeEnv
-        const eVariables = getVariablesFromEnv(calleeEnv, implicitParam.label);
-        const eVarValue = eVariables.at(-1)?.value?.[0];
-        let effectsRowType: EffectsRowType | undefined;
-        if (
-          eVarValue &&
-          isTypeValue(eVarValue) &&
-          isEffectsRowType(eVarValue.value)
-        ) {
-          effectsRowType = eVarValue.value;
-        } else if (
-          isSomeType(implicitParam.type) &&
-          implicitParam.type.isEffectsRow
-        ) {
-          // Try via SomeType lookup
-          const boundType = getValueOfSomeTypeFromEnv(
-            calleeEnv,
-            implicitParam.type as SomeType
-          );
-          if (isEffectsRowType(boundType)) {
-            effectsRowType = boundType;
-          }
-        } else if (isEffectsRowType(implicitParam.type)) {
-          // Already resolved during re-evaluation
-          effectsRowType = implicitParam.type;
-        }
-
-        // Fallback: when E is an unresolved SomeType with isEffectsRow=true,
-        // infer the concrete effects from the caller's given variables.
-        // This handles the case where E isn't resolved through type inference
-        // (e.g., forall(...(E)) where E is inferred from the closure argument).
-        if (
-          !effectsRowType &&
-          isSomeType(implicitParam.type) &&
-          implicitParam.type.isEffectsRow
-        ) {
-          const givenEffectVars = getVariablesFromEnvByFilter(
-            callerEnv,
-            (v) =>
-              v.isImplicit === true &&
-              (v.isCompileTimeOnly === true || isStructType(v.type)) &&
-              (isFunctionType(v.type) || isEffectRecordType(v.type))
-          );
-          // Filter out given variables that already match a concrete (non-spread)
-          // implicit parameter in the function type. These are handled by their
-          // own iteration of the implicit param loop, not the spread.
-          const concreteImplicitNames = new Set(
-            functionType.implicitParameters
-              .filter((p) => !p.isEffectRowSpread)
-              .map((p) => p.label)
-          );
-          const spreadGivenVars = givenEffectVars.filter(
-            (v) => !concreteImplicitNames.has(v.name)
-          );
-          if (spreadGivenVars.length > 0) {
-            // Directly add the given handler values as implicit args and create
-            // an EffectsRowType so downstream code can resolve E.
-            for (const gv of spreadGivenVars) {
-              const givenValue = gv.value?.[0];
-              if (givenValue) {
-                implicitArgValues.push({
-                  value: givenValue,
-                  parameterType: gv.type,
-                  argType: gv.type,
-                });
-                const { env: nextEnv } = addVariableToEnv({
-                  env: calleeEnv,
-                  variable: {
-                    name: gv.name,
-                    type: gv.type,
-                    isCompileTimeOnly: true,
-                    isImplicit: true,
-                    isFromEffectSpread: true,
-                    value: [givenValue],
-                    token: PlaceholderToken,
-                    initializedAtToken: PlaceholderToken,
-                    consumedAtToken: undefined,
-                    isOwningTheRcValue: false,
-                  },
-                  allowVariableShadowing: true,
-                });
-                calleeEnv = nextEnv;
-              }
-            }
-            // Build and bind EffectsRowType so createSpecializedFunctionInline can find E
-            const effectsRowForBinding = createEffectsRowType(
-              spreadGivenVars.map((v) => ({
-                label: v.name,
-                type: v.type,
-                isCompileTimeOnly: true as const,
-                isQuote: false,
-                isOwningTheRcValue: false,
-                isImplicit: true as const,
-                exprs: {
-                  expr: undefined!,
-                  labelExpr: undefined,
-                  typeExpr: undefined!,
-                },
-              }))
-            );
-            const effectsRowTypeValue = createTypeValue(effectsRowForBinding);
-            // Update the existing E variable with the resolved EffectsRowType
-            const eVarsForUpdate = getVariablesFromEnv(
-              calleeEnv,
-              implicitParam.label
-            );
-            const eVarForUpdate = eVarsForUpdate.at(-1);
-            if (eVarForUpdate) {
-              calleeEnv = updateExistingVariable(calleeEnv, eVarForUpdate, {
-                ...eVarForUpdate,
-                value: [effectsRowTypeValue],
-                type: effectsRowForBinding,
-              });
-            }
-            resolved = true;
-            continue;
-          }
-        }
-
-        concreteParams = effectsRowType?.implicitParameters ?? [];
-
-        // For each concrete param, resolve from callerEnv (same as named implicit params)
-        for (const concreteParam of concreteParams) {
-          // Use the already-resolved type from the concrete param directly.
-          // These params come from an EffectsRowType whose types were already
-          // resolved during Future type evaluation. Re-evaluating the typeExpr
-          // AST in calleeEnv would fail because identifiers like IO/Raise/Log
-          // only exist in the caller's scope, not in the callee's scope.
-          const resolvedConcreteType = concreteParam.type;
-
-          // Search for matching given variable in callerEnv
-          const givenVariables = getVariablesFromEnvByFilter(
-            callerEnv,
-            (v) =>
-              v.isImplicit === true &&
-              (v.isCompileTimeOnly === true || isStructType(v.type)) &&
-              v.name === concreteParam.label &&
-              areTypesCompatible(
-                { type: resolvedConcreteType, env: calleeEnv },
-                { type: v.type, env: callerEnv }
-              )
-          );
-
-          const givenVar = givenVariables.at(-1);
-          if (!givenVar?.value?.[0]) {
-            // Also try by type only (name might differ)
-            const givenByType = getVariablesFromEnvByFilter(
-              callerEnv,
-              (v) =>
-                v.isImplicit === true &&
-                (v.isCompileTimeOnly === true || isStructType(v.type)) &&
-                areTypesCompatible(
-                  { type: resolvedConcreteType, env: calleeEnv },
-                  { type: v.type, env: callerEnv }
-                )
-            );
-            const byTypeVar = givenByType.at(-1);
-            let givenValue = byTypeVar?.value?.[0];
-            if (!givenValue && byTypeVar && isStructType(byTypeVar.type)) {
-              givenValue = createUnknownValue(byTypeVar.type, {
-                variableName: byTypeVar.name,
-                env: callerEnv,
-                context,
-              });
-            }
-            if (!givenValue || !byTypeVar) {
-              throw formatErrorMessage({
-                token:
-                  functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
-                errorMessage: `No "given" variable found for effect row parameter "${concreteParam.label}" of type ${typeToString(resolvedConcreteType)} (expanded from effect row ...(${implicitParam.label})).
-Please ensure a given variable of matching type is in scope.`,
-              });
-            }
-            implicitArgValues.push({
-              value: givenValue,
-              parameterType: resolvedConcreteType,
-              argType: byTypeVar.type,
-            });
-            const { env: nextEnv } = addVariableToEnv({
-              env: calleeEnv,
-              variable: {
-                name: concreteParam.label,
-                type: resolvedConcreteType,
-                isCompileTimeOnly: true,
-                isImplicit: true,
-                isFromEffectSpread: true,
-                value: [givenValue],
-                token: PlaceholderToken,
-                initializedAtToken: PlaceholderToken,
-                consumedAtToken: undefined,
-                isOwningTheRcValue: false,
-              },
-              allowVariableShadowing: true,
-            });
-            calleeEnv = nextEnv;
-          } else {
-            let givenValue = givenVar.value?.[0];
-            if (!givenValue && isStructType(givenVar.type)) {
-              givenValue = createUnknownValue(givenVar.type, {
-                variableName: givenVar.name,
-                env: callerEnv,
-                context,
-              });
-            }
-            if (!givenValue) {
-              throw formatErrorMessage({
-                token:
-                  functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
-                errorMessage: `No "given" variable found for effect row parameter "${concreteParam.label}" of type ${typeToString(resolvedConcreteType)} (expanded from effect row ...(${implicitParam.label})).
-Please ensure a given variable of matching type is in scope.`,
-              });
-            }
-            implicitArgValues.push({
-              value: givenValue,
-              parameterType: resolvedConcreteType,
-              argType: givenVar.type,
-            });
-            const { env: nextEnv } = addVariableToEnv({
-              env: calleeEnv,
-              variable: {
-                name: concreteParam.label,
-                type: resolvedConcreteType,
-                isCompileTimeOnly: true,
-                isImplicit: true,
-                isFromEffectSpread: true,
-                value: [givenValue],
-                token: PlaceholderToken,
-                initializedAtToken: PlaceholderToken,
-                consumedAtToken: undefined,
-                isOwningTheRcValue: false,
-              },
-              allowVariableShadowing: true,
-            });
-            calleeEnv = nextEnv;
-          }
-        }
-        continue; // Spread handled
-      }
-
-      // Re-evaluate the implicit parameter type in the current calleeEnv.
-      // This is necessary because implicit parameter types may reference SomeTypes
-      // (e.g., forall type variables like T) that have been resolved during regular
-      // argument processing. Without this, the type would still contain unresolved
-      // SomeTypes and type compatibility checks would fail.
-      const { parameterType: resolvedImplicitType, calleeEnv: nextCalleeEnv_ } =
-        evaluateFunctionParameterTypeAgain({
-          parameter: implicitParam,
-          calleeEnv,
-          definitionSiteEnclosingFunctionType,
-          context: {
-            ...context,
-            isEvaluatingFunctionType: true,
-          },
-          functionType,
-        });
-      calleeEnv = nextCalleeEnv_;
-
-      // First, check if there's an explicit using(...) arg at the call site
-      if (usingArgsExpr) {
-        const usingArgExpr = usingArgsExpr.args[i];
-        // using(undefined) means "skip explicit, use given variable lookup"
-        const isUsingUndefined =
-          usingArgExpr &&
-          exprIsAtom(usingArgExpr) &&
-          exprIsAtomOf(usingArgExpr, BuiltinKeywords.undefined);
-        if (usingArgExpr && !isUsingUndefined) {
-          // Evaluate the explicit using arg
-          const evaluatedUsingArg = evaluateExpression({
-            expr: usingArgExpr,
-            env: callerEnv,
-            context: { ...context },
-          });
-          if (!evaluatedUsingArg.$) {
-            throw formatErrorMessage({
-              token: usingArgExpr.token,
-              errorMessage: `Failed to evaluate using() argument: ${exprToString(usingArgExpr)}`,
-            });
-          }
-          callerEnv = evaluatedUsingArg.$.env;
-          const argValue = evaluatedUsingArg.$.value;
-          const argType = evaluatedUsingArg.$.type;
-
-          if (!argValue) {
-            throw formatErrorMessage({
-              token: usingArgExpr.token,
-              errorMessage: `Expected compile-time value for using() argument, got runtime value: ${exprToString(usingArgExpr)}`,
-            });
-          }
-
-          // Check type compatibility
-          if (
-            !areTypesCompatible(
-              { type: resolvedImplicitType, env: calleeEnv },
-              { type: argType, env: callerEnv }
-            )
-          ) {
-            throw formatErrorMessage({
-              token: usingArgExpr.token,
-              errorMessage: `Incompatible type for implicit parameter "${implicitParam.label}":
-Expected: ${typeToString(resolvedImplicitType)}
-Got:      ${typeToString(argType)}`,
-            });
-          }
-
-          implicitArgValues.push({
-            value: argValue,
-            parameterType: resolvedImplicitType,
-            argType,
-          });
-
-          // Add implicit arg to calleeEnv (mark as isImplicit so it can be
-          // found by nested using() parameter resolution).
-          // The variable may already exist from the function type's env
-          // (added during function type construction). In that case, update
-          // the existing variable instead of adding a new one.
-          const existingImplicitVars = getVariablesFromEnv(
-            calleeEnv,
-            implicitParam.label
-          );
-          if (existingImplicitVars.length > 0) {
-            const existingVar =
-              existingImplicitVars[existingImplicitVars.length - 1]!;
-            calleeEnv = updateExistingVariable(calleeEnv, existingVar, {
-              ...existingVar,
-              type: resolvedImplicitType,
-              isImplicit: true,
-              value: [argValue],
-            });
-          } else {
-            const { env: nextEnv } = addVariableToEnv({
-              env: calleeEnv,
-              variable: {
-                name: implicitParam.label,
-                type: resolvedImplicitType,
-                isCompileTimeOnly: true,
-                isImplicit: true,
-                value: [argValue],
-                token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-                initializedAtToken:
-                  implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-                consumedAtToken: undefined,
-                isOwningTheRcValue: false,
-              },
-              allowVariableShadowing: true,
-            });
-            calleeEnv = nextEnv;
-          }
-          resolved = true;
-        }
-      }
-
-      // If not explicitly provided, search caller env for given variables
-      if (!resolved) {
-        const givenVariables = getVariablesFromEnvByFilter(
-          callerEnv,
-          (v) =>
-            v.isImplicit === true &&
-            (v.isCompileTimeOnly === true || isStructType(v.type)) &&
-            areTypesCompatible(
-              { type: resolvedImplicitType, env: calleeEnv },
-              { type: v.type, env: callerEnv }
-            )
-        );
-
-        if (givenVariables.length === 0) {
-          throw formatErrorMessage({
-            token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
-            errorMessage: `No "given" variable found for implicit parameter "${implicitParam.label}" of type ${typeToString(resolvedImplicitType)}.
-Please declare a given variable with a compatible type, e.g.:
-  given(${implicitParam.label}) := <value>;
-Or pass it explicitly:
-  ${functionValue?.funcName ?? "func"}(..., using(<value>))`,
-          });
-        }
-
-        // Check if the matched given variable came from an effect row spread
-        // expansion. If so, the function must explicitly declare the effect
-        // in its using clause — effects from ...(E) don't implicitly satisfy
-        // concrete using() requirements.
-        // EXCEPTION: Allow when calling through a function parameter (e.g., f()
-        // where f : (fn(using(...(E))) -> T)), because the type system already
-        // guarantees effect forwarding through the spread parameter.
-        const matchedGivenVar = givenVariables[givenVariables.length - 1]!;
-        if (matchedGivenVar.isFromEffectSpread) {
-          // Check if the callee is a parameter of the enclosing function.
-          // Function parameters forward effects through the type system,
-          // so spread-injected effects should be available for them.
-          const isCallingFunctionParameter = (() => {
-            if (!functionCalleeExpr || !exprIsAtom(functionCalleeExpr))
-              return false;
-            const calleeName = functionCalleeExpr.token.value;
-            const enclosingFn = context.isEvaluatingFunctionBodyOrAsyncBlock;
-            if (!enclosingFn || enclosingFn.kind !== "function-body")
-              return false;
-            const enclosingType = enclosingFn.type;
-            return enclosingType.parameters.some((p) => p.label === calleeName);
-          })();
-          if (!isCallingFunctionParameter) {
-            throw formatErrorMessage({
-              token:
-                functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
-              errorMessage: `Effect "${implicitParam.label}" of type ${typeToString(resolvedImplicitType)} is available through an effect row spread but not explicitly declared in the function's using clause.
-Add it explicitly:
-  using(${implicitParam.label} : ${typeToString(resolvedImplicitType)}, ...(E))`,
-            });
-          }
-        }
-
-        // When multiple given variables match, prefer the one from the innermost
-        // (most recent) frame. Only report ambiguity if there are multiple matches
-        // at the same innermost frame level. This allows inner scopes to shadow
-        // outer given bindings of the same type.
-        let candidates = givenVariables;
-        if (candidates.length > 1) {
-          // getVariablesFromEnvByFilter returns variables in frame order
-          // (outer first, inner last). Find the innermost frame that has matches
-          // by searching from the end.
-          const innermostFrameIdx = findInnermostFrameWithGivenVariable(
-            callerEnv,
-            (v) =>
-              v.isImplicit === true &&
-              (v.isCompileTimeOnly === true || isStructType(v.type)) &&
-              areTypesCompatible(
-                { type: resolvedImplicitType, env: calleeEnv },
-                { type: v.type, env: callerEnv }
-              )
-          );
-          if (innermostFrameIdx >= 0) {
-            const frame = callerEnv.frames[innermostFrameIdx]!;
-            const innermostMatches = frame.variables.filter(
-              (v) =>
-                v.isImplicit === true &&
-                (v.isCompileTimeOnly === true || isStructType(v.type)) &&
-                areTypesCompatible(
-                  { type: resolvedImplicitType, env: calleeEnv },
-                  { type: v.type, env: callerEnv }
-                )
-            );
-            if (innermostMatches.length > 0) {
-              candidates = innermostMatches;
-            }
-          }
-        }
-
-        if (candidates.length > 1) {
-          throw formatErrorMessage({
-            token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
-            errorMessage: `Ambiguous implicit parameter "${implicitParam.label}": found ${candidates.length} "given" variables with compatible type ${typeToString(resolvedImplicitType)} in the same scope.
-Please use explicit using() to disambiguate.`,
-          });
-        }
-
-        const givenVar = candidates[candidates.length - 1]!;
-        let givenValue = givenVar.value?.[0];
-        // Phase 4b: for runtime struct evidence, the variable carries
-        // either no value (runtime binding) or an UnknownValue (comptime
-        // wrapper). Synthesize an UnknownValue so the call can proceed;
-        // codegen will read the evidence from the runtime C variable.
-        if (!givenValue && isStructType(givenVar.type)) {
-          givenValue = createUnknownValue(givenVar.type, {
-            variableName: givenVar.name,
-            env: callerEnv,
-            context,
-          });
-        }
-        if (!givenValue) {
-          throw formatErrorMessage({
-            token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
-            errorMessage: `The "given" variable "${givenVar.name}" has no compile-time value.`,
-          });
-        }
-
-        implicitArgValues.push({
-          value: givenValue,
-          parameterType: resolvedImplicitType,
-          argType: givenVar.type,
-        });
-
-        // Add implicit arg to calleeEnv (mark as isImplicit so it can be
-        // found by nested using() parameter resolution)
-        const { env: nextEnv } = addVariableToEnv({
-          env: calleeEnv,
-          variable: {
-            name: implicitParam.label,
-            type: resolvedImplicitType,
-            isCompileTimeOnly: true,
-            isImplicit: true,
-            value: [givenValue],
-            token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-            initializedAtToken:
-              implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-            consumedAtToken: undefined,
-            isOwningTheRcValue: false,
-          },
-          allowVariableShadowing: true,
-        });
-        calleeEnv = nextEnv;
-      }
-    }
-  }
 
   const argValues_: ArgValues = {
     args: argValues,
@@ -2431,37 +1779,8 @@ Please use explicit using() to disambiguate.`,
   const shouldAllowModuleUnknowns =
     hasOnlyRecordTypeUnknowns && hasRuntimeSomeTypeParams;
 
-  // Allow specialization when the only Unknown implicit args come from
-  // effect row spread parameters (e.g., ...(E)). The function body may not
-  // reference those spread-forwarded effects at all (only the explicitly declared
-  // ones like my_raise), so the body can still be properly re-evaluated.
-  const hasOnlySpreadUnknowns = (() => {
-    if (!hasUnknownImplicitArgs) return false;
-    const hasSpreadParam = functionType.implicitParameters.some(
-      (p) => p.isEffectRowSpread
-    );
-    if (!hasSpreadParam) return false;
-    // Count how many args come from non-spread implicit params.
-    // Non-spread params each produce exactly 1 arg. Spread params expand
-    // into the remaining args.
-    let nonSpreadArgCount = 0;
-    for (const param of functionType.implicitParameters) {
-      if (!param.isEffectRowSpread) {
-        nonSpreadArgCount++;
-      }
-    }
-    // Check that all non-spread implicit args (the first nonSpreadArgCount args)
-    // are known. Only spread-derived args (the rest) can be Unknown.
-    // This assumes non-spread params come before spread params in arg order,
-    // which matches the implicit parameter resolution order.
-    const implicitArgs = argValues_.implicitArgs ?? [];
-    for (let i = 0; i < nonSpreadArgCount && i < implicitArgs.length; i++) {
-      if (isUnknownValue(implicitArgs[i]!.value)) {
-        return false; // A non-spread arg is unknown → don't allow
-      }
-    }
-    return true;
-  })();
+  // Effect row spreads are gone, so no "only-spread-unknowns" case to allow.
+  const hasOnlySpreadUnknowns = false;
 
   // Skip specialization for functions that are only generic due to implicit
   // parameters (e.g., using(raise : Raise)) AND have evidence-passing-capable
@@ -2474,17 +1793,13 @@ Please use explicit using() to disambiguate.`,
 
   const hasEvidencePassingCapableImplicits =
     isGenericOnlyBecauseOfImplicits &&
-    functionType.implicitParameters.some((param) => {
+    ([] as FunctionParameter[]).some((param) => {
       if (isEffectRecordType(param.type)) {
         return param.type.fields.some(
           (m) =>
             isFunctionType(m.type) &&
             (m.type as FunctionType).forallParameters.length === 0
         );
-      }
-      // Effect row spreads contain module-based effects that use evidence passing
-      if (param.isEffectRowSpread) {
-        return true;
       }
       return false;
     });
@@ -2545,24 +1860,6 @@ Please use explicit using() to disambiguate.`,
     // signature), so they must also be excluded from the caller's argument list.
     if (specializedFunctionValue) {
       const indicesToRemove = new Set<number>();
-      let runtimeArgIdx = 0;
-      for (let i = 0; i < functionType.parameters.length; i++) {
-        const param = functionType.parameters[i]!;
-        if (!param.isCompileTimeOnly) {
-          const arg = argValues_.args[i];
-          const argVal = arg?.value;
-          if (
-            argVal &&
-            isFunctionValue(argVal) &&
-            argVal.type.implicitParameters.some(
-              (p) => isFunctionType(p.type) || isEffectRecordType(p.type)
-            )
-          ) {
-            indicesToRemove.add(runtimeArgIdx);
-          }
-          runtimeArgIdx++;
-        }
-      }
       if (indicesToRemove.size > 0) {
         for (let idx = runtimeArgExprsInOrder.length - 1; idx >= 0; idx--) {
           if (indicesToRemove.has(idx)) {
@@ -2616,7 +1913,7 @@ Please use explicit using() to disambiguate.`,
   //
   // Previously, this was skipped when inside a function that receives the ctl handler
   // via an implicit `using(raise: Raise)` parameter. With evidence passing (void* fn ptr),
-  // we always need the specialized body so the escape value is properly typed.
+  // we always need the specialized body so the unwind value is properly typed.
   if (
     !skipSpecialization &&
     functionValue &&
@@ -2834,22 +2131,7 @@ function createSpecializedFunctionInline({
         compileTimeArgValues.push(arg.value);
       }
     } else {
-      // Functions with implicit parameters of function/record type (i.e., using(...)
-      // effects) must be treated as compile-time because they are compiled as state
-      // machines or inlined, not as regular C functions. The concrete function value
-      // is needed at compile time for effect call site generation.
-      const isEffectfulFuncParam =
-        arg.value &&
-        isFunctionValue(arg.value) &&
-        arg.value.type.implicitParameters.some(
-          (p) => isFunctionType(p.type) || isEffectRecordType(p.type)
-        );
-
-      if (isEffectfulFuncParam) {
-        if (arg.value) {
-          compileTimeArgValues.push(arg.value);
-        }
-      } else {
+      {
         // Use argType (the actual concrete argument type) for cache comparison,
         // not parameterType (which might be a SomeType like Impl(...))
         // If argType is a SomeType with resolvedConcreteType, use the concrete type
@@ -3103,193 +2385,6 @@ function createSpecializedFunctionInline({
     fromSpread: boolean;
     effectFieldPath?: string[];
   }> = [];
-  // Compute the mapping from implicit param index to implicitArgValues index.
-  // Spread params expand into multiple entries, so we need to track the offset.
-  let argOffset = 0;
-  for (let i = 0; i < functionType.implicitParameters.length; i++) {
-    const implicitParam = functionType.implicitParameters[i]!;
-    if (isFunctionType(implicitParam.type)) {
-      // Check if the resolved handler uses escape (has isControlFunction set)
-      const handlerArg = argValues.implicitArgs?.[argOffset];
-      const handlerValue =
-        handlerArg && isFunctionValue(handlerArg.value)
-          ? handlerArg.value
-          : undefined;
-      if (handlerValue?.isControlFunction) {
-        effectCtlParams.push({
-          handlerArgIndex: argOffset,
-          label: implicitParam.label,
-          type: implicitParam.type,
-          fromSpread: false,
-        });
-      }
-      argOffset += 1;
-    } else if (implicitParam.isEffectRowSpread) {
-      // Effect row spread: resolve the type (might be a SomeType that needs lookup)
-      let resolvedType = implicitParam.type;
-      if (isSomeType(resolvedType)) {
-        // Try looking up by variable name in environment first
-        const eVars = getVariablesFromEnv(specializedEnv, implicitParam.label);
-        const eVarValue = eVars.at(-1)?.value?.[0];
-        if (
-          eVarValue &&
-          isTypeValue(eVarValue) &&
-          isEffectsRowType(eVarValue.value)
-        ) {
-          resolvedType = eVarValue.value;
-        } else {
-          const boundType = getValueOfSomeTypeFromEnv(
-            specializedEnv,
-            resolvedType
-          );
-          if (boundType) {
-            resolvedType = boundType;
-          }
-        }
-      }
-      if (isEffectsRowType(resolvedType)) {
-        // Extract individual effect parameters from the resolved EffectsRowType
-        for (let k = 0; k < resolvedType.implicitParameters.length; k++) {
-          const innerParam = resolvedType.implicitParameters[k]!;
-          if (isFunctionType(innerParam.type)) {
-            const innerHandlerArg = argValues.implicitArgs?.[argOffset + k];
-            const innerHandlerValue =
-              innerHandlerArg && isFunctionValue(innerHandlerArg.value)
-                ? innerHandlerArg.value
-                : undefined;
-            if (innerHandlerValue?.isControlFunction) {
-              effectCtlParams.push({
-                handlerArgIndex: argOffset + k,
-                label: innerParam.label,
-                type: innerParam.type,
-                fromSpread: true,
-              });
-            }
-          } else if (isEffectRecordType(innerParam.type)) {
-            // Effect-record-based effects inside an effect row spread:
-            // recursively find ctl function fields in the record (module or struct).
-            const innerHandlerArg = argValues.implicitArgs?.[argOffset + k];
-            const innerRecordVal =
-              innerHandlerArg && isEffectRecordValue(innerHandlerArg.value)
-                ? innerHandlerArg.value
-                : undefined;
-            const ctlFields: Array<{
-              path: string[];
-              type: FunctionType;
-            }> = [];
-            const findCtlFieldsInEffectRecordSpread = (
-              recordType: SourceNamespaceType | StructType,
-              pathSoFar: string[],
-              recordVal?: EffectRecordValue
-            ) => {
-              for (let fi = 0; fi < recordType.fields.length; fi++) {
-                const field = recordType.fields[fi]!;
-                if (isFunctionType(field.type)) {
-                  const fieldVal = recordVal?.fields[fi];
-                  if (
-                    fieldVal &&
-                    isFunctionValue(fieldVal) &&
-                    fieldVal.isControlFunction
-                  ) {
-                    // Use the handler's specializedType if available.
-                    const _resolvedType = (fieldVal.specializedType ??
-                      field.type) as FunctionType;
-                    ctlFields.push({
-                      path: [...pathSoFar, field.label],
-                      type: _resolvedType,
-                    });
-                  }
-                } else if (isEffectRecordType(field.type)) {
-                  const innerRV = recordVal?.fields[fi];
-                  findCtlFieldsInEffectRecordSpread(
-                    field.type,
-                    [...pathSoFar, field.label],
-                    isEffectRecordValue(innerRV) ? innerRV : undefined
-                  );
-                }
-              }
-            };
-            findCtlFieldsInEffectRecordSpread(
-              innerParam.type,
-              [],
-              innerRecordVal
-            );
-            for (const ctlField of ctlFields) {
-              effectCtlParams.push({
-                handlerArgIndex: argOffset + k,
-                label: innerParam.label,
-                type: ctlField.type,
-                fromSpread: true,
-                effectFieldPath: ctlField.path,
-              });
-            }
-          }
-        }
-        argOffset += resolvedType.implicitParameters.length;
-      } else {
-        argOffset += 1;
-      }
-    } else if (isEffectRecordType(implicitParam.type)) {
-      // Effect-record-based effects: recursively find effect fields in possibly
-      // nested effect records.
-      // Check the handler VALUE's isControlFunction flag (set when a handler body uses escape).
-      const ctlFields: Array<{ path: string[]; type: FunctionType }> = [];
-      const handlerArg = argValues.implicitArgs?.[argOffset];
-      const findCtlFieldsInEffectRecord = (
-        recordType: SourceNamespaceType | StructType,
-        pathSoFar: string[],
-        recordVal?: EffectRecordValue
-      ) => {
-        for (let fi = 0; fi < recordType.fields.length; fi++) {
-          const field = recordType.fields[fi]!;
-          if (isFunctionType(field.type)) {
-            const fieldVal = recordVal?.fields[fi];
-            if (
-              fieldVal &&
-              isFunctionValue(fieldVal) &&
-              fieldVal.isControlFunction
-            ) {
-              // Use the handler's specializedType if available; it has forall
-              // type parameters resolved to concrete types (e.g., ResumeType → i32).
-              const resolvedType = (fieldVal.specializedType ??
-                field.type) as FunctionType;
-              ctlFields.push({
-                path: [...pathSoFar, field.label],
-                type: resolvedType,
-              });
-            }
-          } else if (isEffectRecordType(field.type)) {
-            const innerRecordVal = recordVal?.fields[fi];
-            findCtlFieldsInEffectRecord(
-              field.type,
-              [...pathSoFar, field.label],
-              isEffectRecordValue(innerRecordVal) ? innerRecordVal : undefined
-            );
-          }
-        }
-      };
-      findCtlFieldsInEffectRecord(
-        implicitParam.type,
-        [],
-        handlerArg && isEffectRecordValue(handlerArg.value)
-          ? handlerArg.value
-          : undefined
-      );
-
-      for (const ctlField of ctlFields) {
-        effectCtlParams.push({
-          handlerArgIndex: argOffset,
-          label: implicitParam.label,
-          type: ctlField.type,
-          fromSpread: false,
-          effectFieldPath: ctlField.path,
-        });
-      }
-      argOffset += 1;
-    } else {
-      argOffset += 1;
-    }
-  }
 
   // Collect all effect analyses (one per ctl parameter)
   const allEffectAnalyses: Array<{
@@ -3635,71 +2730,12 @@ function createSpecializedFunctionInline({
   const compileTimeSignature = earlyCompileTimeSignature;
 
   // Resolve implicit parameters by substituting SomeType forall params
-  // with their concrete types from forall args. This preserves effect
-  // annotations in the specialized type for evidence passing.
-  const resolvedImplicitParams: FunctionImplicitParameter[] = [];
-  for (const implicitParam of functionType.implicitParameters) {
-    if (implicitParam.isEffectRowSpread) {
-      let effectsRow = implicitParam.type;
-      if (isSomeType(effectsRow)) {
-        // Strategy 1: Match SomeType label against forall parameter labels
-        // and get the concrete value from the corresponding forall arg
-        if (argValues.forallArgs) {
-          for (let i = 0; i < functionType.forallParameters.length; i++) {
-            const forallParam = functionType.forallParameters[i]!;
-            if (
-              forallParam.label === effectsRow.name &&
-              i < argValues.forallArgs.length
-            ) {
-              const forallArgValue = argValues.forallArgs[i]!.value;
-              if (
-                isTypeValue(forallArgValue) &&
-                isEffectsRowType(forallArgValue.value)
-              ) {
-                effectsRow = forallArgValue.value;
-              }
-              break;
-            }
-          }
-        }
-        // Strategy 2: Try resolvedConcreteType on the SomeType
-        if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
-          if (isEffectsRowType(effectsRow.resolvedConcreteType)) {
-            effectsRow = effectsRow.resolvedConcreteType;
-          }
-        }
-        // Strategy 3: Look up in the specialization env
-        if (isSomeType(effectsRow)) {
-          const envVars = getVariablesFromEnv(specializedEnv, effectsRow.name);
-          if (envVars.length > 0) {
-            const envVar = envVars[envVars.length - 1]!;
-            const envValue = envVar.value?.[0];
-            if (
-              envValue &&
-              isTypeValue(envValue) &&
-              isEffectsRowType(envValue.value)
-            ) {
-              effectsRow = envValue.value;
-            }
-          }
-        }
-      }
-      if (isEffectsRowType(effectsRow)) {
-        resolvedImplicitParams.push(...effectsRow.implicitParameters);
-      }
-    } else if (isEffectRecordType(implicitParam.type)) {
-      // Preserve record-typed implicits — they become evidence fn ptr params
-      resolvedImplicitParams.push(implicitParam);
-    }
-    // Skip standalone function-typed implicits — they are already resolved
-    // during specialization and don't need evidence passing
-  }
+  // Functions no longer carry implicit parameters; evidence passing
+  // is handled by regular parameters now.
 
   const specializedFunctionType = createFunctionType({
     forallParameters: [],
     parameters: runtimeParameters,
-    implicitParameters:
-      resolvedImplicitParams.length > 0 ? resolvedImplicitParams : undefined,
     variadicParameter: undefined, // QUESTION: Is this right?
     return_: {
       ...functionType.return,
@@ -3906,10 +2942,6 @@ function evaluateCtlFunctionBodyInline({
       ...p,
       type: substituteType(p.type),
     })),
-    implicitParameters:
-      functionType.implicitParameters.length > 0
-        ? functionType.implicitParameters
-        : undefined,
     variadicParameter: undefined,
     return_: {
       ...functionType.return,
