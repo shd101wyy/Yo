@@ -646,7 +646,26 @@ Items intentionally not done in this pass; tracked for follow-up:
    function isn't registered in C type table. Reproduces in
    `tests/algebraic_effects.test.yo` only when multiple tests share a
    batch; individual tests pass. Not strictly Phase 2.
-3. **Phase 2h: `yo-self/` port** (~1700 occurrences). Untouched.
+3. **Phase 2h: `yo-self/` port.** ✅ Mechanically migrated.
+   - `using(name : Type)` → `name : Type` (strip `using(`)
+   - `using(...(E))` → `e : E`
+   - `given(name) :=` → `name :=`; `(given(name) : Type) =` → `(name : Type) =`
+   - `escape` was already `unwind` (Phase 0 covered yo-self)
+   - `io.await(X)` → `io.await(X, io)`
+   - `Future(T, IO, Exception)` → `Future(T, IOErr)` (added IOErr to
+     `std/error` import where needed)
+   - Reverted over-migration of `sb.write_string(X, io)` (StringBuilder
+     doesn't take io)
+   - 171 yo-self files touched + 6 follow-up import fixes
+   - Spot-checked key files (lexer, parser, expr, env, evaluator/utils,
+     codegen/{codegen_c, driver, context}, build_runner, main, test
+     files) — all `evaluator OK`.
+   - One pre-existing failure (`yo-self/types/type.yo`: SomeT variant
+     arity mismatch) is unrelated to explicit effects.
+   - `./yo-cli check yo-self/` end-to-end completion is slow (each file
+     restarts the JS runtime); partial passes confirm a clean migration.
+   - `./yo-cli test ./tests/` (the TS side) still passes after these
+     changes — no regression there.
 4. **§9.6 default evidence values.** `(e : E) ?= {}` defaults at
    leaves to reduce no-effect call-site boilerplate. Independent
    ergonomic feature; not blocking anything.
