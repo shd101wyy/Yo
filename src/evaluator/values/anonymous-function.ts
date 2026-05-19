@@ -6,7 +6,6 @@ import {
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
-  stripImplicitVariablesFromEnv,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -322,14 +321,10 @@ export function evaluateAnonymousFunctionImplementation({
   }
 
   // Add parameters to environment.
-  // Strip implicit variables from the base env so that closures cannot
-  // accidentally capture implicit variables (e.g. `io`) from an outer scope.
-  // Closures must re-declare them explicitly via using() parameters.
-  // Save outerEnv first so we can restore it after body evaluation — the
-  // stripped env must not leak back to the caller (e.g. assignment.ts needs
-  // to find a just-created `given(raise)` variable in the returned env).
+  // Save outerEnv so we can restore it after body evaluation — the
+  // pushed frame must not leak back to the caller.
   const outerEnv = env;
-  env = pushEnvFrame(stripImplicitVariablesFromEnv(env));
+  env = pushEnvFrame(env);
 
   // Validate parameter names for comptime parameters (forall, implicit, and comptime regular parameters)
   // Check forall parameters (always comptime)

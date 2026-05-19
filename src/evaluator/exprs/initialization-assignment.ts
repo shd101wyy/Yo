@@ -34,11 +34,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import {
-  findRcValueOwnerRelationship,
-  isValidVariableName,
-  throwExprIsImplicitVariableError,
-} from "../utils";
+import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring-assignment";
@@ -112,7 +108,6 @@ export function evaluateInitializationAssignment({
     context: {
       ...context,
       expectedType: undefined,
-      isInsideGivenHandler: isImplicit ? true : context.isInsideGivenHandler,
     },
   });
 
@@ -129,9 +124,6 @@ export function evaluateInitializationAssignment({
     // Check if the RHS is a cond expression to provide a more specific error message
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$!.controlFlow!);
   }
-
-  // Disallow using implicit variables (or property access of them) as the RHS
-  throwExprIsImplicitVariableError(rhs);
 
   // §4 escape boundary 2: module-level binding type cannot be
   // control-bound. Module-level bindings outlive every call frame, so

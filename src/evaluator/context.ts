@@ -255,13 +255,6 @@ export interface EvaluatorContext {
   isInsideIoAsyncCall?: boolean;
 
   /**
-   * Whether we are currently evaluating the RHS of a `given(...)` assignment.
-   * When true, `escape` is allowed inside handler functions.
-   * `escape` is only valid inside given handler definitions.
-   */
-  isInsideGivenHandler?: boolean;
-
-  /**
    * Whether we are currently re-evaluating type expressions during generic impl
    * specialization. When true, associated types (e.g., Output) are looked up
    * from the env before falling through to findAssociatedTypeFromGenericImpls,

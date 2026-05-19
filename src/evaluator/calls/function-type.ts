@@ -176,7 +176,6 @@ export function createFunctionBodyEvaluationContext(
     },
     functionReturnImplConcreteType: [], // Empty array for each function
     enclosingFunctionReturnType,
-    isInsideGivenHandler: context.isInsideGivenHandler,
 
     // Clear CTFE
     forceCompileTimeBindings: false,

@@ -17,27 +17,24 @@ export function evaluateUnwind({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  // escape(value) — returns from the enclosing function with the given value.
-  // Only valid inside a function that has an enclosing function available.
+  // unwind(value) — returns from the enclosing function with the given
+  // value. Only valid inside a `ctl(...) -> ret` body; that constraint
+  // is enforced at the FunctionValue-creation sites
+  // (anonymous-function.ts, function-type.ts) via the
+  // `evaluatedBodyContainsEscape` + `FunctionType.isControl` check.
+  // Here we only verify there *is* an enclosing function to unwind to.
   const enclosingReturnType = context.enclosingFunctionReturnType;
   if (!enclosingReturnType) {
     throw formatErrorMessage({
       token: expr.func.token,
-      errorMessage: `\`escape\` can only be used inside a function that has an enclosing function.`,
-    });
-  }
-
-  if (!context.isInsideGivenHandler) {
-    throw formatErrorMessage({
-      token: expr.func.token,
-      errorMessage: `\`escape\` can only be used inside a \`given\` handler definition.`,
+      errorMessage: `\`unwind\` can only be used inside a function that has an enclosing function.`,
     });
   }
 
   if (expr.args.length > 1) {
     throw formatErrorMessage({
       token: expr.func.token,
-      errorMessage: `\`escape\` accepts at most one argument.`,
+      errorMessage: `\`unwind\` accepts at most one argument.`,
     });
   }
 
@@ -53,7 +50,7 @@ export function evaluateUnwind({
     ) {
       throw formatErrorMessage({
         token: expr.func.token,
-        errorMessage: `Incompatible type for \`escape\` argument:
+        errorMessage: `Incompatible type for \`unwind\` argument:
 - Expected (enclosing function return type): ${typeToString(enclosingReturnType)}
 - Got: ${typeToString(VUnit.type)}`,
       });
@@ -84,7 +81,7 @@ export function evaluateUnwind({
   if (!evaluatedArg.$) {
     throw formatErrorMessage({
       token: arg.token,
-      errorMessage: `Failed to evaluate the argument of \`escape\`.`,
+      errorMessage: `Failed to evaluate the argument of \`unwind\`.`,
     });
   }
 
@@ -100,13 +97,13 @@ export function evaluateUnwind({
   ) {
     throw formatErrorMessage({
       token: arg.token,
-      errorMessage: `Incompatible type for \`escape\` argument:
+      errorMessage: `Incompatible type for \`unwind\` argument:
 - Expected (enclosing function return type): ${typeToString(enclosingReturnType)}
 - Got: ${typeToString(evaluatedArg.$.type)}`,
     });
   }
 
-  // escape(value) is control flow — it doesn't produce a value.
+  // unwind(value) is control flow — it doesn't produce a value.
   // Its type is the enclosing function's return type, and it's marked as
   // controlFlow: "unwind" so that the begin block and codegen know how to handle it.
   expr.args[0] = evaluatedArg;
