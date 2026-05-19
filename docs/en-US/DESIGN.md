@@ -2380,14 +2380,25 @@ For more examples, see [impl.test.yo](../tests/impl.test.yo).
 
 ## Algebraic Effects and Handlers
 
-Yo supports **algebraic effects** — a mechanism for implicit parameter passing and delimited continuations. Effects are built on two features:
+Yo supports **algebraic effects** — one-shot delimited continuations
+for control flow. Handlers are values of a dedicated **control
+function** type `ctl(args) -> ret` (parallel to `fn(args) -> ret`),
+passed as regular function parameters at every call site.
 
-1. **Implicit Parameters (`using` / `given`)**: Functions can declare implicit parameters with `using(name : Type)`. At call sites, the compiler resolves them automatically from `given` bindings in scope.
-2. **Effect Handlers (`return` / `unwind`)**: When an effect handler uses `return(value)` or `return()`, it resumes the captured continuation. When it uses `unwind(value)` or `unwind()`, it discards the continuation and returns from the enclosing function.
+1. **Control function type (`ctl`)**: A handler value has type
+   `ctl(args) -> ret`. Its body may use `unwind(value)` to discard the
+   continuation, or `return(value)` to resume it. Plain `fn(args) ->
+ret` bodies cannot contain `unwind`.
+2. **Effect parameters are explicit**: A function that needs an
+   effect takes the handler as a regular parameter (`raise : Raise`).
+   Callers pass the handler explicitly at every call site.
 
-Effects compose with `async`/`await`: effect handlers inside `io.async` tasks work correctly. If `unwind` is called inside an async task, the Future is marked as escaped and awaiting it causes a panic.
+Effects compose with `async`/`await`: handlers inside `io.async`
+tasks work correctly. If `unwind` is called inside an async task, the
+Future is marked as escaped and awaiting it causes a panic.
 
-See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive documentation.
+See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive
+documentation.
 
 ## Error Handling
 
@@ -2458,55 +2469,63 @@ match(downcast(err, MathError),
 
 ### Exception (Non-Resumable)
 
-`Exception` is an algebraic effect for non-resumable exception handling. When the handler calls `unwind`, the continuation is discarded and control returns to the enclosing function:
+`Exception` is an effect bundle for non-resumable exception handling.
+Its `throw` field is a `ctl(...) -> ret` handler — calling
+`unwind(...)` inside its body discards the continuation and returns
+from the enclosing function:
 
 ```rust
 open(import("std/error"));
 
-safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
+safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn MathError.DivisionByZero),
+    (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
     true => (x / y)
   )
 );
 
-// Install an exception handler with `given`:
-given(exn) := Exception(
-  throw : ((err) -> {
-    println(`Error: ${err}`);  // prints "Error: Division by zero"
-    unwind();  // discard continuation, return from enclosing function
-  })
+// Install the handler — note the outer parens around the lambda
+// (Yo has no operator precedence).
+(exn : Exception) = Exception(
+  throw : (
+    (err) -> {
+      println(`Error: ${err}`);  // prints "Error: Division by zero"
+      unwind(());                // discard continuation, return from enclosing fn
+    }
+  )
 );
 
-result := safe_divide(6, 3);        // result = 2
-safe_divide(10, 0, using(exn));     // triggers handler, unwind discards continuation
-// code after unwind is never reached
+result := safe_divide(6, 3);     // result = 2
+safe_divide(10, 0, exn);         // handler fires, unwinds — code after this is unreached
 ```
 
 ### ResumableException
 
-`ResumableException(ResumeType)` is an algebraic effect for resumable exception handling. When the handler calls `return`, it resumes the continuation with a recovery value:
+`ResumableException(ResumeType)` is for resumable exception handling.
+When the handler calls `return`, it resumes the continuation with a
+recovery value:
 
 ```rust
 open(import("std/error"));
 
-safe_divide :: (fn(x: i32, y: i32, using(exn : ResumableException(i32))) -> i32)(
+safe_divide :: (fn(x: i32, y: i32, exn : ResumableException(i32)) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn `division by zero`),
+    (y == i32(0)) => exn.throw(dyn(`division by zero`)),
     true => (x / y)
   )
 );
 
-// Install a resumable handler:
-given(exn) := ResumableException(i32)(
-  throw : ((err) -> {
-    println(`Error: ${err}`);
-    return(0);  // resume with recovery value 0
-  })
+(exn : ResumableException(i32)) = ResumableException(i32)(
+  throw : (
+    (err) -> {
+      println(`Error: ${err}`);
+      return(i32(0));  // resume with recovery value 0
+    }
+  )
 );
 
-result := safe_divide(6, 3);    // result = 2
-result = safe_divide(10, 0);    // handler resumes with 0, result = 0
+result := safe_divide(6, 3, exn);    // result = 2
+result2 := safe_divide(10, 0, exn);  // handler resumes with 0, result2 = 0
 ```
 
 For more examples, see [error.test.yo](../tests/error.test.yo).
@@ -2518,19 +2537,19 @@ Yo uses **async/await with state machine transformation** for efficient **single
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(using(io : IO)) -> unit)({
-  task1 := io.async((using(io : IO))=> {
+main :: (fn(io : IO) -> unit)({
+  task1 := io.async((io : IO)=> {
     io.await(yield());
     return(i32(1));
   });
-  task2 := io.async((using(io : IO))=> {
+  task2 := io.async((io : IO)=> {
     io.await(yield());
     return(i32(2));
   });
   handle1 := io.spawn(task1);  // start task1, returns JoinHandle(i32)
   handle2 := io.spawn(task2);  // start task2, returns JoinHandle(i32)
-  r1 := handle1.await(using(io));  // wait → Option(i32)
-  r2 := handle2.await(using(io));
+  r1 := handle1.await(io);  // wait → Option(i32)
+  r2 := handle2.await(io);
 });
 export(main);
 ```
@@ -2540,7 +2559,7 @@ Key properties:
 - `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or spawned
 - `io.await(future)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future
 - `io.spawn(future)` starts a cold future without waiting, returns `JoinHandle(T)`
-- `handle.await(using(io))` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort)
+- `handle.await(io)` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort)
 - All async code runs on the **same thread** (no thread spawning, no data races)
 
 See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.

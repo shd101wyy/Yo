@@ -2,82 +2,113 @@
 
 ## Overview
 
-Yo supports **algebraic effects** — one-shot delimited continuations for control flow. Effects are regular function parameters whose handler bodies may use `unwind` to discard the continuation or `return(value)` to resume it.
+Yo supports **algebraic effects** — one-shot delimited continuations
+for control flow. Effects are regular function parameters whose
+handler bodies may use `unwind(value)` to discard the continuation, or
+`return(value)` to resume it.
 
-All parameters are explicit. There are no implicit (`using`/`given`) parameters.
+All parameters are explicit. There are no implicit (`using` / `given`)
+parameters.
 
-The code generation strategy is **evidence passing** — effect handler function pointers are passed as extra C parameters.
+The code generation strategy is **evidence passing** — handler
+function pointers are passed as extra C parameters.
 
 ## Design
 
-| Principle              | Decision                                        |
-| ---------------------- | ----------------------------------------------- |
-| Explicit parameters    | All fn parameters are passed at every call site |
-| Evidence passing       | Handler fn pointers as C params                 |
-| One-shot continuations | `return` resumes, `unwind` discards             |
-| Effect polymorphism    | `forall(E : Struct)` + `e : E`                  |
-| Effect bundling        | Anonymous structs `{ raise, log }`              |
+| Principle              | Decision                                                 |
+| ---------------------- | -------------------------------------------------------- |
+| Explicit parameters    | Every fn parameter is passed at every call site          |
+| Evidence passing       | Handler fn pointers as C params                          |
+| One-shot continuations | `return` resumes, `unwind` discards                      |
+| Handler type           | `ctl(args) -> ret` parallel to `fn(args) -> ret`         |
+| Escape discipline      | Type-level check via `typeIsControlBound`                |
+| Effect polymorphism    | `forall(E : Type.Struct)` + `e : E`                      |
+| Effect bundling        | Anonymous structs `{ raise, log }` or named struct types |
 
 ## Syntax
 
 ### Declaring and using effects
 
-```rust
-// Declare an effect operation type
-Raise :: (fn(msg : String) -> i32);
+A handler is a **control function**, written `ctl(args) -> ret`:
 
-// Function that uses it — just a regular parameter
+```rust
+// Declare a handler type
+Raise :: (ctl(msg : String) -> i32);
+
+// Function that takes the handler as a regular parameter
 safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
   cond(
-    (y == 0) => raise("div-by-zero"),
+    (y == 0) => raise(`div-by-zero`),
     true => (x / y)
   )
 );
 
-// Install a handler — regular variable declaration
-raise_handler := (msg) -> { unwind(42); };
+// Install a handler — annotated to ctl so the body may `unwind`.
+// Note: there is no operator precedence in Yo; wrap the lambda in
+// extra parens.
+(raise : Raise) = ((msg) -> { unwind(i32(42)); });
 
 // Call site — explicit parameter passing
-result := safe_divide(1, 0, raise_handler);
+result := safe_divide(1, 0, raise);
 ```
 
 ### Continuation control
 
-- **`unwind(value)`** — discards the continuation, returns from the enclosing function
-- **`return(value)`** — resumes the continuation with `value`
+- **`unwind(value)`** — discards the continuation, returns from the
+  enclosing function with `value`.
+- **`return(value)`** — resumes the continuation with `value` at the
+  effect call site.
 
 ```rust
-// Unwind handler — discards continuation
-handler := (msg) -> {
-  println(msg);
-  unwind(42);
-};
+Raise :: (ctl(msg : String) -> i32);
 
-// Resume handler — continues after the effect call
-handler := (msg) -> {
-  println(msg);
-  return(0);  // safe_divide returns 0
-};
+// Unwind handler: discards continuation. The enclosing function
+// returns with i64(42).
+(raise : Raise) = (
+  (msg) -> {
+    println(msg);
+    unwind(i64(42));
+  }
+);
+
+// Resume handler: continues after the effect call with i32(0).
+(raise : Raise) = (
+  (msg) -> {
+    println(msg);
+    return(i32(0));
+  }
+);
 ```
 
 ### Effect propagation
 
-Functions propagate effects by accepting them as parameters and forwarding to callees:
+Functions propagate effects by accepting them as parameters and
+forwarding to callees. A function that takes a `ctl`-typed parameter
+and forwards it does _not_ itself need to be `ctl` — the unwind
+targets the handler's install frame, which is above the propagating
+function in the call stack.
 
 ```rust
+// `wrapper` is plain `fn` even though it forwards a ctl handler.
 wrapper :: (fn(x : i32, raise : Raise) -> i32)(
-  safe_divide(x, 0, raise)  // forward the effect
+  safe_divide(x, 0, raise)
 );
 ```
 
 ### Effect row polymorphism
 
-Effect-polymorphic functions use `forall(E : Struct)` where `E` binds to an anonymous struct of effect handlers:
+Effect-polymorphic functions use `forall(E : Type.Struct)`. The
+constraint `Type.Struct` restricts `E` to struct types (single bundle
+of effects), and enables auto-flattening of struct fn-ptr fields into
+separate C parameters at specialization.
 
 ```rust
-run :: (fn(forall(T : Type, E : Struct),
-    f : (fn(e : E) -> T),
-    e : E) -> T)(f(e));
+run :: (
+  fn(forall(T : Type, E : Type.Struct),
+     f : (fn(e : E) -> T),
+     e : E
+  ) -> T
+)(f(e));
 
 effects := { raise : my_raise, log : my_log };
 result := run(might_fail, effects);
@@ -91,22 +122,33 @@ result := run(pure_func, {});
 
 ### Async + effects
 
-`Future` is **single-arg** at the type level: `Future(T, E)` where `E` is
-a struct type holding the effect bundle. The bundle's type and value
-mirror each other.
+`Future` is parameterised by the return type plus zero or more effect
+type arguments. Each effect arg should itself be a struct type (or a
+forall E bound to one), so that callers can pass a struct value
+containing the actual handlers:
+
+```rust
+// Single bundle (most common)
+fut1 : Impl(Future(i32, IOErr));            // IOErr = { io, exn }
+y := io.await(fut1, { io, exn });
+
+// Single-effect future — pass the effect value directly
+fut2 : Impl(Future(i32, IO));
+x := io.await(fut2, io);
+```
 
 The closure passed to `io.async` must pin `e`'s type — the inferencer
 cannot derive it from the bare closure literal. Use `typeof(effects)`
 at top-level call sites, or rely on the enclosing function's annotated
-return type when the closure is inside a function body.
+return type when the closure is inside a function body:
 
 ```rust
 effects := { raise, log };
 
-// Top-level: annotate e with typeof(effects)
+// Top-level: annotate e with typeof(effects).
 fut := io.async((e : typeof(effects)) => {
-  e.raise("err");
-  e.log("hello");
+  e.raise(`err`);
+  e.log(`hello`);
 });
 
 result := io.await(fut, effects);
@@ -123,83 +165,144 @@ do_work :: (fn(io : IO) -> Impl(Future(unit, IOErr)))(
 );
 ```
 
-Single-effect futures pass the effect value directly because the effect
-type is itself a struct:
-
-```rust
-// Future(T, IO) — E = IO, e = io
-fut1 : Impl(Future(i32, IO));
-x := io.await(fut1, io);
-```
-
-Multi-effect futures use a struct alias. Common bundles live in
-`std/error.yo`:
-
-```rust
-// IOErr :: struct(io : IO, exn : Exception)
-fut2 : Impl(Future(i32, IOErr));
-y := io.await(fut2, { io, exn });
-```
-
-Width matching is **strict** — Yo structs are nominal. If a caller has
-`e : IOErr` but the nested future only needs `IO`, the caller must
-project:
+Width matching is **strict** — Yo structs are nominal. If a caller
+holds `e : IOErr` but a nested future only needs `IO`, project:
 
 ```rust
 // fut needs IO; project to e.io
 result := io.await(fut, e.io);
 ```
 
-## Comparison: Before vs After
+## Typing rules for control functions
 
-| Concept            | Before (implicit)                  | After (explicit)            |
-| ------------------ | ---------------------------------- | --------------------------- |
-| Effect param       | `using(raise : Raise)`             | `raise : Raise`             |
-| Call site          | `safe_divide(1, 0)` (implicit)     | `safe_divide(1, 0, raise)`  |
-| Install handler    | `given(raise) := handler`          | `raise := handler`          |
-| Handler binding    | `(given(raise) : Raise) = handler` | `(raise : Raise) = handler` |
-| Continue control   | `escape(value)`                    | `unwind(value)`             |
-| Resume control     | `return(value)`                    | `return(value)`             |
-| Effect row         | `forall(...(E))`                   | `forall(E : Struct)`        |
-| Effect polymorphic | `using(...(E))`                    | `e : E`                     |
-| Effect bundle      | `using(raise, log)`                | `{ raise, log }`            |
+A `ctl(args) -> ret` value is a **control function** — its body may
+contain `unwind`, and its value is bound to the frame where it was
+locally installed.
 
-## Effect Coloring
+1. **`unwind` placement.** `unwind(value)` is valid only inside a
+   `ctl(...) -> ret` body. A `fn(...) -> ret` body containing `unwind`
+   is a type error.
 
-Functions declare the effects they use as regular parameters. There is no implicit coloring — every parameter is explicit at every call site:
+2. **Inline lambda annotation.** An inline lambda whose body contains
+   `unwind` needs an explicit `ctl(...)` target — supplied by the
+   binding's typed LHS or written on the lambda. Inference is not
+   performed from body content.
+
+3. **Closures cannot be control functions.** A closure body (one that
+   captures outer-scope variables, lowered to `=>` syntax) cannot
+   contain `unwind`. Handlers must be bare anonymous functions.
+
+4. **Closures cannot capture control-bound values.** Even when the
+   closure body has no `unwind`, capturing a `ctl`-typed value (or a
+   value whose type contains one transitively) is rejected — the
+   closure could escape its enclosing frame and take the handler with
+   it.
+
+5. **Subtyping `fn <: ctl`** (covariant). A regular `fn(T) -> R` is
+   assignable to a `ctl(T) -> R` slot — a non-unwinder is a valid
+   value where unwind is permitted. The reverse is unsafe and
+   rejected.
+
+6. **Generics over function kinds.** `forall(T : Type)` can bind `T`
+   to either `fn(...)` or `ctl(...)` — uses of `T` are handled
+   uniformly.
+
+7. **Control-bound types.** A type is _control-bound_ iff it
+   transitively contains a `ctl(...) -> ret` (directly, or as a
+   struct/tuple/enum/union field, or as an array/slice element, or as
+   a pointer pointee). The predicate is `typeIsControlBound(T)`.
+
+8. **Escape boundaries.** Control-bound types are rejected as:
+
+   - **Function return type** — would let the handler outlive its
+     install frame.
+   - **Module-level binding type** — module scope outlives every call
+     frame.
+   - **`Box(T)` / `Rc(T)` / any heap-allocation type parameter** —
+     heap outlives every stack frame.
+   - **Closure capture type** (covered by rule 4).
+   - **Pointer pointee type** — `*(Raise)` is rejected so a handler
+     can't be installed and then written through a pointer to
+     outer-frame storage.
+
+9. **Middle-tier propagation.** A function that takes a `ctl`-typed
+   parameter (or a struct containing one) and forwards it to a callee
+   does **not** itself need to be `ctl`. The unwind targets the
+   install frame above the propagating function.
+
+### Worked example
 
 ```rust
-// This function uses the Raise effect
-safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(...);
+Raise :: (ctl(msg : String) -> i32);
 
-// Callers pass the effect explicitly
-result := safe_divide(10, 0, my_handler);
+// Caller installs the handler at frame F.
+do_caller :: (fn() -> i32)({
+  (raise : Raise) = (
+    (msg) -> {
+      println(msg);
+      unwind(i32(0));        // unwind targets `do_caller` frame
+    }
+  );
+  // `compute` runs *below* F in the call stack; calls into `raise`
+  // unwind back up to F.
+  compute(raise)
+});
 
-// Functions that don't handle effects simply forward them
-wrapper :: (fn(x : i32, raise : Raise) -> i32)(
-  safe_divide(x, 0, raise)
+// Middle tier: plain `fn`, forwards the handler.
+compute :: (fn(raise : Raise) -> i32)(safe_divide(1, 0, raise));
+
+safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
+  cond((y == 0) => raise(`div-by-zero`), true => (x / y))
 );
+```
+
+### What you can't do (and why)
+
+```rust
+Raise :: (ctl(msg : String) -> i32);
+
+// ❌ Returning the handler — its install frame would be dead.
+make_handler :: (fn() -> Raise)({
+  (r : Raise) = ((msg) -> { unwind(i32(0)); });
+  r          // rejected: return type is control-bound
+});
+
+// ❌ Module-level binding — outlives every call frame.
+top_handler :: (raise : Raise) = ((msg) -> { unwind(i32(0)); });
+
+// ❌ Pointer to a handler — could write through to outer storage.
+P :: *(Raise);  // rejected
+
+// ❌ Storing in a Box — heap outlives the install frame.
+b := Box(Raise).new((msg) -> { unwind(i32(0)); });
+
+// ❌ Closure capturing a handler — closure escapes; handler with it.
+(r : Raise) = ((msg) -> { unwind(i32(0)); });
+cb := (() => r(`hi`));  // closure captures r; rejected
 ```
 
 ## Struct-Based Effect Records
 
-Effects can be grouped into struct records:
+Effects can be grouped into struct records. The handler fields use
+`ctl(...)` types so the struct value can install them via local
+binding. Common bundles (e.g., `Exception`, `IOErr`) live in
+`std/error.yo`:
 
 ```rust
 Logger :: struct(
-  info : (fn(msg : String) -> unit),
-  warn : (fn(msg : String) -> unit)
+  info : (ctl(msg : String) -> unit),
+  warn : (ctl(msg : String) -> unit)
 );
 
-log_and_check :: (fn(x : i32, logger : Logger) -> i32)(
-  logger.info("checking");
-  cond((x < 0) => logger.warn("negative"), true => ());
+log_and_check :: (fn(x : i32, logger : Logger) -> i32)({
+  logger.info(`checking`);
+  cond((x < 0) => logger.warn(`negative`), true => ());
   x
-);
+});
 
-my_logger := Logger(
-  info : (msg) -> { println(msg); },
-  warn : (msg) -> { println("WARNING: " + msg); unwind(()); }
+(my_logger : Logger) = Logger(
+  info : ((msg) -> { println(msg); return(()); }),
+  warn : ((msg) -> { println(`WARNING: ${msg}`); unwind(()); })
 );
 
 result := log_and_check(42, my_logger);
@@ -207,44 +310,27 @@ result := log_and_check(42, my_logger);
 
 ## Semantics
 
-- Effect handlers are regular function values passed as parameters.
-- `unwind(value)` is valid inside any function body — the compiler detects handler functions by body analysis.
-- Continuations are **one-shot** — `return` can be called at most once.
-- Handler functions cannot capture outer runtime variables (C codegen requirement).
-- `...(E)` effect row spreads are replaced by `E : Struct` (a forall generic constraint).
-
-### Handler Install-Site
-
-The call site of a handler is the _install site_ — the function frame
-where `unwind` lands. The compiler decides install vs propagate by
-data flow:
-
-| Site of binding                                          | Treatment   |
-| -------------------------------------------------------- | ----------- |
-| Local definition (`raise := ...`) in a begin-block frame | **Install** |
-| Function parameter                                       | Propagate   |
-| Closure capture of an outer handler                      | Propagate   |
-| Re-binding (`r2 := r1`) — uses the innermost binding     | **Install** |
-
-### Handler Value Escape Restrictions
-
-A function value whose body contains `unwind` is _stack-bound_ to its
-install frame. It may not outlive that frame. The compiler rejects:
-
-- `return(handler)` from a function
-- Storing a handler in a heap-allocated value (`Box`, `Rc`, etc.)
-- Module-level bindings of handlers
-- Closure captures where the closure may outlive the install frame
-
-These constraints replace the old `isInsideGivenHandler` gate. They are
-data-flow based — every expression that evaluates to a control-function
-value carries an `originFrameId` tag, checked at escape sites.
+- Handler bodies run in their install frame's stack — they can
+  reference outer-frame locals (sibling handlers, surrounding
+  variables) directly. The codegen achieves this by inlining handlers
+  / threading them through state machines.
+- `return(value)` is **one-shot** — the captured continuation can be
+  resumed at most once.
+- Handler types are enforced at the type level via `ctl(...)`. The
+  evaluator does not infer ctl from body content; the user must
+  annotate.
 
 ## Code Generation
 
-Evidence passing remains unchanged from the implicit model:
+Evidence passing is unchanged:
 
-- Effect handler functions are passed as fn-ptr C parameters.
-- Effect call sites emit `__yo_effect_escaped = 0; result = (fn_ptr_call)(args); if (__yo_effect_escaped) { ... }`.
-- `unwind` sets `__yo_effect_escaped = 1`, stores value via `__yo_unwind_value`.
+- Handler functions are passed as fn-ptr C parameters.
+- Effect call sites emit:
+  ```c
+  __yo_effect_escaped = 0;
+  result = (fn_ptr_call)(args);
+  if (__yo_effect_escaped) { /* propagate unwind */ }
+  ```
+- `unwind` sets `__yo_effect_escaped = 1` and stores the value via
+  `__yo_unwind_value`.
 - `return` resumes normally — no flag set.

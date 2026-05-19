@@ -2380,12 +2380,20 @@ use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({
 
 ## 代数效应与处理器
 
-Yo 支持**代数效应** — 一种用于隐式参数传递和定界续延的机制。效应建立在两个特性之上：
+Yo 支持**代数效应** — 一次性定界续延（one-shot delimited
+continuations）。处理器的类型是专门的**控制函数**类型
+`ctl(args) -> ret`（与 `fn(args) -> ret` 并列），作为常规函数参数
+在每次调用时显式传递。
 
-1. **隐式参数（`using` / `given`）**：函数可以使用 `using(name : Type)` 声明隐式参数。在调用处，编译器会从作用域中的 `given` 绑定自动解析这些参数。
-2. **效应处理器（`return` / `unwind`）**：当效应处理器使用 `return(value)` 或 `return()` 时，它会恢复被捕获的续延。当它使用 `unwind(value)` 或 `unwind()` 时，它会丢弃续延并从外围函数返回。
+1. **控制函数类型 (`ctl`)**：处理器值的类型是 `ctl(args) -> ret`。
+   其体可以使用 `unwind(value)` 丢弃续延，或 `return(value)` 恢复
+   续延。普通 `fn(args) -> ret` 体内不允许 `unwind`。
+2. **效应参数是显式的**：需要效应的函数把处理器作为常规参数接收
+   （`raise : Raise`）。调用方在每次调用时显式传递处理器。
 
-效应可以与 `async`/`await` 组合使用：`io.async` 任务内部的效应处理器能够正确工作。如果在异步任务中调用了 `unwind`，该 Future 会被标记为已逃逸，等待它会导致 panic。
+效应可以与 `async`/`await` 组合使用：`io.async` 任务内部的处理器
+能够正确工作。如果在异步任务中调用了 `unwind`，该 Future 会被标记
+为已逃逸，等待它会导致 panic。
 
 详细文档请参阅 [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md)。
 
@@ -2458,55 +2466,60 @@ match(downcast(err, MathError),
 
 ### Exception（不可恢复异常）
 
-`Exception` 是一种用于不可恢复异常处理的代数效应。当处理器调用 `unwind` 时，续延被丢弃，控制流返回到外围函数：
+`Exception` 是用于不可恢复异常处理的效应捆绑。它的 `throw` 字段
+是一个 `ctl(...) -> ret` 处理器 — 调用 `unwind(...)` 会丢弃续延，
+从外围函数返回：
 
 ```rust
 open(import("std/error"));
 
-safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
+safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn MathError.DivisionByZero),
+    (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
     true => (x / y)
   )
 );
 
-// 使用 `given` 安装异常处理器：
-given(exn) := Exception(
-  throw : ((err) -> {
-    println(`Error: ${err}`);  // 打印 "Error: Division by zero"
-    unwind();  // 丢弃续延，从外围函数返回
-  })
+// 安装处理器 — 注意 lambda 外层的括号（Yo 没有运算符优先级）。
+(exn : Exception) = Exception(
+  throw : (
+    (err) -> {
+      println(`Error: ${err}`);  // 打印 "Error: Division by zero"
+      unwind(());                // 丢弃续延，从外围函数返回
+    }
+  )
 );
 
-result := safe_divide(6, 3);        // result = 2
-safe_divide(10, 0, using(exn));     // 触发处理器，unwind 丢弃续延
-// unwind 之后的代码永远不会执行
+result := safe_divide(6, 3);     // result = 2
+safe_divide(10, 0, exn);         // 处理器触发，unwind — 之后的代码不会执行
 ```
 
 ### ResumableException
 
-`ResumableException(ResumeType)` 是一种用于可恢复异常处理的代数效应。当处理器调用 `return` 时，它会以恢复值恢复续延：
+`ResumableException(ResumeType)` 用于可恢复异常处理。当处理器调用
+`return` 时，它会以恢复值恢复续延：
 
 ```rust
 open(import("std/error"));
 
-safe_divide :: (fn(x: i32, y: i32, using(exn : ResumableException(i32))) -> i32)(
+safe_divide :: (fn(x: i32, y: i32, exn : ResumableException(i32)) -> i32)(
   cond(
-    (y == i32(0)) => exn.throw(dyn `division by zero`),
+    (y == i32(0)) => exn.throw(dyn(`division by zero`)),
     true => (x / y)
   )
 );
 
-// 安装可恢复处理器：
-given(exn) := ResumableException(i32)(
-  throw : ((err) -> {
-    println(`Error: ${err}`);
-    return(0);  // 以恢复值 0 恢复续延
-  })
+(exn : ResumableException(i32)) = ResumableException(i32)(
+  throw : (
+    (err) -> {
+      println(`Error: ${err}`);
+      return(i32(0));  // 以恢复值 0 恢复续延
+    }
+  )
 );
 
-result := safe_divide(6, 3);    // result = 2
-result = safe_divide(10, 0);    // 处理器以 0 恢复续延，result = 0
+result := safe_divide(6, 3, exn);    // result = 2
+result2 := safe_divide(10, 0, exn);  // 处理器以 0 恢复续延，result2 = 0
 ```
 
 更多示例请参阅 [error.test.yo](../tests/error.test.yo)。
@@ -2518,19 +2531,19 @@ Yo 使用**基于状态机转换的 async/await** 实现高效的**单线程并�
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(using(io : IO)) -> unit)({
-  task1 := io.async((using(io : IO))=> {
+main :: (fn(io : IO) -> unit)({
+  task1 := io.async((io : IO)=> {
     io.await(yield());
     return(i32(1));
   });
-  task2 := io.async((using(io : IO))=> {
+  task2 := io.async((io : IO)=> {
     io.await(yield());
     return(i32(2));
   });
   handle1 := io.spawn(task1);  // 启动 task1，返回 JoinHandle(i32)
   handle2 := io.spawn(task2);  // 启动 task2，返回 JoinHandle(i32)
-  r1 := handle1.await(using(io));  // 等待 → Option(i32)
-  r2 := handle2.await(using(io));
+  r1 := handle1.await(io);  // 等待 → Option(i32)
+  r2 := handle2.await(io);
 });
 export(main);
 ```
@@ -2540,7 +2553,7 @@ export(main);
 - `io.async(fn)` 创建一个**冷 Future** — 函数体在被等待或启动之前不会执行
 - `io.await(future)` 启动一个冷 Future 并运行至完成；可以对同一个 Future **多次调用**
 - `io.spawn(future)` 启动一个冷 Future 而不等待，返回 `JoinHandle(T)`
-- `handle.await(using(io))` 等待一个已启动的任务，返回 `Option(T)` — 逃逸（中止）时返回 `.None`
+- `handle.await(io)` 等待一个已启动的任务，返回 `Option(T)` — 逃逸（中止）时返回 `.None`
 - 所有异步代码运行在**同一线程**上（无线程创建，无数据竞争）
 
 详细文档请参阅 [ASYNC_AWAIT.md](./ASYNC_AWAIT.md)。
