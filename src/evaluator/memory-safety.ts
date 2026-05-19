@@ -30,6 +30,12 @@ export function isImplicitlyUnsafeCapableFile(
   if (path.startsWith("file://")) {
     path = path.slice("file://".length);
   }
+  // Compiler-synthesized code (macros, derive expansions, etc.) has
+  // an `auto-generated://` URI. It always originates from prelude or
+  // user-defined macros expanding pointer ops — treat as unsafe-
+  // capable so the surrounding pragma decides the policy.
+  if (path.startsWith("auto-generated://")) return true;
+
   // Match anything under std/, yo-self/, or tests/.
   // Examples:
   //   /Users/.../Yo/std/prelude.yo
