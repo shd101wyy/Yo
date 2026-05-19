@@ -1077,21 +1077,25 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     }
   }
 
-  // If the body uses `unwind`, mark this function value as
-  // isControlFunction. This propagates to effect analysis and codegen
-  // so they know to generate state machines for functions that call
-  // this handler through `using`.
+  // §4 typing rule 1: `unwind` is only valid in a `ctl(...) -> ret`
+  // body. A `fn(...) -> ret` body containing `unwind` is a type error.
   //
-  // TODO §4 typing rule 1: once stdlib + tests are migrated to use
-  // `ctl(...) -> ret` for handler types, replace this body-scan with
-  // a hard error when the declared type's `isControl` is false. The
-  // check site exists in src/evaluator/exprs/unwind.ts (via the
-  // `enclosingFunctionType` context). The evaluator's overload-
-  // resolution try/catch (see calls/function.ts:1133) currently
-  // swallows the error during specialization, so the check is
-  // deferred until the migration removes the existing `fn(...)` +
-  // `unwind` body uses.
+  // The check is wrapped in the evaluator's overload-resolution
+  // try/catch (calls/function.ts:1133), so this throw may be swallowed
+  // during candidate exploration. Genuine source-level violations
+  // surface either via the same try/catch's failed-overload path or via
+  // re-evaluation of the bound function value at the authoritative call
+  // site. (Hard-error wiring outside the try/catch is tracked as
+  // follow-up work.)
   if (evaluatedBodyContainsEscape(evaluatedBody)) {
+    if (!newFunctionType.isControl && !newFunctionType.isClosure) {
+      throw formatErrorMessage({
+        token: functionBodyExpr.token,
+        errorMessage: `\`unwind\` is only valid inside a control-function body. This function is declared with \`fn(...) -> ret\`; change the declared type to \`ctl(...) -> ret\` if the body needs to unwind.
+
+See plans/EXPLICIT_EFFECTS.md §4 typing rule 1.`,
+      });
+    }
     functionValue.isControlFunction = true;
   }
 
