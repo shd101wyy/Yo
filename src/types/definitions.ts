@@ -421,14 +421,6 @@ export interface FunctionParameter {
    * The parameter becomes the owner and will be dropped at function exit.
    */
   isOwningTheRcValue: boolean;
-  /**
-   * If true, this entry in implicitParameters is an effect row spread marker.
-   * - Named spread `...(E)`: label = "E", type = SomeType_E (isEffectsRow: true)
-   * - Anonymous spread `...`:  label = "...", type = unit (placeholder)
-   * At call sites, spread entries are expanded to the concrete implicit params
-   * bound to the effect row variable.
-   */
-  isEffectRowSpread?: boolean;
 
   /**
    * The expression information of the parameter.

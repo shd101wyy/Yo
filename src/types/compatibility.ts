@@ -22,7 +22,6 @@ import {
   isComptimeListType,
   isComptimeStringType,
   isDynType,
-  isEffectsRowType,
   isEnumType,
   isExprType,
   isFnTraitType,
@@ -96,24 +95,8 @@ import type { FunctionParameter } from "./definitions";
 function flattenFutureEffects(
   effects: FunctionParameter[]
 ): FunctionParameter[] {
-  const result: FunctionParameter[] = [];
-  for (const effect of effects) {
-    if (effect.isEffectRowSpread && isEffectsRowType(effect.type)) {
-      // Spread bound to a concrete EffectsRowType — expand its parameters
-      result.push(...flattenFutureEffects(effect.type.implicitParameters));
-    } else if (
-      effect.isEffectRowSpread &&
-      isSomeType(effect.type) &&
-      effect.type.isEffectsRow
-    ) {
-      // Unresolved effect row variable — keep as-is
-      result.push(effect);
-    } else {
-      // Individual concrete effect
-      result.push(effect);
-    }
-  }
-  return result;
+  // Each effect is an individual type — no spreads to expand.
+  return effects.slice();
 }
 
 /**

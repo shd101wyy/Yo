@@ -15,7 +15,6 @@ import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,
   isComptimeListType,
-  isEffectsRowType,
   isEnumType,
   isFnTraitType,
   isFunctionType,
@@ -1132,45 +1131,11 @@ function synthesizeFutureEffects(
     return;
   }
 
-  // Categorize expected effects
-  const concreteExpected: FunctionParameter[] = [];
+  // Effects are individual types now — no spread handling required.
+  const concreteExpected: FunctionParameter[] = expectedEffects.slice();
   const solvedSpreads: FunctionParameter[] = [];
   const unsolvedSpreads: FunctionParameter[] = [];
-
-  for (const effect of expectedEffects) {
-    if (effect.isEffectRowSpread) {
-      if (isEffectsRowType(effect.type)) {
-        solvedSpreads.push(effect);
-      } else if (isSomeType(effect.type) && effect.type.isEffectsRow) {
-        unsolvedSpreads.push(effect);
-      }
-    } else {
-      concreteExpected.push(effect);
-    }
-  }
-
-  if (unsolvedSpreads.length > 1) {
-    throw new Error(
-      `Ambiguous effect row unification: multiple unsolved effect row variables ` +
-        `(${unsolvedSpreads.map((s) => s.label).join(", ")}). ` +
-        `At most one effect row spread can be unsolved during type unification.`
-    );
-  }
-
-  // Collect all concrete given effects, expanding resolved spreads.
-  // Given effects may include ...(E) spreads that have been resolved to
-  // EffectsRowType — these need to be expanded into concrete effects
-  // for proper matching against expected effects.
-  const givenConcrete: FunctionParameter[] = [];
-  for (const p of givenEffects) {
-    if (!p.isEffectRowSpread) {
-      givenConcrete.push(p);
-    } else if (isEffectsRowType(p.type)) {
-      // Resolved spread — expand into concrete effects
-      givenConcrete.push(...(p.type as EffectsRowType).implicitParameters);
-    }
-    // Unresolved SomeType spreads on given side are skipped
-  }
+  const givenConcrete: FunctionParameter[] = givenEffects.slice();
 
   // Track which given effects have been matched
   const matchedGiven = new Set<number>();

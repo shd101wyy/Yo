@@ -12,7 +12,6 @@ import type {
   Type,
 } from "../../types/definitions";
 import {
-  isEffectsRowType,
   isFunctionType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
@@ -333,21 +332,7 @@ function collectEvidenceFromRecord(
 function expandImplicitParameters(
   implicits: FunctionParameter[]
 ): FunctionParameter[] {
-  const result: FunctionParameter[] = [];
-  for (const param of implicits) {
-    if (param.isEffectRowSpread) {
-      let effectsRow = param.type;
-      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
-        effectsRow = effectsRow.resolvedConcreteType;
-      }
-      if (isEffectsRowType(effectsRow)) {
-        result.push(...effectsRow.implicitParameters);
-      }
-    } else {
-      result.push(param);
-    }
-  }
-  return result;
+  return implicits.slice();
 }
 
 /**

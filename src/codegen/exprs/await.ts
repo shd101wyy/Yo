@@ -12,7 +12,6 @@ import type {
   Type,
 } from "../../types/definitions";
 import {
-  isEffectsRowType,
   isEnumType,
   isFunctionType,
   isSourceNamespaceType,
@@ -161,7 +160,7 @@ export function generateAwait(
           isFunctionType(e.type) ||
           isSourceNamespaceType(e.type) ||
           isStructType(e.type) ||
-          e.isEffectRowSpread
+          false
       ) ?? false;
     if (hasAlgebraicEffects) {
       // Only panic if the future was already aborted before this await
@@ -518,27 +517,11 @@ function isAwaitUnwindHandlerInstallation(
   return false; // All algebraic effects are forwarded
 }
 
-/**
- * Expand effect row spreads into individual implicit parameters.
- */
 function expandFutureEffects(
   effects: FunctionParameter[]
 ): FunctionParameter[] {
-  const result: FunctionParameter[] = [];
-  for (const effect of effects) {
-    if (effect.isEffectRowSpread) {
-      let effectsRow = effect.type;
-      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
-        effectsRow = effectsRow.resolvedConcreteType;
-      }
-      if (isEffectsRowType(effectsRow)) {
-        result.push(...effectsRow.implicitParameters);
-      }
-    } else {
-      result.push(effect);
-    }
-  }
-  return result;
+  // Effect row spreads are gone — each effect is individual now.
+  return effects.slice();
 }
 
 function usesGenericFutureInterface(

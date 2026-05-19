@@ -15,7 +15,6 @@ import type {
   ArrayType,
   ComptimeListType,
   DynType,
-  EffectsRowType,
   EnumType,
   FunctionParameter,
   FunctionType,
@@ -1028,11 +1027,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       if (isFutureTraitType(traitType)) {
         const parts = [typeToString(traitType.isFuture.outputType, visited)];
         for (const effect of traitType.isFuture.effects) {
-          if (effect.isEffectRowSpread) {
-            parts.push(`...(${effect.label})`);
-          } else {
-            parts.push(typeToString(effect.type, visited));
-          }
+          parts.push(typeToString(effect.type, visited));
         }
         return `Future(${parts.join(", ")})`;
       }
@@ -1107,13 +1102,7 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
     }
 
     case TypeTag.EffectsRow: {
-      const effectsRowType = type as EffectsRowType;
-      if (effectsRowType.implicitParameters.length === 0) {
-        return "EffectsRow()";
-      }
-      return `EffectsRow(${effectsRowType.implicitParameters
-        .map((p) => `${p.label} : ${typeToString(p.type, visited)}`)
-        .join(", ")})`;
+      return "EffectsRow()";
     }
 
     case TypeTag.Dyn: {

@@ -41,7 +41,6 @@ import type {
 import {
   isConcreteTraitType,
   isDynType,
-  isEffectsRowType,
   isFunctionType,
   isSourceNamespaceType,
   isSomeType,
@@ -2370,21 +2369,8 @@ function exprContainsReturn(expr: Expr): boolean {
 function expandFutureEffects(
   effects: FunctionParameter[]
 ): FunctionParameter[] {
-  const result: FunctionParameter[] = [];
-  for (const effect of effects) {
-    if (effect.isEffectRowSpread) {
-      let effectsRow = effect.type;
-      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
-        effectsRow = effectsRow.resolvedConcreteType;
-      }
-      if (isEffectsRowType(effectsRow)) {
-        result.push(...effectsRow.implicitParameters);
-      }
-    } else {
-      result.push(effect);
-    }
-  }
-  return result;
+  // Effect row spreads are gone — each effect is an individual type now.
+  return effects.slice();
 }
 
 function usesGenericFutureInterface(

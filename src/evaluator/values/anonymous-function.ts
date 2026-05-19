@@ -34,7 +34,6 @@ import {
   isArrayType,
   isIsoType,
   isSomeType,
-  isStructType,
 } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
@@ -50,22 +49,15 @@ import {
   createType0,
 } from "../../types/creators";
 import type {
-  EffectsRowType,
   FnTraitType,
   FunctionParameter,
   FunctionType,
-  SourceNamespaceType,
   SomeType,
   StructType,
   Type,
 } from "../../types/definitions";
 import { randomId } from "../../utils";
-import {
-  createUnknownValue,
-  isFunctionValue,
-  isTypeValue,
-  type Value,
-} from "../../value";
+import { createUnknownValue, isTypeValue, type Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { analyzeAwaitPoints } from "../async/await-analysis";
 import {
@@ -276,9 +268,8 @@ export function evaluateAnonymousFunctionImplementation({
   }
 
   // Parse parameter expressions to separate forall and regular parameters
-  // REMOVED: `using` keyword is gone. All non-forall params are regular.
+  // `using` keyword is gone. All non-forall params are regular.
   let forallParamExprs: Expr[] = [];
-  const usingParamExprs: Expr[] = [];
   const regularParamExprs: Expr[] = [];
 
   for (let i = 0; i < parameterExprs.length; i++) {
@@ -390,145 +381,12 @@ Got:      "${paramName}"`,
   }
 
   // Under explicit effects there is no `using(...)` clause on
-  // anonymous functions any more — implicit parameters always come
-  // straight from the expected function type. The local
-  // `usingParamExprs` is permanently empty.
-  const resolvedImplicitParameters: FunctionParameter[] =
-    [] as FunctionParameter[];
-  const inlineEffectsRow: EffectsRowType | undefined = undefined;
-
-  // Track effect params for io.async closures — these will be added to the
-  // capture struct so they can be injected at io.spawn/io.await time.
+  // anonymous functions any more.
   const effectParamEntries: Array<{
     name: string;
     type: Type;
     token: Token;
   }> = [];
-
-  for (let i = 0; i < resolvedImplicitParameters.length; i++) {
-    const expectedParam = resolvedImplicitParameters[i]!;
-    // For inline ...(name : Type) declarations, get the individual param expr from
-    // the resolvedImplicitParameters entry itself. For plain using(_yield, _log), use usingParamExprs[i].
-    const paramExpr = inlineEffectsRow
-      ? expectedParam.exprs?.labelExpr
-      : usingParamExprs[i];
-
-    // Determine the parameter name: from the using() expr if provided, otherwise from expected
-    let paramName = expectedParam.label;
-    if (paramExpr && exprIsAtom(paramExpr)) {
-      paramName = paramExpr.token.value;
-    }
-
-    // For function-typed implicit parameters, try to resolve the actual handler
-    // value from the outer env (before implicit variables were stripped).
-    // This allows the codegen to resolve calls like `_yield(v)` to direct
-    // C function calls when the handler is a non-control function (no abort),
-    // and allows the codegen third pass to check `isControlFunction` on control
-    // function handlers for proper state machine registration.
-    let resolvedHandlerValue: Value | undefined;
-    if (isFunctionType(expectedParam.type)) {
-      // Try lookup by the current label first, then fall back to the original
-      // label from ([] as FunctionParameter[]). This handles the case where
-      // the closure renames the parameter (e.g., _yield -> yield in outer env).
-      const originalLabel = ([] as FunctionParameter[])[i]?.label;
-      const labelsToTry = [expectedParam.label];
-      if (originalLabel && originalLabel !== expectedParam.label) {
-        labelsToTry.push(originalLabel);
-      }
-      for (const label of labelsToTry) {
-        const handlerVars = getVariablesFromEnv(outerEnv, label);
-        const handlerVar = handlerVars[handlerVars.length - 1];
-        if (handlerVar?.value && handlerVar.value.length > 0) {
-          const hv = handlerVar.value[0];
-          if (hv && isFunctionValue(hv)) {
-            resolvedHandlerValue = hv;
-            break;
-          }
-        }
-      }
-    }
-
-    const paramValue = resolvedHandlerValue
-      ? resolvedHandlerValue
-      : createUnknownValue(expectedParam.type, {
-          variableName: paramName,
-          env,
-          context,
-        });
-
-    // Add implicit parameter to environment.
-    // For io.async closures, function-typed effect params are runtime values
-    // so they get captured in the closure's capture struct and can be injected
-    // at io.spawn/io.await time. Non-function-typed params (e.g., IO module)
-    // remain compile-time only.
-    // However, if the handler is already resolved from the outer scope (via
-    // given bindings), it's compile-time known and doesn't need runtime injection.
-    // Forall function types (e.g., Raise :: fn(forall(T), msg: String) -> T)
-    // are also captured — they are passed as void* and cast at each call site.
-    const isEffectParamInAsyncClosure =
-      context.isInsideIoAsyncCall &&
-      isCreatingClosure &&
-      isFunctionType(expectedParam.type) &&
-      !resolvedHandlerValue;
-    if (isEffectParamInAsyncClosure) {
-      effectParamEntries.push({
-        name: paramName,
-        type: expectedParam.type,
-        token: paramExpr?.token ?? PlaceholderToken,
-      });
-    }
-
-    // Handle record-typed effects (e.g., Exception :: struct(throw : fn(...))
-    // or IO :: struct(async : fn(...))) in async closures. Effect records need
-    // their function members decomposed and captured individually for runtime
-    // injection at io.spawn/io.await.
-    const isRecordEffectInAsyncClosure =
-      !isEffectParamInAsyncClosure &&
-      context.isInsideIoAsyncCall &&
-      isCreatingClosure &&
-      (isSourceNamespaceType(expectedParam.type) ||
-        isStructType(expectedParam.type)) &&
-      !resolvedHandlerValue;
-    if (isRecordEffectInAsyncClosure) {
-      const recordType = expectedParam.type as SourceNamespaceType | StructType;
-      for (const field of recordType.fields) {
-        if (isFunctionType(field.type)) {
-          effectParamEntries.push({
-            name: field.label,
-            type: field.type,
-            token: paramExpr?.token ?? PlaceholderToken,
-          });
-        }
-      }
-    }
-
-    const { env: nextEnv } = addVariableToEnv({
-      env,
-      variable: {
-        name: paramName,
-        type: expectedParam.type,
-        isCompileTimeOnly: !isEffectParamInAsyncClosure,
-        value: isEffectParamInAsyncClosure ? undefined : [paramValue],
-        token: paramExpr?.token ?? PlaceholderToken,
-        initializedAtToken: paramExpr?.token ?? PlaceholderToken,
-        consumedAtToken: undefined,
-        isOwningTheRcValue: false,
-        isEffectParam: isEffectParamInAsyncClosure || undefined,
-      },
-      allowVariableShadowing: true,
-    });
-    env = nextEnv;
-
-    if (paramExpr) {
-      paramExpr.$ = {
-        env: env,
-        type: expectedParam.type,
-        value: isEffectParamInAsyncClosure ? undefined : paramValue,
-        pathCollection: [],
-      };
-    }
-  }
-
   // Check regular parameters (only comptime ones need exact matching)
   for (let i = 0; i < regularParamExprs.length; i++) {
     const paramExpr = regularParamExprs[i]!;
