@@ -305,7 +305,7 @@ compile_artifact :: (
     artifact : BuildArtifact,
     ctx : *(ExecutionContext),
     io : IO, exn : Exception
-  ) -> Impl(Future(Result(unit, String), IO, Exception))
+  ) -> Impl(Future(Result(unit, String), IOErr))
 )(
   io.async((io, exn) => {
     effective_target := match(
@@ -389,7 +389,7 @@ run_executable :: (
     args : ArrayList(String),
     ctx : *(ExecutionContext),
     io : IO, exn : Exception
-  ) -> Impl(Future(Result(unit, String), IO, Exception))
+  ) -> Impl(Future(Result(unit, String), IOErr))
 )(
   io.async((io, exn) => {
     effective_target := match(
@@ -435,7 +435,7 @@ run_test_suite :: (
     suite : BuildTestSuite,
     ctx : *(ExecutionContext),
     io : IO, exn : Exception
-  ) -> Impl(Future(Result(unit, String), IO, Exception))
+  ) -> Impl(Future(Result(unit, String), IOErr))
 )(
   io.async((io, exn) => {
     test_path := Path.new(ctx.*.project_dir).join(Path.new(suite.root));
@@ -572,7 +572,7 @@ execute_dag :: (
     dag : ArrayList(DAGNode),
     ctx : *(ExecutionContext),
     io : IO, exn : Exception
-  ) -> Impl(Future(HashMap(String, StepResult), IO, Exception))
+  ) -> Impl(Future(HashMap(String, StepResult), IOErr))
 )(
   io.async((io, exn) => {
     results := HashMap(String, StepResult).new();

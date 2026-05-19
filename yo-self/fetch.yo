@@ -373,7 +373,7 @@ read_sidecar_hash :: (
   fn(
     cached_path : String,
     io : IO, exn : Exception
-  ) -> Impl(Future(Option(String), IO, Exception))
+  ) -> Impl(Future(Option(String), IOErr))
 )(
   io.async((io, exn) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
@@ -840,7 +840,7 @@ resolve_dep_path :: (
     dep_name : String,
     dep_sub : Option(String),
     io : IO, exn : Exception
-  ) -> Impl(Future(Option(String), IO, Exception))
+  ) -> Impl(Future(Option(String), IOErr))
 )(
   io.async((io, exn) => {
     lock_file := io.await(read_lock_file(Path.new(project_dir)), io);
