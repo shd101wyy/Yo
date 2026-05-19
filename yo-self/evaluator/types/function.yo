@@ -9,7 +9,7 @@
 //!   Pass 4 — scan where clause and try to evaluate constraints (with pending retry)
 //!   Pass 5 — process regular parameters; retry pending constraints after each
 //!
-//! Phase 3w: effect-row forall `E : Struct` and effect-row spread `E : Struct` in  are now fully implemented.
+//! Phase 3w: effect-row forall `E : Type.Struct` and effect-row spread `E : Type.Struct` in  are now fully implemented.
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -1922,7 +1922,7 @@ evaluate_function_parameters :: (
       while(runtime(j < forall_args.len()), {
         tp_expr := match(forall_args.get(j),.Some(a) => a,.None => make_err_expr());
         j = (j + usize(1));
-        // Detect E : Struct — effect row variable declaration
+        // Detect E : Type.Struct — effect row variable declaration
         (is_eff_row_forall : bool) = false;
         if(ast_expr_is_fn_call_of(tp_expr, "...",.Some(usize(1))) &&
           ast_expr_is_atom(match(_fn_call_args(tp_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
@@ -2067,7 +2067,7 @@ evaluate_function_parameters :: (
     while(runtime(uj < using_args.len()), {
       impl_expr := match(using_args.get(uj),.Some(a) => a,.None => make_err_expr());
       uj = (uj + usize(1));
-      // Detect E : Struct — effect row spread in 
+      // Detect E : Type.Struct — effect row spread in 
       (is_eff_row_using : bool) = false;
       if(ast_expr_is_fn_call_of(impl_expr, "...",.Some(usize(1))) &&
         ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {

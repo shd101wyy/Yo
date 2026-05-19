@@ -487,7 +487,7 @@ test("Test effect polymorphism with using spread", {
   // Effect-polymorphic function: forwards whatever effects f needs
   run :: (
     fn(
-      forall(T : Type, E : Struct),
+      forall(T : Type, E : Type.Struct),
       f : (fn(e : E) -> T),
       e : E
     ) -> T
@@ -509,7 +509,7 @@ test("Test effect polymorphism with using spread and unwind", {
   // Effect-polymorphic function: forwards whatever effects f needs
   run :: (
     fn(
-      forall(T : Type, E : Struct),
+      forall(T : Type, E : Type.Struct),
       f : (fn(e : E) -> T),
       e : E
     ) -> T
@@ -670,7 +670,7 @@ test("Test multiple effect row spreads with resume", {
   );
   run_both :: (
     fn(
-      forall(T1 : Type, T2 : Type, E1 : Struct, E2 : Struct),
+      forall(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
       f1 : (fn(e1 : E1) -> T1),
       f2 : (fn(e2 : E2) -> T2),
       e1 : E1, e2 : E2
@@ -705,7 +705,7 @@ test("Test multiple effect row spreads with unwind", {
   );
   run_both :: (
     fn(
-      forall(T1 : Type, T2 : Type, E1 : Struct, E2 : Struct),
+      forall(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
       f1 : (fn(e1 : E1) -> T1),
       f2 : (fn(e2 : E2) -> T2),
       e1 : E1, e2 : E2
@@ -774,12 +774,12 @@ test("Test closure with using() effect - unwind", {
   val := run_test();
   assert(val == 99, "closure+effect unwind: expected unwind value 99");
 });
-test("Effect row polymorphism with E : Struct spread", {
+test("Effect row polymorphism with E : Type.Struct spread", {
   Yield :: (fn(v : i32) -> i32);
   Log :: (fn(v : i32) -> unit);
   traverse :: (
     fn(
-      forall(S : usize, E : Struct),
+      forall(S : usize, E : Type.Struct),
       arr : Array(i32, S),
       callback : Impl(Fn(v : i32, e : E) -> unit),
       e : E
@@ -813,7 +813,7 @@ test("Effect row inline typed declaration name : Type", {
   Log :: (fn(v : i32) -> unit);
   traverse :: (
     fn(
-      forall(S : usize, E : Struct),
+      forall(S : usize, E : Type.Struct),
       arr : Array(i32, S),
       callback : Impl(Fn(v : i32, e : E) -> unit),
       e : E
@@ -848,7 +848,7 @@ test("Mixed unwind and return in effect handler", {
   Log :: (fn(v : i32) -> unit);
   traverse :: (
     fn(
-      forall(S : usize, E : Struct),
+      forall(S : usize, E : Type.Struct),
       arr : Array(i32, S),
       callback : Impl(Fn(v : i32, e : E) -> unit),
       e : E
@@ -886,11 +886,11 @@ test("Mixed unwind and return in effect handler", {
 });
 test("Transitive SM while loop with break", {
   Yield :: (fn(v : i32) -> i32);
-  // A transitive effectful function — its forall(E : Struct) means it always gets an SM.
+  // A transitive effectful function — its forall(E : Type.Struct) means it always gets an SM.
   // The while loop + break is inside the SM-generated function itself.
   count_until :: (
     fn(
-      forall(E : Struct),
+      forall(E : Type.Struct),
       limit : i32,
       e : E
     ) -> i32
@@ -923,7 +923,7 @@ test("Transitive SM while loop with continue", {
   // Skip odd results, accumulate even results, stop at counter == 8.
   sum_even :: (
     fn(
-      forall(E : Struct),
+      forall(E : Type.Struct),
       e : E
     ) -> i32
   )({
@@ -956,7 +956,7 @@ test("Transitive SM while loop with mixed continue and break", {
   // continue on counter <= 2, break on counter >= 5, accumulate the rest
   mixed_loop :: (
     fn(
-      forall(E : Struct),
+      forall(E : Type.Struct),
       e : E
     ) -> i32
   )({
@@ -993,7 +993,7 @@ test("Transitive SM while loop with step expr and continue", {
   Yield :: (fn(v : i32) -> i32);
   sum_with_step :: (
     fn(
-      forall(E : Struct),
+      forall(E : Type.Struct),
       e : E
     ) -> i32
   )({
@@ -1023,7 +1023,7 @@ test("Transitive SM while loop with early return", {
   Yield :: (fn(v : i32) -> i32);
   find_first :: (
     fn(
-      forall(E : Struct),
+      forall(E : Type.Struct),
       threshold : i32,
       e : E
     ) -> i32
@@ -1064,7 +1064,7 @@ test("Struct-record effect with forall handler — unwind in while loop", {
   );
   traverse :: (
     fn(
-      forall(S : usize, E : Struct),
+      forall(S : usize, E : Type.Struct),
       arr : Array(i32, S),
       exn : MyException(i32), e : E
     ) -> unit
@@ -1616,7 +1616,7 @@ test("Test effect with Option return type", {
 });
 // ---------------------------------------------------------------------------
 // Effect-polymorphic function with struct-record effect (not just fn-type effect)
-// Combines forall(E : Struct) spread with struct-record effects.
+// Combines forall(E : Type.Struct) spread with struct-record effects.
 // ---------------------------------------------------------------------------
 test("Test effect polymorphism with struct-record effect spread", {
   Raise :: struct(
@@ -1627,7 +1627,7 @@ test("Test effect polymorphism with struct-record effect spread", {
   );
   run :: (
     fn(
-      forall(T : Type, E : Struct),
+      forall(T : Type, E : Type.Struct),
       f : (fn(e : E) -> T),
       e : E
     ) -> T
@@ -1650,7 +1650,7 @@ test("Test transitive SM with struct-record effect in while loop", {
   );
   loop_with_effect :: (
     fn(
-      forall(E : Struct),
+      forall(E : Type.Struct),
       limit : i32,
       counter : Counter, e : E
     ) -> i32

@@ -1468,7 +1468,7 @@ test("Test Future no effects backward compat", {
   assert(result == i32(42), "Future(i32) should work without effects");
 });
 // ---------------------------------------------------------------------------
-// 60. Future(T, E : Struct) — single row spread (backward compat)
+// 60. Future(T, E : Type.Struct) — single row spread (backward compat)
 // ---------------------------------------------------------------------------
 test("Test Future with single effect row spread", {
   Raise :: (fn(msg : String) -> i32);
@@ -1477,7 +1477,7 @@ test("Test Future with single effect row spread", {
   );
   run :: (
     fn(
-      forall(T : Type, E : Struct),
+      forall(T : Type, E : Type.Struct),
       f : (fn(e : E) -> T),
       e : E
     ) -> T
@@ -1547,7 +1547,7 @@ test("Test Future with multiple individual effects", {
   assert(result == i32(55), "Future with multiple individual effects should work");
 });
 // ---------------------------------------------------------------------------
-// 63. Multiple effect row spreads: E1 : Struct, E2 : Struct
+// 63. Multiple effect row spreads: E1 : Type.Struct, E2 : Type.Struct
 // ---------------------------------------------------------------------------
 test("Test Future with multiple effect row spreads", {
   Raise :: (fn(msg : String) -> i32);
@@ -1560,9 +1560,9 @@ test("Test Future with multiple effect row spreads", {
   );
   run_both :: (
     fn(
-      forall(T1 : Type, T2 : Type, E1 : Struct, E2 : Struct),
-      f1 : (fn(E1 : Struct) -> T1),
-      f2 : (fn(E2 : Struct) -> T2),
+      forall(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
+      f1 : (fn(E1 : Type.Struct) -> T1),
+      f2 : (fn(E2 : Type.Struct) -> T2),
       e1 : E1, e2 : E2
     ) -> T1
   )({
@@ -1589,7 +1589,7 @@ test("Test Future with multiple effect row spreads", {
   assert(result == i32(42), "Future with multiple effect row spreads should work");
 });
 // ---------------------------------------------------------------------------
-// 64. Mixed: individual effect + spread: using(my_raise : Raise, E : Struct)
+// 64. Mixed: individual effect + spread: using(my_raise : Raise, E : Type.Struct)
 // ---------------------------------------------------------------------------
 test("Test Future with mixed individual effect and spread", {
   Raise :: (fn(msg : String) -> i32);
@@ -1602,7 +1602,7 @@ test("Test Future with mixed individual effect and spread", {
     );
     might_fail_and_forward :: (
       fn(
-        forall(E : Struct), my_raise : Raise, E : Struct) -> i32
+        forall(E : Type.Struct), my_raise : Raise, E : Type.Struct) -> i32
     )(
       my_raise(`mixed-effect`)
     );
@@ -1643,8 +1643,8 @@ test("Test type-level Impl Future with individual effects", {
   assert(result == i32(100), "Impl(Future(i32, Log, IO, Raise)) type alias should work");
 });
 // ---------------------------------------------------------------------------
-// 66. Impl(Future(i32, IO, Raise : Struct, Log)) — spread of named type
-//     Raise : Struct where Raise is a concrete effect is equivalent to just Raise
+// 66. Impl(Future(i32, IO, Raise : Type.Struct, Log)) — spread of named type
+//     Raise : Type.Struct where Raise is a concrete effect is equivalent to just Raise
 // ---------------------------------------------------------------------------
 test("Test type-level Impl Future with spread of named type", {
   Raise :: (fn(msg : String) -> i32);
@@ -1664,10 +1664,10 @@ test("Test type-level Impl Future with spread of named type", {
     i32(200)
   });
   result := io.await(task, io);
-  assert(result == i32(200), "Impl(Future(i32, IO, Raise : Struct, Log)) type alias should work");
+  assert(result == i32(200), "Impl(Future(i32, IO, Raise : Type.Struct, Log)) type alias should work");
 });
 // ---------------------------------------------------------------------------
-// 67. Impl(Future(i32, IO, Raise, Log : Struct)) — individual then spread
+// 67. Impl(Future(i32, IO, Raise, Log : Type.Struct)) — individual then spread
 // ---------------------------------------------------------------------------
 test("Test type-level Impl Future with individual then spread", {
   Raise :: (fn(msg : String) -> i32);
@@ -1688,7 +1688,7 @@ test("Test type-level Impl Future with individual then spread", {
     i32(300)
   });
   result := io.await(task, io);
-  assert(result == i32(300), "Impl(Future(i32, IO, Raise, Log : Struct)) type alias should work");
+  assert(result == i32(300), "Impl(Future(i32, IO, Raise, Log : Type.Struct)) type alias should work");
 });
 // ---------------------------------------------------------------------------
 // 67b. Explicit Impl(Future(i32, IO, Raise, Log)) type annotation on task

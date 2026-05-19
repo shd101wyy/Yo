@@ -53,7 +53,7 @@ another. The plan accepts these costs deliberately:
   every intermediate signature. Mitigated by `e : E` polymorphism in
   middle-tier functions; default evidence values (§9.6) reduce the
   leaf-level boilerplate further but are not the primary mechanism.
-- **`E : Struct` is a compiler-intrinsic constraint.** It looks like a
+- **`E : Type.Struct` is a compiler-intrinsic constraint.** It looks like a
   normal generic (`T : Type`) but enables auto-flattening of struct
   fn-ptr fields into separate C parameters at specialization. Users
   cannot define analogous constraints. The plan treats this as a
@@ -95,16 +95,16 @@ is at the surface-syntax + evaluator level only.
 | Effect record (struct-based) | `using(exn : Exception)` then `exn.throw(...)`                                    | `exn : Exception` then `exn.throw(...)`                                |
 | Continuation control         | `return(value)` resumes, `escape(value)` unwinds                                  | `return(value)` resumes, `unwind(value)` unwinds (renamed for clarity) |
 | Skip + fallback to given     | `safe_divide(1, 0, using(undefined))`                                             | n/a — no implicit lookup, no fallback                                  |
-| Effect row polymorphism      | `forall(T : Type, ...(E))` + `using(...(E))`                                      | `forall(T : Type, E : Struct)` + `e : E` (see §2)                      |
+| Effect row polymorphism      | `forall(T : Type, ...(E))` + `using(...(E))`                                      | `forall(T : Type, E : Type.Struct)` + `e : E` (see §2)                 |
 
 Removed keywords: `using`, `given`. Renamed: `escape` → `unwind`.
 
-## 2. Effect Row Polymorphism — `E : Struct` as Generic Constraint
+## 2. Effect Row Polymorphism — `E : Type.Struct` as Kind Constraint
 
 Today's `forall(...(E))` declares effect row variables as a special spread
 construct, and `using(...(E))` spreads them as implicit parameters. The
 explicit replacement models an effect row as a **generic parameter with
-a compiler-intrinsic constraint** (`E : Struct`) — almost identical to
+a compiler-intrinsic constraint** (`E : Type.Struct`) — almost identical to
 `T : Type`, but the `Struct` constraint enables auto-flattening of
 struct fn-ptr fields into separate C parameters at specialization. See
 §9.8 for why this is special-cased rather than a normal trait.
@@ -122,7 +122,7 @@ result := run(might_fail);   // E inferred from might_fail's signature
 ### After
 
 ```rust
-run :: (fn(forall(T : Type, E : Struct),
+run :: (fn(forall(T : Type, E : Type.Struct),
     f : (fn(e : E) -> T),
     e : E) -> T)(f(e));
 
@@ -130,18 +130,18 @@ effects := { yield : my_yield, log : my_log };
 result := run(might_fail, effects);
 ```
 
-### Why `E : Struct` over `...(E)`
+### Why `E : Type.Struct` over `...(E)`
 
-| Property                                      | `...(E)`                   | `E : Struct`                                                     |
+| Property                                      | `...(E)`                   | `E : Type.Struct`                                                |
 | --------------------------------------------- | -------------------------- | ---------------------------------------------------------------- |
 | Follows existing patterns                     | No — unique spread syntax  | Mostly — `forall` generic with one compiler-intrinsic constraint |
 | LLM prior knowledge                           | Must learn a new concept   | Generics shape is familiar; `: Struct` is one extra concept      |
 | Declaration / param / construction consistent | No — three different forms | Yes — `E`, `e : E`, `{ ... }`                                    |
-| Grep-able                                     | Bare `E` is ambiguous      | `E : Struct` is searchable                                       |
+| Grep-able                                     | Bare `E` is ambiguous      | `E : Type.Struct` is searchable                                  |
 
 ### Specifics
 
-- `E : Struct` is a **generic parameter** in `forall` — same shape as
+- `E : Type.Struct` is a **generic parameter** in `forall` — same shape as
   `T : Type`, but the `Struct` constraint is a compiler intrinsic
   signalling "this generic is an effect record". At specialization the
   compiler flattens its struct fn-ptr fields into separate C parameters
@@ -190,7 +190,7 @@ traverse(arr, (v, e) => { e.log(v); e.yield(v); }, effects);
 
 Two shape changes happen together here:
 
-1. **`...(E)` row spread → `E : Struct` generic param** (already covered
+1. **`...(E)` row spread → `E : Type.Struct` generic param** (already covered
    above).
 2. **`Future(T, ...effects)` variadic → `Future(T, E)` single-arg.**
    The type-level shape of an effect bundle is the same struct that
@@ -206,11 +206,11 @@ spawn : (fn(forall(T : Type, ...(E)),
     fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
 
 // ── AFTER ──
-async : (fn(forall(T : Type, E : Struct),
+async : (fn(forall(T : Type, E : Type.Struct),
     action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E)))
-await : (fn(forall(T : Type, E : Struct),
+await : (fn(forall(T : Type, E : Type.Struct),
     fut : Impl(Future(T, E)), e : E) -> T)
-spawn : (fn(forall(T : Type, E : Struct),
+spawn : (fn(forall(T : Type, E : Type.Struct),
     fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 ```
 
@@ -454,16 +454,16 @@ codegen reads it the same way today.
 
 Files touched:
 
-| Area                                                 | Approximate change                                                                                                                                                                                                                                                    |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Lexer / parser** (`src/lexer.ts`, `src/parser.ts`) | Drop `using` and `given` keyword tokens. Drop `...(E)` spread parsing in `using`. Keep `forall(...)` with `E : Struct` generic constraint.                                                                                                                            |
-| **Evaluator** (`src/evaluator/`)                     | Remove `using` / `given` handling. Remove `...(E)` row-spread evaluation. `E : Struct` is a generic with a compiler-intrinsic constraint — the compiler detects effect records at specialization and auto-flattens. Add data-flow tagging for install-site detection. |
-| **Codegen** (`src/codegen/`)                         | Drop `using`-param emission paths. Existing fn-ptr param emission stays. Install-site frame setup reads new data-flow tag. Rename `__yo_effect_escape_value` → `__yo_unwind_value`.                                                                                   |
-| **Prelude** (`std/prelude.yo`)                       | Rewrite ~30–50 fn signatures: convert `using(exn : Exception)` → `exn : Exception`. Update internal call sites. Wrap bare-fn effects (e.g. `Raise`) in single-field structs. Replace `using(...(E))` with `e : E` patterns.                                           |
-| **Stdlib** (`std/**/*.yo`)                           | Same pattern as prelude. `std/error.yo`, `std/io/*`, `std/collections/*` are likely the largest.                                                                                                                                                                      |
-| **Test suite** (`tests/**/*.test.yo`)                | `tests/algebraic_effects.test.yo` (57 cases) gets the largest churn. Other tests touch `Exception` calls that need explicit `exn` arg threading.                                                                                                                      |
-| **yo-self port** (`yo-self/**/*.yo`)                 | Mirror the TS-side changes one-to-one. Evaluator + codegen + prelude.                                                                                                                                                                                                 |
-| **Docs** (`docs/en-US/`, `docs/zh-CN/`)              | Rewrite `ALGEBRAIC_EFFECTS.md` to describe the explicit model. Update `ASYNC_AWAIT.md` cross-references.                                                                                                                                                              |
+| Area                                                 | Approximate change                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Lexer / parser** (`src/lexer.ts`, `src/parser.ts`) | Drop `using` and `given` keyword tokens. Drop `...(E)` spread parsing in `using`. Keep `forall(...)` with `E : Type.Struct` generic constraint.                                                                                                                            |
+| **Evaluator** (`src/evaluator/`)                     | Remove `using` / `given` handling. Remove `...(E)` row-spread evaluation. `E : Type.Struct` is a generic with a compiler-intrinsic constraint — the compiler detects effect records at specialization and auto-flattens. Add data-flow tagging for install-site detection. |
+| **Codegen** (`src/codegen/`)                         | Drop `using`-param emission paths. Existing fn-ptr param emission stays. Install-site frame setup reads new data-flow tag. Rename `__yo_effect_escape_value` → `__yo_unwind_value`.                                                                                        |
+| **Prelude** (`std/prelude.yo`)                       | Rewrite ~30–50 fn signatures: convert `using(exn : Exception)` → `exn : Exception`. Update internal call sites. Wrap bare-fn effects (e.g. `Raise`) in single-field structs. Replace `using(...(E))` with `e : E` patterns.                                                |
+| **Stdlib** (`std/**/*.yo`)                           | Same pattern as prelude. `std/error.yo`, `std/io/*`, `std/collections/*` are likely the largest.                                                                                                                                                                           |
+| **Test suite** (`tests/**/*.test.yo`)                | `tests/algebraic_effects.test.yo` (57 cases) gets the largest churn. Other tests touch `Exception` calls that need explicit `exn` arg threading.                                                                                                                           |
+| **yo-self port** (`yo-self/**/*.yo`)                 | Mirror the TS-side changes one-to-one. Evaluator + codegen + prelude.                                                                                                                                                                                                      |
+| **Docs** (`docs/en-US/`, `docs/zh-CN/`)              | Rewrite `ALGEBRAIC_EFFECTS.md` to describe the explicit model. Update `ASYNC_AWAIT.md` cross-references.                                                                                                                                                                   |
 
 ### Suggested phasing
 
@@ -478,7 +478,7 @@ Files touched:
 
 3. **Phase 2 — Parser + evaluator: explicit params.** 🔄 IN PROGRESS.
    Drop `using` / `given` keywords. Replace `forall(...(E))` + `using(...(E))`
-   with `forall(E : Struct)` + `e : E`. Migrate prelude + stdlib + tests.
+   with `forall(E : Type.Struct)` + `e : E`. Migrate prelude + stdlib + tests.
    This is the big-bang.
 
 4. **Phase 3 — Codegen install-site detection on data-flow tags.**
@@ -496,17 +496,17 @@ breaker. Phases 3+ can land incrementally as gen-output audits succeed.
 Given the size (~2000+ occurrences across `tests/`, `std/`, `yo-self/`),
 Phase 2 is broken into sub-phases:
 
-| Step | Description                                     | Status                                                                                                                                  |
-| ---- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 2a   | Drop `using`/`given` from lexer/parser tokens   | ✅ DONE (`bd88c32`)                                                                                                                     |
-| 2b   | Drop `using`/`given` from evaluator             | ✅ DONE (`bd88c32`)                                                                                                                     |
-| 2c   | Replace `...(E)` with `E : Struct` in evaluator | 🔲 Postponed (dead code, safe to leave)                                                                                                 |
-| 2d   | Drop `using`/`given` from codegen               | ✅ DONE (`bd88c32`)                                                                                                                     |
-| 2e   | Remove `isImplicit` etc. flags                  | 🔲 Postponed (dead code, safe)                                                                                                          |
-| 2f   | Migrate `tests/` `.yo` files                    | 🔄 In progress — `algebraic_effects` largely migrated; one shadowing test logic-fixed; remaining failures cascade from unmigrated std/. |
-| 2g   | Migrate `std/` `.yo` files                      | 🔄 Unblocked — shape (a) chosen for §9.3; ~129 `io.await` sites + Future signatures need threading.                                     |
-| 2h   | Migrate `yo-self/` `.yo` files                  | Pending (~1700 occurrences)                                                                                                             |
-| 2i   | Migrate docs                                    | `docs/en-US/`, `docs/zh-CN/`                                                                                                            |
+| Step | Description                                          | Status                                                                                                                                  |
+| ---- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 2a   | Drop `using`/`given` from lexer/parser tokens        | ✅ DONE (`bd88c32`)                                                                                                                     |
+| 2b   | Drop `using`/`given` from evaluator                  | ✅ DONE (`bd88c32`)                                                                                                                     |
+| 2c   | Replace `...(E)` with `E : Type.Struct` in evaluator | 🔲 Postponed (dead code, safe to leave)                                                                                                 |
+| 2d   | Drop `using`/`given` from codegen                    | ✅ DONE (`bd88c32`)                                                                                                                     |
+| 2e   | Remove `isImplicit` etc. flags                       | 🔲 Postponed (dead code, safe)                                                                                                          |
+| 2f   | Migrate `tests/` `.yo` files                         | 🔄 In progress — `algebraic_effects` largely migrated; one shadowing test logic-fixed; remaining failures cascade from unmigrated std/. |
+| 2g   | Migrate `std/` `.yo` files                           | 🔄 Unblocked — shape (a) chosen for §9.3; ~129 `io.await` sites + Future signatures need threading.                                     |
+| 2h   | Migrate `yo-self/` `.yo` files                       | Pending (~1700 occurrences)                                                                                                             |
+| 2i   | Migrate docs                                         | `docs/en-US/`, `docs/zh-CN/`                                                                                                            |
 
 ### Phase 2g shape
 
@@ -686,9 +686,11 @@ This section documents the specific compiler artifacts associated with
 - `ControlFlowFlags.escape` → `ControlFlowFlags.unwind`.
 - `controlFlowOf("escape")` → `controlFlowOf("unwind")`.
 - Drop `...(E)` spread syntax nodes from the AST.
-- Add `Struct` as a builtin constraint keyword (sibling of `Type`),
-  recognised by the evaluator without a prelude declaration (§9.8).
-  Remove the existing `Struct :: Type` alias from `std/prelude.yo`.
+- Recognise `Type.<KindName>` constraint syntax for the five kinds
+  `Struct`, `Enum`, `Union`, `Trait`, `Function` (see §9.8). No new
+  keyword; the evaluator short-circuits the property-access path for
+  these names. Remove the existing `Struct :: Type` alias from
+  `std/prelude.yo`.
 
 ### 8.2 Evaluator changes (`src/evaluator/`)
 
@@ -704,19 +706,19 @@ This section documents the specific compiler artifacts associated with
 | `using` param resolution           | `implicit-resolution*`, `using-param*`               | Remove all implicit lookup logic.                                                                                                                                                                |
 | `using(undefined)` handling        | Various                                              | Remove. No fallback mechanism.                                                                                                                                                                   |
 | `given` ambiguity / missing errors | Various                                              | Remove. No implicit resolution = no ambiguity.                                                                                                                                                   |
-| `...(E)` spread evaluation         | Evaluator files handling `forall` + `using` spread   | Replace with `E : Struct` generic constraint evaluation. `...(E)` becomes a forall type variable with the compiler-intrinsic `Struct` constraint.                                                |
+| `...(E)` spread evaluation         | Evaluator files handling `forall` + `using` spread   | Replace with `E : Type.Struct` generic constraint evaluation. `...(E)` becomes a forall type variable with the compiler-intrinsic `Struct` constraint.                                           |
 | Control-function escape check      | New analysis + check sites                           | Track `originFrameId` on expression results for control-function values; reject `return`, heap-store, module-level bind, and outlives-frame capture. See §4 "Handler value escape restrictions". |
 
 ### 8.3 Codegen changes (`src/codegen/`)
 
-| Artifact                               | Action                                                                                                                           |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `generateGiven` / given emit paths     | Remove. Handlers are regular variable declarations, emit like `:=`.                                                              |
-| `generateEscape` → `generateUnwind`    | Rename. Body unchanged (still sets flag + propagates).                                                                           |
-| `__yo_effect_escape_value`             | Rename to `__yo_unwind_value`.                                                                                                   |
-| `emitEffectEscapeCheck`                | Rename to `emitEffectUnwindCheck`. Keep logic.                                                                                   |
-| `using`-param evidence emission        | Remove. Evidence params are already emitted as fn-ptr params via regular parameter codegen.                                      |
-| `...(E)` spread in codegen param lists | Replace with record flattening: when a param is typed `E : Struct`, flatten its struct fields into separate C fn-ptr parameters. |
+| Artifact                               | Action                                                                                                                                |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `generateGiven` / given emit paths     | Remove. Handlers are regular variable declarations, emit like `:=`.                                                                   |
+| `generateEscape` → `generateUnwind`    | Rename. Body unchanged (still sets flag + propagates).                                                                                |
+| `__yo_effect_escape_value`             | Rename to `__yo_unwind_value`.                                                                                                        |
+| `emitEffectEscapeCheck`                | Rename to `emitEffectUnwindCheck`. Keep logic.                                                                                        |
+| `using`-param evidence emission        | Remove. Evidence params are already emitted as fn-ptr params via regular parameter codegen.                                           |
+| `...(E)` spread in codegen param lists | Replace with record flattening: when a param is typed `E : Type.Struct`, flatten its struct fields into separate C fn-ptr parameters. |
 
 ### 8.4 `isControlFunction` detection flow (unchanged)
 
@@ -814,19 +816,41 @@ Listed in the original numbering for cross-reference continuity.
    function's return type. The existing check at `escape.ts:47-60`
    continues to enforce this.
 
-8. **`Struct` constraint.** ✅ Move from `prelude.yo` (where
-   `Struct :: Type` is currently defined) to a compiler builtin,
-   alongside `Type`. `Struct` is a constraint that says "this type
-   parameter ranges over struct types, and the evaluator/codegen
-   should apply effect-record auto-flattening to it". Treating it as
-   a builtin (rather than a prelude alias) is consistent with how
-   `Type` is handled and makes the auto-flattening behaviour
-   discoverable from the language reference instead of buried in
-   prelude.
+8. **Type-kind constraints (`Type.Struct`, `Type.Enum`, ...).**
+   ✅ Use the existing dot-access syntax instead of a new keyword.
+   `T : Type.Struct` means "T ranges over struct types"; analogous
+   forms `Type.Enum`, `Type.Union`, `Type.Trait`, `Type.Function`
+   refine the same way for those kinds. Reasoning:
 
-   Stays compiler-intrinsic: users cannot define their own
-   `Effects`-like constraints. One pragmatic exception in service of
-   evidence-passing codegen; not a general extension point.
+   - **No new top-level keyword.** Reuses `.` syntax. The parser
+     handles it for free.
+   - **Composable namespace.** Adding another kind later costs
+     nothing — it's just another field name under `Type`.
+   - **Self-documenting hierarchy.** `T : Type` (any type) →
+     `T : Type.Struct` (only structs) reads as a natural refinement.
+
+   Concretely:
+
+   ```rust
+   // E ranges over struct types; auto-flattening applies.
+   io.async :: (fn(forall(T : Type, E : Type.Struct),
+     action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E)))
+   ```
+
+   Implementation: the evaluator recognises `Type.<KindName>` as a
+   short-circuit syntactic form that resolves to the same
+   `TypeHierarchyType` value `Type` already returns. The kind name is
+   documentation/intent today; future iterations can attach enforcement
+   (reject non-struct bindings, etc.) by storing the kind on the
+   resolved value.
+
+   Remove the `Struct :: Type` alias from `std/prelude.yo`. Migrate
+   `E : Type.Struct` → `E : Type.Struct` across `std/`, `tests/`,
+   `yo-self/`. Plain `T : Type` continues to mean "any type."
+
+   Stays compiler-intrinsic: users cannot add their own `Type.<X>`
+   kinds. One pragmatic exception in service of evidence-passing
+   codegen; not a general extension point.
 
 ## 10. Test Plan
 
