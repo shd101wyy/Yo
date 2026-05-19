@@ -8,7 +8,7 @@ import { PlaceholderToken, type Token } from "../../token";
 import { createEffectsRowType } from "../../types/creators";
 import type {
   EffectsRowType,
-  FunctionImplicitParameter,
+  FunctionParameter,
   Type,
 } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
@@ -1082,7 +1082,7 @@ export function synthesizeTypes(
       const expectedImplicit = expectedFunction.implicitParameters;
       // Expand given implicit params: concrete params pass through directly,
       // resolved spreads expand into their concrete implicit parameters.
-      const givenImplicit: FunctionImplicitParameter[] = [];
+      const givenImplicit: FunctionParameter[] = [];
       for (const p of givenFunction.implicitParameters) {
         if (!p.isEffectRowSpread) {
           givenImplicit.push(p);
@@ -1094,9 +1094,9 @@ export function synthesizeTypes(
       }
 
       // Categorize expected implicit params
-      const concreteExpected: FunctionImplicitParameter[] = [];
-      const solvedSpreads: FunctionImplicitParameter[] = [];
-      const unsolvedSpreads: FunctionImplicitParameter[] = [];
+      const concreteExpected: FunctionParameter[] = [];
+      const solvedSpreads: FunctionParameter[] = [];
+      const unsolvedSpreads: FunctionParameter[] = [];
 
       for (const param of expectedImplicit) {
         if (param.isEffectRowSpread) {
@@ -1186,7 +1186,7 @@ export function synthesizeTypes(
       // 3. Bind the single unsolved spread to remaining unmatched given params
       if (unsolvedSpreads.length === 1) {
         const unsolvedSpread = unsolvedSpreads[0]!;
-        const remaining: FunctionImplicitParameter[] = [];
+        const remaining: FunctionParameter[] = [];
         for (let j = 0; j < givenImplicit.length; j++) {
           if (!matchedGiven.has(j)) {
             remaining.push(givenImplicit[j]!);
@@ -1278,8 +1278,8 @@ Given: "${typeToString(given.type)}"`
  * 4. Bind the single unsolved spread to the remaining unmatched given effects
  */
 function synthesizeFutureEffects(
-  expectedEffects: FunctionImplicitParameter[],
-  givenEffects: FunctionImplicitParameter[],
+  expectedEffects: FunctionParameter[],
+  givenEffects: FunctionParameter[],
   expected: { env: Environment },
   given: { env: Environment },
   checkedTypePairs: { expected: Type; given: Type }[],
@@ -1290,9 +1290,9 @@ function synthesizeFutureEffects(
   }
 
   // Categorize expected effects
-  const concreteExpected: FunctionImplicitParameter[] = [];
-  const solvedSpreads: FunctionImplicitParameter[] = [];
-  const unsolvedSpreads: FunctionImplicitParameter[] = [];
+  const concreteExpected: FunctionParameter[] = [];
+  const solvedSpreads: FunctionParameter[] = [];
+  const unsolvedSpreads: FunctionParameter[] = [];
 
   for (const effect of expectedEffects) {
     if (effect.isEffectRowSpread) {
@@ -1318,7 +1318,7 @@ function synthesizeFutureEffects(
   // Given effects may include ...(E) spreads that have been resolved to
   // EffectsRowType — these need to be expanded into concrete effects
   // for proper matching against expected effects.
-  const givenConcrete: FunctionImplicitParameter[] = [];
+  const givenConcrete: FunctionParameter[] = [];
   for (const p of givenEffects) {
     if (!p.isEffectRowSpread) {
       givenConcrete.push(p);
@@ -1376,7 +1376,7 @@ function synthesizeFutureEffects(
   // 3. Bind the single unsolved spread to remaining unmatched given effects
   if (unsolvedSpreads.length === 1) {
     const unsolvedSpread = unsolvedSpreads[0]!;
-    const remaining: FunctionImplicitParameter[] = [];
+    const remaining: FunctionParameter[] = [];
     for (let j = 0; j < givenConcrete.length; j++) {
       if (!matchedGiven.has(j)) {
         remaining.push(givenConcrete[j]!);

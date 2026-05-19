@@ -48,7 +48,6 @@ import {
 } from "../../types/creators";
 import type {
   EffectsRowType,
-  FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
   SourceNamespaceType,
@@ -1337,7 +1336,7 @@ Got:   ${typeToString(typeValue.type)}`,
 
       if (spreadArgs.length > 0) {
         // Resolve each spread arg's type from callerEnv via variable lookup
-        const concreteImplicitParams: FunctionImplicitParameter[] = [];
+        const concreteImplicitParams: FunctionParameter[] = [];
         for (const spreadArgExpr of spreadArgs) {
           if (!exprIsAtom(spreadArgExpr)) {
             throw formatErrorMessage({
@@ -1757,7 +1756,7 @@ Got:   ${typeToString(typeValue.type)}`,
       // Handle effect row spread: ...(E) or bare ...
       if (implicitParam.isEffectRowSpread) {
         // Determine the concrete implicit params from the bound effect row variable
-        let concreteParams: FunctionImplicitParameter[] = [];
+        let concreteParams: FunctionParameter[] = [];
 
         // Named spread ...(E): look up E's bound EffectsRowType in calleeEnv
         const eVariables = getVariablesFromEnv(calleeEnv, implicitParam.label);
@@ -3597,7 +3596,7 @@ function createSpecializedFunctionInline({
   // Resolve implicit parameters by substituting SomeType forall params
   // with their concrete types from forall args. This preserves effect
   // annotations in the specialized type for evidence passing.
-  const resolvedImplicitParams: FunctionImplicitParameter[] = [];
+  const resolvedImplicitParams: FunctionParameter[] = [];
   for (const implicitParam of functionType.implicitParameters) {
     if (implicitParam.isEffectRowSpread) {
       let effectsRow = implicitParam.type;

@@ -13,7 +13,7 @@ import {
   createTraitType,
   getFunctionParameterExprs,
 } from "../../types/creators";
-import type { FunctionImplicitParameter, Type } from "../../types/definitions";
+import type { FunctionParameter, Type } from "../../types/definitions";
 import {
   isEffectsRowType,
   isSourceNamespaceType,
@@ -96,7 +96,7 @@ export function evaluateFutureType({
   // Each arg can be:
   //   - ...(E)  — effect row spread (resolved from forall)
   //   - Raise   — individual effect type
-  const effects: FunctionImplicitParameter[] = [];
+  const effects: FunctionParameter[] = [];
   for (let i = 1; i < expr.args.length; i++) {
     const effectExpr = expr.args[i]!;
     const result = resolveEffectArg(effectExpr, env, context);
@@ -134,7 +134,7 @@ function resolveEffectArg(
   effectExpr: Expr,
   env: Environment,
   context: EvaluatorContext
-): { effect: FunctionImplicitParameter; env: Environment } {
+): { effect: FunctionParameter; env: Environment } {
   // Check if this is a spread expression ...(E)
   if (
     exprIsFunctionCall(effectExpr) &&
@@ -167,7 +167,7 @@ function resolveEffectArg(
   // Derive a label from the type
   const label = getEffectLabel(effectType, effectExpr);
 
-  const effect: FunctionImplicitParameter = {
+  const effect: FunctionParameter = {
     label,
     type: effectType,
     isCompileTimeOnly: true as const,
@@ -193,7 +193,7 @@ function resolveEffectArg(
 function resolveEffectRowSpread(
   effectExpr: FnCallExpr,
   env: Environment
-): { effect: FunctionImplicitParameter; env: Environment } {
+): { effect: FunctionParameter; env: Environment } {
   const rowVarName = effectExpr.args[0]!.token.value;
 
   // Look up E in the environment
@@ -253,7 +253,7 @@ function resolveEffectRowSpread(
     });
   }
 
-  const effect: FunctionImplicitParameter = {
+  const effect: FunctionParameter = {
     label: rowVarName,
     type: rowType,
     isCompileTimeOnly: true as const,

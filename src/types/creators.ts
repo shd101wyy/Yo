@@ -21,7 +21,6 @@ import type {
   EnumType,
   FnTraitType,
   FunctionForallParameter,
-  FunctionImplicitParameter,
   FunctionParameter,
   FunctionParameterExprs,
   FunctionReturn,
@@ -836,7 +835,7 @@ export function createFunctionType({
 }: {
   parameters: FunctionParameter[];
   forallParameters: FunctionForallParameter[];
-  implicitParameters?: FunctionImplicitParameter[];
+  implicitParameters?: FunctionParameter[];
   variadicParameter: FunctionParameter | undefined;
   whereClauseExprs?: Expr[];
   return_: FunctionReturn;
@@ -1034,7 +1033,7 @@ export function createEffectsRowSomeType(
 }
 
 export function createEffectsRowType(
-  implicitParameters: FunctionImplicitParameter[]
+  implicitParameters: FunctionParameter[]
 ): EffectsRowType {
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
@@ -1130,7 +1129,7 @@ let futureTraitCounter = 0;
 export function createFutureTraitType(
   outputType: Type,
   env: Environment,
-  effects: FunctionImplicitParameter[] = []
+  effects: FunctionParameter[] = []
 ): FutureTraitType {
   // Create a unique ID for each async block's FutureTraitType
   // This ensures different async blocks with the same output type don't share the same FutureTraitType

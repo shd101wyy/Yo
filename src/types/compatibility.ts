@@ -84,7 +84,7 @@ function getEffectiveNegativeTraitTypes(
   return [...traitMap.values()];
 }
 
-import type { FunctionImplicitParameter } from "./definitions";
+import type { FunctionParameter } from "./definitions";
 
 /**
  * Flatten Future effects by resolving spreads into individual effects.
@@ -94,9 +94,9 @@ import type { FunctionImplicitParameter } from "./definitions";
  * Note: ...(ConcreteType) is no longer allowed. Use concrete types directly.
  */
 function flattenFutureEffects(
-  effects: FunctionImplicitParameter[]
-): FunctionImplicitParameter[] {
-  const result: FunctionImplicitParameter[] = [];
+  effects: FunctionParameter[]
+): FunctionParameter[] {
+  const result: FunctionParameter[] = [];
   for (const effect of effects) {
     if (effect.isEffectRowSpread && isEffectsRowType(effect.type)) {
       // Spread bound to a concrete EffectsRowType — expand its parameters

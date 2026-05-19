@@ -20,7 +20,7 @@ import {
 } from "../../expr";
 import type {
   DynType,
-  FunctionImplicitParameter,
+  FunctionParameter,
   FutureTraitType,
   SomeType,
   StructType,
@@ -362,9 +362,9 @@ export function generateAsyncBlock(
 }
 
 function expandFutureEffects(
-  effects: FunctionImplicitParameter[]
-): FunctionImplicitParameter[] {
-  const result: FunctionImplicitParameter[] = [];
+  effects: FunctionParameter[]
+): FunctionParameter[] {
+  const result: FunctionParameter[] = [];
   for (const effect of effects) {
     if (effect.isEffectRowSpread) {
       let effectsRow = effect.type;

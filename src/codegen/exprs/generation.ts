@@ -22,7 +22,7 @@ import {
   hasAnyControlFlow,
 } from "../../expr";
 import type {
-  FunctionImplicitParameter,
+  FunctionParameter,
   SourceNamespaceType,
   StructType,
   Type,
@@ -119,9 +119,9 @@ let indexTraitTempCounter = 0;
  * capture struct field name and a `type` for checking if it's function-typed.
  */
 function expandFutureEffects(
-  effects: FunctionImplicitParameter[]
-): FunctionImplicitParameter[] {
-  const result: FunctionImplicitParameter[] = [];
+  effects: FunctionParameter[]
+): FunctionParameter[] {
+  const result: FunctionParameter[] = [];
   for (const effect of effects) {
     if (effect.isEffectRowSpread) {
       // Expand the spread: the type is either an EffectsRowType directly,

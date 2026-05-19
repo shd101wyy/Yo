@@ -6,7 +6,7 @@ import {
 } from "../../evaluator/trait-checking";
 import { exprIsFunctionCall, type FnCallExpr } from "../../expr";
 import type {
-  FunctionImplicitParameter,
+  FunctionParameter,
   SourceNamespaceType,
   StructType,
   Type,
@@ -522,9 +522,9 @@ function isAwaitUnwindHandlerInstallation(
  * Expand effect row spreads into individual implicit parameters.
  */
 function expandFutureEffects(
-  effects: FunctionImplicitParameter[]
-): FunctionImplicitParameter[] {
-  const result: FunctionImplicitParameter[] = [];
+  effects: FunctionParameter[]
+): FunctionParameter[] {
+  const result: FunctionParameter[] = [];
   for (const effect of effects) {
     if (effect.isEffectRowSpread) {
       let effectsRow = effect.type;

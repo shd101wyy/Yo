@@ -246,7 +246,7 @@ export interface SomeType extends Type {
  */
 export interface EffectsRowType extends Type {
   tag: TypeTag.EffectsRow;
-  implicitParameters: FunctionImplicitParameter[];
+  implicitParameters: FunctionParameter[];
   trait: TraitType;
 }
 
@@ -452,11 +452,6 @@ export type FunctionForallParameter = FunctionParameter & {
   isImplicit: false;
 };
 
-export type FunctionImplicitParameter = FunctionParameter & {
-  isCompileTimeOnly: true;
-  isImplicit: true;
-};
-
 export interface StructType extends Type {
   tag: TypeTag.Struct;
 
@@ -611,7 +606,7 @@ export interface TraitType extends Type {
    * - Individual effect: `{ label: "Raise", type: TraitType, isEffectRowSpread: false }`
    * - Effect row spread: `{ label: "E", type: SomeType, isEffectRowSpread: true }`
    */
-  isFuture?: { outputType: Type; effects: FunctionImplicitParameter[] };
+  isFuture?: { outputType: Type; effects: FunctionParameter[] };
 
   /**
    * If this trait represents a Concrete type marker, this contains the concrete type.
@@ -664,7 +659,7 @@ export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
  * - Dyn(Future(i32)) for dynamic dispatch
  */
 export type FutureTraitType = TraitType & {
-  isFuture: { outputType: Type; effects: FunctionImplicitParameter[] };
+  isFuture: { outputType: Type; effects: FunctionParameter[] };
 };
 
 /**
@@ -825,7 +820,7 @@ export interface FunctionType extends Type {
    * eg:
    *   (fn(x: i32, using(add_fn : (fn(a : i32, b : i32) -> i32))) -> i32)
    */
-  implicitParameters: FunctionImplicitParameter[];
+  implicitParameters: FunctionParameter[];
 
   /**
    * Variadic parameters are parameters that can take a variable number of arguments.

@@ -32,7 +32,7 @@ import {
 import { exprContainsAwait } from "../../expr-traversal";
 import type {
   DynType,
-  FunctionImplicitParameter,
+  FunctionParameter,
   SourceNamespaceType,
   SomeType,
   StructType,
@@ -2368,9 +2368,9 @@ function exprContainsReturn(expr: Expr): boolean {
  * Expand effect row spreads into individual implicit parameters.
  */
 function expandFutureEffects(
-  effects: FunctionImplicitParameter[]
-): FunctionImplicitParameter[] {
-  const result: FunctionImplicitParameter[] = [];
+  effects: FunctionParameter[]
+): FunctionParameter[] {
+  const result: FunctionParameter[] = [];
   for (const effect of effects) {
     if (effect.isEffectRowSpread) {
       let effectsRow = effect.type;

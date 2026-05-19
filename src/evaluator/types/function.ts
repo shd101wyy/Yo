@@ -35,7 +35,6 @@ import {
 } from "../../types/creators";
 import type {
   FunctionForallParameter,
-  FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
   SomeType,
@@ -1576,7 +1575,7 @@ export function evaluateFunctionParameters({
 }): {
   parameters: FunctionParameter[];
   forallParameters: FunctionParameter[];
-  implicitParameters: FunctionImplicitParameter[];
+  implicitParameters: FunctionParameter[];
   variadicParameter?: FunctionParameter;
   whereClauseExprs?: Expr[];
   env: Environment;
@@ -1585,7 +1584,7 @@ export function evaluateFunctionParameters({
 
   const parameters: FunctionParameter[] = [];
   const forallParameters: FunctionParameter[] = [];
-  const implicitParameters: FunctionImplicitParameter[] = [];
+  const implicitParameters: FunctionParameter[] = [];
   let variadicParameter: FunctionParameter | undefined = undefined;
   let whereClauseExprs: Expr[] | undefined = undefined;
 
@@ -2482,7 +2481,7 @@ ${typeToString(returnType)}`,
   const functionType = createFunctionType({
     parameters,
     forallParameters: forallParameters as FunctionForallParameter[],
-    implicitParameters: implicitParameters as FunctionImplicitParameter[],
+    implicitParameters: implicitParameters as FunctionParameter[],
     variadicParameter,
     whereClauseExprs,
     return_: {

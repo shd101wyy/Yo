@@ -53,7 +53,7 @@ import {
 import type {
   EffectsRowType,
   FnTraitType,
-  FunctionImplicitParameter,
+  FunctionParameter,
   FunctionType,
   SourceNamespaceType,
   SomeType,
@@ -404,7 +404,7 @@ Got:      "${paramName}"`,
     (p) => p.isEffectRowSpread
   );
 
-  let resolvedImplicitParameters: FunctionImplicitParameter[];
+  let resolvedImplicitParameters: FunctionParameter[];
   let inlineEffectsRow: EffectsRowType | undefined;
   if (hasEffectRowSpread && usingParamExprs.length > 0) {
     // The function type has an unexpanded effect row spread like ...(E).
@@ -566,7 +566,7 @@ Got:      "${paramName}"`,
         // not by position. This allows the closure to declare effects
         // in a different order than the Future type annotation.
         const used = new Set<number>();
-        const reorderedResolved: FunctionImplicitParameter[] = [];
+        const reorderedResolved: FunctionParameter[] = [];
         for (let j = 0; j < inlineParams.length; j++) {
           const inlineParam = inlineParams[j]!;
           if (!inlineParam.type) {

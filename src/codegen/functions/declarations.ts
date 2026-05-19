@@ -5,7 +5,7 @@ import {
 import type { Expr } from "../../expr";
 import type { FuncValueId } from "../../function-value";
 import type {
-  FunctionImplicitParameter,
+  FunctionParameter,
   FunctionType,
   SourceNamespaceType,
   SomeType,
@@ -350,9 +350,9 @@ function collectEvidenceFromRecord(
  * Expand effect row spreads in implicit parameters into individual parameters.
  */
 function expandImplicitParameters(
-  implicits: FunctionImplicitParameter[]
-): FunctionImplicitParameter[] {
-  const result: FunctionImplicitParameter[] = [];
+  implicits: FunctionParameter[]
+): FunctionParameter[] {
+  const result: FunctionParameter[] = [];
   for (const param of implicits) {
     if (param.isEffectRowSpread) {
       let effectsRow = param.type;
