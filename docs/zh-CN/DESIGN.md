@@ -1007,7 +1007,26 @@ write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
 
 **仍然安全的操作**：取地址（`&(x)`）、传递/存储/返回指针、指针比较（`&<`、`&==` 等）、指针类型转换（`*(u8)(p)`）、`asm(...)`（本身已经隐式不安全）。
 
-不安全表面是可 grep 的：每个 `unsafe(` token 都标记了一处原始内存操作。`std/` 和 `yo-self/`（以及 `tests/`）下的文件目前被视为隐式不安全可用；后续 Phase C 将用显式的逐文件 `pragma(Pragma.AllowUnsafe);` 声明替换此机制。
+不安全表面是可 grep 的：每个 `unsafe(` token 都标记了一处原始内存操作。文件必须在顶部声明 `pragma(Pragma.AllowUnsafe);` 才能使用 `unsafe(...)` 或执行原始指针操作。`std/`、`yo-self/` 和 `tests/` 下的文件都显式声明了此 pragma；用户代码（`main.yo` 及项目中的其他文件）默认是安全模式，若尝试使用 `unsafe(...)` 将得到编译错误。
+
+```rust
+// 没有 pragma 的文件 — `unsafe(...)` 被拒绝：
+main :: (fn() -> unit)({
+  x := i32(42);
+  v := unsafe(x);   // error: 'unsafe(...)' is not available in safe code.
+                    //        To use raw pointer operations, declare at the top:
+                    //            pragma(Pragma.AllowUnsafe);
+});
+
+// 在文件顶部添加 pragma 即可启用：
+pragma(Pragma.AllowUnsafe);
+
+main :: (fn() -> unit)({
+  x := i32(42);
+  p := &(x);
+  v := unsafe(p.*);  // OK
+});
+```
 
 ### RAII（资源获取即初始化）
 

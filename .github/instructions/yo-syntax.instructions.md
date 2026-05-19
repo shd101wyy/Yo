@@ -485,9 +485,21 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 
-## `unsafe(...)` for raw pointer operations
+## `unsafe(...)` and `pragma(Pragma.AllowUnsafe);` for raw pointer operations
 
-In user code (any `.yo` file outside `std/`, `yo-self/`, and `tests/`), the following operations require an explicit `unsafe(...)` wrap:
+User code is memory-safe by default. To use raw pointers, a `.yo` file must declare `pragma(Pragma.AllowUnsafe);` at the top — this opts the entire file into unsafe-capability. Without the pragma, `unsafe(...)` itself is a compile error and pointer ops are forbidden.
+
+```rust
+pragma(Pragma.AllowUnsafe);
+
+main :: (fn() -> unit)({
+  x := i32(42);
+  p := &(x);
+  v := unsafe(p.*);   // OK
+});
+```
+
+Inside an unsafe-capable file, the following operations require an explicit `unsafe(...)` wrap (so the unsafe surface stays greppable):
 
 - Pointer dereference: `p.*` (read), `p.* = v` (write)
 - Pointer arithmetic: `&+`, `&-`, `&/`
@@ -496,6 +508,8 @@ In user code (any `.yo` file outside `std/`, `yo-self/`, and `tests/`), the foll
 Operations that stay safe (no wrap needed): `&(x)` to take an address, passing/storing/returning pointers, pointer comparison (`&==`, `&<`, etc.), and pointer-type casts (`*(u8)(p)`).
 
 `unsafe(expr)` is a regular builtin call taking exactly one argument — the same shape as `return(...)`, `consume(...)`. It's a compile-time marker only; at codegen it lowers to its inner expression.
+
+`pragma(...)` is also a regular builtin call. The argument `Pragma.AllowUnsafe` is recognized at the AST level; you can place the pragma anywhere at the top of the file (after the file's leading `//` comments). Multiple `pragma(...)` declarations are allowed.
 
 ```rust
 // Single expression:

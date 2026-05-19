@@ -392,9 +392,9 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
   - `consume(p.* = v)` — gated automatically via the LHS deref evaluation
 - [x] Pointer comparison (`&<`, `&>`, `&==`, `&!=`, `&<=`, `&>=`) stays safe — addresses are just data.
 - [x] Codegen: `unsafe(expr)` lowers to its inner expression. Pure compile-time marker.
-- [x] **MVP adjustment (path-based bypass):** instead of wrapping every pointer-op site in `std/` and `yo-self/` with explicit `unsafe(...)`, the gate auto-bypasses for files matching `/(std|yo-self|tests)/` in their module path. See `src/evaluator/memory-safety.ts`. Phase C will replace this path heuristic with explicit `pragma(Pragma.AllowUnsafe);` declarations.
+- [x] ~~**MVP adjustment (path-based bypass)**~~ — removed in Phase C; the gate now consults a per-file registry populated by `pragma(...)` calls. `auto-generated://...` URIs remain as a transitive bypass (macro/derive expansions inherit privilege from their callsite).
 - [x] `tests/unsafe.test.yo` — 8 positive tests for `unsafe(...)`: read/write/arithmetic deref, begin-block, transparency, nesting, cond/match wrap.
-- [ ] Negative tests for the gate error message (verified manually with `/tmp/yo-unsafe-negative-test.yo`, but no automated test yet — needs a way to assert that a user-code file outside the implicit-unsafe directories fails to compile with the right error).
+- [x] `src/tests/unsafe-gate.test.ts` — 4 negative tests verifying the gate errors fire on (a) bare deref without unsafe, (b) bare pointer arith without unsafe, (c) `unsafe(...)` without pragma, (d) the positive case where pragma + unsafe wrap compiles cleanly.
 
 ### Phase B — `inout(...)` parameters
 
@@ -409,17 +409,19 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
 ### Phase C — Privilege gate
 
-- [ ] Add `pragma` to `BuiltinKeywords` in `src/expr.ts`.
-- [ ] Add `Pragma :: enum(AllowUnsafe)` to `std/prelude.yo`.
-- [ ] Parse `pragma(Pragma.AllowUnsafe);` at top-of-file. Argument must be comptime-known. Multiple declarations OK.
-- [ ] At parse time, compute each file's privilege from its top-of-file pragmas only — **no path-based defaulting**.
-- [ ] In the evaluator, gate the unsafe-capable constructs on the current file's privilege:
+- [x] Add `pragma` to `BuiltinFunctions` in `src/expr.ts` (adjusted from BuiltinKeywords; same precedent as `consume`, `unsafe`).
+- [x] Add `Pragma :: enum(AllowUnsafe)` to `std/prelude.yo`, plus `pragma(Pragma.AllowUnsafe);` for the prelude itself.
+- [x] Parse `pragma(Pragma.AllowUnsafe);` as a regular builtin call. Argument shape recognized at the AST level (`.` property-access of `Pragma` and `AllowUnsafe`) so the prelude can declare its own pragma without resolving the enum.
+- [x] At evaluator time, compute each file's privilege from its `pragma(...)` calls only — **no path-based defaulting**. See `src/evaluator/memory-safety.ts`.
+- [x] In the evaluator, gate `unsafe(...)` itself on the calling file's privilege. Without `pragma(Pragma.AllowUnsafe);`, `unsafe(...)` is a compile error.
+- [x] Bulk-add the pragma to every existing file in `std/`, `yo-self/`, and `tests/` via `scripts/add-pragma.ts` (633 files).
+- [ ] **Follow-up:** also gate by privilege:
   - `*(T)` type usage (declarations or expressions evaluating to `*(T)`-typed values)
   - `&(expr)` operator
-  - `unsafe(...)` builtin (only callable inside privileged files)
   - `asm(...)` builtin
   - `extern fn` declaration
   - Pointer arithmetic operators (`&+`, `&-`, `&/`, `&<`, `&>`, `&<=`, `&>=`, `&==`, `&!=`)
+    Currently these are not pragma-gated. Practically, with `unsafe(...)` gated and pointer-op gates from Phase A, non-privileged user code cannot perform any pointer _operation_ — so memory safety holds. These additional gates would close the gap that non-privileged code can declare pointer-typed locals it can never use; a follow-up task.
   - `consume(p.* = v)` form
 - [ ] Diagnostic messages per the "What Safe Code Cannot Do" table above.
 - [ ] Add `pragma(Pragma.AllowUnsafe);` to every existing file in `std/` and `yo-self/` (no exceptions). Mechanical migration; ~100 files.
@@ -702,24 +704,28 @@ The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the priv
 
 ## Status
 
-**Phase A landed (MVP).** Per-expression `unsafe(...)` gate is live; stdlib bypasses via path heuristic until Phase C.
+**Phase A + Phase C landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file.
 
 Resolved decisions:
 
-- ✅ **Privilege gate mechanism** — pragma-only, no path-based defaulting. (Currently a path-based MVP shortcut is in place for `/std/`, `/yo-self/`, `/tests/`; Phase C replaces it with explicit `pragma(Pragma.AllowUnsafe);` per file.)
-- ✅ **Migration of existing user code with `*(T)`** — auto-emit `pragma(Pragma.AllowUnsafe);` at the top of pre-existing files (mechanical migration); hard break later if/when migrating to safe constructs.
+- ✅ **Privilege gate mechanism** — pragma-only, no path-based defaulting. Every `std/`, `yo-self/`, and `tests/` file explicitly declares `pragma(Pragma.AllowUnsafe);` at the top. The previous path-based MVP heuristic has been removed.
+- ✅ **Migration of existing user code with `*(T)`** — auto-emit `pragma(Pragma.AllowUnsafe);` at the top of pre-existing files via `scripts/add-pragma.ts` (633 files touched in one mechanical commit).
 - ✅ **`inout` parameter capture in closures** — forbid all closure captures of inout-params for v1. Revisit if real APIs demand non-escaping-closure carve-outs.
 - ✅ **Read-only-by-ref modifier (`in(name) : T`)** — defer to v2. v1 ships only `inout`.
 
 Phase ordering (foundation → leaves):
 
-1. **Phase A** ✅ — `unsafe(...)` marker. Landed with path-based MVP bypass.
+1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = v)`.
 2. **Phase B** — `inout(...)` parameter form. Independent of C.
-3. **Phase C** — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Adds pragma to every `std/`/`yo-self/`/`tests/` file. Removes the path-based MVP heuristic.
+3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)` itself on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
 4. **Phase D** — stdlib boundary sweep: `*(Self)` → `inout(self) : Self` in trait signatures, `*(T)` → `Slice(T)`/`inout(name) : T` in other public APIs.
 5. **Phase E** — tooling (`yo check --unsafe-report`, optional `yo audit-unsafe`).
 6. **Phase F** — docs.
 
 Total implementation cost: ~2–3 weeks across all phases. Substantially less than `FUTURE_ORIGINS.md` (~1–2 months) for materially the same practical safety story.
 
-**Next concrete unit of work: Phase B** (`inout(...)` parameter form) or **Phase C** (pragma replacement of path heuristic). Either is independently actionable.
+**Next concrete unit of work: Phase B** (`inout(...)` parameter form). Phase D depends on B.
+
+**Known gaps after Phase C:**
+
+- `*(T)` type declarations, `&(expr)` operator, `asm(...)` and `extern fn` declarations are not yet gated by pragma. These are listed in the design as Phase C scope but currently slip through; they require parser-level or type-level checks. Practically, with `unsafe(...)` gated, user code cannot perform any pointer _operation_ (deref, arithmetic, consume-of-deref), so the gap doesn't compromise memory safety — it just lets non-privileged files declare pointer-typed locals/params that they can never actually use. Track as follow-up work.

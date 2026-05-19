@@ -1010,7 +1010,26 @@ write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
 
 **What stays safe**: taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`&<`, `&==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe).
 
-The unsafe surface is greppable: every `unsafe(` token marks a place where raw memory ops happen. Files under `std/` and `yo-self/` (and `tests/`) are currently treated as implicitly unsafe-capable; Phase C of the plan will replace this with explicit per-file `pragma(Pragma.AllowUnsafe);` declarations.
+The unsafe surface is greppable: every `unsafe(` token marks a place where raw memory ops happen. A file must declare `pragma(Pragma.AllowUnsafe);` at the top before it can use `unsafe(...)` or perform raw pointer operations. `std/`, `yo-self/`, and `tests/` files declare this pragma explicitly; user code (`main.yo`, the rest of your project) defaults to safe mode and gets a compile error if it tries to use `unsafe(...)`.
+
+```rust
+// File without pragma — `unsafe(...)` is rejected:
+main :: (fn() -> unit)({
+  x := i32(42);
+  v := unsafe(x);   // error: 'unsafe(...)' is not available in safe code.
+                    //        To use raw pointer operations, declare at the top:
+                    //            pragma(Pragma.AllowUnsafe);
+});
+
+// Opt in by adding the pragma at the top of the file:
+pragma(Pragma.AllowUnsafe);
+
+main :: (fn() -> unit)({
+  x := i32(42);
+  p := &(x);
+  v := unsafe(p.*);  // OK
+});
+```
 
 ### RAII (Resource Acquisition Is Initialization)
 
