@@ -1563,7 +1563,8 @@ test("Test Future with multiple effect row spreads", {
       forall(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
       f1 : (fn(E1 : Type.Struct) -> T1),
       f2 : (fn(E2 : Type.Struct) -> T2),
-      e1 : E1, e2 : E2
+      e1 : E1,
+      e2 : E2
     ) -> T1
   )({
     f2();
@@ -1602,7 +1603,10 @@ test("Test Future with mixed individual effect and spread", {
     );
     might_fail_and_forward :: (
       fn(
-        forall(E : Type.Struct), my_raise : Raise, E : Type.Struct) -> i32
+        forall(E : Type.Struct),
+        my_raise : Raise,
+        E : Type.Struct
+      ) -> i32
     )(
       my_raise(`mixed-effect`)
     );
@@ -1864,7 +1868,7 @@ test("Test unwind in async closure", {
   {
     test_unwind :: (fn(task : Impl(Future(i32, IO, Raise)), io : IO) -> unit)({
       (raise : Raise) =
-    (msg) -> {
+        (msg) -> {
           println(msg);
           unwind(());
         };
@@ -1884,7 +1888,7 @@ test("Test unwind in async closure", {
   {
     test_unwind :: (fn(task : Impl(Future(i32, IO, Raise)), io : IO) -> i32)({
       (raise : Raise) =
-    (msg) -> {
+        (msg) -> {
           println(msg);
           unwind(666);
         };
@@ -2293,7 +2297,7 @@ test("Test unwind via injected effect aborts future", {
       return(i32(999));
     });
     (raise : Raise) =
-    (msg) -> {
+      (msg) -> {
         unwind(i32(77));
       };
     io.await(task, io, raise, io);
@@ -2408,7 +2412,7 @@ test("Regression: async unwind RC no double-decrement UAF", {
       return(i32(999));
     });
     (raise : Raise) =
-    (msg) -> {
+      (msg) -> {
         unwind(i32(77));
       };
     result := io.await(task, io, raise, io);
@@ -2730,13 +2734,15 @@ test("Regression: two awaits in while loop with result values", {
       a := io.await(
         io.async((io : IO) => {
           return(i + i32(1));
-        })
-      , io);
+        }),
+        io
+      );
       b := io.await(
         io.async((io : IO) => {
           return(a * i32(2));
-        })
-      , io);
+        }),
+        io
+      );
       sum = (sum + b);
       i = (i + i32(1));
     });
@@ -2798,15 +2804,17 @@ test("Regression: cond with await in while - both branches exercised", {
       val := io.await(
         io.async((io : IO) => {
           return(i + i32(1));
-        })
-      , io);
+        }),
+        io
+      );
       cond(
         ((val % i32(2)) == i32(0)) => {
           extra := io.await(
             io.async((io : IO) => {
               return(i32(10));
-            })
-          , io);
+            }),
+            io
+          );
           sum = (sum + extra);
         },
         true => {
@@ -2838,8 +2846,9 @@ test("Regression: recv-then-cond-send pattern (HTTP server style)", {
               true => i32(0)
             )
           );
-        })
-      , io);
+        }),
+        io
+      );
       cond(
         (n <= i32(0)) => {
           done = true;
@@ -2852,8 +2861,9 @@ test("Regression: recv-then-cond-send pattern (HTTP server style)", {
           io.await(
             io.async((io : IO) => {
               return(i32(1));
-            })
-          , io);
+            }),
+            io
+          );
           responses = (responses + i32(1));
         },
         true => ()
