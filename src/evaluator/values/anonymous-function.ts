@@ -1077,9 +1077,20 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     }
   }
 
-  // If the body uses `escape`, mark this function value as isControlFunction.
-  // This propagates to effect analysis and codegen so they know to generate
-  // state machines for functions that call this handler through `using`.
+  // If the body uses `unwind`, mark this function value as
+  // isControlFunction. This propagates to effect analysis and codegen
+  // so they know to generate state machines for functions that call
+  // this handler through `using`.
+  //
+  // TODO §4 typing rule 1: once stdlib + tests are migrated to use
+  // `ctl(...) -> ret` for handler types, replace this body-scan with
+  // a hard error when the declared type's `isControl` is false. The
+  // check site exists in src/evaluator/exprs/unwind.ts (via the
+  // `enclosingFunctionType` context). The evaluator's overload-
+  // resolution try/catch (see calls/function.ts:1133) currently
+  // swallows the error during specialization, so the check is
+  // deferred until the migration removes the existing `fn(...)` +
+  // `unwind` body uses.
   if (evaluatedBodyContainsEscape(evaluatedBody)) {
     functionValue.isControlFunction = true;
   }

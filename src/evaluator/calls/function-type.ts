@@ -438,7 +438,11 @@ export function tryToImplementFunctionByFunctionType({
   // Check if the function body type matches the function return type
   const functionBodyReturnType = evaluatedFunctionBody.$?.type;
 
-  // If the body uses `escape`, mark this function value as isControlFunction.
+  // If the body uses `unwind`, mark this function value as
+  // isControlFunction. See TODO note in anonymous-function.ts for why
+  // the hard type-check (`fn` body containing `unwind` is an error)
+  // is deferred until stdlib/tests migration to `ctl(...)` is
+  // complete — plans/EXPLICIT_EFFECTS.md §4.
   if (evaluatedBodyContainsEscape(evaluatedFunctionBody)) {
     functionValue.isControlFunction = true;
   }
