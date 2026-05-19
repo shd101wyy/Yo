@@ -1818,3 +1818,53 @@ test("ctl rule 4: closure cannot capture a ctl-typed value", {
   );
   comptime_expect_error(apply(() => raise("captured")));
 });
+// Rule 2: an inline lambda whose body contains `unwind` must carry an
+// explicit `ctl(...) -> ret` annotation (either on the LHS binding or on
+// the lambda itself). Inference from body content is intentionally not
+// performed — without an annotation the lambda defaults to `fn`, and
+// rule 1 rejects the `unwind`.
+test("ctl rule 2: lambda with unwind needs explicit ctl annotation", {
+  comptime_expect_error(
+    (fn() -> i32)({
+      // No annotation on the LHS, none on the lambda: the body's `unwind`
+      // must be rejected rather than silently coerce the type to `ctl`.
+      handler := (
+        (msg : String) -> {
+          unwind(i32(0));
+        }
+      );
+      return(i32(1));
+    })()
+  );
+});
+// Rule 5 (negative direction): a `ctl(...) -> R` value cannot be assigned
+// to a `fn(...) -> R` slot. The reverse subtyping would let a body that
+// may `unwind` flow into a callee that expected a non-unwinder.
+test("ctl rule 5: ctl is not a subtype of fn", {
+  Raise :: (ctl(msg : String) -> i32);
+  PureRaise :: (fn(msg : String) -> i32);
+  comptime_expect_error(
+    (fn() -> PureRaise)({
+      (raise : Raise) = (
+        (msg) -> {
+          unwind(i32(0));
+        }
+      );
+      (pure : PureRaise) = raise;
+      return(pure);
+    })()
+  );
+});
+// Rule 5 (positive direction): a non-unwinding `fn(...) -> R` value IS a
+// valid `ctl(...) -> R`. The lambda below has no `unwind`, so committing
+// it to a `ctl`-typed slot is sound and must continue to work.
+test("ctl rule 5: fn is a subtype of ctl", {
+  Raise :: (ctl(msg : String) -> i32);
+  (raise : Raise) = (
+    (msg) -> {
+      return(i32(42));
+    }
+  );
+  result := raise(`anything`);
+  assert(result == i32(42), "non-unwinding lambda should fill a ctl slot");
+});
