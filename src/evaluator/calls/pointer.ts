@@ -3,6 +3,7 @@ import { formatErrorMessage } from "../../error";
 import { exprToString, type FnCallExpr } from "../../expr";
 import { createPtrType } from "../../types/creators";
 import { isPtrType } from "../../types/guards";
+import { typeIsControlBound, typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -62,6 +63,23 @@ export function evaluateRawPointerCall({
   if (isTypeValue(evaluatedArgExpr.$.value)) {
     const typeValue = evaluatedArgExpr.$.value;
     const baseType = typeValue.value;
+
+    // §4 escape boundary (rule 11): a pointer/reference type cannot
+    // have a control-bound pointee. Pointers to control-bound storage
+    // would let writes-through-pointer escape the install frame —
+    // e.g. `slot.* = local_cf` where `slot` lives at an outer frame.
+    // Banning the type entirely prevents the construction.
+    if (typeIsControlBound(baseType)) {
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Cannot form a pointer to a control-bound type. The pointee transitively contains a \`ctl(...) -> ret\` function value, whose lifetime is bound to its install frame. A pointer would allow writes-through-indirection that escape that frame.
+
+Pointee type: ${typeToString(baseType)}
+
+If you need to thread a handler through code, pass it by value (handlers are fn-pointer-sized; copying is free).`,
+      });
+    }
+
     // Create the pointer type
     const pointerType = createPtrType(baseType);
     const typeValueForPointer = createTypeValue(pointerType);
