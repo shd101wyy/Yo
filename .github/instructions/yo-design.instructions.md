@@ -170,32 +170,37 @@ This applies to all parameters and return types in comptime-only APIs:
 
 ## Algebraic effects
 
-- Effects are matched by **type**, not by name. A `given(raise) : Raise` handler matches any `using(my_raise : Raise)` parameter regardless of the variable name — the match is on the `Raise` type.
+- Effect handlers are **explicit parameters**. A function that uses an effect names it in its signature, e.g. `safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)`. Callers pass the handler by name at the call site: `safe_divide(i32(10), i32(0), raise)`.
+- Install a handler at the use site with a local binding: `(raise : Raise) = ((msg) -> { unwind(i32(-1)); });`. Lambdas on the RHS of `=` need outer parens.
+- A handler whose body may `unwind` must have type `ctl(args) -> R`. A handler that always resumes can be plain `fn(args) -> R`. Subtyping is one-way: `fn(T) -> R <: ctl(T) -> R`.
 - `return(expr)` inside an effect handler **resumes** the continuation.
-- `unwind(expr)` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
-- Effect row variables (`forall(...(E))` with `using(...(E))`) allow functions to be polymorphic over their effects — they forward whatever effects the caller provides.
+- `unwind(expr)` inside an effect handler **discards** the continuation and exits the install frame (the function that bound the handler). `unwind` is only valid inside a `ctl(...) -> R` body.
+- For effect-bundle polymorphism, quantify over a struct: `forall(E : Type.Struct)` and pass `E` as the Future's single effect argument.
 - Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.
 - **Handler functions are standalone, not closures.** Effect handlers are compiled as standalone C functions and cannot reference variables from the enclosing scope. Pass state as explicit function arguments instead.
+- Pointers/references to control-bound types (any type transitively containing a `ctl(...) -> R`) are rejected — handlers must live on the stack of the install frame.
 - For the full design document with overhead analysis and implementation details, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
 ## Future return types with effects
 
-- `Future` takes the result type as the first argument and effect types as rest arguments: `Future(ResultType, Effect1, Effect2, ...)`
-- When a function uses `using(io : IO)`, its return type must include `IO` in the `Future`: `Impl(Future(Result(T, E), IO))` — NOT `Impl(Future(Result(T, E)))`
+- `Future` takes the result type as the first argument and (optionally) a single effect bundle as the second: `Future(T)` or `Future(T, E)`.
+- `E` is a single type — typically a struct that bundles every effect the async body needs. Define one bundle struct (e.g. `Ctx :: struct(io : IO, raise : Raise)`) and pass it as the single `E`.
+- The async closure takes that bundle as one parameter: `io.async((ctx : Ctx) => { ctx.raise(...); ... })`.
+- When a function uses `io : IO` and runs an async body, the bundle must include `IO`, so the return type names it: `Impl(Future(Result(T, E), Ctx))`.
 - Return `io.async(...)` directly as the last expression — do NOT assign to an intermediate variable:
 
 ```rust
 // WRONG — intermediate variable prevents enum variant type inference:
-my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
-  task := io.async((using(io)) => {
+my_fn :: (fn(io : IO) -> Impl(Future(Result(i32, IOError), IO)))({
+  task := io.async((io : IO) => {
     .Ok(i32(42))
   });
   return(task);
 });
 
 // CORRECT — return io.async directly:
-my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
-  io.async((using(io)) => {
+my_fn :: (fn(io : IO) -> Impl(Future(Result(i32, IOError), IO)))(
+  io.async((io : IO) => {
     .Ok(i32(42))
   })
 );
@@ -208,18 +213,18 @@ my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
 ### API
 
 ```rust
-handle := io.spawn(task, using(io, raise));  // → JoinHandle(T)
-result := handle.await(using(io));            // → Option(T)
+handle := io.spawn(task, ctx);   // → JoinHandle(T), ctx is the task's effect bundle
+result := handle.await(io);      // → Option(T)
 ```
 
 ### Semantics
 
-- `io.spawn(task, using(io, effects...))` cold-starts the future, injects effect handlers, returns a `JoinHandle(T)`.
-- `handle.await(using(io))` polls the spawned future until completion or abort, returns `Option(T)`:
+- `io.spawn(task, e)` cold-starts the future with the effect bundle `e`, and returns a `JoinHandle(T)`.
+- `handle.await(io)` polls the spawned future until completion or abort, returns `Option(T)`:
   - `.Some(result)` — task completed normally
   - `.None` — task was aborted (effect handler called `unwind`)
-- When used as fire-and-forget (`io.spawn(task)` without binding result), the JoinHandle is discarded with no RC overhead.
-- `JoinHandle(T)` is a non-owning view — it does not increment the future's reference count. The original task variable (`task1`, etc.) owns the future.
+- When used as fire-and-forget (`io.spawn(task, e)` without binding result), the JoinHandle is discarded with no RC overhead.
+- `JoinHandle(T)` is a non-owning view — it does not increment the future's reference count. The original task variable owns the future.
 
 ### Definition (in prelude.yo)
 

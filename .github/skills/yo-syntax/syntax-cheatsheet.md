@@ -121,7 +121,7 @@ masked := ((A | B) | C);
 - Yo has no operator precedence; fully parenthesize binary expressions
 - Preserve grouping around infix expressions on operator RHS positions: `true => (x / y)`, `value := (x + y)`, `(ptr &+ 1).*`
 - Line breaks can disambiguate operator chains; keep line-leading operators like `(4\n| 5\n| 6)` and newlines after `:` before a lambda unless you add equivalent grouping
-- When an operator ends a line, indent its RHS one level as a continuation: `(given(x) : T) =\n  (v) -> { ... }`
+- When an operator ends a line, indent its RHS one level as a continuation: `(x : T) =\n  (v) -> { ... }`
 - Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
 - Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <: !(Runtime)`
 - Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
@@ -180,12 +180,12 @@ create_user(name: `Bob`, age: 30);
 - Named arguments must keep the same order as the definition
 - Default values use `?=` and must be compile-time known
 
-### Implicit parameters (`using` / `given`)
+### Effect parameters (explicit)
 
 ```rust
-Raise :: (fn(msg : String) -> i32);
+Raise :: (ctl(msg : String) -> i32);
 
-safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
   cond(
     (y == i32(0)) => raise(`divide by zero`),
     true => (x / y)
@@ -193,18 +193,20 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 );
 
 caller :: (fn() -> i32)({
-  (given(raise) : Raise) = (fn(msg : String) -> i32)({
-    return(i32(0));
+  // Handler value bound to a local. Lambdas on the RHS of `=` need outer parens.
+  (raise : Raise) = ((msg) -> {
+    unwind(i32(0));
   });
 
-  safe_divide(i32(10), i32(0))
+  safe_divide(i32(10), i32(0), raise)
 });
 ```
 
-- `using(name : Type)` declares an implicit parameter (effect)
-- `given(name) := Type(fields...)` installs a handler in the caller's scope
-- Effects are matched by **type**, not by name
-- The handler is auto-resolved at call sites; pass explicitly with `using(name)`
+- Effect handlers are regular parameters — pass them explicitly at the call site.
+- `ctl(args) -> R` types a handler that may `unwind` (discard the continuation).
+  Use plain `fn(args) -> R` for handlers that always resume.
+- Bundle multiple effects into a struct (`Ctx :: struct(raise : Raise, log : Log)`)
+  and pass one parameter when there are many.
 
 ### Closures and anonymous functions
 
@@ -726,44 +728,36 @@ if((!cond), { do_thing(); });
 
 ### `unwind` requires a nested-function context
 
-`unwind(value)` exits the **enclosing function** — the nearest `fn(...)` that
-wraps the current code. It requires that the code is inside a nested function
-(e.g., a closure or `given` handler lambda), NOT at the top level of a
-standalone function definition.
+`unwind(value)` exits the **install frame** — the function that bound the
+`ctl(...) -> R` value being called. It is only valid inside the body of a
+`ctl(...) -> R` value (an effect handler).
 
 ```rust
-// CORRECT — unwind inside a given handler lambda (lambda has enclosing fn):
-given(exn) := Exception(throw: ((err) -> {
-  unwind(result); // exits the outer function that contains this given()
-}));
-do_something(using(exn));
+Raise :: (ctl(msg : String) -> i32);
 
-// CORRECT — even after process-exit helpers, satisfy the handler's resume type:
-given(exn2) := Exception(throw: ((err) -> {
-  eprintln(err.to_string());
-  exit(int(1));
-  unwind(); // required because exit() returns unit, not the handler ResumeType
-}));
-
-// CORRECT — unwind inside a closure passed as argument:
-result := match(opt, .Some(x) => x, .None => {
-  // This is NOT a nested function — use return:
-  // WRONG: unwind(default_val)  // ERROR: no enclosing fn
-  return(default_val); // CORRECT: return exits the enclosing fn directly
+caller :: (fn() -> i32)({
+  // The handler is a `ctl` value bound in `caller`. `unwind` exits `caller`.
+  (raise : Raise) = ((msg) -> {
+    eprintln(msg);
+    unwind(i32(-1));
+  });
+  safe_divide(i32(10), i32(0), raise)  // call site: handler is passed explicitly
 });
 
-// WRONG — unwind inside a match arm (not a nested fn):
-match(opt,
-  .Some(x) => { unwind(x); }  // ERROR: "can only be used inside a function that has an enclosing function"
+// WRONG — `unwind` in a regular `fn` body (no install frame here) is rejected.
+bad :: (fn() -> unit)({
+  unwind(());  // ERROR: unwind requires a ctl(...) body
+});
+
+// WRONG — capturing a `ctl` value into a closure is rejected (closures escape).
+make_closure :: (fn(raise : Raise) -> Impl(Fn() -> unit))(
+  () => { raise(`x`); }  // ERROR: closure captures a control-bound value
 );
 ```
 
-**Rule of thumb**: Use `unwind` only inside lambdas passed to `given()` handlers.
-In all other contexts (match arms, if blocks, begin blocks, top-level fn bodies),
-use `return` for early exit.
-
-`return` inside a lambda exits that lambda only; `unwind` exits the OUTER function
-(the one that installed the `given` handler).
+**Rule of thumb**: `unwind` belongs only inside the lambda bound to a
+`ctl(...) -> R` handler. From any other position, use `return` to exit the
+current `fn`.
 
 ### Parameter reassignment
 
@@ -818,19 +812,19 @@ fn_taking_str((`prefix_${value}`).as_str());
 
 These features are powerful but less commonly used. Consult the linked docs for full details.
 
-| Feature                | Syntax hint                                              | Documentation                                                                                                          |
-| ---------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Higher-Kinded Types    | `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))` | [DESIGN.md § HKT](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#higher-kinded-types-hkt)           |
-| GADTs                  | `enum(IntVal(i : i32) -> recur(i32))`                    | [GADTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/GADTS.md)                                           |
-| Derive traits          | `derive(MyType, Eq, Hash, Clone, Ord, ToString)`         | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)                           |
-| Type reflection        | `Type.get_info(T)` returns `TypeInfo`                    | [TYPE_REFLECTION.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/TYPE_REFLECTION.md)                       |
-| Inline assembly        | `asm("mov {0}, #42", out(reg, i32))`                     | [INLINE_ASSEMBLY.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/INLINE_ASSEMBLY.md)                       |
-| Metaprogramming        | `quote(...)`, `unquote(...)`, `unquote_splicing(...)`    | [DESIGN.md § Meta](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#meta-programming)                 |
-| Effect row variables   | `forall(...(E))` with `using(...(E))`                    | [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md)                   |
-| Custom derive rules    | `derive_rule(MyTrait, (fn(...) -> unquote(Expr)){...})`  | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md#user-defined-derive-rules) |
-| Isolated types         | `Iso(T)` for data-race-free parallelism                  | [ISOLATED.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ISOLATED.md)                                     |
-| Arc (atomic ref count) | `arc(value)`, `shared.(*)` for cross-thread sharing      | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
-| Parallelism            | Thread pool, `io.spawn` for parallel work                | [PARALLELISM.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/PARALLELISM.md)                               |
+| Feature                    | Syntax hint                                              | Documentation                                                                                                          |
+| -------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Higher-Kinded Types        | `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))` | [DESIGN.md § HKT](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#higher-kinded-types-hkt)           |
+| GADTs                      | `enum(IntVal(i : i32) -> recur(i32))`                    | [GADTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/GADTS.md)                                           |
+| Derive traits              | `derive(MyType, Eq, Hash, Clone, Ord, ToString)`         | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)                           |
+| Type reflection            | `Type.get_info(T)` returns `TypeInfo`                    | [TYPE_REFLECTION.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/TYPE_REFLECTION.md)                       |
+| Inline assembly            | `asm("mov {0}, #42", out(reg, i32))`                     | [INLINE_ASSEMBLY.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/INLINE_ASSEMBLY.md)                       |
+| Metaprogramming            | `quote(...)`, `unquote(...)`, `unquote_splicing(...)`    | [DESIGN.md § Meta](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#meta-programming)                 |
+| Effect bundle polymorphism | `forall(E : Type.Struct)` over a bundle struct           | [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md)                   |
+| Custom derive rules        | `derive_rule(MyTrait, (fn(...) -> unquote(Expr)){...})`  | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md#user-defined-derive-rules) |
+| Isolated types             | `Iso(T)` for data-race-free parallelism                  | [ISOLATED.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ISOLATED.md)                                     |
+| Arc (atomic ref count)     | `arc(value)`, `shared.(*)` for cross-thread sharing      | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
+| Parallelism                | Thread pool, `io.spawn` for parallel work                | [PARALLELISM.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/PARALLELISM.md)                               |
 
 ---
 
@@ -995,26 +989,6 @@ Always merge them into a single destructuring import:
 
 // ✅ Merged
 { Foo, Bar } :: import("../../mod.yo");
-```
-
-### Implicit (`using`) parameters cannot be used with `:=` assignment
-
-Implicit effect parameters introduced via `using(name : Type)` cannot be bound
-to a discarded variable with `:= name`. They can only be passed via `using()`.
-To suppress "unused parameter" warnings for an implicit param, simply omit the
-discard assignment — implicit params never trigger unused-variable errors.
-
-```rust
-// WRONG — implicit variable cannot be used in assignment:
-foo :: (fn(using(exn : Exception)) -> unit)({
-  _ := exn;   // ERROR: Cannot use implicit variable "exn" in assignment
-  ()
-});
-
-// CORRECT — just omit the discard line:
-foo :: (fn(using(exn : Exception)) -> unit)({
-  ()
-});
 ```
 
 ### Nested `Option` patterns require staging

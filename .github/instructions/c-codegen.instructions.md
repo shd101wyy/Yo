@@ -86,23 +86,23 @@ Index methods backed by builtins (e.g., `__yo_array_index`) are detected by `isF
 
 ## Algebraic effects codegen
 
-- Functions with `forall(...(E))` spread effect parameters have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
+- Functions with `forall(E : Type.Struct)` polymorphic over an effect bundle have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
 
 ### Evidence passing for effects
 
 **All** effects — both struct-record (e.g., `Exception`, `Raise`) and function-type — use **evidence passing**. A struct effect record is an evidence record; at runtime, its function fields are passed as function pointers. Therefore there is no distinction between struct-record effects and function effects in codegen — both compile to passing function pointers as explicit C parameters.
 
-`forall(...)` remains compile-time-only, while `using(...)`/`given(...)` resolve statically and pass runtime evidence. Evidence passing is how that runtime behavior is realized.
+`forall(...)` remains compile-time-only. Effect parameters are explicit `fn`/`ctl` parameters at the language level; codegen lowers them to function-pointer C parameters. Evidence passing is how that runtime behavior is realized.
 
 For the full design document with overhead analysis and language semantics, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
 **How it works:**
 
-- A function with `using(exn : Exception)` gets an extra C parameter: `void (*throw)(AnyError)`
-- A function with `using(raise_mod : Raise)` where `Raise :: struct(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(__yo_string)`
+- A function with `exn : Exception` gets an extra C parameter: `void (*throw)(AnyError)`
+- A function with `raise_mod : Raise` where `Raise :: struct(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(__yo_string)`
 - The function body calls the effect operation directly via the function pointer — no SM needed
 - Call sites pass the function pointer from their context:
-  - Sync: the handler function address from `given(exn) := Exception(throw: handler_fn)`
+  - Sync: the handler function address from `exn := Exception(throw: handler_fn)` (or `(exn : Exception) = Exception(...)` when the LHS needs the annotation)
   - Async SM: `sm->__capture.throw` from the Future's capture struct
   - Transitive: forwarded from the caller's own evidence parameter
 
@@ -115,9 +115,9 @@ For the full design document with overhead analysis and language semantics, see 
 
 See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale.
 
-**Forall function-type effects (e.g., `Raise :: fn(forall(T), msg: String) -> T`):**
+**Forall function-type effects (e.g., `Raise :: ctl(forall(T), msg: String) -> T`):**
 
-- Bare function-type effect handlers from `given` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This historical flag means "effect member function" and ensures their C function body is generated despite having forall parameters (the forall types are erased at runtime).
+- Bare function-type effect handlers from local `(raise : Raise) = ((msg) -> { ... })` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This historical flag means "effect member function" and ensures their C function body is generated despite having forall parameters (the forall types are erased at runtime).
 - The evaluator includes forall function effects in async closure capture structs (`isEffectParamInAsyncClosure` in `anonymous-function.ts`). They are stored as `void*` and cast at each call site.
 - Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both struct-record and forall function-type effects (`emitEffectInjectionForAwait` in `await.ts`).
 
@@ -170,11 +170,11 @@ Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (decla
 
 ### Function collection for evidence-bearing functions
 
-Functions with evidence parameters (from `using(io: IO)` or algebraic effect bindings) need special handling in `collection.ts`. Three skip conditions must allow these functions through:
+Functions with evidence parameters (from `io: IO` or algebraic effect parameters) need special handling in `collection.ts`. Three skip conditions must allow these functions through:
 
-1. **`isFunctionTypeHardGeneric` check** — A specialized function may still appear "hard-generic" because the implicit params are compile-time-only. If `getEvidenceParameters(specializedType).length > 0`, the function is valid for codegen — evidence params become C function pointers.
+1. **`isFunctionTypeHardGeneric` check** — A specialized function may still appear "hard-generic" because evidence params trace back to a comptime-only `forall(...)` binding. If `getEvidenceParameters(specializedType).length > 0`, the function is valid for codegen — evidence params become C function pointers.
 
-2. **`exprContainsUnknownValue` check** — Functions with implicit params may have `UnknownValue` in their body for compile-time parameter references. Check both original and specialized types: if either has evidence parameters, the function is valid.
+2. **`exprContainsUnknownValue` check** — Functions with effect params may have `UnknownValue` in their body for compile-time parameter references. Check both original and specialized types: if either has evidence parameters, the function is valid.
 
 3. **SomeType ARC function filter** — `___drop`/`___dup` for SomeType(Future) are skipped because SomeType has no C representation. But user-defined functions (e.g., `test_escape(task: Impl(Future(...)))`) with evidence params should NOT be skipped — their SomeType params are resolved at call sites.
 
@@ -182,11 +182,11 @@ Functions with evidence parameters (from `using(io: IO)` or algebraic effect bin
 
 When an `io.await` detects a Future abort (state == -2), the behavior depends on whether the current function is the **handler installation point** or a **propagation point**:
 
-- **Handler installation** — The function has a `given(raise) := ...` binding that locally installs the effect handler. When escaped, it clears `__yo_effect_escaped = 0`, extracts the unwind value from `__yo_unwind_value` via `memcpy`, and returns it.
+- **Handler installation** — The function has a local `(raise : Raise) = ((msg) -> { ... })` binding that installs the effect handler. When escaped, it clears `__yo_effect_escaped = 0`, extracts the unwind value from `__yo_unwind_value` via `memcpy`, and returns it.
 
-- **Propagation** — The function receives the effect via evidence parameters (`using`). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the unwind.
+- **Propagation** — The function receives the effect via an evidence parameter (e.g. `raise : Raise` in its own signature). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the unwind.
 
-The helper `isAwaitEscapeHandlerInstallation()` in `await.ts` determines this by checking if ANY algebraic effect in the Future is NOT in the current function's `currentEvidenceParams`. If an effect's key is missing from evidence params, it must be locally installed via `given`.
+The helper `isAwaitEscapeHandlerInstallation()` in `await.ts` determines this by checking if ANY algebraic effect in the Future is NOT in the current function's `currentEvidenceParams`. If an effect's key is missing from evidence params, it must be locally installed.
 
 ### Effect member return types
 
@@ -219,7 +219,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 
 ### io.spawn codegen
 
-`io.spawn(task, using(io, effects...))` generates:
+`io.spawn(task, ctx)` (where `ctx` is the task's effect bundle) generates:
 
 1. Store the future pointer in a local variable
 2. Check abort state (panic if already aborted)
@@ -236,20 +236,20 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 1. SM capture variables (`sm->__capture.<field>`)
 2. Struct value fields (concrete `StructValue` from evaluator)
 3. Caller's evidence params (`currentEvidenceParams` map)
-4. Given bindings in the call environment
+4. Locally installed handler bindings in the call environment
 
 **Function effects (e.g., Raise):** Including forall function effects:
 
 1. Caller's evidence params
 2. SM capture variables
-3. Using arg's function value (from evaluator)
-4. Fallback: `generateExpr(usingArg)`
+3. The bound handler's function value (from evaluator)
+4. Fallback: `generateExpr(handlerArg)`
 
-**Important:** Forall function-type effects (e.g., `Raise :: fn(forall(T), ...) -> T`) are NOT skipped. They are runtime function pointers passed as `void*` in evidence passing.
+**Important:** Forall function-type effects (e.g., `Raise :: ctl(forall(T), ...) -> T`) are NOT skipped. They are runtime function pointers passed as `void*` in evidence passing.
 
 ### JoinHandle.await codegen
 
-`handle.await(using(io))` generates (`generateJoinHandleAwait` in `await.ts`):
+`handle.await(io)` generates (`generateJoinHandleAwait` in `await.ts`):
 
 1. Extract `void*` future pointer from handle's `__future` field
 2. Cast to inline header struct to read `state` and `result` fields

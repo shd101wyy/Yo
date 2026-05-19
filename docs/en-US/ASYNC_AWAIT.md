@@ -241,84 +241,60 @@ main :: (fn(io : IO) -> unit)({
 
 #### Future with Effects
 
-`Future(T)` can carry algebraic effect information. The full syntax is:
+`Future(T)` can carry algebraic-effect information. The shape is:
 
 ```rust
-Future(T)                                  // No effects
-Future(T, E)                          // Effect row spread (E must be forall-declared)
-Future(T, Raise)                           // Single individual effect
-Future(T, Raise, Log)                      // Multiple individual effects
-Future(T, Raise, ...(E))                   // Mixed: individual effects + one row spread
+Future(T)        // No effects
+Future(T, E)     // Future yielding T with effect bundle E
 ```
 
-Each argument after the output type `T` is either:
+`E` is a single type — typically a struct that bundles every effect the async body
+needs (handler fields plus any `IO`-like records). The author packs the bundle
+themselves; the language does not concatenate effects from multiple type arguments.
 
-- An **individual effect type** (e.g., `Raise`, `Log`) — evaluated as a type expression
-- An **effect row spread** `...(E)` — where `E` must be a forall-declared effect row variable
+```rust
+// A bundle struct carries every effect the task needs.
+TaskCtx :: struct(io : IO, raise : Raise, log : Log);
+```
 
-**Simplification rules:**
+**Matching rules**
 
-- `...(E)` is ONLY allowed when `E` is a single forall-declared effect row variable
-- For concrete effects, list them directly: `Future(T, Raise, Log)` not `Future(T, ...(Raise, Log))`
-- At most one unsolved spread variable during type unification
+1. **Type equality on the bundle.** `Future(T, E1)` matches `Future(T, E2)` when
+   `E1` and `E2` are compatible types. There is no order-independent set matching
+   anymore — there is no set, just one bundle.
+2. **Unannotated and annotated mix freely.** `Future(T)` (no bundle) is
+   compatible with `Future(T, E)` (any bundle). Use the unannotated form when
+   the caller doesn't need to refer to the effect type.
+3. **IO when the body awaits.** Any async body that calls `io.await` / `yield`
+   needs an `IO` in its bundle, so the bundle struct typically has an `io : IO`
+   field.
 
-**Effect Matching Rules:**
-
-1. **Order-independent (set-based):** Effects are compared as sets, not ordered lists. `Future(i32, Raise, Log)` matches `Future(i32, Log, Raise)`.
-2. **Spread flattening:** `...(E)` where E resolves to `{Raise, Log}` is equivalent to listing `Raise, Log` individually. `Future(i32, ...(E))` matches `Future(i32, Raise, Log)` after flattening.
-3. **Backward compatibility:** `Future(T)` (no effects) is compatible with any `Future(T, ...)` for backward compatibility.
-4. **IO is always present:** Since `io.async` closures always need `IO` for `io.await`/`yield`, the Future type from `io.async` always includes `IO` in its effects.
-
-**Example: Effect propagation through async**
+**Example: bundled effects through async**
 
 ```rust
 { yield } :: import "std/async";
 Raise :: (fn(forall(T : Type), msg : String) -> T);
 Log :: (fn(msg : String) -> unit);
+TaskCtx :: struct(io : IO, raise : Raise, log : Log);
 
 main :: (fn(io : IO) -> unit)({
-  // Define effect handlers in the caller scope
-  (raise : Raise) = ((msg) -> {
-    return i32(0);
-  });
-  (log : Log) = ((msg) -> {
-    println(msg);
-  });
+  (raise : Raise) = ((msg) -> { return(i32(0)); });
+  (log : Log) = ((msg) -> { println(msg); });
+  ctx := TaskCtx(io: io, raise: raise, log: log);
 
-  // Closure propagates IO, Raise, Log from the caller
-  // Future type becomes Future(i32, IO, Raise, Log)
-  task := io.async((io : IO, raise : Raise, log : Log)=> {
-    log(`doing work`);
-    io.await(yield());
+  (task : Impl(Future(i32, TaskCtx))) = io.async((ctx : TaskCtx) => {
+    ctx.log(`doing work`);
+    ctx.io.await(yield(), ctx.io);
     i32(42)
   });
 
-  // io.await resolves IO, Raise, Log from the caller's scope
-  result := io.await(task);
+  result := io.await(task, ctx);
 });
 export main;
 ```
 
-**Example: Effect-polymorphic async function**
-
-```rust
-Raise :: (fn(forall(T : Type), msg : String) -> T);
-Log :: (fn(msg : String) -> unit);
-
-// Function that combines two effect-polymorphic functions
-run_both :: (fn(
-    forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
-    f1 : (fn(e1 : E1) -> T1),
-    f2 : (fn(e2 : E2) -> T2),
-    e1 : E1, e2 : E2
-  ) -> T1)
-{
-  f2();
-  f1()
-};
-```
-
-The `IO` effect record uses effect rows to propagate algebraic effects through async boundaries:
+The `IO` effect record is itself a bundle-shaped struct that the async runtime
+provides:
 
 ```rust
 IO :: struct(

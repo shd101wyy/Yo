@@ -40,7 +40,7 @@ print_bool :: (fn(value: bool) -> i32)(
 );
 
 // WRONG - lambda body wraps single expression in {...}, creating a struct:
-io.async((using(io : IO)) => {
+io.async((io : IO) => {
   cond(
     done => .Ok(()),
     true => .Err(e)
@@ -48,7 +48,7 @@ io.async((using(io : IO)) => {
 })
 
 // CORRECT - lambda body is just the expression, no {...}:
-io.async((using(io : IO)) =>
+io.async((io : IO) =>
   cond(
     done => .Ok(()),
     true => .Err(e)
@@ -188,7 +188,7 @@ those shadowing-shaped bindings.
 - Write `func(arg1, arg2)`, not `func arg1, arg2`.
 - Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
 - Control-flow keywords follow the same rule: `return(value)`, `return()`, `unwind(value)`, `unwind()`.
-- In `given(exn) := Exception(throw: ((err) -> { ... }))` handlers, add `unwind(...)` / `unwind()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves.
+- In `(exn : Exception) = Exception(throw: ((err) -> { ... }))` handlers, add `unwind(...)` / `unwind()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves. (`unwind` requires the handler's lambda to be typed as `ctl(...) -> R`, which it is when bound to a `ctl`-typed field like `Exception.throw`.)
 - Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`, `~(bits)`.
 - Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
 - Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
@@ -245,7 +245,7 @@ raise :
   }
 
 // Formatter style: indent the RHS one level under the line-ending operator:
-(given(yield) : Yield) =
+(yield : Yield) =
   (v) -> {
     return(v * i32(3));
   };
@@ -371,27 +371,29 @@ impl(Tree,
 
 ### Async recursion — `recur` does NOT work inside `io.async`
 
-`recur` refers to the **nearest enclosing `fn`**. Inside `io.async((using(io)) => ...)`, that lambda _is_ the enclosing `fn`, so `recur` would call the lambda — not the outer function. This causes an argument-type mismatch error.
+`recur` refers to the **nearest enclosing `fn`**. Inside `io.async((io : IO) => ...)`, that lambda _is_ the enclosing `fn`, so `recur` would call the lambda — not the outer function. This causes an argument-type mismatch error.
 
 **Pattern for async recursion**: Replace recursion with an iterative worklist:
 
 ```rust
 // WRONG — "Variable 'walk_dir' not found" inside io.async:
-walk_dir :: (fn(path: Path, using(io: IO)) -> Impl(Future(unit, IO)))(
-  io.async((using(io)) => {
-    entries := io.await(read_dir(path));
+walk_dir :: (fn(path: Path, io: IO) -> Impl(Future(unit, IO)))(
+  io.async((io : IO) => {
+    entries := io.await(read_dir(path, io), io);
     // CANNOT call walk_dir recursively here
   })
 );
 
-// CORRECT — use an explicit stack inside a single io.async:
-walk_dir :: (fn(root: Path, using(io: IO, exn: Exception)) -> Impl(Future(unit, IO, Exception)))(
-  io.async((using(io, exn)) => {
+// CORRECT — bundle the needed effects into one struct and iterate with a stack:
+WalkCtx :: struct(io : IO, exn : Exception);
+
+walk_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
+  io.async((ctx : WalkCtx) => {
     stack := ArrayList(Path).new();
     { stack.push(root); };
     while(runtime((stack.len() > usize(0))), {
       cur := match(stack.pop(), .Some(p) => p, .None => return());
-      entries := io.await(read_dir(cur));
+      entries := ctx.io.await(read_dir(cur, ctx.io), ctx.io);
       // process entries, push subdirs to stack…
     });
   })

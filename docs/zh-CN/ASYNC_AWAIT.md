@@ -241,84 +241,59 @@ main :: (fn(io : IO) -> unit)({
 
 #### 带效应的 Future
 
-`Future(T)` 可以携带代数效应信息。完整语法为：
+`Future(T)` 可以携带代数效应信息。形态为：
 
 ```rust
-Future(T)                                  // 无效应
-Future(T, E)                          // 效应行展开（E 必须是 forall 声明的）
-Future(T, Raise)                           // 单个效应
-Future(T, Raise, Log)                      // 多个效应
-Future(T, Raise, ...(E))                   // 混合：具体效应 + 一个行展开
+Future(T)        // 无效应
+Future(T, E)     // 携带效应包 E 的 Future，产出 T
 ```
 
-输出类型 `T` 之后的每个参数要么是：
+`E` 是单个类型——通常是一个把异步体所需的所有效应（处理器字段加上类似
+`IO` 的记录）打包到一起的 struct。作者自行把效应打包；语言不会再把多个
+类型参数拼接为效应集合。
 
-- **具体效应类型**（如 `Raise`、`Log`）——作为类型表达式求值
-- **效应行展开** `...(E)`——其中 `E` 必须是 forall 声明的效应行变量
+```rust
+// 一个把异步任务所需的全部效应打包在一起的 struct。
+TaskCtx :: struct(io : IO, raise : Raise, log : Log);
+```
 
-**简化规则：**
+**匹配规则**
 
-- `...(E)` 仅在 `E` 是单个 forall 声明的效应行变量时才允许
-- 对于具体效应，直接列出：`Future(T, Raise, Log)` 而非 `Future(T, ...(Raise, Log))`
-- 类型统一过程中最多允许一个未求解的展开变量
+1. **按效应包类型相等。** 当 `E1` 与 `E2` 兼容时，`Future(T, E1)` 与
+   `Future(T, E2)` 匹配。不再存在「顺序无关的集合匹配」——没有集合，
+   只有一个效应包。
+2. **带注解与不带注解可以互通。** `Future(T)`（无效应包）与
+   `Future(T, E)`（任意效应包）兼容。当调用方不需要引用具体效应类型时
+   使用不带注解的形式。
+3. **使用 await 的异步体需要 IO。** 任何调用 `io.await` / `yield`
+   的异步体都需要在效应包中包含 `IO`，因此效应包 struct 通常会有一个
+   `io : IO` 字段。
 
-**效应匹配规则：**
-
-1. **顺序无关（基于集合）：** 效应按集合比较，而非有序列表。`Future(i32, Raise, Log)` 与 `Future(i32, Log, Raise)` 匹配。
-2. **展开拍平：** `...(E)` 中 E 解析为 `{Raise, Log}` 等价于分别列出 `Raise, Log`。拍平后 `Future(i32, ...(E))` 与 `Future(i32, Raise, Log)` 匹配。
-3. **向后兼容：** `Future(T)`（无效应）与任何 `Future(T, ...)` 兼容，以确保向后兼容。
-4. **IO 始终存在：** 由于 `io.async` 闭包总是需要 `IO` 来使用 `io.await`/`yield`，`io.async` 产生的 Future 类型总是在其效应中包含 `IO`。
-
-**示例：通过 async 传播效应**
+**示例：通过 async 传递打包后的效应**
 
 ```rust
 { yield } :: import "std/async";
 Raise :: (fn(forall(T : Type), msg : String) -> T);
 Log :: (fn(msg : String) -> unit);
+TaskCtx :: struct(io : IO, raise : Raise, log : Log);
 
 main :: (fn(io : IO) -> unit)({
-  // 在调用方作用域中定义效应处理器
-  (raise : Raise) = ((msg) -> {
-    return i32(0);
-  });
-  (log : Log) = ((msg) -> {
-    println(msg);
-  });
+  (raise : Raise) = ((msg) -> { return(i32(0)); });
+  (log : Log) = ((msg) -> { println(msg); });
+  ctx := TaskCtx(io: io, raise: raise, log: log);
 
-  // 闭包从调用方传播 IO、Raise、Log
-  // Future 类型变为 Future(i32, IO, Raise, Log)
-  task := io.async((io : IO, raise : Raise, log : Log)=> {
-    log(`doing work`);
-    io.await(yield());
+  (task : Impl(Future(i32, TaskCtx))) = io.async((ctx : TaskCtx) => {
+    ctx.log(`doing work`);
+    ctx.io.await(yield(), ctx.io);
     i32(42)
   });
 
-  // io.await 从调用方作用域解析 IO、Raise、Log
-  result := io.await(task);
+  result := io.await(task, ctx);
 });
 export main;
 ```
 
-**示例：效应多态的异步函数**
-
-```rust
-Raise :: (fn(forall(T : Type), msg : String) -> T);
-Log :: (fn(msg : String) -> unit);
-
-// 组合两个效应多态函数的函数
-run_both :: (fn(
-    forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
-    f1 : (fn(e1 : E1) -> T1),
-    f2 : (fn(e2 : E2) -> T2),
-    e1 : E1, e2 : E2
-  ) -> T1)
-{
-  f2();
-  f1()
-};
-```
-
-`IO` 效应记录签名使用效应行来在异步边界之间传播代数效应：
+`IO` 效应记录本身就是一个效应包形态的 struct，由异步运行时提供：
 
 ```rust
 IO :: struct(

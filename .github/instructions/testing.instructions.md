@@ -147,14 +147,14 @@ test("my test", {
 });
 ```
 
-**`io : IO` is automatically injected** into every test body — no `using` clause is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
+**`io : IO` is automatically bound** inside every test body — no parameter is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
 
 ```rust
 test("Async test", {
-  task := io.async((using(io : IO))=> {
-    io.await(yield());
+  task := io.async((io : IO) => {
+    io.await(yield(), io);
   });
-  io.await(task);
+  io.await(task, io);
 });
 ```
 
@@ -178,17 +178,20 @@ assert(false, "unexpected");
 
 ## Exception effect in yo-self tests
 
-When testing functions that require `using(exn : Exception)`, provide the effect with `given`:
+When testing a function that takes an `exn : Exception` parameter, build the handler
+locally and pass it in:
 
 ```rust
 test("my test", {
-  given(exn) := Exception(throw: ((err) -> { assert(false, "unexpected error"); unwind(); }));
-  result := my_function_that_throws(using(exn));
+  exn := Exception(throw : ((err) -> { assert(false, "unexpected error"); unwind(()); }));
+  result := my_function_that_throws(exn);
   // ...
 });
 ```
 
-This is the standard pattern from `yo-self/tests/parser.test.yo`.
+This is the standard pattern from `yo-self/tests/parser.test.yo`. The struct
+constructor `Exception(...)` pins the binding's type, so no annotation is needed
+on the LHS.
 
 Prefer `comptime_assert` over `assert` when the value being tested is compile-time known.
 
