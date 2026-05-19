@@ -900,11 +900,50 @@ Items intentionally not done in this pass; tracked for follow-up:
    a standalone C function with a heap env must enforce the
    frame-bound rule at that layer.
 
-7. **§7 sub-phase 2e dead-code cleanup.** Skipped. `isImplicit`
-   flags, `stripImplicitVariablesFromEnv`, `...(E)` evaluator paths
-   etc. are leftover code that doesn't affect behaviour under
-   explicit effects. The plan marks 2e as "safe to leave"; removal
-   has non-trivial review cost vs zero functional benefit.
+7. **§7 sub-phase 2e dead-code cleanup.** ✅ Landed. Removed
+   ~1500 lines of dead plumbing left over from the
+   `using`/`given` era:
+
+   - `Variable.isImplicit` field (env.ts) + every set/read site
+     across helper.ts, anonymous-function.ts, assignment.ts,
+     initialization-assignment.ts, binding.ts, test.ts, open.ts.
+   - `FunctionParameter.isImplicit` field (definitions.ts) and the
+     `FunctionImplicitParameter` type alias entirely. Replaced
+     usages with `FunctionParameter`. The `FunctionForallParameter`
+     alias no longer brands on `isImplicit: false`.
+   - `stripImplicitVariablesFromEnv` (env.ts) + its single call site.
+   - `throwExprIsImplicitVariableError` (evaluator/utils.ts) + four
+     call sites (begin.ts return-check, init-assignment.ts,
+     assignment.ts ×2).
+   - `isInsideGivenHandler` context flag + propagation through
+     assignment.ts, init-assignment.ts, function-type.ts; unwind.ts
+     check rewritten (the type-level ctl check supersedes it).
+   - `usingParamExprs` dead branches in anonymous-function.ts
+     (~230 lines).
+   - `usingArgsExpr` dead branches in helper.ts (~185 lines).
+   - `usingExpr` dead branches in three codegen sites: generation.ts
+     (~300 lines incl. `emitEffectInjection` and 4 helpers),
+     await.ts (~75 lines), async/state-machine.ts (~50 lines).
+   - "Using pass" wrapped in `if (false)` in evaluator/types/function.ts.
+   - DocParam.isImplicit field + markdown/HTML "implicit" annotations
+     in doc renderers.
+
+   What stays:
+
+   - `FunctionType.implicitParameters` and `EffectsRowType.implicitParameters`
+     fields — still populated by EffectsRowType / forall(E)
+     instantiation paths during effect-row inference. They're
+     conceptually "another parameter group" now rather than "implicit
+     by virtue of `using(...)` syntax".
+   - `isEffectRowSpread` on FunctionParameter — required by the
+     `forall(E : Type.Struct)` effect-row polymorphism machinery
+     (§2).
+   - Comments / variable names still mention "given variable" in
+     helper.ts implicit-resolution paths. The code is live (it's how
+     auto-flattening of effect-record fields resolves at call sites);
+     a rename is cosmetic and deferred.
+
+   All 2445 tests pass after each chunk.
 
 ## 8. Implementation Details — What Gets Removed
 
