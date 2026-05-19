@@ -24,30 +24,35 @@ Builds on [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md). The `unsafe(...)` marker is re
 
 ### The Privilege Gate
 
-Every Yo source file is either **safe** (default) or **unsafe-capable** (opt-in). Privilege is determined by:
+Every Yo source file is either **safe** (default) or **unsafe-capable** (opt-in via pragma). There is **no path-based privilege** — files under `std/` and `yo-self/` must declare the pragma explicitly, same as any other file. One uniform rule:
 
-1. **Path:** files under `std/` and `yo-self/` are unsafe-capable by default.
-2. **Pragma:** files anywhere can opt in with a top-of-file declaration:
+```rust
+pragma(Pragma.AllowUnsafe);
+```
 
-   ```rust
-   pragma(Pragma.AllowUnsafe);
-   ```
+`pragma(...)` is a new builtin (added to `BuiltinKeywords`) that takes one `comptime(Pragma)` argument. `Pragma` is an enum defined in `std/prelude.yo`:
 
-   `pragma(...)` is a new builtin (added to `BuiltinKeywords`) that takes one `comptime(Pragma)` argument. `Pragma` is an enum defined in `std/prelude.yo`:
+```rust
+Pragma :: enum(
+  AllowUnsafe   // opt into raw pointers, unsafe(...), asm(...), extern fn
+  // future variants: NoMain, Deprecated, Strict, ...
+);
+```
 
-   ```rust
-   Pragma :: enum(
-     AllowUnsafe,    // opt into raw pointers, unsafe(...), asm(...), extern fn
-     ForceSafe       // opt back into safe even if path-based default is unsafe-capable
-     // future variants: NoMain, Deprecated, Strict, ...
-   );
-   ```
+The argument must be comptime-known so the file's privilege level is determined at parse time. Multiple `pragma(...)` declarations may appear at the top of a file; each contributes a single flag.
 
-   The argument must be comptime-known so the file's privilege level is determined at parse time. Multiple `pragma(...)` declarations can appear at the top of a file; each contributes a single privilege flag.
+**Rationale for no path-based exceptions:**
 
-3. **Project policy:** the build system's `build.yo` can declare a project-wide policy that overrides the default, e.g. `Project(allow_unsafe : true)` for systems-programming projects.
+- **One rule to learn.** No "this directory is special." Safe by default, opt in via pragma, full stop.
+- **Easier `yo check --unsafe-report`.** Greppable surface — every privileged file declares itself.
+- **Safe relocation.** Moving a file in/out of `std/` doesn't silently change its safety status.
+- **Simpler compiler logic.** Parser checks for the pragma; no path lookup against a privilege table.
 
-**Default for user code: safe.** A user writes `bun init` → `main.yo` → starts coding; they cannot reach for `*(T)` without explicitly opting in. LLM-generated code defaults to safe.
+The cost is mechanical: every `std/*.yo` and `yo-self/*.yo` file gets `pragma(Pragma.AllowUnsafe);` added at the top during the rollout (Phase C below). ~100 files; one-pass migration.
+
+**Project policy** via build system stays optional: `build.yo` can declare a project-wide override for systems-programming projects, but the per-file pragma is the canonical mechanism.
+
+**Default for user code: safe.** A user writes `yo init` → `main.yo` → starts coding; they cannot reach for `*(T)` without explicitly adding the pragma. LLM-generated code defaults to safe.
 
 ### What Safe Code Cannot Do
 
@@ -313,53 +318,76 @@ The stdlib is the trusted base. Conventions:
 
 ## Implementation Phases
 
-### Phase 1 — Privilege gate (parser + evaluator)
+The rollout is incremental. Phase A is the committed [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md) (`unsafe(...)` marker) and is the foundation everything else stands on. Phase B (`inout`) can land before or after Phase C (privilege gate); they're independent.
 
-- [ ] Parse `pragma(Pragma.AllowUnsafe);` as a top-of-file declaration.
-- [ ] Determine each file's privilege at parse time:
-  - Files under `std/`, `yo-self/`: unsafe-capable by default.
-  - Files with `pragma(Pragma.AllowUnsafe);`: unsafe-capable.
-  - All others: safe.
-- [ ] In the evaluator, gate the unsafe-capable constructs on the current file's privilege:
-  - `*(T)` type usage (any position)
-  - `&(expr)` operator
-  - `unsafe(...)` builtin
-  - `asm(...)` builtin
-  - `extern fn` declaration
-  - Pointer arithmetic operators (`&+`, `&-`, `&/`, `&<`, `&>`, `&<=`, `&>=`, `&==`, `&!=`)
-  - `consume(p.* = v)` form
-- [ ] Diagnostic messages per the table in "What Safe Code Cannot Do" above.
+### Phase A — `unsafe(...)` marker (already committed)
 
-### Phase 2 — `inout` parameters
+See [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md). This is the foundation: pointer deref, arithmetic, and `consume(p.* = v)` require `unsafe(...)` wraps. Lands first. Stdlib gets the wraps; user code is unaffected because the privilege gate isn't in yet.
+
+### Phase B — `inout(...)` parameters
 
 - [ ] Parse `inout(name) : T` in function parameter lists. The `inout(...)` form is a parameter modifier wrapping the name (parallel to existing `own(name) : T`), not a type.
 - [ ] In the evaluator, treat inout-params as bindings to the caller's storage. Type-check reads/writes against the underlying `T`.
 - [ ] Implement the non-escape check:
   - Inout-param identifier may appear in expression-rvalue, assignment-lvalue, or as another inout-param argument. Nowhere else.
-  - Reject `let r := inout_param` (this would be a bind-to-reference; the value form is fine and copies).
+  - Reject `r := inout_param` where the binding would be a bind-to-reference (the value form copies and is fine).
   - Reject closure captures of inout-params unless the closure type is known not to escape (see Open Question 6).
 - [ ] Codegen: inout-params lower to `T*` in C; the callee's references to the identifier become `*name` reads and writes. Existing pointer codegen handles this directly.
 
-### Phase 3 — Stdlib boundary sweep
+### Phase C — Privilege gate (parser + evaluator)
 
-- [ ] Sweep `std/` for `*(T)` in public method signatures. Replace with:
+- [ ] Add `pragma` to `BuiltinKeywords` in `src/expr.ts`.
+- [ ] Add `Pragma :: enum(AllowUnsafe)` to `std/prelude.yo`.
+- [ ] Parse `pragma(Pragma.AllowUnsafe);` at top-of-file. Argument must be comptime-known. Multiple declarations OK.
+- [ ] At parse time, compute each file's privilege from its top-of-file pragmas only — **no path-based defaulting**.
+- [ ] In the evaluator, gate the unsafe-capable constructs on the current file's privilege:
+  - `*(T)` type usage (declarations or expressions evaluating to `*(T)`-typed values)
+  - `&(expr)` operator
+  - `unsafe(...)` builtin (only callable inside privileged files)
+  - `asm(...)` builtin
+  - `extern fn` declaration
+  - Pointer arithmetic operators (`&+`, `&-`, `&/`, `&<`, `&>`, `&<=`, `&>=`, `&==`, `&!=`)
+  - `consume(p.* = v)` form
+- [ ] Diagnostic messages per the table in "What Safe Code Cannot Do" above.
+- [ ] Add `pragma(Pragma.AllowUnsafe);` to every existing file in `std/` and `yo-self/` (no exceptions). Mechanical migration; ~100 files.
+
+### Phase D — Stdlib boundary sweep (`*(Self)` → `inout(self) : Self` and friends)
+
+- [ ] Sweep `std/prelude.yo` for trait method signatures using `(self : *(Self))`. Replace with `(inout(self) : Self)`. Canonical example: the `Hash` trait —
+
+  ```rust
+  // Before:
+  Hash :: trait(
+    hash : (fn(self : *(Self)) -> u64)
+  );
+
+  // After:
+  Hash :: trait(
+    hash : (fn(inout(self) : Self) -> u64)
+  );
+  ```
+
+  Most existing `*(Self)` receivers are the same case (pass-by-reference to avoid copying / RC dup; callee may read or write).
+
+- [ ] Sweep `std/` for `*(T)` in other public method signatures. Replace with:
   - `Slice(T)` for borrow-style views (already safe, bounds-checked indexing)
   - `inout(name) : T` for in-place mutation
   - `object` / `Iso(T)` / `Arc(T)` for ownership-passing
 - [ ] Internal unsafe code stays as-is, wrapped in `unsafe(...)`.
 - [ ] Lint: `yo check --stdlib-public-safe` fails if any public stdlib API exposes `*(T)`.
 
-### Phase 4 — Tooling
+### Phase E — Tooling
 
 - [ ] `yo check --unsafe-report` — lists every `unsafe(...)` site in the project (including dependencies), with file:line, surrounding `// SAFETY:` comment, and a quantification of the unsafe surface.
 - [ ] `yo audit-unsafe` (optional, LLM-backed) — for each `unsafe(...)` site, run an LLM check against the `// SAFETY:` claim. Outputs pass/fail per site. Useful in CI for projects that want extra assurance.
 - [ ] `pragma(Pragma.AllowUnsafe);` files surface in the report — privileged code is visible at a glance.
 
-### Phase 5 — Tests & docs
+### Phase F — Tests & docs
 
 - [ ] `tests/safe_user_code.test.yo` — positive (safe code compiles and runs) and negative (each forbidden construct produces the right error).
 - [ ] `tests/inout_params.test.yo` — `swap`, `increment`, multi-inout, no-escape rejections.
 - [ ] `tests/privilege_pragma.test.yo` — `pragma(Pragma.AllowUnsafe);` enables unsafe constructs; absence of pragma rejects them.
+- [ ] Existing `tests/*.test.yo` files that use raw pointers (e.g. `tests/ptr.test.yo`) get `pragma(Pragma.AllowUnsafe);` added at the top during the Phase C rollout. Mechanical migration.
 - [ ] Update `docs/{en-US,zh-CN}/DESIGN.md` — pointer section becomes "stdlib-only" with a forward reference to `inout` params for user code.
 - [ ] Add `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` — the user-facing memory-safety policy. Covers the privilege model, the safe subset, `inout` params, and how to use FFI through wrappers.
 - [ ] Update `.github/instructions/yo-syntax.instructions.md` — `inout` parameter syntax, safe-by-default policy.
@@ -369,7 +397,9 @@ The stdlib is the trusted base. Conventions:
 
 ## Open Questions
 
-1. **Privilege gate mechanism.** Path-based + pragma-based hybrid (Phase 1 proposal). Are there cases where a stdlib file should _not_ be unsafe-capable by default? E.g., a hypothetical `std/pure_math/` that wants the safety check enforced. **Lean:** add a `Pragma.ForceSafe` variant so any file can declare `pragma(Pragma.ForceSafe);` to opt back into safe mode regardless of path. Useful for stdlib files that should be safe.
+1. ~~**Privilege gate mechanism.**~~ **Resolved:** pragma-only, no path-based defaulting. Every `std/` and `yo-self/` file declares `pragma(Pragma.AllowUnsafe);` explicitly. One uniform rule across the language.
+
+1a. **Read-only-by-ref modifier `in(name) : T`?** Distinct from `inout(name) : T` (mutable by-ref). Useful for methods like `Hash.hash` that read but don't mutate — `inout(self) : Self` is slightly overly-permissive. **Lean:** start with only `inout` in v1. Add `in` later if patterns demand it. Convention documents read-vs-write intent in the meantime; the calling convention (by-reference, no copy) is the same.
 
 2. **Third-party dependencies.** A project depends on a published package. Is that package treated as safe or unsafe-capable? **Lean:** each package's individual files use their own pragmas / path-based defaults. User-project safety doesn't transitively require dependency safety, but `yo check --unsafe-report` shows the full unsafe surface across all dependencies.
 
@@ -544,12 +574,24 @@ Considered. The Rust model — `unsafe fn` and `unsafe { ... }` blocks at functi
 
 ## Status
 
-Depends on [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md) (committed). Three blocking decisions:
+**Approved for implementation.** Depends on [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md) (committed).
 
-1. **Privilege gate mechanism** — path-based + pragma hybrid (recommended), or pragma-only.
-2. **Migration of existing user code with `*(T)`** — auto-emit `pragma(Pragma.AllowUnsafe);` at the top of pre-existing files (recommended), or hard break.
-3. **`inout` parameter capture in closures** — forbid all closure captures of inout-params for v1 (recommended), or allow non-escaping closures.
+Resolved decisions:
+
+- ✅ **Privilege gate mechanism** — pragma-only, no path-based defaulting. Every `std/` and `yo-self/` file declares `pragma(Pragma.AllowUnsafe);` explicitly.
+- ✅ **Migration of existing user code with `*(T)`** — auto-emit `pragma(Pragma.AllowUnsafe);` at the top of pre-existing files (mechanical migration); hard break later if/when migrating to safe constructs.
+- ✅ **`inout` parameter capture in closures** — forbid all closure captures of inout-params for v1. Revisit if real APIs demand non-escaping-closure carve-outs.
+- ✅ **Read-only-by-ref modifier (`in(name) : T`)** — defer to v2. v1 ships only `inout`.
+
+Phase ordering (foundation → leaves):
+
+1. **Phase A** — `unsafe(...)` marker per [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md). Lands first. Stdlib gets the wraps.
+2. **Phase B** — `inout(...)` parameter form. Independent; can land before or alongside C.
+3. **Phase C** — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Add the pragma to every `std/`/`yo-self/` file as part of this phase.
+4. **Phase D** — stdlib boundary sweep: `*(Self)` → `inout(self) : Self` in trait signatures, `*(T)` → `Slice(T)`/`inout(name) : T` in other public APIs.
+5. **Phase E** — tooling (`yo check --unsafe-report`, optional `yo audit-unsafe`).
+6. **Phase F** — tests and docs.
 
 Total implementation cost: ~2–3 weeks across all phases. Substantially less than `FUTURE_ORIGINS.md` (~1–2 months) for materially the same practical safety story.
 
-No code changes yet. Phase 1 (privilege gate) is the first concrete unit of work after the decisions land.
+Next concrete unit of work: Phase B (`inout(...)` parameters) — parser + evaluator + codegen for the modifier. Independent of Phase C and can start immediately.
