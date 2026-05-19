@@ -837,31 +837,68 @@ Items intentionally not done in this pass; tracked for follow-up:
    five recognised kinds (Struct, Enum, Union, Trait, Function).
    `Struct :: Type` removed from prelude. Migration of `: Struct` →
    `: Type.Struct` applied across std/, tests/, yo-self/.
-6. **§4 handler-value unwind-escape check.** 🟡 Approach changed,
-   incremental landing in progress.
+6. **§4 handler-value unwind-escape check.** ✅ Landed via the
+   `ctl(...)` type-level design.
 
-   **Current state** (placeholder, value-level): Two layered checks
-   are in tree, using the body-scan `isControlFunction` flag:
+   **Keyword + types:**
 
-   - **Return-site check** (`begin.ts`): rejects
-     `return(handler)` where the returned value is a CF.
-   - **Module-level init check**
-     (`initialization-assignment.ts`): rejects module-level
-     `::` / `:=` of a CF value.
+   - `ctl(args) -> ret` is a parallel function-type constructor to
+     `fn(args) -> ret`. Recognised by the parser and threaded into
+     `FunctionType.isControl: boolean`.
+   - `typeIsControlBound(T)` predicate (`src/types/utils.ts`) is the
+     single source of truth for "this type carries a CF transitively".
 
-   Both are tested in `tests/algebraic_effects.test.yo`.
+   **Typing rules enforced:**
 
-   **Chosen final design**: type-level `ctl(args) -> ret`
-   constructor (parallel to `fn`), see §4 "Handler value
-   unwind-escape restrictions — `ctl()` type constructor".
-   The current value-level checks act as the placeholder until the
-   type-level migration lands; the check sites stay, only their
-   implementation switches from a value flag to a type predicate
-   (`typeIsControlBound`).
+   - **Rule 1**: `unwind` in `fn` body is a type error. Body-scan
+     `evaluatedBodyContainsEscape` + check against `FunctionType.isControl`
+     at the two FunctionValue-creation sites (`anonymous-function.ts`,
+     `function-type.ts`).
+   - **Rule 3**: closure body cannot contain `unwind`
+     (`closure-type.ts`).
+   - **Rule 4**: closure cannot capture a value of control-bound
+     type (`closure-type.ts`, iterates `capturedVariables`).
+   - **Rule 5**: subtyping `fn(T) -> R <: ctl(T) -> R`
+     (`compatibility.ts:areFunctionTypesCompatible`).
+   - **Rule 8 boundary 1**: function return type cannot be
+     control-bound (`begin.ts` return site, type-level check).
+   - **Rule 8 boundary 2**: module-level `::` / `:=` binding type
+     cannot be control-bound (`initialization-assignment.ts`).
+   - **Rule 8 boundary 3**: `Box(T)` / `Rc(T)` parameterization
+     covered transitively — Box(Raise) is itself a struct containing
+     a ctl field, so `typeIsControlBound` returns true; the existing
+     boundary checks (return, module-level) catch escapes.
+   - **Rule 11**: pointer pointee cannot be control-bound
+     (`pointer.ts:evaluateRawPointerCall`).
 
-   Remaining work tracked under §4 implementation sketch (keyword,
-   FunctionType.isControl, subtyping, escape-boundary type checks,
-   stdlib migration).
+   **Stdlib migration**: `std/error.yo` updated — `Exception.throw`
+   and `ResumableException.throw` now use `ctl(...)`. Tests:
+   `tests/algebraic_effects.test.yo` migrated to `ctl(...)` for all
+   Raise aliases + struct fields.
+
+   **Coverage**: 7 new negative tests in
+   `tests/algebraic_effects.test.yo` exercise each rule via
+   `comptime_expect_error`. Full `./tests/` suite passes (~2445
+   tests; counts vary by added test count).
+
+   **Enforcement caveat**: the evaluator's overload-resolution
+   try/catch (`calls/function.ts:1133`) can filter individual
+   `unwind`-in-`fn`-body throws as failed-overload signals. In
+   practice this hasn't masked any bug because:
+
+   - Migrated handler types are all `ctl(...)`, so no production
+     code path triggers the throw.
+   - For unique-overload bindings, the error propagates to the call
+     site and surfaces.
+
+   **Soundness gap acknowledged**: handler bodies can access outer
+   stack-frame locals (sibling handlers, captured-but-not-as-closure
+   variables). Soundness rests on the codegen invariant that
+   handler bodies are inlined into their install frame's stack
+   (current codegen path: state-machine generation + handler-body
+   inlining). A future codegen change that lifts a handler body to
+   a standalone C function with a heap env must enforce the
+   frame-bound rule at that layer.
 
 7. **§7 sub-phase 2e dead-code cleanup.** Skipped. `isImplicit`
    flags, `stripImplicitVariablesFromEnv`, `...(E)` evaluator paths
