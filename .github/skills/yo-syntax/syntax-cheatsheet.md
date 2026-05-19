@@ -127,6 +127,7 @@ masked := ((A | B) | C);
 - Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 - Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
+- **Pointer deref (`p.*`), arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)` require `unsafe(...)` in user code.** Pointer comparison (`&==`, `&<`, etc.) and pointer-type casts (`*(u8)(p)`) stay safe. `unsafe(expr)` is a one-arg builtin call: `v := unsafe(p.*);`, `unsafe(p.* = i32(5));`, `unsafe(p &+ usize(1))`. Files under `std/`, `yo-self/`, and `tests/` are currently exempt (Phase C will replace this with `pragma(Pragma.AllowUnsafe);`). See `plans/MEMORY_SAFETY.md`.
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
 - **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.

@@ -485,6 +485,40 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 
+## `unsafe(...)` for raw pointer operations
+
+In user code (any `.yo` file outside `std/`, `yo-self/`, and `tests/`), the following operations require an explicit `unsafe(...)` wrap:
+
+- Pointer dereference: `p.*` (read), `p.* = v` (write)
+- Pointer arithmetic: `&+`, `&-`, `&/`
+- `consume(p.* = v)` (deref-and-init)
+
+Operations that stay safe (no wrap needed): `&(x)` to take an address, passing/storing/returning pointers, pointer comparison (`&==`, `&<`, etc.), and pointer-type casts (`*(u8)(p)`).
+
+`unsafe(expr)` is a regular builtin call taking exactly one argument — the same shape as `return(...)`, `consume(...)`. It's a compile-time marker only; at codegen it lowers to its inner expression.
+
+```rust
+// Single expression:
+v := unsafe(p.*);
+
+// Assignment:
+unsafe(p.* = i32(12));
+
+// cond / match wrapped directly (no braces — `{...}` without `;` is a struct):
+result := unsafe(cond(
+  (n > i32(0)) => p.*,
+  true => i32(0)
+));
+
+// Multi-statement begin-block (semicolons required):
+n := unsafe({
+  p.* = i32(1);
+  (p.* + i32(2))
+});
+```
+
+`unsafe(...)` does NOT propagate through function calls — each function body is evaluated with its own context. If a function's body does pointer ops, the body must wrap them locally; callers don't need `unsafe(...)` at the call site. See `plans/MEMORY_SAFETY.md`.
+
 ## `for` loop macro — correct form
 
 The `for` macro is a 2-argument prelude macro. The **first argument must be an iterator** (an expression with a `.next()` method):

@@ -864,18 +864,18 @@ See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHI
 
 ## Pointers
 
-Yo uses pointers (`*(T)`) for direct memory access, similar to C:
+Yo uses pointers (`*(T)`) for direct memory access, similar to C. Operations that dereference or do arithmetic on raw pointers require an explicit `unsafe(...)` wrap — see [Memory Safety](#memory-safety) below.
 
 ```rust
 // Pointer type: *(T)
 x := 1;
 y := 2;
 
-swap :: (fn(a : *(i32), b : *(i32)) -> unit)({
+swap :: (fn(a : *(i32), b : *(i32)) -> unit)(unsafe({
   tmp := a.*;  // Dereference pointer
   a.* = b.*;
   b.* = tmp;
-});
+}));
 
 swap(&(x), &(y));  // Pass pointers to x and y
 // Now x == 2, y == 1
@@ -888,36 +888,37 @@ swap(&(x), &(y));  // Pass pointers to x and y
 x := 42;
 ptr := &(x);  // ptr: *(i32)
 
-// Dereference with .*
-value := ptr.*;  // value == 42
+// Dereference with .* (requires unsafe — may read invalid memory)
+value := unsafe(ptr.*);  // value == 42
 
-// Modify through pointer
-ptr.* = 100;  // x is now 100
+// Modify through pointer (requires unsafe — could write to invalid memory)
+unsafe(ptr.* = 100);  // x is now 100
 
-// Pointer arithmetic (unsafe)
+// Pointer arithmetic (requires unsafe — could produce OOB address)
 arr := [1, 2, 3, 4, 5];
 ptr := &(arr(0));  // Pointer to first element
-ptr2 := (ptr &+ 2);  // Point to third element
-value := ptr2.*;  // value == 3
+ptr2 := unsafe(ptr &+ 2);  // Point to third element
+value := unsafe(ptr2.*);  // value == 3
 
-// Pointer casting
+// Pointer casting (safe — just changes type label on the address)
 float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
 ```
 
 ### Pointer Arithmetic Operations
 
-Yo provides a complete set of pointer arithmetic operators:
+Yo provides a complete set of pointer arithmetic operators. The arithmetic operators (`&+`, `&-`, `&/`) require `unsafe(...)`; the comparison operators (`&<`, `&>`, `&<=`, `&>=`, `&==`, `&!=`) stay safe — comparing addresses can't violate memory safety.
 
 ```rust
 test("Pointer arithmetic", {
   x := 12;
   p := &(x);
 
-  // Addition and subtraction
-  q := (p &+ 2);   // Advance pointer by 2 elements
-  z := (q &- 2);   // Go back 2 elements
+  // Addition and subtraction (require unsafe — could produce
+  // out-of-bounds addresses):
+  q := unsafe(p &+ 2);   // Advance pointer by 2 elements
+  z := unsafe(q &- 2);   // Go back 2 elements
 
-  // Comparison operators
+  // Comparison operators (safe — addresses are just data):
   assert(q &> p);  // q is after p
   assert(p &< q);  // p is before q
   assert(q &>= p); // Greater or equal
@@ -925,8 +926,9 @@ test("Pointer arithmetic", {
   assert(z &== p); // Equal (same address)
   assert(p &!= q); // Not equal
 
-  // Pointer difference (distance between pointers)
-  diff := (q &/ p);  // Distance: 2 elements
+  // Pointer difference also requires unsafe (assumes both point
+  // into the same object):
+  diff := unsafe(q &/ p);  // Distance: 2 elements
   assert(diff == 2);
 });
 ```
@@ -975,6 +977,40 @@ match(some_ptr,
 ```
 
 **Note**: Raw pointers are unsafe. Use object types for safe memory management whenever possible.
+
+### Memory Safety
+
+Yo's safety model is layered (see [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)):
+
+- **`object` types** are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
+- **`Iso(T)` / `Arc(T)`** provide affine and atomic-RC ownership for transfer and thread-shared cases.
+- **`*(T)` raw pointers** require an explicit `unsafe(...)` wrap around operations that dereference, do arithmetic on, or consume-through a pointer. Without the wrap, those operations are compile errors.
+
+`unsafe(...)` is a regular builtin call that takes exactly one expression. It is purely a compile-time marker — at codegen time it lowers to its inner expression, no runtime cost.
+
+```rust
+// Pointer deref requires unsafe:
+read :: (fn(p : *(i32)) -> i32)(unsafe(p.*));
+
+// Pointer arithmetic likewise:
+advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p &+ n));
+
+// Multi-statement unsafe with begin-block (semicolons required —
+// `{ ... }` without semicolons is a struct literal, not a block):
+write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
+  p.* = v;
+  p.*
+}));
+
+// Pointer comparison (&==, &<, etc.) and *(T) casts (e.g., *(u8)(p))
+// stay safe — they don't dereference, so they're not gated.
+```
+
+**What requires `unsafe(...)`**: pointer dereference (`.*`), pointer arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)`.
+
+**What stays safe**: taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`&<`, `&==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe).
+
+The unsafe surface is greppable: every `unsafe(` token marks a place where raw memory ops happen. Files under `std/` and `yo-self/` (and `tests/`) are currently treated as implicitly unsafe-capable; Phase C of the plan will replace this with explicit per-file `pragma(Pragma.AllowUnsafe);` declarations.
 
 ### RAII (Resource Acquisition Is Initialization)
 
