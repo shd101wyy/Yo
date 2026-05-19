@@ -613,74 +613,38 @@ function emitEffectInjectionForAwait(
   const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
   const functionContext = context as FunctionGenerationContext;
 
-  const usingExpr = undefined as unknown as FnCallExpr; // dead code, using removed // `using` keyword removed
-
-  if (usingExpr) {
-    // Explicit using() args: match effects to using args positionally
-    const usingArgs = usingExpr.args;
-    for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
-      const effect = expandedEffects[i]!;
-      const usingArg = usingArgs[i]!;
-
-      if (isFunctionType(effect.type)) {
-        const handlerCode = generateExpr(usingArg, indent, context);
-        const fieldName = effect.label;
+  // Resolve each effect from the surrounding scope. `using(...)` is gone
+  // in explicit-effects, so there is no per-call-site arg list to consult.
+  for (const effect of expandedEffects) {
+    if (isFunctionType(effect.type)) {
+      const handlerCode = resolveEffectFieldFromScope(
+        effect.label,
+        functionContext,
+        expr
+      );
+      if (handlerCode) {
         emitFutureEffectInjectionLine(
           futureArg.$.type,
           futureVar,
-          fieldName,
+          effect.label,
           handlerCode,
           indent,
           functionContext
         );
-      } else if (
-        isSourceNamespaceType(effect.type) ||
-        isStructType(effect.type)
-      ) {
-        emitEffectRecordInjection(
-          effect.type,
-          futureArg.$.type,
-          futureVar,
-          indent,
-          usingArg.$?.value,
-          functionContext,
-          expr
-        );
       }
-    }
-  } else {
-    // No explicit using(): resolve effects from scope
-    for (const effect of expandedEffects) {
-      if (isFunctionType(effect.type)) {
-        const handlerCode = resolveEffectFieldFromScope(
-          effect.label,
-          functionContext,
-          expr
-        );
-        if (handlerCode) {
-          emitFutureEffectInjectionLine(
-            futureArg.$.type,
-            futureVar,
-            effect.label,
-            handlerCode,
-            indent,
-            functionContext
-          );
-        }
-      } else if (
-        isSourceNamespaceType(effect.type) ||
-        isStructType(effect.type)
-      ) {
-        emitEffectRecordInjection(
-          effect.type,
-          futureArg.$.type,
-          futureVar,
-          indent,
-          undefined,
-          functionContext,
-          expr
-        );
-      }
+    } else if (
+      isSourceNamespaceType(effect.type) ||
+      isStructType(effect.type)
+    ) {
+      emitEffectRecordInjection(
+        effect.type,
+        futureArg.$.type,
+        futureVar,
+        indent,
+        undefined,
+        functionContext,
+        expr
+      );
     }
   }
 }

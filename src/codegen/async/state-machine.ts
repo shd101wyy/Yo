@@ -2458,76 +2458,40 @@ function emitEffectInjectionForSM(
 
   const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
 
-  const usingExpr = undefined as unknown as FnCallExpr; // dead code, using removed // `using` keyword removed
-
-  if (usingExpr) {
-    // Explicit using() args: match effects to using args positionally
-    const usingArgs = usingExpr.args;
-    for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
-      const effect = expandedEffects[i]!;
-      const usingArg = usingArgs[i]!;
-
-      if (isFunctionType(effect.type)) {
-        if (effect.type.forallParameters.length > 0) continue;
-        const handlerCode = generateExpr(usingArg, indent, context);
-        const fieldName = effect.label;
+  // Resolve each effect from the surrounding state-machine scope.
+  // `using(...)` is gone in explicit-effects, so there is no per-call-site
+  // arg list to consult; injection always comes from the active SM env.
+  for (const effect of expandedEffects) {
+    if (isFunctionType(effect.type)) {
+      if (effect.type.forallParameters.length > 0) continue;
+      const handlerCode = resolveEffectFieldFromSMScope(
+        effect.label,
+        context,
+        awaitExpr
+      );
+      if (handlerCode) {
         emitFutureEffectInjectionLine(
           futureArg.$.type,
           futureAccess,
-          fieldName,
+          effect.label,
           handlerCode,
           indent,
           context
         );
-      } else if (
-        isSourceNamespaceType(effect.type) ||
-        isStructType(effect.type)
-      ) {
-        emitEffectRecordInjectionForSM(
-          effect.type,
-          futureArg.$.type,
-          futureAccess,
-          indent,
-          usingArg.$?.value,
-          context,
-          awaitExpr
-        );
       }
-    }
-  } else {
-    // No explicit using(): resolve effects from scope
-    for (const effect of expandedEffects) {
-      if (isFunctionType(effect.type)) {
-        if (effect.type.forallParameters.length > 0) continue;
-        const handlerCode = resolveEffectFieldFromSMScope(
-          effect.label,
-          context,
-          awaitExpr
-        );
-        if (handlerCode) {
-          emitFutureEffectInjectionLine(
-            futureArg.$.type,
-            futureAccess,
-            effect.label,
-            handlerCode,
-            indent,
-            context
-          );
-        }
-      } else if (
-        isSourceNamespaceType(effect.type) ||
-        isStructType(effect.type)
-      ) {
-        emitEffectRecordInjectionForSM(
-          effect.type,
-          futureArg.$.type,
-          futureAccess,
-          indent,
-          undefined,
-          context,
-          awaitExpr
-        );
-      }
+    } else if (
+      isSourceNamespaceType(effect.type) ||
+      isStructType(effect.type)
+    ) {
+      emitEffectRecordInjectionForSM(
+        effect.type,
+        futureArg.$.type,
+        futureAccess,
+        indent,
+        undefined,
+        context,
+        awaitExpr
+      );
     }
   }
 }
