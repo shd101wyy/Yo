@@ -216,6 +216,18 @@ export function evaluatePropertyAccess({
   // Check if it's .* for dereference
   if (exprIsAtom(propertyExpr) && propertyExpr.token.value === "*") {
     if (isPtrType(objectExpr.$?.type)) {
+      // Memory safety gate: pointer dereference requires `unsafe(...)`.
+      // See plans/MEMORY_SAFETY.md.
+      if (!context.unsafeContext) {
+        throw formatErrorMessage({
+          token: propertyExpr.token,
+          errorMessage: `Pointer dereference requires 'unsafe(...)'.
+
+Wrap as: unsafe(${exprToString(objectExpr)}.*)
+
+Raw pointer operations may dereference invalid memory. See plans/MEMORY_SAFETY.md.`,
+        });
+      }
       const pointerType = objectExpr.$.type;
       let baseType = pointerType.childType;
 

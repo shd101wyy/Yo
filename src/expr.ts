@@ -745,6 +745,7 @@ export const BuiltinFunctions = {
   typeid: ["typeid"],
   downcast: ["downcast"],
   consume: ["consume"],
+  unsafe: ["unsafe"],
   macro_expand: ["macro_expand"],
   as: ["as"],
   the: ["the"],

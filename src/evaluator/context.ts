@@ -170,6 +170,26 @@ export interface EvaluatorContext {
   isUnsafeFunctionType?: boolean;
 
   /**
+   * Whether we are currently inside an `unsafe(...)` expression body.
+   * When true, pointer deref (`p.*`), pointer arithmetic (`&+`, `&-`,
+   * `&/`), and `consume(p.* = v)` are permitted. Outside `unsafe(...)`,
+   * those operations are compile errors.
+   *
+   * Pointer comparison operators (`&==`, `&!=`, `&<`, `&>`, `&<=`,
+   * `&>=`) and pointer casts (`*(U)(p)`) stay safe — they don't
+   * dereference, so they're not gated.
+   *
+   * This flag is NOT inherited across function-call boundaries — each
+   * function body starts with `unsafeContext = false`. To allow an
+   * unsafe op inside a function body, the body must wrap it in
+   * `unsafe(...)` explicitly. This keeps the unsafe surface auditable
+   * at the function-definition site.
+   *
+   * See plans/MEMORY_SAFETY.md for the full design.
+   */
+  unsafeContext?: boolean;
+
+  /**
    * Whether the function type being evaluated was declared with `ctl(...)
    * -> ret` (the control-function constructor). Control functions may
    * contain `unwind` in their body and are frame-bound — see

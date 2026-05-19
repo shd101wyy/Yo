@@ -985,7 +985,7 @@ impl(
   Clone(
     clone : (
       (self) ->
-        __yo_return_self(self.*)
+        unsafe(__yo_return_self(self.*))
     )
   )
 );
@@ -994,10 +994,10 @@ impl(
   Hash(
     (hash) : (
       (self) ->
-        cond(
+        unsafe(cond(
           self.* => u64(1),
           true => u64(0)
-        )
+        ))
     )
   )
 );
@@ -1141,13 +1141,13 @@ impl(
 impl(
   i8,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   i8,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -1431,13 +1431,13 @@ impl(
 impl(
   i16,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   i16,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -1782,10 +1782,10 @@ impl(
   i32,
   Hash(
     (hash) : (
-      (self) -> {
+      (self) -> unsafe({
         u32_value := u32(self.*);
         u64(u32_value)
-      }
+      })
     )
   )
 );
@@ -1794,7 +1794,7 @@ impl(
   Clone(
     clone : (
       (self) ->
-        __yo_return_self(self.*)
+        unsafe(__yo_return_self(self.*))
     )
   )
 );
@@ -2019,13 +2019,13 @@ impl(
 impl(
   i64,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   i64,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -2309,13 +2309,13 @@ impl(
 impl(
   u8,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   u8,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -2589,13 +2589,13 @@ impl(
 impl(
   u16,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   u16,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -2869,13 +2869,13 @@ impl(
 impl(
   u32,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   u32,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -3149,13 +3149,13 @@ impl(
 impl(
   u64,
   Hash(
-    (hash) : ((self) -> self.*)
+    (hash) : ((self) -> unsafe(self.*))
   )
 );
 impl(
   u64,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -3409,13 +3409,13 @@ impl(
 impl(
   f32,
   Hash(
-    (hash) : ((self) -> u64(i32(self.*)))
+    (hash) : ((self) -> unsafe(u64(i32(self.*))))
   )
 );
 impl(
   f32,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -3610,13 +3610,13 @@ impl(
 impl(
   f64,
   Hash(
-    (hash) : ((self) -> u64(i64(self.*)))
+    (hash) : ((self) -> unsafe(u64(i64(self.*))))
   )
 );
 impl(
   f64,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -3836,13 +3836,13 @@ impl(
 impl(
   isize,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   isize,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -4129,13 +4129,13 @@ impl(
 impl(
   usize,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   usize,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 impl(
@@ -4413,13 +4413,13 @@ impl(
 impl(
   char,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   char,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _char :: char;
@@ -4523,13 +4523,13 @@ impl(
 impl(
   int,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   int,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _int :: int;
@@ -4633,13 +4633,13 @@ impl(
 impl(
   uint,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   uint,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _uint :: uint;
@@ -4743,13 +4743,13 @@ impl(
 impl(
   short,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   short,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _short :: short;
@@ -4853,13 +4853,13 @@ impl(
 impl(
   ushort,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   ushort,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _ushort :: ushort;
@@ -4963,13 +4963,13 @@ impl(
 impl(
   long,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   long,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _long :: long;
@@ -5073,13 +5073,13 @@ impl(
 impl(
   ulong,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   ulong,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _ulong :: ulong;
@@ -5183,13 +5183,13 @@ impl(
 impl(
   longlong,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   longlong,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _longlong :: longlong;
@@ -5293,13 +5293,13 @@ impl(
 impl(
   ulonglong,
   Hash(
-    (hash) : ((self) -> u64(self.*))
+    (hash) : ((self) -> unsafe(u64(self.*)))
   )
 );
 impl(
   ulonglong,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _ulonglong :: ulonglong;
@@ -5403,13 +5403,13 @@ impl(
 impl(
   longdouble,
   Hash(
-    (hash) : ((self) -> u64(i64(self.*)))
+    (hash) : ((self) -> unsafe(u64(i64(self.*))))
   )
 );
 impl(
   longdouble,
   Clone(
-    clone : ((self) -> __yo_return_self(self.*))
+    clone : ((self) -> unsafe(__yo_return_self(self.*)))
   )
 );
 _longdouble :: longdouble;
@@ -7278,11 +7278,11 @@ impl(
   Clone(
     clone : (
       (self) ->
-        match(
+        unsafe(match(
           self.*,
           .None => Option(T).None,
           .Some(v) => Option(T).Some((&(v)).clone())
-        )
+        ))
     )
   )
 );
@@ -7314,11 +7314,11 @@ impl(
   Clone(
     clone : (
       (self) ->
-        match(
+        unsafe(match(
           self.*,
           .Ok(v) => Result(T, E).Ok((&(v)).clone()),
           .Err(e) => Result(T, E).Err((&(e)).clone())
-        )
+        ))
     )
   )
 );
@@ -7375,7 +7375,7 @@ impl(
   where(T <: Hash),
   Box(T),
   Hash(
-    (hash) : ((self) -> (self.*).*.hash())
+    (hash) : ((self) -> unsafe((self.*).*.hash()))
   )
 );
 impl(
@@ -7383,7 +7383,7 @@ impl(
   where(T <: Eq(T)),
   Box(T),
   Eq(Box(T))(
-    (==) : ((lhs, rhs) -> (lhs.* == rhs.*))
+    (==) : ((lhs, rhs) -> unsafe((lhs.* == rhs.*)))
   )
 );
 impl(
@@ -7391,7 +7391,7 @@ impl(
   where(T <: Clone),
   Box(T),
   Clone(
-    clone : ((self) -> box((&(self.*.*)).clone()))
+    clone : ((self) -> unsafe(box((&(self.*.*)).clone())))
   )
 );
 export(
@@ -7581,7 +7581,7 @@ impl(
   forall(T : Type, N : usize),
   Array(T, N),
   iter : (fn(self : *(Self)) -> ArrayIterPtr(T))(
-    ArrayIterPtr(T)(_ptr : &((self.*)(usize(0))), _index : usize(0), _len : N)
+    unsafe(ArrayIterPtr(T)(_ptr : &((self.*)(usize(0))), _index : usize(0), _len : N))
   )
 );
 export(ArrayIterPtr);
@@ -7617,7 +7617,7 @@ impl(
   forall(T : Type),
   Slice(T),
   iter : (fn(self : *(Self)) -> SliceIterPtr(T))(
-    SliceIterPtr(T)(_slice : self.*, _index : usize(0))
+    unsafe(SliceIterPtr(T)(_slice : self.*, _index : usize(0)))
   )
 );
 export(SliceIterPtr);

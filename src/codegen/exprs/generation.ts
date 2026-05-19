@@ -944,6 +944,11 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
     return generateConsume(expr, indent, context);
   }
+  // unsafe(expr) — pure compile-time marker, lowers to its inner
+  // expression. See plans/MEMORY_SAFETY.md.
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.unsafe)) {
+    return generateExpr(expr.args[0]!, indent, context);
+  }
   // functions that should be skipped
   // comptime_expect_error
   else if (

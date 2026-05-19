@@ -33,6 +33,7 @@ import { evaluateComptimePrint } from "../builtins/comptime-print";
 import { evaluateYoComptimeStringFunctions } from "../builtins/comptime-string-fns";
 import { evaluateYoComptimeIndexFunctions } from "../builtins/comptime-index-fns";
 import { evaluateConsume } from "../builtins/consume";
+import { evaluateUnsafe } from "../builtins/unsafe";
 import { evaluateDowncast } from "../builtins/downcast";
 import { evaluateDrop } from "../builtins/drop";
 import { evaluateDup } from "../builtins/dup";
@@ -648,6 +649,13 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.unsafe)) {
+      // unsafe
+      return evaluateUnsafe({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
       // ___drop
       return evaluateDrop({ expr, env, context: { ...context } });
@@ -1169,6 +1177,35 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.va_start)) {
       // va_start
       return evaluateVaStart({ expr, env, context: { ...context } });
+    } else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_diff)
+    ) {
+      // Memory safety gate: pointer arithmetic requires `unsafe(...)`.
+      // See plans/MEMORY_SAFETY.md. Pointer comparison (__yo_ptr_eq,
+      // __yo_ptr_lt, etc.) stays safe — addresses are just data.
+      if (!context.unsafeContext) {
+        const fnName = exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)
+          ? "&+"
+          : exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)
+            ? "&-"
+            : "&/";
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Pointer arithmetic ('${fnName}') requires 'unsafe(...)'.
+
+Wrap the expression as: unsafe(${exprToString(expr)})
+
+Raw pointer arithmetic produces addresses usually destined to dereference, which may access invalid memory. See plans/MEMORY_SAFETY.md.`,
+        });
+      }
+      // Permitted under unsafe(...); fall through to normal call eval.
+      return evaluateFunctionCall({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else {
       /*
       else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
@@ -1179,7 +1216,7 @@ ${exprToString(expr)}`,
       /* else if (exprIsFunctionCallOf(expr, ".", 1)) {
         // variant
         return this.evaluateVariant({ expr, env, context });
-      } 
+      }
       */
       // Function call
       return evaluateFunctionCall({
