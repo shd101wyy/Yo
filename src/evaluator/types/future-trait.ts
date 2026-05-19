@@ -10,24 +10,23 @@ import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
- * Evaluates the `Future(T, ...)` syntax.
+ * Evaluates the `Future(T)` or `Future(T, E)` syntax.
  * Creates a trait type that represents a future trait (similar to Fn trait pattern).
  *
- * Example:
- *   Future(i32)                          // future that will yield i32
- *   Future(i32, ...(E))                  // future with effect row E that will yield i32
- *   Future(i32, Raise)                   // future with individual effect Raise
- *   Future(i32, Raise, ...(E))           // mixed: individual effect + effect row spread
- *   Future(i32, ...(E1), ...(E2))        // multiple effect row spreads
- *   Future(i32, Raise, ...(E1), Log, ...(E2))  // mixed with multiple spreads
- *   Future(unit)                         // future that completes without returning a value
- *
- * This creates a trait type with `isFuture` set to the output type and an effects array.
+ * Examples:
+ *   Future(i32)        // future that will yield i32, no effects
+ *   Future(i32, E)     // future with single effect bundle E that will yield i32
+ *   Future(unit)       // future that completes without a value
  *
  * The Future trait can be used with:
- * - Impl(Future(T)) for static dispatch with futures
- * - Impl(Future(T, ...(E))) for static dispatch with effects
- * - Dyn(Future(T)) for dynamic dispatch
+ * - Impl(Future(T))    for static dispatch
+ * - Impl(Future(T, E)) for static dispatch with a single effect bundle struct
+ * - Dyn(Future(T))     for dynamic dispatch
+ *
+ * Multiple effects must be packed into a single struct (e.g.
+ *   Ctx :: struct(io : IO, raise : Raise);
+ *   Future(T, Ctx)
+ * ) rather than passed as separate type arguments.
  */
 export function evaluateFutureType({
   expr,
@@ -38,10 +37,12 @@ export function evaluateFutureType({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
-  if (expr.args.length < 1) {
+  if (expr.args.length < 1 || expr.args.length > 2) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Future type constructor expects at least 1 argument (output type). Usage: Future(T), Future(T, ...(E)), Future(T, Raise, ...(E))`,
+      errorMessage: `Future type constructor expects 1 or 2 arguments (output type, optional effect bundle struct).
+Usage: Future(T) or Future(T, E).
+To combine multiple effects, declare a struct that bundles them and pass that struct as E.`,
     });
   }
 

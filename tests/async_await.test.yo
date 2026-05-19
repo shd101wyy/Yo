@@ -1617,17 +1617,13 @@ test("Test Future with mixed individual effect and spread", {
   result := io.await(task, io);
   assert(result == i32(33), "Future with mixed individual effect and spread should work");
 });
-// ============================================================================
-// Type-level Future tests — Impl(Future(T, ...)) as type aliases
-// Effects are order-independent (set-based matching).
-// ============================================================================
 // ---------------------------------------------------------------------------
-// 65. Impl(Future(i32, Log, IO, Raise)) — individual effects at type level
-//     Effects listed in different order than the closure's (IO, Raise, Log)
+// 65. Future(T, BundleStruct) — explicit bundle-struct effect annotation
 // ---------------------------------------------------------------------------
-test("Test type-level Impl Future with individual effects", {
+test("Test explicit Future annotation with bundle effect struct", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
+  Ctx :: struct(io : IO, raise : Raise, log : Log);
   (raise : Raise) = (
     (msg) -> {
       return(i32(100));
@@ -1638,134 +1634,14 @@ test("Test type-level Impl Future with individual effects", {
       println(msg);
     }
   );
-  task := io.async((io : IO, raise : Raise, log : Log) => {
-    log(`type-level test`);
-    io.await(yield(), io);
+  ctx := Ctx(io : io, raise : raise, log : log);
+  (task : Impl(Future(i32, Ctx))) = io.async((ctx : Ctx) => {
+    ctx.log(`bundle struct test`);
+    ctx.io.await(yield(), ctx.io);
     i32(100)
   });
-  result := io.await(task, io);
-  assert(result == i32(100), "Impl(Future(i32, Log, IO, Raise)) type alias should work");
-});
-// ---------------------------------------------------------------------------
-// 66. Impl(Future(i32, IO, Raise : Type.Struct, Log)) — spread of named type
-//     Raise : Type.Struct where Raise is a concrete effect is equivalent to just Raise
-// ---------------------------------------------------------------------------
-test("Test type-level Impl Future with spread of named type", {
-  Raise :: (fn(msg : String) -> i32);
-  Log :: (fn(msg : String) -> unit);
-  (raise : Raise) = (
-    (msg) -> {
-      return(i32(200));
-    }
-  );
-  (log : Log) = (
-    (msg) -> {
-      println(msg);
-    }
-  );
-  task := io.async((io : IO, raise : Raise, log : Log) => {
-    io.await(yield(), io);
-    i32(200)
-  });
-  result := io.await(task, io);
-  assert(result == i32(200), "Impl(Future(i32, IO, Raise : Type.Struct, Log)) type alias should work");
-});
-// ---------------------------------------------------------------------------
-// 67. Impl(Future(i32, IO, Raise, Log : Type.Struct)) — individual then spread
-// ---------------------------------------------------------------------------
-test("Test type-level Impl Future with individual then spread", {
-  Raise :: (fn(msg : String) -> i32);
-  Log :: (fn(msg : String) -> unit);
-  (raise : Raise) = (
-    (msg) -> {
-      return(i32(300));
-    }
-  );
-  (log : Log) = (
-    (msg) -> {
-      println(msg);
-    }
-  );
-  task := io.async((io : IO, raise : Raise, log : Log) => {
-    log(`testing individual then spread`);
-    io.await(yield(), io);
-    i32(300)
-  });
-  result := io.await(task, io);
-  assert(result == i32(300), "Impl(Future(i32, IO, Raise, Log : Type.Struct)) type alias should work");
-});
-// ---------------------------------------------------------------------------
-// 67b. Explicit Impl(Future(i32, IO, Raise, Log)) type annotation on task
-// ---------------------------------------------------------------------------
-test("Test explicit Future type annotation on task", {
-  Raise :: (fn(msg : String) -> i32);
-  Log :: (fn(msg : String) -> unit);
-  (raise : Raise) = (
-    (msg) -> {
-      return(i32(400));
-    }
-  );
-  (log : Log) = (
-    (msg) -> {
-      println(msg);
-    }
-  );
-  (task : Impl(Future(i32, IO, Raise, Log))) = io.async((io : IO, raise : Raise, log : Log) => {
-    log(`testing explicit type annotation`);
-    io.await(yield(), io);
-    i32(400)
-  });
-  result := io.await(task, io);
-  assert(result == i32(400), "Explicit Impl(Future(i32, IO, Raise, Log)) type annotation should work");
-});
-// ---------------------------------------------------------------------------
-// 67c. Explicit Impl(Future(i32, IO, Log, Raise)) — effects in different
-//      order than closure's io : IO, raise : Raise, log : Log
-// ---------------------------------------------------------------------------
-test("Test explicit Future type annotation with reordered effects", {
-  Raise :: (fn(msg : String) -> i32);
-  Log :: (fn(msg : String) -> unit);
-  (raise : Raise) = (
-    (msg) -> {
-      return(i32(500));
-    }
-  );
-  (log : Log) = (
-    (msg) -> {
-      println(msg);
-    }
-  );
-  (task : Impl(Future(i32, IO, Log, Raise))) = io.async((io : IO, raise : Raise, log : Log) => {
-    log(`testing reordered effects in type annotation`);
-    io.await(yield(), io);
-    i32(500)
-  });
-  result := io.await(task, io);
-  assert(result == i32(500), "Explicit Impl(Future(i32, IO, Log, Raise)) with reordered effects should work");
-});
-// ---------------------------------------------------------------------------
-// 67d. Explicit Impl(Future(i32, IO, Log, Raise)) — without specifically naming using variables (using(_io, _raise, _log))
-// ---------------------------------------------------------------------------
-test("Test explicit Future type annotation with closure value without specifically naming using variable types", {
-  Raise :: (fn(msg : String) -> i32);
-  Log :: (fn(msg : String) -> unit);
-  (raise : Raise) = (
-    (msg) -> {
-      return(i32(500));
-    }
-  );
-  (log : Log) = (
-    (msg) -> {
-      println(msg);
-    }
-  );
-  (task : Impl(Future(i32, IO, Log, Raise))) = io.async((_io, _log, _raise) => {
-    _log(`testing reordered effects in type annotation with unnamed using variables`);
-    _io.await(yield(), _io, _io);
-    i32(500)
-  });
-  result := io.await(task, io);
-  assert(result == i32(500), "Explicit Impl(Future(i32, IO, Log, Raise)) with reordered effects should work");
+  result := io.await(task, ctx);
+  assert(result == i32(100), "Future(i32, Ctx) with bundle struct should work");
 });
 // ---------------------------------------------------------------------------
 // 68. Await a Future multiple times — should return the same result
@@ -1865,19 +1741,20 @@ test("Test unwind in async closure", {
   // NOTE: Using forall(T) here due to a C codegen bug where concrete effect
   // types in async closures produce "No C function name found" errors.
   Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Ctx :: struct(io : IO, raise : Raise);
   {
-    test_unwind :: (fn(task : Impl(Future(i32, IO, Raise)), io : IO) -> unit)({
+    test_unwind :: (fn(task : Impl(Future(i32, Ctx)), io : IO) -> unit)({
       (raise : Raise) =
         (msg) -> {
           println(msg);
           unwind(());
         };
-      io.await(task, io, raise, io);
+      ctx := Ctx(io : io, raise : raise);
+      io.await(task, ctx);
       assert(false, "expected task to unwind already");
     });
-    // I expect 'task' to have type Impl(Future(i32, IO, Raise))
-    task := io.async((io : IO, raise : Raise) => {
-      raise(`This task should be aborted, not awaited!`);
+    task := io.async((ctx : Ctx) => {
+      ctx.raise(`This task should be aborted, not awaited!`);
       return(i32(12));
     });
     test_unwind(task);
@@ -1886,19 +1763,19 @@ test("Test unwind in async closure", {
     assert(st == FutureState.Aborted);
   };
   {
-    test_unwind :: (fn(task : Impl(Future(i32, IO, Raise)), io : IO) -> i32)({
+    test_unwind :: (fn(task : Impl(Future(i32, Ctx)), io : IO) -> i32)({
       (raise : Raise) =
         (msg) -> {
           println(msg);
           unwind(666);
         };
-      result := io.await(task, io, raise, io);
+      ctx := Ctx(io : io, raise : raise);
+      result := io.await(task, ctx);
       assert(false, "expected task to unwind already");
       return(result);
     });
-    // I expect 'task' to have type Impl(Future(i32, IO, Raise))
-    task := io.async((io : IO, raise : Raise) => {
-      raise(`This task should be aborted, not awaited!`);
+    task := io.async((ctx : Ctx) => {
+      ctx.raise(`This task should be aborted, not awaited!`);
       return(i32(12));
     });
     result := test_unwind(task);
