@@ -1,10 +1,14 @@
 # Explicit Effects — Remove `using` / `given` Implicit Lookup
 
-> Living plan document. The reference behaviour today is described in
-> [`docs/en-US/ALGEBRAIC_EFFECTS.md`](../docs/en-US/ALGEBRAIC_EFFECTS.md);
-> this plan replaces the **surface syntax** of effects with an
-> entirely-explicit model while preserving the **evidence-passing codegen**
-> verbatim.
+> **Status: landed.** All phases are complete. `using`/`given` and the
+> `...(E)` row machinery are gone from the language; effects are
+> explicit parameters; handlers carry a `ctl(...) -> R` type;
+> `Future(T, E)` carries at most one effect bundle. The reference
+> behaviour for users now lives in
+> [`docs/en-US/ALGEBRAIC_EFFECTS.md`](../docs/en-US/ALGEBRAIC_EFFECTS.md).
+> This file remains as the implementation log — motivation,
+> sub-phase tracking, codegen invariants, and the negative-test
+> coverage matrix.
 
 ## Motivation
 
@@ -637,37 +641,36 @@ Files touched:
    `given` anyway, this intermediate step was unnecessary — the struct
    wrapping can be done inline during Phase 2 `yo` file migration.
 
-3. **Phase 2 — Parser + evaluator: explicit params.** 🔄 IN PROGRESS.
-   Drop `using` / `given` keywords. Replace `forall(...(E))` + `using(...(E))`
-   with `forall(E : Type.Struct)` + `e : E`. Migrate prelude + stdlib + tests.
-   This is the big-bang.
+3. **Phase 2 — Parser + evaluator: explicit params.** ✅ DONE.
+   Dropped `using` / `given` keywords; replaced `forall(...(E))` +
+   `using(...(E))` with `forall(E : Type.Struct)` + `e : E`; migrated
+   prelude + stdlib + tests + yo-self. Sub-phase table below for detail.
 
-4. **Phase 3 — Codegen install-site detection on data-flow tags.**
-   Replace `given`-keyword detection with data-flow. Verify
-   `tests/algebraic_effects.test.yo` still passes.
+4. **Phase 3 — Codegen install-site detection on data-flow tags.** ✅ DONE.
+   `isControlFunction` detection runs on data-flow tags rather than the
+   former `given` keyword. Effect tests pass (71/71).
 
-5. **Phase 4 — yo-self port catches up.** Mirror all the above changes
-   in `yo-self/`.
-
-Each phase can be its own PR; Phase 0 is done. Phase 2 is the migration
-breaker. Phases 3+ can land incrementally as gen-output audits succeed.
+5. **Phase 4 — yo-self port catches up.** ✅ Mechanically migrated.
+   Bootstrap mirrors the new design (`yo check ./yo-self` parses
+   ctl / explicit-effects syntax; some unrelated bootstrap drift
+   remains — tracked separately, not blocking this plan).
 
 ### Phase 2 sub-phases
 
 Given the size (~2000+ occurrences across `tests/`, `std/`, `yo-self/`),
 Phase 2 is broken into sub-phases:
 
-| Step | Description                                          | Status                                                                                                                                  |
-| ---- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 2a   | Drop `using`/`given` from lexer/parser tokens        | ✅ DONE (`bd88c32`)                                                                                                                     |
-| 2b   | Drop `using`/`given` from evaluator                  | ✅ DONE (`bd88c32`)                                                                                                                     |
-| 2c   | Replace `...(E)` with `E : Type.Struct` in evaluator | 🔲 Postponed (dead code, safe to leave)                                                                                                 |
-| 2d   | Drop `using`/`given` from codegen                    | ✅ DONE (`bd88c32`)                                                                                                                     |
-| 2e   | Remove `isImplicit` etc. flags                       | 🔲 Postponed (dead code, safe)                                                                                                          |
-| 2f   | Migrate `tests/` `.yo` files                         | 🔄 In progress — `algebraic_effects` largely migrated; one shadowing test logic-fixed; remaining failures cascade from unmigrated std/. |
-| 2g   | Migrate `std/` `.yo` files                           | 🔄 Unblocked — shape (a) chosen for §9.3; ~129 `io.await` sites + Future signatures need threading.                                     |
-| 2h   | Migrate `yo-self/` `.yo` files                       | Pending (~1700 occurrences)                                                                                                             |
-| 2i   | Migrate docs                                         | `docs/en-US/`, `docs/zh-CN/`                                                                                                            |
+| Step | Description                                          | Status                                                                                                                                   |
+| ---- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 2a   | Drop `using`/`given` from lexer/parser tokens        | ✅ DONE (`bd88c32`)                                                                                                                      |
+| 2b   | Drop `using`/`given` from evaluator                  | ✅ DONE (`bd88c32`)                                                                                                                      |
+| 2c   | Replace `...(E)` with `E : Type.Struct` in evaluator | ✅ DONE — `EffectsRowType` and the `...(E)` machinery removed in §7 dead-code cleanup.                                                   |
+| 2d   | Drop `using`/`given` from codegen                    | ✅ DONE (`bd88c32`)                                                                                                                      |
+| 2e   | Remove `isImplicit` etc. flags                       | ✅ DONE — `FunctionParameter.isImplicit`, `FunctionType.implicitParameters`, `FunctionImplicitParameter`, `Variable.isImplicit` removed. |
+| 2f   | Migrate `tests/` `.yo` files                         | ✅ DONE — `algebraic_effects` + `async_await` + the rest of `tests/` migrated. 71/71 effects + 116/116 async passing.                    |
+| 2g   | Migrate `std/` `.yo` files                           | ✅ DONE — `./yo-cli check std/` reports 148/148 file(s) passed.                                                                          |
+| 2h   | Migrate `yo-self/` `.yo` files                       | ✅ DONE — mechanically migrated; bootstrap parses the new design.                                                                        |
+| 2i   | Migrate docs                                         | ✅ DONE — `docs/en-US/` + `docs/zh-CN/` ALGEBRAIC_EFFECTS, ASYNC_AWAIT, DESIGN updated; `.github/` instructions & skills refreshed.      |
 
 ### Phase 2g shape
 
