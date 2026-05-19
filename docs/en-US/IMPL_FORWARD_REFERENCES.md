@@ -73,7 +73,7 @@ They do **not** apply to:
 
 1. **Pre-pass** — for each method-shaped field, evaluate just the
    `fn(<sig>) -> R` head to obtain the full `FunctionType` (including
-   `using`/effect parameters). Allocate a real `FunctionValue` shell with
+   any explicit effect parameters). Allocate a real `FunctionValue` shell with
    the unevaluated body attached and a stable `funcId`. Register the shell
    in the receiver type's trait so that `self.method(...)` lookups resolve.
 2. **Main pass** — evaluate each method body. When the body refers to a

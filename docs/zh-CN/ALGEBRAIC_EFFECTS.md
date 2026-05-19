@@ -6,8 +6,6 @@ Yo 支持**代数效应** — 一次性定界续延（one-shot delimited
 continuations）。效应是常规函数参数，其处理器体可使用
 `unwind(value)` 丢弃续延，或 `return(value)` 恢复续延。
 
-所有参数都是显式的，不存在隐式（`using` / `given`）参数。
-
 代码生成策略为**证据传递**（evidence passing）— 处理器函数指针作为
 额外的 C 参数传递。
 

@@ -7,9 +7,6 @@ for control flow. Effects are regular function parameters whose
 handler bodies may use `unwind(value)` to discard the continuation, or
 `return(value)` to resume it.
 
-All parameters are explicit. There are no implicit (`using` / `given`)
-parameters.
-
 The code generation strategy is **evidence passing** — handler
 function pointers are passed as extra C parameters.
 
