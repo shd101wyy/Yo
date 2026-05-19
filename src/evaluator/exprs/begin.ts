@@ -35,7 +35,11 @@ import { generateExprFromCode } from "../../parser";
 import type { Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import { isFunctionType, isObjectType, isSomeType } from "../../types/guards";
-import { typeContainsRcType, typeToString } from "../../types/utils";
+import {
+  typeContainsRcType,
+  typeIsControlBound,
+  typeToString,
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { isFunctionValue, isTypeValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
@@ -1162,27 +1166,24 @@ export function evaluateBeginExpression({
           });
         }
 
-        // §4 handler-value unwind-escape check (minimal): reject
-        // returning a bare control-function literal. A control function
-        // (body contains `unwind`) is stack-bound to its install frame;
-        // if the caller's frame isn't that frame, invoking it would
-        // unwind to a dead frame. The minimal form catches:
-        //   return((msg) -> { unwind(42); })
-        // and any expression whose evaluated value is a FunctionValue
-        // with isControlFunction === true (e.g. returning a variable
-        // bound to a handler literal).
-        // Doesn't yet catch every storage/capture path; the
-        // originFrameId data-flow analysis is tracked as future work.
+        // §4 escape boundary 1: function return type cannot be
+        // control-bound. A control-bound type carries a control function
+        // (transitively); returning it from a function takes the value
+        // past its install frame, which is then dead — invoking it
+        // later would unwind to a dead frame.
+        //
+        // Type-level check: `typeIsControlBound(returnType)` is true iff
+        // the type contains a `ctl(...) -> ret` (directly or in a struct
+        // field / tuple element / etc). This catches both bare CF
+        // returns and aggregate-containing-CF returns.
         {
-          const returnedValue = evaluatedReturnArgExpr.$?.value;
-          if (
-            returnedValue &&
-            isFunctionValue(returnedValue) &&
-            returnedValue.isControlFunction
-          ) {
+          const returnedType = evaluatedReturnArgExpr.$?.type;
+          if (returnedType && typeIsControlBound(returnedType)) {
             throw formatErrorMessage({
               token: returnArg.token,
-              errorMessage: `Cannot return a control-function value. The handler's body uses \`unwind\`, which targets the frame where the handler was first locally bound (its install site). Returning it lets it outlive that frame; invoking it later would unwind to a dead frame.
+              errorMessage: `Cannot return a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type). Control-function values are stack-bound to their install frame; returning them lets them outlive that frame, and invoking them later would unwind to a dead frame.
+
+Returned type: ${typeToString(returnedType)}
 
 Install the handler at its use site instead:
   (raise : Raise) = ((msg) -> { unwind(...); });

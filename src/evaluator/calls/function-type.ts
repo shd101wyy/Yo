@@ -445,9 +445,7 @@ export function tryToImplementFunctionByFunctionType({
     if (!newFunctionType.isControl && !newFunctionType.isClosure) {
       throw formatErrorMessage({
         token: functionBodyExpr.token,
-        errorMessage: `\`unwind\` is only valid inside a control-function body. This function is declared with \`fn(...) -> ret\`; change the declared type to \`ctl(...) -> ret\` if the body needs to unwind.
-
-See plans/EXPLICIT_EFFECTS.md §4 typing rule 1.`,
+        errorMessage: `\`unwind\` is only valid inside a control-function body. This function is declared with \`fn(...) -> ret\`; change the declared type to \`ctl(...) -> ret\` if the body needs to unwind.`,
       });
     }
     functionValue.isControlFunction = true;

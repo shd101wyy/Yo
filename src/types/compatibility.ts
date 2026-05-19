@@ -1041,6 +1041,25 @@ export function areFunctionTypesCompatible(
     return true;
   }
 
+  // §4 typing rule 5: subtyping `fn <: ctl`. A regular `fn(...) -> ret`
+  // value is assignable to a `ctl(...) -> ret` slot (covariant — a
+  // non-unwinder is valid where unwind is permitted). The reverse is
+  // unsafe: a `ctl(...) -> ret` value MAY contain `unwind`, and a `fn`
+  // slot expects calls that don't unwind. Reject `ctl → fn`.
+  //
+  // requireExactMatch overrides subtyping — both sides must agree.
+  const expectedIsControl = expected.type.isControl === true;
+  const givenIsControl = given.type.isControl === true;
+  if (requireExactMatch) {
+    if (expectedIsControl !== givenIsControl) {
+      return false;
+    }
+  } else {
+    if (givenIsControl && !expectedIsControl) {
+      return false;
+    }
+  }
+
   // Check if the type parameters have the same count
   if (expected.type.parameters.length !== given.type.parameters.length) {
     return false;

@@ -19,6 +19,7 @@ import {
   convertComptimeTypeToRuntimeType,
   prohibitVoidType,
   typeContainsRcType,
+  typeIsControlBound,
   typeProhibitsComptimeModifier,
   typeRequiresComptimeModifier,
   typeToString,
@@ -132,20 +133,22 @@ export function evaluateInitializationAssignment({
   // Disallow using implicit variables (or property access of them) as the RHS
   throwExprIsImplicitVariableError(rhs);
 
-  // §4 handler-value unwind-escape check: reject binding a
-  // control-function value at module level. Module-level bindings
-  // outlive every call frame, so a stored handler would be invokable
-  // long after its install frame has returned — invoking it would
-  // unwind to a dead frame. Inside function bodies, the binding's
-  // own frame becomes the install site, which is the intended use.
+  // §4 escape boundary 2: module-level binding type cannot be
+  // control-bound. Module-level bindings outlive every call frame, so
+  // a stored handler (or aggregate containing one) would be invokable
+  // long after its install frame has returned. Type-level check via
+  // `typeIsControlBound` catches direct CF values, structs/tuples with
+  // CF fields, etc.
   {
     const isAtModuleLevel = !context.isEvaluatingFunctionBodyOrAsyncBlock;
     if (isAtModuleLevel) {
-      const rhsValue = rhs.$?.value;
-      if (rhsValue && isFunctionValue(rhsValue) && rhsValue.isControlFunction) {
+      const rhsType = rhs.$?.type;
+      if (rhsType && typeIsControlBound(rhsType)) {
         throw formatErrorMessage({
           token: rhs.token,
-          errorMessage: `Cannot bind a control-function value at module level. The handler's body uses \`unwind\`, which targets the frame where the handler is first locally bound (its install site). Module-level bindings outlive every call frame; invoking the handler later would unwind to a dead frame.
+          errorMessage: `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
+
+Bound type: ${typeToString(rhsType)}
 
 Define handlers inside the function that uses them:
   use_it :: (fn(...) -> ...)({
