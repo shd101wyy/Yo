@@ -1179,24 +1179,39 @@ ${exprToString(expr)}`,
       // va_start
       return evaluateVaStart({ expr, env, context: { ...context } });
     } else if (
+      exprIsFunctionCallOf(expr, "&+", 2) ||
+      exprIsFunctionCallOf(expr, "&-", 2) ||
+      exprIsFunctionCallOf(expr, "&/", 2) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_diff)
     ) {
       // Memory safety gate: pointer arithmetic requires `unsafe(...)`.
-      // See plans/MEMORY_SAFETY.md. Pointer comparison (__yo_ptr_eq,
-      // __yo_ptr_lt, etc.) stays safe — addresses are just data.
-      // Files under std/ and yo-self/ are implicitly unsafe-capable
-      // (Phase C will replace this with the explicit pragma mechanism).
+      // See plans/MEMORY_SAFETY.md. Pointer comparison (&==, &<, etc.
+      // and the __yo_ptr_eq family) stays safe — addresses are just
+      // data. Files under std/, yo-self/, tests/, and
+      // auto-generated:// are implicitly unsafe-capable (Phase C will
+      // replace this with the explicit pragma mechanism).
+      //
+      // We gate on BOTH the operator-name (&+, &-, &/) and the
+      // underlying builtin (__yo_ptr_add, etc.). The operator-name
+      // gate fires at the user's call site (token in user file); the
+      // builtin gate catches direct __yo_ptr_add calls (rare in user
+      // code). For the operator case, the inner builtin call lives
+      // in the prelude impl body — implicitly unsafe-capable by path
+      // — so it does NOT fire the builtin gate redundantly.
       if (
         !context.unsafeContext &&
         !isImplicitlyUnsafeCapableFile(expr.token.modulePath)
       ) {
-        const fnName = exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)
-          ? "&+"
-          : exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)
-            ? "&-"
-            : "&/";
+        const fnName =
+          exprIsFunctionCallOf(expr, "&+", 2) ||
+          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)
+            ? "&+"
+            : exprIsFunctionCallOf(expr, "&-", 2) ||
+                exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)
+              ? "&-"
+              : "&/";
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Pointer arithmetic ('${fnName}') requires 'unsafe(...)'.
