@@ -92,6 +92,28 @@ wrapper :: (fn(x : i32, raise : Raise) -> i32)(
 );
 ```
 
+#### Install site vs propagation site
+
+`unwind` returns to the frame where the handler was **locally bound**
+— that's the install site. A function that received the handler as a
+parameter is a **propagation site**: the unwind travels further up the
+stack, past it, until it reaches the install frame. Yo decides this
+purely by the binding's frame:
+
+| Where the handler value comes from              | Site      |
+| ----------------------------------------------- | --------- |
+| `(raise : Raise) = …` inside this function body | Install   |
+| `r2 := r` where `r` is itself local             | Install   |
+| `record.handler` where `record` is local        | Install   |
+| `raise : Raise` as a parameter to this function | Propagate |
+| A value captured from an outer scope            | Propagate |
+| `record.handler` where `record` is a parameter  | Propagate |
+
+Re-binding (`r2 := r`) does **not** change the install site — only the
+frame of the innermost binding matters. This is what lets middle-tier
+functions stay plain `fn` and lets a single handler be installed once
+at the top, then flow through any number of forwarding layers.
+
 ### Effect row polymorphism
 
 Effect-polymorphic functions use `forall(E : Type.Struct)`. The
@@ -277,6 +299,37 @@ b := Box(Raise).new((msg) -> { unwind(i32(0)); });
 (r : Raise) = ((msg) -> { unwind(i32(0)); });
 cb := (() => r(`hi`));  // closure captures r; rejected
 ```
+
+## Bare `ctl`-typed effects vs struct effect records
+
+A handler type can be a bare `ctl(...) -> R`, or a struct whose fields
+are `ctl(...) -> R`. Both shapes are first-class — the choice is
+purely an API-shape question:
+
+```rust
+// Bare ctl — single-method effect.
+Raise :: (ctl(msg : String) -> i32);
+
+// Struct record — multi-method effect.
+Exception :: struct(
+  throw : (ctl(forall(T : Type), msg : String) -> T)
+);
+```
+
+Rules of thumb:
+
+- **Single-method effect, called directly** (`raise(msg)`): a bare
+  `ctl(...) -> R` is shorter and reads fine. Good for one-shot
+  effects like `Raise`, `Log`.
+- **Multi-method effect** (`exn.throw(...)`, `logger.warn(...)`): wrap
+  the handlers in a `struct(...)` so the methods share a namespace and
+  travel together as one value.
+- **Effect bundle for a Future** (`Future(T, E)`, `forall(E : Type.Struct)`):
+  the bundle is already a struct, so the handlers live as its fields.
+
+The two shapes have the same install-site, escape, and codegen
+semantics. A bare `ctl` value is just a function-typed parameter; a
+struct field of `ctl` type behaves the same way once accessed.
 
 ## Struct-Based Effect Records
 
