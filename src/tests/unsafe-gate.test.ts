@@ -75,13 +75,30 @@ export(main);
     expect(out).toContain("Pointer arithmetic ('&+') requires 'unsafe(...)'");
   });
 
-  test("unsafe wrap lets the same code compile", () => {
-    // Compile-only sanity check that wrapping makes the program legal.
+  test("unsafe(...) without pragma is rejected", () => {
+    // Phase C: `unsafe(...)` itself is only callable in files that
+    // declare `pragma(Pragma.AllowUnsafe);` at the top. Without the
+    // pragma, even wrapping in `unsafe(...)` doesn't help.
+    const out = compileAndExpectError(`
+main :: (fn() -> unit)({
+  x := i32(42);
+  p := &(x);
+  v := unsafe(p.*);
+});
+export(main);
+`);
+    expect(out).toContain("'unsafe(...)' is not available in safe code");
+    expect(out).toContain("pragma(Pragma.AllowUnsafe)");
+  });
+
+  test("pragma + unsafe wrap lets the same code compile", () => {
+    // With pragma at the top, the file is unsafe-capable; `unsafe(...)`
+    // can be used and pointer ops inside it are permitted.
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-unsafe-gate-"));
     const file = path.join(tmpDir, "pos.yo");
     fs.writeFileSync(
       file,
-      `
+      `pragma(Pragma.AllowUnsafe);
 main :: (fn() -> unit)({
   x := i32(42);
   p := &(x);

@@ -7,6 +7,7 @@ import {
 } from "../../expr";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 
 /**
  * Evaluate the `unsafe(expr)` builtin.
@@ -32,6 +33,25 @@ export function evaluateUnsafe({
   context: EvaluatorContext;
 }): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.unsafe, 1);
+
+  // Privilege check: `unsafe(...)` itself is only callable inside a
+  // file that has declared `pragma(Pragma.AllowUnsafe);`. Without
+  // this gate, user code could trivially bypass the deref/arith
+  // gates by wrapping every pointer op in `unsafe(...)`. See Phase C
+  // of plans/MEMORY_SAFETY.md.
+  if (!isImplicitlyUnsafeCapableFile(expr.token.modulePath)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `'unsafe(...)' is not available in safe code.
+
+To use raw pointer operations in this file, declare at the top:
+
+    pragma(Pragma.AllowUnsafe);
+
+This marks the file as unsafe-capable and accepts responsibility for
+the raw memory operations it contains. See plans/MEMORY_SAFETY.md.`,
+    });
+  }
 
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = evaluateExpression({
