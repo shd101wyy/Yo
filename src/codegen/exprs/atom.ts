@@ -390,7 +390,16 @@ export function generateAtom(
           return generateComptimeValue(expr.$.value, context, expr);
         }
       }
-      return getVariableNameForCodegen(expr.$.variableName, expr.$.env);
+      const name = getVariableNameForCodegen(expr.$.variableName, expr.$.env);
+      // inout(name) : T parameter — at the C level, name is T*; reads
+      // become (*name). See plans/MEMORY_SAFETY.md Phase B.
+      if (expr.$?.env) {
+        const vars = getVariablesFromEnv(expr.$.env, expr.$.variableName);
+        if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+          return `(*${name})`;
+        }
+      }
+      return name;
     }
   }
 
@@ -425,7 +434,14 @@ export function generateAtom(
       // Don't return early - let it fall through to closure capture logic
     } else {
       // Otherwise check if this variable has a parameterAlias in the environment
-      return getVariableNameForCodegen(expr.$.variableName, expr.$?.env);
+      const name = getVariableNameForCodegen(expr.$.variableName, expr.$?.env);
+      if (expr.$?.env) {
+        const vars = getVariablesFromEnv(expr.$.env, expr.$.variableName);
+        if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+          return `(*${name})`;
+        }
+      }
+      return name;
     }
   }
 
@@ -503,5 +519,14 @@ export function generateAtom(
   // Check if this variable has a parameterAlias (used in anonymous functions
   // where the actual parameter name differs from the expected interface parameter name)
   const varNameToUse = getVariableNameForCodegen(expr.token.value, expr.$?.env);
+  // inout(name) : T parameter — at the C level, name is T*; reads
+  // become (*name) and writes become (*name) = v. See
+  // plans/MEMORY_SAFETY.md Phase B.
+  if (expr.$?.env) {
+    const vars = getVariablesFromEnv(expr.$.env, expr.token.value);
+    if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+      return `(*${varNameToUse})`;
+    }
+  }
   return varNameToUse;
 }

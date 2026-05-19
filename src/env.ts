@@ -125,6 +125,16 @@ export interface Variable {
   isReassignable?: boolean;
 
   /**
+   * Whether this variable is an `inout(name) : T` parameter — a
+   * second-class reference to the caller's storage. At codegen time
+   * the parameter is lowered to `T*`; reads of the identifier in the
+   * callee body become `(*name)` and writes become `(*name) = v`.
+   *
+   * See plans/MEMORY_SAFETY.md Phase B.
+   */
+  isInout?: boolean;
+
+  /**
    * Then token at which the variable is initialized.
    * If such token exists, then it means the variable is initialized at that point.
    */

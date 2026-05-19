@@ -148,6 +148,7 @@ export function evaluateFunctionParameter({
   let isCompileTimeOnly: boolean = isParameterComptimeByDefault;
   let isQuote: boolean = false;
   let isOwningTheRcValue: boolean = false;
+  let isInout: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -260,6 +261,29 @@ export function evaluateFunctionParameter({
           errorMessage: `Expected one argument for "own", got ${lhsExpr.args.length}`,
         });
       }
+      lhsExpr = lhsExpr.args[0]!;
+    }
+
+    if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "inout")) {
+      if (lhsExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Expected one argument for "inout", got ${lhsExpr.args.length}`,
+        });
+      }
+      if (isOwningTheRcValue) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Cannot combine 'own' and 'inout' on the same parameter — they have opposite calling conventions.`,
+        });
+      }
+      if (isCompileTimeOnly) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `'inout' parameters are runtime by-reference; cannot combine with 'comptime' or 'forall'.`,
+        });
+      }
+      isInout = true;
       lhsExpr = lhsExpr.args[0]!;
     }
 
@@ -673,7 +697,12 @@ use_id :: (fn(forall(T : Type),
         consumedAtToken: undefined, // Not consumed yet
         isOwningTheRcValue: isOwningTheRcValue,
         isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
-        isReassignable: false, // Mark as not reassigable
+        // inout(name) : T parameters are second-class references —
+        // assignments inside the callee write through to the caller's
+        // variable. Mark reassignable so `a = b;` inside the body
+        // type-checks. Codegen lowers reads/writes through a T*.
+        isReassignable: isInout,
+        isInout: isInout || undefined,
         docComment: lhsExpr
           ? context.docCommentLookup?.get(getDocCommentLookupKey(lhsExpr.token))
           : undefined,
@@ -721,6 +750,7 @@ use_id :: (fn(forall(T : Type),
       isCompileTimeOnly,
       isQuote,
       isOwningTheRcValue,
+      isInout,
       assignedValue,
     },
     env,

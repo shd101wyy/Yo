@@ -405,6 +405,21 @@ export interface FunctionParameter {
   isOwningTheRcValue: boolean;
 
   /**
+   * Whether this parameter is declared with the `inout(name) : T`
+   * modifier — second-class reference semantics. The caller's
+   * variable is bound to the param by reference; assignments inside
+   * the callee write through to the caller. The param identifier
+   * cannot escape the callee (no return, no store in let/var/struct
+   * field, no closure capture).
+   *
+   * At codegen, inout(name) : T lowers to a T* in C; reads become
+   * (*name), writes become (*name) = v. Callers pass &(caller_var).
+   *
+   * See plans/MEMORY_SAFETY.md Phase B.
+   */
+  isInout?: boolean;
+
+  /**
    * The expression information of the parameter.
    */
   exprs: FunctionParameterExprs;

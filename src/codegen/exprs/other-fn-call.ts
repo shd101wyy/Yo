@@ -487,6 +487,27 @@ export function generateOtherFunctionCall(
           }
         }
       });
+
+      // inout(name) : T parameter — caller passes &(arg) automatically.
+      // Match each runtime arg index to the runtime parameter at the
+      // same index (filter out comptime params first). See
+      // plans/MEMORY_SAFETY.md Phase B.
+      {
+        const runtimeParams = functionType.parameters.filter(
+          (p) => !p.isCompileTimeOnly && !p.isQuote
+        );
+        for (let i = 0; i < args.length; i++) {
+          const param = runtimeParams[i];
+          if (param?.isInout) {
+            const c = args[i]!;
+            // If c is already an l-value-looking expression like
+            // `(*expr)`, fold to just `expr` rather than `&(*expr)`.
+            const inoutLvalue = c.match(/^\(\*(.+)\)$/);
+            args[i] = inoutLvalue ? inoutLvalue[1]! : `(&(${c}))`;
+          }
+        }
+      }
+
       const argsList = args.join(", ");
 
       // Check if this is an extern "yo" function - handle these first before regular function values
@@ -720,9 +741,12 @@ export function generateOtherFunctionCall(
           // rather than crashing — the original argsList is already valid C.
           let namedParamTypeStrs: string[] | undefined;
           try {
-            namedParamTypeStrs = namedRuntimeParams.map((p) =>
-              getTypeString(p.type, context)
-            );
+            namedParamTypeStrs = namedRuntimeParams.map((p) => {
+              const baseStr = getTypeString(p.type, context);
+              // inout(name) : T lowers to T* in C. See
+              // plans/MEMORY_SAFETY.md Phase B.
+              return p.isInout ? `${baseStr}*` : baseStr;
+            });
           } catch {
             namedParamTypeStrs = undefined;
           }

@@ -394,6 +394,14 @@ export function generateFunctionPrototype(
         paramTypeStr = getTypeString(param.type, context);
       }
 
+      // inout(name) : T lowers to T* in C. Reads of `name` in the
+      // body become `(*name)`; writes become `(*name) = v`. The
+      // identifier `name` itself never escapes the callee. See
+      // plans/MEMORY_SAFETY.md Phase B.
+      if (param.isInout) {
+        paramTypeStr = `${paramTypeStr}*`;
+      }
+
       return `${paramTypeStr} ${paramName}`;
     }
   });
