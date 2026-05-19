@@ -127,7 +127,6 @@ function functionParamsToDocParams(
     name: p.label,
     type: typeToString(p.type),
     isComptime: p.isCompileTimeOnly,
-    isImplicit: p.isImplicit,
     defaultValue: p.exprs.defaultValueExpr
       ? String(p.exprs.defaultValueExpr)
       : undefined,
@@ -143,7 +142,6 @@ function forallParamsToDocParams(
     name: p.label,
     type: typeToString(p.type),
     isComptime: true,
-    isImplicit: false,
     doc: docLookup?.get(p.label),
   }));
 }
@@ -156,7 +154,6 @@ function implicitParamsToDocParams(
     name: p.label,
     type: typeToString(p.type),
     isComptime: true,
-    isImplicit: true,
     doc: docLookup?.get(p.label),
   }));
 }
@@ -728,7 +725,6 @@ function extractTraitBodyMembers(
                         name: paramName,
                         type: paramType,
                         isComptime: false,
-                        isImplicit: false,
                       });
                     }
                     p = typeArgEnd;

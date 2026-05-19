@@ -422,11 +422,6 @@ export interface FunctionParameter {
    */
   isOwningTheRcValue: boolean;
   /**
-   * Whether this parameter is an implicit parameter (from `using(...)`).
-   * Implicit parameters are resolved from `given` variables in scope at the call site.
-   */
-  isImplicit: boolean;
-  /**
    * If true, this entry in implicitParameters is an effect row spread marker.
    * - Named spread `...(E)`: label = "E", type = SomeType_E (isEffectsRow: true)
    * - Anonymous spread `...`:  label = "...", type = unit (placeholder)
@@ -449,7 +444,6 @@ export interface FunctionParameter {
 
 export type FunctionForallParameter = FunctionParameter & {
   isCompileTimeOnly: true;
-  isImplicit: false;
 };
 
 export interface StructType extends Type {

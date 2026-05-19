@@ -723,7 +723,6 @@ use_id :: (fn(forall(T : Type),
       isCompileTimeOnly,
       isQuote,
       isOwningTheRcValue,
-      isImplicit: false,
       assignedValue,
     },
     env,
@@ -1656,7 +1655,6 @@ export function evaluateFunctionParameters({
             isCompileTimeOnly: true,
             isQuote: false,
             isOwningTheRcValue: false,
-            isImplicit: false,
             isEffectRowSpread: false, // forall parameter, not a spread in using()
             exprs: getFunctionParameterExprs({
               expr: typeParameterExpr,
@@ -2011,7 +2009,6 @@ export function evaluateFunctionParameters({
         label: parameterName,
         type: parameterType,
         isOwningTheRcValue: false,
-        isImplicit: false,
       };
       variadicParameter = createdVariadicParameter;
 

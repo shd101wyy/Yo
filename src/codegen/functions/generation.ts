@@ -330,10 +330,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
       getEvidenceParameters(value.specializedType ?? value.type).length === 0 &&
-      [
-        ...value.type.implicitParameters,
-        ...value.type.parameters.filter((p) => p.isImplicit),
-      ].some((param) => isFunctionType(param.type));
+      value.type.implicitParameters.some((param) => isFunctionType(param.type));
 
     if (hasUnresolvedFunctionImplicitParams) {
       continue;

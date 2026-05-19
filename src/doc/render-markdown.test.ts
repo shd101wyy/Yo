@@ -28,8 +28,8 @@ function makeFunction(overrides: Partial<DocFunction> = {}): DocFunction {
     signature: "add :: (fn(a : i32, b : i32) -> i32)",
     doc: "Add two numbers.",
     parameters: [
-      { name: "a", type: "i32", isComptime: false, isImplicit: false },
-      { name: "b", type: "i32", isComptime: false, isImplicit: false },
+      { name: "a", type: "i32", isComptime: false },
+      { name: "b", type: "i32", isComptime: false },
     ],
     returnType: "i32",
     isMethod: false,
@@ -66,9 +66,7 @@ function makeTrait(overrides: Partial<DocTrait> = {}): DocTrait {
         name: "display",
         signature: "display : (fn(self: Self) -> str)",
         doc: "Render self as a string.",
-        parameters: [
-          { name: "self", type: "Self", isComptime: false, isImplicit: false },
-        ],
+        parameters: [{ name: "self", type: "Self", isComptime: false }],
         returnType: "str",
         isMethod: true,
         selfType: "Self",
@@ -125,26 +123,23 @@ describe("renderFunctionMd", () => {
     expect(md).toContain("**Returns:** `i32`");
   });
 
-  it("renders comptime and implicit parameters", () => {
+  it("renders comptime parameters", () => {
     const fn = makeFunction({
       parameters: [
         {
           name: "T",
           type: "Type",
           isComptime: true,
-          isImplicit: false,
         },
         {
           name: "io",
           type: "IO",
           isComptime: false,
-          isImplicit: true,
         },
       ],
     });
     const md = renderFunctionMd(fn);
     expect(md).toContain("*(comptime)*");
-    expect(md).toContain("*(implicit)*");
   });
 
   it("renders a method with self type", () => {
@@ -235,9 +230,7 @@ describe("renderTypeMd", () => {
     const md = renderTypeMd(
       makeType({
         name: "Vec",
-        typeParams: [
-          { name: "T", type: "Type", isComptime: true, isImplicit: false },
-        ],
+        typeParams: [{ name: "T", type: "Type", isComptime: true }],
       })
     );
     expect(md).toContain("### `Vec(T)`");
@@ -385,14 +378,12 @@ describe("renderFunctionMd sections", () => {
             name: "a",
             type: "i32",
             isComptime: false,
-            isImplicit: false,
             doc: "First operand.",
           },
           {
             name: "b",
             type: "i32",
             isComptime: false,
-            isImplicit: false,
             doc: "Second operand.",
           },
         ],

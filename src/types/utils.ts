@@ -694,9 +694,6 @@ export function functionParameterToString(
 
   if (parameter.isQuote) {
     label = `quote(${label})`;
-  } else if (parameter.isImplicit) {
-    // isImplicit implies isCompileTimeOnly, show as using(label)
-    // Don't wrap in comptime() since using() already implies comptime
   } else if (parameter.isCompileTimeOnly) {
     label = `comptime(${label})`;
   }

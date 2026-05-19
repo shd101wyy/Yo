@@ -1396,10 +1396,8 @@ function generateMethodSnippet(
   if (!isFunctionType(type)) return undefined;
   const funcType = type as FunctionType;
   const completionName = stringIsOperator(name) ? `(${name})` : name;
-  // Filter out self parameter and implicit parameters
-  const callParams = funcType.parameters.filter(
-    (p) => p.label !== "self" && !p.isImplicit
-  );
+  // Filter out the self parameter — it's bound by the receiver, not callsite args.
+  const callParams = funcType.parameters.filter((p) => p.label !== "self");
   if (callParams.length === 0) {
     return {
       insertText: `${completionName}()`,

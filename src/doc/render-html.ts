@@ -1216,7 +1216,6 @@ function renderParamsTable(
   for (const p of params) {
     const notes: string[] = [];
     if (p.isComptime) notes.push("comptime");
-    if (p.isImplicit) notes.push("implicit");
     if (p.defaultValue) notes.push(`default: ${escapeHtml(p.defaultValue)}`);
     const docCell = hasDoc
       ? `<td>${p.doc ? renderMarkdown(md, p.doc) : ""}</td>`
