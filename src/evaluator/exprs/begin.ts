@@ -1161,6 +1161,37 @@ export function evaluateBeginExpression({
           });
         }
 
+        // §4 handler-value escape check (minimal): reject returning a
+        // bare control-function literal. A control function (body
+        // contains `unwind`) is stack-bound to its install frame; if the
+        // caller's frame isn't that frame, invoking it would unwind to a
+        // dead frame. The minimal form catches:
+        //   return((msg) -> { unwind(42); })
+        // and any expression whose evaluated value is a FunctionValue
+        // with isControlFunction === true (e.g. returning a variable
+        // bound to a handler literal).
+        // Doesn't yet catch every storage/capture path; the
+        // originFrameId data-flow analysis is tracked as future work.
+        {
+          const returnedValue = evaluatedReturnArgExpr.$?.value;
+          if (
+            returnedValue &&
+            isFunctionValue(returnedValue) &&
+            returnedValue.isControlFunction
+          ) {
+            throw formatErrorMessage({
+              token: returnArg.token,
+              errorMessage: `Cannot return a control-function value. The handler's body uses \`unwind\`, which targets the frame where the handler was first locally bound (its install site). Returning it lets it outlive that frame; invoking it later would unwind to a dead frame.
+
+Install the handler at its use site instead:
+  (raise : Raise) = (msg) -> { unwind(...) };
+  some_call(args, raise);
+
+See plans/EXPLICIT_EFFECTS.md §4 "Handler value escape restrictions".`,
+            });
+          }
+        }
+
         // Validate Impl return types across multiple return statements
         if (
           context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
