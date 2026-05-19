@@ -945,9 +945,7 @@ function _tryToCallFunctionWithArgumentsImpl({
     argExprs = [argExprs[0]!, ...argExprs.slice(2)];
   }
 
-  // Split arguments
-  // REMOVED: `using()` keyword is gone. All args are regular args.
-  const usingArgsExpr = undefined as unknown as FnCallExpr; // dead code, using removed
+  // Split arguments — `using()` keyword is gone, so all args are regular.
   const adjustedArgExprs = argExprs.slice(regularArgStartIndex);
 
   // Split arguments into regular and implicit
@@ -1310,97 +1308,6 @@ Got:   ${typeToString(typeValue.type)}`,
       calleeEnv = expectedEnv;
     } catch {
       // Silently ignore errors - synthesis will happen again later after arguments
-    }
-  }
-
-  // Early effect row resolution: when the function has effect row spread implicit
-  // parameters (e.g., using(...(E))) and the call site provides using() args,
-  // resolve the effect rows BEFORE processing regular arguments. This is necessary
-  // because regular parameters (e.g., callback : Impl(Fn(v: i32, using(...(E))) -> unit))
-  // may reference the effect row variable E, and evaluateFunctionParameterTypeAgain
-  // needs E to be bound in calleeEnv to produce the correct expected type.
-  if (usingArgsExpr && functionType.implicitParameters.length > 0) {
-    const hasEffectRowSpread = functionType.implicitParameters.some(
-      (p) => p.isEffectRowSpread
-    );
-    if (hasEffectRowSpread) {
-      // Count non-spread implicit params to figure out which using args go to spreads
-      const nonSpreadParams = functionType.implicitParameters.filter(
-        (p) => !p.isEffectRowSpread
-      );
-      const nonSpreadCount = nonSpreadParams.length;
-
-      // The first nonSpreadCount using args correspond to named implicit params;
-      // remaining args fill the effect row spread(s) directly.
-      const spreadArgs = usingArgsExpr.args.slice(nonSpreadCount);
-
-      if (spreadArgs.length > 0) {
-        // Resolve each spread arg's type from callerEnv via variable lookup
-        const concreteImplicitParams: FunctionParameter[] = [];
-        for (const spreadArgExpr of spreadArgs) {
-          if (!exprIsAtom(spreadArgExpr)) {
-            throw formatErrorMessage({
-              token: spreadArgExpr.token,
-              errorMessage: `Expected identifier for using() argument in effect row spread, got ${exprToString(spreadArgExpr)}`,
-            });
-          }
-          const argName = spreadArgExpr.token.value;
-          const outerVariables = getVariablesFromEnv(callerEnv, argName);
-          const outerVar = outerVariables.at(-1);
-          if (!outerVar) {
-            throw formatErrorMessage({
-              token: spreadArgExpr.token,
-              errorMessage: `Variable "${argName}" not found for using() argument in effect row spread.`,
-            });
-          }
-          // Annotate the using arg expression so codegen can resolve it to
-          // the correct C function name (e.g., for effect injection).
-          spreadArgExpr.$ = {
-            env: callerEnv,
-            type: outerVar.type,
-            value: outerVar.value?.[0],
-            variableName: argName,
-            pathCollection: [],
-          };
-          concreteImplicitParams.push({
-            label: argName,
-            type: outerVar.type,
-            isCompileTimeOnly: true,
-            isOwningTheRcValue: false,
-            isQuote: false,
-            exprs: {
-              expr: spreadArgExpr,
-              labelExpr: spreadArgExpr,
-              typeExpr: undefined as unknown as Expr,
-              defaultValueExpr: undefined,
-            },
-          });
-        }
-
-        // Create EffectsRowType and bind it to each effect row spread variable in calleeEnv
-        const effectsRow = createEffectsRowType(concreteImplicitParams);
-        const effectsRowTypeValue = createTypeValue(effectsRow);
-
-        for (const implicitParam of functionType.implicitParameters) {
-          if (!implicitParam.isEffectRowSpread) continue;
-          const rowVarName = implicitParam.label;
-          const variables = getVariablesFromEnv(calleeEnv, rowVarName);
-          const variable = variables.at(-1);
-          if (variable) {
-            calleeEnv = updateExistingVariable(calleeEnv, variable, {
-              ...variable,
-              value: [effectsRowTypeValue],
-            });
-          }
-          // Also set resolvedConcreteType on the SomeType if applicable
-          if (
-            isSomeType(implicitParam.type) &&
-            implicitParam.type.isEffectsRow
-          ) {
-            (implicitParam.type as SomeType).resolvedConcreteType = effectsRow;
-          }
-        }
-      }
     }
   }
 
@@ -2007,99 +1914,7 @@ Please ensure a given variable of matching type is in scope.`,
         });
       calleeEnv = nextCalleeEnv_;
 
-      // First, check if there's an explicit using(...) arg at the call site
-      if (usingArgsExpr) {
-        const usingArgExpr = usingArgsExpr.args[i];
-        // using(undefined) means "skip explicit, use given variable lookup"
-        const isUsingUndefined =
-          usingArgExpr &&
-          exprIsAtom(usingArgExpr) &&
-          exprIsAtomOf(usingArgExpr, BuiltinKeywords.undefined);
-        if (usingArgExpr && !isUsingUndefined) {
-          // Evaluate the explicit using arg
-          const evaluatedUsingArg = evaluateExpression({
-            expr: usingArgExpr,
-            env: callerEnv,
-            context: { ...context },
-          });
-          if (!evaluatedUsingArg.$) {
-            throw formatErrorMessage({
-              token: usingArgExpr.token,
-              errorMessage: `Failed to evaluate using() argument: ${exprToString(usingArgExpr)}`,
-            });
-          }
-          callerEnv = evaluatedUsingArg.$.env;
-          const argValue = evaluatedUsingArg.$.value;
-          const argType = evaluatedUsingArg.$.type;
-
-          if (!argValue) {
-            throw formatErrorMessage({
-              token: usingArgExpr.token,
-              errorMessage: `Expected compile-time value for using() argument, got runtime value: ${exprToString(usingArgExpr)}`,
-            });
-          }
-
-          // Check type compatibility
-          if (
-            !areTypesCompatible(
-              { type: resolvedImplicitType, env: calleeEnv },
-              { type: argType, env: callerEnv }
-            )
-          ) {
-            throw formatErrorMessage({
-              token: usingArgExpr.token,
-              errorMessage: `Incompatible type for implicit parameter "${implicitParam.label}":
-Expected: ${typeToString(resolvedImplicitType)}
-Got:      ${typeToString(argType)}`,
-            });
-          }
-
-          implicitArgValues.push({
-            value: argValue,
-            parameterType: resolvedImplicitType,
-            argType,
-          });
-
-          // Add implicit arg to calleeEnv (mark as isImplicit so it can be
-          // found by nested using() parameter resolution).
-          // The variable may already exist from the function type's env
-          // (added during function type construction). In that case, update
-          // the existing variable instead of adding a new one.
-          const existingImplicitVars = getVariablesFromEnv(
-            calleeEnv,
-            implicitParam.label
-          );
-          if (existingImplicitVars.length > 0) {
-            const existingVar =
-              existingImplicitVars[existingImplicitVars.length - 1]!;
-            calleeEnv = updateExistingVariable(calleeEnv, existingVar, {
-              ...existingVar,
-              type: resolvedImplicitType,
-              value: [argValue],
-            });
-          } else {
-            const { env: nextEnv } = addVariableToEnv({
-              env: calleeEnv,
-              variable: {
-                name: implicitParam.label,
-                type: resolvedImplicitType,
-                isCompileTimeOnly: true,
-                value: [argValue],
-                token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-                initializedAtToken:
-                  implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-                consumedAtToken: undefined,
-                isOwningTheRcValue: false,
-              },
-              allowVariableShadowing: true,
-            });
-            calleeEnv = nextEnv;
-          }
-          resolved = true;
-        }
-      }
-
-      // If not explicitly provided, search caller env for given variables
+      // Search caller env for given variables
       if (!resolved) {
         const givenVariables = getVariablesFromEnvByFilter(
           callerEnv,
