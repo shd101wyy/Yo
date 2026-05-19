@@ -874,17 +874,34 @@ export function isComptimeFunction(functionValue: FunctionValue): boolean {
 export function isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(
   functionValue: FunctionValue
 ): string | null {
-  const body = functionValue.body;
+  // Helper: look through `unsafe(expr)` transparently — it's a pure
+  // compile-time marker; codegen lowers it to its inner expression.
+  // A function body shaped like `unsafe(__yo_op_add(a, b))` is
+  // structurally equivalent to `__yo_op_add(a, b)` for inlining
+  // purposes. See plans/MEMORY_SAFETY.md.
+  const unwrapUnsafe = (e: Expr): Expr =>
+    exprIsFunctionCall(e) &&
+    exprIsFunctionCallOf(e, BuiltinFunctions.unsafe) &&
+    e.args.length === 1
+      ? e.args[0]!
+      : e;
+
+  const body = unwrapUnsafe(functionValue.body);
+
   let operatorName: string | null = null;
 
   if (
     exprIsFunctionCall(body) &&
     exprIsFunctionCallOf(body, "begin") &&
-    body.args.length === 1 &&
-    exprIsFunctionCall(body.args[0]!) &&
-    exprIsFunctionCallOf(body.args[0]!, BuiltinYoInlineFunctions)
+    body.args.length === 1
   ) {
-    operatorName = body.args[0]!.func.token.value;
+    const inner = unwrapUnsafe(body.args[0]!);
+    if (
+      exprIsFunctionCall(inner) &&
+      exprIsFunctionCallOf(inner, BuiltinYoInlineFunctions)
+    ) {
+      operatorName = inner.func.token.value;
+    }
   } else if (
     exprIsFunctionCall(body) &&
     exprIsFunctionCallOf(body, BuiltinYoInlineFunctions)
