@@ -27,6 +27,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 
 // Register class names recognized in asm operands
 const REGISTER_CLASSES = new Set([
@@ -492,6 +493,22 @@ export function evaluateAsm({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
+  // Phase C privilege gate: asm is unsafe-by-construction and requires
+  // `pragma(Pragma.AllowUnsafe);` at the top of the file. See
+  // plans/MEMORY_SAFETY.md.
+  if (!isImplicitlyUnsafeCapableFile(expr.token.modulePath)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `'asm(...)' is not available in safe code.
+
+Inline assembly can corrupt memory, violate calling conventions, and
+break the type system. To use it, declare at the top of this file:
+
+    pragma(Pragma.AllowUnsafe);
+
+See plans/MEMORY_SAFETY.md.`,
+    });
+  }
   // asm can only be called inside a function body or test block
   if (
     context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "function-body" &&
@@ -756,6 +773,13 @@ export function evaluateGlobalAsm({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
+  // Phase C privilege gate. See plans/MEMORY_SAFETY.md.
+  if (!isImplicitlyUnsafeCapableFile(expr.token.modulePath)) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `'global_asm(...)' is not available in safe code. Declare 'pragma(Pragma.AllowUnsafe);' at the top of the file to use inline assembly.`,
+    });
+  }
   if (expr.args.length === 0) {
     throw formatErrorMessage({
       token: expr.token,

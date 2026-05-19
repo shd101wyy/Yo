@@ -9,6 +9,16 @@
 //!
 //! **Do NOT import `std/prelude`** — it is loaded automatically and an
 //! explicit import will produce a compile error.
+//
+// The prelude is itself the foundation of Yo's unsafe-capable
+// machinery — raw-pointer impls, FFI declarations, the async runtime,
+// etc. Declare the file's pragma at the very top so it is registered
+// before any subsequent extern/asm/pointer-op declaration fires the
+// Phase C gates. The `Pragma` enum is defined later in this file (it
+// needs the trait machinery to be in place); the `pragma(...)` builtin
+// recognizes `Pragma.AllowUnsafe` at the AST level and does not need
+// the enum resolved yet. See plans/MEMORY_SAFETY.md.
+pragma(Pragma.AllowUnsafe);
 /// Comptime trait — indicates a type that can be used at compile-time.
 /// Examples: `i32`, `bool`, `Type`, `comptime_int`, `comptime_float`, `comptime_string`.
 /// Non-examples: `int`, `ushort` (runtime-only types).
@@ -600,13 +610,15 @@ export(Ordering);
 /// the top of a Yo file as `pragma(Pragma.AllowUnsafe);` to permit raw
 /// pointer operations (`p.*`, `&+`, `&-`, `&/`, etc.) without explicit
 /// `unsafe(...)` wraps. See plans/MEMORY_SAFETY.md.
+///
+/// The prelude declares its own pragma at the very top of this file
+/// (before any FFI/asm/pointer-op site), but the enum itself is
+/// defined here once the trait machinery is in place. The
+/// `pragma(...)` builtin recognizes `Pragma.AllowUnsafe` at the AST
+/// level so the prelude's own pragma works without the enum yet
+/// resolved.
 Pragma :: enum(AllowUnsafe);
 export(Pragma);
-/// The prelude itself is unsafe-capable: the raw-pointer machinery
-/// (Clone/Hash impls for primitive types, iterator scaffolding,
-/// Box/Iso/Arc internals, …) lives in this file. User code calls into
-/// it transitively through safe public APIs.
-pragma(Pragma.AllowUnsafe);
 /// Ord trait — enables `<`, `<=`, `>`, `>=` comparison operators.
 /// Requires the type to also implement `Eq`.
 Ord :: (
