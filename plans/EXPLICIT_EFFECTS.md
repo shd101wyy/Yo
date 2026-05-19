@@ -668,12 +668,29 @@ Items intentionally not done in this pass; tracked for follow-up:
      changes — no regression there.
 4. **§9.6 default evidence values.** `(e : E) ?= {}` defaults at
    leaves to reduce no-effect call-site boilerplate. Independent
-   ergonomic feature; not blocking anything.
-5. **§9.8 `Struct` builtin.** Move from prelude (`Struct :: Type`) to
-   a compiler-recognized constraint keyword.
-6. **§4 handler-value escape check.** Static analysis that rejects
-   returning / heap-storing control-function values. Important safety
-   feature but no currently-failing test depends on it.
+   ergonomic feature; not blocking anything. **Deferred** (user
+   wants to think more about the design).
+5. **§9.8 `Type.Struct` kind constraint syntax.** ✅ Landed. Used
+   `Type.<KindName>` dot syntax instead of a new `Struct` keyword;
+   the evaluator short-circuits property access on `Type` for the
+   five recognised kinds (Struct, Enum, Union, Trait, Function).
+   `Struct :: Type` removed from prelude. Migration of `: Struct` →
+   `: Type.Struct` applied across std/, tests/, yo-self/.
+6. **§4 handler-value escape check.** ✅ Minimal version landed —
+   `return(handler)` where `handler.isControlFunction === true` now
+   errors with a pointer to §4. Most "return a handler" patterns are
+   already caught by the existing unwind-type check (the handler's
+   unwind value type rarely matches the outer function's return type
+   when that outer type is the handler itself); the new check adds
+   defense-in-depth where the type checker would otherwise let a
+   control function escape. Full originFrameId data-flow analysis
+   (Box/Rc/module-bind/outliving-capture) is the next step but no
+   currently-failing test depends on it.
+7. **§7 sub-phase 2e dead-code cleanup.** Skipped. `isImplicit`
+   flags, `stripImplicitVariablesFromEnv`, `...(E)` evaluator paths
+   etc. are leftover code that doesn't affect behaviour under
+   explicit effects. The plan marks 2e as "safe to leave"; removal
+   has non-trivial review cost vs zero functional benefit.
 
 ## 8. Implementation Details — What Gets Removed
 
