@@ -1,26 +1,32 @@
-# Memory Safety: `unsafe(...)`
+# Memory Safety
 
 ## Goal
 
-Make Yo's unsafe surface **visible** without introducing a new type system. Raw-pointer dereference, arithmetic, and other operations that can cause undefined behavior must appear inside an explicit `unsafe(expr)` call. Safe code stays safe by construction; unsafe code is auditable by `grep`.
+Make Yo memory-safe **for user code, by construction.** Two layered mechanisms:
 
-The pitch becomes: **"`object` values are memory-safe; raw pointer operations require `unsafe(...)`; the stdlib's unsafe surface is small and audited."**
+1. **`unsafe(...)` marker** — every operation that could cause undefined behavior (pointer deref, arithmetic, `consume(p.* = v)`) must appear inside an explicit `unsafe(expr)` call. Makes the unsafe surface visible and greppable.
 
-This is the same shape as Zig — and Rust's `unsafe` blocks — without the borrow checker complexity.
+2. **Per-file privilege gate** — files default to **safe** mode where raw pointers, `unsafe(...)`, `asm(...)`, and `extern fn` are all unavailable. Files opt into unsafe-capability with a top-of-file `pragma(Pragma.AllowUnsafe);` declaration. User code defaults safe; stdlib explicitly opts in.
+
+The pitch: **"User code cannot violate memory safety. The unsafe surface is confined to files that explicitly opt in via pragma — primarily stdlib — which is small, audited per release, and fuzz-tested. FFI is wrapped in safe APIs."**
+
+This is Swift's model. It's Go's model. It's Java's model. All three are widely accepted as memory-safe.
 
 ## Non-Goals
 
-- **No new `&(T)` reference type.** Earlier drafts of this doc proposed second-class references with scope tracking. Rejected: complexity-to-safety ratio is poor for a language that already has `object` for the common case. See [Alternatives](#alternatives-considered).
-- **No `unsafe fn` (function coloring).** Only `unsafe(...)` calls at the use site. Unsafety doesn't propagate to callers.
-- **No lifetimes, no borrow checker, no aliasing rules.**
-- **No changes to `&(x)` semantics.** `&(x)` still returns `*(T)` exactly as today.
+- **No `&(T)` reference type, no Origins, no lifetimes.** See [`FUTURE_ORIGINS.md`](FUTURE_ORIGINS.md) for the deferred design.
+- **No `unsafe fn` (function coloring).** Only `unsafe(...)` expression calls at the use site. Unsafety doesn't propagate to callers.
+- **No borrow checker, no aliasing rules.**
+- **No changes to `&(x)` semantics.** `&(x)` still returns `*(T)` exactly as today (and is forbidden in safe code by the privilege gate, not by a semantic change).
 - **No changes to `object`, RC, cycle removal, or any existing safety infrastructure.**
+- **No restrictions on what user code can _call_** — every stdlib function remains callable. Restrictions apply to what user code can _write_: which types it can declare, which operators it can use, which constructs appear in its source.
+- **No formal soundness proof.** Safety is achieved by removing the constructs that cause UB from the user's vocabulary; the claim is "user code cannot express UB," not "the type system proves UB-freedom."
 
 ---
 
 ## Design
 
-### Syntax
+### `unsafe(...)` Marker
 
 `unsafe(...)` is a regular builtin call that takes **exactly one expression** — the same shape as `return(...)`, `consume(...)`, etc. The argument can be any expression: a deref, an assignment, a `cond`, a `match`, or a multi-statement begin-block.
 
@@ -50,7 +56,7 @@ do_stuff :: (fn(p : *(i32)) -> i32)(
 
 **Reminder on `{...}` shape:** in Yo, `{ expr }` without semicolons is a **struct literal**, not a block. Write `unsafe(expr)` directly for a single expression. Only use `unsafe({ stmt; stmt; result })` when you genuinely need a sequence.
 
-### What requires `unsafe(...)`
+#### What requires `unsafe(...)`
 
 | Operation                   | Example               | Why                                     |
 | --------------------------- | --------------------- | --------------------------------------- |
@@ -60,7 +66,7 @@ do_stuff :: (fn(p : *(i32)) -> i32)(
 | Pointer arithmetic          | `p &+ n`, `p &- n`    | Result usually destined to deref        |
 | Pointer difference          | `p &/ q`              | Assumes both point into the same object |
 
-### What stays safe
+#### What stays safe (no `unsafe(...)` wrap needed)
 
 | Operation                    | Example                     | Why                                |
 | ---------------------------- | --------------------------- | ---------------------------------- |
@@ -73,104 +79,309 @@ do_stuff :: (fn(p : *(i32)) -> i32)(
 | Cast `comptime_string` → ptr | `*(u8)("hello")`            | Already supported, stays safe      |
 | `asm(...)` blocks            | `asm("..." : : : "memory")` | Implicitly unsafe — no wrap needed |
 
-The principle: **moving an address around is safe; dereferencing or computing into one isn't.** This matches what an LLM intuitively expects.
+The principle: **moving an address around is safe; dereferencing or computing into one isn't.**
 
-### `unsafe(...)` is not a function attribute
+#### `unsafe(...)` is not a function attribute
 
-A function with `*(T)` in its signature is callable from safe code. The `unsafe(...)` lives in the **body**, exactly where deref happens. This keeps the safety surface visible at the point of risk and prevents unsafety from virally annotating every API that takes a pointer. There is no `unsafe fn`; only the expression-level call.
+A function with `*(T)` in its signature is callable from any unsafe-capable file. The `unsafe(...)` lives in the **body**, exactly where deref happens. This keeps the safety surface visible at the point of risk and prevents unsafety from virally annotating every API that takes a pointer. There is no `unsafe fn`; only the expression-level call.
+
+### The Privilege Gate
+
+Every Yo source file is either **safe** (default) or **unsafe-capable** (opt-in via pragma). There is **no path-based privilege** — files under `std/` and `yo-self/` must declare the pragma explicitly, same as any other file. One uniform rule:
 
 ```rust
-// Public API — no unsafe needed at the call site:
-parse :: (fn(buf : *(u8), len : usize) -> Option(Header))(
-  unsafe(cond(
-    (len < usize(16)) => Option(Header).None,
-    true => {
-      magic := buf.*;
-      Option(Header).Some(Header(magic : magic))
-    }
-  ))
+pragma(Pragma.AllowUnsafe);
+```
+
+`pragma(...)` is a new builtin (added to `BuiltinKeywords`) that takes one `comptime(Pragma)` argument. `Pragma` is an enum defined in `std/prelude.yo`:
+
+```rust
+Pragma :: enum(
+  AllowUnsafe   // opt into raw pointers, unsafe(...), asm(...), extern fn
+  // future variants: NoMain, Deprecated, Strict, ...
 );
+```
+
+The argument must be comptime-known so the file's privilege level is determined at parse time. Multiple `pragma(...)` declarations may appear at the top of a file; each contributes a single flag.
+
+**Rationale for no path-based exceptions:**
+
+- **One rule to learn.** No "this directory is special." Safe by default, opt in via pragma, full stop.
+- **Easier `yo check --unsafe-report`.** Greppable surface — every privileged file declares itself.
+- **Safe relocation.** Moving a file in/out of `std/` doesn't silently change its safety status.
+- **Simpler compiler logic.** Parser checks for the pragma; no path lookup against a privilege table.
+
+The cost is mechanical: every `std/*.yo` and `yo-self/*.yo` file gets `pragma(Pragma.AllowUnsafe);` added at the top during the rollout (Phase C below). ~100 files; one-pass migration.
+
+**Project policy** via build system stays optional: `build.yo` can declare a project-wide override for systems-programming projects, but the per-file pragma is the canonical mechanism.
+
+**Default for user code: safe.** A user writes `yo init` → `main.yo` → starts coding; they cannot reach for `*(T)` without explicitly adding the pragma. LLM-generated code defaults to safe.
+
+### What Safe Code Cannot Do
+
+The rule is structural: **no expression in safe code may have type `*(T)`**, and no declaration in safe code may name `*(T)` in a parameter, field, or return type. This is checked per expression, not per byte-pattern — values whose _internal representation_ contains pointers (e.g. `Slice(T)`, `ArrayList(T)`, `String`) are fine, because the user-visible type isn't `*(T)`.
+
+In a file without the unsafe privilege, the following are compile errors:
+
+| Construct                                                                        | Diagnostic                                                                                                       |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Declaring a parameter, field, or return of type `*(T)`                           | `error: raw pointer types are not available in safe code. Use 'object', 'Slice(T)', or 'inout(...)' parameters.` |
+| Writing an expression with type `*(T)` (e.g. `&(expr)`, `slice._ptr`, `*(T)(x)`) | `error: this expression has type '*(T)', which is not available in safe code.`                                   |
+| Calling a function whose return type is `*(T)`                                   | rejected at the call site (the result expression would have type `*(T)`)                                         |
+| `unsafe(...)` call                                                               | `error: 'unsafe(...)' is not available in safe code. This operation requires 'pragma(Pragma.AllowUnsafe);'.`     |
+| `asm(...)` block                                                                 | `error: inline assembly is not available in safe code.`                                                          |
+| `extern fn` declaration                                                          | `error: extern FFI declarations are not available in safe code. Call stdlib wrappers (e.g. 'std/sys').`          |
+| Pointer arithmetic operators (`&+`, `&-`, `&/`, etc.)                            | `error: pointer arithmetic requires raw pointers, which are not available in safe code.`                         |
+| `consume(p.* = v)` on a pointer deref                                            | `error: 'consume' on a pointer deref requires raw pointers, which are not available in safe code.`               |
+
+Each error includes a "what to use instead" hint pointing at the safe alternative.
+
+### What Safe Code _Can_ Do With Pointer-Backed Types
+
+`Slice(T)`, `ArrayList(T)`, `HashMap(K, V)`, `String`, etc. all contain raw pointers in their internal representation. They are safe to expose to user code because:
+
+1. **No public API method has `*(T)` in its signature.** Every method takes/returns safe types (`usize`, `Option(T)`, `Self`, etc.). Lint enforces this in stdlib.
+2. **Field accesses that would yield `*(T)` are rejected in safe code** by the rule above. `slice._ptr` typechecks in stdlib but errors in user code: "this expression has type '\*(T)'."
+3. **Construction with arbitrary pointer contents is impossible.** User code can't construct a `*(T)` to put in a field, so it can't bypass the safe constructors.
+4. **All indexing is bounds-checked.** `slice(i)`, `arr.get(i)`, `list(usize(0))` either trap or return `Option(T)` on OOB. Pointer arithmetic happens inside stdlib `unsafe(...)` blocks with a verified bounds invariant.
+
+This is the standard abstraction-as-safety pattern — same as Rust's `Vec<T>`, Swift's `Array<T>`, Go's slices. The implementation has the privilege; the interface stays safe.
+
+### What Safe Code Can Do (Everything Else)
+
+- Value types: `i32`, `bool`, `str`, structs, enums, tuples, `Array(T, N)`, `Slice(T)`
+- RC-managed types: `object`, `Iso(T)`, `Arc(T)`
+- Heap collections: `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, etc.
+- Options/Results: `Option(T)`, `Result(T, E)`
+- Closures and higher-order functions over safe types
+- Algebraic effects, async/await, comptime
+- Generics, traits, GADTs, all of Yo's type system features
+- The new `inout` parameter form (next section)
+
+### `inout` Parameters
+
+To recover the in-place-mutation pattern (`swap`, `increment`, etc.) without introducing references as a first-class concept, safe code gets an `inout` parameter form, modeled on Pascal / Nim / C#'s `ref` / Swift's `inout`:
+
+```rust
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+  tmp := a;
+  a = b;
+  b = tmp;
+});
 
 main :: (fn() -> unit)({
-  data := [u8(0x7f), u8(0x45), u8(0x4c), u8(0x46)];
-  match(parse(*(u8)(&(data(usize(0)))), usize(4)),
-    .Some(h) => process(h),
-    .None => log("bad header")
-  );
+  x := i32(1);
+  y := i32(2);
+  swap(x, y);              // no &() needed — inout-ness is in the param spec
+  assert((x == i32(2)), "swapped");
 });
 ```
 
+Semantics:
+
+- An `inout` parameter is **pass-by-reference** at the calling convention level (compiles to a `T*`).
+- Inside the callee, the identifier `a` behaves like a binding to the caller's variable: reading gives the current value, writing updates it.
+- **Non-escape is enforced syntactically.** An inout-param identifier may appear:
+  - On the right-hand side of an expression (deref)
+  - On the left-hand side of an assignment
+  - As an argument to another function's `inout` parameter
+  - Nowhere else.
+- The following are compile errors:
+  - Returning an inout-param as a binding (returning its value is fine; "returning the binding" is impossible because `inout(...)` is not a type)
+  - Storing an inout-param in a `let`-binding (`r := a` copies the value, which is fine; you cannot bind to the reference itself)
+  - Capturing an inout-param in a closure (most closure forms — see Open Question 3)
+  - Putting an inout-param into a struct field (no syntax for this; `inout(...)` is a parameter-only modifier)
+
+This is essentially "second-class references restricted to parameter syntax." Because there's no `inout` _type_, only an `inout` _parameter modifier_, the non-escape rule is trivially enforced — there's no way to write down a value of "inout type" that could escape.
+
+#### `inout(...)` Parameter Syntax
+
+Yo's parameter modifiers follow a uniform shape: the modifier wraps the parameter name as a function-call-style annotation, then the type annotation follows. This matches the existing `own(name) : Type` pattern (used pervasively in `std/prelude.yo` and `std/imm/`):
+
+```rust
+fn(inout(name) : Type, ...) -> Return
+fn(own(name) : Type, ...) -> Return         // existing — consumes the argument
+```
+
+Type annotation is required (same as regular parameters). Multiple `inout(...)` params are allowed in any position. `inout(...)` and `own(...)` are mutually exclusive on the same parameter.
+
+### Iteration in Safe Code
+
+Yo's current iterator API returns `*(T)` from `next()`:
+
+```rust
+ArrayIterPtr :: ...
+impl(... Iterator(Item : *(T), next : ... -> Option(*(T))));
+
+for(arr.iter(), (ptr) => { print(ptr.*); });   // ptr : *(T) — REJECTED in safe code
+```
+
+Under this plan, `ptr : *(T)` is a forbidden type in safe code, so the pointer-iterator API breaks at the user boundary. Three iteration patterns replace it:
+
+#### 1. Value iteration (default `iter()` and `into_iter()`)
+
+Public iterators yield `T` by value. The `for` macro works unchanged — the bound variable has type `T`, not `*(T)`:
+
+```rust
+for(arr.iter(), (x) => {        // x : T
+  print(x);
+});
+```
+
+For `T = i32`/`bool`/small structs: zero overhead (fits in registers). For `T = object`: one RC dup per yield (cheap, often elided by ownership analysis). For `T = large value-struct`: one memcpy per yield (real overhead — see Performance below).
+
+The current `*IterPtr` types either get renamed `*IterRaw` (stdlib-only) or are removed entirely; only value iterators are exposed publicly.
+
+#### 2. Index-based iteration for in-place mutation
+
+For collections supporting `Index` + indexing-assignment (`Array`, `Slice`, `ArrayList`), use Yo's existing `arr(i) = value` syntax:
+
+```rust
+for(arr.indices(), (i) => {
+  arr(i) = (arr(i) * i32(2));
+});
+```
+
+`indices()` returns an iterator yielding `usize` from 0 to length. Bounds checks on each `arr(i)` access; the optimizer typically hoists them out of the loop when the bound is provable.
+
+Does not work for unordered collections (`HashMap`, `HashSet`) where indexing isn't well-defined.
+
+#### 3. Callback-based mutation with `inout` params
+
+For general mutable iteration (including `HashMap`, etc.), a new trait `IteratorMut` provides a callback-style API:
+
+```rust
+arr.each_mut((x) => {
+  x = (x + i32(1));
+});
+
+hashmap.values_mut((v) => {
+  v.tweak();
+});
+```
+
+The inout-ness is part of the `Fn(...)` signature that `each_mut` expects, not something the caller writes — `=>` parameters can't carry annotations. Inside the closure body, `x` behaves as an inout-binding (assignment writes through to the element's storage). With inlining, this matches the performance of a pointer-iterator loop.
+
+`IteratorMut` trait sketch:
+
+```rust
+IteratorMut :: trait(
+  Item : Type,
+  each_mut : (fn(self : Self, f : Impl(Fn(inout(x) : Self.Item) -> unit)) -> unit)
+);
+```
+
+#### Migration plan for stdlib iterators
+
+- **`iter()` on every collection** — return a value iterator yielding `T`. Replaces the current `*(T)`-yielding form.
+- **`into_iter()`** — already value-yielding; unchanged.
+- **`indices()`** — add on indexable collections (`Array`, `Slice`, `ArrayList`, `String` for byte indices).
+- **`each_mut(...)`** — add on every collection that supports mutation. Internally uses `*(T)` + `unsafe(...)`; externally takes an `inout`-parameterized closure.
+- **The old `*IterPtr` types** — move into `pragma(Pragma.AllowUnsafe);`-only modules or remove entirely. Most stdlib code that currently uses them should be rewritten in terms of `each_mut` or index iteration.
+
+#### `for` macro
+
+Stays unchanged. Already works with value iterators since the binding type is `Self.Item`, which becomes `T` instead of `*(T)`. No new syntax for `for` is required.
+
+#### Performance considerations
+
+The cost of removing pointer iterators from public APIs:
+
+| Iteration shape                  | Pointer iterator (current) | Value iterator (safe)       | Overhead         |
+| -------------------------------- | -------------------------- | --------------------------- | ---------------- |
+| `Array(i32, N)`                  | load pointer + deref       | load value into register    | ~0%              |
+| `ArrayList(object MyType)`       | load pointer               | load pointer + RC dup       | RC dup per yield |
+| `Array(BigStruct, N)` (64 bytes) | load pointer               | memcpy 64 bytes             | ~8× per yield    |
+| `HashMap.values()`               | load pointer               | load value + RC dup or copy | RC dup or memcpy |
+
+Mitigations:
+
+- **Yo's ownership analysis** already elides many RC dup/drop pairs (see `plans/RC_OWNERSHIP_IMPLEMENTATION.md`). For typical iteration patterns the per-yield RC traffic is often zero.
+- **`each_mut` with inlined closure** matches pointer-iterator performance for in-place mutation. The closure body inlines, the `inout` param lowers to a `T*` in C, the loop is identical to a hand-written pointer walk.
+- **Index-based iteration with bounds-check hoisting** matches pointer arithmetic when the loop bound is provable; LLVM handles this routinely.
+- **Performance-critical paths that genuinely need raw-pointer iteration** can opt into `pragma(Pragma.AllowUnsafe);` or push the hot path into a stdlib module.
+
+The honest expected impact for safe user code:
+
+- **Typical application code**: 1–5% overhead vs raw-pointer iteration. Dominated by other costs; iteration isn't the bottleneck.
+- **Tight numerical loops (Array of small types)**: 0–10% overhead. Optimizer handles most of it.
+- **Iteration over large value structs**: 2–5×. Rare in practice; mitigated by switching to `object` wrappers (one RC dup vs full memcpy) or opting into unsafe.
+- **RC-heavy code with `object` types**: 0–3%. Ownership analysis is the savior.
+
+### Stdlib Boundary
+
+The stdlib continues to use `*(T)`, `unsafe(...)`, and `asm(...)` internally. Public stdlib APIs expose safe types only:
+
+- **Allowed in public stdlib signatures:** all the safe types listed above, plus `inout(name) : T` parameters where in-place mutation is the right ergonomics.
+- **Forbidden in public stdlib signatures:** `*(T)`. Stdlib internals can use raw pointers; the public surface cannot expose them.
+
+The boundary is enforced by a lint (`yo check --stdlib-public-safe`), not by the type system. A stdlib API that returns `*(T)` is technically legal but flagged in CI.
+
+### FFI
+
+User code cannot declare `extern fn`. To call a C function, user code calls a stdlib wrapper:
+
+```rust
+// In std/sys/process.yo (pragma(Pragma.AllowUnsafe);):
+extern_exit :: extern_fn("exit", fn(code : i32) -> never);
+
+exit :: (fn(code : i32) -> never)(
+  unsafe(extern_exit(code))
+);
+
+// In user code:
+{ exit } :: import("std/sys/process");
+
+main :: (fn() -> unit)({
+  cond(
+    bad_state => exit(i32(1)),
+    true => ()
+  )
+});
+```
+
+User code that needs to bind a new C library writes a stdlib-flavored wrapper module with `pragma(Pragma.AllowUnsafe);` at the top, audits it, and treats it as part of their project's trusted base. This is the same workflow as writing FFI bindings in Swift or Go.
+
+### Closures and Captures
+
+Under this design, closures in user code can only capture safe types. Since `*(T)` doesn't exist in user code, the UAF-via-closure-capture pattern is **structurally impossible.** A closure capturing an `object` handle is fine (RC handles lifetime); a closure capturing a value type is fine (copied at capture); there is no third option.
+
+### Allocators
+
+User code that wants custom allocation behavior interacts with the stdlib's `Allocator` interface, not with raw memory. The `Allocator` trait is a safe API — implementing it requires `pragma(Pragma.AllowUnsafe);` because the implementation needs raw memory operations, but using one does not.
+
 ---
 
-## Standard Library Migration
+## Why This Is Memory-Safe
 
-The stdlib currently performs pointer deref/arithmetic without ceremony. Each site needs an `unsafe(...)` wrap. No semantic change — just the marker.
+The argument is structural, not proof-theoretic:
 
-### Scope
+1. UB in Yo can only arise from operations on `*(T)`: deref of an invalid pointer, arithmetic past valid memory, double-free, use-after-free. Every UB-capable operation requires `*(T)` somewhere.
+2. User code cannot construct `*(T)`. The type, the `&(expr)` operator, the casts, and `unsafe(...)` are all unavailable.
+3. User code can only call functions whose signatures it can write down. Those signatures use safe types only.
+4. Therefore, user code cannot trigger UB.
+5. The stdlib _can_ trigger UB if its `unsafe(...)` blocks are wrong. The safety claim shifts from "user code is safe" to "user code is safe iff stdlib is correct." Stdlib correctness is established by audit, testing, and per-release review — same as Swift's `Foundation`, Go's runtime, Java's `Unsafe`-using class library.
 
-Rough counts from `grep -rn '\.\*\|&+\|&-\|&/' std/`:
+**What this does not prove:** stdlib correctness. The audit story is what closes that gap. See "Audit Discipline" below.
 
-- `std/prelude.yo` — `Array`, `Slice`, `String`, `StringBuilder`, iterators
-- `std/collections/*.yo` — every collection's internal pointer manipulation (~10 files)
-- `std/imm/*.yo` — immutable variants (~5 files)
-- `std/sys/*.yo`, `std/fs/*.yo` — OS buffers, system calls (~15 files)
-- `std/string.yo`, `std/template_string.yo` — byte iteration
+---
 
-Estimated: ~200–400 sites need wrapping. Mechanical — most are 1-line `p.*` reads inside an existing function body.
+## Audit Discipline (Stdlib)
 
-### Pattern
+The stdlib is the trusted base. Conventions:
 
-The minimal wrap is the deref expression itself:
-
-```rust
-// Before:
-value := self._ptr.* &+ self._index;
-
-// After:
-value := unsafe((self._ptr &+ self._index).*);
-```
-
-Or wrap the enclosing block when the whole body is pointer-y:
-
-```rust
-// Before:
-next : (fn(self : *(Self)) -> Option(*(T)))(
-  cond(
-    (self._index >= self._length) =>.None,
-    true => {
-      ptr := (self._buf &+ self._index);
-      self._index = (self._index + usize(1));
-      .Some(ptr)
-    }
-  )
-)
-
-// After:
-next : (fn(self : *(Self)) -> Option(*(T)))(
-  unsafe(cond(
-    (self._index >= self._length) =>.None,
-    true => {
-      ptr := (self._buf &+ self._index);
-      self._index = (self._index + usize(1));
-      .Some(ptr)
-    }
-  ))
-)
-```
-
-Note: the `cond` arm above has pointer arithmetic (`&+`) but no deref — the wrap is for the arithmetic operator. Pointer movement and pointer reads are _both_ gated on `unsafe(...)`.
-
-### Convention
-
-- Prefer wrapping the smallest expression that contains the unsafe op. Reviewers can see the surface at a glance.
-- A whole-function `unsafe(...)` wrap is acceptable when the function is fundamentally a thin wrapper over raw memory (e.g. `Slice.get_raw`, allocator primitives).
-- Public APIs should be safe at the call site whenever possible — push the `unsafe(...)` into the implementation.
+1. **`// SAFETY: ...` comments required.** Every `unsafe(...)` site in stdlib must be preceded by a comment explaining why the operation is safe (what invariant guarantees the deref/arithmetic is in bounds and the pointer is live).
+2. **Per-release audit.** Each release of the stdlib gets a full sweep — diff the `unsafe(...)` sites since the last release, audit each one. The `yo check --unsafe-report` tool quantifies the surface.
+3. **Fuzz tests.** Every collection has property-based / fuzz coverage of its unsafe internals. CI runs them.
+4. **Minimize surface.** Conventions push the `unsafe(...)` block as small as possible — wrap the minimal expression, not the whole function. Reviewers grep for unsafe and see exactly what's claimed safe.
 
 ---
 
 ## Implementation Phases
 
-### Phase 1 — Parser & evaluator
+The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Phases B and C can land in either order. Phase D depends on B and C both being in.
+
+### Phase A — `unsafe(...)` marker
 
 - [ ] Add `unsafe` to `BuiltinKeywords` in `src/expr.ts`.
 - [ ] Parse `unsafe(expr)` as a regular builtin call. No new grammar.
@@ -178,92 +389,231 @@ Note: the `cond` arm above has pointer arithmetic (`&+`) but no deref — the wr
 - [ ] Gate the following operations: emit `error: <op> requires 'unsafe(...)'` if the context flag is false.
   - Pointer deref (`.*` on a `*(T)`)
   - `consume(p.* = v)` where `p : *(T)`
-  - `&+`, `&-`, `&/` operators
+  - Pointer arithmetic operators: `&+`, `&-`, `&/`
 - [ ] Pointer comparison (`&<`, `&>`, `&==`, `&!=`, `&<=`, `&>=`) stays safe — addresses are just data.
-
-### Phase 2 — Codegen
-
-- [ ] `unsafe(expr)` lowers to its inner expression. Pure compile-time marker.
-
-### Phase 3 — Stdlib audit & migration
-
-- [ ] Sweep `std/` for `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = ...)` calls.
-- [ ] Wrap each site. Run the full test suite (`./yo-cli test --bail`) after each module.
-- [ ] Same migration on `yo-self/` (the bootstrap compiler — same pattern).
-
-### Phase 4 — Tests & docs
-
+- [ ] Codegen: `unsafe(expr)` lowers to its inner expression. Pure compile-time marker.
+- [ ] Sweep `std/` and `yo-self/` for `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = ...)` calls. Wrap each site. Run the full test suite (`./yo-cli test --bail`) after each module.
 - [ ] `tests/unsafe.test.yo` — `unsafe(...)` accepts deref/arithmetic; missing `unsafe(...)` produces the right error; nesting works; `unsafe(...)` inside an `unsafe(...)` is allowed (no double-wrap warning).
 - [ ] Negative tests: each gated op produces the expected error message outside `unsafe(...)`.
-- [ ] Update `docs/{en-US,zh-CN}/DESIGN.md` pointer section to introduce `unsafe(...)`.
-- [ ] Add `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` — short page summarizing the policy.
-- [ ] Update `.github/instructions/yo-syntax.instructions.md` with the `unsafe(...)` rule.
-- [ ] Update `.github/skills/yo-syntax/syntax-cheatsheet.md`.
 
-### Phase 5 — Linter / `yo check` integration (optional)
+### Phase B — `inout(...)` parameters
 
-- [ ] Add a "unsafe surface report" — `yo check --unsafe-report` lists every `unsafe(...)` site in the current crate. Useful for security review and for advertising the size of Yo's unsafe surface.
+- [ ] Parse `inout(name) : T` in function parameter lists. The `inout(...)` form is a parameter modifier wrapping the name (parallel to existing `own(name) : T`), not a type.
+- [ ] In the evaluator, treat inout-params as bindings to the caller's storage. Type-check reads/writes against the underlying `T`.
+- [ ] Implement the non-escape check:
+  - Inout-param identifier may appear in expression-rvalue, assignment-lvalue, or as another inout-param argument. Nowhere else.
+  - Reject `r := inout_param` where the binding would be a bind-to-reference (the value form copies and is fine).
+  - Reject closure captures of inout-params unless the closure type is known not to escape (see Open Question 3).
+- [ ] Codegen: inout-params lower to `T*` in C; the callee's references to the identifier become `*name` reads and writes. Existing pointer codegen handles this directly.
+- [ ] `tests/inout_params.test.yo` — `swap`, `increment`, multi-inout, no-escape rejections.
+
+### Phase C — Privilege gate
+
+- [ ] Add `pragma` to `BuiltinKeywords` in `src/expr.ts`.
+- [ ] Add `Pragma :: enum(AllowUnsafe)` to `std/prelude.yo`.
+- [ ] Parse `pragma(Pragma.AllowUnsafe);` at top-of-file. Argument must be comptime-known. Multiple declarations OK.
+- [ ] At parse time, compute each file's privilege from its top-of-file pragmas only — **no path-based defaulting**.
+- [ ] In the evaluator, gate the unsafe-capable constructs on the current file's privilege:
+  - `*(T)` type usage (declarations or expressions evaluating to `*(T)`-typed values)
+  - `&(expr)` operator
+  - `unsafe(...)` builtin (only callable inside privileged files)
+  - `asm(...)` builtin
+  - `extern fn` declaration
+  - Pointer arithmetic operators (`&+`, `&-`, `&/`, `&<`, `&>`, `&<=`, `&>=`, `&==`, `&!=`)
+  - `consume(p.* = v)` form
+- [ ] Diagnostic messages per the "What Safe Code Cannot Do" table above.
+- [ ] Add `pragma(Pragma.AllowUnsafe);` to every existing file in `std/` and `yo-self/` (no exceptions). Mechanical migration; ~100 files.
+- [ ] Existing `tests/*.test.yo` files that use raw pointers (e.g. `tests/ptr.test.yo`) get `pragma(Pragma.AllowUnsafe);` added at the top. Mechanical.
+- [ ] `tests/privilege_pragma.test.yo` — pragma enables unsafe constructs; absence of pragma rejects them.
+- [ ] `tests/safe_user_code.test.yo` — positive (safe code compiles and runs) and negative (each forbidden construct produces the right error).
+
+### Phase D — Stdlib boundary sweep (`*(Self)` → `inout(self) : Self` and friends)
+
+- [ ] Sweep `std/prelude.yo` for trait method signatures using `(self : *(Self))`. Replace with `(inout(self) : Self)`. Canonical example: the `Hash` trait —
+
+  ```rust
+  // Before:
+  Hash :: trait(
+    hash : (fn(self : *(Self)) -> u64)
+  );
+
+  // After:
+  Hash :: trait(
+    hash : (fn(inout(self) : Self) -> u64)
+  );
+  ```
+
+  Most existing `*(Self)` receivers are the same case (pass-by-reference to avoid copying / RC dup; callee may read or write).
+
+- [ ] Sweep `std/` for `*(T)` in other public method signatures. Replace with:
+  - `Slice(T)` for borrow-style views (already safe, bounds-checked indexing)
+  - `inout(name) : T` for in-place mutation
+  - `object` / `Iso(T)` / `Arc(T)` for ownership-passing
+- [ ] Internal unsafe code stays as-is, wrapped in `unsafe(...)`.
+- [ ] Migrate `iter()` on every collection to a value iterator yielding `T`. Add `indices()` on indexable collections. Add `each_mut(...)` callbacks.
+- [ ] Lint: `yo check --stdlib-public-safe` fails if any public stdlib API exposes `*(T)`.
+
+### Phase E — Tooling
+
+- [ ] `yo check --unsafe-report` — lists every `unsafe(...)` site in the project (including dependencies), with file:line, surrounding `// SAFETY:` comment, and a quantification of the unsafe surface.
+- [ ] `yo audit-unsafe` (optional, LLM-backed) — for each `unsafe(...)` site, run an LLM check against the `// SAFETY:` claim. Outputs pass/fail per site. Useful in CI for projects that want extra assurance.
+- [ ] `pragma(Pragma.AllowUnsafe);` files surface in the report — privileged code is visible at a glance.
+
+### Phase F — Docs
+
+- [ ] Update `docs/{en-US,zh-CN}/DESIGN.md` — pointer section becomes "stdlib-only" with a forward reference to `inout` params for user code.
+- [ ] Add `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` — the user-facing memory-safety policy. Covers the privilege model, the safe subset, `inout` params, `unsafe(...)`, and how to use FFI through wrappers.
+- [ ] Update `.github/instructions/yo-syntax.instructions.md` — `inout` parameter syntax, `unsafe(...)` rule, safe-by-default policy.
+- [ ] Update `.github/skills/yo-syntax/syntax-cheatsheet.md` and `yo-core-patterns/core-patterns-cheatsheet.md`.
 
 ---
 
 ## Open Questions
 
-1. **`extern fn` bodies.** Foreign function declarations have no body, so they can't contain `unsafe(...)`. Calling an `extern fn` from safe code is fine (the C side is opaque). Should we require `unsafe(extern_call(...))` at call sites? **Lean: no.** Calling a C function isn't intrinsically UB — the C function defines its own contract.
+1. **`extern fn` call sites.** Calling an `extern fn` from an unsafe-capable file is fine (the C side is opaque). Should the call site require an explicit `unsafe(extern_call(...))` wrap? **Lean: no.** Calling a C function isn't intrinsically UB — the C function defines its own contract.
 
-2. **`asm(...)` blocks.** Already inherently unsafe. **Lean: no `unsafe(asm(...))` requirement.** Document that `asm` is implicitly unsafe.
+2. **`asm(...)` blocks.** Already inherently unsafe. **Lean: no `unsafe(asm(...))` requirement.** Document that `asm` is implicitly unsafe and only available in unsafe-capable files.
 
-3. **`consume(...)` semantics.** Today `consume(p.* = v)` means "init, don't drop the old value." It contains a deref-write, so the gating rule says it needs `unsafe(...)`. Confirm this is what we want — alternative would be to treat `consume` as its own gated builtin.
+3. **`inout` parameter capture in closures.** Three sub-cases:
 
-4. **Error message tone.** When the LLM/user writes `p.*` outside `unsafe(...)`, the error should suggest the wrap and explain why. Sample: `error: pointer dereference requires 'unsafe(...)'. Wrap as: unsafe(p.*). Raw pointer ops may dereference invalid memory; see docs/MEMORY_SAFETY.md.`
+   - Closure invoked synchronously within the function call (e.g., `iter.each((x) => { inout_param = x; })`) — should be fine, closure cannot escape the call frame.
+   - Closure that escapes (stored, returned, sent to a Future) — must not capture an inout-param.
+   - Closure of unknown escape behavior — conservatively reject.
 
-5. **`*(T)` to `*(U)` casts.** Pointer-type casts (`*(u8)(p)`) are address-preserving and currently unrestricted. **Lean: stays safe.** The unsafety is in eventual deref, not in the cast.
+   **Lean:** for v1, forbid all closure captures of inout-params. Revisit if real APIs demand the synchronous-callback case.
 
-6. **Existing tests in `tests/`.** Tests that exercise raw pointers (e.g. `tests/ptr.test.yo`) will need `unsafe(...)` wraps. Mechanical migration. Track in Phase 3.
+4. **`inout(...)` and `object` receiver.** An `inout(name) : T` where `T` is an `object` type — does it allow mutating the RC handle (rebinding to a different object) or just mutating through it? **Lean:** allow rebinding (caller's variable can be reassigned). This matches Pascal/Nim semantics.
+
+5. **Read-only-by-ref modifier `in(name) : T`?** Distinct from `inout(name) : T` (mutable by-ref). Useful for methods like `Hash.hash` that read but don't mutate — `inout(self) : Self` is slightly overly-permissive. **Lean:** start with only `inout` in v1. Add `in` later if patterns demand it. Convention documents read-vs-write intent in the meantime; the calling convention (by-reference, no copy) is the same.
+
+6. **`*(T)` to `*(U)` casts.** Pointer-type casts (`*(u8)(p)`) are address-preserving and currently unrestricted. **Lean: stays safe** within unsafe-capable files; rejected in safe code only because the result expression has type `*(U)`.
+
+7. **`consume(...)` semantics.** Today `consume(p.* = v)` means "init, don't drop the old value." It contains a deref-write, so the gating rule says it needs `unsafe(...)`. Confirm this is what we want — alternative would be to treat `consume` as its own gated builtin.
+
+8. **Error message tone.** Errors must be specific and suggest the fix. Sample: `error: pointer dereference requires 'unsafe(...)'. Wrap as: unsafe(p.*). Raw pointer ops may dereference invalid memory; see docs/MEMORY_SAFETY.md.`
+
+9. **Third-party dependencies.** A project depends on a published package. Is that package treated as safe or unsafe-capable? **Lean:** each package's individual files use their own pragmas. User-project safety doesn't transitively require dependency safety, but `yo check --unsafe-report` shows the full unsafe surface across all dependencies.
+
+10. **`pragma(Pragma.AllowUnsafe);` granularity.** Should the pragma be per-file (current proposal) or also per-function / per-block? **Lean:** per-file only for v1. Per-function adds complexity without clear benefit; users who need unsafe operations move them to a dedicated module.
+
+11. **Algebraic effects and privilege.** An effect handler in safe code that resumes with a value coming from unsafe stdlib code — does the unsafety leak through the effect? **Lean:** no. The effect is a value boundary; once the value is in safe code's hands, it's bound by safe code's type system. Same logic as a normal function return.
 
 ---
 
 ## Examples
 
-### Idiomatic safe code (unchanged)
+### Idiomatic safe user code
 
 ```rust
+{ ArrayList } :: import("std/collections/array_list");
+
 main :: (fn() -> unit)({
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  for(list.iter(), (x) => {
-    printf("%d\n", x.*);   // x is *(i32) — but this requires unsafe (see below)
+
+  total := i32(0);
+  for(list.iter(), (item) => {
+    total = (total + item);
   });
+  printf("total = %d\n", total);
 });
 ```
 
-The `x.*` inside the `for` body actually requires `unsafe(...)` under this proposal — see the next example for the post-migration form.
+No pragma, no `&()`, no `*(T)`, no `unsafe(...)`. This is the default user experience.
 
-### After migration
+### In-place mutation with `inout`
 
 ```rust
+increment :: (fn(inout(x) : i32) -> unit)({
+  x = (x + i32(1));
+});
+
 main :: (fn() -> unit)({
-  list := ArrayList(i32).new();
-  list.push(i32(1));
-  list.push(i32(2));
-  list.push(i32(3));
-  for(list.iter(), (x) => {
-    printf("%d\n", unsafe(x.*));
-  });
+  counter := i32(0);
+  increment(counter);
+  increment(counter);
+  assert((counter == i32(2)), "counter incremented");
 });
 ```
 
-The `for` loop yields a `*(T)`, and the body needs to deref to print. This is a regression in ergonomics for users iterating with `iter()`. **Mitigations:**
-
-- Add a `each_value` / `for_each` helper that auto-derefs and yields `T` by value (calls `unsafe(x.*)` internally once).
-- Or: introduce a value-yielding iterator variant alongside the pointer one (parallel to `into_iter()`'s by-value `Item : T`).
-
-This is a real ergonomic tax. **Worth flagging to the user**: every existing `for(list.iter(), (p) => p.*)` pattern will need either a wrap or a helper. The volume of churn in user code is the main downside of this proposal.
-
-### `unsafe(...)` for a whole function body
+### Opting into unsafe in a user file
 
 ```rust
+pragma(Pragma.AllowUnsafe);
+
+raw_swap :: (fn(a : *(i32), b : *(i32)) -> unit)(
+  unsafe({
+    tmp := a.*;
+    a.* = b.*;
+    b.* = tmp;
+  })
+);
+
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  raw_swap(&(x), &(y));
+});
+```
+
+Opt-in is a single line. The file is now responsible for its own safety.
+
+### What gets rejected in safe code
+
+```rust
+// In a safe user file (no pragma):
+
+bad_addr :: (fn() -> *(i32))({          // error: raw pointer types are not available in safe code
+  x := i32(42);
+  &(x)
+});
+
+bad_unsafe :: (fn(p : *(i32)) -> i32)(   // error: raw pointer types are not available in safe code
+  unsafe(p.*)                            // (also: 'unsafe(...)' is not available in safe code)
+);
+
+bad_extern :: extern_fn("foo", ...);     // error: extern FFI declarations are not available in safe code
+```
+
+Each error includes a "use 'inout(...)' parameters" / "use a stdlib wrapper" hint.
+
+### Stdlib internal pattern — safe public API with unsafe internals
+
+```rust
+// In std/collections/array_list.yo:
+pragma(Pragma.AllowUnsafe);
+
+ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
+  object(
+    _ptr : Option(*(T)),
+    _length : usize,
+    _capacity : usize
+  )
+);
+
+impl(forall(T : Type), ArrayList(T),
+  get : (fn(self : Self, i : usize) -> Option(T))(
+    cond(
+      (i >= self._length) => .None,
+      true => match(self._ptr,
+        // SAFETY: i < _length, _ptr points to allocated buffer of _capacity ≥ _length
+        .Some(p) => .Some(unsafe((p &+ i).*)),
+        .None => .None
+      )
+    )
+  )
+);
+```
+
+Public signature is safe (`Self`, `usize`, `Option(T)`); internal `*(T)` deref is wrapped in `unsafe(...)` with a `// SAFETY:` comment.
+
+### Stdlib internal pattern — `unsafe(...)` for a whole function body
+
+```rust
+pragma(Pragma.AllowUnsafe);
+
 strlen :: (fn(s : *(u8)) -> usize)(
   unsafe({
     n := usize(0);
@@ -277,39 +627,59 @@ strlen :: (fn(s : *(u8)) -> usize)(
 );
 ```
 
-### Caller of an unsafe-bodied function — no wrap needed
+Acceptable when the function is fundamentally a thin wrapper over raw memory.
+
+### Public safe API over unsafe primitive
 
 ```rust
-main :: (fn() -> unit)({
-  msg := "hello";
-  n := strlen(*(u8)(msg));   // safe call site; strlen handles its own unsafe
-  printf("%zu\n", n);
-});
+pragma(Pragma.AllowUnsafe);
+
+// Internal:
+parse_header :: (fn(buf : *(u8), len : usize) -> Option(Header))(
+  unsafe(cond(
+    (len < usize(16)) => Option(Header).None,
+    true => {
+      magic := buf.*;
+      Option(Header).Some(Header(magic : magic))
+    }
+  ))
+);
+
+// Public safe wrapper (could live in a safe file that re-exports):
+parse :: (fn(slice : Slice(u8)) -> Option(Header))(
+  parse_header(slice._ptr_unsafe(), slice.length())
+);
 ```
+
+The user-facing `parse` takes a bounds-checked `Slice(u8)`; the internal `parse_header` does the raw work.
 
 ---
 
 ## Alternatives Considered
 
-### Second-class references `&(T)` with scope tracking
+### Origins / lifetimes (`FUTURE_ORIGINS.md`)
 
-Earlier drafts proposed `&(T)` as a compile-time-checked reference with rules like "containment makes you second-class" and "returned refs must come from arguments." See git history of this file.
+Considered and deferred. Adds expressiveness for multi-ref returns and library APIs at the cost of constraint-solver complexity, annotation surface, and LLM struggle. The privilege-gate approach in this document gets equivalent practical safety with far less implementation cost. See `FUTURE_ORIGINS.md` for the deferred design.
 
-Rejected because:
+### `unsafe(...)` marker alone (no privilege gate)
 
-- Yo's `object` already covers the dominant use case (safe shared ownership with cycle removal). The marginal value of `&(T)` over `object`-with-RC is mostly _performance_, not safety.
-- The breaking change to `&(x)` semantics (today `&(x) : *(T)`, would become `&(x) : &(T)`) ripples through every existing test and user file.
-- Implementing scope tracking in the evaluator is a non-trivial new pass.
-- Iterator structs and stdlib APIs would all need migration to two parallel forms (pointer and ref).
-- LLMs trained on C and Rust handle raw pointers reasonably well; the marginal LLM-error reduction from adding `&(T)` is small.
+Earlier draft of this design. Provides Zig-level safety — unsafe surface visible, no propagation, but user code can still write `*(T)` and `unsafe(...)`. This plan layers the privilege gate on top: in safe user code, the unsafe surface is _zero_, not just visible.
 
 ### Full Rust-style borrow checker
 
-Lifetimes, aliasing-XOR-mutation, regions. Rejected: defeats the LLM-friendliness goal. Borrow checker errors are notoriously hard to recover from without specific training.
+Rejected throughout the design discussion. Defeats LLM-friendliness; the cost is not justified by Yo's user audience.
 
-### Nothing — status quo
+### Second-class references `&(T)` with scope tracking
 
-Rejected because raw pointer ops currently look syntactically identical to safe code. An `unsafe(...)` marker is the minimum viable safety signal for both human reviewers and LLMs.
+Earlier drafts proposed `&(T)` as a compile-time-checked reference. Rejected because: (a) `object` already covers the dominant use case (safe shared ownership with cycle removal); (b) the breaking change to `&(x)` semantics ripples through every existing test and user file; (c) implementing scope tracking is a non-trivial new pass; (d) LLMs handle raw pointers reasonably well anyway.
+
+### Remove `*(T)` from the language entirely
+
+Considered and rejected. Stdlib needs raw pointers to build the safe abstractions; FFI requires them for the calling convention. The right line is "user code can't use them," not "no one can."
+
+### Per-function unsafe instead of per-file
+
+Considered. The Rust model — `unsafe fn` and `unsafe { ... }` blocks at function granularity. Rejected because it encourages sprinkling unsafe through user code; the per-file pragma forces users to think "do I really need this whole file to be unsafe-capable?" and most will say no.
 
 ### Linter-only (`yo check` warns on unsafe ops)
 
@@ -319,19 +689,37 @@ Considered. Rejected because a warning that doesn't block compilation is easy to
 
 ## What This Does Not Solve
 
-- **Use-after-free of pointers to local variables.** A function that does `unsafe(return(&(local)))` (well, the equivalent — pointer construction is safe, deref later is the UB) still compiles. The deref site will be in `unsafe(...)`, which is the signal to audit. Catching UAF structurally requires `&(T)` with scope tracking, which we explicitly chose not to add.
-- **Pointer arithmetic past array bounds.** Same — `unsafe(p &+ n)` is permitted; bounds are the programmer's problem.
+- **Stdlib bugs.** Audit and fuzz coverage are the mitigation, not a formal guarantee. Same as every safe-language stdlib.
+- **FFI-related UB.** Calling a C function with the wrong arguments is the caller's (the stdlib wrapper's) problem; safe APIs at the boundary minimize the risk.
+- **Logic errors.** Memory safety only prevents UB, not bugs.
+- **Resource leaks** beyond what `object` + `___drop` handle. Orthogonal.
 - **Data races across threads.** `Send` / `Iso(T)` / `Arc(T)` handle this; orthogonal.
-- **Resource leaks** (FDs, sockets) — covered by `object` + `___drop`. Orthogonal.
+- **Pointer arithmetic past array bounds in `unsafe(...)`-capable code.** `unsafe(p &+ n)` is permitted; bounds are the programmer's problem at that point.
 
-The honest framing: **`unsafe(...)` makes the unsafe surface auditable, not impossible.** Combined with `object` being the default for ownership, this gets Yo to roughly Zig's safety level — strictly better than C, strictly weaker than Rust.
+The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the privilege gate keeps user code outside it entirely.** Combined with `object` being the default for ownership, this gets Yo to roughly Swift/Go's safety level — strictly better than C, comparable to other widely-adopted memory-safe languages, strictly weaker than Rust.
 
 ---
 
 ## Status
 
-Draft for review. Single blocking decision:
+**Approved for implementation.**
 
-- Confirm the ergonomic tax on `for(list.iter(), (p) => unsafe(p.*))` is acceptable, or commit to adding `each_value` / value-yielding iterator variants in Phase 3 to soften it.
+Resolved decisions:
 
-No other gating questions. Phase 1 is ~1 day of evaluator work; Phase 3 stdlib migration is the bulk of the effort (~1–2 days of mechanical wrapping plus test fixes).
+- ✅ **Privilege gate mechanism** — pragma-only, no path-based defaulting. Every `std/` and `yo-self/` file declares `pragma(Pragma.AllowUnsafe);` explicitly.
+- ✅ **Migration of existing user code with `*(T)`** — auto-emit `pragma(Pragma.AllowUnsafe);` at the top of pre-existing files (mechanical migration); hard break later if/when migrating to safe constructs.
+- ✅ **`inout` parameter capture in closures** — forbid all closure captures of inout-params for v1. Revisit if real APIs demand non-escaping-closure carve-outs.
+- ✅ **Read-only-by-ref modifier (`in(name) : T`)** — defer to v2. v1 ships only `inout`.
+
+Phase ordering (foundation → leaves):
+
+1. **Phase A** — `unsafe(...)` marker. Lands first.
+2. **Phase B** — `inout(...)` parameter form. Independent of C.
+3. **Phase C** — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude.
+4. **Phase D** — stdlib boundary sweep: `*(Self)` → `inout(self) : Self` in trait signatures, `*(T)` → `Slice(T)`/`inout(name) : T` in other public APIs.
+5. **Phase E** — tooling (`yo check --unsafe-report`, optional `yo audit-unsafe`).
+6. **Phase F** — docs.
+
+Total implementation cost: ~2–3 weeks across all phases. Substantially less than `FUTURE_ORIGINS.md` (~1–2 months) for materially the same practical safety story.
+
+**Next concrete unit of work: Phase A** — add the `unsafe(...)` builtin and gate the relevant operations.
