@@ -184,7 +184,8 @@ collect_module_deps :: (
     std_base : str,
     visited : *(ArrayList(String)),
     all_exprs : *(ArrayList(AstExpr)),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   // Standard library imports: when std_base is empty, skip (legacy behavior —
@@ -281,7 +282,8 @@ collect_module_deps :: (
             std_base,
             visited,
             all_exprs,
-            io, exn
+            io,
+            exn
           );
         }
       )
@@ -306,7 +308,8 @@ _walk_check_dir :: (
   fn(
     dir : String,
     out : *(ArrayList(String)),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   entries := io.await(read_dir(Path.new((&(dir)).clone())), io);
@@ -357,7 +360,8 @@ _walk_check_dir :: (
 collect_check_files :: (
   fn(
     path_str : String,
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> ArrayList(String)
 )({
   out := ArrayList(String).new();
@@ -383,7 +387,8 @@ check_single_file :: (
   fn(
     input_path : String,
     std_path : String,
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> bool
 )({
   // Local exception handler escapes the function body with `false`.
@@ -407,7 +412,8 @@ check_single_file :: (
     std_path.as_str(),
     &(visited),
     &(dep_exprs),
-    io, local_exn
+    io,
+    local_exn
   );
   println(`check: pre-loaded prelude — ${dep_exprs.len().to_string()} expr(s) so far`);
   input_base_dir := match(
@@ -432,7 +438,8 @@ check_single_file :: (
             std_path.as_str(),
             &(visited),
             &(dep_exprs),
-            io, local_exn
+            io,
+            local_exn
           );
         }
       )
@@ -493,7 +500,8 @@ check_single_file :: (
 run_check :: (
   fn(
     argv : ArrayList(String),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -532,7 +540,8 @@ run_check :: (
 run_compile :: (
   fn(
     argv : ArrayList(String),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -585,7 +594,8 @@ run_compile :: (
 run_test :: (
   fn(
     argv : ArrayList(String),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -631,7 +641,8 @@ run_test :: (
             "",
             &(visited),
             &(dep_exprs),
-            io, exn
+            io,
+            exn
           );
         }
       )
@@ -760,7 +771,8 @@ run_test :: (
 run_fmt :: (
   fn(
     argv : ArrayList(String),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> unit
 )({
   // Parse arguments — collect positional paths, detect --check flag.

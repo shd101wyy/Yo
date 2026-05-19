@@ -2068,7 +2068,7 @@ evaluate_function_parameters :: (
     while(runtime(uj < using_args.len()), {
       impl_expr := match(using_args.get(uj),.Some(a) => a,.None => make_err_expr());
       uj = (uj + usize(1));
-      // Detect E : Type.Struct — effect row spread in 
+      // Detect E : Type.Struct — effect row spread in
       (is_eff_row_using : bool) = false;
       if(ast_expr_is_fn_call_of(impl_expr, "...",.Some(usize(1))) &&
         ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
@@ -2833,8 +2833,10 @@ evaluate_function_type :: (
   // may contain `unwind` and the value is frame-bound.
   if(!(
     ast_expr_is_fn_call_of(arg_list_expr, BK_FN, Option(usize).None) ||
-      (ast_expr_is_fn_call_of(arg_list_expr, BK_UNSAFE_FN, Option(usize).None) ||
-        ast_expr_is_fn_call_of(arg_list_expr, BK_CTL, Option(usize).None))
+      (
+        ast_expr_is_fn_call_of(arg_list_expr, BK_UNSAFE_FN, Option(usize).None) ||
+          ast_expr_is_fn_call_of(arg_list_expr, BK_CTL, Option(usize).None)
+      )
   ), {
     exn.throw(
       dyn(

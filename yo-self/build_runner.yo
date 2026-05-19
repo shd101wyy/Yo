@@ -304,7 +304,8 @@ compile_artifact :: (
   fn(
     artifact : BuildArtifact,
     ctx : *(ExecutionContext),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> Impl(Future(Result(unit, String), IOErr))
 )(
   io.async((io, exn) => {
@@ -388,7 +389,8 @@ run_executable :: (
     artifact : BuildArtifact,
     args : ArrayList(String),
     ctx : *(ExecutionContext),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> Impl(Future(Result(unit, String), IOErr))
 )(
   io.async((io, exn) => {
@@ -434,7 +436,8 @@ run_test_suite :: (
   fn(
     suite : BuildTestSuite,
     ctx : *(ExecutionContext),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> Impl(Future(Result(unit, String), IOErr))
 )(
   io.async((io, exn) => {
@@ -471,7 +474,8 @@ execute_node :: (
   fn(
     node : DAGNode,
     ctx : *(ExecutionContext),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> Impl(Future(StepResult, IOErr))
 )(
   io.async((io, exn) => {
@@ -571,7 +575,8 @@ execute_dag :: (
   fn(
     dag : ArrayList(DAGNode),
     ctx : *(ExecutionContext),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> Impl(Future(HashMap(String, StepResult), IOErr))
 )(
   io.async((io, exn) => {
@@ -760,7 +765,8 @@ execute_step :: (
   fn(
     step_name : str,
     ctx : *(ExecutionContext),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> Impl(Future(unit, IOErr))
 )(
   io.async((io, exn) => {
@@ -829,7 +835,8 @@ evaluate_build_file :: (
   fn(
     build_file : String,
     defines : HashMap(String, String),
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> Impl(Future(BuildRegistry, IOErr))
 )(
   io.async((io, exn) => {
@@ -874,7 +881,8 @@ evaluate_build_file :: (
 run_build :: (
   fn(
     options : BuildOptions,
-    io : IO, exn : Exception
+    io : IO,
+    exn : Exception
   ) -> Impl(Future(unit, IOErr))
 )(
   io.async((io, exn) => {
@@ -903,8 +911,9 @@ run_build :: (
       evaluate_build_file(
         build_file_path.to_string(),
         options.defines
-      )
-    , io);
+      ),
+      io
+    );
     if(options.list_steps, {
       print_steps(&(registry));
       return(());
