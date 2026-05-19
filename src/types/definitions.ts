@@ -810,13 +810,6 @@ export interface FunctionType extends Type {
   forallParameters: FunctionForallParameter[];
 
   /**
-   * The implicit parameters, defined in using(...):
-   * eg:
-   *   (fn(x: i32, using(add_fn : (fn(a : i32, b : i32) -> i32))) -> i32)
-   */
-  implicitParameters: FunctionParameter[];
-
-  /**
    * Variadic parameters are parameters that can take a variable number of arguments.
    * They are usually defined with a `...` syntax.
    * eg:

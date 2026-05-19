@@ -1104,7 +1104,7 @@ function bindTempFunctionInfo(
   // Implicit params
   const implicitTmp = bindTempImplicitParamInfoList(
     env,
-    fnType.implicitParameters,
+    [] as FunctionParameter[],
     context
   );
   env = implicitTmp.env;

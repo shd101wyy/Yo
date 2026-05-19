@@ -157,20 +157,6 @@ export function generateFunctionDeclarations(
       }
     }
 
-    const hasUnresolvedFunctionImplicitParams =
-      !isUserMain &&
-      !isEffectfulFunction &&
-      !value.isEffectRecordMember &&
-      !value.type.isClosure &&
-      !value.specializedType &&
-      (value.specializedFunctionCaches?.length ?? 0) === 0 &&
-      getEvidenceParameters(value.specializedType ?? value.type).length === 0 &&
-      value.type.implicitParameters.some((param) => isFunctionType(param.type));
-
-    if (hasUnresolvedFunctionImplicitParams) {
-      continue;
-    }
-
     // Check if the function has evidence params (from resolved spread implicits)
     const functionTypeForCheck = value.specializedType ?? value.type;
     const hasEvidenceParams =
@@ -277,12 +263,10 @@ export interface EvidenceParameter {
  * function-typed field in the module, recursing into nested modules.
  */
 export function getEvidenceParameters(
-  functionType: FunctionType
+  _functionType: FunctionType
 ): EvidenceParameter[] {
   const result: EvidenceParameter[] = [];
-  const allImplicits = expandImplicitParameters(
-    functionType.implicitParameters
-  );
+  const allImplicits = expandImplicitParameters([] as FunctionParameter[]);
 
   for (const implicit of allImplicits) {
     if (isSourceNamespaceType(implicit.type) || isStructType(implicit.type)) {

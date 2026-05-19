@@ -443,8 +443,7 @@ export function isFunctionTypeGeneric(functionType: FunctionType): boolean {
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
     !!functionType.variadicParameter?.isCompileTimeOnly ||
     !!functionType.variadicParameter?.isQuote ||
-    functionType.forallParameters.length > 0 ||
-    functionType.implicitParameters.length > 0;
+    functionType.forallParameters.length > 0;
 
   const hasSomeTypeParams = functionType.parameters.some(
     (p) =>

@@ -528,7 +528,7 @@ export function typeRequiresInference(type?: Type): boolean {
         functionType.forallParameters.some((param) =>
           typeRequiresInference(param.type)
         ) ||
-        functionType.implicitParameters.some((param) =>
+        ([] as FunctionParameter[]).some((param) =>
           typeRequiresInference(param.type)
         ) ||
         (functionType.variadicParameter
@@ -822,22 +822,11 @@ function functionTypeToString(
     }
   }
 
-  const implicitParams =
-    func.implicitParameters.length > 0
-      ? `using(${func.implicitParameters
-          .map((param) =>
-            param.isEffectRowSpread
-              ? `...(${param.label})`
-              : functionParameterToString(param, visited)
-          )
-          .join(", ")})`
-      : "";
-
-  const paramsString = [typeParams, params, implicitParams, variadicParam]
+  const paramsString = [typeParams, params, variadicParam]
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName;
-  const fnKind = "fn";
+  const fnKind = func.isControl ? "ctl" : "fn";
   return `${from ? `(${from}) ` : ""}${fnKind}(${paramsString}) -> ${returnString}`;
 }
 
@@ -1122,7 +1111,9 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       if (effectsRowType.implicitParameters.length === 0) {
         return "EffectsRow()";
       }
-      return `EffectsRow(${effectsRowType.implicitParameters.map((p) => `${p.label} : ${typeToString(p.type, visited)}`).join(", ")})`;
+      return `EffectsRow(${effectsRowType.implicitParameters
+        .map((p) => `${p.label} : ${typeToString(p.type, visited)}`)
+        .join(", ")})`;
     }
 
     case TypeTag.Dyn: {

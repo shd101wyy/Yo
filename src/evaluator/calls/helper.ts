@@ -1654,9 +1654,9 @@ Got:   ${typeToString(typeValue.type)}`,
     parameterType: Type;
     argType: Type;
   }[] = [];
-  if (functionType.implicitParameters.length > 0) {
-    for (let i = 0; i < functionType.implicitParameters.length; i++) {
-      const implicitParam = functionType.implicitParameters[i]!;
+  if (([] as FunctionParameter[]).length > 0) {
+    for (let i = 0; i < ([] as FunctionParameter[]).length; i++) {
+      const implicitParam = ([] as FunctionParameter[])[i]!;
       let resolved = false;
 
       // Handle effect row spread: ...(E) or bare ...
@@ -1710,7 +1710,7 @@ Got:   ${typeToString(typeValue.type)}`,
           // implicit parameter in the function type. These are handled by their
           // own iteration of the implicit param loop, not the spread.
           const concreteImplicitNames = new Set(
-            functionType.implicitParameters
+            ([] as FunctionParameter[])
               .filter((p) => !p.isEffectRowSpread)
               .map((p) => p.label)
           );
@@ -2209,7 +2209,7 @@ Please use explicit using() to disambiguate.`,
   // ones like my_raise), so the body can still be properly re-evaluated.
   const hasOnlySpreadUnknowns = (() => {
     if (!hasUnknownImplicitArgs) return false;
-    const hasSpreadParam = functionType.implicitParameters.some(
+    const hasSpreadParam = ([] as FunctionParameter[]).some(
       (p) => p.isEffectRowSpread
     );
     if (!hasSpreadParam) return false;
@@ -2217,7 +2217,7 @@ Please use explicit using() to disambiguate.`,
     // Non-spread params each produce exactly 1 arg. Spread params expand
     // into the remaining args.
     let nonSpreadArgCount = 0;
-    for (const param of functionType.implicitParameters) {
+    for (const param of [] as FunctionParameter[]) {
       if (!param.isEffectRowSpread) {
         nonSpreadArgCount++;
       }
@@ -2246,7 +2246,7 @@ Please use explicit using() to disambiguate.`,
 
   const hasEvidencePassingCapableImplicits =
     isGenericOnlyBecauseOfImplicits &&
-    functionType.implicitParameters.some((param) => {
+    ([] as FunctionParameter[]).some((param) => {
       if (isEffectRecordType(param.type)) {
         return param.type.fields.some(
           (m) =>
@@ -2317,24 +2317,6 @@ Please use explicit using() to disambiguate.`,
     // signature), so they must also be excluded from the caller's argument list.
     if (specializedFunctionValue) {
       const indicesToRemove = new Set<number>();
-      let runtimeArgIdx = 0;
-      for (let i = 0; i < functionType.parameters.length; i++) {
-        const param = functionType.parameters[i]!;
-        if (!param.isCompileTimeOnly) {
-          const arg = argValues_.args[i];
-          const argVal = arg?.value;
-          if (
-            argVal &&
-            isFunctionValue(argVal) &&
-            argVal.type.implicitParameters.some(
-              (p) => isFunctionType(p.type) || isEffectRecordType(p.type)
-            )
-          ) {
-            indicesToRemove.add(runtimeArgIdx);
-          }
-          runtimeArgIdx++;
-        }
-      }
       if (indicesToRemove.size > 0) {
         for (let idx = runtimeArgExprsInOrder.length - 1; idx >= 0; idx--) {
           if (indicesToRemove.has(idx)) {
@@ -2606,22 +2588,7 @@ function createSpecializedFunctionInline({
         compileTimeArgValues.push(arg.value);
       }
     } else {
-      // Functions with implicit parameters of function/record type (i.e., using(...)
-      // effects) must be treated as compile-time because they are compiled as state
-      // machines or inlined, not as regular C functions. The concrete function value
-      // is needed at compile time for effect call site generation.
-      const isEffectfulFuncParam =
-        arg.value &&
-        isFunctionValue(arg.value) &&
-        arg.value.type.implicitParameters.some(
-          (p) => isFunctionType(p.type) || isEffectRecordType(p.type)
-        );
-
-      if (isEffectfulFuncParam) {
-        if (arg.value) {
-          compileTimeArgValues.push(arg.value);
-        }
-      } else {
+      {
         // Use argType (the actual concrete argument type) for cache comparison,
         // not parameterType (which might be a SomeType like Impl(...))
         // If argType is a SomeType with resolvedConcreteType, use the concrete type
@@ -2878,8 +2845,8 @@ function createSpecializedFunctionInline({
   // Compute the mapping from implicit param index to implicitArgValues index.
   // Spread params expand into multiple entries, so we need to track the offset.
   let argOffset = 0;
-  for (let i = 0; i < functionType.implicitParameters.length; i++) {
-    const implicitParam = functionType.implicitParameters[i]!;
+  for (let i = 0; i < ([] as FunctionParameter[]).length; i++) {
+    const implicitParam = ([] as FunctionParameter[])[i]!;
     if (isFunctionType(implicitParam.type)) {
       // Check if the resolved handler uses escape (has isControlFunction set)
       const handlerArg = argValues.implicitArgs?.[argOffset];
@@ -2921,8 +2888,8 @@ function createSpecializedFunctionInline({
       }
       if (isEffectsRowType(resolvedType)) {
         // Extract individual effect parameters from the resolved EffectsRowType
-        for (let k = 0; k < resolvedType.implicitParameters.length; k++) {
-          const innerParam = resolvedType.implicitParameters[k]!;
+        for (let k = 0; k < ([] as FunctionParameter[]).length; k++) {
+          const innerParam = ([] as FunctionParameter[])[k]!;
           if (isFunctionType(innerParam.type)) {
             const innerHandlerArg = argValues.implicitArgs?.[argOffset + k];
             const innerHandlerValue =
@@ -2997,7 +2964,7 @@ function createSpecializedFunctionInline({
             }
           }
         }
-        argOffset += resolvedType.implicitParameters.length;
+        argOffset += ([] as FunctionParameter[]).length;
       } else {
         argOffset += 1;
       }
@@ -3410,7 +3377,7 @@ function createSpecializedFunctionInline({
   // with their concrete types from forall args. This preserves effect
   // annotations in the specialized type for evidence passing.
   const resolvedImplicitParams: FunctionParameter[] = [];
-  for (const implicitParam of functionType.implicitParameters) {
+  for (const implicitParam of [] as FunctionParameter[]) {
     if (implicitParam.isEffectRowSpread) {
       let effectsRow = implicitParam.type;
       if (isSomeType(effectsRow)) {
@@ -3470,8 +3437,6 @@ function createSpecializedFunctionInline({
   const specializedFunctionType = createFunctionType({
     forallParameters: [],
     parameters: runtimeParameters,
-    implicitParameters:
-      resolvedImplicitParams.length > 0 ? resolvedImplicitParams : undefined,
     variadicParameter: undefined, // QUESTION: Is this right?
     return_: {
       ...functionType.return,
@@ -3678,10 +3643,6 @@ function evaluateCtlFunctionBodyInline({
       ...p,
       type: substituteType(p.type),
     })),
-    implicitParameters:
-      functionType.implicitParameters.length > 0
-        ? functionType.implicitParameters
-        : undefined,
     variadicParameter: undefined,
     return_: {
       ...functionType.return,

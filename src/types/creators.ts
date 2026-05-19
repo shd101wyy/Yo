@@ -822,7 +822,6 @@ export function createUnionType(env: Environment): UnionType {
 export function createFunctionType({
   parameters,
   forallParameters,
-  implicitParameters,
   variadicParameter,
   whereClauseExprs,
   return_,
@@ -835,7 +834,6 @@ export function createFunctionType({
 }: {
   parameters: FunctionParameter[];
   forallParameters: FunctionForallParameter[];
-  implicitParameters?: FunctionParameter[];
   variadicParameter: FunctionParameter | undefined;
   whereClauseExprs?: Expr[];
   return_: FunctionReturn;
@@ -854,7 +852,6 @@ export function createFunctionType({
     tag: TypeTag.Function,
     parameters: parameters,
     forallParameters,
-    implicitParameters: implicitParameters ?? [],
     variadicParameter,
     whereClauseExprs,
     return: return_,

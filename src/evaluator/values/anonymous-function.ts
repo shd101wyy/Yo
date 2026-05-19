@@ -394,7 +394,7 @@ Got:      "${paramName}"`,
   // straight from the expected function type. The local
   // `usingParamExprs` is permanently empty.
   const resolvedImplicitParameters: FunctionParameter[] =
-    functionType.implicitParameters;
+    [] as FunctionParameter[];
   const inlineEffectsRow: EffectsRowType | undefined = undefined;
 
   // Track effect params for io.async closures — these will be added to the
@@ -428,9 +428,9 @@ Got:      "${paramName}"`,
     let resolvedHandlerValue: Value | undefined;
     if (isFunctionType(expectedParam.type)) {
       // Try lookup by the current label first, then fall back to the original
-      // label from functionType.implicitParameters. This handles the case where
+      // label from ([] as FunctionParameter[]). This handles the case where
       // the closure renames the parameter (e.g., _yield -> yield in outer env).
-      const originalLabel = functionType.implicitParameters[i]?.label;
+      const originalLabel = ([] as FunctionParameter[])[i]?.label;
       const labelsToTry = [expectedParam.label];
       if (originalLabel && originalLabel !== expectedParam.label) {
         labelsToTry.push(originalLabel);
@@ -610,21 +610,6 @@ Got:      "${paramName}"`,
     ...functionType,
     // forall parameters must use expected names/types entirely (they're always comptime)
     forallParameters: functionType.forallParameters,
-    // Use the resolved implicit parameters (expanded from effect row if applicable)
-    // For inline ...(name : Type) declarations, labels are already set correctly.
-    // For plain identifier using() params, update labels to match user-provided names.
-    implicitParameters: inlineEffectsRow
-      ? resolvedImplicitParameters
-      : resolvedImplicitParameters.map((param, index) => {
-          const paramExpr = usingParamExprs[index];
-          if (paramExpr && exprIsAtom(paramExpr)) {
-            const userLabel = paramExpr.token.value;
-            if (userLabel !== param.label) {
-              return { ...param, label: userLabel };
-            }
-          }
-          return param;
-        }),
     // For regular parameters: use expected types but allow anonymous names for non-comptime parameters
     parameters: functionType.parameters.map((expectedParam, index) => {
       if (expectedParam.isCompileTimeOnly) {
@@ -840,9 +825,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
   // This enables the codegen to generate the function as a state machine.
   if (
     evaluatedBody.$ &&
-    (functionType.implicitParameters.some((p) =>
-      isSourceNamespaceType(p.type)
-    ) ||
+    (([] as FunctionParameter[]).some((p) => isSourceNamespaceType(p.type)) ||
       context.isInsideIoAsyncCall)
   ) {
     const awaitAnalysis = analyzeAwaitPoints(evaluatedBody);

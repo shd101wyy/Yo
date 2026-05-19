@@ -447,13 +447,10 @@ export function findFunctionCallsInExpr(
             // Check both original and specialized types: the original type may be
             // "hard-generic" due to implicit params, but having evidence parameters
             // means those implicits are handled via evidence passing.
-            const checkType =
-              functionValue.specializedType ?? functionValue.type;
-            isGenericOnlyDueToImplicitParams =
-              checkType.implicitParameters.length > 0 &&
-              (getEvidenceParameters(checkType).length > 0 ||
-                (!isFunctionTypeHardGeneric(functionValue.type) &&
-                  functionValue.type.implicitParameters.length > 0));
+            // No implicit parameters exist post-EXPLICIT_EFFECTS;
+            // this whole "specialize-only-for-implicit-params" path
+            // is no longer reachable.
+            isGenericOnlyDueToImplicitParams = false;
             if (!isGenericOnlyDueToImplicitParams) {
               return;
             }

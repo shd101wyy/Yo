@@ -25,7 +25,6 @@ import type {
 import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
-  isFunctionType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
   isSomeType,
@@ -319,20 +318,6 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
       context.emitter.emitLine(`  ${returnStmt}`);
       context.emitter.emitLine(`}`);
-      continue;
-    }
-
-    const hasUnresolvedFunctionImplicitParams =
-      !isUserMain &&
-      !isEffectfulFunction &&
-      !value.isEffectRecordMember &&
-      !value.type.isClosure &&
-      !value.specializedType &&
-      (value.specializedFunctionCaches?.length ?? 0) === 0 &&
-      getEvidenceParameters(value.specializedType ?? value.type).length === 0 &&
-      value.type.implicitParameters.some((param) => isFunctionType(param.type));
-
-    if (hasUnresolvedFunctionImplicitParams) {
       continue;
     }
 
