@@ -17,6 +17,7 @@ import {
 } from "./evaluator/builtins/build";
 import { formatYoFiles } from "./formatter";
 import { initProject } from "./init";
+import { formatUnsafeReport, generateUnsafeReport } from "./unsafe-report";
 import { ModuleManager } from "./module-manager";
 import {
   hostTarget,
@@ -575,6 +576,37 @@ yo --version                     Show version number
         }
         if (failed > 0) {
           process.exit(1);
+        }
+      }
+    )
+    .command(
+      "unsafe-report [path]",
+      "List every unsafe(...) site, asm/extern declaration, and pragma(Pragma.AllowUnsafe);-declaring file. Audit-friendly output for memory-safety review.",
+      (_yargs) => {
+        _yargs
+          .positional("path", {
+            describe: "File or directory to scan (default: current directory)",
+            type: "string",
+            default: ".",
+          })
+          .option("json", {
+            describe:
+              "Emit machine-readable JSON instead of the formatted report",
+            type: "boolean",
+            default: false,
+          });
+      },
+      (argv) => {
+        const targetPath = (argv.path as string) ?? ".";
+        if (!fs.existsSync(targetPath)) {
+          console.error(`unsafe-report: path does not exist: ${targetPath}`);
+          process.exit(1);
+        }
+        const report = generateUnsafeReport(targetPath);
+        if (argv.json as boolean) {
+          console.log(JSON.stringify(report, null, 2));
+        } else {
+          console.log(formatUnsafeReport(report));
         }
       }
     )
