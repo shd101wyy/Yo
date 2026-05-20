@@ -759,7 +759,7 @@ impl(Point,
         (self.y * self.y)))
   ),
 
-  move_by : (fn(self: *(Self), dx : i32, dy : i32) -> unit)({
+  move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -769,24 +769,24 @@ p := Point(3, 4);
 d := p.distance_from_origin();  // Type method call - OK
 
 p2 := Point(0, 0);
-p2.move_by(5, 10);  // Automatically takes pointer for `*(Self)` parameter
+p2.move_by(5, 10);  // `inout(self)` lowers to `Self*` — &(p2) is taken automatically
 // p2 is now Point(5, 10)
 ```
 
-**Automatic pointer conversion:**
+**Automatic pointer conversion for `inout`:**
 
-When a method expects `*(Self)` but you have `Self`, Yo automatically takes the pointer for you (Rust-style):
+`inout(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
 
 ```rust
-Point :: struct(x: i32, y: i32);
+Point :: struct(x : i32, y : i32);
 impl(Point,
-  set_x : ((self: *(Self), new_x: i32) -> unit)({
+  set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
 
 p := Point(3, 4);
-p.set_x(10);  // Automatically converts to &(p).set_x(10)
+p.set_x(10);  // No `&(p)` required — the compiler inserts it
 ```
 
 ### recur
@@ -880,6 +880,8 @@ swap :: (fn(a : *(i32), b : *(i32)) -> unit)(unsafe({
 swap(&(x), &(y));  // Pass pointers to x and y
 // Now x == 2, y == 1
 ```
+
+For day-to-day in-place mutation, prefer the `inout(name) : T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller writes plain value-call syntax (`swap(x, y)`). Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
 
 ### Pointer Operations
 
@@ -1329,7 +1331,7 @@ The `Iterator` trait defines a sequence of values. It has an associated type `It
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(self : *(Self)) -> Option(Self.Item))
+  next : (fn(inout(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1757,11 +1759,11 @@ A trait is defined as a function that returns a `Trait` type containing field de
 ```rust
 // Define a trait (like a trait in Rust)
 Summary :: trait(
-  summarize : (fn(self: *(Self)) -> String)
+  summarize : (fn(inout(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(self: *(Self)) -> String),
+  display : (fn(inout(self) : Self) -> String),
   where(Self <: Summary) // Constraint
 );
 
@@ -1787,12 +1789,12 @@ impl(NewsArticle, Display(
 ));
 
 // Pass in function
-notify :: (fn(item: *(NewsArticle)) -> unit)({
+notify :: (fn(inout(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // Generic function with trait constraint
-notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit)({
+notify2 :: (fn(forall(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2369,7 +2371,7 @@ result := use_id(42);  // Prints "i32: 42", returns 42
 
 ```rust
 RetI32 :: trait(
-  return_i32 : (fn(self : *(Self)) -> i32)
+  return_i32 : (fn(inout(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
@@ -3313,7 +3315,7 @@ For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMB
 
 ## Index Trait
 
-Yo provides a unified `Index` trait for custom indexing on any type. Types that implement `Index(Idx)` can use function-call syntax `value(index)` for element access, pointer access via `&(value(index))`, and mutation via `&(value(index)).* = new_value`.
+Yo provides a unified `Index` trait for custom indexing on any type. Types that implement `Index(Idx)` can use function-call syntax `value(index)` for element access, pointer access via `&(value(index))`, and mutation via the call-syntax assignment `value(index) = new_value`.
 
 The standard library implements `Index` for `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, and `String`. Arrays and slices use built-in indexing with the same syntax, plus range slicing with `..` and `..=`.
 

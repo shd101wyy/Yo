@@ -758,7 +758,7 @@ impl(Point,
         (self.y * self.y)))
   ),
 
-  move_by : (fn(self: *(Self), dx : i32, dy : i32) -> unit)({
+  move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -768,24 +768,25 @@ p := Point(3, 4);
 d := p.distance_from_origin();  // 类型方法调用 - OK
 
 p2 := Point(0, 0);
-p2.move_by(5, 10);  // 对于 `*(Self)` 参数自动取指针
+p2.move_by(5, 10);  // `inout(self)` 在 C 中降为 `Self*` — 编译器自动插入 &(p2)
 // p2 现在是 Point(5, 10)
 ```
 
-**自动指针转换：**
+**`inout` 的自动指针转换：**
 
-当方法期望 `*(Self)` 但你有 `Self` 时，Yo 会自动为你取指针（Rust 风格）：
+`inout(name) : T` 参数在 C 中降为 `T*`。在调用点，Yo 会自动取对应实参的地址，
+所以调用方代码看起来就是普通的值传递语法：
 
 ```rust
-Point :: struct(x: i32, y: i32);
+Point :: struct(x : i32, y : i32);
 impl(Point,
-  set_x : ((self: *(Self), new_x: i32) -> unit)({
+  set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
 
 p := Point(3, 4);
-p.set_x(10);  // 自动转换为 &(p).set_x(10)
+p.set_x(10);  // 无需写 `&(p)` — 编译器自动插入
 ```
 
 ### recur
@@ -879,6 +880,8 @@ swap :: (fn(a : *(i32), b : *(i32)) -> unit)(unsafe({
 swap(&(x), &(y));  // 传入 x 和 y 的指针
 // 现在 x == 2, y == 1
 ```
+
+日常的就地修改应优先使用 `inout(name) : T` 参数形式（见[Type Methods](#type-methods)）——它在 C 中降为相同的 `T*` ABI，但保持安全，调用方写成普通的值传递语法（`swap(x, y)`）。原始 `*(T)` 仅保留给 FFI 和本节涉及的底层场景。
 
 ### 指针操作
 
@@ -1326,7 +1329,7 @@ factorial2 :: (fn(n: i32) -> i32)({
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(self : *(Self)) -> Option(Self.Item))
+  next : (fn(inout(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1754,11 +1757,11 @@ Trait 被定义为一个返回 `Trait` 类型的函数，其中包含字段定�
 ```rust
 // 定义一个 trait（类似于 Rust 中的 trait）
 Summary :: trait(
-  summarize : (fn(self: *(Self)) -> String)
+  summarize : (fn(inout(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(self: *(Self)) -> String),
+  display : (fn(inout(self) : Self) -> String),
   where(Self <: Summary) // 约束
 );
 
@@ -1784,12 +1787,12 @@ impl(NewsArticle, Display(
 ));
 
 // 传入函数
-notify :: (fn(item: *(NewsArticle)) -> unit)({
+notify :: (fn(inout(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // 带 trait 约束的泛型函数
-notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit)({
+notify2 :: (fn(forall(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2366,7 +2369,7 @@ result := use_id(42);  // 打印 "i32: 42"，返回 42
 
 ```rust
 RetI32 :: trait(
-  return_i32 : (fn(self : *(Self)) -> i32)
+  return_i32 : (fn(inout(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
@@ -3305,7 +3308,7 @@ asm("mov {0}, #42", out(reg, x));
 
 ## Index 特征
 
-Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引。实现了 `Index(Idx)` 的类型可以使用函数调用语法 `value(index)` 进行元素访问，通过 `&(value(index))` 获取指针，以及通过 `&(value(index)).* = new_value` 进行修改。
+Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引。实现了 `Index(Idx)` 的类型可以使用函数调用语法 `value(index)` 进行元素访问，通过 `&(value(index))` 获取指针，以及通过调用语法赋值 `value(index) = new_value` 进行修改。
 
 标准库为 `ArrayList`、`HashMap`、`BTreeMap`、`Deque` 和 `String` 实现了 `Index`。数组和切片使用内置索引（相同语法），并支持 `..` 和 `..=` 的范围切片。
 
