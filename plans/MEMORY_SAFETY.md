@@ -457,16 +457,16 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
 ### Phase E — Tooling
 
-- [ ] `yo check --unsafe-report` — lists every `unsafe(...)` site in the project (including dependencies), with file:line, surrounding `// SAFETY:` comment, and a quantification of the unsafe surface.
-- [ ] `yo audit-unsafe` (optional, LLM-backed) — for each `unsafe(...)` site, run an LLM check against the `// SAFETY:` claim. Outputs pass/fail per site. Useful in CI for projects that want extra assurance.
-- [ ] `pragma(Pragma.AllowUnsafe);` files surface in the report — privileged code is visible at a glance.
+- [x] `yo unsafe-report [path]` — lists every `unsafe(...)` site, `asm(...)` block, `extern(...)` declaration, and `pragma(Pragma.AllowUnsafe);`-declaring file under the given path. `file:line:col` format for editor jumps. `--json` flag emits machine-readable output. Implemented as a regex-based scanner in `src/unsafe-report.ts`; no parser/evaluator involvement, so it runs fast and works even on broken files.
+- [x] Surrounding `// SAFETY:` comments on the previous 3 lines are picked up and printed under the corresponding `unsafe(...)` finding.
+- [ ] `yo audit-unsafe` (optional, LLM-backed) — for each `unsafe(...)` site, run an LLM check against the `// SAFETY:` claim. Outputs pass/fail per site. Useful in CI for projects that want extra assurance. **Deferred — not implemented.**
 
 ### Phase F — Docs
 
-- [ ] Update `docs/{en-US,zh-CN}/DESIGN.md` — pointer section becomes "stdlib-only" with a forward reference to `inout` params for user code.
-- [ ] Add `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` — the user-facing memory-safety policy. Covers the privilege model, the safe subset, `inout` params, `unsafe(...)`, and how to use FFI through wrappers.
-- [ ] Update `.github/instructions/yo-syntax.instructions.md` — `inout` parameter syntax, `unsafe(...)` rule, safe-by-default policy.
-- [ ] Update `.github/skills/yo-syntax/syntax-cheatsheet.md` and `yo-core-patterns/core-patterns-cheatsheet.md`.
+- [x] Update `docs/{en-US,zh-CN}/DESIGN.md` — pointer section now describes the unsafe(...) marker and the pragma requirement; new "Memory Safety" subsection; `inout` parameter section. Cross-link to `yo unsafe-report`.
+- [x] `.github/instructions/yo-syntax.instructions.md` — `inout` parameter syntax, `unsafe(...)` + pragma rule.
+- [x] `.github/skills/yo-syntax/syntax-cheatsheet.md` — concise rule lines for `unsafe(...)`, pragma, and `inout(name)`.
+- [ ] `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` standalone user-facing page — **deferred.** The plan document itself (this file) plus the DESIGN.md section currently cover the user-facing surface. A standalone page can be split out later if the audience grows.
 
 ---
 
@@ -704,7 +704,7 @@ The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the priv
 
 ## Status
 
-**Phase A + B + C landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file. `inout(name) : T` parameters give in-place mutation without raw pointers.
+**Phase A + B + C + E + F landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file. `inout(name) : T` parameters give in-place mutation without raw pointers. `yo unsafe-report` audits the unsafe surface across a project.
 
 Resolved decisions:
 
@@ -716,15 +716,15 @@ Resolved decisions:
 Phase ordering (foundation → leaves):
 
 1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = v)`.
-2. **Phase B** ✅ — `inout(name) : T` parameter form. Independent of C. Used as the safe in-place-mutation primitive for user code; Phase D will use it to replace `*(Self)` receivers in stdlib trait method signatures.
+2. **Phase B** ✅ — `inout(name) : T` parameter form. Used as the safe in-place-mutation primitive for user code; Phase D will use it to replace `*(Self)` receivers in stdlib trait method signatures.
 3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)`, `asm(...)`, and `extern fn` declarations on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
-4. **Phase D** — stdlib boundary sweep: `*(Self)` → `inout(self) : Self` in trait signatures, `*(T)` → `Slice(T)`/`inout(name) : T` in other public APIs.
-5. **Phase E** — tooling (`yo check --unsafe-report`, optional `yo audit-unsafe`).
-6. **Phase F** — docs.
+4. **Phase D** — stdlib boundary sweep: `*(Self)` → `inout(self) : Self` in trait signatures, `*(T)` → `Slice(T)`/`inout(name) : T` in other public APIs. Skipped per user instruction (iterator change deferred); a meaningful chunk of work for a future session.
+5. **Phase E** ✅ — `yo unsafe-report` (audit-friendly listing of every unsafe site, asm, extern, and pragma file). `yo audit-unsafe` (LLM-backed) deferred.
+6. **Phase F** ✅ — Docs (DESIGN.md en+zh, syntax instructions, cheatsheet, cross-links to `yo unsafe-report`). The standalone `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` user page is deferred; the DESIGN.md + plans/ coverage is sufficient for now.
 
 Total implementation cost: ~2–3 weeks across all phases. Substantially less than `FUTURE_ORIGINS.md` (~1–2 months) for materially the same practical safety story.
 
-**Next concrete unit of work: Phase D** (stdlib boundary sweep — replace `*(Self)` with `inout(self) : Self` in trait method signatures), or **Phase E** (tooling). Phase B's non-escape enforcement (currently deferred) is also a meaningful follow-up.
+**Next concrete unit of work: Phase D** (stdlib boundary sweep — replace `*(Self)` with `inout(self) : Self` in trait method signatures). Phase B's non-escape enforcement and the remaining Phase C gates (`*(T)` types, `&(expr)`) are also meaningful follow-ups.
 
 **Known gaps:**
 
