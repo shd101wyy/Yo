@@ -437,6 +437,14 @@ Got:      "${paramName}"`,
         initializedAtToken: paramExpr.token,
         consumedAtToken: undefined,
         isOwningTheRcValue: expectedParam.isOwningTheRcValue, // Parameters borrow by default
+        // Propagate inout-ness from the expected (trait/declared) param.
+        // When a lambda like `((self) -> self)` is being type-checked
+        // against a trait method like `hash : (fn(inout(self) : Self)
+        // -> u64)`, the lambda's `self` binding inherits isInout from
+        // the trait's parameter; codegen then emits (*self) for reads
+        // and writes. See plans/MEMORY_SAFETY.md Phase D.
+        isInout: expectedParam.isInout || undefined,
+        isReassignable: expectedParam.isInout,
         // If anonymous function uses different parameter name than expected,
         // store the expected name as alias for C codegen
         parameterAlias:
