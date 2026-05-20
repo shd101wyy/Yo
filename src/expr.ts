@@ -2199,7 +2199,15 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         frameVariables[j] = newVariable;
       }
       // case 3
-      else {
+      else if (frameVariables[j]!.isInout) {
+        // inout(name) : T parameters are second-class references — the
+        // slot always points to a valid caller-side Rc. Assignment in
+        // some branches and not others is fine: assigning branches drop
+        // the old value and write the new; non-assigning branches leave
+        // the original intact. C-side, the pointer always dereferences
+        // to a held Rc, regardless of which branch ran. So skip the
+        // consistency check that applies to value-typed locals.
+      } else {
         const isOwningTheRcValue = isOwningTheRefValueAtTokens.filter(
           (u) => !!u
         );
