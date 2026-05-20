@@ -233,7 +233,7 @@ export(Index);
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : Idx) -> comptime(*(Self.Output))),
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output))),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -5641,7 +5641,7 @@ impl(
   Array(T, N),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index(self, idx)
     )
   )
@@ -5652,7 +5652,7 @@ impl(
   Array(T, N),
   ComptimeIndex(Range(usize))(
     Output : Slice(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index_range(self, idx)
     )
   )
@@ -5663,7 +5663,7 @@ impl(
   Array(T, N),
   ComptimeIndex(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index_range_inclusive(self, idx)
     )
   )
@@ -5675,7 +5675,7 @@ impl(
   Slice(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_slice_index(self, idx)
     )
   )
@@ -5686,7 +5686,7 @@ impl(
   Slice(T),
   ComptimeIndex(Range(usize))(
     Output : Slice(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_slice_index_range(self, idx)
     )
   )
@@ -5697,7 +5697,7 @@ impl(
   Slice(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_slice_index_range_inclusive(self, idx)
     )
   )
@@ -5853,7 +5853,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(self) : *(Self), comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index(self, idx)
     )
   )
@@ -5864,7 +5864,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(Range(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range(self, idx)
     )
   )
@@ -5875,7 +5875,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(self) : *(Self), comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range_inclusive(self, idx)
     )
   )
