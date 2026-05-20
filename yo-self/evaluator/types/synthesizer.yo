@@ -215,7 +215,7 @@ _has_type_pair :: (fn(pairs : ArrayList(TypePair), exp_id : String, giv_id : Str
 /// Mirrors the `!variable ? addVariableToEnv(...) : updateExistingVariable(...)` pattern.
 _bind_some_type :: (
   fn(
-    inout(env) : Environment,
+    env : Environment,
     name : String,
     val : EvalValue,
     ty : TypeValue,
@@ -564,7 +564,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : *(ArrayLis
 // synthesize_future_effects (private)
 // ---------------------------------------------------------------------------
 /// Extract the token from options (or make a synthetic one).
-opts_token :: (fn(opts : Option(SynthesizeOptions), inout(env) : Environment) -> Option(Token))(
+opts_token :: (fn(opts : Option(SynthesizeOptions), env : Environment) -> Option(Token))(
   match(opts,.Some(o) => o.token,.None => Option(Token).None)
 );
 /// Build an ArrayList(ImplicitEntry) from parallel arrays (with expansion
@@ -648,8 +648,8 @@ _synthesize_implicit_params :: (
     given_labels : ArrayList(String),
     given_types : ArrayList(TypeValue),
     given_spreads : ArrayList(bool),
-    inout(expected_env) : Environment,
-    inout(given_env) : Environment,
+    expected_env : Environment,
+    given_env : Environment,
     checked : *(ArrayList(TypePair)),
     opts : Option(SynthesizeOptions),
     exn : Exception

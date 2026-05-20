@@ -46,7 +46,7 @@ stub_evaluate :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext)
+    ctx : EvalContext
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_i32());
@@ -66,7 +66,7 @@ test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
   ctx := eval_context_new(String.from("/std"), String.from("test"));
   env := Environment.new(String.from("test"));
   call := mk_typeof_call(usize(7), "x", usize(42));
-  result := evaluate_typeof(call, env, &(ctx), exn);
+  result := evaluate_typeof(call, env, ctx, exn);
   // Side-effect: typeof's own ExprInfo is set with TypeVal(i32) and meta-type Type.
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
   assert(match(info_opt,.Some(_) => true,.None => false), "typeof did not record an ExprInfo");

@@ -199,6 +199,15 @@ TcpStream :: object(fd : i32, buffer : ArrayList(u8));
 
 - Use `newtype(...)` when the type has exactly one field
 - Use `object(...)` for types that need shared ownership
+- **Parameter form by type kind:**
+  - `object(...)`: plain `name : Type` (reference semantics — no pointer or inout needed).
+    `foo :: (fn(ctx : EvalContext) -> unit)(ctx.do_stuff());`
+  - `struct(...)` / `enum(...)` / primitive, read-only: plain `name : Type`.
+  - `struct(...)` / `enum(...)` / primitive, need mutation: `inout(name) : Type`.
+    `swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)(...);`
+  - Method receiver on `object`: plain `self : Self`.
+  - Method receiver on value type (traits + inherent mutators): `inout(self) : Self`.
+  - Raw FFI pointer: `name : *(T)` (requires `pragma(Pragma.AllowUnsafe);`).
 - Source-file imports are namespace structs. The old `module(...)`, `Module`,
   and `SelfModule` syntax is gone; use `struct(...)`, `Type`, and normal `Self`.
 - Fields written as `name :: value` or `comptime(name) : Type` are compile-time-only static fields/methods and have no runtime layout

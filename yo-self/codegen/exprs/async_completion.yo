@@ -10,7 +10,7 @@ open(import("std/string"));
   format_typed_init_line
 } :: import("../utils/index.yo");
 AsyncCompletionOptions :: object(
-  emitter : *(Emitter),
+  emitter : Emitter,
   indent : String,
   result_code : Option(String),
   debug_label : Option(String)
@@ -41,35 +41,35 @@ emit_async_future_completion :: (fn(opts : AsyncCompletionOptions) -> unit)({
   match(
     opts.result_code,
     .None => (),
-    .Some(result_code) => opts.emitter.*.emit_string_line(
+    .Some(result_code) => opts.emitter.emit_string_line(
       format_async_result_assign(opts.indent, result_code)
     )
   );
   match(
     opts.debug_label,
     .None => (),
-    .Some(debug_label) => opts.emitter.*.emit_string_line(
+    .Some(debug_label) => opts.emitter.emit_string_line(
       format_async_debug_line(opts.indent, debug_label, ": Setting state to COMPLETED\\n\");")
     )
   );
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "sm->state = -1;  // -1 = completed")
   );
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;")
   );
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "void* continuation_sm = sm->continuation_sm;")
   );
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "if (continuation_fn != NULL) {")
   );
   match(
     opts.debug_label,
     .None => (),
-    .Some(debug_label2) => opts.emitter.*.emit_string_line(
+    .Some(debug_label2) => opts.emitter.emit_string_line(
       format_async_debug_line(
         indent_plus_two(opts.indent),
         debug_label2,
@@ -77,31 +77,31 @@ emit_async_future_completion :: (fn(opts : AsyncCompletionOptions) -> unit)({
       )
     )
   );
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_fn = NULL;"));
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_sm = NULL;"));
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_fn = NULL;"));
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_sm = NULL;"));
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "  __yo_async_spawn_task(continuation_fn, continuation_sm);")
   );
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "}"));
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "__yo_decr_rc((void*)sm);"));
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "return;"));
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "}"));
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "__yo_decr_rc((void*)sm);"));
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "return;"));
 });
 emit_async_future_unwind :: (fn(opts : AsyncCompletionOptions) -> unit)({
   match(
     opts.result_code,
     .None => (),
-    .Some(result_code) => opts.emitter.*.emit_string_line(
+    .Some(result_code) => opts.emitter.emit_string_line(
       format_async_result_assign(opts.indent, result_code)
     )
   );
   match(
     opts.debug_label,
     .None => (),
-    .Some(debug_label) => opts.emitter.*.emit_string_line(
+    .Some(debug_label) => opts.emitter.emit_string_line(
       format_async_debug_line(
         opts.indent,
         debug_label,
@@ -109,24 +109,24 @@ emit_async_future_unwind :: (fn(opts : AsyncCompletionOptions) -> unit)({
       )
     )
   );
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "sm->state = -2;  // -2 = escaped")
   );
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;")
   );
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "void* continuation_sm = sm->continuation_sm;")
   );
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "if (continuation_fn != NULL) {")
   );
   match(
     opts.debug_label,
     .None => (),
-    .Some(debug_label2) => opts.emitter.*.emit_string_line(
+    .Some(debug_label2) => opts.emitter.emit_string_line(
       format_async_debug_line(
         indent_plus_two(opts.indent),
         debug_label2,
@@ -134,18 +134,18 @@ emit_async_future_unwind :: (fn(opts : AsyncCompletionOptions) -> unit)({
       )
     )
   );
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_fn = NULL;"));
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_sm = NULL;"));
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_fn = NULL;"));
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "  sm->continuation_sm = NULL;"));
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(
     format_indented_line(opts.indent, "  __yo_async_spawn_task(continuation_fn, continuation_sm);")
   );
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "}"));
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "__yo_decr_rc((void*)sm);"));
-  opts.emitter.*.emit_line("");
-  opts.emitter.*.emit_string_line(format_indented_line(opts.indent, "return;"));
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "}"));
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "__yo_decr_rc((void*)sm);"));
+  opts.emitter.emit_line("");
+  opts.emitter.emit_string_line(format_indented_line(opts.indent, "return;"));
 });
 export(
   AsyncCompletionOptions,

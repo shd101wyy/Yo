@@ -29,10 +29,10 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 /// Emit a single expression as a C statement: `{indent}{expr_code};\n`.
 /// Returns unit; used internally to emit non-last statements in begin blocks.
-emit_as_stmt :: (fn(code : String, ctx : *(CodegenContext), indent : String) -> unit)({
-  ctx.*.emitter.emit_string(indent);
-  ctx.*.emitter.emit_string(code);
-  ctx.*.emitter.emit_line(";");
+emit_as_stmt :: (fn(code : String, ctx : CodegenContext, indent : String) -> unit)({
+  ctx.emitter.emit_string(indent);
+  ctx.emitter.emit_string(code);
+  ctx.emitter.emit_line(";");
 });
 /// Returns true if `expr` is a begin block (`{ ... }`), i.e. a FnCall whose
 /// func is an Atom with value `BK_BEGIN`.  These blocks contain statement-level
@@ -137,29 +137,29 @@ format_begin_block_open :: (fn(indent : String) -> String)(
   format_indented_line(indent, "{ // begin block")
 );
 
-begin_emit_statement :: (fn(code : String, ctx : *(CodegenContext), indent : String) -> unit)({
-  ctx.*.emitter.emit_string_line(format_indented_stmt(indent, code));
+begin_emit_statement :: (fn(code : String, ctx : CodegenContext, indent : String) -> unit)({
+  ctx.emitter.emit_string_line(format_indented_stmt(indent, code));
 });
 
-begin_expr_has_metadata :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
-  ctx.*.get_expr_info(ast_expr_id(expr)).is_some()
+begin_expr_has_metadata :: (fn(expr : AstExpr, ctx : CodegenContext) -> bool)(
+  ctx.get_expr_info(ast_expr_id(expr)).is_some()
 );
 
 begin_should_emit_arg_code :: (
-  fn(arg : AstExpr, arg_code : String, is_last_expr : bool, is_returning_value : bool, ctx : *(CodegenContext)) -> bool
+  fn(arg : AstExpr, arg_code : String, is_last_expr : bool, is_returning_value : bool, ctx : CodegenContext) -> bool
 )(
   cond(
     (arg_code.len() == usize(0)) => false,
     (is_last_expr && is_returning_value) => false,
     true => match(
-      ctx.*.get_expr_info(ast_expr_id(arg)),
+      ctx.get_expr_info(ast_expr_id(arg)),
       .None => true,
       .Some(arg_info) => !(is_temp_variable_name(arg_info.env.module_path, arg_code))
     )
   )
 );
 
-begin_emit_deferred_drops :: (fn(info : ExprInfo, ctx : *(CodegenContext), indent : String) -> unit)({
+begin_emit_deferred_drops :: (fn(info : ExprInfo, ctx : CodegenContext, indent : String) -> unit)({
   match(
     info.deferred_drop_expressions,
     .None => (),
@@ -188,7 +188,7 @@ begin_generate_args_immediate :: (
     args : ArrayList(AstExpr),
     value_type : TypeValue,
     block_info : ExprInfo,
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(ArrayList(String))
 )({
@@ -205,7 +205,7 @@ begin_generate_args_immediate :: (
         ok = false;
       },
       .Some(arg) => match(
-        ctx.*.get_expr_info(ast_expr_id(arg)),
+        ctx.get_expr_info(ast_expr_id(arg)),
         .None => {
           stopped = true;
         },
@@ -233,7 +233,7 @@ begin_generate_args_immediate :: (
 });
 
 begin_generate_statement_args :: (
-  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(ArrayList(String))
+  fn(args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> Option(ArrayList(String))
 )({
   args_code := ArrayList(String).new();
   inner := begin_indent_inner(indent);
@@ -275,10 +275,10 @@ begin_last_code :: (fn(args_code : ArrayList(String)) -> String)(
 );
 
 begin_apply_return_deferred_dup :: (
-  fn(last_arg : AstExpr, last_arg_code : String, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(last_arg : AstExpr, last_arg_code : String, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(last_arg)),
+    ctx.get_expr_info(ast_expr_id(last_arg)),
     .None => Option(String).Some(last_arg_code),
     .Some(last_info) => match(
       last_info.deferred_dup_expressions,
@@ -292,10 +292,10 @@ begin_apply_return_deferred_dup :: (
 );
 
 generate_begin :: (
-  fn(call_expr : AstExpr, args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(call_expr : AstExpr, args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    ctx.get_expr_info(ast_expr_id(call_expr)),
     .None => Option(String).None,
     .Some(info) => match(
       info.variable_name,
@@ -306,12 +306,12 @@ generate_begin :: (
           match(
             get_type_string_opt(value_type, ctx),
             .None => (),
-            .Some(type_name) => ctx.*.emitter.emit_string_line(
+            .Some(type_name) => ctx.emitter.emit_string_line(
               format_begin_temp_decl(indent, type_name, temp_variable_name)
             )
           );
         });
-        ctx.*.emitter.emit_string_line(format_begin_block_open(indent));
+        ctx.emitter.emit_string_line(format_begin_block_open(indent));
         args_code_opt := begin_generate_args_immediate(args, value_type, info, ctx, indent);
         match(
           args_code_opt,
@@ -325,7 +325,7 @@ generate_begin :: (
                 match(
                   begin_apply_return_deferred_dup(last_arg, last_arg_code, ctx, begin_indent_inner(indent)),
                   .None => (),
-                  .Some(final_last_arg_code) => ctx.*.emitter.emit_string_line(
+                  .Some(final_last_arg_code) => ctx.emitter.emit_string_line(
                     format_begin_assignment_line(
                       begin_indent_inner(indent),
                       temp_variable_name,
@@ -338,7 +338,7 @@ generate_begin :: (
           })
         );
         begin_emit_deferred_drops(info, ctx, begin_indent_inner(indent));
-        ctx.*.emitter.emit_string_line(format_indented_line(indent, "} // end begin block"));
+        ctx.emitter.emit_string_line(format_indented_line(indent, "} // end begin block"));
         Option(String).Some(
           cond(
             (is_unit_type(value_type) || has_any_control_flow(info.control_flow)) => String.new(),
@@ -347,10 +347,10 @@ generate_begin :: (
         )
       },
       .None => {
-        ctx.*.emitter.emit_string_line(format_begin_block_open(indent));
+        ctx.emitter.emit_string_line(format_begin_block_open(indent));
         _args_code := begin_generate_statement_args(args, ctx, indent);
         begin_emit_deferred_drops(info, ctx, begin_indent_inner(indent));
-        ctx.*.emitter.emit_string_line(format_indented_line(indent, "} // end begin block"));
+        ctx.emitter.emit_string_line(format_indented_line(indent, "} // end begin block"));
         Option(String).Some(String.new())
       }
     )

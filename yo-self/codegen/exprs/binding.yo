@@ -71,7 +71,7 @@ inner_atom_token_value :: (fn(call_expr : AstExpr) -> Option(String))(
 generate_binding :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
@@ -82,7 +82,7 @@ generate_binding :: (
     // also emits C variable declarations for `comptime(x) : T` (the
     // dispatcher relies on the C variable existing for later
     // `x = ...` assignments to compile). Return None to defer.
-    ctx.*.expr_info_table.is_none() => Option(String).None,
+    ctx.expr_info_table.is_none() => Option(String).None,
     true => match(
       args.get(usize(0)),
       .None => Option(String).None,
@@ -104,14 +104,14 @@ generate_binding :: (
               inner_args.get(usize(0)),
               .None => Option(String).Some(String.from("")),
               .Some(inner_expr) => match(
-                ctx.*.get_expr_info(ast_expr_id(inner_expr)),
+                ctx.get_expr_info(ast_expr_id(inner_expr)),
                 .None => Option(String).Some(String.from("")),
                 .Some(inner_info) => cond(
                   (!(is_struct_type(inner_info.ty))) =>
                     Option(String).Some(String.from("")),
                   true => {
                     decl := get_variable_type_string_str(inner_info.ty, inner_name.as_str(), ctx);
-                    ctx.*.emitter.emit_string_line(format_variable_decl_line(indent, decl));
+                    ctx.emitter.emit_string_line(format_variable_decl_line(indent, decl));
                     Option(String).Some(String.from(""))
                   }
                 )
@@ -124,11 +124,11 @@ generate_binding :: (
           lhs,
           .FnCall(_, _, _, _, _) => Option(String).None,
           .Atom({ token : lhs_tok }) => match(
-            ctx.*.get_expr_info(ast_expr_id(lhs)),
+            ctx.get_expr_info(ast_expr_id(lhs)),
             .None => Option(String).None,
             .Some(lhs_info) => {
               decl := get_variable_type_string_str(lhs_info.ty, lhs_tok.value.as_str(), ctx);
-              ctx.*.emitter.emit_string_line(format_variable_decl_line(indent, decl));
+              ctx.emitter.emit_string_line(format_variable_decl_line(indent, decl));
               Option(String).Some(String.from(""))
             }
           )

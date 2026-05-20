@@ -54,7 +54,7 @@ mk_call :: (fn(id : usize, name : str, args : ArrayList(AstExpr)) -> AstExpr)(
 );
 
 stub_generate_expr :: (
-  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     expr,
@@ -65,8 +65,8 @@ stub_generate_expr :: (
 
 mk_array_ty :: (fn(n : usize) -> TypeValue)(TypeValue.Array(box(t_i32()), n));
 
-install_array_type :: (fn(ctx : *(CodegenContext), ty : TypeValue, c_name : str) -> unit)({
-  ctx.*.types.set(
+install_array_type :: (fn(ctx : CodegenContext, ty : TypeValue, c_name : str) -> unit)({
+  ctx.types.set(
     type_to_string(ty),
     CodegenTypeEntry(type_value : ty, c_name : String.from(c_name))
   );
@@ -75,9 +75,9 @@ install_array_type :: (fn(ctx : *(CodegenContext), ty : TypeValue, c_name : str)
 test("get_type_string_opt: reads array C name from context types", {
   ctx := CodegenContext.new();
   ty := mk_array_ty(usize(2));
-  install_array_type(&(ctx), ty, "__yo_array_i32_2");
+  install_array_type(ctx, ty, "__yo_array_i32_2");
   match(
-    get_type_string_opt(ty, &(ctx)),
+    get_type_string_opt(ty, ctx),
     .None => assert(false, "expected array c name"),
     .Some(c_name) => assert(c_name == String.from("__yo_array_i32_2"), "array c name")
   );
@@ -86,9 +86,9 @@ test("get_type_string_opt: reads array C name from context types", {
 test("get_variable_type_string_opt_str: sanitizes array-temp variable name", {
   ctx := CodegenContext.new();
   ty := mk_array_ty(usize(2));
-  install_array_type(&(ctx), ty, "__yo_array_i32_2");
+  install_array_type(ctx, ty, "__yo_array_i32_2");
   match(
-    get_variable_type_string_opt_str(ty, "tmp.array", &(ctx)),
+    get_variable_type_string_opt_str(ty, "tmp.array", ctx),
     .None => assert(false, "expected variable type string"),
     .Some(s) => assert(
       s == String.from("__yo_array_i32_2 tmp_u46_array"),
@@ -103,7 +103,7 @@ test("generate_anonymous_array: returns None without metadata", {
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(10), "x", TokenKind.Identifier));
   call := mk_call(usize(11), BK_ARRAY, args);
-  result := generate_anonymous_array(call, args, &(ctx), String.from(""));
+  result := generate_anonymous_array(call, args, ctx, String.from(""));
   assert(result.is_none(), "no metadata falls back to legacy lowering");
 });
 
@@ -113,7 +113,7 @@ test("generate_anonymous_array: emits compound array wrapper", {
   table := expr_info_table_new();
   env := Environment.new(String.from("test"));
   ty := mk_array_ty(usize(2));
-  install_array_type(&(ctx), ty, "__yo_array_i32_2");
+  install_array_type(ctx, ty, "__yo_array_i32_2");
   call_info := new_expr_info(env, ty);
   runtime_args := ArrayList(AstExpr).new();
   runtime_args.push(mk_atom(usize(20), "x", TokenKind.Identifier));
@@ -124,7 +124,7 @@ test("generate_anonymous_array: emits compound array wrapper", {
   source_args := ArrayList(AstExpr).new();
   source_args.push(mk_atom(usize(23), "ignored", TokenKind.Identifier));
   call := mk_call(usize(22), BK_ARRAY, source_args);
-  result := generate_anonymous_array(call, source_args, &(ctx), String.from("  "));
+  result := generate_anonymous_array(call, source_args, ctx, String.from("  "));
   match(
     result,
     .None => assert(false, "expected array code"),
@@ -141,7 +141,7 @@ test("generate_anonymous_array: variable_name emits temp declaration and returns
   table := expr_info_table_new();
   env := Environment.new(String.from("test"));
   ty := mk_array_ty(usize(2));
-  install_array_type(&(ctx), ty, "__yo_array_i32_2");
+  install_array_type(ctx, ty, "__yo_array_i32_2");
   call_info := new_expr_info(env, ty);
   call_info.variable_name = Option(String).Some(String.from("tmp.array"));
   runtime_args := ArrayList(AstExpr).new();
@@ -152,7 +152,7 @@ test("generate_anonymous_array: variable_name emits temp declaration and returns
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   args := ArrayList(AstExpr).new();
   call := mk_call(usize(32), BK_ARRAY, args);
-  result := generate_anonymous_array(call, args, &(ctx), String.from("  "));
+  result := generate_anonymous_array(call, args, ctx, String.from("  "));
   match(
     result,
     .None => assert(false, "expected temp"),
@@ -176,7 +176,7 @@ test("extract_array_type_value: reads TypeVal Array from argument metadata", {
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   arg := mk_atom(usize(40), "ArrayType", TokenKind.Identifier);
   match(
-    extract_array_type_value(arg, &(ctx)),
+    extract_array_type_value(arg, ctx),
     .None => assert(false, "expected array type"),
     .Some(found) => assert(type_to_string(found) == type_to_string(ty), "array type found")
   );
@@ -188,7 +188,7 @@ test("generate_yo_array_fill: emits declaration, loop, and returns temp", {
   table := expr_info_table_new();
   env := Environment.new(String.from("test"));
   ty := mk_array_ty(usize(3));
-  install_array_type(&(ctx), ty, "__yo_array_i32_3");
+  install_array_type(ctx, ty, "__yo_array_i32_3");
   call_info := new_expr_info(env, ty);
   call_info.variable_name = Option(String).Some(String.from("filled.array"));
   expr_info_table_set(table, usize(52), call_info);
@@ -200,7 +200,7 @@ test("generate_yo_array_fill: emits declaration, loop, and returns temp", {
   args.push(mk_atom(usize(50), "ArrayType", TokenKind.Identifier));
   args.push(mk_atom(usize(51), "value", TokenKind.Identifier));
   call := mk_call(usize(52), BF_ARRAY_FILL, args);
-  result := generate_yo_array_fill(call, args, &(ctx), String.from("  "));
+  result := generate_yo_array_fill(call, args, ctx, String.from("  "));
   assert(result == String.from("filled_u46_array"), "returns sanitized temp");
   out := ctx.emitter.code;
   assert(out.contains(String.from("  __yo_array_i32_3 filled_u46_array;")), "decl");
@@ -217,7 +217,7 @@ test("generate_yo_array_fill: rejects non-TypeVal first argument", {
   args.push(mk_atom(usize(60), "not_type", TokenKind.Identifier));
   args.push(mk_atom(usize(61), "value", TokenKind.Identifier));
   call := mk_call(usize(62), BF_ARRAY_FILL, args);
-  result := generate_yo_array_fill(call, args, &(ctx), String.from(""));
+  result := generate_yo_array_fill(call, args, ctx, String.from(""));
   assert(
     result == String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"),
     "diagnostic"

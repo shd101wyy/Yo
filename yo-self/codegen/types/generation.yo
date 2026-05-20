@@ -147,15 +147,15 @@ generate_struct_decl :: (
     field_types : ArrayList(TypeValue),
     module_id : str,
     type_id : usize,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> String
 )({
   c_name := struct_c_name(module_id, type_id);
   registered_fields := get_struct_fields(struct_id);
   // Forward declaration.
-  ctx.*.emitter.emit_declaration_string_line(format_struct_forward_decl(c_name));
+  ctx.emitter.emit_declaration_string_line(format_struct_forward_decl(c_name));
   // Struct definition header.
-  ctx.*.emitter.emit_declaration_string_line(format_struct_def_header(c_name, name));
+  ctx.emitter.emit_declaration_string_line(format_struct_def_header(c_name, name));
   // Fields
   n := cond(
     (field_labels.len() < field_types.len()) => field_labels.len(),
@@ -184,7 +184,7 @@ generate_struct_decl :: (
           .Some(ty) => match(
             type_value_to_c_field(ty),
             .None => (),
-            .Some(c_ty) => ctx.*.emitter.emit_declaration_string_line(
+            .Some(c_ty) => ctx.emitter.emit_declaration_string_line(
               format_struct_field_line(c_ty, label)
             )
           )
@@ -193,7 +193,7 @@ generate_struct_decl :: (
     });
     i = (i + usize(1));
   });
-  ctx.*.emitter.emit_declaration_line("};");
+  ctx.emitter.emit_declaration_line("};");
   c_name
 });
 // ---------------------------------------------------------------------------
@@ -324,13 +324,13 @@ emit_simple_enum :: (
     variant_discriminants : ArrayList(i64),
     module_id : str,
     type_id : usize,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> String
 )({
   c_name := enum_c_name(module_id, type_id);
   tag_prefix := enum_tag_prefix(module_id, type_id);
   // Header: typedef enum { // Name (optimized as simple enum)
-  ctx.*.emitter.emit_declaration_string_line(format_simple_enum_header(name));
+  ctx.emitter.emit_declaration_string_line(format_simple_enum_header(name));
   // Variant entries: __YO_ENUM_..._VARIANTNAME = N,
   n := variant_names.len();
   (i : usize) = usize(0);
@@ -344,7 +344,7 @@ emit_simple_enum :: (
           .Some(d) => d.to_string(),
           .None => i64(i).to_string()
         );
-        ctx.*.emitter.emit_declaration_string_line(
+        ctx.emitter.emit_declaration_string_line(
           format_enum_variant_entry(tag_prefix, vname.to_uppercase(), disc_val, i < (n - usize(1)))
         );
       }
@@ -352,7 +352,7 @@ emit_simple_enum :: (
     i = (i + usize(1));
   });
   // Closing: } __yo_enum_...;
-  ctx.*.emitter.emit_declaration_string_line(format_enum_close_line(c_name, ""));
+  ctx.emitter.emit_declaration_string_line(format_enum_close_line(c_name, ""));
   c_name
 });
 /// Emit a data enum (at least one variant has fields) into
@@ -377,15 +377,15 @@ emit_data_enum :: (
     variant_discriminants : ArrayList(i64),
     module_id : str,
     type_id : usize,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> String
 )({
   c_name := enum_c_name(module_id, type_id);
   tag_prefix := enum_tag_prefix(module_id, type_id);
   // Forward declaration.
-  ctx.*.emitter.emit_declaration_string_line(format_struct_forward_decl(c_name));
+  ctx.emitter.emit_declaration_string_line(format_struct_forward_decl(c_name));
   // Tag enum.
-  ctx.*.emitter.emit_declaration_line("typedef enum {");
+  ctx.emitter.emit_declaration_line("typedef enum {");
   n := variant_names.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {
@@ -398,16 +398,16 @@ emit_data_enum :: (
           .Some(d) => d.to_string(),
           .None => i64(i).to_string()
         );
-        ctx.*.emitter.emit_declaration_string_line(
+        ctx.emitter.emit_declaration_string_line(
           format_enum_variant_entry(tag_prefix, vname.to_uppercase(), disc_val_de, i < (n - usize(1)))
         );
       }
     );
     i = (i + usize(1));
   });
-  ctx.*.emitter.emit_declaration_string_line(format_enum_close_line(c_name, "_tag"));
+  ctx.emitter.emit_declaration_string_line(format_enum_close_line(c_name, "_tag"));
   // Data union
-  ctx.*.emitter.emit_declaration_line("typedef union {");
+  ctx.emitter.emit_declaration_line("typedef union {");
   (j : usize) = usize(0);
   while(runtime(j < n), {
     v_name_opt := variant_names.get(j);
@@ -416,7 +416,7 @@ emit_data_enum :: (
       v_name_opt,
       .None => (),
       .Some(vname) => {
-        ctx.*.emitter.emit_declaration_line("  struct {");
+        ctx.emitter.emit_declaration_line("  struct {");
         match(
           v_fields_opt,
           .None => (),
@@ -430,7 +430,7 @@ emit_data_enum :: (
                 .Some(fty) => match(
                   type_value_to_c_field(fty),
                   .None => (),
-                  .Some(c_fty) => ctx.*.emitter.emit_declaration_string_line(
+                  .Some(c_fty) => ctx.emitter.emit_declaration_string_line(
                     format_enum_union_field(c_fty, fi)
                   )
                 )
@@ -439,17 +439,17 @@ emit_data_enum :: (
             });
           }
         );
-        ctx.*.emitter.emit_declaration_string_line(format_enum_variant_member(vname));
+        ctx.emitter.emit_declaration_string_line(format_enum_variant_member(vname));
       }
     );
     j = (j + usize(1));
   });
-  ctx.*.emitter.emit_declaration_string_line(format_enum_close_line(c_name, "_data"));
+  ctx.emitter.emit_declaration_string_line(format_enum_close_line(c_name, "_data"));
   // Combined struct.
-  ctx.*.emitter.emit_declaration_string_line(format_struct_def_header(c_name, name));
-  ctx.*.emitter.emit_declaration_string_line(format_enum_struct_subfield(c_name, "tag", "tag"));
-  ctx.*.emitter.emit_declaration_string_line(format_enum_struct_subfield(c_name, "data", "data"));
-  ctx.*.emitter.emit_declaration_line("};");
+  ctx.emitter.emit_declaration_string_line(format_struct_def_header(c_name, name));
+  ctx.emitter.emit_declaration_string_line(format_enum_struct_subfield(c_name, "tag", "tag"));
+  ctx.emitter.emit_declaration_string_line(format_enum_struct_subfield(c_name, "data", "data"));
+  ctx.emitter.emit_declaration_line("};");
   c_name
 });
 // ---------------------------------------------------------------------------
@@ -470,7 +470,7 @@ generate_type_decl :: (
     type_val : TypeValue,
     module_id : str,
     type_id : usize,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> Option(String)
 )(
   match(
@@ -482,7 +482,7 @@ generate_type_decl :: (
       // struct's C name via `ctx.get_type_c_name(id)`. Mirrors the TS
       // pattern of populating `context.types[id] = { type, cName }`
       // during type-declaration emission.
-      ctx.*.register_type(id, type_val, c_name.clone());
+      ctx.register_type(id, type_val, c_name.clone());
       Option(String).Some(c_name)
     },
     .EnumT(id, name, variant_names, variant_fields, _, _, discs) => {
@@ -492,7 +492,7 @@ generate_type_decl :: (
         true =>
           emit_data_enum(name, variant_names, variant_fields, discs, module_id, type_id, ctx)
       );
-      ctx.*.register_type(id, type_val, c_name.clone());
+      ctx.register_type(id, type_val, c_name.clone());
       Option(String).Some(c_name)
     },
     _ => Option(String).None
@@ -599,38 +599,38 @@ emit_rc_forward_decls :: (
   fn(
     c_type_name : str,
     has_dispose : bool,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> unit
 )({
   if(has_dispose, {
-    ctx.*.emitter.emit_declaration_string_line(
+    ctx.emitter.emit_declaration_string_line(
       format_rc_void_forward_decl(rc_dispose_name(c_type_name), c_type_name)
     );
   });
-  ctx.*.emitter.emit_declaration_string_line(
+  ctx.emitter.emit_declaration_string_line(
     format_rc_void_forward_decl(rc_drop_name(c_type_name), c_type_name)
   );
-  ctx.*.emitter.emit_declaration_string_line(
+  ctx.emitter.emit_declaration_string_line(
     format_rc_dup_forward_decl(rc_dup_name(c_type_name), c_type_name)
   );
 });
 /// Emit the `__dispose` function body (no-op for non-RC types).
-emit_dispose_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
-  ctx.*.emitter.emit_line(format_rc_void_sig(rc_dispose_name(c_type_name), c_type_name).as_str());
-  ctx.*.emitter.emit_line("}");
+emit_dispose_fn :: (fn(c_type_name : str, ctx : CodegenContext) -> unit)({
+  ctx.emitter.emit_line(format_rc_void_sig(rc_dispose_name(c_type_name), c_type_name).as_str());
+  ctx.emitter.emit_line("}");
 });
 /// Emit the `__drop` function body (no-op for non-RC types).
-emit_drop_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
-  ctx.*.emitter.emit_line(format_rc_void_sig(rc_drop_name(c_type_name), c_type_name).as_str());
-  ctx.*.emitter.emit_line("  return;");
-  ctx.*.emitter.emit_line("}");
+emit_drop_fn :: (fn(c_type_name : str, ctx : CodegenContext) -> unit)({
+  ctx.emitter.emit_line(format_rc_void_sig(rc_drop_name(c_type_name), c_type_name).as_str());
+  ctx.emitter.emit_line("  return;");
+  ctx.emitter.emit_line("}");
 });
 /// Emit the `__dup` function body (shallow copy for non-RC types).
-emit_dup_fn :: (fn(c_type_name : str, ctx : *(CodegenContext)) -> unit)({
-  ctx.*.emitter.emit_line(format_rc_dup_sig(rc_dup_name(c_type_name), c_type_name).as_str());
-  ctx.*.emitter.emit_line(format_rc_dup_tmp_decl(c_type_name).as_str());
-  ctx.*.emitter.emit_line("  return(__yo_dup_tmp);");
-  ctx.*.emitter.emit_line("}");
+emit_dup_fn :: (fn(c_type_name : str, ctx : CodegenContext) -> unit)({
+  ctx.emitter.emit_line(format_rc_dup_sig(rc_dup_name(c_type_name), c_type_name).as_str());
+  ctx.emitter.emit_line(format_rc_dup_tmp_decl(c_type_name).as_str());
+  ctx.emitter.emit_line("  return(__yo_dup_tmp);");
+  ctx.emitter.emit_line("}");
 });
 /// Generate forward declarations and definitions for the three RC helper
 /// functions for a type with no heap-allocated (RC) fields.
@@ -644,7 +644,7 @@ generate_rc_fns_trivial :: (
   fn(
     c_type_name : str,
     has_dispose : bool,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> unit
 )({
   emit_rc_forward_decls(c_type_name, has_dispose, ctx);
@@ -666,7 +666,7 @@ generate_rc_fns :: (
     type_val : TypeValue,
     module_id : str,
     type_id : usize,
-    ctx : *(CodegenContext)
+    ctx : CodegenContext
   ) -> bool
 )(
   match(

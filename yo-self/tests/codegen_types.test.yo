@@ -204,14 +204,14 @@ make_typed_decl_expr :: (fn(name : str, ty_name : str, val_e : AstExpr) -> AstEx
 /// Convenience: run generate_expr with a fresh context and empty indent.
 run_gen :: (fn(expr : AstExpr) -> Option(String))({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   generate_expr(expr, pctx, ind)
 });
 /// Convenience: run generate_expr and also return the emitted code.
 run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   _r := generate_expr(expr, pctx, ind);
   ctx
@@ -295,7 +295,7 @@ test("generate_type_decl: simple struct Point with two i32 fields", {
   field_types.push(t_i32());
   tv := TypeValue.Struct(String.from(""), String.from("Point"), field_labels, field_types, false, false, false);
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   result_opt := generate_type_decl(tv, "yomod0001", usize(2), pctx);
   c_name := match(result_opt,.Some(s) => s,.None => String.from("NONE"));
   assert(c_name == String.from("__yo_struct_yomod0001_id_2"), "c name");
@@ -337,7 +337,7 @@ test("generate_type_decl: skips explicit comptime-only struct fields", {
   register_struct_fields(struct_id, fields);
   tv := TypeValue.Struct(struct_id, String.from("StaticStruct"), field_labels, field_types, false, false, false);
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   _ := generate_type_decl(tv, "yomod0001", usize(3), pctx);
   output := ctx.emitter.print();
   assert(!(output.contains(String.from(" tag;"))), "static field omitted");
@@ -354,7 +354,7 @@ test("generate_type_decl: simple enum Color (all unit variants)", {
   variant_fields.push(ArrayList(TypeValue).new());
   tv := TypeValue.EnumT(String.from(""), String.from("Color"), variant_names, variant_fields, Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new());
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   result_opt := generate_type_decl(tv, "yomod0001", usize(10), pctx);
   c_name := match(result_opt,.Some(s) => s,.None => String.from("NONE"));
   assert(c_name == String.from("__yo_enum_yomod0001_id_10"), "enum c name");
@@ -379,7 +379,7 @@ test("generate_type_decl: data enum Shape with Circle(f32) and Rect(f32, f32)", 
   variant_fields.push(rect_fields);
   tv := TypeValue.EnumT(String.from(""), String.from("Shape"), variant_names, variant_fields, Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new());
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   result_opt := generate_type_decl(tv, "yomod0001", usize(15), pctx);
   c_name := match(result_opt,.Some(s) => s,.None => String.from("NONE"));
   assert(c_name == String.from("__yo_enum_yomod0001_id_15"), "enum c name");
@@ -396,7 +396,7 @@ test("generate_type_decl: data enum Shape with Circle(f32) and Rect(f32, f32)", 
 test("generate_type_decl: unsupported TypeValue returns None", {
   tv := TypeValue.Int(u8(32), true);
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   result_opt := generate_type_decl(tv, "yomod0001", usize(1), pctx);
   assert(
     match(result_opt,.None => true,.Some(_) => false),
@@ -414,7 +414,7 @@ test("rc name builders", {
 });
 test("generate_rc_fns_trivial: struct (has_dispose=true)", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   generate_rc_fns_trivial("__yo_struct_yomod_id_2", true, pctx);
   output := ctx.emitter.print();
   // Forward declarations for all three
@@ -434,7 +434,7 @@ test("generate_rc_fns_trivial: struct (has_dispose=true)", {
 });
 test("generate_rc_fns_trivial: enum (has_dispose=false)", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   generate_rc_fns_trivial("__yo_enum_yomod_id_5", false, pctx);
   output := ctx.emitter.print();
   // No dispose for enums
@@ -448,7 +448,7 @@ test("generate_rc_fns_trivial: enum (has_dispose=false)", {
 });
 test("generate_rc_fns : Type.Struct TypeValue generates all three RC fns", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   field_labels := ArrayList(String).new();
   field_labels.push(String.from("x"));
   field_labels.push(String.from("y"));
@@ -465,7 +465,7 @@ test("generate_rc_fns : Type.Struct TypeValue generates all three RC fns", {
 });
 test("generate_rc_fns: EnumT TypeValue generates drop+dup, no dispose", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   variant_names := ArrayList(String).new();
   variant_names.push(String.from("Red"));
   variant_names.push(String.from("Green"));
@@ -484,7 +484,7 @@ test("generate_rc_fns: EnumT TypeValue generates drop+dup, no dispose", {
 });
 test("generate_rc_fns: unsupported TypeValue returns false", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   tv := TypeValue.Int(u8(32), true);
   ok := generate_rc_fns(tv, "yomod0001", usize(1), pctx);
   assert(!(ok), "should return(false for non-struct/enum)");
@@ -494,7 +494,7 @@ test("generate_rc_fns: unsupported TypeValue returns false", {
 // ---------------------------------------------------------------------------
 test("emit_c_preamble: has standard includes", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_c_preamble("yomod0001", pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("#define _DEFAULT_SOURCE")), "_DEFAULT_SOURCE");
@@ -505,7 +505,7 @@ test("emit_c_preamble: has standard includes", {
 });
 test("emit_c_preamble: has allocator macros", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_c_preamble("yomod0001", pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("#define __yo_malloc")), "malloc macro");
@@ -513,14 +513,14 @@ test("emit_c_preamble: has allocator macros", {
 });
 test("emit_c_preamble: has module ID comment", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_c_preamble("yoabc999", pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("// Module ID: yoabc999")), "module id comment");
 });
 test("emit_c_preamble: has process platform and arch constants", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_c_preamble("yomod0001", pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static const char* platform")), "platform constant");
@@ -528,7 +528,7 @@ test("emit_c_preamble: has process platform and arch constants", {
 });
 test("emit_main_wrapper: emits int main with user fn call", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_main_wrapper("__yo_user_main", pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("int main(void) {")), "main signature");
@@ -537,7 +537,7 @@ test("emit_main_wrapper: emits int main with user fn call", {
 });
 test("generate_c_output: combines headers + declarations + code", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ctx.emitter.emit_header_line("// header");
   ctx.emitter.emit_declaration_line("// decl");
   ctx.emitter.emit_line("// code");
@@ -548,7 +548,7 @@ test("generate_c_output: combines headers + declarations + code", {
 });
 test("full program: preamble + type + RC + function + main wrapper", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   // 1. Preamble
   emit_c_preamble("yomod0001", pctx);
   // 2. Type declaration for Point struct

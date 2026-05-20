@@ -99,7 +99,7 @@ test("is_closure_construction: no expr info → false", {
   ctx := CodegenContext.new();
   // Without an expr_info_table or matching entry, lookup misses.
   assert(
-    !(is_closure_construction(usize(99), &(ctx))),
+    !(is_closure_construction(usize(99), ctx)),
     "missing info → false"
   );
 });
@@ -120,7 +120,7 @@ test("is_closure_construction: missing closure_function_value → false", {
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   // closure_function_value is None → not a closure construction.
   assert(
-    !(is_closure_construction(usize(10), &(ctx))),
+    !(is_closure_construction(usize(10), ctx)),
     "no closure value → false"
   );
 });
@@ -143,7 +143,7 @@ test("is_closure_construction: Fn trait + closure value → true", {
   ctx := CodegenContext.new();
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   assert(
-    is_closure_construction(usize(11), &(ctx)),
+    is_closure_construction(usize(11), ctx),
     "Fn type + closure_function_value → true"
   );
 });
@@ -158,7 +158,7 @@ test("is_closure_construction: non-Fn type + closure value → false", {
   ctx := CodegenContext.new();
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   assert(
-    !(is_closure_construction(usize(12), &(ctx))),
+    !(is_closure_construction(usize(12), ctx)),
     "non-Fn type → false"
   );
 });

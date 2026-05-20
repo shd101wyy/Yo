@@ -56,7 +56,7 @@ recur_array_contains_string :: (fn(items : ArrayList(String), needle : String) -
 });
 
 recur_args_to_c :: (
-  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> Option(String)
 )({
   out := String.new();
   (i : usize) = usize(0);
@@ -91,12 +91,12 @@ recur_args_to_c :: (
   cond(ok => Option(String).Some(out), true => Option(String).None)
 });
 
-recur_append_evidence_args :: (fn(args_list : String, ctx : *(CodegenContext)) -> String)({
+recur_append_evidence_args :: (fn(args_list : String, ctx : CodegenContext) -> String)({
   out := String.from(args_list.as_str());
   i := usize(0);
-  while(runtime(i < ctx.*.current_evidence_param_names.len()), {
+  while(runtime(i < ctx.current_evidence_param_names.len()), {
     match(
-      ctx.*.current_evidence_param_names.get(i),
+      ctx.current_evidence_param_names.get(i),
       .Some(ep_name) => {
         if(out.len() > usize(0), {
           out.push_str(", ");
@@ -111,10 +111,10 @@ recur_append_evidence_args :: (fn(args_list : String, ctx : *(CodegenContext)) -
 });
 
 recur_emit_deferred_drops :: (
-  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> bool
+  fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> bool
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(expr)),
+    ctx.get_expr_info(ast_expr_id(expr)),
     .None => true,
     .Some(info) => match(
       info.deferred_drop_expressions,
@@ -133,7 +133,7 @@ recur_emit_deferred_drops :: (
               .None => {
                 ok = false;
               },
-              .Some(drop_code) => ctx.*.emitter.emit_string_line(
+              .Some(drop_code) => ctx.emitter.emit_string_line(
                 format_indented_stmt_line(indent, drop_code)
               )
             )
@@ -147,10 +147,10 @@ recur_emit_deferred_drops :: (
 );
 
 recur_emit_temp_if_needed :: (
-  fn(call_expr : AstExpr, call_code : String, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(call_expr : AstExpr, call_code : String, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    ctx.get_expr_info(ast_expr_id(call_expr)),
     .None => Option(String).Some(call_code),
     .Some(info) => match(
       info.variable_name,
@@ -162,9 +162,9 @@ recur_emit_temp_if_needed :: (
           .None => Option(String).Some(call_code),
           .Some(c_type) => {
             temp_var_name := sanitize_for_c_identifier(temp_var);
-            if(!(recur_array_contains_string(ctx.*.declared_temp_vars, temp_var_name)), {
-              ctx.*.declared_temp_vars.push(temp_var_name);
-              ctx.*.emitter.emit_string_line(
+            if(!(recur_array_contains_string(ctx.declared_temp_vars, temp_var_name)), {
+              ctx.declared_temp_vars.push(temp_var_name);
+              ctx.emitter.emit_string_line(
                 format_typed_temp_assignment(indent, c_type, temp_var_name, call_code)
               );
             });
@@ -177,10 +177,10 @@ recur_emit_temp_if_needed :: (
 );
 
 generate_recur :: (
-  fn(call_expr : AstExpr, _args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(call_expr : AstExpr, _args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    ctx.get_expr_info(ast_expr_id(call_expr)),
     .None => Option(String).None,
     .Some(info) => match(
       info.runtime_arg_exprs_in_order,
@@ -195,7 +195,7 @@ generate_recur :: (
         .None => Option(String).None,
         .Some(args_list) => {
           full_args := recur_append_evidence_args(args_list, ctx);
-          call_code := format_c_function_call(ctx.*.current_fn_name.as_str(), full_args);
+          call_code := format_c_function_call(ctx.current_fn_name.as_str(), full_args);
           cond(
             (!(recur_emit_deferred_drops(call_expr, ctx, indent))) => Option(String).None,
             true => recur_emit_temp_if_needed(call_expr, call_code, ctx, indent)

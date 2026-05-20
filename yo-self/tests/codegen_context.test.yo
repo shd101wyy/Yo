@@ -20,10 +20,10 @@ make_dummy_value :: (fn() -> EvalValue)(
 );
 test("register_function: new entry shows up in get_function_c_name", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   val := make_dummy_value();
-  pctx.*.register_function(String.from("f1"), val, String.from("fn_my_func"));
-  found := pctx.*.get_function_c_name(String.from("f1"));
+  pctx.register_function(String.from("f1"), val, String.from("fn_my_func"));
+  found := pctx.get_function_c_name(String.from("f1"));
   match(
     found,
     .None => assert(false, "expected c_name to be registered"),
@@ -32,17 +32,17 @@ test("register_function: new entry shows up in get_function_c_name", {
 });
 test("get_function_c_name: unknown id returns None", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  found := pctx.*.get_function_c_name(String.from("nope"));
+  (pctx : CodegenContext) = ctx;
+  found := pctx.get_function_c_name(String.from("nope"));
   assert(found.is_none(), "unknown id → None");
 });
 test("register_function: re-registering same id overwrites the c_name", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   val := make_dummy_value();
-  pctx.*.register_function(String.from("f1"), val, String.from("fn_first"));
-  pctx.*.register_function(String.from("f1"), val, String.from("fn_second"));
-  found := pctx.*.get_function_c_name(String.from("f1"));
+  pctx.register_function(String.from("f1"), val, String.from("fn_first"));
+  pctx.register_function(String.from("f1"), val, String.from("fn_second"));
+  found := pctx.get_function_c_name(String.from("f1"));
   match(
     found,
     .None => assert(false, "expected c_name to be registered"),
@@ -51,10 +51,10 @@ test("register_function: re-registering same id overwrites the c_name", {
 });
 test("get_function_entry: returns full entry with FuncVal", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   val := make_dummy_value();
-  pctx.*.register_function(String.from("f1"), val, String.from("fn_x"));
-  found := pctx.*.get_function_entry(String.from("f1"));
+  pctx.register_function(String.from("f1"), val, String.from("fn_x"));
+  found := pctx.get_function_entry(String.from("f1"));
   match(
     found,
     .None => assert(false, "expected entry to be present"),
@@ -69,45 +69,45 @@ test("functions registry is independent of dyn_impls registry", {
   // and vice-versa — the two registries share the same HashMap
   // shape but live on different fields.
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   val := make_dummy_value();
-  pctx.*.register_function(String.from("f1"), val, String.from("fn_x"));
-  assert(pctx.*.dyn_impls.len() == usize(0), "dyn_impls untouched");
-  assert(pctx.*.functions.len() == usize(1), "functions has 1 entry");
+  pctx.register_function(String.from("f1"), val, String.from("fn_x"));
+  assert(pctx.dyn_impls.len() == usize(0), "dyn_impls untouched");
+  assert(pctx.functions.len() == usize(1), "functions has 1 entry");
 });
 // ─── slice_struct_types ─────────────────────────────────────────────────────
 test("register_slice_struct_type: makes has_slice_struct_type return true", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.register_slice_struct_type(String.from("Slice_i32"), String.from("int32_t"));
-  assert(pctx.*.has_slice_struct_type(String.from("Slice_i32")) == true, "present");
+  (pctx : CodegenContext) = ctx;
+  pctx.register_slice_struct_type(String.from("Slice_i32"), String.from("int32_t"));
+  assert(pctx.has_slice_struct_type(String.from("Slice_i32")) == true, "present");
   assert(
-    pctx.*.has_slice_struct_type(String.from("Slice_u8")) == false,
+    pctx.has_slice_struct_type(String.from("Slice_u8")) == false,
     "unrelated name → false"
   );
 });
 test("slice_struct_types: empty by default", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  assert(pctx.*.slice_struct_types.len() == usize(0), "fresh ctx is empty");
+  (pctx : CodegenContext) = ctx;
+  assert(pctx.slice_struct_types.len() == usize(0), "fresh ctx is empty");
 });
 // ─── array_struct_types ─────────────────────────────────────────────────────
 test("register_array_struct_type: makes has_array_struct_type return true", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.register_array_struct_type(String.from("Array_u8_4"), String.from("uint8_t"), usize(4));
-  assert(pctx.*.has_array_struct_type(String.from("Array_u8_4")) == true, "present");
+  (pctx : CodegenContext) = ctx;
+  pctx.register_array_struct_type(String.from("Array_u8_4"), String.from("uint8_t"), usize(4));
+  assert(pctx.has_array_struct_type(String.from("Array_u8_4")) == true, "present");
   assert(
-    pctx.*.has_array_struct_type(String.from("Array_i32_8")) == false,
+    pctx.has_array_struct_type(String.from("Array_i32_8")) == false,
     "unrelated key → false"
   );
 });
 test("array_struct_types: entry retains child_type and length", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.register_array_struct_type(String.from("A"), String.from("uint8_t"), usize(16));
+  (pctx : CodegenContext) = ctx;
+  pctx.register_array_struct_type(String.from("A"), String.from("uint8_t"), usize(16));
   match(
-    pctx.*.array_struct_types.get(String.from("A")),
+    pctx.array_struct_types.get(String.from("A")),
     .None => assert(false, "expected entry"),
     .Some(entry) => {
       assert(entry.child_type == String.from("uint8_t"), "child_type");
@@ -118,12 +118,12 @@ test("array_struct_types: entry retains child_type and length", {
 // ─── extern_functions ───────────────────────────────────────────────────────
 test("register_extern_function: stores entry retrievable by type_id", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   // The FunctionType TypeValue placeholder doesn't matter for the
   // registry semantics; we use the unit type to avoid synthesising a
   // full FunctionType variant.
   ty := TypeValue.Unit;
-  pctx.*.register_extern_function(
+  pctx.register_extern_function(
     String.from("fty_1"),
     ty,
     String.from("c_strlen"),
@@ -131,7 +131,7 @@ test("register_extern_function: stores entry retrievable by type_id", {
     String.from("c")
   );
   match(
-    pctx.*.get_extern_function(String.from("fty_1")),
+    pctx.get_extern_function(String.from("fty_1")),
     .None => assert(false, "expected entry"),
     .Some(entry) => {
       assert(entry.c_name == String.from("c_strlen"), "c_name");
@@ -146,8 +146,8 @@ test("register_extern_function: stores entry retrievable by type_id", {
 });
 test("register_extern_function: c_include None is preserved", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.register_extern_function(
+  (pctx : CodegenContext) = ctx;
+  pctx.register_extern_function(
     String.from("fty_1"),
     TypeValue.Unit,
     String.from("inline_intrinsic"),
@@ -155,50 +155,50 @@ test("register_extern_function: c_include None is preserved", {
     String.from("yo")
   );
   match(
-    pctx.*.get_extern_function(String.from("fty_1")),
+    pctx.get_extern_function(String.from("fty_1")),
     .None => assert(false, "expected entry"),
     .Some(entry) => assert(entry.c_include.is_none(), "c_include stays None")
   );
 });
 test("get_extern_function: unknown id returns None", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  assert(pctx.*.get_extern_function(String.from("nope")).is_none(), "miss");
+  (pctx : CodegenContext) = ctx;
+  assert(pctx.get_extern_function(String.from("nope")).is_none(), "miss");
 });
 // ─── c_includes ─────────────────────────────────────────────────────────────
 test("add_c_include: makes has_c_include return true", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.add_c_include(String.from("<stdint.h>"));
-  assert(pctx.*.has_c_include(String.from("<stdint.h>")) == true, "added");
-  assert(pctx.*.has_c_include(String.from("<stdio.h>")) == false, "other miss");
+  (pctx : CodegenContext) = ctx;
+  pctx.add_c_include(String.from("<stdint.h>"));
+  assert(pctx.has_c_include(String.from("<stdint.h>")) == true, "added");
+  assert(pctx.has_c_include(String.from("<stdio.h>")) == false, "other miss");
 });
 test("add_c_include: idempotent — adding the same include twice keeps len==1", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.add_c_include(String.from("<stdint.h>"));
-  pctx.*.add_c_include(String.from("<stdint.h>"));
-  pctx.*.add_c_include(String.from("<stdint.h>"));
-  assert(pctx.*.c_includes.len() == usize(1), "deduped");
+  (pctx : CodegenContext) = ctx;
+  pctx.add_c_include(String.from("<stdint.h>"));
+  pctx.add_c_include(String.from("<stdint.h>"));
+  pctx.add_c_include(String.from("<stdint.h>"));
+  assert(pctx.c_includes.len() == usize(1), "deduped");
 });
 test("add_c_include: distinct includes accumulate", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.add_c_include(String.from("<stdint.h>"));
-  pctx.*.add_c_include(String.from("<stdbool.h>"));
-  pctx.*.add_c_include(String.from("\"foo.h\""));
-  assert(pctx.*.c_includes.len() == usize(3), "all three present");
+  (pctx : CodegenContext) = ctx;
+  pctx.add_c_include(String.from("<stdint.h>"));
+  pctx.add_c_include(String.from("<stdbool.h>"));
+  pctx.add_c_include(String.from("\"foo.h\""));
+  assert(pctx.c_includes.len() == usize(3), "all three present");
 });
 test("c_includes: empty by default", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  assert(pctx.*.c_includes.len() == usize(0), "fresh ctx is empty");
+  (pctx : CodegenContext) = ctx;
+  assert(pctx.c_includes.len() == usize(0), "fresh ctx is empty");
 });
 // ─── impl_closure_call_map ──────────────────────────────────────────────────
 test("register_impl_closure: round-trips function_c_name + call_type_id", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.register_impl_closure(
+  (pctx : CodegenContext) = ctx;
+  pctx.register_impl_closure(
     String.from("capture_1"),
     String.from("__yo_closure_fn_42"),
     String.from("fn_call_type_7"),
@@ -206,7 +206,7 @@ test("register_impl_closure: round-trips function_c_name + call_type_id", {
     Option(ArrayList(String)).None
   );
   match(
-    pctx.*.get_impl_closure(String.from("capture_1")),
+    pctx.get_impl_closure(String.from("capture_1")),
     .None => assert(false, "expected entry"),
     .Some(entry) => {
       assert(entry.function_c_name == String.from("__yo_closure_fn_42"), "fn name");
@@ -218,11 +218,11 @@ test("register_impl_closure: round-trips function_c_name + call_type_id", {
 });
 test("register_impl_closure: consumed_captures is preserved", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   caps := ArrayList(String).new();
   caps.push(String.from("a"));
   caps.push(String.from("b"));
-  pctx.*.register_impl_closure(
+  pctx.register_impl_closure(
     String.from("capture_1"),
     String.from("fn1"),
     String.from("ct"),
@@ -230,7 +230,7 @@ test("register_impl_closure: consumed_captures is preserved", {
     Option(ArrayList(String)).Some(caps)
   );
   match(
-    pctx.*.get_impl_closure(String.from("capture_1")),
+    pctx.get_impl_closure(String.from("capture_1")),
     .None => assert(false, "expected entry"),
     .Some(entry) => match(
       entry.consumed_captures,
@@ -241,8 +241,8 @@ test("register_impl_closure: consumed_captures is preserved", {
 });
 test("get_impl_closure: unknown id returns None", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  assert(pctx.*.get_impl_closure(String.from("missing")).is_none(), "miss");
+  (pctx : CodegenContext) = ctx;
+  assert(pctx.get_impl_closure(String.from("missing")).is_none(), "miss");
 });
 // ─── scalar context flags ───────────────────────────────────────────────────
 test("in_async_state_machine: defaults to false", {
@@ -271,29 +271,29 @@ test("current_module_id: defaults to empty string", {
 });
 test("scalar flags are writeable", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.in_async_state_machine = true;
-  pctx.*.inside_match = true;
-  pctx.*.needs_cycle_gc = true;
-  pctx.*.is_library = true;
-  pctx.*.current_module_id = String.from("yo_abc");
-  assert(pctx.*.in_async_state_machine == true, "async flag set");
-  assert(pctx.*.inside_match == true, "match flag set");
-  assert(pctx.*.needs_cycle_gc == true, "gc flag set");
-  assert(pctx.*.is_library == true, "library flag set");
-  assert(pctx.*.current_module_id == String.from("yo_abc"), "module id set");
+  (pctx : CodegenContext) = ctx;
+  pctx.in_async_state_machine = true;
+  pctx.inside_match = true;
+  pctx.needs_cycle_gc = true;
+  pctx.is_library = true;
+  pctx.current_module_id = String.from("yo_abc");
+  assert(pctx.in_async_state_machine == true, "async flag set");
+  assert(pctx.inside_match == true, "match flag set");
+  assert(pctx.needs_cycle_gc == true, "gc flag set");
+  assert(pctx.is_library == true, "library flag set");
+  assert(pctx.current_module_id == String.from("yo_abc"), "module id set");
 });
 // ─── types registry helpers ─────────────────────────────────────────────────
 test("register_type: round-trips c_name via get_type_c_name", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
-  pctx.*.register_type(
+  (pctx : CodegenContext) = ctx;
+  pctx.register_type(
     String.from("type_id_42"),
     TypeValue.Unit,
     String.from("__yo_struct_x")
   );
   match(
-    pctx.*.get_type_c_name(String.from("type_id_42")),
+    pctx.get_type_c_name(String.from("type_id_42")),
     .None => assert(false, "expected c_name"),
     .Some(n) => assert(n == String.from("__yo_struct_x"), "c_name matches")
   );

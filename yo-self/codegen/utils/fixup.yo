@@ -28,7 +28,7 @@ open(import("std/string"));
 /// falls back through `extract_fn_trait_from_type` for boxed closures
 /// whose concrete type is the `Impl(Fn(...))` wrapper. Mirrors the
 /// `(() => { ... })()` IIFE in TS `fixupDynImplKeys`.
-_impl_key_for_entry :: (fn(entry : CodegenDynImplEntry, ctx : *(CodegenContext)) -> String)({
+_impl_key_for_entry :: (fn(entry : CodegenDynImplEntry, ctx : CodegenContext) -> String)({
   dyn_c_name := match(
     get_type_string_opt(entry.dyn_type, ctx),
     .Some(s) => s,
@@ -55,11 +55,11 @@ _impl_key_for_entry :: (fn(entry : CodegenDynImplEntry, ctx : *(CodegenContext))
 /// stable `.entries()`, so we walk the keys iterator and
 /// `.get(k)` each one in turn.
 for_each_dyn_impl_ :: (
-  fn(ctx : *(CodegenContext), out_keys : *(ArrayList(String)), out_entries : *(ArrayList(CodegenDynImplEntry))) -> unit
+  fn(ctx : CodegenContext, out_keys : *(ArrayList(String)), out_entries : *(ArrayList(CodegenDynImplEntry))) -> unit
 )({
   // Collect old keys first.
   old_keys := ArrayList(String).new();
-  keys_iter := ctx.*.dyn_impls.keys();
+  keys_iter := ctx.dyn_impls.keys();
   while(runtime(true), {
     match(
       keys_iter.next(),
@@ -75,7 +75,7 @@ for_each_dyn_impl_ :: (
       old_keys.get(i),
       .None => (),
       .Some(k) => match(
-        ctx.*.dyn_impls.get(k),
+        ctx.dyn_impls.get(k),
         .None => (),
         .Some(entry) => {
           new_key := _impl_key_for_entry(entry, ctx);
@@ -90,14 +90,14 @@ for_each_dyn_impl_ :: (
 /// Rebuild `ctx.dyn_impls` with C-name-based keys. After this
 /// runs every entry is keyed by `${concrete_c_name}_${dyn_c_name}`.
 /// Mirrors TS `fixupDynImplKeys`.
-fixup_dyn_impl_keys :: (fn(ctx : *(CodegenContext)) -> unit)({
+fixup_dyn_impl_keys :: (fn(ctx : CodegenContext) -> unit)({
   // Collect new (key, entry) pairs first so we don't mutate the
   // map while iterating.
   new_keys := ArrayList(String).new();
   new_entries := ArrayList(CodegenDynImplEntry).new();
   for_each_dyn_impl_(ctx, &(new_keys), &(new_entries));
   // Replace the entire map.
-  ctx.*.dyn_impls = HashMap(String, CodegenDynImplEntry).new();
+  ctx.dyn_impls = HashMap(String, CodegenDynImplEntry).new();
   i := usize(0);
   while(runtime(i < new_keys.len()), {
     match(
@@ -107,7 +107,7 @@ fixup_dyn_impl_keys :: (fn(ctx : *(CodegenContext)) -> unit)({
         new_entries.get(i),
         .None => (),
         .Some(e) => {
-          _ := ctx.*.dyn_impls.set(k, e);
+          _ := ctx.dyn_impls.set(k, e);
         }
       )
     );

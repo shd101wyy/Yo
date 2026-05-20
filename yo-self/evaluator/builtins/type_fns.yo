@@ -103,7 +103,7 @@ evaluate_yo_type_to_string :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -187,7 +187,7 @@ evaluate_yo_are_types_compatible :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -301,7 +301,7 @@ evaluate_yo_are_types_equal :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -390,7 +390,7 @@ evaluate_yo_type_contains_rc_type :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -452,7 +452,7 @@ evaluate_yo_type_can_form_rc_cycle :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -514,7 +514,7 @@ evaluate_yo_type_impls :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -684,9 +684,9 @@ format_variant_info_call :: (
 /// Mutates env in place via pointer; returns the generated variable name.
 _ti_bind_type :: (
   fn(
-    inout(env_ptr) : Environment,
+    env_ptr : Environment,
     ty : TypeValue,
-    _ctx : *(EvalContext)
+    _ctx : EvalContext
   ) -> String
 )({
   name_str := `__ti_t_${random_id(env_ptr.module_path)}`;
@@ -707,9 +707,9 @@ _ti_bind_type :: (
 /// Updates env pointed to by env_ptr; returns the resulting EvalValue if any.
 _ti_eval_code :: (
   fn(
-    inout(env_ptr) : Environment,
+    env_ptr : Environment,
     code : String,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> Option(EvalValue)
 )({
@@ -731,11 +731,11 @@ _ti_eval_code :: (
 /// obtain the element type.  Binds the list to a fresh temp var and returns its name.
 _ti_bind_comptime_list :: (
   fn(
-    inout(env_ptr) : Environment,
+    env_ptr : Environment,
     values : ArrayList(EvalValue),
     type_name : String,
     var_prefix : String,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> String
 )({
@@ -778,10 +778,10 @@ _ti_bind_comptime_list :: (
 /// Evaluates `TypeFieldInfo("label", ty_var)` in the env via code string.
 _ti_build_type_field_info :: (
   fn(
-    inout(env_ptr) : Environment,
+    env_ptr : Environment,
     label : String,
     field_ty : TypeValue,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> EvalValue
 )({
@@ -798,10 +798,10 @@ _ti_build_type_field_info :: (
 /// Returns the name of the temp var holding the list.
 _ti_bind_type_field_list :: (
   fn(
-    inout(env_ptr) : Environment,
+    env_ptr : Environment,
     labels : ArrayList(String),
     types : ArrayList(TypeValue),
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> String
 )({
@@ -821,13 +821,13 @@ _ti_bind_type_field_list :: (
 /// Evaluates `VariantInfo("name", fl_var, et_var, usize(idx))` via code string.
 _ti_build_variant_info :: (
   fn(
-    inout(env_ptr) : Environment,
+    env_ptr : Environment,
     v_name : String,
     v_field_labels : ArrayList(String),
     v_field_types : ArrayList(TypeValue),
     enum_ty : TypeValue,
     v_idx : usize,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> EvalValue
 )({
@@ -846,12 +846,12 @@ _ti_build_variant_info :: (
 /// Returns the name of the temp var holding the list.
 _ti_bind_variant_info_list :: (
   fn(
-    inout(env_ptr) : Environment,
+    env_ptr : Environment,
     enum_ty : TypeValue,
     variant_names : ArrayList(String),
     variant_fields : ArrayList(ArrayList(TypeValue)),
     variant_field_labels : ArrayList(ArrayList(String)),
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> String
 )({
@@ -877,7 +877,7 @@ evaluate_yo_type_get_info :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -1077,7 +1077,7 @@ evaluate_comptime_eval :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -1175,7 +1175,7 @@ evaluate_comptime_string_to_expr :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -1266,7 +1266,7 @@ evaluate_type_join_fields :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({
@@ -1577,7 +1577,7 @@ evaluate_type_map_variants :: (
   fn(
     expr : AstExpr,
     env : Environment,
-    ctx : *(EvalContext),
+    ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
 )({

@@ -113,7 +113,7 @@ expr_is_assignment :: (fn(expr : AstExpr) -> bool)(
 );
 
 append_step_assignment :: (
-  fn(out : *(String), first : *(bool), assignment_expr : AstExpr, ctx : *(CodegenContext)) -> unit
+  fn(out : *(String), first : *(bool), assignment_expr : AstExpr, ctx : CodegenContext) -> unit
 )({
   match(
     assignment_expr,
@@ -144,7 +144,7 @@ append_step_assignment :: (
   );
 });
 
-generate_step_expression :: (fn(step_expr : AstExpr, ctx : *(CodegenContext)) -> String)(
+generate_step_expression :: (fn(step_expr : AstExpr, ctx : CodegenContext) -> String)(
   cond(
     expr_is_function_call_of(step_expr, BK_BEGIN, match(step_expr,.Atom(_, _) => usize(0),.FnCall(_, _, args, _, _) => args.len())) => {
       assignments := String.new();
@@ -184,9 +184,9 @@ generate_step_expression :: (fn(step_expr : AstExpr, ctx : *(CodegenContext)) ->
   )
 );
 
-emit_loop_body_deferred_drops :: (fn(body_expr : AstExpr, indent : String, ctx : *(CodegenContext)) -> unit)({
+emit_loop_body_deferred_drops :: (fn(body_expr : AstExpr, indent : String, ctx : CodegenContext) -> unit)({
   match(
-    ctx.*.get_expr_info(ast_expr_id(body_expr)),
+    ctx.get_expr_info(ast_expr_id(body_expr)),
     .None => (),
     .Some(info) => match(
       info.deferred_drop_expressions,
@@ -201,7 +201,7 @@ emit_loop_body_deferred_drops :: (fn(body_expr : AstExpr, indent : String, ctx :
               call_gen_expr(drop_expr, ctx, indent),
               .None => (),
               .Some(drop_code) => if(drop_code.len() > usize(0), {
-                ctx.*.emitter.emit_string_line(format_indented_stmt(indent, drop_code));
+                ctx.emitter.emit_string_line(format_indented_stmt(indent, drop_code));
               })
             )
           );
@@ -212,7 +212,7 @@ emit_loop_body_deferred_drops :: (fn(body_expr : AstExpr, indent : String, ctx :
   );
 });
 
-generate_loop_body :: (fn(body_expr : AstExpr, indent : String, ctx : *(CodegenContext)) -> unit)({
+generate_loop_body :: (fn(body_expr : AstExpr, indent : String, ctx : CodegenContext) -> unit)({
   if(expr_is_function_call_of(body_expr, BK_BEGIN, match(body_expr,.Atom(_, _) => usize(0),.FnCall(_, _, args, _, _) => args.len())), {
     match(
       body_expr,
@@ -227,7 +227,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, ctx : *(CodegenC
               call_gen_expr(arg, ctx, indent),
               .None => (),
               .Some(arg_code) => if(arg_code.len() > usize(0), {
-                ctx.*.emitter.emit_string_line(format_indented_stmt(indent, arg_code));
+                ctx.emitter.emit_string_line(format_indented_stmt(indent, arg_code));
               })
             )
           );
@@ -241,7 +241,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, ctx : *(CodegenC
       call_gen_expr(body_expr, ctx, indent),
       .None => (),
       .Some(body_code) => if(body_code.len() > usize(0), {
-        ctx.*.emitter.emit_string_line(format_indented_stmt(indent, body_code));
+        ctx.emitter.emit_string_line(format_indented_stmt(indent, body_code));
       })
     );
   });
@@ -269,10 +269,10 @@ fresh_loop_label :: (fn(prefix : str) -> String)({
 });
 
 generate_comptime_unrolled_bodies :: (
-  fn(call_expr : AstExpr, indent : String, ctx : *(CodegenContext)) -> bool
+  fn(call_expr : AstExpr, indent : String, ctx : CodegenContext) -> bool
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    ctx.get_expr_info(ast_expr_id(call_expr)),
     .None => false,
     .Some(info) => match(
       info.comptime_unrolled_bodies,
@@ -294,7 +294,7 @@ generate_comptime_unrolled_bodies :: (
 );
 
 generate_while_loop :: (
-  fn(call_expr : AstExpr, args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(call_expr : AstExpr, args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> Option(String)
 )({
   if(generate_comptime_unrolled_bodies(call_expr, indent, ctx), {
     return(Option(String).Some(String.new()));
@@ -308,22 +308,22 @@ generate_while_loop :: (
         .None => Option(String).Some(String.new()),
         .Some(body_expr) => {
           condition_expr := strip_comptime_condition(raw_condition_expr);
-          saved_loop_label := ctx.*.current_loop_label;
+          saved_loop_label := ctx.current_loop_label;
           loop_label := fresh_loop_label("loop_");
-          ctx.*.current_loop_label = loop_label;
-          ctx.*.emitter.emit_string_line(format_while_true_open(indent));
+          ctx.current_loop_label = loop_label;
+          ctx.emitter.emit_string_line(format_while_true_open(indent));
           condition_code := match(
             call_gen_expr(condition_expr, ctx, indent_plus_two(indent)),
             .None => String.from("0"),
             .Some(code) => code
           );
-          ctx.*.emitter.emit_string_line(format_while_if_negate(indent, condition_code));
-          ctx.*.emitter.emit_string_line(format_while_break_line(indent));
-          ctx.*.emitter.emit_string_line(format_while_break_close(indent));
+          ctx.emitter.emit_string_line(format_while_if_negate(indent, condition_code));
+          ctx.emitter.emit_string_line(format_while_break_line(indent));
+          ctx.emitter.emit_string_line(format_while_break_close(indent));
           generate_loop_body(body_expr, indent_plus_two(indent), ctx);
-          ctx.*.emitter.emit_string_line(format_while_close(indent));
-          ctx.*.emitter.emit_string_line(format_while_label_line(indent, loop_label));
-          ctx.*.current_loop_label = saved_loop_label;
+          ctx.emitter.emit_string_line(format_while_close(indent));
+          ctx.emitter.emit_string_line(format_while_label_line(indent, loop_label));
+          ctx.current_loop_label = saved_loop_label;
           Option(String).Some(String.new())
         }
       )
@@ -339,29 +339,29 @@ generate_while_loop :: (
           .None => Option(String).Some(String.new()),
           .Some(body_expr) => {
             condition_expr := strip_comptime_condition(raw_condition_expr3);
-            saved_loop_label := ctx.*.current_loop_label;
-            saved_continue_label := ctx.*.current_continue_label;
+            saved_loop_label := ctx.current_loop_label;
+            saved_continue_label := ctx.current_continue_label;
             loop_label := fresh_loop_label("loop_");
             continue_label := fresh_loop_label("continue_");
-            ctx.*.current_loop_label = loop_label;
-            ctx.*.current_continue_label = continue_label;
-            ctx.*.emitter.emit_string_line(format_while_true_open(indent));
+            ctx.current_loop_label = loop_label;
+            ctx.current_continue_label = continue_label;
+            ctx.emitter.emit_string_line(format_while_true_open(indent));
             condition_code := match(
               call_gen_expr(condition_expr, ctx, indent_plus_two(indent)),
               .None => String.from("0"),
               .Some(code) => code
             );
-            ctx.*.emitter.emit_string_line(format_while_if_negate(indent, condition_code));
-            ctx.*.emitter.emit_string_line(format_while_break_line(indent));
-            ctx.*.emitter.emit_string_line(format_while_break_close(indent));
+            ctx.emitter.emit_string_line(format_while_if_negate(indent, condition_code));
+            ctx.emitter.emit_string_line(format_while_break_line(indent));
+            ctx.emitter.emit_string_line(format_while_break_close(indent));
             generate_loop_body(body_expr, indent_plus_two(indent), ctx);
-            ctx.*.emitter.emit_string_line(format_while_label_line(indent, continue_label));
+            ctx.emitter.emit_string_line(format_while_label_line(indent, continue_label));
             step_code := generate_step_expression(step_expr, ctx);
-            ctx.*.emitter.emit_string_line(format_while_step_line(indent, step_code));
-            ctx.*.emitter.emit_string_line(format_while_close(indent));
-            ctx.*.emitter.emit_string_line(format_while_label_line(indent, loop_label));
-            ctx.*.current_loop_label = saved_loop_label;
-            ctx.*.current_continue_label = saved_continue_label;
+            ctx.emitter.emit_string_line(format_while_step_line(indent, step_code));
+            ctx.emitter.emit_string_line(format_while_close(indent));
+            ctx.emitter.emit_string_line(format_while_label_line(indent, loop_label));
+            ctx.current_loop_label = saved_loop_label;
+            ctx.current_continue_label = saved_continue_label;
             Option(String).Some(String.new())
           }
         )
@@ -371,7 +371,7 @@ generate_while_loop :: (
       err_msg := String.from("/* Error: while loop expects 2 or 3 arguments, got ");
       err_msg.push_string(args.len().to_string());
       err_msg.push_str(" */");
-      ctx.*.emitter.emit_string_line(format_indented_line(indent, err_msg.as_str()));
+      ctx.emitter.emit_string_line(format_indented_line(indent, err_msg.as_str()));
       Option(String).Some(String.new())
     }
   )

@@ -68,10 +68,10 @@ format_tuple_temp_init :: (
 /// dup expression's temp variable as the final field value, matching the TS
 /// handler's `generateDeferredDupExpressions(...); return dupExpr.$.variableName`.
 tuple_apply_deferred_dup :: (
-  fn(arg : AstExpr, arg_code : String, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(arg : AstExpr, arg_code : String, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(arg)),
+    ctx.get_expr_info(ast_expr_id(arg)),
     .None => Option(String).Some(arg_code),
     .Some(info) => match(
       info.deferred_dup_expressions,
@@ -92,7 +92,7 @@ tuple_apply_deferred_dup :: (
                 .None => {
                   ok = false;
                 },
-                .Some(dup_code) => ctx.*.emitter.emit_string_line(
+                .Some(dup_code) => ctx.emitter.emit_string_line(
                   format_tuple_indented_stmt(indent, dup_code)
                 )
               )
@@ -106,7 +106,7 @@ tuple_apply_deferred_dup :: (
               .None => Option(String).Some(arg_code),
               .Some(first_dup) => cond(
                 ast_expr_is_fn_call(first_dup) => match(
-                  ctx.*.get_expr_info(ast_expr_id(first_dup)),
+                  ctx.get_expr_info(ast_expr_id(first_dup)),
                   .None => Option(String).Some(arg_code),
                   .Some(dup_info) => match(
                     dup_info.variable_name,
@@ -125,7 +125,7 @@ tuple_apply_deferred_dup :: (
 );
 
 tuple_args_to_c_with_deferred_dup :: (
-  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> Option(String)
 )({
   out := String.new();
   (i : usize) = usize(0);
@@ -161,7 +161,7 @@ tuple_args_to_c_with_deferred_dup :: (
 });
 
 tuple_args_to_c :: (
-  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> Option(String)
 )({
   out := String.new();
   (i : usize) = usize(0);
@@ -196,7 +196,7 @@ tuple_value_or_temp :: (
     c_name : String,
     args_list : String,
     temp_var : Option(String),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -210,7 +210,7 @@ tuple_value_or_temp :: (
         get_variable_type_string_opt_str(tuple_ty, tv.as_str(), ctx),
         .None => Option(String).Some(tuple_value),
         .Some(var_type_and_name) => {
-          ctx.*.emitter.emit_string_line(
+          ctx.emitter.emit_string_line(
             format_tuple_temp_init(indent, var_type_and_name, tuple_value)
           );
           Option(String).Some(sanitize_for_c_identifier(tv))
@@ -228,12 +228,12 @@ generate_anonymous_tuple :: (
   fn(
     call_expr : AstExpr,
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    ctx.get_expr_info(ast_expr_id(call_expr)),
     .None => cond(
       (args.len() == usize(0)) => Option(String).Some(String.from("")),
       true => Option(String).None
@@ -293,7 +293,7 @@ generate_anonymous_tuple :: (
 handle_tuple_literal :: (
   fn(
     args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({

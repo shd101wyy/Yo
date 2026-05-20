@@ -84,7 +84,7 @@ test("generate_typeid: returns None when no metadata is available", {
   args.push(mk_atom(usize(11), "i32", TokenKind.Identifier));
   // No expr_info_table installed → ctx.get_expr_info returns None →
   // generate_typeid returns None.
-  result := generate_typeid(args, &(ctx));
+  result := generate_typeid(args, ctx);
   assert(result.is_none(), "no metadata → None");
 });
 test("generate_typeid: emits declaration and returns address expression", {
@@ -98,7 +98,7 @@ test("generate_typeid: emits declaration and returns address expression", {
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(11), "i32", TokenKind.Identifier));
-  result := generate_typeid(args, &(ctx));
+  result := generate_typeid(args, ctx);
   match(
     result,
     .None => assert(false, "expected Some when metadata present"),
@@ -129,10 +129,10 @@ test("generate_typeid: deduplicates declaration on repeated calls", {
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   args1 := ArrayList(AstExpr).new();
   args1.push(mk_atom(usize(21), "i32", TokenKind.Identifier));
-  _ := generate_typeid(args1, &(ctx));
+  _ := generate_typeid(args1, ctx);
   args2 := ArrayList(AstExpr).new();
   args2.push(mk_atom(usize(22), "i32", TokenKind.Identifier));
-  _ := generate_typeid(args2, &(ctx));
+  _ := generate_typeid(args2, ctx);
   // The declaration appears exactly once.
   decls := ctx.emitter.declarations;
   // Count occurrences of the static declaration line.
@@ -166,7 +166,7 @@ test("generate_typeid: adds <stdint.h> to ctx.c_includes", {
   // includes don't flow through this set).
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(31), "i32", TokenKind.Identifier));
-  _ := generate_typeid(args, &(ctx));
+  _ := generate_typeid(args, ctx);
   // After: <stdint.h> is in the set because typeid expressions emit
   // `(uintptr_t)&...`, which needs the stdint header. Mirrors
   // `context.cIncludes.add("<stdint.h>")` in TS generateTypeid.

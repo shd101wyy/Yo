@@ -204,14 +204,14 @@ make_typed_decl_expr :: (fn(name : str, ty_name : str, val_e : AstExpr) -> AstEx
 /// Convenience: run generate_expr with a fresh context and empty indent.
 run_gen :: (fn(expr : AstExpr) -> Option(String))({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   generate_expr(expr, pctx, ind)
 });
 /// Convenience: run generate_expr and also return the emitted code.
 run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   _r := generate_expr(expr, pctx, ind);
   ctx
@@ -1038,7 +1038,7 @@ test("handle_define: x := 42 emits __auto_type x = 42;", {
   rhs := make_atom_expr(TokenKind.Integer, "42");
   expr := make_walrus_expr("x", rhs);
   ctx := run_gen_with_ctx(expr);
-  code := generate_c_output(&(ctx));
+  code := generate_c_output(ctx);
   assert(code.contains(String.from("__auto_type x = 42;")), "define emits __auto_type");
 });
 test("handle_define: returns unit sentinel 0 so no spurious value emitted", {
@@ -1089,7 +1089,7 @@ test("handle_assert: assert(cond, msg) emits if (!cond) { exit(1); }", {
   cond_e := make_atom_expr(TokenKind.Identifier, "ok");
   expr := make_assert_expr(cond_e, "\"check\"");
   ctx := run_gen_with_ctx(expr);
-  code := generate_c_output(&(ctx));
+  code := generate_c_output(ctx);
   assert(code.contains(String.from("if (!(ok))")), "if guard");
   assert(code.contains(String.from("exit(1)")), "exit(1) on failure");
 });
@@ -1214,9 +1214,9 @@ test("emit_struct_to_c: single field emits typedef struct", {
     .None => assert(false, "extract failed"),
     .Some(sd) => {
       ctx := CodegenContext.new();
-      (pctx : *(CodegenContext)) = &(ctx);
+      (pctx : CodegenContext) = ctx;
       emit_struct_to_c(sd, pctx);
-      c := generate_c_output(&(ctx));
+      c := generate_c_output(ctx);
       assert(c.contains(String.from("typedef struct")), "typedef struct keyword");
       assert(c.contains(String.from("int32_t value")), "field emitted");
       assert(c.contains(String.from("} Counter;")), "struct name in typedef");

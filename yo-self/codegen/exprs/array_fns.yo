@@ -56,10 +56,10 @@ format_array_temp_init :: (
   format_typed_init_line(indent, type_and_name, value_code)
 );
 array_apply_deferred_dup :: (
-  fn(arg : AstExpr, arg_code : String, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(arg : AstExpr, arg_code : String, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(arg)),
+    ctx.get_expr_info(ast_expr_id(arg)),
     .None => Option(String).Some(arg_code),
     .Some(info) => match(
       info.deferred_dup_expressions,
@@ -80,7 +80,7 @@ array_apply_deferred_dup :: (
                 .None => {
                   ok = false;
                 },
-                .Some(dup_code) => ctx.*.emitter.emit_string_line(
+                .Some(dup_code) => ctx.emitter.emit_string_line(
                   format_array_indented_stmt(indent, dup_code)
                 )
               )
@@ -93,7 +93,7 @@ array_apply_deferred_dup :: (
               dups.get(usize(0)),
               .None => Option(String).Some(arg_code),
               .Some(first_dup) => match(
-                ctx.*.get_expr_info(ast_expr_id(first_dup)),
+                ctx.get_expr_info(ast_expr_id(first_dup)),
                 .None => Option(String).Some(arg_code),
                 .Some(dup_info) => match(
                   dup_info.variable_name,
@@ -110,7 +110,7 @@ array_apply_deferred_dup :: (
 );
 
 array_args_to_c_with_deferred_dup :: (
-  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> Option(String)
 )({
   out := String.new();
   (i : usize) = usize(0);
@@ -151,7 +151,7 @@ array_value_or_temp :: (
     array_type_name : String,
     args_list : String,
     temp_var : Option(String),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )({
@@ -163,7 +163,7 @@ array_value_or_temp :: (
       get_variable_type_string_opt_str(array_ty, tv.as_str(), ctx),
       .None => Option(String).Some(array_value),
       .Some(var_type_and_name) => {
-        ctx.*.emitter.emit_string_line(
+        ctx.emitter.emit_string_line(
           format_array_temp_init(indent, var_type_and_name, array_value)
         );
         Option(String).Some(sanitize_for_c_identifier(tv))
@@ -176,12 +176,12 @@ generate_anonymous_array :: (
   fn(
     call_expr : AstExpr,
     _args : ArrayList(AstExpr),
-    ctx : *(CodegenContext),
+    ctx : CodegenContext,
     indent : String
   ) -> Option(String)
 )(
   match(
-    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    ctx.get_expr_info(ast_expr_id(call_expr)),
     .None => Option(String).None,
     .Some(info) => cond(
       (!(is_array_type(info.ty))) => Option(String).None,
@@ -209,9 +209,9 @@ generate_anonymous_array :: (
   )
 );
 
-extract_array_type_value :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(TypeValue))(
+extract_array_type_value :: (fn(expr : AstExpr, ctx : CodegenContext) -> Option(TypeValue))(
   match(
-    ctx.*.get_expr_info(ast_expr_id(expr)),
+    ctx.get_expr_info(ast_expr_id(expr)),
     .None => Option(TypeValue).None,
     .Some(info) => match(
       info.value,
@@ -228,9 +228,9 @@ extract_array_type_value :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Opti
   )
 );
 
-array_fill_temp_var_name :: (fn(call_expr : AstExpr, ctx : *(CodegenContext)) -> String)(
+array_fill_temp_var_name :: (fn(call_expr : AstExpr, ctx : CodegenContext) -> String)(
   match(
-    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    ctx.get_expr_info(ast_expr_id(call_expr)),
     .Some(info) => match(
       info.variable_name,
       .Some(vn) => sanitize_for_c_identifier(vn),
@@ -240,16 +240,16 @@ array_fill_temp_var_name :: (fn(call_expr : AstExpr, ctx : *(CodegenContext)) ->
   )
 );
 
-array_fill_index_var_name :: (fn(call_expr : AstExpr, ctx : *(CodegenContext)) -> String)(
+array_fill_index_var_name :: (fn(call_expr : AstExpr, ctx : CodegenContext) -> String)(
   match(
-    ctx.*.get_expr_info(ast_expr_id(call_expr)),
+    ctx.get_expr_info(ast_expr_id(call_expr)),
     .Some(info) => (String.from("i_") + random_id(info.env.module_path)),
     .None => (String.from("i_") + random_id(String.from("")))
   )
 );
 
 generate_yo_array_fill :: (
-  fn(call_expr : AstExpr, args : ArrayList(AstExpr), ctx : *(CodegenContext), indent : String) -> String
+  fn(call_expr : AstExpr, args : ArrayList(AstExpr), ctx : CodegenContext, indent : String) -> String
 )(
   cond(
     (args.len() < usize(2)) => String.from("/* ERROR: __yo_array_fill requires 2 arguments */"),
@@ -277,7 +277,7 @@ generate_yo_array_fill :: (
                 line_decl.push_str(" ");
                 line_decl.push_string(temp_var_name);
                 line_decl.push_str(";");
-                ctx.*.emitter.emit_string_line(line_decl);
+                ctx.emitter.emit_string_line(line_decl);
                 line_for := String.from(indent.as_str());
                 line_for.push_str("for (int ");
                 line_for.push_string(index_var_name);
@@ -288,7 +288,7 @@ generate_yo_array_fill :: (
                 line_for.push_str("; ");
                 line_for.push_string(index_var_name);
                 line_for.push_str("++) {");
-                ctx.*.emitter.emit_string_line(line_for);
+                ctx.emitter.emit_string_line(line_for);
                 line_assign := String.from(indent.as_str());
                 line_assign.push_str("  ");
                 line_assign.push_string(temp_var_name);
@@ -297,10 +297,10 @@ generate_yo_array_fill :: (
                 line_assign.push_str("] = ");
                 line_assign.push_string(fill_value_code);
                 line_assign.push_str(";");
-                ctx.*.emitter.emit_string_line(line_assign);
+                ctx.emitter.emit_string_line(line_assign);
                 line_close := String.from(indent.as_str());
                 line_close.push_str("}");
-                ctx.*.emitter.emit_string_line(line_close);
+                ctx.emitter.emit_string_line(line_close);
                 temp_var_name
               }
             )

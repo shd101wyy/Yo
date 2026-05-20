@@ -204,14 +204,14 @@ make_typed_decl_expr :: (fn(name : str, ty_name : str, val_e : AstExpr) -> AstEx
 /// Convenience: run generate_expr with a fresh context and empty indent.
 run_gen :: (fn(expr : AstExpr) -> Option(String))({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   generate_expr(expr, pctx, ind)
 });
 /// Convenience: run generate_expr and also return the emitted code.
 run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   _r := generate_expr(expr, pctx, ind);
   ctx
@@ -260,42 +260,42 @@ make_using_param :: (fn(ev_name : str, ty_name : str) -> AstExpr)({
 // ---------------------------------------------------------------------------
 test("emit_match_temp_decl: emits type and varname", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_match_temp_decl("int32_t", "_yo_temp_1", pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("int32_t _yo_temp_1;")), "temp decl");
 });
 test("emit_switch_open: simple enum (no tag field)", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_switch_open("c", false, pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("switch (c) {")), "simple switch");
 });
 test("emit_switch_open: data enum (with tag field)", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_switch_open("shape", true, pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("switch ((shape).tag) {")), "data switch");
 });
 test("emit_case_open: named case", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_case_open("__YO_ENUM_MOD_ID_2_RED", pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("case __YO_ENUM_MOD_ID_2_RED: {")), "named case");
 });
 test("emit_case_open: wildcard emits default", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_case_open("", pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("default: {")), "default case");
 });
 test("emit_case_body: emits assignment, break, close brace", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_case_body("_yo_temp_1", "42", pctx);
   out := ctx.emitter.print();
   assert(out.contains(String.from("_yo_temp_1 = 42;")), "assignment");
@@ -304,7 +304,7 @@ test("emit_case_body: emits assignment, break, close brace", {
 });
 test("generate_match_simple: switch on unit enum", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   arms := ArrayList(SimpleArm).new();
   arm_red := SimpleArm(
     tag_const : String.from("__YO_ENUM_MOD_ID_2_RED"),
@@ -334,7 +334,7 @@ test("generate_match_simple: switch on unit enum", {
 });
 test("generate_match_data: switch on data enum with field bindings", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   // .Circle(r) arm with one binding
   circle_bindings := ArrayList(DataBinding).new();
   circle_b := DataBinding(
@@ -382,7 +382,7 @@ test("generate_match_data: switch on data enum with field bindings", {
 });
 test("generate_match_simple: wildcard arm emits default case", {
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   arms := ArrayList(SimpleArm).new();
   arm_a := SimpleArm(
     tag_const : String.from("__YO_ENUM_ID_TAG_A"),

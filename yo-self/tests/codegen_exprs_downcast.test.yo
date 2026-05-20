@@ -67,10 +67,10 @@ mk_option :: (fn(payload : TypeValue) -> TypeValue)({
   )
 });
 install_type :: (
-  fn(ctx : *(CodegenContext), ty : TypeValue, c_name : str) -> unit
+  fn(ctx : CodegenContext, ty : TypeValue, c_name : str) -> unit
 )({
   entry := CodegenTypeEntry(type_value : ty, c_name : String.from(c_name));
-  _ := ctx.*.types.set(type_to_string(ty), entry);
+  _ := ctx.types.set(type_to_string(ty), entry);
 });
 test("downcast: non-Dyn source returns None", {
   ctx := CodegenContext.new();
@@ -82,7 +82,7 @@ test("downcast: non-Dyn source returns None", {
     // not Dyn
     obj,
     opt,
-    &(ctx)
+    ctx
   );
   assert(out.is_none(), "i32 is not Dyn → None");
 });
@@ -94,24 +94,24 @@ test("downcast: non-object target returns None", {
     t_i32(),
     // not an object
     mk_option(t_i32()),
-    &(ctx)
+    ctx
   );
   assert(out.is_none(), "i32 target → None");
 });
 test("downcast: nullable-pointer Option(*T) emits ternary with NULL", {
   ctx := CodegenContext.new();
   obj := mk_struct("Counter", true, false);
-  install_type(&(ctx), obj, "yo_counter");
+  install_type(ctx, obj, "yo_counter");
   // The TS canonical canOptimizeAsNullablePointer wants `Some(*T)`,
   // so the Some payload is a pointer.
   opt_ptr := mk_option(t_ptr(t_i32()));
-  install_type(&(ctx), opt_ptr, "yo_option_ptr");
+  install_type(ctx, opt_ptr, "yo_option_ptr");
   out := generate_downcast_for_resolved_types(
     String.from("d"),
     mk_dyn(),
     obj,
     opt_ptr,
-    &(ctx)
+    ctx
   );
   match(
     out,
@@ -125,16 +125,16 @@ test("downcast: nullable-pointer Option(*T) emits ternary with NULL", {
 test("downcast: non-nullable Option(T) emits tagged-union construction", {
   ctx := CodegenContext.new();
   obj := mk_struct("Counter", true, false);
-  install_type(&(ctx), obj, "yo_counter");
+  install_type(ctx, obj, "yo_counter");
   // Option(i32) — payload is a value type, so no nullable opt.
   opt_val := mk_option(t_i32());
-  install_type(&(ctx), opt_val, "yo_option_i32");
+  install_type(ctx, opt_val, "yo_option_i32");
   out := generate_downcast_for_resolved_types(
     String.from("d"),
     mk_dyn(),
     obj,
     opt_val,
-    &(ctx)
+    ctx
   );
   match(
     out,
@@ -151,9 +151,9 @@ test("downcast: non-nullable Option(T) emits tagged-union construction", {
 test("downcast: typeid static is registered on the codegen context", {
   ctx := CodegenContext.new();
   obj := mk_struct("Counter", true, false);
-  install_type(&(ctx), obj, "yo_counter");
+  install_type(ctx, obj, "yo_counter");
   opt := mk_option(t_ptr(t_i32()));
-  install_type(&(ctx), opt, "yo_option_ptr");
+  install_type(ctx, opt, "yo_option_ptr");
   // First call must register the static; second call must reuse it
   // (typeid_statics is keyed by type_to_string).
   _ := generate_downcast_for_resolved_types(
@@ -161,7 +161,7 @@ test("downcast: typeid static is registered on the codegen context", {
     mk_dyn(),
     obj,
     opt,
-    &(ctx)
+    ctx
   );
   // Verify a typeid entry was registered for Counter.
   key := type_to_string(obj);
@@ -176,7 +176,7 @@ test("downcast: typeid static is registered on the codegen context", {
 test("downcast: missing Some/None variant tags return None", {
   ctx := CodegenContext.new();
   obj := mk_struct("Counter", true, false);
-  install_type(&(ctx), obj, "yo_counter");
+  install_type(ctx, obj, "yo_counter");
   // Construct an enum *without* registering it — get_enum_variant_c_name
   // will return .None, propagating to the result.
   opt_val := mk_option(t_i32());
@@ -186,7 +186,7 @@ test("downcast: missing Some/None variant tags return None", {
     mk_dyn(),
     obj,
     opt_val,
-    &(ctx)
+    ctx
   );
   assert(out.is_none(), "unregistered option enum → None");
 });

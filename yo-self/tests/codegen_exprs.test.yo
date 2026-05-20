@@ -204,14 +204,14 @@ make_typed_decl_expr :: (fn(name : str, ty_name : str, val_e : AstExpr) -> AstEx
 /// Convenience: run generate_expr with a fresh context and empty indent.
 run_gen :: (fn(expr : AstExpr) -> Option(String))({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   generate_expr(expr, pctx, ind)
 });
 /// Convenience: run generate_expr and also return the emitted code.
 run_gen_with_ctx :: (fn(expr : AstExpr) -> CodegenContext)({
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   _r := generate_expr(expr, pctx, ind);
   ctx
@@ -727,7 +727,7 @@ test("generate_function: void function with no params", {
   param_tys := ArrayList(String).new();
   body := make_atom_expr(TokenKind.Integer, "0");
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   generate_function("hello", "void", params, param_tys, body, pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static void hello()")), "expected function signature");
@@ -748,7 +748,7 @@ test("generate_function: int function with params", {
     make_atom_expr(TokenKind.Identifier, "b")
   );
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   generate_function("add", "int32_t", params, param_tys, body, pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static int32_t add(int32_t a, int32_t b)")), "signature");
@@ -764,7 +764,7 @@ test("generate_function: function with begin block body", {
   params := ArrayList(String).new();
   param_tys := ArrayList(String).new();
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   generate_function("const_42", "int32_t", params, param_tys, body, pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static int32_t const_42()")), "signature");
@@ -778,7 +778,7 @@ test("emit_function_declaration: emits prototype in declarations", {
   param_tys.push(String.from("int32_t"));
   param_tys.push(String.from("int32_t"));
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   emit_function_declaration("add", "int32_t", params, param_tys, pctx);
   output := ctx.emitter.print();
   assert(output.contains(String.from("static int32_t add(int32_t a, int32_t b);")), "prototype");

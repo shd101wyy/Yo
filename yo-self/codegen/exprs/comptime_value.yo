@@ -120,7 +120,7 @@ format_tuple_construction :: (
 /// registry (enums, structs, tuples, arrays, pointers, function
 /// values, type values).
 generate_comptime_value :: (
-  fn(value : EvalValue, ctx : *(CodegenContext)) -> Option(String)
+  fn(value : EvalValue, ctx : CodegenContext) -> Option(String)
 )(
   match(
     value,
@@ -133,8 +133,8 @@ generate_comptime_value :: (
       )
     ),
     .StrLit(raw) => Option(String).Some(quote_as_c_string(raw)),
-    .FuncVal({ func_id }) => ctx.*.get_function_c_name(func_id),
-    .TypeVal(box_ty) => ctx.*.get_type_c_name(type_to_string(box_ty.*)),
+    .FuncVal({ func_id }) => ctx.get_function_c_name(func_id),
+    .TypeVal(box_ty) => ctx.get_type_c_name(type_to_string(box_ty.*)),
     _ => Option(String).None
   )
 );

@@ -332,6 +332,43 @@ This applies at any nesting depth: whenever you write `!expr && rhs`, add an ext
 
 **Special note for `object` types**: passing by value already propagates mutations (RC fields are shared), so `*(MyObject)` pointers are rarely needed. Prefer passing by value and avoid `&obj` in most cases.
 
+## Parameter form by type kind
+
+The right shape for a function parameter depends on what kind of type the value is:
+
+| Type kind                                                     | Shape                                                     | Why                                                                                                                   |
+| ------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `object(...)`                                                 | `name : Type`                                             | Object types have reference semantics — mutations propagate via the underlying RC value. No pointer needed.           |
+| `struct(...)` value type (read-only)                          | `name : Type`                                             | Pass by value. Cheap if small; consider `inout` for large structs.                                                    |
+| `struct(...)` value type (need mutation)                      | `inout(name) : Type`                                      | Caller's binding sees in-place writes. See [`inout` section](#inout--name--t-parameters-for-in-place-mutation) below. |
+| `enum(...)` (read-only)                                       | `name : Type`                                             | Same as struct.                                                                                                       |
+| `enum(...)` (need mutation)                                   | `inout(name) : Type`                                      | Same as struct.                                                                                                       |
+| Primitive (`i32`, `bool`, …)                                  | `name : Type` for read, `inout(name) : Type` for mutation | Same rule.                                                                                                            |
+| Receiver of mutating method on `object`                       | `self : Self`                                             | Object semantics — explicit `inout(self)` is unnecessary noise (though it works).                                     |
+| Receiver of mutating method on value type (trait or inherent) | `inout(self) : Self`                                      | Caller-side writes propagate. Established for `Hash`, `Clone`, `ToString`, `Iterator`.                                |
+| Raw FFI pointer (legitimate `*(T)`)                           | `name : *(T)`                                             | Only when interfacing with C / the runtime ABI. Requires `pragma(Pragma.AllowUnsafe);` at the file top.               |
+
+**Anti-patterns to avoid:**
+
+```rust
+// ✗ Pointer on an object type — wraps a reference in another reference
+foo : (fn(ctx : *(EvalContext)) -> unit)({ ctx.*.method() })
+
+// ✗ Inout on an object type — redundant; object semantics already share state
+foo : (fn(inout(ctx) : EvalContext) -> unit)({ ctx.method() })
+
+// ✓ Plain — concise and correct
+foo : (fn(ctx : EvalContext) -> unit)({ ctx.method() })
+```
+
+The same applies at call sites: don't wrap object arguments with `&(obj)` to pass to a function expecting an object; just pass `obj`.
+
+When choosing between `inout(self) : Self` and `self : Self` for a method receiver:
+
+- If the receiver type is fundamentally a value type (anything other than `object`), use `inout(self) : Self` for mutators.
+- If the receiver type is `object`, plain `self : Self` is the idiom — the methods documented in `yo-self/env.yo`, `yo-self/codegen/context.yo`, etc. follow this.
+- Trait declarations should match the dominant case of their impl targets. Existing widely-implemented traits (`Hash`, `Clone`, `ToString`, `Iterator`, `Index`) use `inout(self) : Self` for the reasons above; new traits that are object-specific can use plain `self : Self`.
+
 ## Recursion requires `recur`
 
 Yo does **not** allow a function to call itself by name. Use the `recur` keyword instead:

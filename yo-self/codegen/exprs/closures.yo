@@ -137,10 +137,10 @@ check_variable_is_closure_captured :: (
 /// type does not implement `Fn`. Pure read against `ctx`'s
 /// ExprInfoTable; no codegen side-state is touched.
 is_closure_construction :: (
-  fn(expr_id : ExprId, ctx : *(CodegenContext)) -> bool
+  fn(expr_id : ExprId, ctx : CodegenContext) -> bool
 )(
   match(
-    ctx.*.get_expr_info(expr_id),
+    ctx.get_expr_info(expr_id),
     .None => false,
     .Some(info) => cond(
       info.closure_function_value.is_none() => false,

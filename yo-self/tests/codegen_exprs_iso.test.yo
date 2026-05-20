@@ -56,7 +56,7 @@ mk_call :: (fn(id : usize, name : str, args : ArrayList(AstExpr)) -> AstExpr)(
 );
 
 stub_generate_expr :: (
-  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     expr,
@@ -65,8 +65,8 @@ stub_generate_expr :: (
   )
 );
 
-install_type :: (fn(ctx : *(CodegenContext), ty : TypeValue, c_name : str) -> unit)({
-  ctx.*.types.set(
+install_type :: (fn(ctx : CodegenContext, ty : TypeValue, c_name : str) -> unit)({
+  ctx.types.set(
     type_to_string(ty),
     CodegenTypeEntry(type_value : ty, c_name : String.from(c_name))
   );
@@ -75,8 +75,8 @@ install_type :: (fn(ctx : *(CodegenContext), ty : TypeValue, c_name : str) -> un
 test("get_type_string: reads iso C name from context types", {
   ctx := CodegenContext.new();
   ty := t_iso(t_i32());
-  install_type(&(ctx), ty, "__yo_iso_i32");
-  assert(get_type_string(ty, &(ctx)) == String.from("__yo_iso_i32"), "iso c name");
+  install_type(ctx, ty, "__yo_iso_i32");
+  assert(get_type_string(ty, ctx) == String.from("__yo_iso_i32"), "iso c name");
 });
 
 test("iso_expr_value_type: extracts TypeVal from func metadata", {
@@ -90,7 +90,7 @@ test("iso_expr_value_type: extracts TypeVal from func metadata", {
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   expr := mk_atom(usize(10), "IsoI32", TokenKind.Identifier);
   match(
-    iso_expr_value_type(expr, &(ctx)),
+    iso_expr_value_type(expr, ctx),
     .None => assert(false, "expected type"),
     .Some(found) => assert(type_to_string(found) == type_to_string(iso_ty), "type found")
   );
@@ -108,7 +108,7 @@ test("is_iso_type_call: detects Iso(T)(value)", {
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(21), "value", TokenKind.Identifier));
   call := AstExpr.FnCall(usize(22), box(mk_atom(usize(20), "IsoI32", TokenKind.Identifier)), args, false, mk_token("IsoI32", TokenKind.Identifier));
-  assert(is_iso_type_call(call, &(ctx)), "iso type call");
+  assert(is_iso_type_call(call, ctx), "iso type call");
 });
 
 test("generate_iso_type_call: registers iso type and emits create call", {
@@ -117,8 +117,8 @@ test("generate_iso_type_call: registers iso type and emits create call", {
   table := expr_info_table_new();
   env := Environment.new(String.from("test"));
   iso_ty := t_iso(t_i32());
-  install_type(&(ctx), iso_ty, "__yo_iso_i32");
-  install_type(&(ctx), t_i32(), "int32_t");
+  install_type(ctx, iso_ty, "__yo_iso_i32");
+  install_type(ctx, t_i32(), "int32_t");
   func_info := new_expr_info(env, TypeValue.TypeUni(usize(0)));
   func_info.value = Option(EvalValue).Some(create_type_value(iso_ty));
   expr_info_table_set(table, usize(30), func_info);
@@ -126,7 +126,7 @@ test("generate_iso_type_call: registers iso type and emits create call", {
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(31), "value", TokenKind.Identifier));
   call := AstExpr.FnCall(usize(32), box(mk_atom(usize(30), "IsoI32", TokenKind.Identifier)), args, false, mk_token("IsoI32", TokenKind.Identifier));
-  result := generate_iso_type_call(call, args, &(ctx), String.from(""));
+  result := generate_iso_type_call(call, args, ctx, String.from(""));
   match(
     result,
     .None => assert(false, "expected iso create"),
@@ -141,8 +141,8 @@ test("generate_yo_iso_extract: emits extract call", {
   table := expr_info_table_new();
   env := Environment.new(String.from("test"));
   iso_ty := t_iso(t_i32());
-  install_type(&(ctx), iso_ty, "__yo_iso_i32");
-  install_type(&(ctx), t_i32(), "int32_t");
+  install_type(ctx, iso_ty, "__yo_iso_i32");
+  install_type(ctx, t_i32(), "int32_t");
   self_info := new_expr_info(env, iso_ty);
   expr_info_table_set(table, usize(40), self_info);
   call_info := new_expr_info(env, t_i32());
@@ -151,7 +151,7 @@ test("generate_yo_iso_extract: emits extract call", {
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(40), "iso_value", TokenKind.Identifier));
   call := mk_call(usize(42), BF_YO_ISO_EXTRACT, args);
-  result := generate_yo_iso_extract(call, args, &(ctx), String.from(""));
+  result := generate_yo_iso_extract(call, args, ctx, String.from(""));
   assert(result == String.from("__yo_iso_extract___yo_iso_i32(iso_value)"), "extract call");
 });
 
@@ -161,8 +161,8 @@ test("generate_yo_iso_extract: variable_name emits temp declaration", {
   table := expr_info_table_new();
   env := Environment.new(String.from("test"));
   iso_ty := t_iso(t_i32());
-  install_type(&(ctx), iso_ty, "__yo_iso_i32");
-  install_type(&(ctx), t_i32(), "int32_t");
+  install_type(ctx, iso_ty, "__yo_iso_i32");
+  install_type(ctx, t_i32(), "int32_t");
   self_info := new_expr_info(env, iso_ty);
   expr_info_table_set(table, usize(50), self_info);
   call_info := new_expr_info(env, t_i32());
@@ -172,7 +172,7 @@ test("generate_yo_iso_extract: variable_name emits temp declaration", {
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(50), "iso_value", TokenKind.Identifier));
   call := mk_call(usize(52), BF_YO_ISO_EXTRACT, args);
-  result := generate_yo_iso_extract(call, args, &(ctx), String.from("  "));
+  result := generate_yo_iso_extract(call, args, ctx, String.from("  "));
   // `.` (byte 46) mangles to `_u46_` under the canonical
   // TS-equivalent `sanitize_for_c_identifier`, so the temp variable
   // name appears as `tmp_u46_extract` in the generated C — no
@@ -192,14 +192,14 @@ test("generate_yo_iso_dispose: emits dispose call", {
   table := expr_info_table_new();
   env := Environment.new(String.from("test"));
   iso_ty := t_iso(t_i32());
-  install_type(&(ctx), iso_ty, "__yo_iso_i32");
+  install_type(ctx, iso_ty, "__yo_iso_i32");
   self_info := new_expr_info(env, iso_ty);
   expr_info_table_set(table, usize(60), self_info);
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(60), "iso_value", TokenKind.Identifier));
   call := mk_call(usize(62), BF_YO_ISO_DISPOSE, args);
-  result := generate_yo_iso_dispose(call, args, &(ctx), String.from(""));
+  result := generate_yo_iso_dispose(call, args, ctx, String.from(""));
   assert(result == String.from("__yo_iso_dispose___yo_iso_i32(iso_value)"), "dispose call");
 });
 
@@ -214,7 +214,7 @@ test("generate_yo_iso_extract: rejects non-Iso self type", {
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(70), "not_iso", TokenKind.Identifier));
   call := mk_call(usize(72), BF_YO_ISO_EXTRACT, args);
-  result := generate_yo_iso_extract(call, args, &(ctx), String.from(""));
+  result := generate_yo_iso_extract(call, args, ctx, String.from(""));
   assert(result == String.from("// Error: __yo_iso_extract requires an Iso type"), "diagnostic");
 });
 // ─── pure formatters ────────────────────────────────────────────────────────

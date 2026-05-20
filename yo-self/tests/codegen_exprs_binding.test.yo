@@ -66,12 +66,12 @@ mk_struct_ty :: (fn(name : str) -> TypeValue)(
 );
 test("get_variable_type_string: primitive type", {
   ctx := CodegenContext.new();
-  out := get_variable_type_string_str(t_i32(), "x", &(ctx));
+  out := get_variable_type_string_str(t_i32(), "x", ctx);
   assert(out == String.from("int32_t x"), "i32 x");
 });
 test("get_variable_type_string: bool type", {
   ctx := CodegenContext.new();
-  out := get_variable_type_string_str(t_bool(), "flag", &(ctx));
+  out := get_variable_type_string_str(t_bool(), "flag", ctx);
   assert(out == String.from("bool flag"), "bool flag");
 });
 test("inner_atom_token_value: comptime(name) yields name", {
@@ -94,7 +94,7 @@ test("generate_binding: plain `x : i32` emits int32_t x;", {
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(110), "x", TokenKind.Identifier));
   args.push(mk_atom(usize(111), "i32", TokenKind.Identifier));
-  result := generate_binding(args, &(ctx), String.from("  "));
+  result := generate_binding(args, ctx, String.from("  "));
   match(
     result,
     .Some(s) => assert(s == String.from(""), "unit sentinel"),
@@ -114,7 +114,7 @@ test("generate_binding: `comptime(x) : T` emits nothing when metadata is present
   args := ArrayList(AstExpr).new();
   args.push(comptime_call);
   args.push(mk_atom(usize(122), "i32", TokenKind.Identifier));
-  result := generate_binding(args, &(ctx), String.from(""));
+  result := generate_binding(args, ctx, String.from(""));
   assert(result.is_some(), "returns unit");
   assert(ctx.emitter.code == String.new(), "no C code emitted");
 });
@@ -130,7 +130,7 @@ test("generate_binding: defers to bootstrap when no evaluator pass has run", {
   args := ArrayList(AstExpr).new();
   args.push(comptime_call);
   args.push(mk_atom(usize(172), "i32", TokenKind.Identifier));
-  result := generate_binding(args, &(ctx), String.from(""));
+  result := generate_binding(args, ctx, String.from(""));
   assert(result.is_none(), "no evaluator → defer to bootstrap");
 });
 test("generate_binding: `given(x) : NonStruct` emits nothing", {
@@ -147,7 +147,7 @@ test("generate_binding: `given(x) : NonStruct` emits nothing", {
   args := ArrayList(AstExpr).new();
   args.push(given_call);
   args.push(mk_atom(usize(132), "i32", TokenKind.Identifier));
-  result := generate_binding(args, &(ctx), String.from(""));
+  result := generate_binding(args, ctx, String.from(""));
   assert(result.is_some(), "returns unit");
   assert(!(ctx.emitter.code.contains(String.from("int32_t"))), "no C decl");
 });
@@ -168,7 +168,7 @@ test("generate_binding: `given(x) : Struct` emits `<Struct> x;`", {
   args := ArrayList(AstExpr).new();
   args.push(given_call);
   args.push(mk_atom(usize(142), "Counter", TokenKind.Identifier));
-  result := generate_binding(args, &(ctx), String.from("  "));
+  result := generate_binding(args, ctx, String.from("  "));
   assert(result.is_some(), "returns unit");
   code := ctx.emitter.code;
   // With the bootstrap fallback (int32_t), the line is `int32_t c;` —
@@ -181,7 +181,7 @@ test("generate_binding: returns None when LHS has no metadata", {
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(150), "x", TokenKind.Identifier));
   args.push(mk_atom(usize(151), "i32", TokenKind.Identifier));
-  result := generate_binding(args, &(ctx), String.from(""));
+  result := generate_binding(args, ctx, String.from(""));
   assert(result.is_none(), "no metadata → None");
 });
 test("format_variable_decl_line: appends ; to indented type-and-name", {

@@ -24,7 +24,7 @@ make_token :: (fn(kind : TokenKind, value : str) -> Token)(
 test("generate_sizeof: wraps generated argument expression", {
   set_generate_expr_fn(generate_expr);
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   args := ArrayList(AstExpr).new();
   args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, "value")));
@@ -38,7 +38,7 @@ test("generate_sizeof: wraps generated argument expression", {
 test("generate_sizeof: missing argument returns None", {
   set_generate_expr_fn(generate_expr);
   ctx := CodegenContext.new();
-  (pctx : *(CodegenContext)) = &(ctx);
+  (pctx : CodegenContext) = ctx;
   ind := String.new();
   args := ArrayList(AstExpr).new();
   out := generate_sizeof(args, pctx, ind);

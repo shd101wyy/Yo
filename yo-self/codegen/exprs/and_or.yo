@@ -18,9 +18,9 @@ open(import("std/string"));
 } :: import("../utils/index.yo");
 { call_gen_expr } :: import("./expr.yo");
 
-expr_bool_value :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(bool))(
+expr_bool_value :: (fn(expr : AstExpr, ctx : CodegenContext) -> Option(bool))(
   match(
-    ctx.*.get_expr_info(ast_expr_id(expr)),
+    ctx.get_expr_info(ast_expr_id(expr)),
     .None => Option(bool).None,
     .Some(info) => match(
       info.value,
@@ -30,9 +30,9 @@ expr_bool_value :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> Option(bool))
   )
 );
 
-expr_may_have_side_effects :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bool)(
+expr_may_have_side_effects :: (fn(expr : AstExpr, ctx : CodegenContext) -> bool)(
   match(
-    ctx.*.get_expr_info(ast_expr_id(expr)),
+    ctx.get_expr_info(ast_expr_id(expr)),
     .Some(info) => cond(
       info.variable_name.is_some() => true,
       info.value.is_some() => false,
@@ -62,7 +62,7 @@ expr_may_have_side_effects :: (fn(expr : AstExpr, ctx : *(CodegenContext)) -> bo
 );
 
 collect_runtime_args_for_and :: (
-  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), out : *(ArrayList(AstExpr))) -> Option(String)
+  fn(args : ArrayList(AstExpr), ctx : CodegenContext, out : *(ArrayList(AstExpr))) -> Option(String)
 )({
   i := usize(0);
   while(runtime(i < args.len()), {
@@ -87,7 +87,7 @@ collect_runtime_args_for_and :: (
 });
 
 collect_runtime_args_for_or :: (
-  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext), out : *(ArrayList(AstExpr))) -> Option(String)
+  fn(args : ArrayList(AstExpr), ctx : CodegenContext, out : *(ArrayList(AstExpr))) -> Option(String)
 )({
   i := usize(0);
   while(runtime(i < args.len()), {
@@ -112,7 +112,7 @@ collect_runtime_args_for_or :: (
 });
 
 runtime_args_need_if_chain :: (
-  fn(args : ArrayList(AstExpr), ctx : *(CodegenContext)) -> bool
+  fn(args : ArrayList(AstExpr), ctx : CodegenContext) -> bool
 )({
   found := false;
   i := usize(1);
@@ -130,7 +130,7 @@ runtime_args_need_if_chain :: (
 });
 
 join_runtime_args :: (
-  fn(args : ArrayList(AstExpr), separator : str, indent : String, ctx : *(CodegenContext)) -> Option(String)
+  fn(args : ArrayList(AstExpr), separator : str, indent : String, ctx : CodegenContext) -> Option(String)
 )({
   out := String.from("(");
   ok := true;
@@ -198,10 +198,10 @@ format_and_or_close_brace :: (fn(indent : String) -> String)(
 );
 
 emit_if_chain_for_and :: (
-  fn(args : ArrayList(AstExpr), indent : String, ctx : *(CodegenContext)) -> Option(String)
+  fn(args : ArrayList(AstExpr), indent : String, ctx : CodegenContext) -> Option(String)
 )({
-  sc_var := ctx.*.fresh_temp();
-  ctx.*.emitter.emit_string_line(format_and_or_bool_init(indent, sc_var, "false"));
+  sc_var := ctx.fresh_temp();
+  ctx.emitter.emit_string_line(format_and_or_bool_init(indent, sc_var, "false"));
   current_indent := String.from(indent.as_str());
   i := usize(0);
   ok := true;
@@ -218,10 +218,10 @@ emit_if_chain_for_and :: (
         },
         .Some(arg_code) => cond(
           (i < (args.len() - usize(1))) => {
-            ctx.*.emitter.emit_string_line(format_and_or_if_open(current_indent, arg_code));
+            ctx.emitter.emit_string_line(format_and_or_if_open(current_indent, arg_code));
             current_indent = indent_plus_two(current_indent);
           },
-          true => ctx.*.emitter.emit_string_line(
+          true => ctx.emitter.emit_string_line(
             format_and_or_assignment(current_indent, sc_var, arg_code)
           )
         )
@@ -233,17 +233,17 @@ emit_if_chain_for_and :: (
   j := usize(0);
   while(runtime(j < depth), {
     current_indent = indent_minus_two(current_indent);
-    ctx.*.emitter.emit_string_line(format_and_or_close_brace(current_indent));
+    ctx.emitter.emit_string_line(format_and_or_close_brace(current_indent));
     j = (j + usize(1));
   });
   cond(ok => Option(String).Some(sc_var), true => Option(String).None)
 });
 
 emit_if_chain_for_or :: (
-  fn(args : ArrayList(AstExpr), indent : String, ctx : *(CodegenContext)) -> Option(String)
+  fn(args : ArrayList(AstExpr), indent : String, ctx : CodegenContext) -> Option(String)
 )({
-  sc_var := ctx.*.fresh_temp();
-  ctx.*.emitter.emit_string_line(format_and_or_bool_init(indent, sc_var, "true"));
+  sc_var := ctx.fresh_temp();
+  ctx.emitter.emit_string_line(format_and_or_bool_init(indent, sc_var, "true"));
   current_indent := String.from(indent.as_str());
   i := usize(0);
   ok := true;
@@ -260,12 +260,12 @@ emit_if_chain_for_or :: (
         },
         .Some(arg_code) => cond(
           (i < (args.len() - usize(1))) => {
-            ctx.*.emitter.emit_string_line(
+            ctx.emitter.emit_string_line(
               format_and_or_if_negate_open(current_indent, arg_code)
             );
             current_indent = indent_plus_two(current_indent);
           },
-          true => ctx.*.emitter.emit_string_line(
+          true => ctx.emitter.emit_string_line(
             format_and_or_assignment(current_indent, sc_var, arg_code)
           )
         )
@@ -277,14 +277,14 @@ emit_if_chain_for_or :: (
   j := usize(0);
   while(runtime(j < depth), {
     current_indent = indent_minus_two(current_indent);
-    ctx.*.emitter.emit_string_line(format_and_or_close_brace(current_indent));
+    ctx.emitter.emit_string_line(format_and_or_close_brace(current_indent));
     j = (j + usize(1));
   });
   cond(ok => Option(String).Some(sc_var), true => Option(String).None)
 });
 
 generate_op_and :: (
-  fn(args : ArrayList(AstExpr), indent : String, ctx : *(CodegenContext)) -> Option(String)
+  fn(args : ArrayList(AstExpr), indent : String, ctx : CodegenContext) -> Option(String)
 )(
   cond(
     (args.len() == usize(0)) => Option(String).Some(String.from("true")),
@@ -307,7 +307,7 @@ generate_op_and :: (
 );
 
 generate_op_or :: (
-  fn(args : ArrayList(AstExpr), indent : String, ctx : *(CodegenContext)) -> Option(String)
+  fn(args : ArrayList(AstExpr), indent : String, ctx : CodegenContext) -> Option(String)
 )(
   cond(
     (args.len() == usize(0)) => Option(String).Some(String.from("false")),

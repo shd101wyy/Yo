@@ -48,7 +48,7 @@ mk_recur_call :: (fn(id : usize, args : ArrayList(AstExpr)) -> AstExpr)(
 );
 
 stub_generate_expr :: (
-  fn(expr : AstExpr, ctx : *(CodegenContext), indent : String) -> Option(String)
+  fn(expr : AstExpr, ctx : CodegenContext, indent : String) -> Option(String)
 )(
   match(
     expr,
@@ -69,14 +69,14 @@ test("recur_append_evidence_args: appends evidence after explicit args", {
   ctx := CodegenContext.new();
   ctx.current_evidence_param_names.push(String.from("raise__throw"));
   ctx.current_evidence_param_names.push(String.from("io__read"));
-  out := recur_append_evidence_args(String.from("x, y"), &(ctx));
+  out := recur_append_evidence_args(String.from("x, y"), ctx);
   assert(out == String.from("x, y, raise__throw, io__read"), "evidence appended");
 });
 
 test("recur_append_evidence_args: evidence-only call", {
   ctx := CodegenContext.new();
   ctx.current_evidence_param_names.push(String.from("raise__throw"));
-  out := recur_append_evidence_args(String.from(""), &(ctx));
+  out := recur_append_evidence_args(String.from(""), ctx);
   assert(out == String.from("raise__throw"), "evidence only");
 });
 
@@ -86,7 +86,7 @@ test("generate_recur: returns None without metadata for dispatcher fallback", {
   args := ArrayList(AstExpr).new();
   args.push(mk_atom(usize(10), "x", TokenKind.Identifier));
   call := mk_recur_call(usize(11), args);
-  result := generate_recur(call, args, &(ctx), String.from(""));
+  result := generate_recur(call, args, ctx, String.from(""));
   assert(result.is_none(), "missing metadata falls back");
 });
 
@@ -105,7 +105,7 @@ test("generate_recur: emits self-call from runtime args", {
   source_args := ArrayList(AstExpr).new();
   source_args.push(mk_atom(usize(22), "ignored", TokenKind.Identifier));
   call := mk_recur_call(usize(21), source_args);
-  result := generate_recur(call, source_args, &(ctx), String.from(""));
+  result := generate_recur(call, source_args, ctx, String.from(""));
   match(
     result,
     .None => assert(false, "expected recur code"),
@@ -128,7 +128,7 @@ test("generate_recur: forwards current evidence params", {
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   args := ArrayList(AstExpr).new();
   call := mk_recur_call(usize(31), args);
-  result := generate_recur(call, args, &(ctx), String.from(""));
+  result := generate_recur(call, args, ctx, String.from(""));
   match(
     result,
     .None => assert(false, "expected recur code"),
@@ -151,7 +151,7 @@ test("generate_recur: temp variable declaration for non-unit result", {
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   args := ArrayList(AstExpr).new();
   call := mk_recur_call(usize(41), args);
-  result := generate_recur(call, args, &(ctx), String.from("  "));
+  result := generate_recur(call, args, ctx, String.from("  "));
   match(
     result,
     .None => assert(false, "expected temp"),
@@ -175,7 +175,7 @@ test("generate_recur: does not declare temp for unit result", {
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   args := ArrayList(AstExpr).new();
   call := mk_recur_call(usize(51), args);
-  result := generate_recur(call, args, &(ctx), String.from(""));
+  result := generate_recur(call, args, ctx, String.from(""));
   match(
     result,
     .None => assert(false, "expected call"),
@@ -202,7 +202,7 @@ test("generate_recur: emits deferred drops before temp declaration", {
   ctx.expr_info_table = Option(typeof(table)).Some(table);
   args := ArrayList(AstExpr).new();
   call := mk_recur_call(usize(62), args);
-  result := generate_recur(call, args, &(ctx), String.from("  "));
+  result := generate_recur(call, args, ctx, String.from("  "));
   assert(result.is_some(), "expected code");
   out := ctx.emitter.code;
   assert(
