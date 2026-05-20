@@ -65,6 +65,8 @@ const METHODS = [
   // explicitly wrapped at the call site
   "hash",
   "clone",
+  // Iterator
+  "next",
 ];
 
 function matchAmpersandWrap(

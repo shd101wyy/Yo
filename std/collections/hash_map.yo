@@ -492,7 +492,7 @@ impl(
   HashMapIter(K, V),
   Iterator(
     Item : Bucket(K, V),
-    next : (fn(self : *(Self)) -> Option(Bucket(K, V)))(
+    next : (fn(inout(self) : Self) -> Option(Bucket(K, V)))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -538,7 +538,7 @@ impl(
   HashMapIterPtr(K, V),
   Iterator(
     Item : *(Bucket(K, V)),
-    next : (fn(self : *(Self)) -> Option(*(Bucket(K, V))))(
+    next : (fn(inout(self) : Self) -> Option(*(Bucket(K, V))))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -582,7 +582,7 @@ impl(
   HashMapKeys(K, V),
   Iterator(
     Item : K,
-    next : (fn(self : *(Self)) -> Option(K))(
+    next : (fn(inout(self) : Self) -> Option(K))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -613,7 +613,7 @@ impl(
   HashMapValues(K, V),
   Iterator(
     Item : V,
-    next : (fn(self : *(Self)) -> Option(V))(
+    next : (fn(inout(self) : Self) -> Option(V))(
       match(
         self._inner.next(),
         .None =>.None,

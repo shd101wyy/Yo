@@ -7581,7 +7581,7 @@ Iterator :: trait(
   Item : Type,
   /// Advance the iterator and return the next value, or `None` when exhausted.
   next :
-    fn(self : *(Self)) -> Option(Self.Item)
+    fn(inout(self) : Self) -> Option(Self.Item)
 );
 export(Iterator);
 /// IntoIterator trait — convert a collection into an iterator.
@@ -7610,7 +7610,7 @@ impl(
   ArrayIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(self : *(Self)) -> Option(*(T)))(
+    next : (fn(inout(self) : Self) -> Option(*(T)))(
       cond(
         (self._index >= self._len) =>.None,
         true => {
@@ -7646,7 +7646,7 @@ impl(
   SliceIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(self : *(Self)) -> Option(*(T)))(
+    next : (fn(inout(self) : Self) -> Option(*(T)))(
       cond(
         (self._index >= self._slice.len()) =>.None,
         true => {
@@ -7759,7 +7759,7 @@ for :: (
             quote({
               unquote(iter_var) := unquote(iter);
               while(runtime(true), {
-                unquote(temp_var) := &(unquote(iter_var)).next();
+                unquote(temp_var) := unquote(iter_var).next();
                 match(
                   unquote(temp_var),
                   .Some(unquote(variable)) => unquote(body),
@@ -7809,9 +7809,9 @@ impl(
   IterMap(I, B, F),
   Iterator(
     Item : B,
-    next : (fn(self : *(Self)) -> Option(B))(
+    next : (fn(inout(self) : Self) -> Option(B))(
       match(
-        &(self._inner).next(),
+        self._inner.next(),
         .None =>.None,
         .Some(item) =>.Some((self._f)(item))
       )
@@ -7836,10 +7836,10 @@ impl(
   IterFilter(I, F),
   Iterator(
     Item : A,
-    next : (fn(self : *(Self)) -> Option(A))({
+    next : (fn(inout(self) : Self) -> Option(A))({
       (loop_result : Option(A)) =.None;
       while(runtime(true), {
-        candidate := &(self._inner).next();
+        candidate := self._inner.next();
         match(
           candidate,
           .None => {
@@ -7876,12 +7876,12 @@ impl(
   IterTake(I),
   Iterator(
     Item : A,
-    next : (fn(self : *(Self)) -> Option(A))(
+    next : (fn(inout(self) : Self) -> Option(A))(
       cond(
         (self._remaining == usize(0)) =>.None,
         true => {
           self._remaining = (self._remaining - usize(1));
-          &(self._inner).next()
+          self._inner.next()
         }
       )
     )
@@ -7904,9 +7904,9 @@ impl(
   IterSkip(I),
   Iterator(
     Item : A,
-    next : (fn(self : *(Self)) -> Option(A))({
+    next : (fn(inout(self) : Self) -> Option(A))({
       while(self._to_skip > usize(0), {
-        result := &(self._inner).next();
+        result := self._inner.next();
         match(
           result,
           .None => {
@@ -7918,7 +7918,7 @@ impl(
           }
         );
       });
-      &(self._inner).next()
+      self._inner.next()
     })
   )
 );
@@ -7940,9 +7940,9 @@ impl(
   IterEnumerate(I),
   Iterator(
     Item : IterPair(usize, A),
-    next : (fn(self : *(Self)) -> Option(IterPair(usize, A)))(
+    next : (fn(inout(self) : Self) -> Option(IterPair(usize, A)))(
       match(
-        &(self._inner).next(),
+        self._inner.next(),
         .None =>.None,
         .Some(item) => {
           idx := self._index;
@@ -7971,12 +7971,12 @@ impl(
   IterZip(I, J),
   Iterator(
     Item : IterPair(A, B),
-    next : (fn(self : *(Self)) -> Option(IterPair(A, B)))(
+    next : (fn(inout(self) : Self) -> Option(IterPair(A, B)))(
       match(
-        &(self._left).next(),
+        self._left.next(),
         .None =>.None,
         .Some(a) => match(
-          &(self._right).next(),
+          self._right.next(),
           .None =>.None,
           .Some(b) =>.Some(IterPair(A, B)(_0 : a, _1 : b))
         )
@@ -8071,7 +8071,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },
@@ -8094,7 +8094,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },
@@ -8116,7 +8116,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },
@@ -8140,7 +8140,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },
@@ -8170,7 +8170,7 @@ impl(
     iter := self;
     while(runtime(true), {
       match(
-        (&(iter)).next(),
+        iter.next(),
         .None => {
           break;
         },

@@ -10,7 +10,7 @@ impl(
   MyRange,
   Iterator(
     Item : i32,
-    next : (fn(self : *(Self)) -> Option(i32))(
+    next : (fn(inout(self) : Self) -> Option(i32))(
       cond(
         (self._cur >= self._end) =>.None,
         true => {
@@ -124,7 +124,7 @@ test("iter.enumerate pairs index with value", {
 test("iter.zip pairs two iterators", {
   it := my_range(i32(0), i32(3)).zip(my_range(i32(100), i32(103)));
   match(
-    (&(it)).next(),
+    it.next(),
     .Some(p) => {
       assert(p._0 == i32(0), "first left is 0");
       assert(p._1 == i32(100), "first right is 100");
@@ -132,7 +132,7 @@ test("iter.zip pairs two iterators", {
     .None => assert(false, "expected first pair")
   );
   match(
-    (&(it)).next(),
+    it.next(),
     .Some(p) => {
       assert(p._0 == i32(1), "second left is 1");
       assert(p._1 == i32(101), "second right is 101");
@@ -145,7 +145,7 @@ test("iter.zip stops at shorter iterator", {
   count := i32(0);
   while(runtime(true), {
     match(
-      (&(it)).next(),
+      it.next(),
       .Some(_) => {
         count = (count + i32(1));
       },
