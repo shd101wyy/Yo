@@ -1,4 +1,3 @@
-// @skip_prelude
 //! Prelude — automatically imported into every Yo source file.
 //!
 //! Provides core language primitives: traits (`Comptime`, `Runtime`, `Clone`,
@@ -9,16 +8,9 @@
 //!
 //! **Do NOT import `std/prelude`** — it is loaded automatically and an
 //! explicit import will produce a compile error.
-//
-// The prelude is itself the foundation of Yo's unsafe-capable
-// machinery — raw-pointer impls, FFI declarations, the async runtime,
-// etc. Declare the file's pragma at the very top so it is registered
-// before any subsequent extern/asm/pointer-op declaration fires the
-// Phase C gates. The `Pragma` enum is defined later in this file (it
-// needs the trait machinery to be in place); the `pragma(...)` builtin
-// recognizes `Pragma.AllowUnsafe` at the AST level and does not need
-// the enum resolved yet. See plans/MEMORY_SAFETY.md.
-pragma(Pragma.AllowUnsafe);
+// === Foundational traits ===
+// `Comptime` and `Runtime` are defined first because every other
+// type (including `Pragma` below) is type-checked against them.
 /// Comptime trait — indicates a type that can be used at compile-time.
 /// Examples: `i32`, `bool`, `Type`, `comptime_int`, `comptime_float`, `comptime_string`.
 /// Non-examples: `int`, `ushort` (runtime-only types).
@@ -33,6 +25,49 @@ Runtime :: trait(
   id := "Runtime"
 );
 export(Runtime);
+
+// === Pragma — file-level privilege flags ===
+//
+// `Pragma` is defined here (right after the foundational traits and
+// BEFORE any extern/asm/pointer-op site) so the prelude can declare
+// its own `pragma(Pragma.AllowUnsafe);` via ordinary evaluation. The
+// prelude is the foundation of Yo's unsafe-capable machinery
+// (raw-pointer impls, FFI declarations, the async runtime, …); the
+// pragma must be registered before the first extern/asm/pointer-op
+// declaration fires the Phase C gates.
+//
+// `SkipPrelude` is recognized via a separate AST-level pre-scan that
+// runs before the prelude loads (chicken-and-egg: a file with
+// `pragma(Pragma.SkipPrelude);` doesn't have the prelude in scope).
+// All other pragma variants are validated by ordinary evaluation
+// against this enum. See plans/MEMORY_SAFETY.md.
+/// File-level privilege flag for the `pragma(...)` builtin. Declared
+/// at the top of a Yo file (e.g. `pragma(Pragma.AllowUnsafe);`) to
+/// opt the file into compiler-recognized behaviors. See
+/// plans/MEMORY_SAFETY.md.
+Pragma :: enum(
+  /// File is permitted to use raw pointer ops, `unsafe(...)`,
+  /// `asm(...)`, and `extern(...)`. Without this, those constructs
+  /// produce compile errors.
+  AllowUnsafe,
+  /// Disable the auto-import of `std/prelude`. Used by the prelude
+  /// itself, and by any tool/test that wants to bootstrap manually.
+  /// Recognized at the AST level before the prelude loads.
+  SkipPrelude,
+  /// Test-runner directive: skip this test file on ALL WASM targets.
+  SkipWasm,
+  /// Test-runner directive: skip when target is wasm32-emscripten.
+  SkipWasm32Emscripten,
+  /// Test-runner directive: skip when target is wasm32-wasi.
+  SkipWasm32Wasi
+);
+export(Pragma);
+
+// Prelude opts itself out of the implicit self-prelude import and
+// into unsafe-capable mode. Both calls evaluate normally against the
+// `Pragma` enum defined just above.
+pragma(Pragma.SkipPrelude);
+pragma(Pragma.AllowUnsafe);
 // === Builtin Yo functions ===
 extern(
   "Yo",
@@ -606,19 +641,6 @@ Ordering :: enum(
   Greater
 );
 export(Ordering);
-/// File-level privilege flag for the `pragma(...)` builtin. Declared at
-/// the top of a Yo file as `pragma(Pragma.AllowUnsafe);` to permit raw
-/// pointer operations (`p.*`, `&+`, `&-`, `&/`, etc.) without explicit
-/// `unsafe(...)` wraps. See plans/MEMORY_SAFETY.md.
-///
-/// The prelude declares its own pragma at the very top of this file
-/// (before any FFI/asm/pointer-op site), but the enum itself is
-/// defined here once the trait machinery is in place. The
-/// `pragma(...)` builtin recognizes `Pragma.AllowUnsafe` at the AST
-/// level so the prelude's own pragma works without the enum yet
-/// resolved.
-Pragma :: enum(AllowUnsafe);
-export(Pragma);
 /// Ord trait — enables `<`, `<=`, `>`, `>=` comparison operators.
 /// Requires the type to also implement `Eq`.
 Ord :: (
@@ -7406,7 +7428,7 @@ impl(
   where(T <: Eq(T)),
   Box(T),
   Eq(Box(T))(
-    (==) : ((lhs, rhs) -> unsafe((lhs.* == rhs.*)))
+    (==) : ((lhs, rhs) -> unsafe(lhs.* == rhs.*))
   )
 );
 impl(

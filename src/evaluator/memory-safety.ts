@@ -14,7 +14,12 @@
  */
 
 /** Pragma flags a file can declare. */
-export type PragmaKind = "AllowUnsafe";
+export type PragmaKind =
+  | "AllowUnsafe"
+  | "SkipPrelude"
+  | "SkipWasm"
+  | "SkipWasm32Emscripten"
+  | "SkipWasm32Wasi";
 
 /**
  * Per-file pragma registry. Keyed by canonical module URI (the

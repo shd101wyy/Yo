@@ -3,10 +3,18 @@
 //! Mirrors `src/evaluator/index.ts` — the `Evaluator` class wraps
 //! the proto-evaluator and handles:
 //!   - Parsing the input source
-//!   - Checking for `@skip_prelude` in the token stream
+//!   - Pre-scanning the program for `pragma(Pragma.SkipPrelude);`
 //!   - Injecting prelude exports into a dedicated env frame
 //!   - Wiring up the module loader via `set_module_loader`
 //!   - Calling `evaluate_module_body`
+//!
+//! TODO(bootstrap): the TS side switched the `SkipPrelude` detection
+//! from a comment scan (`// @skip_prelude`) to an AST-level pre-scan
+//! of `pragma(Pragma.SkipPrelude);` calls. This file still uses the
+//! comment scan because yo-self doesn't yet have `BF_PRAGMA` in
+//! `expr.yo` or the AST inspection helpers needed to mirror
+//! `preScanForSkipPrelude`. Port these once Phase G memory-safety
+//! work lands in yo-self. See plans/MEMORY_SAFETY.md.
 //!
 //! Phase 2i: Structural port using the proto-evaluator (`eval.yo`) as the
 //! evaluation backend.  Stubs for: impl registry cleanup, doc-comment

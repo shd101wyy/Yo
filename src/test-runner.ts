@@ -132,15 +132,21 @@ export interface TestRunSummary {
 // See plans/WASM_SUPPORT.md for details.
 
 /**
- * Check if a test file has a skip directive for the given WASM target.
+ * Check if a test file has a `pragma(Pragma.SkipWasm*)` declaration
+ * matching the given WASM target.
  *
- * Directives:
- *   `// @skip_wasm`              — skip on ALL WASM targets
- *   `// @skip_wasm32-emscripten` — skip when target is wasm32-emscripten
- *   `// @skip_wasm32-wasi`       — skip when target is wasm32-wasi
+ * Pragmas:
+ *   `pragma(Pragma.SkipWasm);`              — skip on ALL WASM targets
+ *   `pragma(Pragma.SkipWasm32Emscripten);`  — skip wasm32-emscripten
+ *   `pragma(Pragma.SkipWasm32Wasi);`        — skip wasm32-wasi
  *
- * Scans the first 20 lines of the file for the comment annotation.
- * This is intentionally a fast text scan (no tokenization needed).
+ * Scans the first 50 lines of the file with a regex. We intentionally
+ * don't tokenize/evaluate — this runs before the evaluator on every
+ * test file, so it must stay cheap. The regex tolerates whitespace
+ * and is permissive enough to match the call from anywhere in a top
+ * comment-stripped header (after a doc-comment block, etc.). See
+ * `pragma(...)` in `src/evaluator/builtins/pragma.ts` for the
+ * authoritative semantic recognition.
  */
 function hasSkipDirectiveForTarget(
   filePath: string,
@@ -148,15 +154,16 @@ function hasSkipDirectiveForTarget(
 ): boolean {
   try {
     const content = fs.readFileSync(filePath, "utf-8");
-    const lines = content.split("\n", 20);
-    const directive = isTargetStandaloneWasi(target)
-      ? "@skip_wasm32-wasi"
-      : "@skip_wasm32-emscripten";
-    return lines.some(
-      (line) =>
-        line.includes(directive) ||
-        (line.includes("@skip_wasm") && !line.includes("@skip_wasm32-"))
-    );
+    const lines = content.split("\n").slice(0, 50);
+    const targetVariant = isTargetStandaloneWasi(target)
+      ? "SkipWasm32Wasi"
+      : "SkipWasm32Emscripten";
+    // Match `pragma(Pragma.X)` allowing arbitrary intra-call whitespace.
+    const variantPattern = (variant: string) =>
+      new RegExp(`pragma\\s*\\(\\s*Pragma\\s*\\.\\s*${variant}\\s*\\)`);
+    const skipAll = variantPattern("SkipWasm");
+    const skipTargeted = variantPattern(targetVariant);
+    return lines.some((line) => skipTargeted.test(line) || skipAll.test(line));
   } catch {
     return false;
   }
@@ -1319,13 +1326,13 @@ export async function runTests(
   }
   const isWasmBuild = wasmTarget !== undefined;
 
-  // Filter out files with target-specific skip directives
+  // Filter out files with target-specific skip pragmas
   let skippedTests = 0;
   let filteredTestFiles = testFiles;
   if (isWasmBuild && wasmTarget) {
-    const directive = isTargetStandaloneWasi(wasmTarget)
-      ? "@skip_wasm32-wasi"
-      : "@skip_wasm32-emscripten";
+    const pragmaVariant = isTargetStandaloneWasi(wasmTarget)
+      ? "pragma(Pragma.SkipWasm32Wasi)"
+      : "pragma(Pragma.SkipWasm32Emscripten)";
     filteredTestFiles = [];
     for (const filePath of testFiles) {
       if (hasSkipDirectiveForTarget(filePath, wasmTarget)) {
@@ -1336,7 +1343,7 @@ export async function runTests(
     }
     if (skippedTests > 0) {
       console.log(
-        `${colors.yellow}Skipping ${skippedTests} test file(s) with ${directive}${colors.reset}\n`
+        `${colors.yellow}Skipping ${skippedTests} test file(s) with ${pragmaVariant}${colors.reset}\n`
       );
     }
   }

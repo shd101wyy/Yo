@@ -39,7 +39,7 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo`
 - Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo`
 - Run evaluator only: `./yo-cli test ./yo-self/tests/eval_part1.test.yo` (split into parts 1-4)
-- Currently ~2010 evaluator tests across `eval_part{1..4}.test.yo`. Each split takes ~5 min Yo→C compile + several min C compile on native. WASM targets are too slow (>10 min Yo compile each, ~6 MB C output) and are skipped via `// @skip_wasm32-*` directives.
+- Currently ~2010 evaluator tests across `eval_part{1..4}.test.yo`. Each split takes ~5 min Yo→C compile + several min C compile on native. WASM targets are too slow (>10 min Yo compile each, ~6 MB C output) and are skipped via `pragma(Pragma.SkipWasm32*);` calls.
 - These are integration tests for `yo-self/` — the self-hosted compiler components.
 - Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
 - Run these whenever modifying `yo-self/` source or tests.
@@ -71,7 +71,7 @@ See `issues/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
 ./yo-cli test ./yo-self/tests/ --target wasm-wasi --parallel 1
 ```
 
-> Note: `eval_part{1..4}.test.yo` carry `// @skip_wasm32-*` directives because each
+> Note: `eval_part{1..4}.test.yo` carry `pragma(Pragma.SkipWasm32*);` calls because each
 > split would take >15 min on WASM (5 min Yo compile + ~10 min emcc on a 6 MB C file).
 > Run them natively (with `--disable-sanitize` on macOS) only.
 
@@ -80,7 +80,7 @@ The WASM test runner uses Emscripten (`emcc`) with `-sSTANDALONE_WASM` and
 have sufficient memory.
 
 Tests that spawn sub-processes (e.g., `integration.test.yo`) are automatically
-skipped via `// @skip_wasm32-wasi` and are not required for CI on affected systems.
+skipped via `pragma(Pragma.SkipWasm32Wasi);` and are not required for CI on affected systems.
 
 ### Stack depth limit for yo-self evaluator tests
 
@@ -230,12 +230,12 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 
 - Run a test on Emscripten: `./yo-cli test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-emscripten`)
 - Run a test on standalone WASI: `./yo-cli test ./tests/XXX.test.yo --target wasm-wasi` (runs via `wasmtime`)
-- Use `// @skip_wasm32-emscripten` to skip a test file on the Emscripten target.
-- Use `// @skip_wasm32-wasi` to skip a test file on the standalone WASI target.
-- Use `// @skip_wasm` to skip a test file on ALL WASM targets (generic catch-all).
-- A file can have both target-specific directives, or the generic one.
+- Use `pragma(Pragma.SkipWasm32Emscripten);` to skip a test file on the Emscripten target.
+- Use `pragma(Pragma.SkipWasm32Wasi);` to skip a test file on the standalone WASI target.
+- Use `pragma(Pragma.SkipWasm);` to skip a test file on ALL WASM targets (generic catch-all).
+- Place skip pragmas at the top of the file (within the first 50 lines). A file can have both target-specific pragmas, or the generic one. Pragmas are validated by the evaluator against the `Pragma` enum in `std/prelude.yo`, so typos surface as compile errors.
 - For per-test skips, add `{ arch, Arch } :: import("std/process");` and use `if((arch == Arch.Wasm32), return())` at the top of the test body.
 - See `plans/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
 - **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
-- When adding new tests, verify they pass on native (`./yo-cli test ...`), Emscripten (`./yo-cli test ... --cc emcc`), and WASI (`./yo-cli test ... --target wasm-wasi`), or add appropriate skip directives.
+- When adding new tests, verify they pass on native (`./yo-cli test ...`), Emscripten (`./yo-cli test ... --cc emcc`), and WASI (`./yo-cli test ... --target wasm-wasi`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
 - `process.platform` returns `"emscripten"` or `"wasi"` depending on target.

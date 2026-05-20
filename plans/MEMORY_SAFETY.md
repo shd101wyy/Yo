@@ -464,6 +464,20 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 - [x] `.github/skills/yo-syntax/syntax-cheatsheet.md` — concise rule lines for `unsafe(...)`, pragma, and `inout(name)`.
 - [ ] `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` standalone user-facing page — **deferred.** The plan document itself (this file) plus the DESIGN.md section currently cover the user-facing surface. A standalone page can be split out later if the audience grows.
 
+### Phase G — Unify comment-style directives under `pragma(...)`
+
+Comment-style directives (`// @skip_prelude`, `// @skip_wasm`, …) were the original ad-hoc form for file-level compiler hints. Phase G replaces them with proper `pragma(Pragma.X);` calls so that all file-level flags share one mechanism, get validated against the `Pragma` enum, and surface typos as compile errors instead of silent no-ops.
+
+- [x] Extend `Pragma :: enum(...)` in `std/prelude.yo` with `SkipPrelude`, `SkipWasm`, `SkipWasm32Emscripten`, `SkipWasm32Wasi`.
+- [x] Move `Pragma` enum definition to the top of `std/prelude.yo` (right after the foundational `Comptime`/`Runtime` traits, before any extern/asm/pointer-op site) so the prelude's own pragma calls can evaluate against the enum normally.
+- [x] Refactor `evaluatePragma` in `src/evaluator/builtins/pragma.ts` to **evaluate** the argument and check it against the `Pragma` enum (`typeName === "Pragma"`, `selectedVariantName` set, recognized variant). This replaces the previous AST-shape token-name match, so typos like `Pragma.AlloeUnsafe` now produce a clear error.
+- [x] Add a minimal `preScanForSkipPrelude` AST-shape probe in `src/evaluator/builtins/pragma.ts`, called from `src/evaluator/index.ts` BEFORE the prelude loads. This is the one case where full evaluation isn't possible (the file by definition doesn't have `Pragma` in scope) — kept narrow on purpose.
+- [x] Replace `hasSkipDirectiveForTarget`'s text-scan in `src/test-runner.ts` with a `pragma(Pragma.SkipWasm*)` regex over the first 50 lines. The test runner runs before the evaluator, so it stays a text scan — but it now looks for the same syntax the evaluator validates semantically.
+- [x] Migrate every `// @skip_prelude` and `// @skip_wasm*` directive in `std/`, `yo-self/`, `src/tests/`, and `tests/` to `pragma(Pragma.X);` via `scripts/migrate-skip-pragmas.ts` (80 directives across 57 files). Comment text inside string literals (e.g. test data in `yo-self/tests/phase6*.test.yo`) is left untouched.
+- [x] Remove the now-unused `hasCommentAttribute` helper from `src/evaluator/index.ts`.
+- [ ] **yo-self port deferred:** `yo-self/evaluator/index.yo` still uses `has_comment_attribute` because yo-self doesn't yet have `BF_PRAGMA` or the AST inspection helpers required to mirror `preScanForSkipPrelude`. Track as follow-up; documented inline in that file.
+- [x] Docs: `plans/WASM_SUPPORT.md` and `.github/instructions/testing.instructions.md` rewritten to describe `pragma(Pragma.SkipWasm*)` instead of the old comment directives.
+
 ---
 
 ## Open Questions
