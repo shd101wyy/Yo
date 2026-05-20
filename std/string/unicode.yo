@@ -56,41 +56,41 @@ _decode_utf8 :: (fn(bytes : ArrayList(u8), i : usize) -> _DecodeResult)({
   )
 });
 // Encode a Unicode codepoint as UTF-8 bytes into an ArrayList.
-_encode_utf8 :: (fn(cp : i32, out : *(ArrayList(u8))) -> unit)({
+_encode_utf8 :: (fn(cp : i32, out : ArrayList(u8)) -> unit)({
   cond(
     (cp < i32(0x80)) => {
-      out.*.push(u8(cp));
+      out.push(u8(cp));
     },
     (cp < i32(0x800)) => {
-      out.*.push(u8(i32(0xC0) | (cp >> i32(6))));
-      out.*.push(u8(i32(0x80) | (cp & i32(0x3F))));
+      out.push(u8(i32(0xC0) | (cp >> i32(6))));
+      out.push(u8(i32(0x80) | (cp & i32(0x3F))));
     },
     (cp < i32(0x10000)) => {
-      out.*.push(u8(i32(0xE0) | (cp >> i32(12))));
-      out.*.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
-      out.*.push(u8(i32(0x80) | (cp & i32(0x3F))));
+      out.push(u8(i32(0xE0) | (cp >> i32(12))));
+      out.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
+      out.push(u8(i32(0x80) | (cp & i32(0x3F))));
     },
     true => {
-      out.*.push(u8(i32(0xF0) | (cp >> i32(18))));
-      out.*.push(u8(i32(0x80) | ((cp >> i32(12)) & i32(0x3F))));
-      out.*.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
-      out.*.push(u8(i32(0x80) | (cp & i32(0x3F))));
+      out.push(u8(i32(0xF0) | (cp >> i32(18))));
+      out.push(u8(i32(0x80) | ((cp >> i32(12)) & i32(0x3F))));
+      out.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
+      out.push(u8(i32(0x80) | (cp & i32(0x3F))));
     }
   );
 });
 // Special case folding: codepoints that expand to multiple codepoints
 // when lowercased. These are Unicode case folding entries of type 'F' (full).
-_special_to_lower :: (fn(cp : i32, out : *(ArrayList(u8))) -> bool)(
+_special_to_lower :: (fn(cp : i32, out : ArrayList(u8)) -> bool)(
   cond(
     // ẞ (U+1E9E LATIN CAPITAL LETTER SHARP S) → ss
     (cp == i32(0x1E9E)) => {
-      out.*.push(u8(0x73)); // s
-      out.*.push(u8(0x73)); // s
+      out.push(u8(0x73)); // s
+      out.push(u8(0x73)); // s
       true
     },
     // İ (U+0130 LATIN CAPITAL LETTER I WITH DOT ABOVE) → i + combining dot above
     (cp == i32(0x0130)) => {
-      out.*.push(u8(0x69)); // i
+      out.push(u8(0x69)); // i
       // U+0307 COMBINING DOT ABOVE
       _encode_utf8(i32(0x0307), out);
       true
@@ -100,56 +100,56 @@ _special_to_lower :: (fn(cp : i32, out : *(ArrayList(u8))) -> bool)(
 );
 // Special case folding: codepoints that expand to multiple codepoints
 // when uppercased.
-_special_to_upper :: (fn(cp : i32, out : *(ArrayList(u8))) -> bool)(
+_special_to_upper :: (fn(cp : i32, out : ArrayList(u8)) -> bool)(
   cond(
     // ß (U+00DF LATIN SMALL LETTER SHARP S) → SS
     (cp == i32(0x00DF)) => {
-      out.*.push(u8(0x53)); // S
-      out.*.push(u8(0x53)); // S
+      out.push(u8(0x53)); // S
+      out.push(u8(0x53)); // S
       true
     },
     // ﬀ (U+FB00 LATIN SMALL LIGATURE FF) → FF
     (cp == i32(0xFB00)) => {
-      out.*.push(u8(0x46)); // F
-      out.*.push(u8(0x46)); // F
+      out.push(u8(0x46)); // F
+      out.push(u8(0x46)); // F
       true
     },
     // ﬁ (U+FB01 LATIN SMALL LIGATURE FI) → FI
     (cp == i32(0xFB01)) => {
-      out.*.push(u8(0x46)); // F
-      out.*.push(u8(0x49)); // I
+      out.push(u8(0x46)); // F
+      out.push(u8(0x49)); // I
       true
     },
     // ﬂ (U+FB02 LATIN SMALL LIGATURE FL) → FL
     (cp == i32(0xFB02)) => {
-      out.*.push(u8(0x46)); // F
-      out.*.push(u8(0x4C)); // L
+      out.push(u8(0x46)); // F
+      out.push(u8(0x4C)); // L
       true
     },
     // ﬃ (U+FB03 LATIN SMALL LIGATURE FFI) → FFI
     (cp == i32(0xFB03)) => {
-      out.*.push(u8(0x46)); // F
-      out.*.push(u8(0x46)); // F
-      out.*.push(u8(0x49)); // I
+      out.push(u8(0x46)); // F
+      out.push(u8(0x46)); // F
+      out.push(u8(0x49)); // I
       true
     },
     // ﬄ (U+FB04 LATIN SMALL LIGATURE FFL) → FFL
     (cp == i32(0xFB04)) => {
-      out.*.push(u8(0x46)); // F
-      out.*.push(u8(0x46)); // F
-      out.*.push(u8(0x4C)); // L
+      out.push(u8(0x46)); // F
+      out.push(u8(0x46)); // F
+      out.push(u8(0x4C)); // L
       true
     },
     // ﬅ (U+FB05 LATIN SMALL LIGATURE LONG S T) → ST
     (cp == i32(0xFB05)) => {
-      out.*.push(u8(0x53)); // S
-      out.*.push(u8(0x54)); // T
+      out.push(u8(0x53)); // S
+      out.push(u8(0x54)); // T
       true
     },
     // ﬆ (U+FB06 LATIN SMALL LIGATURE ST) → ST
     (cp == i32(0xFB06)) => {
-      out.*.push(u8(0x53)); // S
-      out.*.push(u8(0x54)); // T
+      out.push(u8(0x53)); // S
+      out.push(u8(0x54)); // T
       true
     },
     true => false
@@ -178,10 +178,10 @@ unicode_to_lowercase :: (fn(input : String) -> String)({
       (cp : i32) = result.codepoint;
       (len : usize) = result.bytes_consumed;
       // Try special case folding first
-      if(!(_special_to_lower(cp, &(out))), {
+      if(!(_special_to_lower(cp, out)), {
         // Use C towlower for standard Unicode lowercase
         (lower : i32) = i32(towlower(cp));
-        _encode_utf8(lower, &(out));
+        _encode_utf8(lower, out);
       });
       i = (i + len);
     });
@@ -211,10 +211,10 @@ unicode_to_uppercase :: (fn(input : String) -> String)({
       (cp : i32) = result.codepoint;
       (len : usize) = result.bytes_consumed;
       // Try special case folding first
-      if(!(_special_to_upper(cp, &(out))), {
+      if(!(_special_to_upper(cp, out)), {
         // Use C towupper for standard Unicode uppercase
         (upper : i32) = i32(towupper(cp));
-        _encode_utf8(upper, &(out));
+        _encode_utf8(upper, out);
       });
       i = (i + len);
     });
