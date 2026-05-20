@@ -81,7 +81,7 @@ impl(
           (self._pos < self._filled) => {
             scan := self._pos;
             while(runtime((scan < self._filled) && (!(found_newline))), {
-              b := self._buf.get(scan).unwrap();
+              b := self._buf(scan);
               cond(
                 (b == _NEWLINE) => {
                   found_newline = true;
@@ -151,7 +151,7 @@ impl(
           );
           i := usize(0);
           while(runtime(i < to_copy), {
-            b := self._buf.get(self._pos + i).unwrap();
+            b := self._buf(self._pos + i);
             (buf &+ i).* = b;
             i = (i + usize(1));
           });
@@ -209,7 +209,7 @@ impl(
               );
               j := usize(0);
               while(runtime(j < to_copy), {
-                b := self._buf.get(j).unwrap();
+                b := self._buf(j);
                 (buf &+ j).* = b;
                 j = (j + usize(1));
               });
@@ -237,7 +237,7 @@ impl(
         (self._pos < self._filled) => {
           i := self._pos;
           while(runtime(i < self._filled), {
-            result.push(self._buf.get(i).unwrap());
+            result.push(self._buf(i));
             i = (i + usize(1));
           });
           self._pos = self._filled;

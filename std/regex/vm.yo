@@ -81,25 +81,25 @@ impl(
     )
   }),
   _decode_codepoint : (fn(self : Self, pos : usize) -> DecodedChar)({
-    first := self._bytes.get(pos).unwrap();
+    first := self._bytes(pos);
     cond(
       (first < u8(0x80)) =>
         DecodedChar(codepoint : u32(first), byte_len : usize(1)),
       ((first >= u8(0xC0)) && (first < u8(0xE0))) => {
-        second := self._bytes.get(pos + usize(1)).unwrap();
+        second := self._bytes(pos + usize(1));
         cp := (((u32(first) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)));
         DecodedChar(codepoint : cp, byte_len : usize(2))
       },
       ((first >= u8(0xE0)) && (first < u8(0xF0))) => {
-        second := self._bytes.get(pos + usize(1)).unwrap();
-        third := self._bytes.get(pos + usize(2)).unwrap();
+        second := self._bytes(pos + usize(1));
+        third := self._bytes(pos + usize(2));
         cp := ((((u32(first) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)));
         DecodedChar(codepoint : cp, byte_len : usize(3))
       },
       true => {
-        second := self._bytes.get(pos + usize(1)).unwrap();
-        third := self._bytes.get(pos + usize(2)).unwrap();
-        fourth := self._bytes.get(pos + usize(3)).unwrap();
+        second := self._bytes(pos + usize(1));
+        third := self._bytes(pos + usize(2));
+        fourth := self._bytes(pos + usize(3));
         cp := (((((u32(first) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)));
         DecodedChar(codepoint : cp, byte_len : usize(4))
       }
@@ -117,7 +117,7 @@ impl(
   _find_prev_char_start : (fn(self : Self, pos : usize) -> usize)({
     p := (pos - usize(1));
     while(p > usize(0), p = (p - usize(1)), {
-      b := self._bytes.get(p).unwrap();
+      b := self._bytes(p);
       cond(
         ((b < u8(0x80)) || (b >= u8(0xC0))) => {
           return(p);
@@ -131,7 +131,7 @@ impl(
     cond(
       (pos == usize(0)) => false,
       true => {
-        b := self._bytes.get(pos - usize(1)).unwrap();
+        b := self._bytes(pos - usize(1));
         b == u8(10)
       }
     )
@@ -140,7 +140,7 @@ impl(
     cond(
       (pos >= self._bytes.len()) => false,
       true => {
-        b := self._bytes.get(pos).unwrap();
+        b := self._bytes(pos);
         b == u8(10)
       }
     )
@@ -164,7 +164,7 @@ impl(
     (found : bool) = false;
     i := usize(0);
     while((i < cls.ranges.len()) && (!(found)), i = (i + usize(1)), {
-      r := cls.ranges.get(i).unwrap();
+      r := cls.ranges(i);
       (low : u32) = cond(
         self._flags.ignore_case => self._to_lower(r.low),
         true => r.low
@@ -184,7 +184,7 @@ impl(
       ((!(found)) && self._flags.ignore_case) => {
         i2 := usize(0);
         while((i2 < cls.ranges.len()) && (!(found)), i2 = (i2 + usize(1)), {
-          r := cls.ranges.get(i2).unwrap();
+          r := cls.ranges(i2);
           cond(
             ((cp >= r.low) && (cp <= r.high)) => {
               found = true;
@@ -338,8 +338,8 @@ impl(
       // Check for Match in current threads
       st := usize(0);
       while(st < sub_current.len(), st = (st + usize(1)), {
-        st_thread := sub_current.get(st).unwrap();
-        st_instr := self._program.instructions.get(st_thread.pc).unwrap();
+        st_thread := sub_current(st);
+        st_instr := self._program.instructions(st_thread.pc);
         match(
           st_instr.kind,
           .Match => {
@@ -377,8 +377,8 @@ impl(
       // Process consuming instructions
       st2 := usize(0);
       while(st2 < sub_current.len(), st2 = (st2 + usize(1)), {
-        st_thread := sub_current.get(st2).unwrap();
-        st_instr := self._program.instructions.get(st_thread.pc).unwrap();
+        st_thread := sub_current(st2);
+        st_instr := self._program.instructions(st_thread.pc);
         match(
           st_instr.kind,
           .Char => {
@@ -470,7 +470,7 @@ impl(
       new_deferred := ArrayList(DeferredThread).new();
       di := usize(0);
       while(di < deferred.len(), di = (di + usize(1)), {
-        d := deferred.get(di).unwrap();
+        d := deferred(di);
         cond(
           (d.target_byte_pos == byte_pos) => {
             self._add_thread(&(current), d.thread, byte_pos, &(seen));
@@ -492,8 +492,8 @@ impl(
       (found_match_in_gen : bool) = false;
       t := usize(0);
       while((t < current.len()) && (!(found_match_in_gen)), t = (t + usize(1)), {
-        thread := current.get(t).unwrap();
-        instr := self._program.instructions.get(thread.pc).unwrap();
+        thread := current(t);
+        instr := self._program.instructions(thread.pc);
         match(
           instr.kind,
           .Char => {
@@ -549,8 +549,8 @@ impl(
             group_end_slot := ((instr.slot * usize(2)) + usize(1));
             cond(
               ((group_start_slot < thread.slots.len()) && (group_end_slot < thread.slots.len())) => {
-                gs := thread.slots.get(group_start_slot).unwrap();
-                ge := thread.slots.get(group_end_slot).unwrap();
+                gs := thread.slots(group_start_slot);
+                ge := thread.slots(group_end_slot);
                 cond(
                   ((gs != unset) && (ge != unset)) => {
                     captured_len := (ge - gs);
@@ -560,8 +560,8 @@ impl(
                         (bytes_match : bool) = true;
                         bi := usize(0);
                         while(bi < captured_len, bi = (bi + usize(1)), {
-                          expected := self._bytes.get(gs + bi).unwrap();
-                          actual := self._bytes.get(byte_pos + bi).unwrap();
+                          expected := self._bytes(gs + bi);
+                          actual := self._bytes(byte_pos + bi);
                           cond(
                             self._flags.ignore_case => {
                               el := cond(
@@ -665,10 +665,10 @@ impl(
                       // Skip UTF-8 continuation bytes (10xxxxxx)
                       cond(
                         (try_pos > usize(0)) => {
-                          tb := self._bytes.get(try_pos).unwrap();
+                          tb := self._bytes(try_pos);
                           while(((tb >= u8(0x80)) && (tb < u8(0xC0))) && (try_pos > usize(0)), {
                             try_pos = (try_pos - usize(1));
-                            tb = self._bytes.get(try_pos).unwrap();
+                            tb = self._bytes(try_pos);
                           });
                         },
                         true => ()

@@ -98,8 +98,8 @@ create_dir_all :: (fn(path : Path, io : IO) -> Impl(Future(unit, IOErr)))(
               (platform == Platform.Windows) => {
                 cond(
                   (bytes.len() >= usize(3)) => {
-                    first := bytes.get(usize(0)).unwrap();
-                    second := bytes.get(usize(1)).unwrap();
+                    first := bytes(usize(0));
+                    second := bytes(usize(1));
                     is_drive_root := ((((first >= u8(65)) && (first <= u8(90))) || ((first >= u8(97)) && (first <= u8(122)))) && (second == u8(58)));
                     cond(
                       is_drive_root => {
@@ -114,7 +114,7 @@ create_dir_all :: (fn(path : Path, io : IO) -> Impl(Future(unit, IOErr)))(
               true => ()
             );
             while(runtime(i < bytes.len()), {
-              b := bytes.get(i).unwrap();
+              b := bytes(i);
               cond(
                 ((b == u8(47)) || (b == u8(92))) => {
                   // '/' found - try to create this prefix

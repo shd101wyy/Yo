@@ -303,8 +303,8 @@ test("String as_bytes returns byte array", {
   s := String.from_bytes(bytes);
   result_bytes := s.as_bytes();
   assert(result_bytes.len() == usize(2));
-  assert(result_bytes.get(usize(0)).unwrap() == u8(72));
-  assert(result_bytes.get(usize(1)).unwrap() == u8(101));
+  assert(result_bytes(usize(0)) == u8(72));
+  assert(result_bytes(usize(1)) == u8(101));
 });
 test("String as_bytes on empty string", {
   s := String.new();
@@ -494,9 +494,9 @@ test("String as_bytes preserves UTF-8 encoding", {
   s := String.from_bytes(bytes);
   result := s.as_bytes();
   assert(result.len() == usize(3));
-  assert(result.get(usize(0)).unwrap() == u8(0xE4));
-  assert(result.get(usize(1)).unwrap() == u8(0xB8));
-  assert(result.get(usize(2)).unwrap() == u8(0xAD));
+  assert(result(usize(0)) == u8(0xE4));
+  assert(result(usize(1)) == u8(0xB8));
+  assert(result(usize(2)) == u8(0xAD));
 });
 test("String as_bytes returns copy not reference", {
   original_bytes := ArrayList(u8).new();
@@ -1050,119 +1050,119 @@ test("String split by comma", {
   s := String.from("Hello,World,Test");
   parts := s.split(String.from(","));
   assert(parts.len() == usize(3));
-  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
-  assert(parts.get(usize(1)).unwrap() == String.from("World"));
-  assert(parts.get(usize(2)).unwrap() == String.from("Test"));
+  assert(parts(usize(0)) == String.from("Hello"));
+  assert(parts(usize(1)) == String.from("World"));
+  assert(parts(usize(2)) == String.from("Test"));
 });
 test("String split by space", {
   s := String.from("one two three");
   parts := s.split(String.from(" "));
   assert(parts.len() == usize(3));
-  assert(parts.get(usize(0)).unwrap() == String.from("one"));
-  assert(parts.get(usize(1)).unwrap() == String.from("two"));
-  assert(parts.get(usize(2)).unwrap() == String.from("three"));
+  assert(parts(usize(0)) == String.from("one"));
+  assert(parts(usize(1)) == String.from("two"));
+  assert(parts(usize(2)) == String.from("three"));
 });
 test("String split by empty string splits into characters", {
   s := String.from("abc");
   parts := s.split(String.from(""));
   assert(parts.len() == usize(3));
-  assert(parts.get(usize(0)).unwrap() == String.from("a"));
-  assert(parts.get(usize(1)).unwrap() == String.from("b"));
-  assert(parts.get(usize(2)).unwrap() == String.from("c"));
+  assert(parts(usize(0)) == String.from("a"));
+  assert(parts(usize(1)) == String.from("b"));
+  assert(parts(usize(2)) == String.from("c"));
 });
 test("String split with no separator found", {
   s := String.from("Hello");
   parts := s.split(String.from(","));
   assert(parts.len() == usize(1));
-  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
+  assert(parts(usize(0)) == String.from("Hello"));
 });
 test("String split empty string", {
   s := String.from("");
   parts := s.split(String.from(","));
   assert(parts.len() == usize(1));
-  assert(parts.get(usize(0)).unwrap().is_empty());
+  assert(parts(usize(0)).is_empty());
 });
 test("String split with separator at beginning", {
   s := String.from(",Hello,World");
   parts := s.split(String.from(","));
   assert(parts.len() == usize(3));
-  assert(parts.get(usize(0)).unwrap().is_empty());
-  assert(parts.get(usize(1)).unwrap() == String.from("Hello"));
-  assert(parts.get(usize(2)).unwrap() == String.from("World"));
+  assert(parts(usize(0)).is_empty());
+  assert(parts(usize(1)) == String.from("Hello"));
+  assert(parts(usize(2)) == String.from("World"));
 });
 test("String split with separator at end", {
   s := String.from("Hello,World,");
   parts := s.split(String.from(","));
   assert(parts.len() == usize(3));
-  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
-  assert(parts.get(usize(1)).unwrap() == String.from("World"));
-  assert(parts.get(usize(2)).unwrap().is_empty());
+  assert(parts(usize(0)) == String.from("Hello"));
+  assert(parts(usize(1)) == String.from("World"));
+  assert(parts(usize(2)).is_empty());
 });
 test("String split consecutive separators", {
   s := String.from("Hello,,World");
   parts := s.split(String.from(","));
   assert(parts.len() == usize(3));
-  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
-  assert(parts.get(usize(1)).unwrap().is_empty());
-  assert(parts.get(usize(2)).unwrap() == String.from("World"));
+  assert(parts(usize(0)) == String.from("Hello"));
+  assert(parts(usize(1)).is_empty());
+  assert(parts(usize(2)) == String.from("World"));
 });
 test("String split UTF-8 by ASCII separator", {
   s := String.from("你好,世界");
   parts := s.split(String.from(","));
   assert(parts.len() == usize(2));
-  assert(parts.get(usize(0)).unwrap() == String.from("你好"));
-  assert(parts.get(usize(1)).unwrap() == String.from("世界"));
+  assert(parts(usize(0)) == String.from("你好"));
+  assert(parts(usize(1)) == String.from("世界"));
 });
 test("String split UTF-8 by UTF-8 separator", {
   s := String.from("你好|世界|测试");
   parts := s.split(String.from("|"));
   assert(parts.len() == usize(3));
-  assert(parts.get(usize(0)).unwrap() == String.from("你好"));
-  assert(parts.get(usize(1)).unwrap() == String.from("世界"));
-  assert(parts.get(usize(2)).unwrap() == String.from("测试"));
+  assert(parts(usize(0)) == String.from("你好"));
+  assert(parts(usize(1)) == String.from("世界"));
+  assert(parts(usize(2)) == String.from("测试"));
 });
 test("String split UTF-8 characters into individual chars", {
   s := String.from("你好");
   parts := s.split(String.from(""));
   assert(parts.len() == usize(2));
-  assert(parts.get(usize(0)).unwrap() == String.from("你"));
-  assert(parts.get(usize(1)).unwrap() == String.from("好"));
+  assert(parts(usize(0)) == String.from("你"));
+  assert(parts(usize(1)) == String.from("好"));
 });
 test("String split emojis by space", {
   s := String.from("😀 😁 😂");
   parts := s.split(String.from(" "));
   assert(parts.len() == usize(3));
-  assert(parts.get(usize(0)).unwrap() == String.from("😀"));
-  assert(parts.get(usize(1)).unwrap() == String.from("😁"));
-  assert(parts.get(usize(2)).unwrap() == String.from("😂"));
+  assert(parts(usize(0)) == String.from("😀"));
+  assert(parts(usize(1)) == String.from("😁"));
+  assert(parts(usize(2)) == String.from("😂"));
 });
 test("String split emojis into individual characters", {
   s := String.from("😀😁");
   parts := s.split(String.from(""));
   assert(parts.len() == usize(2));
-  assert(parts.get(usize(0)).unwrap() == String.from("😀"));
-  assert(parts.get(usize(1)).unwrap() == String.from("😁"));
+  assert(parts(usize(0)) == String.from("😀"));
+  assert(parts(usize(1)) == String.from("😁"));
 });
 test("String split by multi-character separator", {
   s := String.from("Hello::World::Test");
   parts := s.split(String.from("::"));
   assert(parts.len() == usize(3));
-  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
-  assert(parts.get(usize(1)).unwrap() == String.from("World"));
-  assert(parts.get(usize(2)).unwrap() == String.from("Test"));
+  assert(parts(usize(0)) == String.from("Hello"));
+  assert(parts(usize(1)) == String.from("World"));
+  assert(parts(usize(2)) == String.from("Test"));
 });
 test("String split single character", {
   s := String.from("A");
   parts := s.split(String.from(","));
   assert(parts.len() == usize(1));
-  assert(parts.get(usize(0)).unwrap() == String.from("A"));
+  assert(parts(usize(0)) == String.from("A"));
 });
 test("String split only separator", {
   s := String.from(",");
   parts := s.split(String.from(","));
   assert(parts.len() == usize(2));
-  assert(parts.get(usize(0)).unwrap().is_empty());
-  assert(parts.get(usize(1)).unwrap().is_empty());
+  assert(parts(usize(0)).is_empty());
+  assert(parts(usize(1)).is_empty());
 });
 // ===== index_of with from_index Tests =====
 test("String index_of with from_index at start", {
@@ -1725,8 +1725,8 @@ test("String chars - multi-byte UTF-8 yields correct runes", {
     count = (count + usize(1));
   });
   assert(count == usize(2), "should yield 2 runes");
-  assert(runes.get(usize(0)).unwrap() == u32(0x4F60), "first rune should be 你");
-  assert(runes.get(usize(1)).unwrap() == u32(0x597D), "second rune should be 好");
+  assert(runes(usize(0)) == u32(0x4F60), "first rune should be 你");
+  assert(runes(usize(1)) == u32(0x597D), "second rune should be 好");
 });
 test("String chars - 4-byte emoji characters", {
   // "😀😎" - two 4-byte emoji
@@ -1738,8 +1738,8 @@ test("String chars - 4-byte emoji characters", {
     count = (count + usize(1));
   });
   assert(count == usize(2), "should yield 2 runes");
-  assert(runes.get(usize(0)).unwrap() == u32(0x1F600), "first rune should be 😀");
-  assert(runes.get(usize(1)).unwrap() == u32(0x1F60E), "second rune should be 😎");
+  assert(runes(usize(0)) == u32(0x1F600), "first rune should be 😀");
+  assert(runes(usize(1)) == u32(0x1F60E), "second rune should be 😎");
 });
 test("String chars - mixed ASCII and UTF-8", {
   s := `Hi世界`;
@@ -1769,9 +1769,9 @@ test("String bytes - ASCII string yields raw bytes", {
     count = (count + usize(1));
   });
   assert(count == usize(3), "should yield 3 bytes");
-  assert(bytes.get(usize(0)).unwrap() == u8(65), "first byte should be 'A'");
-  assert(bytes.get(usize(1)).unwrap() == u8(66), "second byte should be 'B'");
-  assert(bytes.get(usize(2)).unwrap() == u8(67), "third byte should be 'C'");
+  assert(bytes(usize(0)) == u8(65), "first byte should be 'A'");
+  assert(bytes(usize(1)) == u8(66), "second byte should be 'B'");
+  assert(bytes(usize(2)) == u8(67), "third byte should be 'C'");
 });
 test("String bytes - UTF-8 string yields all bytes", {
   // "你" is 3 bytes in UTF-8: 0xE4, 0xBD, 0xA0
@@ -1783,9 +1783,9 @@ test("String bytes - UTF-8 string yields all bytes", {
     count = (count + usize(1));
   });
   assert(count == usize(3), "should yield 3 bytes for 你");
-  assert(bytes.get(usize(0)).unwrap() == u8(0xE4), "first byte");
-  assert(bytes.get(usize(1)).unwrap() == u8(0xBD), "second byte");
-  assert(bytes.get(usize(2)).unwrap() == u8(0xA0), "third byte");
+  assert(bytes(usize(0)) == u8(0xE4), "first byte");
+  assert(bytes(usize(1)) == u8(0xBD), "second byte");
+  assert(bytes(usize(2)) == u8(0xA0), "third byte");
 });
 // --- into_iter() tests ---
 test("String into_iter - yields runes like chars", {

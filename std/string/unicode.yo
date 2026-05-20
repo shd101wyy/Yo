@@ -27,29 +27,29 @@ _DecodeResult :: struct(
 );
 // Decode a single UTF-8 codepoint from bytes at position i.
 _decode_utf8 :: (fn(bytes : ArrayList(u8), i : usize) -> _DecodeResult)({
-  (b0 : i32) = i32(bytes.get(i).unwrap());
+  (b0 : i32) = i32(bytes(i));
   cond(
     // 1-byte ASCII
     ((b0 & i32(0x80)) == i32(0)) =>
       _DecodeResult(codepoint : b0, bytes_consumed : usize(1)),
     // 2-byte
     ((b0 & i32(0xE0)) == i32(0xC0)) => {
-      (b1 : i32) = i32(bytes.get(i + usize(1)).unwrap());
+      (b1 : i32) = i32(bytes(i + usize(1)));
       (cp : i32) = (((b0 & i32(0x1F)) << i32(6)) | (b1 & i32(0x3F)));
       _DecodeResult(codepoint : cp, bytes_consumed : usize(2))
     },
     // 3-byte
     ((b0 & i32(0xF0)) == i32(0xE0)) => {
-      (b1 : i32) = i32(bytes.get(i + usize(1)).unwrap());
-      (b2 : i32) = i32(bytes.get(i + usize(2)).unwrap());
+      (b1 : i32) = i32(bytes(i + usize(1)));
+      (b2 : i32) = i32(bytes(i + usize(2)));
       (cp : i32) = ((((b0 & i32(0x0F)) << i32(12)) | ((b1 & i32(0x3F)) << i32(6))) | (b2 & i32(0x3F)));
       _DecodeResult(codepoint : cp, bytes_consumed : usize(3))
     },
     // 4-byte
     true => {
-      (b1 : i32) = i32(bytes.get(i + usize(1)).unwrap());
-      (b2 : i32) = i32(bytes.get(i + usize(2)).unwrap());
-      (b3 : i32) = i32(bytes.get(i + usize(3)).unwrap());
+      (b1 : i32) = i32(bytes(i + usize(1)));
+      (b2 : i32) = i32(bytes(i + usize(2)));
+      (b3 : i32) = i32(bytes(i + usize(3)));
       (cp : i32) = (((((b0 & i32(0x07)) << i32(18)) | ((b1 & i32(0x3F)) << i32(12))) | ((b2 & i32(0x3F)) << i32(6))) | (b3 & i32(0x3F)));
       _DecodeResult(codepoint : cp, bytes_consumed : usize(4))
     }
@@ -163,7 +163,7 @@ unicode_to_lowercase :: (fn(input : String) -> String)({
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);
   while(i < bytes.len(), {
-    (b0 : i32) = i32(bytes.get(i).unwrap());
+    (b0 : i32) = i32(bytes(i));
     // Fast path for ASCII
     if((b0 & i32(0x80)) == i32(0), {
       if((b0 >= i32(0x41)) && (b0 <= i32(0x5A)), {
@@ -196,7 +196,7 @@ unicode_to_uppercase :: (fn(input : String) -> String)({
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);
   while(i < bytes.len(), {
-    (b0 : i32) = i32(bytes.get(i).unwrap());
+    (b0 : i32) = i32(bytes(i));
     // Fast path for ASCII
     if((b0 & i32(0x80)) == i32(0), {
       if((b0 >= i32(0x61)) && (b0 <= i32(0x7A)), {

@@ -164,8 +164,8 @@ test("closure captures String by RC; outlives capture site", {
     );
   });
   assert(results.len() == usize(2), "two results");
-  assert(results.get(usize(0)).unwrap() == `pre-a`, "captured prefix used in 1st");
-  assert(results.get(usize(1)).unwrap() == `pre-b`, "captured prefix used in 2nd");
+  assert(results(usize(0)) == `pre-a`, "captured prefix used in 1st");
+  assert(results(usize(1)) == `pre-b`, "captured prefix used in 2nd");
   // After iteration, prefix is still usable (no UAF)
   assert(prefix == `pre-`, "prefix still alive after iter");
 });
@@ -188,8 +188,8 @@ test("closure captures ArrayList; mutation visible after iter scope", {
     );
   });
   assert(collected.len() == usize(3), "captured ArrayList mutated");
-  assert(collected.get(usize(0)).unwrap() == i32(10), "first element");
-  assert(collected.get(usize(2)).unwrap() == i32(30), "third element");
+  assert(collected(usize(0)) == i32(10), "first element");
+  assert(collected(usize(2)) == i32(30), "third element");
 });
 // ===========================================================================
 // §2.7 / §2.8  Derive ToString and Eq on enums with multiple data variants

@@ -17,12 +17,12 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti :
     },
     true => ()
   );
-  p := pb.get(pi).unwrap();
+  p := pb(pi);
   // Handle * and **
   cond(
     (p == u8(42)) => {
       is_dbl := cond(
-        ((pi + usize(1)) < pb.len()) => (pb.get(pi + usize(1)).unwrap() == u8(42)),
+        ((pi + usize(1)) < pb.len()) => (pb(pi + usize(1)) == u8(42)),
         true => false
       );
       cond(
@@ -33,7 +33,7 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti :
           cond(
             (npi < pb.len()) => {
               cond(
-                (pb.get(npi).unwrap() == u8(47)) => {
+                (pb(npi) == u8(47)) => {
                   npi = (npi + usize(1));
                 },
                 true => ()
@@ -70,7 +70,7 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti :
           // Try * consuming one non-/ char
           cond(
             (ti < tb.len()) => {
-              tc := tb.get(ti).unwrap();
+              tc := tb(ti);
               cond(
                 (tc != u8(47)) => {
                   return(recur(pb, pi, tb, ti + usize(1)));
@@ -96,7 +96,7 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti :
     },
     true => ()
   );
-  t := tb.get(ti).unwrap();
+  t := tb(ti);
   // Handle ?
   cond(
     (p == u8(63)) => {
@@ -119,7 +119,7 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti :
       // Check for negation: ! or ^
       cond(
         (ci < pb.len()) => {
-          nc := pb.get(ci).unwrap();
+          nc := pb(ci);
           cond(
             ((nc == u8(33)) || (nc == u8(94))) => {
               neg = true;
@@ -134,7 +134,7 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti :
       found := false;
       cdone := false;
       while((ci < pb.len()) && (!(cdone)), ci = (ci + usize(1)), {
-        ch := pb.get(ci).unwrap();
+        ch := pb(ci);
         cond(
           (ch == u8(93)) => {
             cdone = true;

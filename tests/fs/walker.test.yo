@@ -64,7 +64,7 @@ test("walk lists all entries recursively", {
   // Default include_dirs = true
   i := usize(0);
   while(runtime(i < entries.len()), {
-    e := entries.get(i).unwrap();
+    e := entries(i);
     printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap());
     i = (i + usize(1));
   });
@@ -96,7 +96,7 @@ test("walk_with max_depth limits traversal", {
   // At depth 0: a.txt, b.txt, sub (dir) = 3
   i := usize(0);
   while(runtime(i < entries.len()), {
-    e := entries.get(i).unwrap();
+    e := entries(i);
     printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap());
     i = (i + usize(1));
   });
@@ -128,7 +128,7 @@ test("walk_with include_dirs false excludes directories", {
   // Only files: a.txt, b.txt, c.txt, d.txt = 4
   i := usize(0);
   while(runtime(i < entries.len()), {
-    e := entries.get(i).unwrap();
+    e := entries(i);
     printf("  %s\n", e.name.to_cstr().ptr().unwrap());
     is_file := match(e.file_type,.File => true, _ => false);
     assert(is_file, "should only have files");

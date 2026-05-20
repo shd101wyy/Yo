@@ -49,8 +49,8 @@ impl(
     i := (self._data.len() - usize(1));
     while(i > usize(0), {
       parent := ((i - usize(1)) / usize(2));
-      child_val := self._data.get(i).unwrap();
-      parent_val := self._data.get(parent).unwrap();
+      child_val := self._data(i);
+      parent_val := self._data(parent);
       cond(
         (child_val < parent_val) => {
           &(self._data(i)).* = parent_val;
@@ -69,8 +69,8 @@ impl(
     cond(
       (n == usize(0)) =>.None,
       true => {
-        top := self._data.get(usize(0)).unwrap();
-        last := self._data.get(n - usize(1)).unwrap();
+        top := self._data(usize(0));
+        last := self._data(n - usize(1));
         &(self._data(usize(0))).* = last;
         self._data.pop();
         // Sift down
@@ -81,13 +81,13 @@ impl(
           smallest := i;
           new_n := self._data.len();
           cond(
-            ((left < new_n) && (self._data.get(left).unwrap() < self._data.get(smallest).unwrap())) => {
+            ((left < new_n) && (self._data(left) < self._data(smallest))) => {
               smallest = left;
             },
             true => ()
           );
           cond(
-            ((right < new_n) && (self._data.get(right).unwrap() < self._data.get(smallest).unwrap())) => {
+            ((right < new_n) && (self._data(right) < self._data(smallest))) => {
               smallest = right;
             },
             true => ()
@@ -97,8 +97,8 @@ impl(
               break;
             },
             true => {
-              a := self._data.get(i).unwrap();
-              b := self._data.get(smallest).unwrap();
+              a := self._data(i);
+              b := self._data(smallest);
               &(self._data(i)).* = b;
               &(self._data(smallest)).* = a;
               i = smallest;
@@ -129,7 +129,7 @@ impl(
       cond(
         (self._index >= self._data.len()) =>.None,
         true => {
-          value := self._data.get(self._index).unwrap();
+          value := self._data(self._index);
           self._index = (self._index + usize(1));
           .Some(value)
         }

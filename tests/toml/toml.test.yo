@@ -21,7 +21,7 @@ test("Table set overwrites", {
   t.set(`x`,.Int(i64(1)));
   t.set(`x`,.Int(i64(2)));
   assert(t.table_len() == usize(1), "should still have 1 entry");
-  assert(t.get(`x`).unwrap().as_int().unwrap() == i64(2), "should be 2");
+  assert(t(`x`).as_int().unwrap() == i64(2), "should be 2");
 });
 test("Parse empty string", {
   result := toml_parse(``);
@@ -32,7 +32,7 @@ test("Parse string value", {
   result := toml_parse(`name = "hello"`);
   assert(result.is_ok(), "should parse");
   table := result.unwrap();
-  s := table.get(`name`).unwrap().as_string();
+  s := table(`name`).as_string();
   assert(s.is_some(), "should be string");
   assert(s.unwrap() == `hello`, "should be hello");
 });
@@ -40,7 +40,7 @@ test("Parse integer value", {
   result := toml_parse(`port = 8080`);
   assert(result.is_ok(), "should parse");
   table := result.unwrap();
-  n := table.get(`port`).unwrap().as_int();
+  n := table(`port`).as_int();
   assert(n.is_some(), "should be int");
   assert(n.unwrap() == i64(8080), "should be 8080");
 });
@@ -51,8 +51,8 @@ verbose = false`;
   result := toml_parse(input);
   assert(result.is_ok(), "should parse");
   table := result.unwrap();
-  assert(table.get(`debug`).unwrap().as_bool().unwrap(), "debug should be true");
-  assert(!(table.get(`verbose`).unwrap().as_bool().unwrap()), "verbose should be false");
+  assert(table(`debug`).as_bool().unwrap(), "debug should be true");
+  assert(!(table(`verbose`).as_bool().unwrap()), "verbose should be false");
 });
 test("Parse with comments and blank lines", {
   input :=
@@ -78,10 +78,10 @@ port = 8080`;
   result := toml_parse(input);
   assert(result.is_ok(), "should parse");
   root := result.unwrap();
-  assert(root.get(`title`).unwrap().as_string().unwrap() == `My App`, "title");
-  srv := root.get(`server`).unwrap();
-  assert(srv.get(`host`).unwrap().as_string().unwrap() == `localhost`, "host");
-  assert(srv.get(`port`).unwrap().as_int().unwrap() == i64(8080), "port");
+  assert(root(`title`).as_string().unwrap() == `My App`, "title");
+  srv := root(`server`);
+  assert(srv(`host`).as_string().unwrap() == `localhost`, "host");
+  assert(srv(`port`).as_int().unwrap() == i64(8080), "port");
 });
 test("Parse multiple tables", {
   input :=
@@ -95,10 +95,10 @@ enabled = true`;
   result := toml_parse(input);
   assert(result.is_ok(), "should parse");
   root := result.unwrap();
-  db := root.get(`database`).unwrap();
-  assert(db.get(`name`).unwrap().as_string().unwrap() == `mydb`, "db name");
-  assert(db.get(`port`).unwrap().as_int().unwrap() == i64(5432), "db port");
-  log := root.get(`logging`).unwrap();
-  assert(log.get(`level`).unwrap().as_string().unwrap() == `info`, "log level");
-  assert(log.get(`enabled`).unwrap().as_bool().unwrap(), "log enabled");
+  db := root(`database`);
+  assert(db(`name`).as_string().unwrap() == `mydb`, "db name");
+  assert(db(`port`).as_int().unwrap() == i64(5432), "db port");
+  log := root(`logging`);
+  assert(log(`level`).as_string().unwrap() == `info`, "log level");
+  assert(log(`enabled`).as_bool().unwrap(), "log enabled");
 });

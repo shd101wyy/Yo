@@ -153,12 +153,12 @@ test("uuid_v4 format", {
   id := uuid_v4(exn);
   bytes := id.as_bytes();
   assert(bytes.len() == usize(36), "UUID should be 36 characters");
-  assert(bytes.get(usize(8)).unwrap() == u8(45), "position 8 should be dash");
-  assert(bytes.get(usize(13)).unwrap() == u8(45), "position 13 should be dash");
-  assert(bytes.get(usize(18)).unwrap() == u8(45), "position 18 should be dash");
-  assert(bytes.get(usize(23)).unwrap() == u8(45), "position 23 should be dash");
-  assert(bytes.get(usize(14)).unwrap() == u8(52), "version nibble should be '4'");
-  variant := bytes.get(usize(19)).unwrap();
+  assert(bytes(usize(8)) == u8(45), "position 8 should be dash");
+  assert(bytes(usize(13)) == u8(45), "position 13 should be dash");
+  assert(bytes(usize(18)) == u8(45), "position 18 should be dash");
+  assert(bytes(usize(23)) == u8(45), "position 23 should be dash");
+  assert(bytes(usize(14)) == u8(52), "version nibble should be '4'");
+  variant := bytes(usize(19));
   valid_variant := (((variant == u8(56)) || (variant == u8(57))) || ((variant == u8(97)) || (variant == u8(98))));
   assert(valid_variant, "variant nibble should be 8, 9, a, or b");
 });

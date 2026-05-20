@@ -29,7 +29,7 @@ test("lookup_host localhost returns loopback", {
   found_loopback := false;
   i := usize(0);
   while(runtime(i < addrs.len()), {
-    addr := addrs.get(i).unwrap();
+    addr := addrs(i);
     printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap());
     cond(
       addr.is_loopback() => {
@@ -68,7 +68,7 @@ test("resolve localhost returns socket addresses", {
   assert(addrs.len() > usize(0), "should resolve at least one address");
   i := usize(0);
   while(runtime(i < addrs.len()), {
-    addr := addrs.get(i).unwrap();
+    addr := addrs(i);
     printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap());
     // Verify port is 8080
     assert(addr.port == u16(8080), "port should be 8080");

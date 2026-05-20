@@ -274,9 +274,9 @@ test("match_all finds all occurrences", {
   re := Regex.new(`\\d+`, ``).unwrap();
   matches := re.match_all(`a1b23c456`);
   assert(matches.len() == usize(3), "should find 3 matches");
-  assert(matches.get(usize(0)).unwrap().value() == `1`, "first match");
-  assert(matches.get(usize(1)).unwrap().value() == `23`, "second match");
-  assert(matches.get(usize(2)).unwrap().value() == `456`, "third match");
+  assert(matches(usize(0)).value() == `1`, "first match");
+  assert(matches(usize(1)).value() == `23`, "second match");
+  assert(matches(usize(2)).value() == `456`, "third match");
 });
 test("match_all with no matches returns empty", {
   re := Regex.new(`\\d+`, ``).unwrap();
@@ -552,36 +552,36 @@ test("split by regex pattern", {
   re := Regex.new(`[,;\\s]+`, ``).unwrap();
   parts := re.split(`a,b; c  d`);
   assert(parts.len() == usize(4), "should have 4 parts");
-  assert(parts.get(usize(0)).unwrap() == `a`, "first part");
-  assert(parts.get(usize(1)).unwrap() == `b`, "second part");
-  assert(parts.get(usize(2)).unwrap() == `c`, "third part");
-  assert(parts.get(usize(3)).unwrap() == `d`, "fourth part");
+  assert(parts(usize(0)) == `a`, "first part");
+  assert(parts(usize(1)) == `b`, "second part");
+  assert(parts(usize(2)) == `c`, "third part");
+  assert(parts(usize(3)) == `d`, "fourth part");
 });
 test("split with no match returns whole string", {
   re := Regex.new(`\\d+`, ``).unwrap();
   parts := re.split(`abcdef`);
   assert(parts.len() == usize(1), "should have 1 part");
-  assert(parts.get(usize(0)).unwrap() == `abcdef`, "only part is whole string");
+  assert(parts(usize(0)) == `abcdef`, "only part is whole string");
 });
 test("split at start and end", {
   re := Regex.new(`,`, ``).unwrap();
   parts := re.split(`,a,b,`);
   assert(parts.len() == usize(4), "should have 4 parts including empties");
-  assert(parts.get(usize(0)).unwrap() == ``, "first part empty");
-  assert(parts.get(usize(1)).unwrap() == `a`, "second part");
-  assert(parts.get(usize(2)).unwrap() == `b`, "third part");
-  assert(parts.get(usize(3)).unwrap() == ``, "last part empty");
+  assert(parts(usize(0)) == ``, "first part empty");
+  assert(parts(usize(1)) == `a`, "second part");
+  assert(parts(usize(2)) == `b`, "third part");
+  assert(parts(usize(3)) == ``, "last part empty");
 });
 test("split with capture groups", {
   re := Regex.new(`(-)`, ``).unwrap();
   parts := re.split(`a-b-c`);
   // JS behavior: captured groups included in result
   assert(parts.len() == usize(5), "should include captured groups");
-  assert(parts.get(usize(0)).unwrap() == `a`, "first part");
-  assert(parts.get(usize(1)).unwrap() == `-`, "first separator");
-  assert(parts.get(usize(2)).unwrap() == `b`, "second part");
-  assert(parts.get(usize(3)).unwrap() == `-`, "second separator");
-  assert(parts.get(usize(4)).unwrap() == `c`, "third part");
+  assert(parts(usize(0)) == `a`, "first part");
+  assert(parts(usize(1)) == `-`, "first separator");
+  assert(parts(usize(2)) == `b`, "second part");
+  assert(parts(usize(3)) == `-`, "second separator");
+  assert(parts(usize(4)) == `c`, "third part");
 });
 test("replace with pre-match and post-match refs", {
   re := Regex.new(`\\d+`, ``).unwrap();
@@ -606,9 +606,9 @@ test("literal prefix optimization: match_all finds all occurrences", {
   re := Regex.new(`ab.`, ``).unwrap();
   matches := re.match_all(`--abc--abd--abe--`);
   assert(matches.len() == usize(3), "should find 3 matches");
-  assert(matches.get(usize(0)).unwrap().value() == `abc`, "first match");
-  assert(matches.get(usize(1)).unwrap().value() == `abd`, "second match");
-  assert(matches.get(usize(2)).unwrap().value() == `abe`, "third match");
+  assert(matches(usize(0)).value() == `abc`, "first match");
+  assert(matches(usize(1)).value() == `abd`, "second match");
+  assert(matches(usize(2)).value() == `abe`, "third match");
 });
 test("literal prefix optimization: case insensitive disables prefix", {
   re := Regex.new(`hello`, `i`).unwrap();
@@ -731,9 +731,9 @@ test("Chinese split", {
   re := Regex.new(`，`, ``).unwrap();
   parts := re.split(`你好，世界，再见`);
   assert(parts.len() == usize(3), "should split into 3 parts");
-  assert(parts.get(usize(0)).unwrap() == `你好`, "first part");
-  assert(parts.get(usize(1)).unwrap() == `世界`, "second part");
-  assert(parts.get(usize(2)).unwrap() == `再见`, "third part");
+  assert(parts(usize(0)) == `你好`, "first part");
+  assert(parts(usize(1)) == `世界`, "second part");
+  assert(parts(usize(2)) == `再见`, "third part");
 });
 test("emoji matching", {
   // 😀 is U+1F600 (4-byte UTF-8: F0 9F 98 80)
@@ -792,9 +792,9 @@ test("flag m: match multiple lines", {
   re := Regex.new(`^\\w+`, `m`).unwrap();
   matches := re.match_all(`foo\nbar\nbaz`);
   assert(matches.len() == usize(3), "should match start of each line");
-  assert(matches.get(usize(0)).unwrap().value() == `foo`, "first line");
-  assert(matches.get(usize(1)).unwrap().value() == `bar`, "second line");
-  assert(matches.get(usize(2)).unwrap().value() == `baz`, "third line");
+  assert(matches(usize(0)).value() == `foo`, "first line");
+  assert(matches(usize(1)).value() == `bar`, "second line");
+  assert(matches(usize(2)).value() == `baz`, "third line");
 });
 // --- dotAll (s) flag ---
 test("flag s: dot matches newline", {
@@ -860,14 +860,14 @@ test("flag y: sticky match_all consecutive", {
   re := Regex.new(`[a-z]+`, `y`).unwrap();
   matches := re.match_all(`abcdef`);
   assert(matches.len() == usize(1), "should match entire string as one");
-  assert(matches.get(usize(0)).unwrap().value() == `abcdef`, "should match all");
+  assert(matches(usize(0)).value() == `abcdef`, "should match all");
 });
 test("flag y: sticky match_all stops on failure", {
   re := Regex.new(`\\d`, `y`).unwrap();
   matches := re.match_all(`12x45`);
   assert(matches.len() == usize(2), "should stop at non-digit");
-  assert(matches.get(usize(0)).unwrap().value() == `1`, "first digit");
-  assert(matches.get(usize(1)).unwrap().value() == `2`, "second digit");
+  assert(matches(usize(0)).value() == `1`, "first digit");
+  assert(matches(usize(1)).value() == `2`, "second digit");
 });
 test("flag y: sticky with anchored pattern", {
   re := Regex.new(`^hello`, `y`).unwrap();

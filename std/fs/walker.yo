@@ -9,7 +9,7 @@
 //!   entries := io.await(walk(Path.new(`/tmp`), io), { io, exn });
 //!   i := usize(0);
 //!   while runtime((i < entries.len())), {
-//!     e := entries.get(i).unwrap();
+//!     e := entries(i);
 //!     println(e.path);
 //!     i = (i + usize(1));
 //!   };
@@ -83,7 +83,7 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : IO) -> Impl(Future(Arr
           entries := e.io.await(_dir.read_dir(Path.new(cur_path), e.io), e);
           i := usize(0);
           while(runtime(i < entries.len()), {
-            entry := entries.get(i).unwrap();
+            entry := entries(i);
             entry_path := _join_path(cur_path, entry.name);
             match(
               entry.file_type,

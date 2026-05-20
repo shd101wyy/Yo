@@ -252,9 +252,9 @@ test("LinkedList.insert at front (index 0)", {
   result := list.insert(usize(0), i32(5));
   assert(result.is_ok());
   assert(list.len() == usize(3));
-  assert(list.get(usize(0)).unwrap() == i32(5));
-  assert(list.get(usize(1)).unwrap() == i32(10));
-  assert(list.get(usize(2)).unwrap() == i32(20));
+  assert(list(usize(0)) == i32(5));
+  assert(list(usize(1)) == i32(10));
+  assert(list(usize(2)) == i32(20));
 });
 test("LinkedList.insert at back (index == length)", {
   list := LinkedList(i32).new();
@@ -263,7 +263,7 @@ test("LinkedList.insert at back (index == length)", {
   result := list.insert(usize(2), i32(30));
   assert(result.is_ok());
   assert(list.len() == usize(3));
-  assert(list.get(usize(2)).unwrap() == i32(30));
+  assert(list(usize(2)) == i32(30));
 });
 test("LinkedList.insert in middle", {
   list := LinkedList(i32).new();
@@ -272,16 +272,16 @@ test("LinkedList.insert in middle", {
   result := list.insert(usize(1), i32(20));
   assert(result.is_ok());
   assert(list.len() == usize(3));
-  assert(list.get(usize(0)).unwrap() == i32(10));
-  assert(list.get(usize(1)).unwrap() == i32(20));
-  assert(list.get(usize(2)).unwrap() == i32(30));
+  assert(list(usize(0)) == i32(10));
+  assert(list(usize(1)) == i32(20));
+  assert(list(usize(2)) == i32(30));
 });
 test("LinkedList.insert into empty list at index 0", {
   list := LinkedList(i32).new();
   result := list.insert(usize(0), i32(42));
   assert(result.is_ok());
   assert(list.len() == usize(1));
-  assert(list.get(usize(0)).unwrap() == i32(42));
+  assert(list(usize(0)) == i32(42));
 });
 test("LinkedList.insert returns error for out of bounds index", {
   list := LinkedList(i32).new();
@@ -296,9 +296,9 @@ test("LinkedList.insert multiple elements in sequence", {
   list.insert(usize(1), i32(2));
   list.insert(usize(2), i32(3));
   assert(list.len() == usize(3));
-  assert(list.get(usize(0)).unwrap() == i32(1));
-  assert(list.get(usize(1)).unwrap() == i32(2));
-  assert(list.get(usize(2)).unwrap() == i32(3));
+  assert(list(usize(0)) == i32(1));
+  assert(list(usize(1)) == i32(2));
+  assert(list(usize(2)) == i32(3));
 });
 // ===== Remove Tests =====
 test("LinkedList.remove from front (index 0)", {
@@ -310,7 +310,7 @@ test("LinkedList.remove from front (index 0)", {
   assert(result.is_ok());
   assert(result.unwrap() == i32(10));
   assert(list.len() == usize(2));
-  assert(list.get(usize(0)).unwrap() == i32(20));
+  assert(list(usize(0)) == i32(20));
 });
 test("LinkedList.remove from back (last index)", {
   list := LinkedList(i32).new();
@@ -332,8 +332,8 @@ test("LinkedList.remove from middle", {
   assert(result.is_ok());
   assert(result.unwrap() == i32(20));
   assert(list.len() == usize(2));
-  assert(list.get(usize(0)).unwrap() == i32(10));
-  assert(list.get(usize(1)).unwrap() == i32(30));
+  assert(list(usize(0)) == i32(10));
+  assert(list(usize(1)) == i32(30));
 });
 test("LinkedList.remove only element", {
   list := LinkedList(i32).new();
@@ -392,7 +392,7 @@ test("LinkedList can be reused after clear", {
   list.clear();
   list.push_back(i32(10));
   assert(list.len() == usize(1));
-  assert(list.get(usize(0)).unwrap() == i32(10));
+  assert(list(usize(0)) == i32(10));
 });
 // ===== Has Tests =====
 test("LinkedList.has returns true for existing element", {
@@ -464,11 +464,11 @@ test("LinkedList.reverse reverses multiple element list", {
   list.push_back(i32(5));
   list.reverse();
   assert(list.len() == usize(5));
-  assert(list.get(usize(0)).unwrap() == i32(5));
-  assert(list.get(usize(1)).unwrap() == i32(4));
-  assert(list.get(usize(2)).unwrap() == i32(3));
-  assert(list.get(usize(3)).unwrap() == i32(2));
-  assert(list.get(usize(4)).unwrap() == i32(1));
+  assert(list(usize(0)) == i32(5));
+  assert(list(usize(1)) == i32(4));
+  assert(list(usize(2)) == i32(3));
+  assert(list(usize(3)) == i32(2));
+  assert(list(usize(4)) == i32(1));
 });
 test("LinkedList.reverse twice returns to original order", {
   list := LinkedList(i32).new();
@@ -477,9 +477,9 @@ test("LinkedList.reverse twice returns to original order", {
   list.push_back(i32(3));
   list.reverse();
   list.reverse();
-  assert(list.get(usize(0)).unwrap() == i32(1));
-  assert(list.get(usize(1)).unwrap() == i32(2));
-  assert(list.get(usize(2)).unwrap() == i32(3));
+  assert(list(usize(0)) == i32(1));
+  assert(list(usize(1)) == i32(2));
+  assert(list(usize(2)) == i32(3));
 });
 test("LinkedList.reverse updates head and tail correctly", {
   list := LinkedList(i32).new();
@@ -554,10 +554,10 @@ test("LinkedList deque behavior (double-ended)", {
   deque.push_back(i32(3));
   deque.push_front(i32(0));
   assert(deque.len() == usize(4));
-  assert(deque.get(usize(0)).unwrap() == i32(0));
-  assert(deque.get(usize(1)).unwrap() == i32(1));
-  assert(deque.get(usize(2)).unwrap() == i32(2));
-  assert(deque.get(usize(3)).unwrap() == i32(3));
+  assert(deque(usize(0)) == i32(0));
+  assert(deque(usize(1)) == i32(1));
+  assert(deque(usize(2)) == i32(2));
+  assert(deque(usize(3)) == i32(3));
 });
 test("LinkedList complex operations sequence", {
   list := LinkedList(i32).new();
@@ -567,7 +567,7 @@ test("LinkedList complex operations sequence", {
   assert(list.len() == usize(3));
   list.insert(usize(2), i32(99));
   assert(list.len() == usize(4));
-  assert(list.get(usize(2)).unwrap() == i32(99));
+  assert(list(usize(2)) == i32(99));
   list.remove(usize(1));
   assert(list.len() == usize(3));
   list.reverse();
@@ -582,9 +582,9 @@ test("LinkedList large number of elements", {
     list.push_back(i32(i));
   });
   assert(list.len() == usize(100));
-  assert(list.get(usize(0)).unwrap() == i32(0));
-  assert(list.get(usize(50)).unwrap() == i32(50));
-  assert(list.get(usize(99)).unwrap() == i32(99));
+  assert(list(usize(0)) == i32(0));
+  assert(list(usize(50)) == i32(50));
+  assert(list(usize(99)) == i32(99));
   list.clear();
   assert(list.is_empty());
 });
@@ -659,7 +659,7 @@ test("LinkedList iter - mutate through pointer", {
   for(list.iter(), (ptr) => {
     ptr.* = (ptr.* * i32(10));
   });
-  assert(list.get(usize(0)).unwrap() == i32(10));
-  assert(list.get(usize(1)).unwrap() == i32(20));
-  assert(list.get(usize(2)).unwrap() == i32(30));
+  assert(list(usize(0)) == i32(10));
+  assert(list(usize(1)) == i32(20));
+  assert(list(usize(2)) == i32(30));
 });

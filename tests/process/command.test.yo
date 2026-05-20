@@ -56,10 +56,10 @@ test("Command.output captures stdout", {
   out := io.await(cmd.output(io), io);
   assert(out.status.success(), "status success");
   assert(out.stdout.len() >= usize(11), "stdout has at least 11 bytes");
-  assert(out.stdout.get(usize(0)).unwrap() == u8(121), "y");
-  assert(out.stdout.get(usize(1)).unwrap() == u8(111), "o");
-  assert(out.stdout.get(usize(2)).unwrap() == u8(95), "_");
-  assert(out.stdout.get(usize(10)).unwrap() == u8(116), "t");
+  assert(out.stdout(usize(0)) == u8(121), "y");
+  assert(out.stdout(usize(1)) == u8(111), "o");
+  assert(out.stdout(usize(2)) == u8(95), "_");
+  assert(out.stdout(usize(10)) == u8(116), "t");
 });
 test("Command.status non-zero exit", {
   exn := Exception(

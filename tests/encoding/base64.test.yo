@@ -80,11 +80,11 @@ test("base64_decode Hello", {
   );
   bytes := base64_decode("SGVsbG8=", exn);
   assert(bytes.len() == usize(5), "SGVsbG8= should decode to 5 bytes");
-  assert(bytes.get(usize(0)).unwrap() == u8(72), "byte 0 = H");
-  assert(bytes.get(usize(1)).unwrap() == u8(101), "byte 1 = e");
-  assert(bytes.get(usize(2)).unwrap() == u8(108), "byte 2 = l");
-  assert(bytes.get(usize(3)).unwrap() == u8(108), "byte 3 = l");
-  assert(bytes.get(usize(4)).unwrap() == u8(111), "byte 4 = o");
+  assert(bytes(usize(0)) == u8(72), "byte 0 = H");
+  assert(bytes(usize(1)) == u8(101), "byte 1 = e");
+  assert(bytes(usize(2)) == u8(108), "byte 2 = l");
+  assert(bytes(usize(3)) == u8(108), "byte 3 = l");
+  assert(bytes(usize(4)) == u8(111), "byte 4 = o");
 });
 test("base64_decode no padding", {
   exn := Exception(
@@ -97,9 +97,9 @@ test("base64_decode no padding", {
   );
   bytes := base64_decode("TWFu", exn);
   assert(bytes.len() == usize(3), "TWFu should decode to 3 bytes");
-  assert(bytes.get(usize(0)).unwrap() == u8(77), "byte 0 = M");
-  assert(bytes.get(usize(1)).unwrap() == u8(97), "byte 1 = a");
-  assert(bytes.get(usize(2)).unwrap() == u8(110), "byte 2 = n");
+  assert(bytes(usize(0)) == u8(77), "byte 0 = M");
+  assert(bytes(usize(1)) == u8(97), "byte 1 = a");
+  assert(bytes(usize(2)) == u8(110), "byte 2 = n");
 });
 test("base64_decode invalid character error", {
   exn := Exception(
@@ -133,7 +133,7 @@ test("base64 roundtrip", {
   assert(decoded.len() == usize(256), "roundtrip should preserve length");
   j := usize(0);
   while(j < usize(256), j = (j + usize(1)), {
-    assert(decoded.get(j).unwrap() == u8(j), "roundtrip byte mismatch");
+    assert(decoded(j) == u8(j), "roundtrip byte mismatch");
   });
 });
 test("base64 url roundtrip", {
@@ -152,9 +152,9 @@ test("base64 url roundtrip", {
   encoded := base64_encode_url(data);
   decoded := base64_decode_url(encoded.as_str(), exn);
   assert(decoded.len() == usize(3), "url roundtrip should preserve length");
-  assert(decoded.get(usize(0)).unwrap() == u8(0xFB), "url roundtrip byte 0");
-  assert(decoded.get(usize(1)).unwrap() == u8(0xFF), "url roundtrip byte 1");
-  assert(decoded.get(usize(2)).unwrap() == u8(0xFE), "url roundtrip byte 2");
+  assert(decoded(usize(0)) == u8(0xFB), "url roundtrip byte 0");
+  assert(decoded(usize(1)) == u8(0xFF), "url roundtrip byte 1");
+  assert(decoded(usize(2)) == u8(0xFE), "url roundtrip byte 2");
 });
 // ===== String-level API Tests =====
 test("encode_string empty", {

@@ -46,7 +46,7 @@ impl(
     bytes := s.as_bytes();
     i := usize(0);
     while(i < bytes.len(), i = (i + usize(1)), {
-      self.buf.push(bytes.get(i).unwrap());
+      self.buf.push(bytes(i));
     });
     self
   }),
@@ -59,7 +59,7 @@ impl(
   write_bytes : (fn(self : Self, data : ArrayList(u8)) -> Self)({
     i := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
-      self.buf.push(data.get(i).unwrap());
+      self.buf.push(data(i));
     });
     self
   }),
@@ -152,7 +152,7 @@ impl(
         // Push in reverse order (most significant first)
         i := bits.len();
         while(i > usize(0), i = (i - usize(1)), {
-          self.buf.push(bits.get(i - usize(1)).unwrap());
+          self.buf.push(bits(i - usize(1)));
         });
       }
     );

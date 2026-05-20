@@ -19,41 +19,41 @@ test("List tail shares structure", {
 });
 test("List get by index", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
-  assert(xs.get(usize(0)).unwrap() == i32(3), "index 0 should be 3");
-  assert(xs.get(usize(1)).unwrap() == i32(2), "index 1 should be 2");
-  assert(xs.get(usize(2)).unwrap() == i32(1), "index 2 should be 1");
+  assert(xs(usize(0)) == i32(3), "index 0 should be 3");
+  assert(xs(usize(1)) == i32(2), "index 1 should be 2");
+  assert(xs(usize(2)) == i32(1), "index 2 should be 1");
   assert(xs.get(usize(3)).is_none(), "index 3 should be None");
 });
 test("List reverse", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   rev := xs.reverse();
   assert(rev.head().unwrap() == i32(1), "reversed head should be 1");
-  assert(rev.get(usize(1)).unwrap() == i32(2), "reversed index 1 should be 2");
-  assert(rev.get(usize(2)).unwrap() == i32(3), "reversed index 2 should be 3");
+  assert(rev(usize(1)) == i32(2), "reversed index 1 should be 2");
+  assert(rev(usize(2)) == i32(3), "reversed index 2 should be 3");
 });
 test("List concat", {
   xs := List(i32).new().prepend(i32(2)).prepend(i32(1));
   ys := List(i32).new().prepend(i32(4)).prepend(i32(3));
   zs := xs.concat(ys);
   assert(zs.len() == usize(4), "concat length should be 4");
-  assert(zs.get(usize(0)).unwrap() == i32(1), "concat[0] should be 1");
-  assert(zs.get(usize(1)).unwrap() == i32(2), "concat[1] should be 2");
-  assert(zs.get(usize(2)).unwrap() == i32(3), "concat[2] should be 3");
-  assert(zs.get(usize(3)).unwrap() == i32(4), "concat[3] should be 4");
+  assert(zs(usize(0)) == i32(1), "concat[0] should be 1");
+  assert(zs(usize(1)) == i32(2), "concat[1] should be 2");
+  assert(zs(usize(2)) == i32(3), "concat[2] should be 3");
+  assert(zs(usize(3)) == i32(4), "concat[3] should be 4");
 });
 test("List map", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   doubled := xs.map((x) => (x * i32(2)));
-  assert(doubled.get(usize(0)).unwrap() == i32(6), "doubled[0] should be 6");
-  assert(doubled.get(usize(1)).unwrap() == i32(4), "doubled[1] should be 4");
-  assert(doubled.get(usize(2)).unwrap() == i32(2), "doubled[2] should be 2");
+  assert(doubled(usize(0)) == i32(6), "doubled[0] should be 6");
+  assert(doubled(usize(1)) == i32(4), "doubled[1] should be 4");
+  assert(doubled(usize(2)) == i32(2), "doubled[2] should be 2");
 });
 test("List filter", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3)).prepend(i32(4));
   evens := xs.filter((x) => ((x % i32(2)) == i32(0)));
   assert(evens.len() == usize(2), "filter length should be 2");
-  assert(evens.get(usize(0)).unwrap() == i32(4), "evens[0] should be 4");
-  assert(evens.get(usize(1)).unwrap() == i32(2), "evens[1] should be 2");
+  assert(evens(usize(0)) == i32(4), "evens[0] should be 4");
+  assert(evens(usize(1)) == i32(2), "evens[1] should be 2");
 });
 test("List fold", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
@@ -70,9 +70,9 @@ test("List from_slice", {
   slice := arr(usize(0) .. usize(3));
   xs := List(i32).from_slice(slice);
   assert(xs.len() == usize(3), "from_slice length should be 3");
-  assert(xs.get(usize(0)).unwrap() == i32(10), "from_slice[0] should be 10");
-  assert(xs.get(usize(1)).unwrap() == i32(20), "from_slice[1] should be 20");
-  assert(xs.get(usize(2)).unwrap() == i32(30), "from_slice[2] should be 30");
+  assert(xs(usize(0)) == i32(10), "from_slice[0] should be 10");
+  assert(xs(usize(1)) == i32(20), "from_slice[1] should be 20");
+  assert(xs(usize(2)) == i32(30), "from_slice[2] should be 30");
 });
 test("List equality", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2));

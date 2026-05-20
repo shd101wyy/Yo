@@ -90,8 +90,8 @@ impl(
         i := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
-            (keys.get(i).unwrap() == key) => {
-              return(.Some(values.get(i).unwrap()));
+            (keys(i) == key) => {
+              return(.Some(values(i)));
             },
             true => ()
           );
@@ -149,7 +149,7 @@ impl(
         result := ArrayList(JsonKV).new();
         i := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
-          result.push(JsonKV(key : keys.get(i).unwrap(), value : values.get(i).unwrap()));
+          result.push(JsonKV(key : keys(i), value : values(i)));
         });
         .Some(result)
       },
@@ -570,7 +570,7 @@ _write_str_escaped :: (fn(s : String, out : ArrayList(u8)) -> unit)({
   bytes := s.as_bytes();
   i := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
-    b := bytes.get(i).unwrap();
+    b := bytes(i);
     cond(
       (b == u8(34)) => {
         out.push(u8(92));
@@ -633,7 +633,7 @@ _stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
       bytes := s2.as_bytes();
       i := usize(0);
       while(i < bytes.len(), i = (i + usize(1)), {
-        out.push(bytes.get(i).unwrap());
+        out.push(bytes(i));
       });
     },
     .Str(s) => {
@@ -649,7 +649,7 @@ _stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
           },
           true => ()
         );
-        recur(items.get(i).unwrap(), out);
+        recur(items(i), out);
       });
       out.push(u8(93)); // ']'
     },
@@ -663,9 +663,9 @@ _stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
           },
           true => ()
         );
-        _write_str_escaped(keys.get(i).unwrap(), out);
+        _write_str_escaped(keys(i), out);
         out.push(u8(58)); // ':'
-        recur(values.get(i).unwrap(), out);
+        recur(values(i), out);
       });
       out.push(u8(125)); // '}'
     }

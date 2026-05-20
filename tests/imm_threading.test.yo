@@ -24,14 +24,14 @@ test("Vec shared across threads read-only", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
   ch := Channel(bool).new(usize(4));
   t1 := Thread.spawn((io) => {
-    assert(v.get(usize(0)).unwrap() == i32(10), "thread1 sees 10");
-    assert(v.get(usize(1)).unwrap() == i32(20), "thread1 sees 20");
-    assert(v.get(usize(2)).unwrap() == i32(30), "thread1 sees 30");
+    assert(v(usize(0)) == i32(10), "thread1 sees 10");
+    assert(v(usize(1)) == i32(20), "thread1 sees 20");
+    assert(v(usize(2)) == i32(30), "thread1 sees 30");
     ch.send(true);
   });
   t2 := Thread.spawn((io) => {
     assert(v.len() == usize(3), "thread2 sees length 3");
-    assert(v.get(usize(2)).unwrap() == i32(30), "thread2 sees 30");
+    assert(v(usize(2)) == i32(30), "thread2 sees 30");
     ch.send(true);
   });
   ch.recv();
@@ -52,12 +52,12 @@ test("Vec persistence — versions created on main, read across threads", {
   // Threads verify the independent versions
   t1 := Thread.spawn((io) => {
     assert(v1.len() == usize(4), "v1 has 4 elements");
-    assert(v1.get(usize(3)).unwrap() == i32(4), "v1 last is 4");
+    assert(v1(usize(3)) == i32(4), "v1 last is 4");
     ch.send(true);
   });
   t2 := Thread.spawn((io) => {
     assert(v2.len() == usize(3), "v2 has 3 elements");
-    assert(v2.get(usize(2)).unwrap() == i32(99), "v2 last is 99");
+    assert(v2(usize(2)) == i32(99), "v2 last is 99");
     ch.send(true);
   });
   ch.recv();
@@ -112,11 +112,11 @@ test("Map shared across threads read-only", {
   m := Map(i32, i32).new().insert(i32(1), i32(100)).insert(i32(2), i32(200));
   ch := Channel(bool).new(usize(4));
   t1 := Thread.spawn((io) => {
-    assert(m.get(i32(1)).unwrap() == i32(100), "t1 gets key 1");
+    assert(m(i32(1)) == i32(100), "t1 gets key 1");
     ch.send(true);
   });
   t2 := Thread.spawn((io) => {
-    assert(m.get(i32(2)).unwrap() == i32(200), "t2 gets key 2");
+    assert(m(i32(2)) == i32(200), "t2 gets key 2");
     ch.send(true);
   });
   ch.recv();
@@ -254,15 +254,15 @@ test("Worker pool reads shared Map", {
   wg := WaitGroup.new();
   wg.add(i32(3));
   Worker.spawn((io) => {
-    assert(m.get(i32(1)).unwrap() == i32(10), "worker1 reads key 1");
+    assert(m(i32(1)) == i32(10), "worker1 reads key 1");
     wg.done();
   });
   Worker.spawn((io) => {
-    assert(m.get(i32(2)).unwrap() == i32(20), "worker2 reads key 2");
+    assert(m(i32(2)) == i32(20), "worker2 reads key 2");
     wg.done();
   });
   Worker.spawn((io) => {
-    assert(m.get(i32(3)).unwrap() == i32(30), "worker3 reads key 3");
+    assert(m(i32(3)) == i32(30), "worker3 reads key 3");
     wg.done();
   });
   wg.wait();
@@ -416,7 +416,7 @@ test("Thread with mixed consumed and borrowed captures", {
   ch := Channel(usize).new(usize(4));
   t1 := Thread.spawn((io) => {
     v2 := v.push(i32(2));
-    val := m.get(i32(1)).unwrap();
+    val := m(i32(1));
     ch.send(v2.len() + usize(val));
   });
   result := ch.recv().unwrap();
@@ -530,11 +530,11 @@ test("Mixed Map types across threads", {
   m = m.insert(i32(3), i32(30));
   ch := Channel(i32).new(usize(4));
   t1 := Thread.spawn((io) => {
-    val := m.get(i32(1)).unwrap();
+    val := m(i32(1));
     ch.send(val);
   });
   t2 := Thread.spawn((io) => {
-    val := m.get(i32(3)).unwrap();
+    val := m(i32(3));
     ch.send(val);
   });
   r1 := ch.recv().unwrap();
@@ -561,7 +561,7 @@ test("Mixed List and Vec across threads", {
     sum := i32(0);
     i := usize(0);
     while(runtime(i < v.len()), {
-      sum = (sum + v.get(i).unwrap());
+      sum = (sum + v(i));
       i = (i + usize(1));
     });
     ch.send(sum);
@@ -619,11 +619,11 @@ test("Mixed Map and SortedMap across threads", {
   sm = sm.insert(i32(4), i32(400));
   ch := Channel(i32).new(usize(4));
   t1 := Thread.spawn((io) => {
-    val := m.get(i32(2)).unwrap();
+    val := m(i32(2));
     ch.send(val);
   });
   t2 := Thread.spawn((io) => {
-    val := sm.get(i32(4)).unwrap();
+    val := sm(i32(4));
     ch.send(val);
   });
   r1 := ch.recv().unwrap();

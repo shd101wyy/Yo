@@ -49,7 +49,7 @@ impl(
     hi := self._entries.len();
     while(lo < hi, {
       mid := (lo + ((hi - lo) / usize(2)));
-      entry_key := self._entries.get(mid).unwrap().key;
+      entry_key := self._entries(mid).key;
       cond(
         (entry_key < k) => {
           lo = (mid + usize(1));
@@ -68,7 +68,7 @@ impl(
   get : (fn(self : Self, k : K, where(K <: Ord(K))) -> ?(V))({
     r := self._find(k);
     cond(
-      r.found =>.Some(self._entries.get(r.idx).unwrap().value),
+      r.found =>.Some(self._entries(r.idx).value),
       true =>.None
     )
   }),
@@ -78,7 +78,7 @@ impl(
     r := self._find(k);
     cond(
       r.found => {
-        entry := self._entries.get(r.idx).unwrap();
+        entry := self._entries(r.idx);
         &(self._entries(r.idx)).* = BTreeEntry(K, V)(key : entry.key, value : v);
       },
       true => {
@@ -86,8 +86,8 @@ impl(
         self._entries.push(BTreeEntry(K, V)(key : k, value : v));
         pos := (self._entries.len() - usize(1));
         while(pos > r.idx, pos = (pos - usize(1)), {
-          curr := self._entries.get(pos).unwrap();
-          prev := self._entries.get(pos - usize(1)).unwrap();
+          curr := self._entries(pos);
+          prev := self._entries(pos - usize(1));
           &(self._entries(pos)).* = prev;
           &(self._entries(pos - usize(1))).* = curr;
         });
@@ -99,7 +99,7 @@ impl(
     r := self._find(k);
     cond(
       r.found => {
-        v := self._entries.get(r.idx).unwrap().value;
+        v := self._entries(r.idx).value;
         self._entries.remove(r.idx);
         .Some(v)
       },
@@ -110,14 +110,14 @@ impl(
   min : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) =>.None,
-      true =>.Some(self._entries.get(usize(0)).unwrap())
+      true =>.Some(self._entries(usize(0)))
     )
   ),
   // Return the entry with the largest key, or .None.
   max : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) =>.None,
-      true =>.Some(self._entries.get(self._entries.len() - usize(1)).unwrap())
+      true =>.Some(self._entries(self._entries.len() - usize(1)))
     )
   )
 );
@@ -139,7 +139,7 @@ impl(
       cond(
         (self._index >= self._entries.len()) =>.None,
         true => {
-          entry := self._entries.get(self._index).unwrap();
+          entry := self._entries(self._index);
           self._index = (self._index + usize(1));
           .Some(entry)
         }

@@ -242,11 +242,11 @@ test("TCP read_bytes gets all data", {
   data := io.await(server_stream.read_bytes(io), io);
   printf("  read_bytes len = %lld\n", i64(data.len()));
   assert(data.len() == usize(5), "should be 5 bytes");
-  assert(data.get(usize(0)).unwrap() == u8(65), "A");
-  assert(data.get(usize(1)).unwrap() == u8(66), "B");
-  assert(data.get(usize(2)).unwrap() == u8(67), "C");
-  assert(data.get(usize(3)).unwrap() == u8(68), "D");
-  assert(data.get(usize(4)).unwrap() == u8(69), "E");
+  assert(data(usize(0)) == u8(65), "A");
+  assert(data(usize(1)) == u8(66), "B");
+  assert(data(usize(2)) == u8(67), "C");
+  assert(data(usize(3)) == u8(68), "D");
+  assert(data(usize(4)) == u8(69), "E");
   io.await(server_stream.close(io), io);
   io.await(client.close(io), io);
   io.await(listener.close(io), io);

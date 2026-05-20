@@ -57,20 +57,20 @@ impl(
     cond(
       (first < u8(0x80)) => u32(first),
       ((first >= u8(0xC0)) && (first < u8(0xE0))) => {
-        second := self._bytes.get(self._pos).unwrap();
+        second := self._bytes(self._pos);
         self._pos = (self._pos + usize(1));
         ((u32(first) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F))
       },
       ((first >= u8(0xE0)) && (first < u8(0xF0))) => {
-        second := self._bytes.get(self._pos).unwrap();
-        third := self._bytes.get(self._pos + usize(1)).unwrap();
+        second := self._bytes(self._pos);
+        third := self._bytes(self._pos + usize(1));
         self._pos = (self._pos + usize(2));
         (((u32(first) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F))
       },
       true => {
-        second := self._bytes.get(self._pos).unwrap();
-        third := self._bytes.get(self._pos + usize(1)).unwrap();
-        fourth := self._bytes.get(self._pos + usize(2)).unwrap();
+        second := self._bytes(self._pos);
+        third := self._bytes(self._pos + usize(1));
+        fourth := self._bytes(self._pos + usize(2));
         self._pos = (self._pos + usize(3));
         ((((u32(first) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F))
       }
@@ -88,7 +88,7 @@ impl(
   _lookup_group_name : (fn(self : Self, name : String) -> Option(usize))({
     i := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
-      entry := self._group_names.get(i).unwrap();
+      entry := self._group_names(i);
       cond(
         (entry.name == name) => {
           return(.Some(entry.index));
@@ -136,7 +136,7 @@ impl(
     result := usize(0);
     i := start;
     while(i < self._pos, i = (i + usize(1)), {
-      d := self._bytes.get(i).unwrap();
+      d := self._bytes(i);
       result = ((result * usize(10)) + usize(d - u8(48)));
     });
     .Some(result)
@@ -181,8 +181,8 @@ impl(
     if((self._pos + usize(2)) > self._bytes.len(), {
       return(.None);
     });
-    (h1 : u8) = self._bytes.get(self._pos).unwrap();
-    (h2 : u8) = self._bytes.get(self._pos + usize(1)).unwrap();
+    (h1 : u8) = self._bytes(self._pos);
+    (h2 : u8) = self._bytes(self._pos + usize(1));
     (v1 : i32) = cond(
       ((h1 >= u8(48)) && (h1 <= u8(57))) => (i32(h1) - i32(48)),
       ((h1 >= u8(65)) && (h1 <= u8(70))) => ((i32(h1) - i32(65)) + i32(10)),
@@ -264,7 +264,7 @@ impl(
         has_end := ((self._pos + usize(1)) < self._bytes.len());
         cond(
           has_end => {
-            end_first := self._bytes.get(self._pos + usize(1)).unwrap();
+            end_first := self._bytes(self._pos + usize(1));
             cond(
               (end_first == u8(93)) => {
                 ranges.push(CharRange(low : low, high : low));
@@ -277,8 +277,8 @@ impl(
                 match(
                   esc,
                   .Ok(esc_ranges) => {
-                    if((esc_ranges.len() == usize(1)) && (esc_ranges.get(usize(0)).unwrap().low == esc_ranges.get(usize(0)).unwrap().high), {
-                      (high : u32) = esc_ranges.get(usize(0)).unwrap().low;
+                    if((esc_ranges.len() == usize(1)) && (esc_ranges(usize(0)).low == esc_ranges(usize(0)).high), {
+                      (high : u32) = esc_ranges(usize(0)).low;
                       ranges.push(CharRange(low : low, high : high));
                     }, {
                       // Multi-range unwind like \d can't be range endpoint; treat dash as literal
@@ -286,7 +286,7 @@ impl(
                       ranges.push(CharRange(low : u32(45), high : u32(45)));
                       j := usize(0);
                       while(j < esc_ranges.len(), j = (j + usize(1)), {
-                        ranges.push(esc_ranges.get(j).unwrap());
+                        ranges.push(esc_ranges(j));
                       });
                     });
                   },
@@ -336,13 +336,13 @@ impl(
           esc,
           .Ok(esc_ranges) => {
             // If unwind produced a single codepoint, check for range (e.g. \0-\x20)
-            if((esc_ranges.len() == usize(1)) && (esc_ranges.get(usize(0)).unwrap().low == esc_ranges.get(usize(0)).unwrap().high), {
-              (low : u32) = esc_ranges.get(usize(0)).unwrap().low;
+            if((esc_ranges.len() == usize(1)) && (esc_ranges(usize(0)).low == esc_ranges(usize(0)).high), {
+              (low : u32) = esc_ranges(usize(0)).low;
               self._try_parse_char_range(ranges, low);
             }, {
               j := usize(0);
               while(j < esc_ranges.len(), j = (j + usize(1)), {
-                ranges.push(esc_ranges.get(j).unwrap());
+                ranges.push(esc_ranges(j));
               });
             });
           },
@@ -677,7 +677,7 @@ impl(
   _make_sequence : (fn(self : Self, nodes : ArrayList(RegexNode)) -> RegexNode)(
     cond(
       (nodes.len() == usize(0)) => RegexNode.sequence(ArrayList(RegexNode).new()),
-      (nodes.len() == usize(1)) => nodes.get(usize(0)).unwrap(),
+      (nodes.len() == usize(1)) => nodes(usize(0)),
       true => RegexNode.sequence(nodes)
     )
   ),
@@ -689,10 +689,10 @@ impl(
       true => ()
     );
     alts.push(seq);
-    result := self._make_sequence(alts.get(usize(0)).unwrap());
+    result := self._make_sequence(alts(usize(0)));
     i := usize(1);
     while(i < alts.len(), i = (i + usize(1)), {
-      right := self._make_sequence(alts.get(i).unwrap());
+      right := self._make_sequence(alts(i));
       result = RegexNode.alternation(result, right);
     });
     result
@@ -873,7 +873,7 @@ impl(
             cur_non_cap => RegexNode.non_capturing_group(inner),
             true => RegexNode.group(inner, cur_group_idx)
           );
-          parent := stack.get(stack.len() - usize(1)).unwrap();
+          parent := stack(stack.len() - usize(1));
           stack.pop();
           cur_alts = parent.alternatives;
           cur_seq = parent.current;

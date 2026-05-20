@@ -117,12 +117,12 @@ _find_header_end :: (fn(data : ArrayList(u8)) -> usize)({
   while(runtime(i < limit), {
     cond(
       (
-        (data.get(i).unwrap() == u8(13)) &&
+        (data(i) == u8(13)) &&
           (
-            (data.get(i + usize(1)).unwrap() == u8(10)) &&
+            (data(i + usize(1)) == u8(10)) &&
               (
-                (data.get(i + usize(2)).unwrap() == u8(13)) &&
-                  (data.get(i + usize(3)).unwrap() == u8(10))
+                (data(i + usize(2)) == u8(13)) &&
+                  (data(i + usize(3)) == u8(10))
               )
           )
       ) => {
@@ -140,7 +140,7 @@ _find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
   header_bytes := ArrayList(u8).new();
   i := usize(0);
   while(runtime(i < header_end), {
-    header_bytes.push(data.get(i).unwrap());
+    header_bytes.push(data(i));
     i = (i + usize(1));
   });
   header_str := String.from_bytes(header_bytes).to_lowercase();
@@ -285,7 +285,7 @@ fetch_with :: (
       },
       true => ()
     );
-    ip := addrs.get(usize(0)).unwrap();
+    ip := addrs(usize(0));
     addr := SocketAddr.new(ip, port);
     // Connect
     stream := e.io.await(TcpStream.connect(addr, e.io), e);
@@ -310,7 +310,7 @@ fetch_with :: (
     // Add user-provided headers
     hi := usize(0);
     while(runtime(hi < opts.headers.len()), {
-      h := opts.headers.get(hi).unwrap();
+      h := opts.headers(hi);
       req.set_header(h.name, h.value);
       hi = (hi + usize(1));
     });
