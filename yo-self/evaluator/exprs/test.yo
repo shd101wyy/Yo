@@ -195,11 +195,11 @@ evaluate_test :: (
     .None => io_module_var.ty
   );
   // Push a new frame for the test body (isolates io variable from outer scope).
-  _frame_idx := (&(env)).push_frame(false);
+  _frame_idx := env.push_frame(false);
   // Add the implicit `io : IO` variable to the new frame.
   io_unknown_val := create_unknown_val(io_module_type);
   _io_var_opt := add_variable_to_env(
-    &(env),
+    env,
     String.from("io"),
     io_module_type,
     Option(EvalValue).Some(io_unknown_val),
@@ -230,7 +230,7 @@ evaluate_test :: (
   // Restore context.
   ctx.is_evaluating_function_body_or_async_block = old_func_ctx;
   // Pop the frame to restore env to pre-test state.
-  (&(env)).pop_frame();
+  env.pop_frame();
   // Validate that the test body returns unit.
   body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_test_body_expr));
   if(!(body_info_opt.is_some()), {

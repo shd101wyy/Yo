@@ -96,7 +96,7 @@ _analyze_ctfe_capability :: (
     cv := match(cap_vals.get(cap_i),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
     is_ct := match(cv,.Some(_) => true,.None => false);
     _add := add_variable_to_env(
-      &(ctfe_env),
+      ctfe_env,
       cn,
       ct,
       cv,
@@ -114,7 +114,7 @@ _analyze_ctfe_capability :: (
   // is_analyzing_ctfe_capability = true.
   recur_tok := synthetic_token(String.from("__recur_fn"), env.module_path);
   _add_recur := add_variable_to_env(
-    &(ctfe_env),
+    ctfe_env,
     String.from("__recur_fn"),
     func_type,
     Option(EvalValue).Some(func_value),
@@ -133,7 +133,7 @@ _analyze_ctfe_capability :: (
     punknown := create_unknown_val(ptype);
     ptok := synthetic_token(plabel, env.module_path);
     _add_p := add_variable_to_env(
-      &(ctfe_env),
+      ctfe_env,
       plabel,
       ptype,
       Option(EvalValue).Some(punknown),

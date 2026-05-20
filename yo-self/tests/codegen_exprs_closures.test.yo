@@ -47,7 +47,7 @@ test("check_variable_is_closure_captured: outer-frame var captured when capture 
   // env starts with one frame (frame_level == 0). Add `x` there.
   env := Environment.new(String.from("test"));
   _r := add_variable_to_env(
-    &(env),
+    env,
     String.from("x"),
     t_i32(),
     Option(EvalValue).None,
@@ -68,9 +68,9 @@ test("check_variable_is_closure_captured: inner-frame var is local, not captured
   // get frame_level 1. capture_frame_level = 0 ⇒ inner var's
   // frame_level (1) > 0 ⇒ NOT captured (it's a local).
   env := Environment.new(String.from("test"));
-  _push_idx := (&(env)).push_frame(true);
+  _push_idx := env.push_frame(true);
   _r := add_variable_to_env(
-    &(env),
+    env,
     String.from("inner"),
     t_i32(),
     Option(EvalValue).None,

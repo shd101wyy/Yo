@@ -684,7 +684,7 @@ format_variant_info_call :: (
 /// Mutates env in place via pointer; returns the generated variable name.
 _ti_bind_type :: (
   fn(
-    env_ptr : *(Environment),
+    inout(env_ptr) : Environment,
     ty : TypeValue,
     _ctx : *(EvalContext)
   ) -> String
@@ -707,7 +707,7 @@ _ti_bind_type :: (
 /// Updates env pointed to by env_ptr; returns the resulting EvalValue if any.
 _ti_eval_code :: (
   fn(
-    env_ptr : *(Environment),
+    inout(env_ptr) : Environment,
     code : String,
     ctx : *(EvalContext),
     exn : Exception
@@ -731,7 +731,7 @@ _ti_eval_code :: (
 /// obtain the element type.  Binds the list to a fresh temp var and returns its name.
 _ti_bind_comptime_list :: (
   fn(
-    env_ptr : *(Environment),
+    inout(env_ptr) : Environment,
     values : ArrayList(EvalValue),
     type_name : String,
     var_prefix : String,
@@ -778,7 +778,7 @@ _ti_bind_comptime_list :: (
 /// Evaluates `TypeFieldInfo("label", ty_var)` in the env via code string.
 _ti_build_type_field_info :: (
   fn(
-    env_ptr : *(Environment),
+    inout(env_ptr) : Environment,
     label : String,
     field_ty : TypeValue,
     ctx : *(EvalContext),
@@ -798,7 +798,7 @@ _ti_build_type_field_info :: (
 /// Returns the name of the temp var holding the list.
 _ti_bind_type_field_list :: (
   fn(
-    env_ptr : *(Environment),
+    inout(env_ptr) : Environment,
     labels : ArrayList(String),
     types : ArrayList(TypeValue),
     ctx : *(EvalContext),
@@ -821,7 +821,7 @@ _ti_bind_type_field_list :: (
 /// Evaluates `VariantInfo("name", fl_var, et_var, usize(idx))` via code string.
 _ti_build_variant_info :: (
   fn(
-    env_ptr : *(Environment),
+    inout(env_ptr) : Environment,
     v_name : String,
     v_field_labels : ArrayList(String),
     v_field_types : ArrayList(TypeValue),
@@ -846,7 +846,7 @@ _ti_build_variant_info :: (
 /// Returns the name of the temp var holding the list.
 _ti_bind_variant_info_list :: (
   fn(
-    env_ptr : *(Environment),
+    inout(env_ptr) : Environment,
     enum_ty : TypeValue,
     variant_names : ArrayList(String),
     variant_fields : ArrayList(ArrayList(TypeValue)),
@@ -984,31 +984,31 @@ evaluate_yo_type_get_info :: (
     .Float(bits) => if(bits == u8(32), String.from("TypeInfo.F32"), String.from("TypeInfo.F64")),
     .TypeUni(level) => ((String.from("TypeInfo.Type(") + level.to_string()) + String.from(")")),
     .Pointer(pointee_box) => {
-      cn := _ti_bind_type(&(local_env), pointee_box.*, ctx);
+      cn := _ti_bind_type(local_env, pointee_box.*, ctx);
       (String.from("TypeInfo.Ptr(") + cn) + String.from(")")
     },
     .Slice(element_box) => {
-      cn := _ti_bind_type(&(local_env), element_box.*, ctx);
+      cn := _ti_bind_type(local_env, element_box.*, ctx);
       (String.from("TypeInfo.Slice(") + cn) + String.from(")")
     },
     .Array(element_box, length) => {
-      cn := _ti_bind_type(&(local_env), element_box.*, ctx);
+      cn := _ti_bind_type(local_env, element_box.*, ctx);
       (((String.from("TypeInfo.Array(") + cn) + String.from(", ")) + length.to_string()) + String.from(")")
     },
     .IsoT(child_box) => {
-      cn := _ti_bind_type(&(local_env), child_box.*, ctx);
+      cn := _ti_bind_type(local_env, child_box.*, ctx);
       (String.from("TypeInfo.Iso(") + cn) + String.from(")")
     },
     .ComptimeListT(child_box) => {
-      cn := _ti_bind_type(&(local_env), child_box.*, ctx);
+      cn := _ti_bind_type(local_env, child_box.*, ctx);
       (String.from("TypeInfo.ComptimeList(") + cn) + String.from(")")
     },
     .Tuple(labels, types) => {
-      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, exn);
+      fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Tuple(") + fl_name) + String.from(")")
     },
     .Struct(_, _, labels, types, is_ref, is_atomic, is_newtype) => {
-      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, exn);
+      fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       kind_str := cond(
         is_newtype => String.from("StructKind.NewType"),
         is_atomic => String.from("StructKind.AtomicObject"),
@@ -1018,15 +1018,15 @@ evaluate_yo_type_get_info :: (
       (((String.from("TypeInfo.Struct(") + fl_name) + String.from(", ")) + kind_str) + String.from(")")
     },
     .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _) => {
-      vl_name := _ti_bind_variant_info_list(&(local_env), type_val, variant_names, variant_fields, variant_field_labels, ctx, exn);
+      vl_name := _ti_bind_variant_info_list(local_env, type_val, variant_names, variant_fields, variant_field_labels, ctx, exn);
       (String.from("TypeInfo.Enum(") + vl_name) + String.from(")")
     },
     .Union(_, labels, types) => {
-      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, exn);
+      fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Union(") + fl_name) + String.from(")")
     },
     .ModuleT(_, _, labels, types) => {
-      fl_name := _ti_bind_type_field_list(&(local_env), labels, types, ctx, exn);
+      fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Module(") + fl_name) + String.from(")")
     },
     _ => {
@@ -1444,7 +1444,7 @@ evaluate_type_join_fields :: (
   // Bind mapper to a temp var so it can be called by name.
   mapper_name := `__dm_${random_id(local_env.module_path)}`;
   _add_mapper := add_variable_to_env(
-    &(local_env),
+    local_env,
     String.from(mapper_name.as_str()),
     info1.ty,
     Option(EvalValue).Some(mapper_val),
@@ -1485,16 +1485,16 @@ evaluate_type_join_fields :: (
     label := match(struct_labels.get(si),.Some(l) => l,.None => String.from(""));
     field_ty := match(struct_types.get(si),.Some(t) => t,.None => t_unit());
     // Build FieldInfo("label", type_var).
-    ft_name := _ti_bind_type(&(local_env), field_ty, ctx);
+    ft_name := _ti_bind_type(local_env, field_ty, ctx);
     escaped_label := _ti_escape_str(label);
     fi_code := ((((String.from("FieldInfo(\"") + escaped_label) + String.from("\", ")) + ft_name) + String.from(")"));
-    fi_val_opt := _ti_eval_code(&(local_env), fi_code, ctx, exn);
+    fi_val_opt := _ti_eval_code(local_env, fi_code, ctx, exn);
     fi_val := match(fi_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
     fi_type := type_of_eval_value(fi_val);
     // Bind FieldInfo to temp var, then call mapper(fi_name).
     fi_name := `__da_${random_id(local_env.module_path)}`;
     _add_fi := add_variable_to_env(
-      &(local_env),
+      local_env,
       String.from(fi_name.as_str()),
       fi_type,
       Option(EvalValue).Some(fi_val),
@@ -1696,7 +1696,7 @@ evaluate_type_map_variants :: (
   // Bind mapper to a temp var.
   mapper_name := `__dvm_${random_id(local_env.module_path)}`;
   _add_mapper := add_variable_to_env(
-    &(local_env),
+    local_env,
     String.from(mapper_name.as_str()),
     info1.ty,
     Option(EvalValue).Some(mapper_val),
@@ -1718,12 +1718,12 @@ evaluate_type_map_variants :: (
     v_fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
     v_field_labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
     // Build VariantInfo value.
-    vi_val := _ti_build_variant_info(&(local_env), v_name, v_field_labels, v_fields, target_type, vi, ctx, exn);
+    vi_val := _ti_build_variant_info(local_env, v_name, v_field_labels, v_fields, target_type, vi, ctx, exn);
     vi_type := type_of_eval_value(vi_val);
     // Bind VariantInfo to temp var, then call mapper(vi_var_name).
     vi_name := `__dvi_${random_id(local_env.module_path)}`;
     _add_vi := add_variable_to_env(
-      &(local_env),
+      local_env,
       String.from(vi_name.as_str()),
       vi_type,
       Option(EvalValue).Some(vi_val),

@@ -1198,7 +1198,7 @@ evaluate_ctl_function_body_inline :: (
                   existing := get_variables_from_env(specialized_env, caller_var.name);
                   if(existing.len() == usize(0), {
                     _add_caller_var_res := add_variable_to_env(
-                      &(specialized_env),
+                      specialized_env,
                       caller_var.name.clone(),
                       caller_var.ty,
                       caller_var.value,
@@ -1242,7 +1242,7 @@ evaluate_ctl_function_body_inline :: (
     fl_ty := match(forall_types_list.get(fi2),.Some(t) => t,.None => TypeValue.Unit);
     ctl_tok := synthetic_token(fl_label.clone(), specialized_env.module_path);
     _add_forall_var_res := add_variable_to_env(
-      &(specialized_env),
+      specialized_env,
       fl_label.clone(),
       fl_ty,
       Option(EvalValue).Some(create_type_value(concrete_type_for_forall)),
@@ -1538,7 +1538,7 @@ try_to_call_function_with_arguments :: (
           .None => ()
         );
         _ := add_variable_to_env(
-          &(callee_env),
+          callee_env,
           flabel,
           ftype,
           Option(EvalValue).Some(forall_val),

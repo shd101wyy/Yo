@@ -162,7 +162,7 @@ call_registered_derive_rule :: (
         );
         is_ct_only := match(cap_v,.Some(_) => true,.None => false);
         _add_cap := add_variable_to_env(
-          &(fresh_env),
+          fresh_env,
           cn,
           ct,
           cap_v,
@@ -188,7 +188,7 @@ call_registered_derive_rule :: (
         random_id(caller_env.module_path)
       );
       _add_recur := add_variable_to_env(
-        &(fresh_env),
+        fresh_env,
         String.from("__recur_fn"),
         t_unit(),
         Option(EvalValue).Some(fv_for_recur),
@@ -215,7 +215,7 @@ call_registered_derive_rule :: (
               .None => new_expr_info(caller_env, t_unit())
             );
             _add_forall := add_variable_to_env(
-              &(fresh_env),
+              fresh_env,
               fa_name,
               TypeValue.TypeUni(usize(0)),
               Option(EvalValue).Some(EvalValue.TypeVal(box(arg_inf.ty))),
@@ -238,7 +238,7 @@ call_registered_derive_rule :: (
         arg_inf := match(evaled_arg_infos.get(pi),.Some(i) => i,.None => new_expr_info(caller_env, t_unit()));
         is_ct := match(arg_inf.value,.Some(_) => true,.None => false);
         _add_p := add_variable_to_env(
-          &(fresh_env),
+          fresh_env,
           pname,
           arg_inf.ty,
           arg_inf.value,
@@ -257,7 +257,7 @@ call_registered_derive_rule :: (
         ev_inf := match(evaled_arg_infos.get(n_p + evi),.Some(i) => i,.None => new_expr_info(caller_env, t_unit()));
         is_ct_ev := match(ev_inf.value,.Some(_) => true,.None => false);
         _add_ev := add_variable_to_env(
-          &(fresh_env),
+          fresh_env,
           ev_name,
           ev_inf.ty,
           ev_inf.value,
@@ -512,7 +512,7 @@ evaluate_derive :: (
       if(fp_name.len() > usize(0), {
         unknown_val := EvalValue.UnknownVal(box(TypeValue.TypeUni(usize(0))));
         _add_fp := add_variable_to_env(
-          &(env),
+          env,
           fp_name,
           TypeValue.TypeUni(usize(0)),
           Option(EvalValue).Some(unknown_val),

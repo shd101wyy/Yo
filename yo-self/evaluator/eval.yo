@@ -140,7 +140,7 @@ open(import("std/fmt"));
 // Filled in by _eval_fn_init after evaluate is defined so call_funcval_with_args
 // can invoke evaluate without a forward reference.
 // ---------------------------------------------------------------------------
-(g_eval_fn : Option((fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult)))) =.None;
+(g_eval_fn : Option((fn(e : AstExpr, inout(env) : Environment) -> Option(EvalResult)))) =.None;
 // ---------------------------------------------------------------------------
 // Module loader callback slot (Phase 3m).
 // When set, `import("path")` looks up the path via this callback and returns
@@ -306,7 +306,7 @@ is_named_field_arg :: (fn(args : ArrayList(AstExpr)) -> bool)(
 /// Look up an identifier in the environment. Returns the stored compile-time
 /// value when available; otherwise a `VarRef` carrying the variable's type.
 /// Returns `None` if the name is unbound.
-eval_identifier :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))({
+eval_identifier :: (fn(tok : Token, inout(env) : Environment) -> Option(EvalResult))({
   name := tok.value.as_str();
   // Special keywords that can appear as bare identifiers
   cond(
@@ -314,7 +314,7 @@ eval_identifier :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))
     (name == "continue") =>.Some(eval_result(.ContinueVal, t_unit())),
     true =>
       match(
-        (env.*).lookup(tok.value),
+        env.lookup(tok.value),
         .Some(var) =>
           match(
             var.value,
@@ -332,7 +332,7 @@ eval_identifier :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))
   )
 });
 /// Evaluate a single-token `Atom` expression (does not recurse into evaluate).
-eval_atom :: (fn(tok : Token, env : *(Environment)) -> Option(EvalResult))(
+eval_atom :: (fn(tok : Token, inout(env) : Environment) -> Option(EvalResult))(
   cond(
     (tok.kind == TokenKind.Bool) => {
       b := (tok.value.as_str() == "true");
@@ -400,7 +400,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
 ///   - `ident`        — bare identifier (no dot), binds the whole scrutinee
 ///   - `.None`        — fieldless enum variant `FnCall(Atom(Dot), [Atom("None")], _)`
 ///   - `.Some(x, …)` — variant with positional bindings
-try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty : TypeValue, env : *(Environment)) -> bool)(
+try_match_pat :: (fn(pattern : AstExpr, scrutinee_val : EvalValue, scrutinee_ty : TypeValue, inout(env) : Environment) -> bool)(
   match(
     pattern,
     // -----------------------------------------------------------------------
@@ -631,9 +631,9 @@ call_funcval_with_args :: (
                           .Some(cv) => {
                             _dch := cond(
                               (!(value_is_comptime(cv))) =>
-                                (&(fresh_fn_env)).define_val(cn, ct, false, Option(EvalValue).None),
+                                fresh_fn_env.define_val(cn, ct, false, Option(EvalValue).None),
                               true =>
-                                (&(fresh_fn_env)).define_val(cn, ct, true,.Some(cv))
+                                fresh_fn_env.define_val(cn, ct, true,.Some(cv))
                             );
                           },
                           .None => ()
@@ -644,8 +644,8 @@ call_funcval_with_args :: (
                 );
                 chi = (chi + usize(1));
               });
-              _ffr := (&(fresh_fn_env)).push_frame(false);
-              _frr := (&(fresh_fn_env)).define_val(
+              _ffr := fresh_fn_env.push_frame(false);
+              _frr := fresh_fn_env.define_val(
                 String.from("__recur_fn"),
                 t_unit(),
                 true,
@@ -672,7 +672,7 @@ call_funcval_with_args :: (
                               match(
                                 already_evaled.get(ptn_i_h),
                                 .Some(arg_res) => {
-                                  _fa_bind := (&(fresh_fn_env)).define_val(
+                                  _fa_bind := fresh_fn_env.define_val(
                                     fa_name,
                                     t_type(),
                                     true,
@@ -703,7 +703,7 @@ call_funcval_with_args :: (
                     match(
                       already_evaled.get(pi),
                       .Some(pval) => {
-                        _dph := (&(fresh_fn_env)).define_val(
+                        _dph := fresh_fn_env.define_val(
                           pname,
                           pval.ty,
                           value_is_comptime(pval.value),
@@ -725,7 +725,7 @@ call_funcval_with_args :: (
                     match(
                       already_evaled.get(n_p + evi),
                       .Some(ev_pval) => {
-                        _dev := (&(fresh_fn_env)).define_val(
+                        _dev := fresh_fn_env.define_val(
                           ev_pname,
                           ev_pval.ty,
                           value_is_comptime(ev_pval.value),
@@ -738,7 +738,7 @@ call_funcval_with_args :: (
                 );
                 evi = (evi + usize(1));
               });
-              body_rh := ef(body.*, &(fresh_fn_env));
+              body_rh := ef(body.*, fresh_fn_env);
               match(
                 body_rh,
                 .None => Option(EvalResult).None,
@@ -766,7 +766,7 @@ handle_array_push_mutation :: (
   fn(
     recv_expr : AstExpr,
     rhs_expr : AstExpr,
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )(
   match(
@@ -782,7 +782,7 @@ handle_array_push_mutation :: (
                 // Only handle bare identifier receivers: arr.push(x)
                 .Atom(_, arr_tok_m) =>
                   match(
-                    env.*.lookup(arr_tok_m.value),
+                    env.lookup(arr_tok_m.value),
                     .None => Option(EvalResult).None,
                     .Some(var_m) =>
                       match(
@@ -805,7 +805,7 @@ handle_array_push_mutation :: (
                                     .None => Option(EvalResult).None,
                                     .Some(push_res) => {
                                       items_m.push(push_res.value);
-                                      _ok_p := env.*.set_value(arr_tok_m.value,.ArrayVal(items_m));
+                                      _ok_p := env.set_value(arr_tok_m.value,.ArrayVal(items_m));
                                       .Some(eval_result(.UnitVal, t_unit()))
                                     }
                                   )
@@ -834,7 +834,7 @@ handle_struct_field_mutation :: (
     recv_opt : Option(AstExpr),
     field_opt : Option(AstExpr),
     rhs_expr : AstExpr,
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )(
   match(
@@ -862,7 +862,7 @@ handle_struct_field_mutation :: (
                         .None => Option(EvalResult).None,
                         .Some(rhs_res) =>
                           match(
-                            env.*.lookup(recv_tok.value),
+                            env.lookup(recv_tok.value),
                             .None => Option(EvalResult).None,
                             .Some(recv_var) =>
                               match(
@@ -916,7 +916,7 @@ handle_struct_field_mutation :: (
                                             );
                                             k = (k + usize(1));
                                           });
-                                          _sfok := env.*.set_value(
+                                          _sfok := env.set_value(
                                             recv_tok.value,
                                             .StructVal(stype, sfnames, new_fvals)
                                           );
@@ -1057,7 +1057,7 @@ handle_method_dispatch :: (
     recv_val : EvalValue,
     method_func_box : Box(AstExpr),
     method_call_args : ArrayList(AstExpr),
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )(
   match(
@@ -3859,11 +3859,11 @@ handle_method_dispatch :: (
         true => ()
       );
       maybe_mval := match(
-        env.*.lookup(qn),
+        env.lookup(qn),
         .Some(mv) => mv.value,
         .None =>
           match(
-            env.*.lookup(String.from(mname)),
+            env.lookup(String.from(mname)),
             .Some(mv2) => mv2.value,
             .None => Option(EvalValue).None
           )
@@ -3918,7 +3918,7 @@ handle_method_dispatch :: (
 handle_impl_form :: (
   fn(
     args : ArrayList(AstExpr),
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )(
   match(
@@ -4084,7 +4084,7 @@ handle_impl_form :: (
 ///
 /// Returns `Some(ModuleVal(names, values))` on success, or `None` if
 /// `g_eval_fn` is not set or any expression fails to evaluate.
-evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) -> Option(EvalValue))({
+evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), inout(env) : Environment) -> Option(EvalValue))({
   names := ArrayList(String).new();
   values := ArrayList(EvalValue).new();
   n := exprs.len();
@@ -4113,7 +4113,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
                             export_expr,
                             .Atom(_, name_tok) => {
                               match(
-                                env.*.lookup(String.from(name_tok.value.as_str())),
+                                env.lookup(String.from(name_tok.value.as_str())),
                                 .Some(var) => {
                                   exported_val := match(
                                     var.value,
@@ -4230,7 +4230,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : *(Environment)) ->
 handle_anon_struct_form :: (
   fn(
     args : ArrayList(AstExpr),
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )({
   n_as := args.len();
@@ -4319,7 +4319,7 @@ handle_anon_struct_form :: (
 handle_if_form :: (
   fn(
     args : ArrayList(AstExpr),
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )({
   n_if := args.len();
@@ -4565,7 +4565,7 @@ extract_evidence_param_name :: (fn(ev_inner : AstExpr) -> Option(String))(
 handle_using_call :: (
   fn(
     args : ArrayList(AstExpr),
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )(
   match(
@@ -4594,7 +4594,7 @@ handle_using_call :: (
 handle_enum_def :: (
   fn(
     args : ArrayList(AstExpr),
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )(
   match(
@@ -4815,7 +4815,7 @@ handle_struct_def :: (
     args : ArrayList(AstExpr),
     is_ref_sem : bool,
     is_newtype : bool,
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )(
   match(
@@ -4922,7 +4922,7 @@ handle_struct_def :: (
 handle_union_def :: (
   fn(
     args : ArrayList(AstExpr),
-    env : *(Environment)
+    inout(env) : Environment
   ) -> Option(EvalResult)
 )(
   match(
@@ -5026,7 +5026,7 @@ handle_union_def :: (
 handle_trait_def :: (
   fn(
     _args : ArrayList(AstExpr),
-    _env : *(Environment)
+    inout(_env) : Environment
   ) -> Option(EvalResult)
 )(
   cond(
@@ -5064,7 +5064,7 @@ handle_trait_def :: (
 /// `spliceUnquotes` helper).  Implemented as a `recur`-style function
 /// because Yo functions are first-class but not directly self-recursive
 /// without `recur(...)`.
-splice_unquote :: (fn(e : AstExpr, env : *(Environment)) -> AstExpr)(
+splice_unquote :: (fn(e : AstExpr, inout(env) : Environment) -> AstExpr)(
   match(
     e,
     .Atom(_, _) => e,
@@ -5124,7 +5124,7 @@ splice_unquote :: (fn(e : AstExpr, env : *(Environment)) -> AstExpr)(
 /// Evaluate a single `AstExpr` node in the given environment.
 ///
 /// Returns `None` for expression forms not yet handled (Phase 3e+ scope).
-evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
+evaluate :: (fn(e : AstExpr, inout(env) : Environment) -> Option(EvalResult))(
   match(
     e,
     .Atom(_, tok) =>
@@ -5187,7 +5187,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                 recv_expr,
                                 .Atom(_, sh_arr_tok) =>
                                   match(
-                                    env.*.lookup(sh_arr_tok.value),
+                                    env.lookup(sh_arr_tok.value),
                                     .None => (),
                                     .Some(sh_var) =>
                                       match(
@@ -5505,11 +5505,11 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                       cap_names_f := ArrayList(String).new();
                                       cap_tys_f := ArrayList(TypeValue).new();
                                       cap_vals_f := ArrayList(EvalValue).new();
-                                      n_cf := env.*.frames.len();
+                                      n_cf := env.frames.len();
                                       (cfi : usize) = usize(0);
                                       while(runtime(cfi < n_cf), {
                                         match(
-                                          env.*.frames.get(cfi),
+                                          env.frames.get(cfi),
                                           .Some(frame) => {
                                             n_cv := frame.variables.len();
                                             (cvi : usize) = usize(0);
@@ -7068,7 +7068,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
             // -----------------------------------------------------------------
             (fval == "recur") =>
               match(
-                env.*.lookup(String.from("__recur_fn")),
+                env.lookup(String.from("__recur_fn")),
                 .None => Option(EvalResult).None,
                 .Some(rfv) =>
                   match(
@@ -7759,11 +7759,11 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                         cap_names_f := ArrayList(String).new();
                         cap_tys_f := ArrayList(TypeValue).new();
                         cap_vals_f := ArrayList(EvalValue).new();
-                        n_frames := env.*.frames.len();
+                        n_frames := env.frames.len();
                         (cfi : usize) = usize(0);
                         while(runtime(cfi < n_frames), {
                           match(
-                            env.*.frames.get(cfi),
+                            env.frames.get(cfi),
                             .Some(frame) => {
                               n_cv := frame.variables.len();
                               (cvi : usize) = usize(0);
@@ -7894,11 +7894,11 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                         cn_m := ArrayList(String).new();
                         ct_m := ArrayList(TypeValue).new();
                         cv_m := ArrayList(EvalValue).new();
-                        nf_m := env.*.frames.len();
+                        nf_m := env.frames.len();
                         (fi_m : usize) = usize(0);
                         while(runtime(fi_m < nf_m), {
                           match(
-                            env.*.frames.get(fi_m),
+                            env.frames.get(fi_m),
                             .Some(frame_m) => {
                               nv_m := frame_m.variables.len();
                               (vi_m : usize) = usize(0);
@@ -8071,7 +8071,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                 },
                 true =>
                   match(
-                    env.*.lookup(String.from(fval)),
+                    env.lookup(String.from(fval)),
                     .None => Option(EvalResult).None,
                     .Some(var) =>
                       match(

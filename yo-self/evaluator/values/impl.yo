@@ -253,7 +253,7 @@ try_match_generic_impl :: (
       }
     );
     _ := add_variable_to_env(
-      &(unify_env),
+      unify_env,
       fa_name,
       t_type(),
       Option(EvalValue).Some(create_type_value(fa_some)),
@@ -690,7 +690,7 @@ evaluate_module_value :: (
       tv := create_type_value(some_ty);
       // Add TypeVal(SomeT) to forall_env so receiver type evaluation sees it.
       _ := add_variable_to_env(
-        &(forall_env),
+        forall_env,
         param_name_str.clone(),
         t_type(),
         // TypeUni(0) — type-of-a-type
@@ -1001,7 +1001,7 @@ evaluate_module_value :: (
                   local_env = fi.env;
                   method_val := match(fi.value,.Some(v) => v,.None => EvalValue.UnitVal);
                   _dv := add_variable_to_env(
-                    &(local_env),
+                    local_env,
                     qualified,
                     fi.ty,
                     .Some(method_val),

@@ -113,7 +113,7 @@ test("evaluate_identifier_and_operator: defined variable returns type and value"
   env := Environment.new(String.from("test"));
   tok := mk_ident_token("x");
   _ := add_variable_to_env(
-    &(env),
+    env,
     String.from("x"),
     t_i32(),
     Option(EvalValue).Some(EvalValue.IntLit(String.from("42"))),
@@ -179,7 +179,7 @@ test("evaluate_identifier_and_operator: throw_error_on_undefined=false on uninit
   tok := mk_ident_token("y");
   // Add variable with no value (simulate uninitialized / forward reference)
   _ := add_variable_to_env(
-    &(env),
+    env,
     String.from("y"),
     t_bool(),
     Option(EvalValue).None,
