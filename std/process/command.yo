@@ -123,7 +123,7 @@ impl(
 // Convert each entry of `(program + args)` into an owned NUL-terminated
 // `ArrayList(u8)`. The returned list owns the C-string storage; callers
 // extract the raw `*(u8)` pointers separately.
-_build_cstr_storage :: (fn(self : *(Command)) -> ArrayList(ArrayList(u8)))({
+_build_cstr_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
   storage := ArrayList(ArrayList(u8)).new();
   storage.push(self._program.to_cstr());
   n := self._args.len();
@@ -146,7 +146,7 @@ _build_cstr_storage :: (fn(self : *(Command)) -> ArrayList(ArrayList(u8)))({
 // returns the pid (since the kernel reads argv synchronously inside the syscall).
 _spawn_with_fds :: (
   fn(
-    self : *(Command),
+    self : Command,
     stdin_fd : i32,
     stdout_fd : i32,
     stderr_fd : i32,

@@ -17,15 +17,15 @@ impl(
 impl(
   TestBuf,
   Writer(
-    write : (fn(self : *(Self), buf : *(u8), size : usize, exn : Exception) -> usize)({
+    write : (fn(inout(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
-        ((&(self.*._data(0))) &+ (self.*._len + i)).* = (buf &+ i).*;
+        ((&(self._data(0))) &+ (self._len + i)).* = (buf &+ i).*;
       });
-      self.*._len = (self.*._len + size);
+      self._len = (self._len + size);
       size
     }),
-    flush : (fn(self : *(Self), exn : Exception) -> unit)(
+    flush : (fn(inout(self) : Self, exn : Exception) -> unit)(
       ()
     )
   )
@@ -33,17 +33,17 @@ impl(
 impl(
   TestBuf,
   Reader(
-    read : (fn(self : *(Self), buf : *(u8), size : usize, exn : Exception) -> usize)({
-      available := (self.*._len - self.*._pos);
+    read : (fn(inout(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize)({
+      available := (self._len - self._pos);
       to_read := cond(
         (size < available) => size,
         true => available
       );
       i := usize(0);
       while(i < to_read, i = (i + usize(1)), {
-        (buf &+ i).* = ((&(self.*._data(0))) &+ (self.*._pos + i)).*;
+        (buf &+ i).* = ((&(self._data(0))) &+ (self._pos + i)).*;
       });
-      self.*._pos = (self.*._pos + to_read);
+      self._pos = (self._pos + to_read);
       to_read
     })
   )

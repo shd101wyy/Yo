@@ -113,7 +113,7 @@ expr_is_assignment :: (fn(expr : AstExpr) -> bool)(
 );
 
 append_step_assignment :: (
-  fn(out : *(String), first : *(bool), assignment_expr : AstExpr, ctx : CodegenContext) -> unit
+  fn(out : String, inout(first) : bool, assignment_expr : AstExpr, ctx : CodegenContext) -> unit
 )({
   match(
     assignment_expr,
@@ -131,11 +131,11 @@ append_step_assignment :: (
             call_gen_expr(rhs, ctx, String.new()),
             .None => (),
             .Some(rhs_code) => {
-              if(!(first.*), {
-                out.*.push_str(", ");
+              if(!(first), {
+                out.push_str(", ");
               });
-              out.*.push_string(format_while_assignment_expr(lhs_code, rhs_code));
-              first.* = false;
+              out.push_string(format_while_assignment_expr(lhs_code, rhs_code));
+              first = false;
             }
           )
         )
@@ -160,7 +160,7 @@ generate_step_expression :: (fn(step_expr : AstExpr, ctx : CodegenContext) -> St
               .None => (),
               .Some(arg) => {
                 if(expr_is_assignment(arg), {
-                  append_step_assignment(&(assignments), &(first), arg, ctx);
+                  append_step_assignment(assignments, first, arg, ctx);
                 });
               }
             );
@@ -173,7 +173,7 @@ generate_step_expression :: (fn(step_expr : AstExpr, ctx : CodegenContext) -> St
     expr_is_assignment(step_expr) => {
       assignment := String.new();
       first := true;
-      append_step_assignment(&(assignment), &(first), step_expr, ctx);
+      append_step_assignment(assignment, first, step_expr, ctx);
       assignment
     },
     true => match(

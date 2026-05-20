@@ -1162,7 +1162,7 @@ _extract_data_arm :: (
   fn(
     pat_expr : AstExpr,
     variant_name_out : *(String),
-    bindings_out : *(ArrayList(DataBinding)),
+    bindings_out : ArrayList(DataBinding),
     ctx : CodegenContext
   ) -> String
 )({
@@ -1271,7 +1271,7 @@ _extract_data_arm :: (
                                   field_path : path,
                                   type_c : String.from("__auto_type")
                                 );
-                                _rr := bindings_out.*.push(db);
+                                _rr := bindings_out.push(db);
                                 ();
                               }
                             )
@@ -1311,7 +1311,7 @@ _extract_data_arm :: (
                                           field_path : path_c,
                                           type_c : String.from("__auto_type")
                                         );
-                                        _rc := bindings_out.*.push(db_c);
+                                        _rc := bindings_out.push(db_c);
                                         ();
                                       }
                                     ),
@@ -1352,7 +1352,7 @@ _extract_data_arm :: (
                                                     field_path : path_l,
                                                     type_c : String.from("__auto_type")
                                                   );
-                                                  _rl := bindings_out.*.push(db_l);
+                                                  _rl := bindings_out.push(db_l);
                                                   ();
                                                 }
                                               )
@@ -1402,7 +1402,7 @@ _extract_data_arm :: (
                                           field_path : path2,
                                           type_c : String.from("__auto_type")
                                         );
-                                        _rr2 := bindings_out.*.push(db2);
+                                        _rr2 := bindings_out.push(db2);
                                         ();
                                       }
                                     )
@@ -1867,7 +1867,7 @@ handle_match_data :: (
                           .Some(pat_expr) => {
                             variant_name_buf := String.new();
                             bindings := ArrayList(DataBinding).new();
-                            tag_const_str := _extract_data_arm(pat_expr, &(variant_name_buf), &(bindings), ctx);
+                            tag_const_str := _extract_data_arm(pat_expr, &(variant_name_buf), bindings, ctx);
                             body_expr_opt := arm_args.get(usize(1));
                             match(
                               body_expr_opt,
