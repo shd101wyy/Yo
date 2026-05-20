@@ -210,15 +210,19 @@ function walkYoFiles(dir: string, out: string[]): void {
     return;
   }
   if (!stat.isDirectory()) return;
-  // Skip common irrelevant dirs.
+  // Skip common irrelevant dirs — but only filter on `base` for
+  // subdirectories. When the caller passes `.` (or any other path
+  // whose basename is `.`), we still want to walk it.
   const base = path.basename(dir);
   if (
-    base === "node_modules" ||
-    base === ".git" ||
-    base === "dist" ||
-    base === "yo-out" ||
-    base === "build" ||
-    base.startsWith(".")
+    base !== "." &&
+    base !== ".." &&
+    (base === "node_modules" ||
+      base === ".git" ||
+      base === "dist" ||
+      base === "yo-out" ||
+      base === "build" ||
+      base.startsWith("."))
   ) {
     return;
   }
