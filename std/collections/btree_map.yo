@@ -255,10 +255,10 @@ impl(
   BTreeMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(self : *(Self), idx : K, where(K <: Ord(K))) -> *(Self.Output))({
-      r := self.*._find(idx);
+    index : (fn(inout(self) : Self, idx : K, where(K <: Ord(K))) -> *(Self.Output))({
+      r := self._find(idx);
       assert(r.found, "BTreeMap: key not found");
-      entry_ptr := &(self.*._entries(r.idx));
+      entry_ptr := &(self._entries(r.idx));
       &(entry_ptr.*.value)
     })
   )

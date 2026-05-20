@@ -225,7 +225,7 @@ export(Dispose);
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(self : *(Self), idx : Idx) -> *(Self.Output))
+    index : (fn(inout(self) : Self, idx : Idx) -> *(Self.Output))
   )
 );
 export(Index);
@@ -5555,7 +5555,7 @@ impl(
   Array(T, N),
   Index(usize)(
     Output : T,
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       __yo_array_index(self, idx)
     )
   )
@@ -5565,7 +5565,7 @@ impl(
   Array(T, N),
   Index(Range(usize))(
     Output : Slice(T),
-    index : (fn(self : *(Self), idx : Range(usize)) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : Range(usize)) -> *(Self.Output))(
       __yo_array_index_range(self, idx)
     )
   )
@@ -5575,7 +5575,7 @@ impl(
   Array(T, N),
   Index(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(self : *(Self), idx : RangeInclusive(usize)) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
       __yo_array_index_range_inclusive(self, idx)
     )
   )
@@ -5609,7 +5609,7 @@ impl(
   Slice(T),
   Index(usize)(
     Output : T,
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       __yo_slice_index(self, idx)
     )
   )
@@ -5619,7 +5619,7 @@ impl(
   Slice(T),
   Index(Range(usize))(
     Output : Slice(T),
-    index : (fn(self : *(Self), idx : Range(usize)) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : Range(usize)) -> *(Self.Output))(
       __yo_slice_index_range(self, idx)
     )
   )
@@ -5629,7 +5629,7 @@ impl(
   Slice(T),
   Index(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(self : *(Self), idx : RangeInclusive(usize)) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
       __yo_slice_index_range_inclusive(self, idx)
     )
   )
@@ -7566,8 +7566,8 @@ impl(
   /// Create a new uninitialized value.
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
   /// Get a mutable pointer to the underlying value.
-  as_ptr : (fn(self : *(Self)) -> *(BaseType))(
-    __yo_maybe_uninit_as_ptr(Self, BaseType, self)
+  as_ptr : (fn(inout(self) : Self) -> *(BaseType))(
+    __yo_maybe_uninit_as_ptr(Self, BaseType, &(self))
   ),
   /// Assume the value is initialized and extract it. **Undefined behavior if not initialized.**
   assume_init : (fn(own(self) : Self) -> BaseType)(

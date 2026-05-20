@@ -134,7 +134,12 @@ function findIndexMethod({
     return undefined;
   }
 
-  // Find a method whose signature matches: (self: *(Self), idx: ArgType) -> *(Output)
+  // Find a method whose signature matches:
+  //   (self : *(Self), idx : ArgType) -> *(Output)
+  // OR
+  //   (inout(self) : Self, idx : ArgType) -> *(Output)
+  // Both shapes are accepted — inout is the modern form that doesn't
+  // need a `pragma(Pragma.AllowUnsafe)` at the call site.
   for (const method of methods) {
     const fnType = method.type;
     // Must have exactly 2 parameters: self and idx
@@ -144,8 +149,8 @@ function findIndexMethod({
     const selfParam = fnType.parameters[0]!;
     const idxParam = fnType.parameters[1]!;
 
-    // self must be a pointer type
-    if (!isPtrType(selfParam.type)) {
+    // self must be a pointer type OR an inout parameter
+    if (!isPtrType(selfParam.type) && !selfParam.isInout) {
       continue;
     }
 
@@ -412,8 +417,8 @@ function findComptimeIndexMethod({
     const selfParam = fnType.parameters[0]!;
     const idxParam = fnType.parameters[1]!;
 
-    // self must be a pointer type
-    if (!isPtrType(selfParam.type)) continue;
+    // self must be a pointer type OR an inout parameter (modern form).
+    if (!isPtrType(selfParam.type) && !selfParam.isInout) continue;
 
     // idx type must be compatible with the argument type
     if (

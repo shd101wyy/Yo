@@ -492,10 +492,10 @@ impl(
     /// The output type is the element type `T`.
     Output : T,
     /// Returns a pointer to the element at the given index. Panics if the index is out of bounds.
-    index : (fn(self : *(Self), idx : usize) -> *(Self.Output))({
-      assert(idx < self.*._length, "ArrayList: index out of bounds");
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+      assert(idx < self._length, "ArrayList: index out of bounds");
       match(
-        self.*._ptr,
+        self._ptr,
         .Some(_ptr) => (_ptr &+ idx),
         .None => panic("ArrayList: index on empty list")
       )
