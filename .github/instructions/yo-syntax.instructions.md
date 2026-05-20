@@ -597,7 +597,13 @@ Rules:
 - Calls through inout-params chain naturally: `fn outer(inout(x))` calling `fn inner(inout(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
 - At codegen, `inout(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. No runtime cost vs hand-written pointer code. `comptime(inout(name))` has zero codegen impact (the parameter is erased).
 
-`inout` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` should migrate to `(inout(self) : Self)` as a follow-up (Phase D of `plans/MEMORY_SAFETY.md`).
+`inout` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have been migrated to `(inout(self) : Self)` across Phase D of `plans/MEMORY_SAFETY.md` — Hash, Clone, ToString, Iterator (where applicable), Index, ComptimeIndex, Writer, Reader. Only the `Iterator` trait still uses `(self : *(Self))`; migrating it requires a for-loop redesign (see plan).
+
+### Public stdlib boundary — no raw pointer leaks
+
+Every public top-level `fn(...)` in `std/` should take and return value or `inout`-bound types. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to `Slice(T)` for buffers, `inout(name) : T` for in-place mutation, or a higher-level safe type.
+
+Verify with `./yo-cli public-safe-report ./std` (or `./yo-self`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. Source: `src/public-safe-report.ts`. Currently reports 0 findings; keep it that way when adding new stdlib surface.
 
 ## `for` loop macro — correct form
 

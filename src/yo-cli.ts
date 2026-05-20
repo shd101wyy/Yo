@@ -18,6 +18,10 @@ import {
 import { formatYoFiles } from "./formatter";
 import { initProject } from "./init";
 import { formatUnsafeReport, generateUnsafeReport } from "./unsafe-report";
+import {
+  formatPublicSafeReport,
+  generatePublicSafeReport,
+} from "./public-safe-report";
 import { ModuleManager } from "./module-manager";
 import {
   hostTarget,
@@ -607,6 +611,39 @@ yo --version                     Show version number
           console.log(JSON.stringify(report, null, 2));
         } else {
           console.log(formatUnsafeReport(report));
+        }
+      }
+    )
+    .command(
+      "public-safe-report [path]",
+      "Lint public stdlib signatures for raw-pointer leaks. Reports every top-level public `fn(...)` declaration in the scanned tree whose parameters or return type expose `*(T)` outside an `extern(...)` block. Names ending in `_cstr`, `_ptr`, `_raw`, or `from_raw_parts` / `as_ptr` are treated as raw-pointer-API by contract and skipped. Whole files under `libc/`, `linux/`, `darwin/`, `cuda/` are skipped — those are FFI by construction. Exits 0 even when findings exist; the lint is informational.",
+      (_yargs) => {
+        _yargs
+          .positional("path", {
+            describe: "File or directory to scan (default: ./std)",
+            type: "string",
+            default: "./std",
+          })
+          .option("json", {
+            describe:
+              "Emit machine-readable JSON instead of the formatted report",
+            type: "boolean",
+            default: false,
+          });
+      },
+      (argv) => {
+        const targetPath = (argv.path as string) ?? "./std";
+        if (!fs.existsSync(targetPath)) {
+          console.error(
+            `public-safe-report: path does not exist: ${targetPath}`
+          );
+          process.exit(1);
+        }
+        const report = generatePublicSafeReport(targetPath);
+        if (argv.json as boolean) {
+          console.log(JSON.stringify(report, null, 2));
+        } else {
+          console.log(formatPublicSafeReport(report));
         }
       }
     )

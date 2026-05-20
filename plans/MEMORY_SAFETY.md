@@ -454,8 +454,8 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
   - `yo-self/evaluator/builtins/build.yo` — 27 sigs, 55 rewrites
   - `yo-self/parser.yo` — 19 sigs
   - `yo-self/env.yo` — 5 sigs
-- [ ] **Remaining `*(T)` in other public method signatures** (non-trait, non-iterator one-offs): could be migrated case-by-case. Most are either iterator-related, FFI wrappers (legitimate `*(T)`), or methods like `as_ptr` that intentionally return raw pointers. Track follow-up.
-- [ ] **Lint: `yo check --stdlib-public-safe`** — not implemented; would be a useful follow-up.
+- [x] **Remaining `*(T)` in other public method signatures** — `fnv1a_hash_bytes` and `random_bytes` migrated to take `Slice(u8)`; the `Slice` carries both pointer and length, eliminating the (`ptr`, `wrong-size`) footgun. The rest of the remaining `*(T)` in std/ is either inside `extern(...)` (FFI), inside the `_cstr` family (explicit raw-pointer variants of safe APIs), or named to signal raw-pointer use by contract (`raw_args`, `argv`, `from_raw_parts`, `as_ptr`). The `public-safe-report` lint below verifies the safe surface stays clean.
+- [x] **Lint: `yo public-safe-report [path]`** — flags every top-level public `fn(...)` declaration in the scanned tree whose parameters or return type expose `*(T)` outside an `extern(...)` block. Names ending in `_cstr`, `_ptr`, `_raw`, or `from_raw_parts` / `as_ptr` are treated as raw-pointer-API by contract and skipped. Whole files under `libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/` are skipped — those are FFI by construction. Currently reports 0 findings on `./std` and `./yo-self`. Source: `src/public-safe-report.ts`; tests: `src/tests/public-safe-report.test.ts`.
 
 ### Phase E — Tooling
 
