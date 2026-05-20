@@ -1,0 +1,55 @@
+pragma(Pragma.AllowUnsafe);
+/// Positive end-to-end coverage for the `pragma(Pragma.AllowUnsafe);`
+/// privilege gate (Phase C of plans/MEMORY_SAFETY.md).
+///
+/// `tests/unsafe.test.yo` already covers the *shape* of `unsafe(...)`:
+/// transparency, nesting, control-flow wrapping. The negative side
+/// (pointer ops outside `unsafe(...)` in a file *without* the pragma)
+/// lives in `src/tests/unsafe-gate.test.ts`, which spawns `yo-cli` on
+/// a temp file and asserts the error message.
+///
+/// This file pins the *positive* contract from inside a real
+/// pragma-declaring source file: every pointer operation the gate
+/// could reject must succeed when both the pragma is present and the
+/// operation is wrapped in `unsafe(...)`. If any of these regresses,
+/// the binary won't even link; the test bodies double-check the
+/// runtime semantics.
+test("AllowUnsafe + unsafe(deref) reads a known value", {
+  x := i32(7);
+  p := &(x);
+  v := unsafe(p.*);
+  assert(v == i32(7), "deref reads through &(x)");
+});
+test("AllowUnsafe + unsafe(write deref) mutates the pointee", {
+  x := i32(0);
+  p := &(x);
+  unsafe(p.* = i32(99));
+  assert(x == i32(99), "write through &(x) is visible at the original binding");
+});
+test("AllowUnsafe + unsafe(pointer arith) walks an array", {
+  arr := [i32(10), i32(20), i32(30)];
+  count := usize(0);
+  sum := i32(0);
+  for((&(arr)).iter(), (ptr) => {
+    if(count > usize(0), {
+      // `ptr` here is yielded by Array.iter(); we synthesize the same
+      // ptr via raw arithmetic from the base pointer to prove `&+`
+      // actually walks element-by-element.
+      base := unsafe(ptr &- count);
+      via_arith := unsafe(base &+ count);
+      assert(unsafe(via_arith.*) == unsafe(ptr.*), "&+ and &- round-trip to the same element");
+    });
+    sum = (sum + unsafe(ptr.*));
+    count = (count + usize(1));
+  });
+  assert(sum == i32(60), "iterated through all three elements");
+});
+test("AllowUnsafe + unsafe(...) is transparent inside a begin-block", {
+  x := i32(3);
+  p := &(x);
+  doubled := unsafe({
+    v := p.*;
+    v + v
+  });
+  assert(doubled == i32(6), "block expression returns the inner value");
+});

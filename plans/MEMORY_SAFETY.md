@@ -424,10 +424,9 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
     Currently these are not pragma-gated. Practically, with `unsafe(...)` gated and pointer-op gates from Phase A, non-privileged user code cannot perform any pointer _operation_ — so memory safety holds. These additional gates would close the gap that non-privileged code can declare pointer-typed locals it can never use; a follow-up task.
   - `consume(p.* = v)` form
 - [ ] Diagnostic messages per the "What Safe Code Cannot Do" table above.
-- [ ] Add `pragma(Pragma.AllowUnsafe);` to every existing file in `std/` and `yo-self/` (no exceptions). Mechanical migration; ~100 files.
-- [ ] Existing `tests/*.test.yo` files that use raw pointers (e.g. `tests/ptr.test.yo`) get `pragma(Pragma.AllowUnsafe);` added at the top. Mechanical.
-- [ ] `tests/privilege_pragma.test.yo` — pragma enables unsafe constructs; absence of pragma rejects them.
-- [ ] `tests/safe_user_code.test.yo` — positive (safe code compiles and runs) and negative (each forbidden construct produces the right error).
+- [x] Add `pragma(Pragma.AllowUnsafe);` to every file in `std/`, `yo-self/`, and pointer-using `tests/*.test.yo` that needs it. Bulk-applied by `scripts/add-pragma.ts`, then trimmed by `scripts/trim-pragma.ts` to ~265 files (down from 633 — the initial bulk pass was deliberately over-inclusive).
+- [x] `tests/privilege_pragma.test.yo` — pragma enables unsafe constructs (deref, write-deref, pointer arithmetic, transparent block wrap). The negative direction (pragma absent) lives in `src/tests/unsafe-gate.test.ts`.
+- [x] `tests/safe_user_code.test.yo` — positive: safe code (arithmetic, cond/match, Option/Result, String/collections, `inout(...)` params, higher-order fns) compiles and runs WITHOUT the pragma. Negative side covered by `src/tests/unsafe-gate.test.ts` and `src/tests/pragma-validation.test.ts`.
 
 ### Phase D — Stdlib boundary sweep (`*(Self)` → `inout(self) : Self` and friends)
 
