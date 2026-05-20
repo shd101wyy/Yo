@@ -108,7 +108,7 @@ SynthesizeTypesFn :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -123,7 +123,7 @@ synthesize_types :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -153,7 +153,7 @@ _synthesize_call :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -304,16 +304,16 @@ can_assign_type_hierarchy :: (fn(expected : TypeValue, given : TypeValue) -> boo
 /// Prevents infinite types like T = Option(T).
 /// `visited` is a list of type IDs already being checked (prevents cycles).
 /// Mirrors `occursCheck` in TypeScript.
-_occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : *(ArrayList(String)), exn : Exception) -> bool)({
+_occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : ArrayList(String), exn : Exception) -> bool)({
   ty_id := synthesis_type_id(ty);
   // Prevent infinite recursion on cyclic types
   (found_visited : bool) = false;
   {
     vi := usize(0);
-    n := visited.*.len();
+    n := visited.len();
     while(runtime((vi < n) && !(found_visited)), {
       v := match(
-        visited.*.get(vi),
+        visited.get(vi),
         .Some(s) => s,
         .None => {
           vi = n;
@@ -329,7 +329,7 @@ _occurs_check :: (fn(some_type_id : String, ty : TypeValue, visited : *(ArrayLis
   if(found_visited, {
     return(false);
   });
-  visited.*.push(ty_id);
+  visited.push(ty_id);
   match(
     ty,
     .SomeT(sid, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
@@ -650,7 +650,7 @@ _synthesize_implicit_params :: (
     given_spreads : ArrayList(bool),
     expected_env : Environment,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> unit
@@ -927,7 +927,7 @@ _synthesize_fn_traits :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -976,7 +976,7 @@ _synthesize_future_traits :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -1028,7 +1028,7 @@ _synthesize_types_impl :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : *(ArrayList(TypePair)),
+    checked : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -1038,10 +1038,10 @@ _synthesize_types_impl :: (
   (ge : Environment) = given_env;
   giv_id := synthesis_type_id(given_ty);
   // Anti-circularity check
-  if(_has_type_pair(checked.*, exp_id, giv_id), {
+  if(_has_type_pair(checked, exp_id, giv_id), {
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
-  checked.*.push(TypePair(expected_id : exp_id, given_id : giv_id));
+  checked.push(TypePair(expected_id : exp_id, given_id : giv_id));
   tok := opts_token(opts, &(ee));
   // Case: both are SomeTypes
   if(is_some_type(expected_ty) && is_some_type(given_ty), {
@@ -1158,7 +1158,7 @@ _synthesize_types_impl :: (
       // Occurs check
       {
         visited := ArrayList(String).new();
-        if(_occurs_check(exp_id2, given_ty, &(visited), exn), {
+        if(_occurs_check(exp_id2, given_ty, visited, exn), {
           exn.throw(
             dyn(
               format_error_message(
@@ -1225,7 +1225,7 @@ _synthesize_types_impl :: (
       // Occurs check
       {
         visited := ArrayList(String).new();
-        if(_occurs_check(giv_id2, expected_ty, &(visited), exn), {
+        if(_occurs_check(giv_id2, expected_ty, visited, exn), {
           exn.throw(
             dyn(
               format_error_message(

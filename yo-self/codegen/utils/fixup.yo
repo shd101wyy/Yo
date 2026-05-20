@@ -55,7 +55,7 @@ _impl_key_for_entry :: (fn(entry : CodegenDynImplEntry, ctx : CodegenContext) ->
 /// stable `.entries()`, so we walk the keys iterator and
 /// `.get(k)` each one in turn.
 for_each_dyn_impl_ :: (
-  fn(ctx : CodegenContext, out_keys : *(ArrayList(String)), out_entries : *(ArrayList(CodegenDynImplEntry))) -> unit
+  fn(ctx : CodegenContext, out_keys : ArrayList(String), out_entries : ArrayList(CodegenDynImplEntry)) -> unit
 )({
   // Collect old keys first.
   old_keys := ArrayList(String).new();
@@ -79,8 +79,8 @@ for_each_dyn_impl_ :: (
         .None => (),
         .Some(entry) => {
           new_key := _impl_key_for_entry(entry, ctx);
-          out_keys.*.push(new_key);
-          out_entries.*.push(entry);
+          out_keys.push(new_key);
+          out_entries.push(entry);
         }
       )
     );
@@ -95,7 +95,7 @@ fixup_dyn_impl_keys :: (fn(ctx : CodegenContext) -> unit)({
   // map while iterating.
   new_keys := ArrayList(String).new();
   new_entries := ArrayList(CodegenDynImplEntry).new();
-  for_each_dyn_impl_(ctx, &(new_keys), &(new_entries));
+  for_each_dyn_impl_(ctx, new_keys, new_entries);
   // Replace the entire map.
   ctx.dyn_impls = HashMap(String, CodegenDynImplEntry).new();
   i := usize(0);

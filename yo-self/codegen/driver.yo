@@ -2170,7 +2170,7 @@ is_fn_name_called :: (fn(name : str, expr : AstExpr) -> bool)(
 /// Collect all `Name :: enum(...)` definitions reachable from `expr` into
 /// `result` (DFS pre-order, so outer definitions come before inner ones).
 /// Used by `emit_local_type_defs` to implement last-wins deduplication.
-collect_all_enum_defs :: (fn(expr : AstExpr, result : *(ArrayList(EnumDef))) -> unit)(
+collect_all_enum_defs :: (fn(expr : AstExpr, result : ArrayList(EnumDef)) -> unit)(
   match(
     expr,
     .Atom(_, _) => (),
@@ -2188,7 +2188,7 @@ collect_all_enum_defs :: (fn(expr : AstExpr, result : *(ArrayList(EnumDef))) -> 
                 .Some(ed) => cond(
                   (ed.variants.len() == usize(0)) => recur(stmt, result),
                   true => {
-                    _r := result.*.push(ed);
+                    _r := result.push(ed);
                     ();
                   }
                 ),
@@ -2274,7 +2274,7 @@ merge_enum_defs_for_name :: (fn(all_eds : ArrayList(EnumDef), enum_name : str) -
 emit_local_type_defs :: (fn(expr : AstExpr, ctx : CodegenContext) -> unit)({
   // --- Enums: collect all, then emit last occurrence of each name ---
   all_eds := ArrayList(EnumDef).new();
-  collect_all_enum_defs(expr, &(all_eds));
+  collect_all_enum_defs(expr, all_eds);
   ned := all_eds.len();
   (ei : usize) = usize(0);
   while(runtime(ei < ned), {
@@ -2783,7 +2783,7 @@ emit_module_level_vars :: (fn(module_exprs : ArrayList(AstExpr), ctx : CodegenCo
 ///
 /// Used by `compile_test_body_to_c` to hoist local function definitions
 /// before the test body function, enabling forward-declaration-free C output.
-collect_local_fn_defs :: (fn(expr : AstExpr, result : *(ArrayList(FnDef))) -> unit)({
+collect_local_fn_defs :: (fn(expr : AstExpr, result : ArrayList(FnDef)) -> unit)({
   match(
     expr,
     .Atom(_, _) => (),
@@ -2792,7 +2792,7 @@ collect_local_fn_defs :: (fn(expr : AstExpr, result : *(ArrayList(FnDef))) -> un
       match(
         extract_fn_def(expr),
         .Some(fd) => {
-          _r := result.*.push(fd);
+          _r := result.push(fd);
           ()
         },
         .None => {
@@ -2821,7 +2821,7 @@ collect_local_fn_defs :: (fn(expr : AstExpr, result : *(ArrayList(FnDef))) -> un
                           impl_fns.get(im - usize(1)),
                           .None => (),
                           .Some(ifd) => {
-                            _ri := result.*.push(ifd);
+                            _ri := result.push(ifd);
                             ()
                           }
                         );
@@ -5031,7 +5031,7 @@ compile_test_body_to_c :: (fn(body : AstExpr, module_id : str, module_exprs : Ar
   // they are called as `TypeName.method()` and `is_fn_name_called` won't
   // detect them.
   local_fns := ArrayList(FnDef).new();
-  collect_local_fn_defs(body, &(local_fns));
+  collect_local_fn_defs(body, local_fns);
   collect_skipped_fn_names(body, pctx);
   nf := local_fns.len();
   // First pass: register impl method names so call sites get fn_ prefix.

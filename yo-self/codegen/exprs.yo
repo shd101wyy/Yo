@@ -1161,7 +1161,7 @@ _split_csv :: (fn(csv : str) -> ArrayList(String))({
 _extract_data_arm :: (
   fn(
     pat_expr : AstExpr,
-    variant_name_out : *(String),
+    inout(variant_name_out) : String,
     bindings_out : ArrayList(DataBinding),
     ctx : CodegenContext
   ) -> String
@@ -1195,7 +1195,7 @@ _extract_data_arm :: (
               ctx.get_enum_for_variant(vatom.value.as_str()),
               .None => String.new(),
               .Some(enum_name) => {
-                variant_name_out.* = vatom.value;
+                variant_name_out = vatom.value;
                 result := String.new();
                 result.push_string(enum_name);
                 result.push_str("_");
@@ -1232,7 +1232,7 @@ _extract_data_arm :: (
                 ctx.get_enum_for_variant(vatom2.value.as_str()),
                 .None => String.new(),
                 .Some(enum_name2) => {
-                  variant_name_out.* = vatom2.value;
+                  variant_name_out = vatom2.value;
                   // Build tag constant (owned String — no dangling pointer risk)
                   tag := String.new();
                   tag.push_string(enum_name2);
@@ -1867,7 +1867,7 @@ handle_match_data :: (
                           .Some(pat_expr) => {
                             variant_name_buf := String.new();
                             bindings := ArrayList(DataBinding).new();
-                            tag_const_str := _extract_data_arm(pat_expr, &(variant_name_buf), bindings, ctx);
+                            tag_const_str := _extract_data_arm(pat_expr, variant_name_buf, bindings, ctx);
                             body_expr_opt := arm_args.get(usize(1));
                             match(
                               body_expr_opt,

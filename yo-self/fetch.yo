@@ -190,19 +190,19 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   })
 });
 /// Push a str literal as bytes into an ArrayList(u8).
-_push_str_bytes :: (fn(buf : *(ArrayList(u8)), s : str) -> unit)({
+_push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
   p := s.ptr();
   n := s.len();
   k := usize(0);
   while(runtime(k < n), {
     {
-      buf.*.push((p &+ k).*);
+      buf.push((p &+ k).*);
     };
     k = (k + usize(1));
   });
 });
 /// Push a String's bytes into an ArrayList(u8).
-_push_string_bytes :: (fn(buf : *(ArrayList(u8)), s : String) -> unit)({
+_push_string_bytes :: (fn(buf : ArrayList(u8), s : String) -> unit)({
   bytes := s.as_bytes();
   n := bytes.len();
   k := usize(0);
@@ -211,7 +211,7 @@ _push_string_bytes :: (fn(buf : *(ArrayList(u8)), s : String) -> unit)({
       bytes.get(k),
       .None => (),
       .Some(b) => {
-        buf.*.push(b);
+        buf.push(b);
       }
     );
     k = (k + usize(1));
@@ -287,8 +287,8 @@ compute_content_hash :: (
         if(!(is_hidden), {
           // Hash "dir:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
-          _push_str_bytes(&(prefix_bytes), "dir:");
-          _push_string_bytes(&(prefix_bytes), item.rel_path);
+          _push_str_bytes(prefix_bytes, "dir:");
+          _push_string_bytes(prefix_bytes, item.rel_path);
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
           // Read and sort subdir entries, push in reversed order
@@ -327,8 +327,8 @@ compute_content_hash :: (
         if(!(is_sidecar), {
           // Hash "file:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
-          _push_str_bytes(&(prefix_bytes), "file:");
-          _push_string_bytes(&(prefix_bytes), item.rel_path);
+          _push_str_bytes(prefix_bytes, "file:");
+          _push_string_bytes(prefix_bytes, item.rel_path);
           prefix_bytes.push(u8(10)); // '\n'
           hasher = hasher.update(prefix_bytes);
           // Read file content, normalize line endings, then hash

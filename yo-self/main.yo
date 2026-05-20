@@ -183,8 +183,8 @@ collect_module_deps :: (
     path_str : str,
     base_dir : str,
     std_base : str,
-    visited : *(ArrayList(String)),
-    all_exprs : *(ArrayList(AstExpr)),
+    visited : ArrayList(String),
+    all_exprs : ArrayList(AstExpr),
     io : IO,
     exn : Exception
   ) -> unit
@@ -235,13 +235,13 @@ collect_module_deps :: (
     );
   });
   // Deduplication: skip if already visited (also handles import cycles)
-  nv := visited.*.len();
+  nv := visited.len();
   (iv : usize) = usize(0);
   (already_visited : bool) = false;
   while(runtime((iv < nv) && (!(already_visited))), {
     iv = (iv + usize(1));
     match(
-      visited.*.get(iv - usize(1)),
+      visited.get(iv - usize(1)),
       .None => (),
       .Some(v) => {
         if(v.as_str() == abs_path.as_str(), {
@@ -254,7 +254,7 @@ collect_module_deps :: (
     return(());
   });
   // Mark as visited before recursing (prevents infinite loops on cycles)
-  visited.*.push(String.from(abs_path.as_str()));
+  visited.push(String.from(abs_path.as_str()));
   // Compute the base directory of the imported module for recursive resolution
   mod_base_dir := match(
     Path.new(String.from(abs_path.as_str())).parent(),
@@ -298,7 +298,7 @@ collect_module_deps :: (
       mod_exprs.get(im - usize(1)),
       .None => (),
       .Some(e) => {
-        all_exprs.*.push(e);
+        all_exprs.push(e);
       }
     );
   });
@@ -308,7 +308,7 @@ collect_module_deps :: (
 _walk_check_dir :: (
   fn(
     dir : String,
-    out : *(ArrayList(String)),
+    out : ArrayList(String),
     io : IO,
     exn : Exception
   ) -> unit
@@ -341,7 +341,7 @@ _walk_check_dir :: (
           },
           .File => {
             if(entry.name.ends_with(String.from(".yo")), {
-              out.*.push(full);
+              out.push(full);
             });
           },
           .Symlink => (),
@@ -373,7 +373,7 @@ collect_check_files :: (
         out.push(path_str.clone());
       });
     },
-    meta.is_dir() => _walk_check_dir(path_str, &(out), io, exn),
+    meta.is_dir() => _walk_check_dir(path_str, out, io, exn),
     true => ()
   );
   out
@@ -411,8 +411,8 @@ check_single_file :: (
     prelude_literal.as_str(),
     std_path.as_str(),
     std_path.as_str(),
-    &(visited),
-    &(dep_exprs),
+    visited,
+    dep_exprs,
     io,
     local_exn
   );
@@ -437,8 +437,8 @@ check_single_file :: (
             imp_path.as_str(),
             input_base_dir.as_str(),
             std_path.as_str(),
-            &(visited),
-            &(dep_exprs),
+            visited,
+            dep_exprs,
             io,
             local_exn
           );
@@ -640,8 +640,8 @@ run_test :: (
             imp_path.as_str(),
             input_base_dir.as_str(),
             "",
-            &(visited),
-            &(dep_exprs),
+            visited,
+            dep_exprs,
             io,
             exn
           );

@@ -449,13 +449,13 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
 _collect_some_types_into :: (
   fn(
     ty : TypeValue,
-    acc : *(ArrayList(TypeValue))
+    acc : ArrayList(TypeValue)
   ) -> unit
 )(
   match(
     ty,
     .SomeT(_, _, _, _, _, _, _, _, _, _) => {
-      acc.*.push(ty);
+      acc.push(ty);
     },
     .TypeAppT(constructor : con, args : args_list) => {
       recur(con.*, acc);
@@ -538,7 +538,7 @@ _collect_some_types_into :: (
 /// Mirrors `getAllSomeTypes` in `src/types/utils.ts`.
 get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
   acc := ArrayList(TypeValue).new();
-  _collect_some_types_into(ty, &(acc));
+  _collect_some_types_into(ty, acc);
   acc
 });
 // ---------------------------------------------------------------------------
