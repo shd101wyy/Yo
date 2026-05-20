@@ -365,7 +365,7 @@ export(Boxed);
   });
 
   test("separates associated types from methods in trait impl", () => {
-    const doc = buildDocFromSource(`
+    const doc = buildDocFromSource(`pragma(Pragma.AllowUnsafe);
 MyVec :: struct(data : i32, len : i32);
 
 impl(MyVec, Index(usize)(

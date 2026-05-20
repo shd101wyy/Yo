@@ -7,6 +7,7 @@ import { typeIsControlBound, typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 
 /**
  * Evaluate a raw pointer call
@@ -63,6 +64,25 @@ export function evaluateRawPointerCall({
   if (isTypeValue(evaluatedArgExpr.$.value)) {
     const typeValue = evaluatedArgExpr.$.value;
     const baseType = typeValue.value;
+
+    // Phase C structural gate: `*(T)` produces a raw pointer type.
+    // In safe code (file without `pragma(Pragma.AllowUnsafe);`),
+    // raw pointer types are not part of the user vocabulary. The
+    // file declaring or referencing such a type would let user
+    // code name `*(T)` in a parameter / field / return slot — a
+    // construct that's never reachable from safe code's safe-API
+    // diet. See plans/MEMORY_SAFETY.md "What Safe Code Cannot Do".
+    if (
+      !context.unsafeContext &&
+      !isImplicitlyUnsafeCapableFile(expr.token.modulePath)
+    ) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Raw pointer types ('*(${typeToString(baseType)})') are not available in safe code.
+
+Use 'Slice(T)' for bounded byte/element views, 'inout(name) : T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module. See plans/MEMORY_SAFETY.md.`,
+      });
+    }
 
     // §4 escape boundary (rule 11): a pointer/reference type cannot
     // have a control-bound pointee. Pointers to control-bound storage

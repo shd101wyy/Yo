@@ -405,7 +405,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
   - `src/codegen/exprs/atom.ts`: variable reads return `(*name)` (three lookup paths — main, state-machine, and the fallback used by assignment-LHS).
   - `src/codegen/exprs/other-fn-call.ts`: at the call site, args for inout params are wrapped in `(&(arg))`; the cast-to-param-type uses `T*`. Wrap folds `(&(*x))` → `x` so passing through nested inout calls doesn't accumulate `&(*` indirection.
 - [x] `tests/inout_params.test.yo` — 6 tests: swap, increment, inout+value mix, double-inout (both params written), inout chained through another inout-param fn, and inout-read returning the caller's current value.
-- [x] **Non-escape enforcement (closure captures).** Closures (`=>` form) that capture an `inout` parameter from an enclosing function are now rejected at evaluation time with `Cannot capture inout parameter 'x' in a closure. \`inout(x) : T\` is a second-class reference …`. Implemented in `src/evaluator/values/anonymous-function.ts`immediately before`enrichCapturedVariables`— for each captured variable in an outer frame, the gate consults the variable's`isInout`flag and throws if set. Per Open Question 3, even the synchronous-callback case is forbidden in v1. Tests pinned in`tests/inout_closure_capture.test.yo`via`comptime_expect_error(...)` (read-capture, write-capture, nested-closure capture, plus a positive runtime test that a closure not touching any inout param still compiles and runs). Other escape vectors (`r := inout_param` binding, struct field) are structurally impossible: there's no syntax for an "inout type", only an inout _parameter modifier_, so a let-binding copies the value (fine) and a struct field can't name the binding.
+- [x] **Non-escape enforcement (closure captures).** Closures (`=>` form) that capture an `inout` parameter from an enclosing function are now rejected at evaluation time with `Cannot capture inout parameter 'x' in a closure. \`inout(x) : T\` is a second-class reference …`. Implemented in `src/evaluator/values/anonymous-function.ts`immediately before`enrichCapturedVariables`— for each captured variable in an outer frame, the gate consults the variable's`isInout`flag and throws if set. Per Open Question 3, even the synchronous-callback case is forbidden in v1. Tests pinned in`tests/inout*closure_capture.test.yo`via`comptime_expect_error(...)` (read-capture, write-capture, nested-closure capture, plus a positive runtime test that a closure not touching any inout param still compiles and runs). Other escape vectors (`r := inout_param` binding, struct field) are structurally impossible: there's no syntax for an "inout type", only an inout \_parameter modifier*, so a let-binding copies the value (fine) and a struct field can't name the binding.
 
 ### Phase C — Privilege gate
 
@@ -415,15 +415,15 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 - [x] At evaluator time, compute each file's privilege from its `pragma(...)` calls only — **no path-based defaulting**. See `src/evaluator/memory-safety.ts`.
 - [x] In the evaluator, gate `unsafe(...)` itself on the calling file's privilege. Without `pragma(Pragma.AllowUnsafe);`, `unsafe(...)` is a compile error.
 - [x] Bulk-add the pragma to every existing file in `std/`, `yo-self/`, and `tests/` via `scripts/add-pragma.ts` (633 files).
-- [ ] **Follow-up:** also gate by privilege:
-  - `*(T)` type usage (declarations or expressions evaluating to `*(T)`-typed values)
-  - `&(expr)` operator
-  - `asm(...)` builtin
-  - `extern fn` declaration
-  - Pointer arithmetic operators (`&+`, `&-`, `&/`, `&<`, `&>`, `&<=`, `&>=`, `&==`, `&!=`)
-    Currently these are not pragma-gated. Practically, with `unsafe(...)` gated and pointer-op gates from Phase A, non-privileged user code cannot perform any pointer _operation_ — so memory safety holds. These additional gates would close the gap that non-privileged code can declare pointer-typed locals it can never use; a follow-up task.
-  - `consume(p.* = v)` form
-- [ ] Diagnostic messages per the "What Safe Code Cannot Do" table above.
+- [x] **Structural gates landed.** Safe code (no pragma) now rejects every construct that can name or produce a raw pointer:
+  - `*(T)` type expressions — gated in `src/evaluator/calls/pointer.ts:evaluateRawPointerCall`. Fires on parameter, field, and return-type slots, plus any standalone `*(T)` declaration.
+  - `&(expr)` address-of — gated in `src/evaluator/builtins/ptr-fns.ts:evaluateAddressCall`. Fires at the construction site, so the diagnostic points at the `&` rather than at a downstream use.
+  - `asm(...)` builtin — already gated in `src/evaluator/builtins/asm.ts`.
+  - `extern(...)` declarations — already gated in `src/evaluator/exprs/extern.ts`.
+  - Pointer arithmetic operators (`&+`, `&-`, `&/`) — already gated in `src/evaluator/exprs/_expr.ts`. Pointer comparison (`&==`, `&<`, …) intentionally stays safe per design — comparing addresses can't violate memory safety.
+  - `consume(p.* = v)` — gated transitively via the inner `.* ` deref gate in `property-access.ts`.
+  - Pragma re-added by `scripts/add-pragma-for-pointer-decls.ts` to every file under `std/`, `yo-self/`, and `tests/` whose source mentions `*(...)` or `&(...)`. The trim pass (`scripts/trim-pragma.ts`) had removed it from files using only pointer-type declarations; the new structural gates require it everywhere a raw-pointer-typed expression appears.
+- [x] **Diagnostic messages match the "What Safe Code Cannot Do" table.** Each gate's error names the rejected construct, suggests the safe alternative (Slice(T), inout(name) : T, stdlib wrapper), and tells the user how to opt into unsafe-capability if they really need it. Tests in `tests/safe_code_structural_gates.test.yo` (`comptime_expect_error` for each of the five structural rejections + a positive runtime guardrail using `inout`) and `src/tests/unsafe-gate.test.ts`.
 - [x] Add `pragma(Pragma.AllowUnsafe);` to every file in `std/`, `yo-self/`, and pointer-using `tests/*.test.yo` that needs it. Bulk-applied by `scripts/add-pragma.ts`, then trimmed by `scripts/trim-pragma.ts` to ~265 files (down from 633 — the initial bulk pass was deliberately over-inclusive).
 - [x] `tests/privilege_pragma.test.yo` — pragma enables unsafe constructs (deref, write-deref, pointer arithmetic, transparent block wrap). The negative direction (pragma absent) lives in `src/tests/unsafe-gate.test.ts`.
 - [x] `tests/safe_user_code.test.yo` — positive: safe code (arithmetic, cond/match, Option/Result, String/collections, `inout(...)` params, higher-order fns) compiles and runs WITHOUT the pragma. Negative side covered by `src/tests/unsafe-gate.test.ts` and `src/tests/pragma-validation.test.ts`.
@@ -738,4 +738,4 @@ Total implementation cost: ~2–3 weeks across all phases. Substantially less th
 
 **Known gaps:**
 
-- **Phase C scope:** `*(T)` type declarations and `&(expr)` operator are not yet pragma-gated. With `unsafe(...)`, `asm(...)`, and `extern fn` gated, user code can declare pointer-typed locals/params but cannot perform any pointer _operation_ on them, so the gap doesn't compromise memory safety. Closing it would be a follow-up at the parser/type-eval level.
+- **(All previously known gaps closed as of this revision.)**

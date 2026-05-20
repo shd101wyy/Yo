@@ -47,43 +47,45 @@ function compileAndExpectError(source: string): string {
 }
 
 describe("unsafe(...) gate — user code (outside std/, yo-self/, tests/)", () => {
-  test("pointer dereference requires unsafe", () => {
+  test("&(x) — taking an address — is rejected in safe code", () => {
+    // Phase C structural gate: `&(x)` produces a raw pointer
+    // value. Before any of the deeper "needs unsafe wrap"
+    // diagnostics fire, the structural rule rejects the
+    // address-of operator itself.
     const out = compileAndExpectError(`
 main :: (fn() -> unit)({
   x := i32(42);
   p := &(x);
-  v := p.*;
-  assert((v == i32(42)), "deref");
 });
 export(main);
 `);
-    expect(out).toContain("Pointer dereference requires 'unsafe(...)'");
-    expect(out).toContain("Wrap as: unsafe(p.*)");
+    expect(out).toContain(
+      "Taking an address with '&(...)' produces a raw pointer"
+    );
+    expect(out).toContain("pragma(Pragma.AllowUnsafe)");
   });
 
-  test("pointer arithmetic (&+) requires unsafe", () => {
+  test("*(T) type declaration is rejected in safe code", () => {
+    // Phase C structural gate: declaring a parameter, field, or
+    // return of type `*(T)` is rejected without the pragma. The
+    // diagnostic points at the `*(i32)` in the signature.
     const out = compileAndExpectError(`
-foo :: (fn(p : *(i32)) -> *(i32))(
-  (p &+ usize(1))
-);
-main :: (fn() -> unit)({
-  x := i32(0);
-  q := foo(&(x));
-});
+foo :: (fn(p : *(i32)) -> i32)(i32(0));
+main :: (fn() -> unit)({});
 export(main);
 `);
-    expect(out).toContain("Pointer arithmetic ('&+') requires 'unsafe(...)'");
+    expect(out).toContain("Raw pointer types ('*(i32)') are not available");
+    expect(out).toContain("pragma(Pragma.AllowUnsafe)");
   });
 
-  test("unsafe(...) without pragma is rejected", () => {
-    // Phase C: `unsafe(...)` itself is only callable in files that
-    // declare `pragma(Pragma.AllowUnsafe);` at the top. Without the
-    // pragma, even wrapping in `unsafe(...)` doesn't help.
+  test("unsafe(...) without pragma is rejected at the unsafe(...) call", () => {
+    // To pin the unsafe-call gate specifically (not the
+    // structural `&(x)` / `*(T)` gates), use a value expression
+    // that doesn't itself produce a raw pointer. Without pragma,
+    // even the bare `unsafe(...)` call fires.
     const out = compileAndExpectError(`
 main :: (fn() -> unit)({
-  x := i32(42);
-  p := &(x);
-  v := unsafe(p.*);
+  v := unsafe(i32(0));
 });
 export(main);
 `);

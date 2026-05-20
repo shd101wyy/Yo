@@ -23,6 +23,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 
 /**
  * Evaluate a address call
@@ -40,6 +41,24 @@ export function evaluateAddressCall({
   context: EvaluatorContext;
 }): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_address_of, 1);
+
+  // Phase C structural gate: `&(expr)` produces a raw pointer
+  // value (`*(T)`). In safe code, that value would have type `*(T)`,
+  // which the surrounding rules say isn't permitted. Reject at the
+  // construction site so the diagnostic points at the `&(...)` call
+  // rather than at some downstream use of the resulting pointer.
+  // See plans/MEMORY_SAFETY.md "What Safe Code Cannot Do".
+  if (
+    !context.unsafeContext &&
+    !isImplicitlyUnsafeCapableFile(expr.token.modulePath)
+  ) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Taking an address with '&(...)' produces a raw pointer ('*(T)'), which is not available in safe code.
+
+For in-place mutation of a value, use the 'inout(name) : T' parameter form on the receiving function. For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top. See plans/MEMORY_SAFETY.md.`,
+    });
+  }
 
   const argExpr = expr.args[0]!;
 
