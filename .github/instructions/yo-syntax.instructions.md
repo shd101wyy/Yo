@@ -817,6 +817,33 @@ ptr.* = i32(100);            // also works
 - `list.get(i)` returns `Option(T)` for safe bounds-checked access
 - Out-of-bounds access via `list(i)` panics at runtime
 
+### Don't write the verbose `(&(X)).index(i).*` form
+
+The Index trait method `.index(i)` returns `*(T)`. The verbose form
+
+```rust
+(&(self.field)).index(i).* = value;    // ✗ writes through raw pointer
+elem := (&(self.field)).index(i).*;    // ✗ same, but as a read
+v := list.get(i).unwrap();             // ✗ Option unwrap of safe form
+```
+
+requires `pragma(Pragma.AllowUnsafe);` because of the `.*` deref, and
+just clutters the call site. Use the call-syntax form everywhere it
+works:
+
+```rust
+self.field(i) = value;                 // ✓ same write, no `.*`
+elem := self.field(i);                 // ✓ same read
+v := list(i);                          // ✓ same panic-on-OOB semantics
+```
+
+Out-of-bounds panic is preserved — `list(i)` panics via the Index
+trait's bounds assertion, the same as `.unwrap()` on `.get(i)` would.
+
+Use the verbose form **only** when you need to keep the raw `*(T)` —
+e.g., to pass it to another routine that mutates through the pointer
+multiple times, or when borrowing through a non-Index trait method.
+
 ## Module-level declarations are processed in order
 
 `::` definitions at the top level are evaluated sequentially. A function body that calls another top-level function declared later in the same file will fail with **"Variable not found"** at module load time.

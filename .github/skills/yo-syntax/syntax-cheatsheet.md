@@ -606,11 +606,11 @@ list := ArrayList(i32).new();
 list.push(i32(42));
 
 val := list(usize(0));         // → i32  (value copy via Index trait)
-list(usize(0)) = i32(99);     // mutate in place directly
+list(usize(0)) = i32(99);      // mutate in place directly
 
 // When you need the pointer explicitly:
-ptr := &(list(usize(0)));     // → *(i32)
-ptr.* = i32(99);              // also works
+ptr := &(list(usize(0)));      // → *(i32)
+ptr.* = i32(99);               // also works
 
 // Safe access (returns Option(T)):
 match(list.get(usize(0)),
@@ -623,6 +623,26 @@ match(list.get(usize(0)),
 - `list(i) = val` mutates in place directly (preferred)
 - `&(list(i))` returns `*(T)` if you need the pointer explicitly
 - `list.get(i)` returns `Option(T)` for safe bounds-checked access
+
+**Don't write `(&(X)).index(i).*` or `X.get(i).unwrap()` when you mean
+`X(i)`.** Use the call-syntax form everywhere it works:
+
+```rust
+// ✗ Verbose, scans like raw-pointer code (and requires the file's
+//   pragma(Pragma.AllowUnsafe); because `.*` is gated):
+(&(self.field)).index(i).* = value;
+elem := (&(self.field)).index(i).*;
+v := list.get(usize(0)).unwrap();
+
+// ✓ Same semantics, no `.*`, no pragma needed:
+self.field(i) = value;
+elem := self.field(i);
+v := list(usize(0));
+```
+
+Both forms call the same `Index` trait method. The call-syntax form
+is shorter, doesn't need raw-pointer plumbing in user code, and
+panics on out-of-bounds identically to `.unwrap()` on `.get(...)`.
 
 ### Named fields required for `struct`/`object` constructors
 

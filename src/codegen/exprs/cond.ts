@@ -1,5 +1,7 @@
+import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinKeywords,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   type FnCallExpr,
@@ -281,7 +283,22 @@ export function generateCondExpression(
                       finalExpr.$.env
                     );
 
-                    if (argTempVar !== rawCode) {
+                    // Skip the temp-var declaration when finalExpr is
+                    // an inout-param atom — `T name = (*name);` would
+                    // shadow the pointer parameter. See
+                    // plans/MEMORY_SAFETY.md and
+                    // issues/inout-multi-stmt-body-shadow.md.
+                    let isInoutAtom = false;
+                    if (exprIsAtom(finalExpr) && finalExpr.$?.env) {
+                      const vars = getVariablesFromEnv(
+                        finalExpr.$.env,
+                        savedVariableName
+                      );
+                      if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+                        isInoutAtom = true;
+                      }
+                    }
+                    if (!isInoutAtom && argTempVar !== rawCode) {
                       context.emitter.emitLine(
                         `${valueIndent}${argType} ${argTempVar} = ${rawCode};`
                       );
@@ -381,7 +398,21 @@ export function generateCondExpression(
                   value.$.env
                 );
 
-                if (argTempVar !== rawCode) {
+                // Skip the temp-var declaration when value is an
+                // inout-param atom — `T name = (*name);` would shadow
+                // the pointer parameter. See
+                // issues/inout-multi-stmt-body-shadow.md.
+                let isInoutAtom = false;
+                if (exprIsAtom(value) && value.$?.env) {
+                  const vars = getVariablesFromEnv(
+                    value.$.env,
+                    savedVariableName
+                  );
+                  if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+                    isInoutAtom = true;
+                  }
+                }
+                if (!isInoutAtom && argTempVar !== rawCode) {
                   context.emitter.emitLine(
                     `${valueIndent}${argType} ${argTempVar} = ${rawCode};`
                   );

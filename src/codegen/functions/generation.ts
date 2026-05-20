@@ -1,4 +1,4 @@
-import { type Environment } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
 import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import {
   typeImplementsFn,
@@ -1288,7 +1288,24 @@ export function generateFunctionBody(
                 lastExpr.$.env
               );
               const rawCode = generateExpr(lastExpr, indent, context);
-              if (exprTempVar !== rawCode) {
+
+              // Skip the temp-var declaration when the last expression
+              // is an inout-param atom — `T name = (*name);` would
+              // shadow the pointer parameter. The deferred dup below
+              // will reference the inout name directly, which is
+              // fine. See plans/MEMORY_SAFETY.md and
+              // issues/inout-multi-stmt-body-shadow.md.
+              let isInoutAtom = false;
+              if (exprIsAtom(lastExpr) && lastExpr.$?.env) {
+                const vars = getVariablesFromEnv(
+                  lastExpr.$.env,
+                  lastExpr.$.variableName
+                );
+                if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+                  isInoutAtom = true;
+                }
+              }
+              if (!isInoutAtom && exprTempVar !== rawCode) {
                 emitter.emitLine(
                   `${indent}${exprType} ${exprTempVar} = ${rawCode};`
                 );

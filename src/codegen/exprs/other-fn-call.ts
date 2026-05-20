@@ -281,6 +281,12 @@ export function generateOtherFunctionCall(
           // so we must NOT create a temp variable with the original name because
           // it could conflict with C preprocessor macros (e.g., AF_INET from <sys/socket.h>).
           let isComptimeOnlyArg = false;
+          // Check if this is an inout parameter (e.g., `inout(self) : T`).
+          // For inout, atom.ts already emitted `(*name)` — creating a temp
+          // local with the same name would shadow the pointer parameter
+          // (`T name = (*name);` is a C redefinition error). See
+          // plans/MEMORY_SAFETY.md and issues/inout-multi-stmt-body-shadow.md.
+          let isInoutArg = false;
           if (exprIsAtom(arg) && arg.$.env && arg.$.variableName) {
             const variables = getVariablesFromEnv(
               arg.$.env,
@@ -291,6 +297,12 @@ export function generateOtherFunctionCall(
               variables[variables.length - 1]!.isCompileTimeOnly
             ) {
               isComptimeOnlyArg = true;
+            }
+            if (
+              variables.length > 0 &&
+              variables[variables.length - 1]!.isInout
+            ) {
+              isInoutArg = true;
             }
           }
 
@@ -308,7 +320,8 @@ export function generateOtherFunctionCall(
             argCode !== arg.$.variableName &&
             !isClosureCapturedVariable &&
             !isStateMachineCapturedVariable &&
-            !isComptimeOnlyArg
+            !isComptimeOnlyArg &&
+            !isInoutArg
           ) {
             // Only emit declaration if:
             // 1. The expression doesn't already handle it
@@ -437,10 +450,14 @@ export function generateOtherFunctionCall(
             // If this is a closure-captured variable, use the generated code (inline access)
             // If this is a state machine variable, use the generated code (sm->var_xxx access)
             // If this is a compile-time-only constant, use the generated code (inlined literal)
+            // If this is an inout parameter, use the generated code — it's
+            // already `(*name)` and we skipped the temp-var materialization
+            // above (the shadow would have been a C redefinition error).
             // Otherwise use the sanitized variable name (potentially duped)
             return isClosureCapturedVariable ||
               isStateMachineCapturedVariable ||
-              isComptimeOnlyArg
+              isComptimeOnlyArg ||
+              isInoutArg
               ? argCode
               : sanitizeForCIdentifier(
                   finalArgVarName,

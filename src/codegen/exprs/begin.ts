@@ -1,4 +1,6 @@
+import { getVariablesFromEnv } from "../../env";
 import {
+  exprIsAtom,
   exprIsFunctionCall,
   type FnCallExpr,
   hasAnyControlFlow,
@@ -113,12 +115,25 @@ export function generateBegin(
             lastArg.$.env
           );
 
-          if (argTempVar !== rawArgCode) {
+          // Skip the temp-var declaration when lastArg is an inout
+          // parameter — `T name = (*name);` shadows the pointer
+          // parameter and causes a C redefinition error. The
+          // deferred dup below picks up the inout name directly. See
+          // plans/MEMORY_SAFETY.md and
+          // issues/inout-multi-stmt-body-shadow.md.
+          let isInoutAtom = false;
+          if (exprIsAtom(lastArg) && lastArg.$?.env) {
+            const vars = getVariablesFromEnv(lastArg.$.env, savedVariableName);
+            if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+              isInoutAtom = true;
+            }
+          }
+          if (!isInoutAtom && argTempVar !== rawArgCode) {
             context.emitter.emitLine(
               `${indent}  ${argType} ${argTempVar} = ${rawArgCode};`
             );
           }
-          lastArgCode = argTempVar;
+          lastArgCode = isInoutAtom ? rawArgCode : argTempVar;
         }
 
         generateDeferredDupExpressions(lastArg, indent + "  ", context);

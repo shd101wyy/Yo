@@ -534,16 +534,16 @@ evaluate_assignment :: (
             match(
               cr,
               .ArrayRef(cr_elements, cr_index) => {
-                (&(cr_elements)).index(cr_index).* = cr_rhs_val;
+                cr_elements(cr_index) = cr_rhs_val;
               },
               .ComptimeListRef(cr_elements, cr_index) => {
-                (&(cr_elements)).index(cr_index).* = cr_rhs_val;
+                cr_elements(cr_index) = cr_rhs_val;
               },
               .StructRef(cr_field_values, cr_field_index) => {
-                (&(cr_field_values)).index(cr_field_index).* = cr_rhs_val;
+                cr_field_values(cr_field_index) = cr_rhs_val;
               },
               .TupleRef(cr_fields, cr_field_index) => {
-                (&(cr_fields)).index(cr_field_index).* = cr_rhs_val;
+                cr_fields(cr_field_index) = cr_rhs_val;
               }
             );
             is_comptime_only_prop = true;

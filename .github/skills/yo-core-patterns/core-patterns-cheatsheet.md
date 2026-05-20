@@ -105,6 +105,12 @@ match(numbers.get(usize(0)),
   .None => ()
 );
 
+// Do NOT write the verbose forms when X(i) works:
+//   ✗ (&(numbers)).index(usize(0)).* = i32(99);   // needs pragma, scans as raw-ptr code
+//   ✗ v := numbers.get(usize(0)).unwrap();        // panic-on-OOB anyway — just use call syntax
+// ✓ numbers(usize(0)) = i32(99);
+// ✓ v := numbers(usize(0));
+
 counts := HashMap(String, i32).new();
 counts.set(`yo`, i32(1));
 ```
