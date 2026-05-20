@@ -675,7 +675,7 @@ Hash :: trait(
   * Compute the hash of a value
   * Returns a u64 hash value
   */
-  (hash) : (fn(self : *(Self)) -> u64)
+  (hash) : (fn(inout(self) : Self) -> u64)
 );
 export(Hash);
 /// Clone trait — deep-copy a value.
@@ -1017,10 +1017,10 @@ impl(
   Hash(
     (hash) : (
       (self) ->
-        unsafe(cond(
-          self.* => u64(1),
+        cond(
+          self => u64(1),
           true => u64(0)
-        ))
+        )
     )
   )
 );
@@ -1164,7 +1164,7 @@ impl(
 impl(
   i8,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -1454,7 +1454,7 @@ impl(
 impl(
   i16,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -1805,10 +1805,10 @@ impl(
   i32,
   Hash(
     (hash) : (
-      (self) -> unsafe({
-        u32_value := u32(self.*);
+      (self) -> {
+        u32_value := u32(self);
         u64(u32_value)
-      })
+      }
     )
   )
 );
@@ -2042,7 +2042,7 @@ impl(
 impl(
   i64,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -2332,7 +2332,7 @@ impl(
 impl(
   u8,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -2612,7 +2612,7 @@ impl(
 impl(
   u16,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -2892,7 +2892,7 @@ impl(
 impl(
   u32,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -3172,7 +3172,7 @@ impl(
 impl(
   u64,
   Hash(
-    (hash) : ((self) -> unsafe(self.*))
+    (hash) : ((self) -> self)
   )
 );
 impl(
@@ -3432,7 +3432,7 @@ impl(
 impl(
   f32,
   Hash(
-    (hash) : ((self) -> unsafe(u64(i32(self.*))))
+    (hash) : ((self) -> u64(i32(self)))
   )
 );
 impl(
@@ -3633,7 +3633,7 @@ impl(
 impl(
   f64,
   Hash(
-    (hash) : ((self) -> unsafe(u64(i64(self.*))))
+    (hash) : ((self) -> u64(i64(self)))
   )
 );
 impl(
@@ -3859,7 +3859,7 @@ impl(
 impl(
   isize,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -4152,7 +4152,7 @@ impl(
 impl(
   usize,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -4436,7 +4436,7 @@ impl(
 impl(
   char,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -4546,7 +4546,7 @@ impl(
 impl(
   int,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -4656,7 +4656,7 @@ impl(
 impl(
   uint,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -4766,7 +4766,7 @@ impl(
 impl(
   short,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -4876,7 +4876,7 @@ impl(
 impl(
   ushort,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -4986,7 +4986,7 @@ impl(
 impl(
   long,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -5096,7 +5096,7 @@ impl(
 impl(
   ulong,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -5206,7 +5206,7 @@ impl(
 impl(
   longlong,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -5316,7 +5316,7 @@ impl(
 impl(
   ulonglong,
   Hash(
-    (hash) : ((self) -> unsafe(u64(self.*)))
+    (hash) : ((self) -> u64(self))
   )
 );
 impl(
@@ -5426,7 +5426,7 @@ impl(
 impl(
   longdouble,
   Hash(
-    (hash) : ((self) -> unsafe(u64(i64(self.*))))
+    (hash) : ((self) -> u64(i64(self)))
   )
 );
 impl(
@@ -6827,8 +6827,8 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
             (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
               fname :: fields.get(fi).name;
               cond(
-                (fi == 0) => __s3("(h : u64) = (&(self.*.", fname, ")).hash()"),
-                true => __s4(a, ";\n    h = ((h * u64(31)) + (&(self.*.", fname, ")).hash())")
+                (fi == 0) => __s3("(h : u64) = self.", fname, ".hash()"),
+                true => __s4(a, ";\n    h = ((h * u64(31)) + self.", fname, ".hash())")
               )
             })
           );
@@ -6871,7 +6871,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
                 __s3("(h : u64) = u64(", vi_str, ")"),
                 (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
                   fname :: v.fields.get(fi).name;
-                  __s4(a, "; h = ((h * u64(31)) + (&(__v_", fname, ")).hash())")
+                  __s4(a, "; h = ((h * u64(31)) + __v_", fname, ".hash())")
                 })
               );
               __s5(
@@ -6889,7 +6889,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
           )
         })
       );
-      match_body :: __s3("match(self.*,\n    ", hash_branches, "\n  )");
+      match_body :: __s3("match(self,\n    ", hash_branches, "\n  )");
       ctx.make_impl(
         quote(
           Hash(
@@ -7398,7 +7398,7 @@ impl(
   where(T <: Hash),
   Box(T),
   Hash(
-    (hash) : ((self) -> unsafe((self.*).*.hash()))
+    (hash) : ((self) -> self.*.hash())
   )
 );
 impl(
