@@ -431,7 +431,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
 ### Phase D — Stdlib boundary sweep (`*(Self)` → `inout(self) : Self` and friends)
 
-- [ ] Sweep `std/prelude.yo` for trait method signatures using `(self : *(Self))`. Replace with `(inout(self) : Self)`. Canonical example: the `Hash` trait —
+- [x] **Hash trait migrated.** Trait signature + all primitive impls in std/prelude.yo. Plus `__derive_hash` macro, String, imm.String. Pattern:
 
   ```rust
   // Before:
@@ -445,15 +445,11 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
   );
   ```
 
-  Most existing `*(Self)` receivers are the same case (pass-by-reference to avoid copying / RC dup; callee may read or write).
-
-- [ ] Sweep `std/` for `*(T)` in other public method signatures. Replace with:
-  - `Slice(T)` for borrow-style views (already safe, bounds-checked indexing)
-  - `inout(name) : T` for in-place mutation
-  - `object` / `Iso(T)` / `Arc(T)` for ownership-passing
-- [ ] Internal unsafe code stays as-is, wrapped in `unsafe(...)`.
-- [ ] Migrate `iter()` on every collection to a value iterator yielding `T`. Add `indices()` on indexable collections. Add `each_mut(...)` callbacks.
-- [ ] Lint: `yo check --stdlib-public-safe` fails if any public stdlib API exposes `*(T)`.
+- [x] **Clone trait migrated.** Same shape. Trait + all primitive impls + Box(T) + Option(T) + Result(T,E) + `__derive_clone` macro + ArrayList + HashMap + String. Bulk-migration of `(&(x)).clone()` → `x.clone()` in yo-self/ via `scripts/migrate-clone-calls.ts` (29 files).
+- [x] **Eq, PartialEq, Ord** — checked. Already take parameters by value (`lhs : Self, rhs : Rhs`); no migration needed.
+- [ ] **Iterator trait** — explicitly skipped per goal ("Let's not change Iterator for now"). Iterator methods still take `(self : *(Self))` and yield `*(T)`. Migrating them would also require redesigning the for-loop interaction (see plan's "Iteration in safe code" section).
+- [ ] **Remaining `*(T)` in other public method signatures** (non-trait, non-iterator one-offs): could be migrated case-by-case. Most are either iterator-related, FFI wrappers (legitimate `*(T)`), or methods like `as_ptr` that intentionally return raw pointers. Track follow-up.
+- [ ] **Lint: `yo check --stdlib-public-safe`** — not implemented; would be a useful follow-up.
 
 ### Phase E — Tooling
 
@@ -704,7 +700,7 @@ The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the priv
 
 ## Status
 
-**Phase A + B + C + E + F landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file. `inout(name) : T` parameters give in-place mutation without raw pointers. `yo unsafe-report` audits the unsafe surface across a project.
+**Phase A + B + C + D (partial) + E + F landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file. `inout(name) : T` parameters give in-place mutation without raw pointers. Hash and Clone traits now take `inout(self) : Self` instead of `(self : *(Self))` — user code calling `value.hash()` or `value.clone()` works naturally with no manual `&(...)`. `yo unsafe-report` audits the unsafe surface across a project.
 
 Resolved decisions:
 
@@ -718,7 +714,7 @@ Phase ordering (foundation → leaves):
 1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = v)`.
 2. **Phase B** ✅ — `inout(name) : T` parameter form. Used as the safe in-place-mutation primitive for user code; Phase D will use it to replace `*(Self)` receivers in stdlib trait method signatures.
 3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)`, `asm(...)`, and `extern fn` declarations on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
-4. **Phase D** — stdlib boundary sweep: `*(Self)` → `inout(self) : Self` in trait signatures, `*(T)` → `Slice(T)`/`inout(name) : T` in other public APIs. Skipped per user instruction (iterator change deferred); a meaningful chunk of work for a future session.
+4. **Phase D** ✅ partial — Hash and Clone traits migrated to `inout(self) : Self`; their derive macros updated; ArrayList/HashMap/String impls updated; yo-self bulk migration of `(&(x)).clone()` → `x.clone()` (29 files via script). Iterator trait deferred per goal — would require for-loop redesign. Other one-off `*(T)` signatures (FFI wrappers, `as_ptr`, etc.) left case-by-case.
 5. **Phase E** ✅ — `yo unsafe-report` (audit-friendly listing of every unsafe site, asm, extern, and pragma file). `yo audit-unsafe` (LLM-backed) deferred.
 6. **Phase F** ✅ — Docs (DESIGN.md en+zh, syntax instructions, cheatsheet, cross-links to `yo unsafe-report`). The standalone `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` user page is deferred; the DESIGN.md + plans/ coverage is sufficient for now.
 
