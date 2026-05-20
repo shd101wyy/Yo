@@ -55,7 +55,7 @@ impl(Thread,
   spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> Self),
 
   // 等待线程完成（阻塞）
-  join : (fn(self : *(Self)) -> unit)
+  join : (fn(inout(self) : Self) -> unit)
 );
 ```
 
