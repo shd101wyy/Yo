@@ -792,6 +792,24 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     | undefined;
 
   if (isClosureFunction && capturedVariables && capturedVariables.size > 0) {
+    // Phase B non-escape enforcement (plans/MEMORY_SAFETY.md): an
+    // `inout(name) : T` parameter is a second-class reference to
+    // the caller's storage. Capturing it in a closure would let
+    // that reference outlive the call frame, since the closure can
+    // be stored, returned, or sent to a Future. Reject every such
+    // capture — the synchronous-callback case (Open Question 3) is
+    // forbidden in v1 alongside the escaping cases.
+    for (const [varName, captureInfo] of capturedVariables.entries()) {
+      if (captureInfo.frameLevel >= env.frames.length) continue;
+      const frame = env.frames[captureInfo.frameLevel]!;
+      const variable = frame.variables.find((v) => v.name === varName);
+      if (variable?.isInout) {
+        throw formatErrorMessage({
+          token: captureInfo.token ?? expr.token,
+          errorMessage: `Cannot capture inout parameter '${varName}' in a closure. \`inout(${varName}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
+        });
+      }
+    }
     capturedVariablesWithValues = enrichCapturedVariables({
       capturedVariables,
       env,

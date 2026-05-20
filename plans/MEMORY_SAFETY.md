@@ -405,7 +405,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
   - `src/codegen/exprs/atom.ts`: variable reads return `(*name)` (three lookup paths — main, state-machine, and the fallback used by assignment-LHS).
   - `src/codegen/exprs/other-fn-call.ts`: at the call site, args for inout params are wrapped in `(&(arg))`; the cast-to-param-type uses `T*`. Wrap folds `(&(*x))` → `x` so passing through nested inout calls doesn't accumulate `&(*` indirection.
 - [x] `tests/inout_params.test.yo` — 6 tests: swap, increment, inout+value mix, double-inout (both params written), inout chained through another inout-param fn, and inout-read returning the caller's current value.
-- [ ] **Deferred:** non-escape enforcement (rejecting `r := inout_param` for bind-to-reference, rejecting closure captures of inout-params). Currently inout-params can technically appear in any expression position; the compiler doesn't prevent escaping the call frame. The C calling convention happens to make this work for simple cases (each call frame has its own `T*` parameter), but the semantic guarantee that inout-params can't escape requires evaluator-side checks that aren't yet implemented. Track as follow-up.
+- [x] **Non-escape enforcement (closure captures).** Closures (`=>` form) that capture an `inout` parameter from an enclosing function are now rejected at evaluation time with `Cannot capture inout parameter 'x' in a closure. \`inout(x) : T\` is a second-class reference …`. Implemented in `src/evaluator/values/anonymous-function.ts`immediately before`enrichCapturedVariables`— for each captured variable in an outer frame, the gate consults the variable's`isInout`flag and throws if set. Per Open Question 3, even the synchronous-callback case is forbidden in v1. Tests pinned in`tests/inout_closure_capture.test.yo`via`comptime_expect_error(...)` (read-capture, write-capture, nested-closure capture, plus a positive runtime test that a closure not touching any inout param still compiles and runs). Other escape vectors (`r := inout_param` binding, struct field) are structurally impossible: there's no syntax for an "inout type", only an inout _parameter modifier_, so a let-binding copies the value (fine) and a struct field can't name the binding.
 
 ### Phase C — Privilege gate
 
@@ -492,13 +492,7 @@ Comment-style directives (`// @skip_prelude`, `// @skip_wasm`, …) were the ori
 
 2. **`asm(...)` blocks.** Already inherently unsafe. **Lean: no `unsafe(asm(...))` requirement.** Document that `asm` is implicitly unsafe and only available in unsafe-capable files.
 
-3. **`inout` parameter capture in closures.** Three sub-cases:
-
-   - Closure invoked synchronously within the function call (e.g., `iter.each((x) => { inout_param = x; })`) — should be fine, closure cannot escape the call frame.
-   - Closure that escapes (stored, returned, sent to a Future) — must not capture an inout-param.
-   - Closure of unknown escape behavior — conservatively reject.
-
-   **Lean:** for v1, forbid all closure captures of inout-params. Revisit if real APIs demand the synchronous-callback case.
+3. **`inout` parameter capture in closures.** ✅ Resolved: forbid all closure captures of inout-params in v1, even the synchronous-callback case. Implementation in `src/evaluator/values/anonymous-function.ts`; tests in `tests/inout_closure_capture.test.yo` (`comptime_expect_error` negatives + a positive runtime guardrail). Revisit if real APIs demand the synchronous-callback carve-out.
 
 4. **`inout(...)` and `object` receiver.** An `inout(name) : T` where `T` is an `object` type — does it allow mutating the RC handle (rebinding to a different object) or just mutating through it? **Lean:** allow rebinding (caller's variable can be reassigned). This matches Pascal/Nim semantics.
 
@@ -740,9 +734,8 @@ Phase ordering (foundation → leaves):
 
 Total implementation cost: ~2–3 weeks across all phases. Substantially less than `FUTURE_ORIGINS.md` (~1–2 months) for materially the same practical safety story.
 
-**Next concrete unit of work: Phase D** (stdlib boundary sweep — replace `*(Self)` with `inout(self) : Self` in trait method signatures). Phase B's non-escape enforcement and the remaining Phase C gates (`*(T)` types, `&(expr)`) are also meaningful follow-ups.
+**Next concrete unit of work: Iterator trait redesign** (Phase D). The remaining Phase C structural gates (`*(T)` types, `&(expr)`) are also meaningful follow-ups but don't compromise memory safety in practice.
 
 **Known gaps:**
 
-- **Phase B non-escape:** the evaluator doesn't yet enforce that an `inout`-param identifier may only appear in expression-rvalue, assignment-lvalue, or as another inout-param argument. Currently the C calling convention happens to give the right behavior for simple cases but a programmer could write code that stores an inout-param's identifier in a way that escapes the call frame (with surprising semantics). Track as follow-up.
 - **Phase C scope:** `*(T)` type declarations and `&(expr)` operator are not yet pragma-gated. With `unsafe(...)`, `asm(...)`, and `extern fn` gated, user code can declare pointer-typed locals/params but cannot perform any pointer _operation_ on them, so the gap doesn't compromise memory safety. Closing it would be a follow-up at the parser/type-eval level.
