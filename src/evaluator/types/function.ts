@@ -277,10 +277,14 @@ export function evaluateFunctionParameter({
           errorMessage: `Cannot combine 'own' and 'inout' on the same parameter — they have opposite calling conventions.`,
         });
       }
-      if (isCompileTimeOnly) {
+      if (isParameterComptimeByDefault) {
+        // forall/using params are erased at runtime; they have no callee-
+        // side binding for inout to refer to. comptime(inout(...)) is
+        // permitted (sets isCompileTimeOnly here), but forall(inout(...))
+        // makes no sense.
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `'inout' parameters are runtime by-reference; cannot combine with 'comptime' or 'forall'.`,
+          errorMessage: `'inout' cannot combine with 'forall'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
         });
       }
       isInout = true;

@@ -566,6 +566,13 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
       isOwningTheRcValue: parameter.isOwningTheRcValue,
+      // inout(name) : T parameters — propagate the flag so the
+      // callee binding accepts `name = v` reassignment. Required
+      // for both runtime inout (codegen lowers to T*) and
+      // comptime(inout(...)) inout (comptime mutations propagate
+      // via the evaluator's binding update path).
+      isInout: parameter.isInout || undefined,
+      isReassignable: parameter.isInout,
     },
   });
   calleeEnv = nextEnv;
