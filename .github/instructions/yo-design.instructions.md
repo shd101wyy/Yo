@@ -555,8 +555,8 @@ All container indexing uses the `Index` trait. Array/Slice have special compiler
 
 ### Architecture
 
-- `Index(Idx)` — runtime indexing trait with associated type `Output`
-- `ComptimeIndex(Idx)` — compile-time variant (parameters and return are `comptime`)
+- `Index(Idx)` — runtime indexing trait with associated type `Output`. Self is taken by `inout(self) : Self` so the index method can return a pointer to a field of the caller's value.
+- `ComptimeIndex(Idx)` — compile-time variant (parameters and return are `comptime`). Self is taken by `comptime(inout(self)) : Self` — the comptime binding is erased at runtime but mutations through it propagate to the caller via the evaluator's binding-update path.
 - Array/Slice Index impls delegate to compiler builtins (`__yo_array_index`, `__yo_slice_index`, etc.)
 - Other types (ArrayList, HashMap, BTreeMap, Deque, String) implement Index with normal methods
 
