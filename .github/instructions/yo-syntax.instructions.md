@@ -533,6 +533,34 @@ n := unsafe({
 
 `unsafe(...)` does NOT propagate through function calls — each function body is evaluated with its own context. If a function's body does pointer ops, the body must wrap them locally; callers don't need `unsafe(...)` at the call site. See `plans/MEMORY_SAFETY.md`.
 
+## `inout(name) : T` parameters for in-place mutation
+
+For mutating a caller's variable without raw pointers, use the `inout` parameter modifier. It wraps the parameter name (parallel to `own(name)`) and gives second-class reference semantics — reads/writes through the parameter access the caller's storage.
+
+```rust
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+  tmp := a;
+  a = b;
+  b = tmp;
+});
+
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  swap(x, y);              // no `&()` syntax at the call site
+  assert((x == i32(2)), "swapped");
+});
+```
+
+Rules:
+
+- `inout(...)` cannot combine with `own(...)` (opposite calling conventions) or `comptime`/`forall` (inout is runtime-only).
+- Inside the callee, the inout-param identifier behaves like a regular variable for reads (`tmp := a;`) and assignments (`a = b;`).
+- Calls through inout-params chain naturally: `fn outer(inout(x))` calling `fn inner(inout(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
+- At codegen, `inout(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. No runtime cost vs hand-written pointer code.
+
+`inout` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` should migrate to `(inout(self) : Self)` as a follow-up (Phase D of `plans/MEMORY_SAFETY.md`).
+
 ## `for` loop macro — correct form
 
 The `for` macro is a 2-argument prelude macro. The **first argument must be an iterator** (an expression with a `.next()` method):

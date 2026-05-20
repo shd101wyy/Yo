@@ -1028,6 +1028,48 @@ main :: (fn() -> unit)({
 });
 ```
 
+### `inout` 参数
+
+要在不使用原始指针的情况下实现原地修改，请使用 `inout(name) : T` 参数修饰符。该修饰符包裹参数名（与现有的 `own(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `inout(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
+
+```rust
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+  tmp := a;
+  a = b;
+  b = tmp;
+});
+
+increment :: (fn(inout(n) : i32) -> unit)({
+  n = (n + i32(1));
+});
+
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  swap(x, y);              // 调用点不需要 `&()` 语法
+  assert((x == i32(2)), "swapped");
+  assert((y == i32(1)), "swapped");
+
+  counter := i32(0);
+  increment(counter);
+  increment(counter);
+  assert((counter == i32(2)), "incremented");
+});
+```
+
+`inout(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`forall`（inout 是运行时专用的）组合使用。对于链式调用，将 inout 参数传递给另一个函数的 inout 参数按预期工作：
+
+```rust
+double :: (fn(inout(n) : i32) -> unit)({
+  n = (n + n);
+});
+
+double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
+  double(x);  // 将 &x 透传给 double 的 inout 参数
+  double(y);
+});
+```
+
 ### RAII（资源获取即初始化）
 
 Yo 通过引用计数自动管理对象类型的内存。当对象的引用计数降为零时，它会被自动释放。

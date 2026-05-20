@@ -398,14 +398,14 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
 ### Phase B — `inout(...)` parameters
 
-- [ ] Parse `inout(name) : T` in function parameter lists. The `inout(...)` form is a parameter modifier wrapping the name (parallel to existing `own(name) : T`), not a type.
-- [ ] In the evaluator, treat inout-params as bindings to the caller's storage. Type-check reads/writes against the underlying `T`.
-- [ ] Implement the non-escape check:
-  - Inout-param identifier may appear in expression-rvalue, assignment-lvalue, or as another inout-param argument. Nowhere else.
-  - Reject `r := inout_param` where the binding would be a bind-to-reference (the value form copies and is fine).
-  - Reject closure captures of inout-params unless the closure type is known not to escape (see Open Question 3).
-- [ ] Codegen: inout-params lower to `T*` in C; the callee's references to the identifier become `*name` reads and writes. Existing pointer codegen handles this directly.
-- [ ] `tests/inout_params.test.yo` — `swap`, `increment`, multi-inout, no-escape rejections.
+- [x] Parse `inout(name) : T` in function parameter lists. Added alongside `own(name)` in src/evaluator/types/function.ts. Combinations with `own` or `comptime`/forall are rejected.
+- [x] In the evaluator, treat inout-params as bindings to the caller's storage. Marked the parameter and env-side variable with `isInout` (FunctionParameter + Variable). Mark variables `isReassignable: true` so assignments inside the callee body type-check.
+- [x] Codegen: inout-params lower to `T*` in C. Three changes:
+  - `src/codegen/functions/declarations.ts`: signature emits `T* name`.
+  - `src/codegen/exprs/atom.ts`: variable reads return `(*name)` (three lookup paths — main, state-machine, and the fallback used by assignment-LHS).
+  - `src/codegen/exprs/other-fn-call.ts`: at the call site, args for inout params are wrapped in `(&(arg))`; the cast-to-param-type uses `T*`. Wrap folds `(&(*x))` → `x` so passing through nested inout calls doesn't accumulate `&(*` indirection.
+- [x] `tests/inout_params.test.yo` — 6 tests: swap, increment, inout+value mix, double-inout (both params written), inout chained through another inout-param fn, and inout-read returning the caller's current value.
+- [ ] **Deferred:** non-escape enforcement (rejecting `r := inout_param` for bind-to-reference, rejecting closure captures of inout-params). Currently inout-params can technically appear in any expression position; the compiler doesn't prevent escaping the call frame. The C calling convention happens to make this work for simple cases (each call frame has its own `T*` parameter), but the semantic guarantee that inout-params can't escape requires evaluator-side checks that aren't yet implemented. Track as follow-up.
 
 ### Phase C — Privilege gate
 
@@ -704,7 +704,7 @@ The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the priv
 
 ## Status
 
-**Phase A + Phase C landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file.
+**Phase A + B + C landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file. `inout(name) : T` parameters give in-place mutation without raw pointers.
 
 Resolved decisions:
 
@@ -716,16 +716,17 @@ Resolved decisions:
 Phase ordering (foundation → leaves):
 
 1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = v)`.
-2. **Phase B** — `inout(...)` parameter form. Independent of C.
-3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)` itself on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
+2. **Phase B** ✅ — `inout(name) : T` parameter form. Independent of C. Used as the safe in-place-mutation primitive for user code; Phase D will use it to replace `*(Self)` receivers in stdlib trait method signatures.
+3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)`, `asm(...)`, and `extern fn` declarations on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
 4. **Phase D** — stdlib boundary sweep: `*(Self)` → `inout(self) : Self` in trait signatures, `*(T)` → `Slice(T)`/`inout(name) : T` in other public APIs.
 5. **Phase E** — tooling (`yo check --unsafe-report`, optional `yo audit-unsafe`).
 6. **Phase F** — docs.
 
 Total implementation cost: ~2–3 weeks across all phases. Substantially less than `FUTURE_ORIGINS.md` (~1–2 months) for materially the same practical safety story.
 
-**Next concrete unit of work: Phase B** (`inout(...)` parameter form). Phase D depends on B.
+**Next concrete unit of work: Phase D** (stdlib boundary sweep — replace `*(Self)` with `inout(self) : Self` in trait method signatures), or **Phase E** (tooling). Phase B's non-escape enforcement (currently deferred) is also a meaningful follow-up.
 
-**Known gaps after Phase C:**
+**Known gaps:**
 
-- `*(T)` type declarations, `&(expr)` operator, `asm(...)` and `extern fn` declarations are not yet gated by pragma. These are listed in the design as Phase C scope but currently slip through; they require parser-level or type-level checks. Practically, with `unsafe(...)` gated, user code cannot perform any pointer _operation_ (deref, arithmetic, consume-of-deref), so the gap doesn't compromise memory safety — it just lets non-privileged files declare pointer-typed locals/params that they can never actually use. Track as follow-up work.
+- **Phase B non-escape:** the evaluator doesn't yet enforce that an `inout`-param identifier may only appear in expression-rvalue, assignment-lvalue, or as another inout-param argument. Currently the C calling convention happens to give the right behavior for simple cases but a programmer could write code that stores an inout-param's identifier in a way that escapes the call frame (with surprising semantics). Track as follow-up.
+- **Phase C scope:** `*(T)` type declarations and `&(expr)` operator are not yet pragma-gated. With `unsafe(...)`, `asm(...)`, and `extern fn` gated, user code can declare pointer-typed locals/params but cannot perform any pointer _operation_ on them, so the gap doesn't compromise memory safety. Closing it would be a follow-up at the parser/type-eval level.

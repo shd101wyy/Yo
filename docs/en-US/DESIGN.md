@@ -1031,6 +1031,48 @@ main :: (fn() -> unit)({
 });
 ```
 
+### `inout` Parameters
+
+For in-place mutation without raw pointers, use the `inout(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `inout(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
+
+```rust
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+  tmp := a;
+  a = b;
+  b = tmp;
+});
+
+increment :: (fn(inout(n) : i32) -> unit)({
+  n = (n + i32(1));
+});
+
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  swap(x, y);              // no `&()` syntax at the call site
+  assert((x == i32(2)), "swapped");
+  assert((y == i32(1)), "swapped");
+
+  counter := i32(0);
+  increment(counter);
+  increment(counter);
+  assert((counter == i32(2)), "incremented");
+});
+```
+
+`inout(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (inout is runtime-only). For chained calls, passing an inout-param through to another function's inout-param works as expected:
+
+```rust
+double :: (fn(inout(n) : i32) -> unit)({
+  n = (n + n);
+});
+
+double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
+  double(x);  // passes &x through to double's inout-param
+  double(y);
+});
+```
+
 ### RAII (Resource Acquisition Is Initialization)
 
 Yo automatically manages memory for object types through reference counting. When an object's reference count reaches zero, it is automatically freed.
