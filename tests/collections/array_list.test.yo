@@ -771,7 +771,7 @@ test("ArrayList into_iter - multiple elements in order", {
 test("ArrayList iter - empty list", {
   list := ArrayList(i32).new();
   count := usize(0);
-  for((&(list)).iter(), (ptr) => {
+  for(list.iter(), (ptr) => {
     consume(ptr);
     count = (count + usize(1));
   });
@@ -784,7 +784,7 @@ test("ArrayList iter - yields pointers to elements", {
   list.push(i32(300));
   sum := i32(0);
   count := usize(0);
-  for((&(list)).iter(), (ptr) => {
+  for(list.iter(), (ptr) => {
     sum = (sum + ptr.*);
     count = (count + usize(1));
   });
@@ -797,7 +797,7 @@ test("ArrayList iter - mutate through pointer", {
   list.push(i32(2));
   list.push(i32(3));
   // Double each element through pointer
-  for((&(list)).iter(), (ptr) => {
+  for(list.iter(), (ptr) => {
     ptr.* = (ptr.* * i32(2));
   });
   assert(list(usize(0)) == i32(2), "first element should be doubled");

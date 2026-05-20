@@ -40,27 +40,27 @@ impl(
     Self(secs : (nanos / i64(1000000000)), nanos : (nanos % i64(1000000000)))
   ),
   // Total whole seconds in the duration.
-  as_secs : (fn(self : *(Self)) -> i64)(
+  as_secs : (fn(inout(self) : Self) -> i64)(
     self.secs
   ),
   // Total milliseconds (truncated).
-  as_millis : (fn(self : *(Self)) -> i64)(
+  as_millis : (fn(inout(self) : Self) -> i64)(
     (self.secs * i64(1000)) + (self.nanos / i64(1000000))
   ),
   // Total microseconds (truncated).
-  as_micros : (fn(self : *(Self)) -> i64)(
+  as_micros : (fn(inout(self) : Self) -> i64)(
     (self.secs * i64(1000000)) + (self.nanos / i64(1000))
   ),
   // Total nanoseconds.
-  as_nanos : (fn(self : *(Self)) -> i64)(
+  as_nanos : (fn(inout(self) : Self) -> i64)(
     (self.secs * i64(1000000000)) + self.nanos
   ),
   // Total seconds as a floating-point number.
-  as_secs_f64 : (fn(self : *(Self)) -> f64)(
+  as_secs_f64 : (fn(inout(self) : Self) -> f64)(
     f64(self.secs) + (f64(self.nanos) / f64(1000000000.0))
   ),
   // Add two durations together.
-  add : (fn(self : *(Self), other : Duration) -> Duration)({
+  add : (fn(inout(self) : Self, other : Duration) -> Duration)({
     total_nanos := (self.nanos + other.nanos);
     carry := (total_nanos / i64(1000000000));
     Duration(
@@ -69,7 +69,7 @@ impl(
     )
   }),
   // Subtract another duration (saturates to zero if negative).
-  sub : (fn(self : *(Self), other : Duration) -> Duration)({
+  sub : (fn(inout(self) : Self, other : Duration) -> Duration)({
     self_ns := self.as_nanos();
     other_ns := other.as_nanos();
     cond(
@@ -78,7 +78,7 @@ impl(
     )
   }),
   // Return true if this duration is zero.
-  is_zero : (fn(self : *(Self)) -> bool)(
+  is_zero : (fn(inout(self) : Self) -> bool)(
     (self.secs == i64(0)) && (self.nanos == i64(0))
   )
 );

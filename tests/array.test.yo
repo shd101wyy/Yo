@@ -161,7 +161,7 @@ test("Test array slice", {
 test("Array iter - empty array yields nothing", {
   arr := Array(i32, 0)();
   count := usize(0);
-  for((&(arr)).iter(), (ptr) => {
+  for(arr.iter(), (ptr) => {
     consume(ptr);
     count = (count + usize(1));
   });
@@ -171,7 +171,7 @@ test("Array iter - yields pointers to elements", {
   arr := [i32(10), i32(20), i32(30)];
   sum := i32(0);
   count := usize(0);
-  for((&(arr)).iter(), (ptr) => {
+  for(arr.iter(), (ptr) => {
     sum = (sum + ptr.*);
     count = (count + usize(1));
   });
@@ -180,7 +180,7 @@ test("Array iter - yields pointers to elements", {
 });
 test("Array iter - mutate through pointer", {
   arr := [i32(1), i32(2), i32(3)];
-  for((&(arr)).iter(), (ptr) => {
+  for(arr.iter(), (ptr) => {
     ptr.* = (ptr.* * i32(10));
   });
   assert(arr(0) == i32(10), "first element should be 10");
@@ -193,7 +193,7 @@ test("Slice iter - yields pointers to elements", {
   slice := arr(usize(0) .. usize(3));
   sum := i32(0);
   count := usize(0);
-  for((&(slice)).iter(), (ptr) => {
+  for(slice.iter(), (ptr) => {
     sum = (sum + ptr.*);
     count = (count + usize(1));
   });
@@ -203,7 +203,7 @@ test("Slice iter - yields pointers to elements", {
 test("Slice iter - mutate through pointer", {
   arr := [i32(1), i32(2), i32(3)];
   slice := arr(usize(0) .. usize(3));
-  for((&(slice)).iter(), (ptr) => {
+  for(slice.iter(), (ptr) => {
     ptr.* = (ptr.* + i32(5));
   });
   assert(arr(0) == i32(6), "first element should be 6");
@@ -215,7 +215,7 @@ test("Slice iter - partial slice", {
   slice := arr(usize(1) .. usize(3));
   sum := i32(0);
   count := usize(0);
-  for((&(slice)).iter(), (ptr) => {
+  for(slice.iter(), (ptr) => {
     sum = (sum + ptr.*);
     count = (count + usize(1));
   });

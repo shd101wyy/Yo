@@ -322,7 +322,7 @@ impl(
     return(Self(_bytes :.Some(new_bytes)));
   }),
   /// Append another `String` to this string in-place (mutates `self`).
-  push_string : (fn(self : *(Self), other : Self) -> unit)({
+  push_string : (fn(inout(self) : Self, other : Self) -> unit)({
     (olen : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
     if(olen > usize(0), {
       match(
@@ -331,11 +331,11 @@ impl(
           ob.ptr(),
           .Some(p) => {
             match(
-              self.*._bytes,
+              self._bytes,
               .None => {
                 (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(olen);
                 new_al.extend_from_ptr(p, olen);
-                self.*._bytes =.Some(new_al);
+                self._bytes =.Some(new_al);
               },
               .Some(al) => {
                 al.extend_from_ptr(p, olen);
@@ -349,15 +349,15 @@ impl(
     });
   }),
   /// Append a `str` slice to this string in-place (mutates `self`).
-  push_str : (fn(self : *(Self), s : str) -> unit)({
+  push_str : (fn(inout(self) : Self, s : str) -> unit)({
     (slen : usize) = s.len();
     if(slen > usize(0), {
       match(
-        self.*._bytes,
+        self._bytes,
         .None => {
           (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(slen);
           new_al.extend_from_ptr(s.ptr(), slen);
-          self.*._bytes =.Some(new_al);
+          self._bytes =.Some(new_al);
         },
         .Some(al) => {
           al.extend_from_ptr(s.ptr(), slen);
@@ -367,13 +367,13 @@ impl(
   }),
   /// Append a single byte to this string in-place (mutates `self`).
   /// The caller must ensure the byte maintains valid UTF-8.
-  push_byte : (fn(self : *(Self), b : u8) -> unit)({
+  push_byte : (fn(inout(self) : Self, b : u8) -> unit)({
     match(
-      self.*._bytes,
+      self._bytes,
       .None => {
         (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(usize(8));
         new_al.push(b);
-        self.*._bytes =.Some(new_al);
+        self._bytes =.Some(new_al);
       },
       .Some(al) => {
         al.push(b);
@@ -382,11 +382,11 @@ impl(
   }),
   /// Reserve capacity for at least `additional` more bytes.
   /// If the string is empty, creates a new buffer with the given capacity.
-  reserve : (fn(self : *(Self), additional : usize) -> unit)({
+  reserve : (fn(inout(self) : Self, additional : usize) -> unit)({
     match(
-      self.*._bytes,
+      self._bytes,
       .None => {
-        self.*._bytes =.Some(ArrayList(u8).with_capacity(additional));
+        self._bytes =.Some(ArrayList(u8).with_capacity(additional));
       },
       .Some(al) => {
         (current_len : usize) = al.len();
@@ -395,9 +395,9 @@ impl(
     );
   }),
   /// Clear the string content but keep the allocated buffer for reuse.
-  clear : (fn(self : *(Self)) -> unit)(
+  clear : (fn(inout(self) : Self) -> unit)(
     match(
-      self.*._bytes,
+      self._bytes,
       .Some(al) => al.clear(),
       .None => ()
     )

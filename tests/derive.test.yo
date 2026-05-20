@@ -38,9 +38,9 @@ test("derive Hash for struct", {
   p1 := Point(i32(1), i32(2));
   p2 := Point(i32(1), i32(2));
   p3 := Point(i32(3), i32(4));
-  h1 := (&(p1)).hash();
-  h2 := (&(p2)).hash();
-  h3 := (&(p3)).hash();
+  h1 := p1.hash();
+  h2 := p2.hash();
+  h3 := p3.hash();
   assert(h1 == h2, "equal points should have equal hashes");
   assert(h1 != h3, "different points should likely have different hashes");
 });
@@ -48,7 +48,7 @@ test("derive Hash for struct", {
 derive(Point, Clone);
 test("derive Clone for struct", {
   p1 := Point(i32(1), i32(2));
-  p2 := (&(p1)).clone();
+  p2 := p1.clone();
   assert(p1 == p2, "cloned point should equal original");
 });
 // === Test derive Ord for struct ===
@@ -75,7 +75,7 @@ test("derive Ord for struct", {
 derive(Point, ToString);
 test("derive ToString for struct", {
   p := Point(i32(1), i32(2));
-  s := (&(p)).to_string();
+  s := p.to_string();
   assert(s == `Point(1, 2)`, "toString should format as Point(1, 2)");
 });
 // === Test multiple derives in one call ===
@@ -89,14 +89,14 @@ test("multiple derives in one call", {
   assert(c1 == c2, "same colors should be equal");
   assert(c1 != c3, "different colors should not be equal");
   // Hash
-  assert((&(c1)).hash() == (&(c2)).hash(), "same colors should have same hash");
+  assert(c1.hash() == c2.hash(), "same colors should have same hash");
   // Clone
-  c4 := (&(c1)).clone();
+  c4 := c1.clone();
   assert(c1 == c4, "cloned color should equal original");
   // Ord
   assert(c3 < c1, "(0,255,0) should be < (255,0,0)");
   // ToString
-  s := (&(c1)).to_string();
+  s := c1.to_string();
   assert(s == `Color(255, 0, 0)`, "toString should format correctly");
 });
 // === Test derive for struct with bool fields ===
@@ -108,7 +108,7 @@ test("derive for struct with bool fields", {
   f3 := Flags(false, true);
   assert(f1 == f2, "same flags should be equal");
   assert(f1 != f3, "different flags should not be equal");
-  f4 := (&(f1)).clone();
+  f4 := f1.clone();
   assert(f1 == f4, "cloned flags should equal original");
 });
 // === Test derive Eq for fieldless enum ===
@@ -127,14 +127,14 @@ test("derive Hash for fieldless enum", {
   d1 := Direction.North;
   d2 := Direction.North;
   d3 := Direction.South;
-  assert((&(d1)).hash() == (&(d2)).hash(), "same direction should have same hash");
-  assert((&(d1)).hash() != (&(d3)).hash(), "different directions should have different hashes");
+  assert(d1.hash() == d2.hash(), "same direction should have same hash");
+  assert(d1.hash() != d3.hash(), "different directions should have different hashes");
 });
 // === Test derive Clone for fieldless enum ===
 derive(Direction, Clone);
 test("derive Clone for fieldless enum", {
   d1 := Direction.North;
-  d2 := (&(d1)).clone();
+  d2 := d1.clone();
   assert(d1 == d2, "cloned direction should equal original");
 });
 // === Test derive Ord for fieldless enum ===
@@ -148,7 +148,7 @@ test("derive Ord for fieldless enum", {
 derive(Direction, ToString);
 test("derive ToString for fieldless enum", {
   d := Direction.North;
-  s := (&(d)).to_string();
+  s := d.to_string();
   assert(s == `Direction.North`, "toString should format as Direction.North");
 });
 // === Test derive for enum with fields ===
@@ -168,17 +168,17 @@ test("derive Eq for enum with fields", {
 });
 test("derive Clone for enum with fields", {
   s1 := Shape.Circle(i32(5));
-  s2 := (&(s1)).clone();
+  s2 := s1.clone();
   assert(s1 == s2, "cloned shape should equal original");
   s3 := Shape.Rectangle(i32(3), i32(4));
-  s4 := (&(s3)).clone();
+  s4 := s3.clone();
   assert(s3 == s4, "cloned rectangle should equal original");
 });
 test("derive ToString for enum with fields", {
   s1 := Shape.Circle(i32(5));
-  assert((&(s1)).to_string() == `Shape.Circle(5)`, "circle toString");
+  assert(s1.to_string() == `Shape.Circle(5)`, "circle toString");
   s2 := Shape.Rectangle(i32(3), i32(4));
-  assert((&(s2)).to_string() == `Shape.Rectangle(3, 4)`, "rectangle toString");
+  assert(s2.to_string() == `Shape.Rectangle(3, 4)`, "rectangle toString");
 });
 // === Test derive for struct containing derived struct ===
 Line :: struct(start : Point, end_ : Point);
@@ -189,7 +189,7 @@ test("derive for nested struct", {
   l3 := Line(Point(i32(0), i32(0)), Point(i32(2), i32(2)));
   assert(l1 == l2, "same lines should be equal");
   assert(l1 != l3, "different lines should not be equal");
-  l4 := (&(l1)).clone();
+  l4 := l1.clone();
   assert(l1 == l4, "cloned line should equal original");
 });
 // ============================================================
@@ -210,10 +210,10 @@ Vec3 :: struct(x : i32, y : i32, z : i32);
 derive(Vec3, Eq(Vec3), Hash, Clone);
 test("derive with multiple explicit trait args", {
   v1 := Vec3(i32(1), i32(2), i32(3));
-  v2 := (&(v1)).clone();
+  v2 := v1.clone();
   assert(v1 == v2, "mixed args: clone equals original");
-  h1 := (&(v1)).hash();
-  h2 := (&(v2)).hash();
+  h1 := v1.hash();
+  h2 := v2.hash();
   assert(h1 == h2, "mixed args: equal values same hash");
 });
 // ============================================================

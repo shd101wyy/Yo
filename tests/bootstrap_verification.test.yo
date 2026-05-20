@@ -16,24 +16,24 @@ PersonRecord :: struct(name : String, age : i32);
 derive(PersonRecord, Eq(PersonRecord), Clone, ToString);
 test("derive Clone for struct with String field", {
   p1 := PersonRecord(`Alice`, i32(30));
-  p2 := (&(p1)).clone();
+  p2 := p1.clone();
   assert(p1 == p2, "cloned struct with String field equals original");
   assert(p2.name == `Alice`, "cloned String content preserved");
   assert(p2.age == i32(30), "cloned i32 preserved");
 });
 test("derive ToString for struct with String field", {
   p := PersonRecord(`Bob`, i32(25));
-  s := (&(p)).to_string();
+  s := p.to_string();
   assert(s == `PersonRecord(Bob, 25)`, "ToString emits field values");
 });
 OptionalIntStruct :: struct(value : Option(i32), label : String);
 derive(OptionalIntStruct, Eq(OptionalIntStruct), Clone);
 test("derive Clone for struct with Option field", {
   o1 := OptionalIntStruct(.Some(i32(42)), `present`);
-  o2 := (&(o1)).clone();
+  o2 := o1.clone();
   assert(o1 == o2, "Option(i32) field Clone equality");
   o3 := OptionalIntStruct(.None, `absent`);
-  o4 := (&(o3)).clone();
+  o4 := o3.clone();
   assert(o3 == o4, "Option.None field Clone equality");
 });
 // ===========================================================================
@@ -111,7 +111,7 @@ test("large enum match dispatches correctly", {
 });
 test("large enum ToString", {
   v := BigEnum.V17;
-  assert((&(v)).to_string() == `BigEnum.V17`, "ToString for V17");
+  assert(v.to_string() == `BigEnum.V17`, "ToString for V17");
 });
 // ===========================================================================
 // §2.5  Closure capture correctness in iterators
@@ -219,14 +219,14 @@ test("derive Eq on enum with mixed variants", {
 });
 test("derive ToString on enum with mixed variants", {
   a := Mixed.Empty;
-  assert((&(a)).to_string() == `Mixed.Empty`, "Empty");
+  assert(a.to_string() == `Mixed.Empty`, "Empty");
   b := Mixed.OneInt(i32(7));
-  assert((&(b)).to_string() == `Mixed.OneInt(7)`, "OneInt(7)");
+  assert(b.to_string() == `Mixed.OneInt(7)`, "OneInt(7)");
   c := Mixed.TwoInts(i32(3), i32(4));
-  assert((&(c)).to_string() == `Mixed.TwoInts(3, 4)`, "TwoInts(3, 4)");
+  assert(c.to_string() == `Mixed.TwoInts(3, 4)`, "TwoInts(3, 4)");
 });
 test("derive Clone on enum with String field variant", {
   x := Mixed.WithStr(`hello`);
-  y := (&(x)).clone();
+  y := x.clone();
   assert(x == y, "Clone of WithStr equals original");
 });

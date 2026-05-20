@@ -111,7 +111,7 @@ impl(
     _from_unix_secs(secs, nanos)
   ),
   // Convert back to a Unix timestamp (seconds since epoch).
-  to_unix : (fn(self : *(Self)) -> i64)({
+  to_unix : (fn(inout(self) : Self) -> i64)({
     // Compute days since epoch using the inverse Gregorian algorithm
     y := i64(self.year);
     m := i64(self.month);
@@ -136,11 +136,11 @@ impl(
     (days * i64(86400)) + time_secs
   }),
   // True if this year is a leap year.
-  is_leap_year : (fn(self : *(Self)) -> bool)(
+  is_leap_year : (fn(inout(self) : Self) -> bool)(
     _is_leap_year(self.year)
   ),
   // Day of week: 0 = Monday, 6 = Sunday (ISO 8601).
-  day_of_week : (fn(self : *(Self)) -> u8)({
+  day_of_week : (fn(inout(self) : Self) -> u8)({
     // Tomohiko Sakamoto's algorithm
     t := Array(i32, usize(12))(
       i32(0),
@@ -171,7 +171,7 @@ impl(
     )
   }),
   // Day of year (1-based).
-  day_of_year : (fn(self : *(Self)) -> u16)({
+  day_of_year : (fn(inout(self) : Self) -> u16)({
     m := i32(self.month);
     d := i32(self.day);
     // Sum days in preceding months

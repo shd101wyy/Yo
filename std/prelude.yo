@@ -5528,7 +5528,7 @@ impl(forall(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
 impl(
   forall(T : Type, U : usize),
   Array(T, U),
-  len : (fn(self : *(Self)) -> usize)({
+  len : (fn(inout(self) : Self) -> usize)({
     return(U);
   })
   /*
@@ -7625,8 +7625,8 @@ impl(
 impl(
   forall(T : Type, N : usize),
   Array(T, N),
-  iter : (fn(self : *(Self)) -> ArrayIterPtr(T))(
-    unsafe(ArrayIterPtr(T)(_ptr : &((self.*)(usize(0))), _index : usize(0), _len : N))
+  iter : (fn(inout(self) : Self) -> ArrayIterPtr(T))(
+    unsafe(ArrayIterPtr(T)(_ptr : &(self(usize(0))), _index : usize(0), _len : N))
   )
 );
 export(ArrayIterPtr);
@@ -7661,8 +7661,8 @@ impl(
 impl(
   forall(T : Type),
   Slice(T),
-  iter : (fn(self : *(Self)) -> SliceIterPtr(T))(
-    unsafe(SliceIterPtr(T)(_slice : self.*, _index : usize(0)))
+  iter : (fn(inout(self) : Self) -> SliceIterPtr(T))(
+    unsafe(SliceIterPtr(T)(_slice : self, _index : usize(0)))
   )
 );
 export(SliceIterPtr);

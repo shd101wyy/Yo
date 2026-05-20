@@ -510,7 +510,7 @@ impl(
   /// effect handlers.
   register_function : (
     fn(
-      self : *(Self),
+      inout(self) : Self,
       func_id : String,
       func_value : EvalValue,
       c_name : String
@@ -521,7 +521,7 @@ impl(
       c_name : c_name,
       effect_state_machine_info : Option(EvalValue).None
     );
-    self.*.functions.set(func_id, entry);
+    self.functions.set(func_id, entry);
     ()
   }),
   /// Look up the C name of a previously-registered function by its
@@ -570,13 +570,13 @@ impl(
   /// for the idempotency / mirroring rationale.
   register_array_struct_type : (
     fn(
-      self : *(Self),
+      inout(self) : Self,
       array_c_name : String,
       child_type : String,
       length : usize
     ) -> unit
   )({
-    self.*.array_struct_types.set(
+    self.array_struct_types.set(
       array_c_name,
       CodegenArrayStructEntry(child_type : child_type, length : length)
     );
@@ -593,7 +593,7 @@ impl(
   /// `c_include(...)` clause was attached.
   register_extern_function : (
     fn(
-      self : *(Self),
+      inout(self) : Self,
       type_id : String,
       function_type : TypeValue,
       c_name : String,
@@ -601,7 +601,7 @@ impl(
       is_extern : String
     ) -> unit
   )({
-    self.*.extern_functions.set(
+    self.extern_functions.set(
       type_id,
       CodegenExternFunctionEntry(
         function_type : function_type,
@@ -657,7 +657,7 @@ impl(
   /// `function_c_name` to dispatch directly.
   register_impl_closure : (
     fn(
-      self : *(Self),
+      inout(self) : Self,
       concrete_type_id : String,
       function_c_name : String,
       call_type_id : String,
@@ -665,7 +665,7 @@ impl(
       consumed_captures : Option(ArrayList(String))
     ) -> unit
   )({
-    self.*.impl_closure_call_map.set(
+    self.impl_closure_call_map.set(
       concrete_type_id,
       CodegenImplClosureEntry(
         function_c_name : function_c_name,

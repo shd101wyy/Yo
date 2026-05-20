@@ -45,6 +45,35 @@ function migrate(content: string): RewriteResult {
   // shape, which is uncommon outside this context.
   const sigStart = /\(self : \*\(Self\)/g;
 
+  // Heuristic: skip `*(Self)` matches inside Iterator or Index trait
+  // impls. Those trait declarations specify `*(Self)` and changing
+  // the impl alone would break trait conformance. We detect the
+  // enclosing trait by scanning backwards from each match for the
+  // nearest unmatched `Iterator(` or `Index(...)(` opener.
+  const isInsideTraitImpl = (matchIdx: number): boolean => {
+    // Scan backwards looking for `Iterator(` or `Index(...)(` at a
+    // depth where its `(` is still open at matchIdx. We use a
+    // simple paren-balance check.
+    let depth = 0;
+    for (let j = matchIdx - 1; j >= 0; j--) {
+      const ch = content[j]!;
+      if (ch === ")") depth++;
+      else if (ch === "(") {
+        if (depth === 0) {
+          // This `(` is one whose scope contains matchIdx. Check
+          // what immediately precedes it for a trait name.
+          const before = content.slice(Math.max(0, j - 30), j);
+          if (/\bIterator\s*$/.test(before)) return true;
+          if (/\bIndex\s*\([^()]*\)\s*$/.test(before)) return true;
+          // Not Iterator/Index — keep scanning outward.
+        } else {
+          depth--;
+        }
+      }
+    }
+    return false;
+  };
+
   while (i < content.length) {
     sigStart.lastIndex = i;
     const m = sigStart.exec(content);
@@ -53,6 +82,16 @@ function migrate(content: string): RewriteResult {
       break;
     }
     const startIdx = m.index;
+
+    // Skip Iterator/Index trait impl methods — they're declared with
+    // `*(Self)` in the trait and migrating only the impl would break
+    // conformance. The trait declarations themselves stay verbatim.
+    if (isInsideTraitImpl(startIdx)) {
+      out.push(content.slice(i, startIdx + m[0].length));
+      i = startIdx + m[0].length;
+      continue;
+    }
+
     out.push(content.slice(i, startIdx));
 
     // The match starts with `(` of the param list. Walk balanced parens
