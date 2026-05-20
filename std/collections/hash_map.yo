@@ -655,7 +655,7 @@ impl(
   where(K <: (Clone, Eq(K), Hash), V <: Clone),
   HashMap(K, V),
   Clone(
-    clone : (fn(self : *(Self)) -> Self)({
+    clone : (fn(inout(self) : Self) -> Self)({
       result := Self.new();
       it := self.iter();
       running := true;
@@ -667,8 +667,8 @@ impl(
             running = false;
           },
           .Some(bucket_ptr) => {
-            k := (&(bucket_ptr.*.key)).clone();
-            v := (&(bucket_ptr.*.value)).clone();
+            k := unsafe(bucket_ptr.*.key.clone());
+            v := unsafe(bucket_ptr.*.value.clone());
             result.set(k, v);
           }
         );

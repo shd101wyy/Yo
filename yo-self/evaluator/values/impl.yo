@@ -134,7 +134,7 @@ set_type_implements_trait_fn :: (fn(f : TypeImplementsTraitFn) -> unit)({
 (_currently_registering_concrete_impls : HashMap(String, bool)) =
   HashMap(String, bool).new();
 _concrete_impl_key :: (fn(type_id : String, trait_id : String) -> String)(
-  ((&(type_id)).clone() + String.from(":")) + trait_id
+  (type_id.clone() + String.from(":")) + trait_id
 );
 /// Returns true if (type_id, trait_id) is currently being registered.
 /// Mirrors `isConcreteImplBeingRegistered` in `impl.ts:825-832`.
@@ -171,7 +171,7 @@ get_trait_key :: (fn(trait_ty : TypeValue) -> String)(
 /// Register a new generic impl entry.
 /// Mirrors `registerGenericImpl` in impl.ts.
 register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
-  key := (&(entry.trait_key)).clone();
+  key := entry.trait_key.clone();
   // Find existing bucket for this key, or create a new one.
   (key_idx : Option(usize)) = Option(usize).None;
   (ki : usize) = usize(0);
@@ -487,7 +487,7 @@ find_methods_from_generic_impls :: (
             MethodCandidate(
               method_type : ftype,
               method_value : fvalue,
-              source_trait_id : (&(entry.trait_key)).clone()
+              source_trait_id : entry.trait_key.clone()
             )
           );
         });
@@ -678,20 +678,20 @@ evaluate_module_value :: (
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         lhs2 := match(colon_args2.get(usize(0)),.Some(e) => e,.None => make_err_expr());
-        Option(String).Some((&(ast_expr_token(lhs2).value)).clone())
+        Option(String).Some(ast_expr_token(lhs2).value.clone())
       }, if(
         ast_expr_is_atom(fp_expr),
-        Option(String).Some((&(ast_expr_token(fp_expr).value)).clone()),
+        Option(String).Some(ast_expr_token(fp_expr).value.clone()),
         Option(String).None
       ));
       (param_name_str : String) = match(param_name_opt,.Some(n) => n,.None => String.from("_"));
       // Create a SomeT for this parameter.
-      some_ty := t_some_t((&(param_name_str)).clone(), frame_lvl);
+      some_ty := t_some_t(param_name_str.clone(), frame_lvl);
       tv := create_type_value(some_ty);
       // Add TypeVal(SomeT) to forall_env so receiver type evaluation sees it.
       _ := add_variable_to_env(
         &(forall_env),
-        (&(param_name_str)).clone(),
+        param_name_str.clone(),
         t_type(),
         // TypeUni(0) — type-of-a-type
         .Some(tv),
@@ -705,7 +705,7 @@ evaluate_module_value :: (
         // is_implicit
         ast_expr_token(fp_expr)
       );
-      forall_names.push((&(param_name_str)).clone());
+      forall_names.push(param_name_str.clone());
       forall_some_types.push(some_ty);
     });
     // Determine where `receiver_type_expr` starts: skip optional where(...) arg.
@@ -766,7 +766,7 @@ evaluate_module_value :: (
         mname_expr := match(mf_colon_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
         mval_expr := match(mf_colon_args.get(usize(1)),.Some(e) => e,.None => make_err_expr());
         mname_tok := ast_expr_token(mname_expr);
-        mname := (&(mname_tok.value)).clone();
+        mname := mname_tok.value.clone();
         saved3 := ctx.*.expected_type;
         ctx.*.expected_type =.None;
         eval_mval := evaluate_expression_raw(mval_expr, forall_env, ctx, exn);
@@ -777,7 +777,7 @@ evaluate_module_value :: (
           .Some(mfi) => {
             forall_env = mfi.env;
             mval := match(mfi.value,.Some(v) => v,.None => EvalValue.UnitVal);
-            method_names.push((&(mname)).clone());
+            method_names.push(mname.clone());
             method_types.push(mfi.ty);
             method_values.push(mval);
           }
@@ -838,7 +838,7 @@ evaluate_module_value :: (
   ctx.*.expected_type = saved_expected;
   // Get receiver type name for qualifying method names.
   rcv_tok := ast_expr_token(receiver_type_expr);
-  receiver_name := (&(rcv_tok.value)).clone();
+  receiver_name := rcv_tok.value.clone();
   // Advance local_env from receiver evaluation and capture the
   // receiver TypeValue itself so we can register methods against
   // its id in the trait-method registry below.
@@ -895,7 +895,7 @@ evaluate_module_value :: (
               );
               if(is_upper, {
                 mark_concrete_impl_being_registered(receiver_type_id, tname);
-                pre_registered_trait_ids.push((&(tname)).clone());
+                pre_registered_trait_ids.push(tname.clone());
               });
             });
           });
@@ -980,7 +980,7 @@ evaluate_module_value :: (
               name_expr := match(colon_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
               val_expr := match(colon_args.get(usize(1)),.Some(e) => e,.None => make_err_expr());
               name_tok := ast_expr_token(name_expr);
-              method_name := (&(name_tok.value)).clone();
+              method_name := name_tok.value.clone();
               qualified := `${receiver_name}.${method_name}`;
               // Compute the expected type for this method from the trait's
               // field-by-label. This lets anonymous lambdas (e.g. the body
@@ -1021,7 +1021,7 @@ evaluate_module_value :: (
                     register_type_trait_method(
                       receiver_type_id,
                       MethodEntry(
-                        label : (&(method_name)).clone(),
+                        label : method_name.clone(),
                         ty : fi.ty,
                         value : Option(EvalValue).Some(method_val),
                         // No source-trait-id for non-generic
@@ -1094,7 +1094,7 @@ _find_methods_from_generic_impls_as_method_entries :: (
       .Some(c) => {
         ___ := out.push(
           MethodEntry(
-            label : (&(method_name)).clone(),
+            label : method_name.clone(),
             ty : c.method_type,
             value : c.method_value,
             source_trait_id : c.source_trait_id,

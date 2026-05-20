@@ -221,7 +221,7 @@ evaluate_anonymous_module_begin_exprs :: (
                         cond(
                           ast_expr_is_atom(exclude_expr) => {
                             tok_val := ast_expr_token(exclude_expr);
-                            lbl := (&(tok_val.value)).clone();
+                            lbl := tok_val.value.clone();
                             // Verify label exists in ext_mod_type
                             match(
                               ext_mod_type,
@@ -270,7 +270,7 @@ evaluate_anonymous_module_begin_exprs :: (
                                       )
                                     );
                                   });
-                                  lbl := (&(ast_expr_token(member_expr).value)).clone();
+                                  lbl := ast_expr_token(member_expr).value.clone();
                                   match(
                                     ext_mod_type,
                                     .ModuleT(_, _, efls, _) => {
@@ -343,9 +343,9 @@ evaluate_anonymous_module_begin_exprs :: (
                               ),
                               .None => EvalValue.UnitVal
                             );
-                            field_labels.push((&(ext_label)).clone());
+                            field_labels.push(ext_label.clone());
                             field_types.push(ext_type);
-                            module_names.push((&(ext_label)).clone());
+                            module_names.push(ext_label.clone());
                             module_vals.push(ext_val);
                             // Set ExprInfo on export_expr (last field wins, matching TS behavior)
                             out_info := new_expr_info(env, ext_type);
@@ -376,8 +376,8 @@ evaluate_anonymous_module_begin_exprs :: (
                             )
                           );
                         });
-                        variable_name = (&(ast_expr_token(export_expr).value)).clone();
-                        given_var_name = (&(variable_name)).clone();
+                        variable_name = ast_expr_token(export_expr).value.clone();
+                        given_var_name = variable_name.clone();
                       },
                       // export Label : _OriginalName
                       (
@@ -411,7 +411,7 @@ evaluate_anonymous_module_begin_exprs :: (
                             )
                           );
                         });
-                        variable_name = (&(ast_expr_token(label_expr).value)).clone();
+                        variable_name = ast_expr_token(label_expr).value.clone();
                         if(!(ast_expr_is_atom(name_expr)), {
                           exn.throw(
                             dyn(
@@ -436,12 +436,12 @@ evaluate_anonymous_module_begin_exprs :: (
                             )
                           );
                         });
-                        given_var_name = (&(ast_expr_token(name_expr).value)).clone();
+                        given_var_name = ast_expr_token(name_expr).value.clone();
                       },
                       true => ()
                     );
                     // Look up the variable
-                    vars := get_variables_from_env(env, (&(given_var_name)).clone());
+                    vars := get_variables_from_env(env, given_var_name.clone());
                     if(vars.len() == usize(0), {
                       exn.throw(
                         dyn(
@@ -496,9 +496,9 @@ evaluate_anonymous_module_begin_exprs :: (
                       );
                     });
                     the_val := match(the_var.value,.Some(v) => v,.None => EvalValue.UnitVal);
-                    field_labels.push((&(variable_name)).clone());
+                    field_labels.push(variable_name.clone());
                     field_types.push(the_var.ty);
-                    module_names.push((&(variable_name)).clone());
+                    module_names.push(variable_name.clone());
                     module_vals.push(the_val);
                     // Set ExprInfo on export_expr
                     out_info := new_expr_info(env, the_var.ty);

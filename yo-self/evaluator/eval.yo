@@ -5544,7 +5544,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                       func_id_f := random_id(String.from(""));
                                       // Register quoted parameter indices
                                       // (no-op if list is empty).
-                                      register_macro_quoted_params((&(func_id_f)).clone(), quoted_param_indices_f);
+                                      register_macro_quoted_params(func_id_f.clone(), quoted_param_indices_f);
                                       // Detect `unquote(...)` return type
                                       // and register if so.  inner_args[1] is
                                       // the RetType expression of `->`.
@@ -5559,7 +5559,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                                 .Atom(_, ret_tok) =>
                                                   cond(
                                                     (ret_tok.value.as_str() == "unquote") => {
-                                                      register_macro_return_is_unquote((&(func_id_f)).clone());
+                                                      register_macro_return_is_unquote(func_id_f.clone());
                                                     },
                                                     true => ()
                                                   ),
@@ -8098,7 +8098,7 @@ evaluate :: (fn(e : AstExpr, env : *(Environment)) -> Option(EvalResult))(
                                   .Some(arg_expr) =>
                                     cond(
                                       (fv_is_macro && is_param_quoted(fv_id_s, gi)) => {
-                                        evaled_g.push(eval_result(.ExprVal(box((&(arg_expr)).clone())), t_expr_t()));
+                                        evaled_g.push(eval_result(.ExprVal(box(arg_expr.clone())), t_expr_t()));
                                       },
                                       true =>
                                         match(

@@ -682,7 +682,7 @@ export(Hash);
 Clone :: trait(
   /// Create an independent clone of `self`.
   clone :
-    fn(self : *(Self)) -> Self
+    fn(inout(self) : Self) -> Self
 );
 export(Clone);
 /// Isolation trait — runtime check whether a value can be safely transferred.
@@ -1008,7 +1008,7 @@ impl(
   Clone(
     clone : (
       (self) ->
-        unsafe(__yo_return_self(self.*))
+        __yo_return_self(self)
     )
   )
 );
@@ -1170,7 +1170,7 @@ impl(
 impl(
   i8,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -1460,7 +1460,7 @@ impl(
 impl(
   i16,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -1817,7 +1817,7 @@ impl(
   Clone(
     clone : (
       (self) ->
-        unsafe(__yo_return_self(self.*))
+        __yo_return_self(self)
     )
   )
 );
@@ -2048,7 +2048,7 @@ impl(
 impl(
   i64,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -2338,7 +2338,7 @@ impl(
 impl(
   u8,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -2618,7 +2618,7 @@ impl(
 impl(
   u16,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -2898,7 +2898,7 @@ impl(
 impl(
   u32,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -3178,7 +3178,7 @@ impl(
 impl(
   u64,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -3438,7 +3438,7 @@ impl(
 impl(
   f32,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -3639,7 +3639,7 @@ impl(
 impl(
   f64,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -3865,7 +3865,7 @@ impl(
 impl(
   isize,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -4158,7 +4158,7 @@ impl(
 impl(
   usize,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 impl(
@@ -4442,7 +4442,7 @@ impl(
 impl(
   char,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _char :: char;
@@ -4552,7 +4552,7 @@ impl(
 impl(
   int,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _int :: int;
@@ -4662,7 +4662,7 @@ impl(
 impl(
   uint,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _uint :: uint;
@@ -4772,7 +4772,7 @@ impl(
 impl(
   short,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _short :: short;
@@ -4882,7 +4882,7 @@ impl(
 impl(
   ushort,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _ushort :: ushort;
@@ -4992,7 +4992,7 @@ impl(
 impl(
   long,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _long :: long;
@@ -5102,7 +5102,7 @@ impl(
 impl(
   ulong,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _ulong :: ulong;
@@ -5212,7 +5212,7 @@ impl(
 impl(
   longlong,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _longlong :: longlong;
@@ -5322,7 +5322,7 @@ impl(
 impl(
   ulonglong,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _ulonglong :: ulonglong;
@@ -5432,7 +5432,7 @@ impl(
 impl(
   longdouble,
   Clone(
-    clone : ((self) -> unsafe(__yo_return_self(self.*)))
+    clone : ((self) -> __yo_return_self(self))
   )
 );
 _longdouble :: longdouble;
@@ -6720,7 +6720,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
         "",
         (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
           fname :: fields.get(fi).name;
-          part :: __s3("(&(self.*.", fname, ")).clone()");
+          part :: __s3("self.", fname, ".clone()");
           cond(
             (a == "") => part,
             true => __s3(a, ", ", part)
@@ -6764,8 +6764,8 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                 (fn(comptime(a) : comptime_string, comptime(fi) : usize) -> comptime(comptime_string))({
                   fname :: v.fields.get(fi).name;
                   cond(
-                    (a == "") => __s3("(&(__v_", fname, ")).clone()"),
-                    true => __s4(a, ", (&(__v_", fname, ")).clone()")
+                    (a == "") => __s3("__v_", fname, ".clone()"),
+                    true => __s4(a, ", __v_", fname, ".clone()")
                   )
                 })
               );
@@ -6784,7 +6784,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
           )
         })
       );
-      match_body :: __s3("match(self.*,\n    ", clone_branches, "\n  )");
+      match_body :: __s3("match(self,\n    ", clone_branches, "\n  )");
       ctx.make_impl(
         quote(
           Clone(
@@ -6797,7 +6797,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       ctx.make_impl(
         quote(
           Clone(
-            clone : ((self) -> self.*)
+            clone : ((self) -> self)
           )
         )
       )
@@ -7301,11 +7301,11 @@ impl(
   Clone(
     clone : (
       (self) ->
-        unsafe(match(
-          self.*,
+        match(
+          self,
           .None => Option(T).None,
-          .Some(v) => Option(T).Some((&(v)).clone())
-        ))
+          .Some(v) => Option(T).Some(v.clone())
+        )
     )
   )
 );
@@ -7337,11 +7337,11 @@ impl(
   Clone(
     clone : (
       (self) ->
-        unsafe(match(
-          self.*,
-          .Ok(v) => Result(T, E).Ok((&(v)).clone()),
-          .Err(e) => Result(T, E).Err((&(e)).clone())
-        ))
+        match(
+          self,
+          .Ok(v) => Result(T, E).Ok(v.clone()),
+          .Err(e) => Result(T, E).Err(e.clone())
+        )
     )
   )
 );
@@ -7414,7 +7414,7 @@ impl(
   where(T <: Clone),
   Box(T),
   Clone(
-    clone : ((self) -> unsafe(box((&(self.*.*)).clone())))
+    clone : ((self) -> box(self.*.clone()))
   )
 );
 export(

@@ -482,7 +482,7 @@ generate_type_decl :: (
       // struct's C name via `ctx.get_type_c_name(id)`. Mirrors the TS
       // pattern of populating `context.types[id] = { type, cName }`
       // during type-declaration emission.
-      ctx.*.register_type(id, type_val, (&(c_name)).clone());
+      ctx.*.register_type(id, type_val, c_name.clone());
       Option(String).Some(c_name)
     },
     .EnumT(id, name, variant_names, variant_fields, _, _, discs) => {
@@ -492,7 +492,7 @@ generate_type_decl :: (
         true =>
           emit_data_enum(name, variant_names, variant_fields, discs, module_id, type_id, ctx)
       );
-      ctx.*.register_type(id, type_val, (&(c_name)).clone());
+      ctx.*.register_type(id, type_val, c_name.clone());
       Option(String).Some(c_name)
     },
     _ => Option(String).None

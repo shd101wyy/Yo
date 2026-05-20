@@ -402,22 +402,9 @@ impl(
       .None => ()
     )
   ),
-  /// Create a deep copy of this string with its own buffer.
-  clone : (fn(self : Self) -> Self)(
-    match(
-      self._bytes,
-      .None => Self(_bytes :.None),
-      .Some(al) => {
-        (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(al.len());
-        match(
-          al.ptr(),
-          .Some(p) => new_al.extend_from_ptr(p, al.len()),
-          .None => ()
-        );
-        Self(_bytes :.Some(new_al))
-      }
-    )
-  ),
+  // (Inherent `clone` removed; the Clone trait impl below provides
+  // the same semantics via inout(self) : Self after the Phase D
+  // migration. Calling `s.clone()` resolves to the trait method.)
   /// Get the number of bytes in the string (not Unicode characters).
   /// Use `len()` for Unicode character count.
   bytes_len : (fn(self : Self) -> usize)(
@@ -2128,7 +2115,7 @@ impl(
 impl(
   String,
   Clone(
-    clone : (fn(self : *(Self)) -> Self)(
+    clone : (fn(inout(self) : Self) -> Self)(
       match(
         self._bytes,
         .None => Self(_bytes :.None),

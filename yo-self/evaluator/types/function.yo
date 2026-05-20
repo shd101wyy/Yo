@@ -91,14 +91,14 @@ open(import("std/fmt"));
 register_macro_quoted_params :: (fn(func_id : String, indices : ArrayList(usize)) -> unit)({
   cond(
     (indices.len() > usize(0)) => {
-      ___ := g_macro_quoted_param_indices.set((&(func_id)).clone(), indices);
+      ___ := g_macro_quoted_param_indices.set(func_id.clone(), indices);
     },
     true => ()
   );
 });
 /// Mark a function as having an `unquote(...)` return type. Idempotent.
 register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
-  ___ := g_macro_return_is_unquote.set((&(func_id)).clone(), true);
+  ___ := g_macro_return_is_unquote.set(func_id.clone(), true);
 });
 /// Returns the list of quoted parameter indices, or an empty list if none.
 get_macro_quoted_param_indices :: (fn(func_id : str) -> ArrayList(usize))(
@@ -1929,7 +1929,7 @@ evaluate_function_parameters :: (
         if(ast_expr_is_fn_call_of(tp_expr, "...",.Some(usize(1))) &&
           ast_expr_is_atom(match(_fn_call_args(tp_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
           inner_arg := match(_fn_call_args(tp_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr());
-          row_var_name := (&(ast_expr_token(inner_arg).value)).clone();
+          row_var_name := ast_expr_token(inner_arg).value.clone();
           // Duplicate check
           (erd_found : bool) = false;
           (erdi : usize) = usize(0);
@@ -1967,7 +1967,7 @@ evaluate_function_parameters :: (
           );
           eff_row_some_type := TypeValue.SomeT(
             generate_some_type_id(),
-            (&(row_var_name)).clone(),
+            row_var_name.clone(),
             er_frame_level,
             Box(TypeValue)(TypeValue.TypeUni(usize(1))),
             ArrayList(TypeValue).new(),
@@ -1980,9 +1980,9 @@ evaluate_function_parameters :: (
           row_kind_type := TypeValue.TypeUni(usize(1));
           _ := add_variable_to_env(
             env_mut,
-            (&(row_var_name)).clone(),
-            (&(row_kind_type)).clone(),
-            Option(EvalValue).Some(EvalValue.TypeVal(Box(TypeValue)((&(eff_row_some_type)).clone()))),
+            row_var_name.clone(),
+            row_kind_type.clone(),
+            Option(EvalValue).Some(EvalValue.TypeVal(Box(TypeValue)(eff_row_some_type.clone()))),
             true,
             false,
             false,
@@ -1991,8 +1991,8 @@ evaluate_function_parameters :: (
           );
           forall_params.push(
             FuncParam(
-              (&(row_var_name)).clone(),
-              (&(row_kind_type)).clone(),
+              row_var_name.clone(),
+              row_kind_type.clone(),
               true,
               false,
               false,
@@ -2074,9 +2074,9 @@ evaluate_function_parameters :: (
       if(ast_expr_is_fn_call_of(impl_expr, "...",.Some(usize(1))) &&
         ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
         inner_arg2 := match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr());
-        row_var_name2 := (&(ast_expr_token(inner_arg2).value)).clone();
+        row_var_name2 := ast_expr_token(inner_arg2).value.clone();
         // Look up E (must have been declared in forall)
-        row_vars := get_variables_from_env(env_mut.*, (&(row_var_name2)).clone());
+        row_vars := get_variables_from_env(env_mut.*, row_var_name2.clone());
         if(row_vars.len() == usize(0), {
           exn.throw(
             dyn(
@@ -2112,10 +2112,10 @@ evaluate_function_parameters :: (
               .Some(ev) => {
                 if(is_type_val(ev) && !(eff_row_handled), {
                   inner_ty := match(ev,.TypeVal(b) => b.*, _ => TypeValue.Unit);
-                  if(is_effects_row_type((&(inner_ty)).clone()), {
+                  if(is_effects_row_type(inner_ty.clone()), {
                     // Expand concrete EffectsRowT into individual params
                     match(
-                      (&(inner_ty)).clone(),
+                      inner_ty.clone(),
                       .EffectsRowT(row_ls, row_ts) => {
                         (ki : usize) = usize(0);
                         while(runtime(ki < row_ls.len()), {
@@ -2123,8 +2123,8 @@ evaluate_function_parameters :: (
                           ty := match(row_ts.get(ki),.Some(t) => t,.None => TypeValue.Unit);
                           implicit_params.push(
                             FuncParam(
-                              (&(lbl)).clone(),
-                              (&(ty)).clone(),
+                              lbl.clone(),
+                              ty.clone(),
                               true,
                               false,
                               false,
@@ -2141,7 +2141,7 @@ evaluate_function_parameters :: (
                   }, {
                     // TypeVal but not EffectsRowT — must be a SomeT with is_effects_row
                     is_er_some := match(
-                      (&(inner_ty)).clone(),
+                      inner_ty.clone(),
                       .SomeT(_, _, _, _, _, _, _, _, is_er, _) => is_er,
                       _ => false
                     );
@@ -2160,8 +2160,8 @@ evaluate_function_parameters :: (
                     // Push spread marker
                     implicit_params.push(
                       FuncParam(
-                        (&(row_var_name2)).clone(),
-                        (&(inner_ty)).clone(),
+                        row_var_name2.clone(),
+                        inner_ty.clone(),
                         true,
                         false,
                         false,
@@ -2174,10 +2174,10 @@ evaluate_function_parameters :: (
                 });
                 if(is_unknown_val(ev) && !(eff_row_handled), {
                   inner_ty2 := match(ev,.UnknownVal(b) => b.*, _ => TypeValue.Unit);
-                  if(is_effects_row_type((&(inner_ty2)).clone()), {
+                  if(is_effects_row_type(inner_ty2.clone()), {
                     // Expand EffectsRowT
                     match(
-                      (&(inner_ty2)).clone(),
+                      inner_ty2.clone(),
                       .EffectsRowT(row_ls2, row_ts2) => {
                         (ki2 : usize) = usize(0);
                         while(runtime(ki2 < row_ls2.len()), {
@@ -2185,8 +2185,8 @@ evaluate_function_parameters :: (
                           ty2 := match(row_ts2.get(ki2),.Some(t) => t,.None => TypeValue.Unit);
                           implicit_params.push(
                             FuncParam(
-                              (&(lbl2)).clone(),
-                              (&(ty2)).clone(),
+                              lbl2.clone(),
+                              ty2.clone(),
                               true,
                               false,
                               false,
@@ -2208,7 +2208,7 @@ evaluate_function_parameters :: (
                     );
                     fresh_some_t := TypeValue.SomeT(
                       generate_some_type_id(),
-                      (&(row_var_name2)).clone(),
+                      row_var_name2.clone(),
                       er_fl,
                       Box(TypeValue)(TypeValue.TypeUni(usize(1))),
                       ArrayList(TypeValue).new(),
@@ -2220,8 +2220,8 @@ evaluate_function_parameters :: (
                     );
                     implicit_params.push(
                       FuncParam(
-                        (&(row_var_name2)).clone(),
-                        (&(fresh_some_t)).clone(),
+                        row_var_name2.clone(),
+                        fresh_some_t.clone(),
                         true,
                         false,
                         false,

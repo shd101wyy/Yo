@@ -1045,7 +1045,7 @@ create_specialized_function_inline :: (
           parent_is_ctl := is_control_fn(func_id.as_str());
           body_has_unwind := evaluated_body_contains_unwind(specialized_body);
           if(parent_is_ctl || body_has_unwind, {
-            mark_as_control_fn((&(specialized_func_id)).clone());
+            mark_as_control_fn(specialized_func_id.clone());
           });
           // Store in cache
           _store_specialization_cache(
@@ -1199,7 +1199,7 @@ evaluate_ctl_function_body_inline :: (
                   if(existing.len() == usize(0), {
                     _add_caller_var_res := add_variable_to_env(
                       &(specialized_env),
-                      (&(caller_var.name)).clone(),
+                      caller_var.name.clone(),
                       caller_var.ty,
                       caller_var.value,
                       true,
@@ -1240,10 +1240,10 @@ evaluate_ctl_function_body_inline :: (
   while(runtime(fi2 < n_forall), {
     fl_label := match(forall_labels.get(fi2),.Some(s) => s,.None => String.from(""));
     fl_ty := match(forall_types_list.get(fi2),.Some(t) => t,.None => TypeValue.Unit);
-    ctl_tok := synthetic_token((&(fl_label)).clone(), specialized_env.module_path);
+    ctl_tok := synthetic_token(fl_label.clone(), specialized_env.module_path);
     _add_forall_var_res := add_variable_to_env(
       &(specialized_env),
-      (&(fl_label)).clone(),
+      fl_label.clone(),
       fl_ty,
       Option(EvalValue).Some(create_type_value(concrete_type_for_forall)),
       true,
@@ -1302,7 +1302,7 @@ evaluate_ctl_function_body_inline :: (
   ctl_parent_is_ctl := is_control_fn(orig_func_id.as_str());
   ctl_body_has_unwind := evaluated_body_contains_unwind(ctl_body);
   if(ctl_parent_is_ctl || ctl_body_has_unwind, {
-    mark_as_control_fn((&(ctl_func_id)).clone());
+    mark_as_control_fn(ctl_func_id.clone());
   });
   // Rebuild captures (same as original + forall type bindings).
   ctl_cap_names := ArrayList(String).new();
@@ -1321,7 +1321,7 @@ evaluate_ctl_function_body_inline :: (
   while(runtime(fi3 < n_forall), {
     fl3 := match(forall_labels.get(fi3),.Some(s) => s,.None => String.new());
     ft3 := match(forall_types_list.get(fi3),.Some(t) => t,.None => TypeValue.Unit);
-    ctl_cap_names.push((&(fl3)).clone());
+    ctl_cap_names.push(fl3.clone());
     ctl_cap_tys.push(ft3);
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
     fi3 = (fi3 + usize(1));
@@ -1335,7 +1335,7 @@ evaluate_ctl_function_body_inline :: (
     ctl_cap_names,
     ctl_cap_tys,
     ctl_cap_vals,
-    (&(ctl_func_id)).clone()
+    ctl_func_id.clone()
   );
   // -------------------------------------------------------------------------
   // Cache the result.
@@ -1345,7 +1345,7 @@ evaluate_ctl_function_body_inline :: (
   ctl_cache_args.push(create_type_value(concrete_type_for_forall));
   _store_specialization_cache(
     ctx,
-    (&(ctl_func_id)).clone(),
+    ctl_func_id.clone(),
     ctl_cache_args,
     ArrayList(TypeValue).new(),
     ctl_func_val,

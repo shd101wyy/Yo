@@ -313,7 +313,7 @@ _walk_check_dir :: (
     exn : Exception
   ) -> unit
 )({
-  entries := io.await(read_dir(Path.new((&(dir)).clone())), io);
+  entries := io.await(read_dir(Path.new(dir.clone())), io);
   (n : usize) = entries.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {
@@ -322,7 +322,7 @@ _walk_check_dir :: (
       entries.get(i - usize(1)),
       .None => (),
       .Some(entry) => {
-        full := Path.new((&(dir)).clone()).join(Path.new((&(entry.name)).clone())).to_string();
+        full := Path.new(dir.clone()).join(Path.new(entry.name.clone())).to_string();
         match(
           entry.file_type,
           .Directory => {
@@ -366,11 +366,11 @@ collect_check_files :: (
   ) -> ArrayList(String)
 )({
   out := ArrayList(String).new();
-  meta := io.await(metadata(Path.new((&(path_str)).clone()), io), io);
+  meta := io.await(metadata(Path.new(path_str.clone()), io), io);
   cond(
     meta.is_file() => {
       if(path_str.ends_with(String.from(".yo")), {
-        out.push((&(path_str)).clone());
+        out.push(path_str.clone());
       });
     },
     meta.is_dir() => _walk_check_dir(path_str, &(out), io, exn),
@@ -400,9 +400,9 @@ check_single_file :: (
     throw : ((_err) -> unwind(false))
   );
   println(`check: parsing ${input_path}`);
-  src_bytes := io.await(read_file(Path.new((&(input_path)).clone())), io);
+  src_bytes := io.await(read_file(Path.new(input_path.clone())), io);
   src := String.from_bytes(src_bytes);
-  exprs := parse(src, (&(input_path)).clone(), local_exn);
+  exprs := parse(src, input_path.clone(), local_exn);
   println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
   visited := ArrayList(String).new();
   dep_exprs := ArrayList(AstExpr).new();
@@ -474,8 +474,8 @@ check_single_file :: (
     );
   });
   println(`check: collected ${all_exprs.len().to_string()} exprs total (deps + body); registering evaluator`);
-  env := Environment.new((&(input_path)).clone());
-  ctx := eval_context_new((&(std_path)).clone(), (&(input_path)).clone());
+  env := Environment.new(input_path.clone());
+  ctx := eval_context_new(std_path.clone(), input_path.clone());
   register_evaluate_expression();
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
   _r := evaluate_anonymous_module_begin_exprs(
@@ -509,7 +509,7 @@ run_check :: (
     exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
   });
   target_path := argv.get(usize(2)).unwrap();
-  files := collect_check_files((&(target_path)).clone(), io, exn);
+  files := collect_check_files(target_path.clone(), io, exn);
   if(files.len() == usize(0), {
     exn.throw(dyn(`check: no .yo files found at ${target_path}`));
   });
@@ -522,7 +522,7 @@ run_check :: (
       files.get(fi),
       .None => (),
       .Some(file_path) => {
-        if(!(check_single_file(file_path, (&(std_path)).clone(), io, exn)), {
+        if(!(check_single_file(file_path, std_path.clone(), io, exn)), {
           failed = (failed + usize(1));
         });
       }

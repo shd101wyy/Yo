@@ -761,16 +761,16 @@ impl(
   where(T <: Clone),
   ArrayList(T),
   Clone(
-    clone : (fn(self : *(Self)) -> Self)({
-      n := self.*.len();
+    clone : (fn(inout(self) : Self) -> Self)({
+      n := self.len();
       result := Self.with_capacity(n);
       i := usize(0);
       while(i < n, {
-        item_opt := self.*.get(i);
+        item_opt := self.get(i);
         match(
           item_opt,
           .Some(item) => {
-            result.push((&(item)).clone());
+            result.push(item.clone());
           },
           .None => ()
         );

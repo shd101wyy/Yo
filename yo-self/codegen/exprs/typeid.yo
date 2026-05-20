@@ -82,7 +82,7 @@ register_typeid_static :: (
   static_var_name := format_typeid_static_name(sanitized);
   already_emitted := ctx.*.type_id_statics.get(type_id_str).is_some();
   if(!(already_emitted), {
-    _ := ctx.*.type_id_statics.set(type_id_str, (&(static_var_name)).clone());
+    _ := ctx.*.type_id_statics.set(type_id_str, static_var_name.clone());
     ctx.*.emitter.emit_declaration_string_line(format_typeid_static_decl(static_var_name));
   });
   // typeid expressions resolve to `(uintptr_t)&__yo_typeid_...`, so

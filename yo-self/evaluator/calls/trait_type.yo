@@ -133,7 +133,7 @@ try_to_specialize_trait_type :: (
         )
       );
     });
-    label_tok := match(label_sub,.Atom(_, tok) => (&(tok.value)).clone(), _ => String.from(""));
+    label_tok := match(label_sub,.Atom(_, tok) => tok.value.clone(), _ => String.from(""));
     // Check field exists in the trait.
     (field_exists : bool) = false;
     (li : usize) = usize(0);
@@ -334,7 +334,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
           )
         );
       });
-      label_tok := match(label_sub,.Atom(_, tok) => (&(tok.value)).clone(), _ => String.from(""));
+      label_tok := match(label_sub,.Atom(_, tok) => tok.value.clone(), _ => String.from(""));
       // Validate label exists in the trait.
       (label_exists : bool) = false;
       (li : usize) = usize(0);
@@ -428,14 +428,14 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     match(
       field_labels.get(k),
       .Some(lbl) => {
-        result_names.push((&(lbl)).clone());
+        result_names.push(lbl.clone());
       },
       .None => ()
     );
     k = (k + usize(1));
   });
   // NOTE: where-clause checking (typeImplementsTraitBool) deferred to Phase 3.
-  trait_val := EvalValue.TraitVal((&(trait_name)).clone(), result_names, field_values);
+  trait_val := EvalValue.TraitVal(trait_name.clone(), result_names, field_values);
   TraitTypeCallResult(trait_value : trait_val, caller_env : caller_env)
 });
 export(try_to_specialize_trait_type);

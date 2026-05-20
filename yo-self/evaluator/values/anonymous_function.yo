@@ -61,7 +61,7 @@ _collect_anon_param_names :: (
   match(
     param_decl,
     .Atom(_, t) => {
-      out.*.push((&(t.value)).clone());
+      out.*.push(t.value.clone());
     },
     .FnCall(_, fb, args, _, _) => match(
       fb.*,
@@ -75,7 +75,7 @@ _collect_anon_param_names :: (
               .Some(a) => match(
                 a,
                 .Atom(_, at) => {
-                  out.*.push((&(at.value)).clone());
+                  out.*.push(at.value.clone());
                 },
                 .FnCall(_, _, _, _, _) => {
                   // Best-effort: use the first atom of the call (e.g.
@@ -87,7 +87,7 @@ _collect_anon_param_names :: (
                       .Some(name_e) => match(
                         name_e,
                         .Atom(_, nt) => {
-                          out.*.push((&(nt.value)).clone());
+                          out.*.push(nt.value.clone());
                         },
                         .FnCall(_, _, _, _, _) => ()
                       ),
@@ -105,7 +105,7 @@ _collect_anon_param_names :: (
         true => {
           // Single non-tuple FnCall — treat as one param with the
           // function head's atom value if available.
-          out.*.push((&(ptok.value)).clone());
+          out.*.push(ptok.value.clone());
         }
       ),
       .FnCall(_, _, _, _, _) => ()
@@ -174,13 +174,13 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
           .Some(name_expr) => match(
             name_expr,
             .Atom(_, ntok) => ntok.value,
-            .FnCall(_, _, _, _, _) => (&(fallback)).clone()
+            .FnCall(_, _, _, _, _) => fallback.clone()
           ),
-          .None => (&(fallback)).clone()
+          .None => fallback.clone()
         ),
-        true => (&(fallback)).clone()
+        true => fallback.clone()
       ),
-      .FnCall(_, _, _, _, _) => (&(fallback)).clone()
+      .FnCall(_, _, _, _, _) => fallback.clone()
     )
   )
 );
@@ -471,8 +471,8 @@ evaluate_anonymous_function_implementation :: (
   while(runtime(fa_env_i < forall_labels.len()), {
     fl_name := match(forall_labels.get(fa_env_i),.Some(n) => n,.None => String.from(""));
     fl_ty := TypeValue.SomeT(
-      (&(fl_name)).clone(),
-      (&(fl_name)).clone(),
+      fl_name.clone(),
+      fl_name.clone(),
       env.frame_count(),
       box(TypeValue.TypeUni(usize(0))),
       ArrayList(TypeValue).new(),
@@ -482,10 +482,10 @@ evaluate_anonymous_function_implementation :: (
       false,
       Option(Box(TypeValue)).None
     );
-    fl_tok := synthetic_token((&(fl_name)).clone(), env.module_path);
+    fl_tok := synthetic_token(fl_name.clone(), env.module_path);
     _fa_v := add_variable_to_env(
       &(env),
-      (&(fl_name)).clone(),
+      fl_name.clone(),
       TypeValue.TypeUni(usize(0)),
       Option(EvalValue).Some(EvalValue.TypeVal(box(fl_ty))),
       true,
@@ -503,11 +503,11 @@ evaluate_anonymous_function_implementation :: (
   while(runtime(il_env_i < implicit_labels.len()), {
     il_name := match(implicit_labels.get(il_env_i),.Some(n) => n,.None => String.from(""));
     il_ty := match(implicit_types.get(il_env_i),.Some(t) => t,.None => TypeValue.Unit);
-    il_tok := synthetic_token((&(il_name)).clone(), env.module_path);
-    il_val := create_unknown_val((&(il_ty)).clone());
+    il_tok := synthetic_token(il_name.clone(), env.module_path);
+    il_val := create_unknown_val(il_ty.clone());
     _il_v := add_variable_to_env(
       &(env),
-      (&(il_name)).clone(),
+      il_name.clone(),
       il_ty,
       Option(EvalValue).Some(il_val),
       true,
@@ -531,15 +531,15 @@ evaluate_anonymous_function_implementation :: (
     exp_label := match(param_labels.get(rp_i),.Some(n) => n,.None => String.from(""));
     rp_ty := match(param_types.get(rp_i),.Some(t) => t,.None => TypeValue.Unit);
     // Derive the actual parameter name from the user's expression.
-    param_name := _get_param_name_from_expr(rpe, (&(exp_label)).clone());
+    param_name := _get_param_name_from_expr(rpe, exp_label.clone());
     // param_type_name for generic param binding at call time
     ptn := match(
       rp_ty,
       .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
       _ => String.from("")
     );
-    param_type_names.push((&(ptn)).clone());
-    actual_param_labels.push((&(param_name)).clone());
+    param_type_names.push(ptn.clone());
+    actual_param_labels.push(param_name.clone());
     rp_tok := ast_expr_token(rpe);
     _rp_v := add_variable_to_env(
       &(env),
@@ -571,7 +571,7 @@ evaluate_anonymous_function_implementation :: (
     cap_names,
     cap_tys,
     cap_vals,
-    (&(func_id)).clone()
+    func_id.clone()
   );
   // Register definitionSiteEnclosingFunctionType return type.
   // Mirrors: definitionSiteEnclosingFunctionType = context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
@@ -589,7 +589,7 @@ evaluate_anonymous_function_implementation :: (
             .Func(_, _, _, _, _, _, _, _, rb) => rb.*,
             _ => TypeValue.Unit
           );
-          register_definition_site_return((&(func_id)).clone(), enclosing_return_ty);
+          register_definition_site_return(func_id.clone(), enclosing_return_ty);
         },
         .None => ()
       ),
