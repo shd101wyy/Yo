@@ -493,9 +493,9 @@ impl(
   /// compilation unit or when the evaluator did not record an entry for
   /// this expression — handlers should fall back to bootstrap heuristics
   /// in that case.
-  get_expr_info : (fn(self : *(Self), id : ExprId) -> Option(ExprInfo))(
+  get_expr_info : (fn(inout(self) : Self, id : ExprId) -> Option(ExprInfo))(
     match(
-      self.*.expr_info_table,
+      self.expr_info_table,
       .None => Option(ExprInfo).None,
       .Some(table) => expr_info_table_get(table, id)
     )
@@ -531,9 +531,9 @@ impl(
   ///
   /// Mirrors the `context.functions[funcId]?.cName` access pattern used
   /// across `src/codegen/exprs/{atom,drop-dup,comptime-value,async,…}.ts`.
-  get_function_c_name : (fn(self : *(Self), func_id : String) -> Option(String))(
+  get_function_c_name : (fn(inout(self) : Self, func_id : String) -> Option(String))(
     match(
-      self.*.functions.get(func_id),
+      self.functions.get(func_id),
       .None => Option(String).None,
       .Some(entry) => Option(String).Some(entry.c_name)
     )
@@ -541,8 +541,8 @@ impl(
   /// Look up the full `CodegenFunctionEntry` for `func_id`. Useful for
   /// callers that need the registered `FuncVal` or the effect-state-
   /// machine slot in addition to the C name.
-  get_function_entry : (fn(self : *(Self), func_id : String) -> Option(CodegenFunctionEntry))(
-    self.*.functions.get(func_id)
+  get_function_entry : (fn(inout(self) : Self, func_id : String) -> Option(CodegenFunctionEntry))(
+    self.functions.get(func_id)
   ),
   /// Register a slice-struct type by its C type name (e.g. `Slice_i32`)
   /// and the C type string of its element. Idempotent — re-registering
@@ -553,9 +553,9 @@ impl(
   ///   }
   /// at every call-site that emits a slice value.
   register_slice_struct_type : (
-    fn(self : *(Self), slice_c_name : String, child_type : String) -> unit
+    fn(inout(self) : Self, slice_c_name : String, child_type : String) -> unit
   )({
-    self.*.slice_struct_types.set(
+    self.slice_struct_types.set(
       slice_c_name,
       CodegenSliceStructEntry(child_type : child_type)
     );
@@ -563,8 +563,8 @@ impl(
   }),
   /// Look up the element type of a previously-registered slice-struct
   /// type. Returns `.None` if the slice type hasn't been seen yet.
-  has_slice_struct_type : (fn(self : *(Self), slice_c_name : String) -> bool)(
-    self.*.slice_struct_types.get(slice_c_name).is_some()
+  has_slice_struct_type : (fn(inout(self) : Self, slice_c_name : String) -> bool)(
+    self.slice_struct_types.get(slice_c_name).is_some()
   ),
   /// Register an array-struct type. See `register_slice_struct_type`
   /// for the idempotency / mirroring rationale.
@@ -584,8 +584,8 @@ impl(
   }),
   /// True iff an array-struct type with this C name is already
   /// registered.
-  has_array_struct_type : (fn(self : *(Self), array_c_name : String) -> bool)(
-    self.*.array_struct_types.get(array_c_name).is_some()
+  has_array_struct_type : (fn(inout(self) : Self, array_c_name : String) -> bool)(
+    self.array_struct_types.get(array_c_name).is_some()
   ),
   /// Register an extern C function. The key is the FunctionType id —
   /// this lets duplicate `extern fn foo` declarations across modules
@@ -615,16 +615,16 @@ impl(
   /// Look up the extern-function entry for a FunctionType id. Returns
   /// `.None` if not yet registered.
   get_extern_function : (
-    fn(self : *(Self), type_id : String) -> Option(CodegenExternFunctionEntry)
-  )(self.*.extern_functions.get(type_id)),
+    fn(inout(self) : Self, type_id : String) -> Option(CodegenExternFunctionEntry)
+  )(self.extern_functions.get(type_id)),
   /// True iff `include` is already present in the `c_includes` set.
-  has_c_include : (fn(self : *(Self), include : String) -> bool)({
-    n := self.*.c_includes.len();
+  has_c_include : (fn(inout(self) : Self, include : String) -> bool)({
+    n := self.c_includes.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.c_includes.get(i),
+        self.c_includes.get(i),
         .None => (),
         .Some(existing) => {
           if(existing == include, {
@@ -642,11 +642,11 @@ impl(
   ///
   /// `include` should be the literal include operand (`"<stdint.h>"`,
   /// `"\"foo.h\""`, …) — the emitter wraps it in `#include`.
-  add_c_include : (fn(self : *(Self), include : String) -> unit)(
+  add_c_include : (fn(inout(self) : Self, include : String) -> unit)(
     cond(
       self.has_c_include(include) => (),
       true => {
-        self.*.c_includes.push(include);
+        self.c_includes.push(include);
         ()
       }
     )
@@ -679,15 +679,15 @@ impl(
   /// Look up the impl-closure entry for a concrete type id. Returns
   /// `.None` if not yet registered.
   get_impl_closure : (
-    fn(self : *(Self), concrete_type_id : String) -> Option(CodegenImplClosureEntry)
-  )(self.*.impl_closure_call_map.get(concrete_type_id)),
+    fn(inout(self) : Self, concrete_type_id : String) -> Option(CodegenImplClosureEntry)
+  )(self.impl_closure_call_map.get(concrete_type_id)),
   /// Register a type's generated C name. Mirrors the TS pattern of
   /// `context.types[id] = { type, cName }`. The eventual type
   /// declaration emitter walks this map once at the end of compilation.
   register_type : (
-    fn(self : *(Self), type_id : String, type_value : TypeValue, c_name : String) -> unit
+    fn(inout(self) : Self, type_id : String, type_value : TypeValue, c_name : String) -> unit
   )({
-    self.*.types.set(
+    self.types.set(
       type_id,
       CodegenTypeEntry(type_value : type_value, c_name : c_name)
     );
@@ -697,9 +697,9 @@ impl(
   /// when the type hasn't been registered — caller falls back to
   /// `get_type_string` derivation or to the bootstrap heuristic.
   /// Mirrors the TS `context.types[id]?.cName` access.
-  get_type_c_name : (fn(self : *(Self), type_id : String) -> Option(String))(
+  get_type_c_name : (fn(inout(self) : Self, type_id : String) -> Option(String))(
     match(
-      self.*.types.get(type_id),
+      self.types.get(type_id),
       .None => Option(String).None,
       .Some(entry) => Option(String).Some(entry.c_name)
     )
@@ -709,80 +709,80 @@ impl(
   /// consumes this map after all dyn-using handlers have run.
   /// Mirrors `context.dynImpls.set(...)` in TS.
   register_dyn_impl : (
-    fn(self : *(Self), impl_key : String, entry : CodegenDynImplEntry) -> unit
+    fn(inout(self) : Self, impl_key : String, entry : CodegenDynImplEntry) -> unit
   )({
-    self.*.dyn_impls.set(impl_key, entry);
+    self.dyn_impls.set(impl_key, entry);
     ()
   }),
   /// Look up a `dyn(Trait)` impl entry by its impl-key.
   get_dyn_impl : (
-    fn(self : *(Self), impl_key : String) -> Option(CodegenDynImplEntry)
-  )(self.*.dyn_impls.get(impl_key)),
+    fn(inout(self) : Self, impl_key : String) -> Option(CodegenDynImplEntry)
+  )(self.dyn_impls.get(impl_key)),
   /// Register a closure-to-capture-type mapping. Mirrors
   /// `context.closureCaptureMap.set(...)` in TS.
   register_closure_capture : (
-    fn(self : *(Self), closure_type_id : String, entry : CodegenClosureCaptureEntry) -> unit
+    fn(inout(self) : Self, closure_type_id : String, entry : CodegenClosureCaptureEntry) -> unit
   )({
-    self.*.closure_capture_map.set(closure_type_id, entry);
+    self.closure_capture_map.set(closure_type_id, entry);
     ()
   }),
   /// Look up the closure-capture entry for a closure type id.
   get_closure_capture : (
-    fn(self : *(Self), closure_type_id : String) -> Option(CodegenClosureCaptureEntry)
-  )(self.*.closure_capture_map.get(closure_type_id)),
+    fn(inout(self) : Self, closure_type_id : String) -> Option(CodegenClosureCaptureEntry)
+  )(self.closure_capture_map.get(closure_type_id)),
   /// Register an `Iso(T)` type entry, keyed by the Iso type's C name.
   /// Mirrors `context.isoTypes.set(...)` in TS.
   register_iso_type : (
-    fn(self : *(Self), iso_c_name : String, entry : CodegenIsoTypeEntry) -> unit
+    fn(inout(self) : Self, iso_c_name : String, entry : CodegenIsoTypeEntry) -> unit
   )({
-    self.*.iso_types.set(iso_c_name, entry);
+    self.iso_types.set(iso_c_name, entry);
     ()
   }),
   /// Look up an `Iso(T)` type entry by its C name.
   get_iso_type : (
-    fn(self : *(Self), iso_c_name : String) -> Option(CodegenIsoTypeEntry)
-  )(self.*.iso_types.get(iso_c_name)),
+    fn(inout(self) : Self, iso_c_name : String) -> Option(CodegenIsoTypeEntry)
+  )(self.iso_types.get(iso_c_name)),
   /// Allocate the next unique temporary C variable name (`_yo_t0`, `_yo_t1`, …).
-  fresh_temp : (fn(self : *(Self)) -> String)({
-    n := self.*.temp_count;
-    self.*.temp_count = (n + usize(1));
+  fresh_temp : (fn(inout(self) : Self) -> String)({
+    n := self.temp_count;
+    self.temp_count = (n + usize(1));
     result := String.from("_yo_t");
     result.push_string(n.to_string());
     result
   }),
   /// Allocate the next unique lambda function name (`__yo_lambda_0`, …).
-  fresh_lambda_name : (fn(self : *(Self)) -> String)({
-    n := self.*.lambda_count;
-    self.*.lambda_count = (n + usize(1));
+  fresh_lambda_name : (fn(inout(self) : Self) -> String)({
+    n := self.lambda_count;
+    self.lambda_count = (n + usize(1));
     result := String.from("__yo_lambda_");
     result.push_string(n.to_string());
     result
   }),
   /// Register a Yo-level function name as defined in this module.
-  register_fn : (fn(self : *(Self), name : String) -> unit)({
-    self.*.defined_fns.push(name);
-    self.*.fn_param_ty_lists.push(String.new());
+  register_fn : (fn(inout(self) : Self, name : String) -> unit)({
+    self.defined_fns.push(name);
+    self.fn_param_ty_lists.push(String.new());
   }),
   /// Register a function with its pipe-separated C param type list.
   /// Each entry in `param_tys_pipe` is a C type string separated by '|'.
-  register_fn_with_params : (fn(self : *(Self), name : String, param_tys_pipe : String) -> unit)({
-    self.*.defined_fns.push(name);
-    self.*.fn_param_ty_lists.push(param_tys_pipe);
+  register_fn_with_params : (fn(inout(self) : Self, name : String, param_tys_pipe : String) -> unit)({
+    self.defined_fns.push(name);
+    self.fn_param_ty_lists.push(param_tys_pipe);
   }),
-  register_fn_return_type : (fn(self : *(Self), name : str, ret_ty : str) -> unit)({
-    self.*.fn_return_names.push(String.from(name));
-    self.*.fn_return_tys.push(String.from(ret_ty));
+  register_fn_return_type : (fn(inout(self) : Self, name : str, ret_ty : str) -> unit)({
+    self.fn_return_names.push(String.from(name));
+    self.fn_return_tys.push(String.from(ret_ty));
   }),
-  get_fn_return_type : (fn(self : *(Self), name : str) -> Option(String))({
-    n := self.*.fn_return_names.len();
+  get_fn_return_type : (fn(inout(self) : Self, name : str) -> Option(String))({
+    n := self.fn_return_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.fn_return_names.get(i),
+        self.fn_return_names.get(i),
         .None => (),
         .Some(fn_name) => if(fn_name.as_str() == name, {
-          result = self.*.fn_return_tys.get(i);
+          result = self.fn_return_tys.get(i);
         })
       );
       i = (i + usize(1));
@@ -790,13 +790,13 @@ impl(
     result
   }),
   /// Return the C param type at position `param_idx` for function `fn_name`, or None.
-  get_fn_param_ty_at : (fn(self : *(Self), fn_name : str, param_idx : usize) -> Option(String))({
-    n_fns := self.*.defined_fns.len();
+  get_fn_param_ty_at : (fn(inout(self) : Self, fn_name : str, param_idx : usize) -> Option(String))({
+    n_fns := self.defined_fns.len();
     (fi : usize) = usize(0);
     (found_list_idx : Option(usize)) = Option(usize).None;
     while(runtime((fi < n_fns) && match(found_list_idx,.None => true,.Some(_) => false)), {
       match(
-        self.*.defined_fns.get(fi),
+        self.defined_fns.get(fi),
         .None => (),
         .Some(s) => {
           if(s.as_str() == fn_name, {
@@ -810,7 +810,7 @@ impl(
       found_list_idx,
       .None => Option(String).None,
       .Some(list_fi) => match(
-        self.*.fn_param_ty_lists.get(list_fi),
+        self.fn_param_ty_lists.get(list_fi),
         .None => Option(String).None,
         .Some(pipe_csv) => {
           // Split pipe-separated string to get the param_idx-th element.
@@ -836,23 +836,23 @@ impl(
     )
   }),
   /// Register a variable as a C array (so `name(idx)` emits `name[idx]`).
-  register_array_var : (fn(self : *(Self), name : str) -> unit)({
-    self.*.array_var_names.push(String.from(name));
-    self.*.array_var_sizes.push(String.from("0"));
+  register_array_var : (fn(inout(self) : Self, name : str) -> unit)({
+    self.array_var_names.push(String.from(name));
+    self.array_var_sizes.push(String.from("0"));
   }),
   /// Register a variable as a C array with its size string.
-  register_array_var_with_size : (fn(self : *(Self), name : str, size : str) -> unit)({
-    self.*.array_var_names.push(String.from(name));
-    self.*.array_var_sizes.push(String.from(size));
+  register_array_var_with_size : (fn(inout(self) : Self, name : str, size : str) -> unit)({
+    self.array_var_names.push(String.from(name));
+    self.array_var_sizes.push(String.from(size));
   }),
   /// Return the size string for a C array variable, or None.
-  get_array_var_size : (fn(self : *(Self), name : str) -> Option(String))({
-    n := self.*.array_var_names.len();
+  get_array_var_size : (fn(inout(self) : Self, name : str) -> Option(String))({
+    n := self.array_var_names.len();
     (i : usize) = usize(0);
     (found_idx : Option(usize)) = Option(usize).None;
     while(runtime((i < n) && match(found_idx,.None => true,.Some(_) => false)), {
       match(
-        self.*.array_var_names.get(i),
+        self.array_var_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -865,17 +865,17 @@ impl(
     match(
       found_idx,
       .None => Option(String).None,
-      .Some(idx) => self.*.array_var_sizes.get(idx)
+      .Some(idx) => self.array_var_sizes.get(idx)
     )
   }),
   /// True if `name` was registered as a C array variable.
-  is_array_var : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.array_var_names.len();
+  is_array_var : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.array_var_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.array_var_names.get(i),
+        self.array_var_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -888,17 +888,17 @@ impl(
     found
   }),
   /// Register a variable as a C slice (so `name(idx)` → `name.data[idx]`).
-  register_slice_var : (fn(self : *(Self), name : str) -> unit)({
-    self.*.slice_var_names.push(String.from(name));
+  register_slice_var : (fn(inout(self) : Self, name : str) -> unit)({
+    self.slice_var_names.push(String.from(name));
   }),
   /// True if `name` was registered as a C slice variable.
-  is_slice_var : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.slice_var_names.len();
+  is_slice_var : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.slice_var_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.slice_var_names.get(i),
+        self.slice_var_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -912,17 +912,17 @@ impl(
   }),
   /// Register a variable as being created with `box(...)` so that equality
   /// comparisons on it dereference the pointer.
-  register_box_var : (fn(self : *(Self), name : str) -> unit)({
-    self.*.box_var_names.push(String.from(name));
+  register_box_var : (fn(inout(self) : Self, name : str) -> unit)({
+    self.box_var_names.push(String.from(name));
   }),
   /// True if `name` was registered as a box variable.
-  is_box_var : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.box_var_names.len();
+  is_box_var : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.box_var_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.box_var_names.get(i),
+        self.box_var_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -935,17 +935,17 @@ impl(
     found
   }),
   /// Register a `::` constant binding as emitted (so it can be referenced by later bindings).
-  register_const_var : (fn(self : *(Self), name : str) -> unit)({
-    self.*.emitted_const_names.push(String.from(name));
+  register_const_var : (fn(inout(self) : Self, name : str) -> unit)({
+    self.emitted_const_names.push(String.from(name));
   }),
   /// True if `name` was registered as an emitted `::` C constant.
-  is_const_var : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.emitted_const_names.len();
+  is_const_var : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.emitted_const_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.emitted_const_names.get(i),
+        self.emitted_const_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -958,17 +958,17 @@ impl(
     found
   }),
   /// Register `name` as a string `::` constant (its RHS was a string literal).
-  register_string_const : (fn(self : *(Self), name : str) -> unit)({
-    self.*.string_const_names.push(String.from(name));
+  register_string_const : (fn(inout(self) : Self, name : str) -> unit)({
+    self.string_const_names.push(String.from(name));
   }),
   /// True if `name` was registered as a string `::` constant.
-  is_string_const : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.string_const_names.len();
+  is_string_const : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.string_const_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.string_const_names.get(i),
+        self.string_const_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -982,13 +982,13 @@ impl(
   }),
   /// True if `name` was registered via `register_fn` — i.e., it is a
   /// user-defined function whose C name uses the `fn_` prefix.
-  is_defined_fn : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.defined_fns.len();
+  is_defined_fn : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.defined_fns.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.defined_fns.get(i),
+        self.defined_fns.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -1001,17 +1001,17 @@ impl(
     found
   }),
   /// Register a Yo-level enum name as declared in this module.
-  register_enum : (fn(self : *(Self), name : String) -> unit)({
-    self.*.defined_enums.push(name);
+  register_enum : (fn(inout(self) : Self, name : String) -> unit)({
+    self.defined_enums.push(name);
   }),
   /// True if `name` was registered via `register_enum`.
-  is_enum_name : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.defined_enums.len();
+  is_enum_name : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.defined_enums.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.defined_enums.get(i),
+        self.defined_enums.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -1026,24 +1026,24 @@ impl(
   /// Register a Yo-level struct name as declared in this module.
   /// Struct constructor calls `Name(args)` are then emitted as `(Name){args}`.
   /// `fields_csv` is a comma-separated list of field names (may be empty).
-  register_struct : (fn(self : *(Self), name : String) -> unit)({
-    self.*.defined_structs.push(name);
-    self.*.struct_field_csvs.push(String.new());
-    self.*.struct_default_value_csvs.push(String.new());
-    self.*.struct_field_type_csvs.push(String.new());
+  register_struct : (fn(inout(self) : Self, name : String) -> unit)({
+    self.defined_structs.push(name);
+    self.struct_field_csvs.push(String.new());
+    self.struct_default_value_csvs.push(String.new());
+    self.struct_field_type_csvs.push(String.new());
   }),
   /// Register a struct name with its field names (CSV).
-  register_struct_fields : (fn(self : *(Self), name : str, fields_csv : str) -> unit)({
-    n := self.*.defined_structs.len();
+  register_struct_fields : (fn(inout(self) : Self, name : str, fields_csv : str) -> unit)({
+    n := self.defined_structs.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.defined_structs.get(i),
+        self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
-            (&(self.*.struct_field_csvs)).index(i).* = String.from(fields_csv);
+            (&(self.struct_field_csvs)).index(i).* = String.from(fields_csv);
             found = true;
           });
         }
@@ -1052,18 +1052,18 @@ impl(
     });
   }),
   /// Return the CSV of field names for a registered struct, or `None` if not found or empty.
-  get_struct_fields : (fn(self : *(Self), name : str) -> Option(String))({
-    n := self.*.defined_structs.len();
+  get_struct_fields : (fn(inout(self) : Self, name : str) -> Option(String))({
+    n := self.defined_structs.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.defined_structs.get(i),
+        self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
             result = match(
-              self.*.struct_field_csvs.get(i),
+              self.struct_field_csvs.get(i),
               .None => Option(String).None,
               .Some(fcsv) => cond(
                 (fcsv.len() == usize(0)) => Option(String).None,
@@ -1077,17 +1077,17 @@ impl(
     });
     result
   }),
-  register_generic_struct_template : (fn(self : *(Self), name : str, fields_csv : str) -> unit)({
-    n := self.*.generic_struct_names.len();
+  register_generic_struct_template : (fn(inout(self) : Self, name : str, fields_csv : str) -> unit)({
+    n := self.generic_struct_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.generic_struct_names.get(i),
+        self.generic_struct_names.get(i),
         .None => (),
         .Some(existing) => {
           if(existing.as_str() == name, {
-            (&(self.*.generic_struct_field_csvs)).index(i).* = String.from(fields_csv);
+            (&(self.generic_struct_field_csvs)).index(i).* = String.from(fields_csv);
             found = true;
           });
         }
@@ -1095,22 +1095,22 @@ impl(
       i = (i + usize(1));
     });
     if(!(found), {
-      self.*.generic_struct_names.push(String.from(name));
-      self.*.generic_struct_field_csvs.push(String.from(fields_csv));
+      self.generic_struct_names.push(String.from(name));
+      self.generic_struct_field_csvs.push(String.from(fields_csv));
     });
   }),
-  get_generic_struct_template_fields : (fn(self : *(Self), name : str) -> Option(String))({
-    n := self.*.generic_struct_names.len();
+  get_generic_struct_template_fields : (fn(inout(self) : Self, name : str) -> Option(String))({
+    n := self.generic_struct_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.generic_struct_names.get(i),
+        self.generic_struct_names.get(i),
         .None => (),
         .Some(existing) => {
           if(existing.as_str() == name, {
             result = match(
-              self.*.generic_struct_field_csvs.get(i),
+              self.generic_struct_field_csvs.get(i),
               .None => Option(String).None,
               .Some(fields) => cond(
                 (fields.len() == usize(0)) => Option(String).None,
@@ -1124,34 +1124,34 @@ impl(
     });
     result
   }),
-  register_struct_defaults : (fn(self : *(Self), name : str, defaults_csv : str) -> unit)({
-    n := self.*.defined_structs.len();
+  register_struct_defaults : (fn(inout(self) : Self, name : str, defaults_csv : str) -> unit)({
+    n := self.defined_structs.len();
     (i : usize) = usize(0);
     while(runtime(i < n), {
       match(
-        self.*.defined_structs.get(i),
+        self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
-            (&(self.*.struct_default_value_csvs)).index(i).* = String.from(defaults_csv);
+            (&(self.struct_default_value_csvs)).index(i).* = String.from(defaults_csv);
           });
         }
       );
       i = (i + usize(1));
     });
   }),
-  get_struct_defaults : (fn(self : *(Self), name : str) -> Option(String))({
-    n := self.*.defined_structs.len();
+  get_struct_defaults : (fn(inout(self) : Self, name : str) -> Option(String))({
+    n := self.defined_structs.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime(i < n), {
       match(
-        self.*.defined_structs.get(i),
+        self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
             result = match(
-              self.*.struct_default_value_csvs.get(i),
+              self.struct_default_value_csvs.get(i),
               .None => Option(String).None,
               .Some(dcsv) => cond(
                 (dcsv.len() == usize(0)) => Option(String).None,
@@ -1167,24 +1167,24 @@ impl(
   }),
   /// Register field names (CSV) for a local variable created from an anon struct.
   /// Used to support `open var` when `var := { field1: val1, field2: val2 }`.
-  track_open_var : (fn(self : *(Self), var_name : str, fields_csv : str) -> unit)({
-    self.*.open_var_names.push(String.from(var_name));
-    self.*.open_var_field_csvs.push(String.from(fields_csv));
+  track_open_var : (fn(inout(self) : Self, var_name : str, fields_csv : str) -> unit)({
+    self.open_var_names.push(String.from(var_name));
+    self.open_var_field_csvs.push(String.from(fields_csv));
   }),
   /// Return the field CSV for a variable tracked via `track_open_var`.
   /// Returns `None` if not found.
-  get_open_var_fields : (fn(self : *(Self), var_name : str) -> Option(String))({
-    n := self.*.open_var_names.len();
+  get_open_var_fields : (fn(inout(self) : Self, var_name : str) -> Option(String))({
+    n := self.open_var_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.open_var_names.get(i),
+        self.open_var_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == var_name, {
             result = match(
-              self.*.open_var_field_csvs.get(i),
+              self.open_var_field_csvs.get(i),
               .None => Option(String).None,
               .Some(fcsv) => cond(
                 (fcsv.len() == usize(0)) => Option(String).None,
@@ -1199,13 +1199,13 @@ impl(
     result
   }),
   /// True if `name` was registered via `register_struct`.
-  is_struct_name : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.defined_structs.len();
+  is_struct_name : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.defined_structs.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.defined_structs.get(i),
+        self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -1227,25 +1227,25 @@ impl(
   /// wins for field names).  Variants from different enums are stored as separate
   /// entries even when they share a name (e.g. `MyResult.Err` and
   /// `HalfComptResult.Err` are kept distinct).
-  register_variant : (fn(self : *(Self), variant : str, enum_name : str, fields_csv : str) -> unit)({
-    n := self.*.variant_names.len();
+  register_variant : (fn(inout(self) : Self, variant : str, enum_name : str, fields_csv : str) -> unit)({
+    n := self.variant_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.variant_names.get(i),
+        self.variant_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == variant, {
             // Only treat as a match when both the variant name AND the owning enum
             // match — different enums may legitimately share variant names.
             enum_matches := match(
-              self.*.variant_enums.get(i),
+              self.variant_enums.get(i),
               .Some(e) => (e.as_str() == enum_name),
               .None => false
             );
             if(enum_matches, {
-              (&(self.*.variant_fields_csv)).index(i).* = String.from(fields_csv);
+              (&(self.variant_fields_csv)).index(i).* = String.from(fields_csv);
               found = true;
             });
           });
@@ -1254,29 +1254,29 @@ impl(
       i = (i + usize(1));
     });
     if(!(found), {
-      self.*.variant_names.push(String.from(variant));
-      self.*.variant_enums.push(String.from(enum_name));
-      self.*.variant_fields_csv.push(String.from(fields_csv));
+      self.variant_names.push(String.from(variant));
+      self.variant_enums.push(String.from(enum_name));
+      self.variant_fields_csv.push(String.from(fields_csv));
     });
   }),
   /// Register the C type of a local variable or function parameter.
-  register_var_type : (fn(self : *(Self), var_name : str, c_type : str) -> unit)({
-    self.*.var_names.push(String.from(var_name));
-    self.*.var_types.push(String.from(c_type));
+  register_var_type : (fn(inout(self) : Self, var_name : str, c_type : str) -> unit)({
+    self.var_names.push(String.from(var_name));
+    self.var_types.push(String.from(c_type));
   }),
   /// Return the registered C type of `var_name`, or `None` if not tracked.
-  get_var_type : (fn(self : *(Self), var_name : str) -> Option(String))({
-    n := self.*.var_names.len();
+  get_var_type : (fn(inout(self) : Self, var_name : str) -> Option(String))({
+    n := self.var_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime(i < n), {
       match(
-        self.*.var_names.get(i),
+        self.var_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == var_name, {
             result = match(
-              self.*.var_types.get(i),
+              self.var_types.get(i),
               .Some(t) => Option(String).Some(t),
               .None => Option(String).None
             );
@@ -1290,18 +1290,18 @@ impl(
   /// True if enum `name` has at least one complex (data-carrying) variant registered.
   /// Used to decide whether `i32(var)` for a variable of that enum type should be
   /// emitted as `(int32_t)(var.tag)` rather than a plain cast.
-  is_complex_enum_name : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.variant_names.len();
+  is_complex_enum_name : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.variant_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.variant_enums.get(i),
+        self.variant_enums.get(i),
         .None => (),
         .Some(e) => {
           if(e.as_str() == name, {
             match(
-              self.*.variant_fields_csv.get(i),
+              self.variant_fields_csv.get(i),
               .None => (),
               .Some(fcsv) => {
                 if(fcsv.len() > usize(0), {
@@ -1317,18 +1317,18 @@ impl(
     found
   }),
   /// Return the enum name for `variant`, or `None` if not registered.
-  get_enum_for_variant : (fn(self : *(Self), variant : str) -> Option(String))({
-    n := self.*.variant_names.len();
+  get_enum_for_variant : (fn(inout(self) : Self, variant : str) -> Option(String))({
+    n := self.variant_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.variant_names.get(i),
+        self.variant_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == variant, {
             result = match(
-              self.*.variant_enums.get(i),
+              self.variant_enums.get(i),
               .Some(e) => Option(String).Some(e),
               .None => Option(String).None
             );
@@ -1344,24 +1344,24 @@ impl(
   /// fields) or not registered.  Using the enum name avoids returning fields from
   /// a same-named variant of a different enum (e.g. `MyResult.Err` vs
   /// `HalfComptResult.Err`).
-  get_variant_fields : (fn(self : *(Self), enum_name : str, variant : str) -> Option(String))({
-    n := self.*.variant_names.len();
+  get_variant_fields : (fn(inout(self) : Self, enum_name : str, variant : str) -> Option(String))({
+    n := self.variant_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.variant_names.get(i),
+        self.variant_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == variant, {
             enum_matches := match(
-              self.*.variant_enums.get(i),
+              self.variant_enums.get(i),
               .Some(e) => (e.as_str() == enum_name),
               .None => false
             );
             if(enum_matches, {
               match(
-                self.*.variant_fields_csv.get(i),
+                self.variant_fields_csv.get(i),
                 .None => (),
                 .Some(fcsv) => {
                   if(fcsv.len() > usize(0), {
@@ -1379,18 +1379,18 @@ impl(
   }),
   /// Set the current `Self` type for impl method codegen.
   /// Call before generating an impl method body, and clear with "" afterward.
-  set_self_type : (fn(self : *(Self), type_name : str) -> unit)({
-    self.*.self_type = String.from(type_name);
+  set_self_type : (fn(inout(self) : Self, type_name : str) -> unit)({
+    self.self_type = String.from(type_name);
   }),
   /// Get the current `Self` type name, or "" if not inside an impl method.
-  get_self_type : (fn(self : *(Self)) -> str)(
-    self.*.self_type.as_str()
+  get_self_type : (fn(inout(self) : Self) -> str)(
+    self.self_type.as_str()
   ),
   /// True if `var_name` is a registered variable whose C type ends with `*`
   /// (i.e., it is a pointer). Used to emit `->` instead of `.` for field access.
-  var_type_is_ptr : (fn(self : *(Self), var_name : str) -> bool)(
+  var_type_is_ptr : (fn(inout(self) : Self, var_name : str) -> bool)(
     match(
-      self.*.get_var_type(var_name),
+      self.get_var_type(var_name),
       .None => false,
       .Some(ty) => {
         n := ty.len();
@@ -1407,24 +1407,24 @@ impl(
   ),
   /// Register a fixed-size array type alias `NAME :: [T; N]`.
   /// `elem_c` is the C element type (e.g. `"int32_t"`), `size` is the array length.
-  register_array_alias : (fn(self : *(Self), name : str, elem_c : str, size : usize) -> unit)({
-    self.*.array_alias_names.push(String.from(name));
-    self.*.array_alias_elems.push(String.from(elem_c));
-    self.*.array_alias_sizes.push(size);
+  register_array_alias : (fn(inout(self) : Self, name : str, elem_c : str, size : usize) -> unit)({
+    self.array_alias_names.push(String.from(name));
+    self.array_alias_elems.push(String.from(elem_c));
+    self.array_alias_sizes.push(size);
   }),
   /// Return the C element type for array alias `name`, or `None` if not registered.
-  get_array_alias_elem : (fn(self : *(Self), name : str) -> Option(String))({
-    n := self.*.array_alias_names.len();
+  get_array_alias_elem : (fn(inout(self) : Self, name : str) -> Option(String))({
+    n := self.array_alias_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.array_alias_names.get(i),
+        self.array_alias_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
             result = match(
-              self.*.array_alias_elems.get(i),
+              self.array_alias_elems.get(i),
               .Some(e) => Option(String).Some(e),
               .None => Option(String).None
             );
@@ -1436,18 +1436,18 @@ impl(
     result
   }),
   /// Return the array size for array alias `name`, or `None` if not registered.
-  get_array_alias_size : (fn(self : *(Self), name : str) -> Option(usize))({
-    n := self.*.array_alias_names.len();
+  get_array_alias_size : (fn(inout(self) : Self, name : str) -> Option(usize))({
+    n := self.array_alias_names.len();
     (i : usize) = usize(0);
     (result : Option(usize)) = Option(usize).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.array_alias_names.get(i),
+        self.array_alias_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
             result = match(
-              self.*.array_alias_sizes.get(i),
+              self.array_alias_sizes.get(i),
               .Some(sz) => Option(usize).Some(sz),
               .None => Option(usize).None
             );
@@ -1461,17 +1461,17 @@ impl(
   /// Register the C field types CSV for struct `name`.
   /// e.g. `"const char*,int32_t"` for `struct(name: String, age: i32)`.
   /// Parallel to `register_struct_fields`.
-  register_struct_field_types : (fn(self : *(Self), name : str, types_csv : str) -> unit)({
-    n := self.*.defined_structs.len();
+  register_struct_field_types : (fn(inout(self) : Self, name : str, types_csv : str) -> unit)({
+    n := self.defined_structs.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.defined_structs.get(i),
+        self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
-            (&(self.*.struct_field_type_csvs)).index(i).* = String.from(types_csv);
+            (&(self.struct_field_type_csvs)).index(i).* = String.from(types_csv);
             found = true;
           });
         }
@@ -1480,18 +1480,18 @@ impl(
     });
   }),
   /// Return the CSV of C field types for struct `name`, or `None` if not found.
-  get_struct_field_types : (fn(self : *(Self), name : str) -> Option(String))({
-    n := self.*.defined_structs.len();
+  get_struct_field_types : (fn(inout(self) : Self, name : str) -> Option(String))({
+    n := self.defined_structs.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.defined_structs.get(i),
+        self.defined_structs.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
             result = match(
-              self.*.struct_field_type_csvs.get(i),
+              self.struct_field_type_csvs.get(i),
               .None => Option(String).None,
               .Some(tcsv) => cond(
                 (tcsv.len() == usize(0)) => Option(String).None,
@@ -1506,17 +1506,17 @@ impl(
     result
   }),
   /// Register `type_name` as having `derive(ToString)`.
-  register_derive_tostring : (fn(self : *(Self), type_name : str) -> unit)({
-    self.*.derive_tostring_names.push(String.from(type_name));
+  register_derive_tostring : (fn(inout(self) : Self, type_name : str) -> unit)({
+    self.derive_tostring_names.push(String.from(type_name));
   }),
   /// True if `type_name` was registered via `register_derive_tostring`.
-  has_derive_tostring : (fn(self : *(Self), type_name : str) -> bool)({
-    n := self.*.derive_tostring_names.len();
+  has_derive_tostring : (fn(inout(self) : Self, type_name : str) -> bool)({
+    n := self.derive_tostring_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.derive_tostring_names.get(i),
+        self.derive_tostring_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == type_name, {
@@ -1529,17 +1529,17 @@ impl(
     found
   }),
   /// Register `type_name` as having `derive(Clone)`.
-  register_derive_clone : (fn(self : *(Self), type_name : str) -> unit)({
-    self.*.derive_clone_names.push(String.from(type_name));
+  register_derive_clone : (fn(inout(self) : Self, type_name : str) -> unit)({
+    self.derive_clone_names.push(String.from(type_name));
   }),
   /// True if `type_name` was registered via `register_derive_clone`.
-  has_derive_clone : (fn(self : *(Self), type_name : str) -> bool)({
-    n := self.*.derive_clone_names.len();
+  has_derive_clone : (fn(inout(self) : Self, type_name : str) -> bool)({
+    n := self.derive_clone_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.derive_clone_names.get(i),
+        self.derive_clone_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == type_name, {
@@ -1552,17 +1552,17 @@ impl(
     found
   }),
   /// Register `type_name` as having `derive(Eq(...))`.
-  register_derive_eq : (fn(self : *(Self), type_name : str) -> unit)({
-    self.*.derive_eq_names.push(String.from(type_name));
+  register_derive_eq : (fn(inout(self) : Self, type_name : str) -> unit)({
+    self.derive_eq_names.push(String.from(type_name));
   }),
   /// True if `type_name` was registered via `register_derive_eq`.
-  has_derive_eq : (fn(self : *(Self), type_name : str) -> bool)({
-    n := self.*.derive_eq_names.len();
+  has_derive_eq : (fn(inout(self) : Self, type_name : str) -> bool)({
+    n := self.derive_eq_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.derive_eq_names.get(i),
+        self.derive_eq_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == type_name, {
@@ -1575,17 +1575,17 @@ impl(
     found
   }),
   /// Register `type_name` as having `derive(Hash)`.
-  register_derive_hash : (fn(self : *(Self), type_name : str) -> unit)({
-    self.*.derive_hash_names.push(String.from(type_name));
+  register_derive_hash : (fn(inout(self) : Self, type_name : str) -> unit)({
+    self.derive_hash_names.push(String.from(type_name));
   }),
   /// True if `type_name` was registered via `register_derive_hash`.
-  has_derive_hash : (fn(self : *(Self), type_name : str) -> bool)({
-    n := self.*.derive_hash_names.len();
+  has_derive_hash : (fn(inout(self) : Self, type_name : str) -> bool)({
+    n := self.derive_hash_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.derive_hash_names.get(i),
+        self.derive_hash_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == type_name, {
@@ -1598,17 +1598,17 @@ impl(
     found
   }),
   /// Register `type_name` as having `derive(Ord(...))`.
-  register_derive_ord : (fn(self : *(Self), type_name : str) -> unit)({
-    self.*.derive_ord_names.push(String.from(type_name));
+  register_derive_ord : (fn(inout(self) : Self, type_name : str) -> unit)({
+    self.derive_ord_names.push(String.from(type_name));
   }),
   /// True if `type_name` was registered via `register_derive_ord`.
-  has_derive_ord : (fn(self : *(Self), type_name : str) -> bool)({
-    n := self.*.derive_ord_names.len();
+  has_derive_ord : (fn(inout(self) : Self, type_name : str) -> bool)({
+    n := self.derive_ord_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.derive_ord_names.get(i),
+        self.derive_ord_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == type_name, {
@@ -1621,17 +1621,17 @@ impl(
     found
   }),
   /// Register `name` as a comptime-only function whose call sites should emit `0`.
-  register_skipped_fn : (fn(self : *(Self), name : str) -> unit)({
-    self.*.skipped_fn_names.push(String.from(name));
+  register_skipped_fn : (fn(inout(self) : Self, name : str) -> unit)({
+    self.skipped_fn_names.push(String.from(name));
   }),
   /// True if `name` was registered as a comptime-only skipped function.
-  is_skipped_fn : (fn(self : *(Self), name : str) -> bool)({
-    n := self.*.skipped_fn_names.len();
+  is_skipped_fn : (fn(inout(self) : Self, name : str) -> bool)({
+    n := self.skipped_fn_names.len();
     (i : usize) = usize(0);
     (found : bool) = false;
     while(runtime((i < n) && (!(found))), {
       match(
-        self.*.skipped_fn_names.get(i),
+        self.skipped_fn_names.get(i),
         .None => (),
         .Some(s) => {
           if(s.as_str() == name, {
@@ -1643,85 +1643,85 @@ impl(
     });
     found
   }),
-  register_closure_alias : (fn(self : *(Self), alias_name : str, param_name : str) -> unit)({
-    self.*.closure_alias_names.push(String.from(alias_name));
-    self.*.closure_alias_param_names.push(String.from(param_name));
+  register_closure_alias : (fn(inout(self) : Self, alias_name : str, param_name : str) -> unit)({
+    self.closure_alias_names.push(String.from(alias_name));
+    self.closure_alias_param_names.push(String.from(param_name));
   }),
-  get_closure_alias_param_name : (fn(self : *(Self), alias_name : str) -> Option(String))({
-    n := self.*.closure_alias_names.len();
+  get_closure_alias_param_name : (fn(inout(self) : Self, alias_name : str) -> Option(String))({
+    n := self.closure_alias_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.closure_alias_names.get(i),
+        self.closure_alias_names.get(i),
         .None => (),
         .Some(name) => if(name.as_str() == alias_name, {
-          result = self.*.closure_alias_param_names.get(i);
+          result = self.closure_alias_param_names.get(i);
         })
       );
       i = (i + usize(1));
     });
     result
   }),
-  register_simple_closure_var : (fn(self : *(Self), var_name : str, capture_name : str, param_name : str) -> unit)({
-    self.*.closure_var_names.push(String.from(var_name));
-    self.*.closure_capture_names.push(String.from(capture_name));
-    self.*.closure_param_names.push(String.from(param_name));
+  register_simple_closure_var : (fn(inout(self) : Self, var_name : str, capture_name : str, param_name : str) -> unit)({
+    self.closure_var_names.push(String.from(var_name));
+    self.closure_capture_names.push(String.from(capture_name));
+    self.closure_param_names.push(String.from(param_name));
   }),
-  get_simple_closure_capture_name : (fn(self : *(Self), var_name : str) -> Option(String))({
-    n := self.*.closure_var_names.len();
+  get_simple_closure_capture_name : (fn(inout(self) : Self, var_name : str) -> Option(String))({
+    n := self.closure_var_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.closure_var_names.get(i),
+        self.closure_var_names.get(i),
         .None => (),
         .Some(name) => if(name.as_str() == var_name, {
-          result = self.*.closure_capture_names.get(i);
+          result = self.closure_capture_names.get(i);
         })
       );
       i = (i + usize(1));
     });
     result
   }),
-  get_simple_closure_param_name : (fn(self : *(Self), var_name : str) -> Option(String))({
-    n := self.*.closure_var_names.len();
+  get_simple_closure_param_name : (fn(inout(self) : Self, var_name : str) -> Option(String))({
+    n := self.closure_var_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       match(
-        self.*.closure_var_names.get(i),
+        self.closure_var_names.get(i),
         .None => (),
         .Some(name) => if(name.as_str() == var_name, {
-          result = self.*.closure_param_names.get(i);
+          result = self.closure_param_names.get(i);
         })
       );
       i = (i + usize(1));
     });
     result
   }),
-  register_anon_method : (fn(self : *(Self), var_name : str, method_name : str, body_template : str) -> unit)({
-    self.*.anon_method_var_names.push(String.from(var_name));
-    self.*.anon_method_names.push(String.from(method_name));
-    self.*.anon_method_body_templates.push(String.from(body_template));
+  register_anon_method : (fn(inout(self) : Self, var_name : str, method_name : str, body_template : str) -> unit)({
+    self.anon_method_var_names.push(String.from(var_name));
+    self.anon_method_names.push(String.from(method_name));
+    self.anon_method_body_templates.push(String.from(body_template));
   }),
-  get_anon_method_body_template : (fn(self : *(Self), var_name : str, method_name : str) -> Option(String))({
-    n := self.*.anon_method_var_names.len();
+  get_anon_method_body_template : (fn(inout(self) : Self, var_name : str, method_name : str) -> Option(String))({
+    n := self.anon_method_var_names.len();
     (i : usize) = usize(0);
     (result : Option(String)) = Option(String).None;
     while(runtime((i < n) && match(result,.None => true,.Some(_) => false)), {
       var_matches := match(
-        self.*.anon_method_var_names.get(i),
+        self.anon_method_var_names.get(i),
         .None => false,
         .Some(name) => (name.as_str() == var_name)
       );
       method_matches := match(
-        self.*.anon_method_names.get(i),
+        self.anon_method_names.get(i),
         .None => false,
         .Some(name2) => (name2.as_str() == method_name)
       );
       if(var_matches && method_matches, {
-        result = self.*.anon_method_body_templates.get(i);
+        result = self.anon_method_body_templates.get(i);
       });
       i = (i + usize(1));
     });

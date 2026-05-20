@@ -447,6 +447,13 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 - [x] **Clone trait migrated.** Same shape. Trait + all primitive impls + Box(T) + Option(T) + Result(T,E) + `__derive_clone` macro + ArrayList + HashMap + String. Bulk-migration of `(&(x)).clone()` → `x.clone()` in yo-self/ via `scripts/migrate-clone-calls.ts` (29 files).
 - [x] **Eq, PartialEq, Ord** — checked. Already take parameters by value (`lhs : Self, rhs : Rhs`); no migration needed.
 - [ ] **Iterator trait** — explicitly skipped per goal ("Let's not change Iterator for now"). Iterator methods still take `(self : *(Self))` and yield `*(T)`. Migrating them would also require redesigning the for-loop interaction (see plan's "Iteration in safe code" section).
+- [ ] **ToString trait** — migration attempted but reverted (see [issues/inout-multi-stmt-body-shadow.md](../issues/inout-multi-stmt-body-shadow.md)). The trait declaration + 28 impls + `__derive_tostring` macro can be updated mechanically, but a C codegen bug fires on inout-param multi-statement bodies that use `self` as a bare value (which several primitive ToString impls do, e.g. `snprintf(..., "%llu", self)`). Hash and Clone got away because their impl bodies are single-expression. Fix the codegen issue first, then re-do the migration.
+- [x] **Inherent-method `*(Self)` migrations** — bulk-migrated where `self` is only used for field access (`self.field`), not as a bare value:
+  - `yo-self/emitter.yo` — 9 sigs, drops pragma
+  - `yo-self/codegen/context.yo` — 83 sigs, 171 `self.*` rewrites (pragma stays for unrelated array-element writes)
+  - `yo-self/evaluator/builtins/build.yo` — 27 sigs, 55 rewrites
+  - `yo-self/parser.yo` — 19 sigs
+  - `yo-self/env.yo` — 5 sigs
 - [ ] **Remaining `*(T)` in other public method signatures** (non-trait, non-iterator one-offs): could be migrated case-by-case. Most are either iterator-related, FFI wrappers (legitimate `*(T)`), or methods like `as_ptr` that intentionally return raw pointers. Track follow-up.
 - [ ] **Lint: `yo check --stdlib-public-safe`** — not implemented; would be a useful follow-up.
 

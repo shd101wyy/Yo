@@ -19,7 +19,6 @@
 //! (Previously, parts (1) and (2) lived in a separate
 //! `yo-self/build/build_registry.yo` file with no TS counterpart.
 //! That file was folded in here so the structural mapping is 1-to-1.)
-pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -159,9 +158,9 @@ impl(
       cli_options : HashMap(String, String).new()
     )
   ),
-  register_executable : (fn(self : *(Self), artifact : BuildArtifact, exn : Exception) -> unit)({
+  register_executable : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.as_str());
-    self.*.artifacts.push(
+    self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.Executable,
         name : artifact.name,
@@ -185,9 +184,9 @@ impl(
       )
     );
   }),
-  register_static_library : (fn(self : *(Self), artifact : BuildArtifact, exn : Exception) -> unit)({
+  register_static_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.as_str());
-    self.*.artifacts.push(
+    self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.StaticLibrary,
         name : artifact.name,
@@ -211,9 +210,9 @@ impl(
       )
     );
   }),
-  register_shared_library : (fn(self : *(Self), artifact : BuildArtifact, exn : Exception) -> unit)({
+  register_shared_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.as_str());
-    self.*.artifacts.push(
+    self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.SharedLibrary,
         name : artifact.name,
@@ -237,12 +236,12 @@ impl(
       )
     );
   }),
-  register_test : (fn(self : *(Self), suite : BuildTestSuite) -> unit)({
-    self.*.test_suites.push(suite);
+  register_test : (fn(inout(self) : Self, suite : BuildTestSuite) -> unit)({
+    self.test_suites.push(suite);
   }),
-  register_run : (fn(self : *(Self), artifact_name : String, args : ArrayList(String)) -> unit)({
+  register_run : (fn(inout(self) : Self, artifact_name : String, args : ArrayList(String)) -> unit)({
     synth_name := `run:${artifact_name}`;
-    self.*.run_steps.push(
+    self.run_steps.push(
       BuildRunStep(
         name : synth_name,
         artifact_name : artifact_name,
@@ -250,8 +249,8 @@ impl(
       )
     );
   }),
-  register_step : (fn(self : *(Self), name : String, description : String) -> unit)({
-    self.*.steps.push(
+  register_step : (fn(inout(self) : Self, name : String, description : String) -> unit)({
+    self.steps.push(
       BuildStep(
         name : name,
         description : description,
@@ -259,12 +258,12 @@ impl(
       )
     );
   }),
-  add_step_dependency : (fn(self : *(Self), step_name : str, dep_name : String) -> unit)({
+  add_step_dependency : (fn(inout(self) : Self, step_name : str, dep_name : String) -> unit)({
     new_steps := ArrayList(BuildStep).new();
     i := usize(0);
-    n := self.*.steps.len();
+    n := self.steps.len();
     while(runtime(i < n), {
-      step := self.*.steps(i);
+      step := self.steps(i);
       if(step.name == String.from(step_name), {
         already := false;
         j := usize(0);
@@ -285,23 +284,23 @@ impl(
       new_steps.push(step);
       i = (i + usize(1));
     });
-    self.*.steps = new_steps;
+    self.steps = new_steps;
   }),
-  register_dependency : (fn(self : *(Self), dep : BuildGitDependency) -> unit)({
-    self.*.dependencies.push(dep);
+  register_dependency : (fn(inout(self) : Self, dep : BuildGitDependency) -> unit)({
+    self.dependencies.push(dep);
   }),
-  register_path_dependency : (fn(self : *(Self), dep : BuildPathDependency) -> unit)({
-    self.*.path_dependencies.push(dep);
+  register_path_dependency : (fn(inout(self) : Self, dep : BuildPathDependency) -> unit)({
+    self.path_dependencies.push(dep);
   }),
-  register_system_library : (fn(self : *(Self), lib : BuildSystemLibrary) -> unit)({
-    self.*.system_libraries.push(lib);
+  register_system_library : (fn(inout(self) : Self, lib : BuildSystemLibrary) -> unit)({
+    self.system_libraries.push(lib);
   }),
-  register_dependency_artifact : (fn(self : *(Self), ref : DependencyArtifactRef) -> unit)({
+  register_dependency_artifact : (fn(inout(self) : Self, ref : DependencyArtifactRef) -> unit)({
     already := false;
     i := usize(0);
-    n := self.*.dependency_artifacts.len();
+    n := self.dependency_artifacts.len();
     while(runtime(i < n), {
-      r := self.*.dependency_artifacts(i);
+      r := self.dependency_artifacts(i);
       if((r.dependency_name == ref.dependency_name) && (r.artifact_name == ref.artifact_name), {
         already = true;
       });
@@ -310,26 +309,26 @@ impl(
     cond(
       already => (),
       true => {
-        self.*.dependency_artifacts.push(ref);
+        self.dependency_artifacts.push(ref);
       }
     );
   }),
-  register_module : (fn(self : *(Self), entry : BuildModuleEntry) -> unit)({
+  register_module : (fn(inout(self) : Self, entry : BuildModuleEntry) -> unit)({
     i := usize(0);
-    n := self.*.modules.len();
+    n := self.modules.len();
     while(runtime(i < n), {
-      if(self.*.modules(i).name == entry.name, return(()));
+      if(self.modules(i).name == entry.name, return(()));
       i = (i + usize(1));
     });
-    self.*.modules.push(entry);
+    self.modules.push(entry);
     ()
   }),
-  register_link : (fn(self : *(Self), artifact_name : str, library_name : String) -> unit)({
+  register_link : (fn(inout(self) : Self, artifact_name : str, library_name : String) -> unit)({
     new_artifacts := ArrayList(BuildArtifact).new();
     i := usize(0);
-    n := self.*.artifacts.len();
+    n := self.artifacts.len();
     while(runtime(i < n), {
-      art := self.*.artifacts(i);
+      art := self.artifacts(i);
       if(art.name == String.from(artifact_name), {
         already := false;
         j := usize(0);
@@ -350,112 +349,112 @@ impl(
       new_artifacts.push(art);
       i = (i + usize(1));
     });
-    self.*.artifacts = new_artifacts;
+    self.artifacts = new_artifacts;
   }),
-  register_doc : (fn(self : *(Self), config : BuildDocConfig) -> unit)({
-    self.*.doc_configs.push(config);
+  register_doc : (fn(inout(self) : Self, config : BuildDocConfig) -> unit)({
+    self.doc_configs.push(config);
   }),
-  find_artifact : (fn(self : *(Self), name : str) -> Option(BuildArtifact))({
+  find_artifact : (fn(inout(self) : Self, name : str) -> Option(BuildArtifact))({
     i := usize(0);
-    n := self.*.artifacts.len();
+    n := self.artifacts.len();
     while(runtime(i < n), {
-      a := self.*.artifacts(i);
+      a := self.artifacts(i);
       if(a.name == String.from(name), return(Option(BuildArtifact).Some(a)));
       i = (i + usize(1));
     });
     Option(BuildArtifact).None
   }),
-  find_test : (fn(self : *(Self), name : str) -> Option(BuildTestSuite))({
+  find_test : (fn(inout(self) : Self, name : str) -> Option(BuildTestSuite))({
     i := usize(0);
-    n := self.*.test_suites.len();
+    n := self.test_suites.len();
     while(runtime(i < n), {
-      t := self.*.test_suites(i);
+      t := self.test_suites(i);
       if(t.name == String.from(name), return(Option(BuildTestSuite).Some(t)));
       i = (i + usize(1));
     });
     Option(BuildTestSuite).None
   }),
-  find_run_step : (fn(self : *(Self), name : str) -> Option(BuildRunStep))({
+  find_run_step : (fn(inout(self) : Self, name : str) -> Option(BuildRunStep))({
     i := usize(0);
-    n := self.*.run_steps.len();
+    n := self.run_steps.len();
     while(runtime(i < n), {
-      r := self.*.run_steps(i);
+      r := self.run_steps(i);
       if(r.name == String.from(name), return(Option(BuildRunStep).Some(r)));
       i = (i + usize(1));
     });
     Option(BuildRunStep).None
   }),
-  find_step : (fn(self : *(Self), name : str) -> Option(BuildStep))({
+  find_step : (fn(inout(self) : Self, name : str) -> Option(BuildStep))({
     i := usize(0);
-    n := self.*.steps.len();
+    n := self.steps.len();
     while(runtime(i < n), {
-      s := self.*.steps(i);
+      s := self.steps(i);
       if(s.name == String.from(name), return(Option(BuildStep).Some(s)));
       i = (i + usize(1));
     });
     Option(BuildStep).None
   }),
-  find_documentation : (fn(self : *(Self), name : str) -> Option(BuildDocConfig))({
+  find_documentation : (fn(inout(self) : Self, name : str) -> Option(BuildDocConfig))({
     i := usize(0);
-    n := self.*.doc_configs.len();
+    n := self.doc_configs.len();
     while(runtime(i < n), {
-      d := self.*.doc_configs(i);
+      d := self.doc_configs(i);
       if(d.name == String.from(name), return(Option(BuildDocConfig).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildDocConfig).None
   }),
-  find_module : (fn(self : *(Self), name : str) -> Option(BuildModuleEntry))({
+  find_module : (fn(inout(self) : Self, name : str) -> Option(BuildModuleEntry))({
     i := usize(0);
-    n := self.*.modules.len();
+    n := self.modules.len();
     while(runtime(i < n), {
-      m := self.*.modules(i);
+      m := self.modules(i);
       if(m.name == String.from(name), return(Option(BuildModuleEntry).Some(m)));
       i = (i + usize(1));
     });
     Option(BuildModuleEntry).None
   }),
-  find_dependency : (fn(self : *(Self), name : str) -> Option(BuildGitDependency))({
+  find_dependency : (fn(inout(self) : Self, name : str) -> Option(BuildGitDependency))({
     i := usize(0);
-    n := self.*.dependencies.len();
+    n := self.dependencies.len();
     while(runtime(i < n), {
-      d := self.*.dependencies(i);
+      d := self.dependencies(i);
       if(d.name == String.from(name), return(Option(BuildGitDependency).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildGitDependency).None
   }),
-  find_path_dependency : (fn(self : *(Self), name : str) -> Option(BuildPathDependency))({
+  find_path_dependency : (fn(inout(self) : Self, name : str) -> Option(BuildPathDependency))({
     i := usize(0);
-    n := self.*.path_dependencies.len();
+    n := self.path_dependencies.len();
     while(runtime(i < n), {
-      d := self.*.path_dependencies(i);
+      d := self.path_dependencies(i);
       if(d.name == String.from(name), return(Option(BuildPathDependency).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildPathDependency).None
   }),
-  find_system_library : (fn(self : *(Self), name : str) -> Option(BuildSystemLibrary))({
+  find_system_library : (fn(inout(self) : Self, name : str) -> Option(BuildSystemLibrary))({
     i := usize(0);
-    n := self.*.system_libraries.len();
+    n := self.system_libraries.len();
     while(runtime(i < n), {
-      l := self.*.system_libraries(i);
+      l := self.system_libraries(i);
       if(l.name == String.from(name), return(Option(BuildSystemLibrary).Some(l)));
       i = (i + usize(1));
     });
     Option(BuildSystemLibrary).None
   }),
-  get_step_names : (fn(self : *(Self)) -> ArrayList(String))({
+  get_step_names : (fn(inout(self) : Self) -> ArrayList(String))({
     names := ArrayList(String).new();
     i := usize(0);
-    n := self.*.steps.len();
+    n := self.steps.len();
     while(runtime(i < n), {
-      names.push(self.*.steps(i).name);
+      names.push(self.steps(i).name);
       i = (i + usize(1));
     });
     names
   }),
-  resolve_dependency : (fn(self : *(Self), name : str) -> Option(ResolvedDep))({
+  resolve_dependency : (fn(inout(self) : Self, name : str) -> Option(ResolvedDep))({
     match(
       self.find_artifact(name),
       .Some(a) => {
@@ -493,24 +492,24 @@ impl(
     );
     Option(ResolvedDep).None
   }),
-  clear : (fn(self : *(Self)) -> unit)({
-    self.*.artifacts = ArrayList(BuildArtifact).new();
-    self.*.test_suites = ArrayList(BuildTestSuite).new();
-    self.*.run_steps = ArrayList(BuildRunStep).new();
-    self.*.steps = ArrayList(BuildStep).new();
-    self.*.dependencies = ArrayList(BuildGitDependency).new();
-    self.*.path_dependencies = ArrayList(BuildPathDependency).new();
-    self.*.system_libraries = ArrayList(BuildSystemLibrary).new();
-    self.*.dependency_artifacts = ArrayList(DependencyArtifactRef).new();
-    self.*.modules = ArrayList(BuildModuleEntry).new();
-    self.*.doc_configs = ArrayList(BuildDocConfig).new();
-    self.*.cli_options = HashMap(String, String).new();
+  clear : (fn(inout(self) : Self) -> unit)({
+    self.artifacts = ArrayList(BuildArtifact).new();
+    self.test_suites = ArrayList(BuildTestSuite).new();
+    self.run_steps = ArrayList(BuildRunStep).new();
+    self.steps = ArrayList(BuildStep).new();
+    self.dependencies = ArrayList(BuildGitDependency).new();
+    self.path_dependencies = ArrayList(BuildPathDependency).new();
+    self.system_libraries = ArrayList(BuildSystemLibrary).new();
+    self.dependency_artifacts = ArrayList(DependencyArtifactRef).new();
+    self.modules = ArrayList(BuildModuleEntry).new();
+    self.doc_configs = ArrayList(BuildDocConfig).new();
+    self.cli_options = HashMap(String, String).new();
   }),
-  _check_duplicate_artifact_name : (fn(self : *(Self), name : str, exn : Exception) -> unit)({
+  _check_duplicate_artifact_name : (fn(inout(self) : Self, name : str, exn : Exception) -> unit)({
     i := usize(0);
-    n := self.*.artifacts.len();
+    n := self.artifacts.len();
     while(runtime(i < n), {
-      a := self.*.artifacts(i);
+      a := self.artifacts(i);
       if(a.name == String.from(name), {
         kind_str := match(
           a.kind,
