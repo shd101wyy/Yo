@@ -1,0 +1,136 @@
+//! Pragma handling for yo-self (mirrors `src/evaluator/builtins/pragma.ts`).
+//!
+//! The TS side runs a `preScanForSkipPrelude` pass before the
+//! prelude is auto-loaded, so a file declaring
+//! `pragma(Pragma.SkipPrelude);` at the top can opt out of the
+//! implicit prelude import. yo-self/evaluator/index.yo used to scan
+//! for `// @skip_prelude` comment directives instead; this module
+//! ports the AST-based scan so the two evaluators stay aligned.
+//!
+//! Scope: this file ONLY implements the SkipPrelude pre-scan that
+//! must run before the prelude loads. Full pragma evaluation
+//! (AllowUnsafe gating of `unsafe(...)`, `asm(...)`, `extern(...)`,
+//! pointer ops, etc.) is part of the broader Phase C port and is
+//! tracked separately. Until that lands, AllowUnsafe-and-friends
+//! pragmas are no-ops in yo-self; raw-pointer ops compile without
+//! being gated. That mirrors the structural shape of the TS
+//! implementation closely enough that adding the gates later is
+//! mechanical.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_fn_call_of, BF_PRAGMA } :: import("../../expr.yo");
+{ TokenKind } :: import("../../token.yo");
+/// Pragma kinds recognised by the pre-scan. Keep aligned with
+/// `PragmaKind` in `src/evaluator/memory-safety.ts`.
+PragmaKind :: enum(
+  AllowUnsafe,
+  SkipPrelude,
+  SkipWasm,
+  SkipWasm32Emscripten,
+  SkipWasm32Wasi
+);
+export(PragmaKind);
+/// Map a `Pragma.X` variant name (as a `str`) to the corresponding
+/// `PragmaKind`. Returns `.None` when the name doesn't match any
+/// known variant — typo handling for full evaluation belongs in
+/// `evaluatePragma`; the pre-scan just ignores unknown names.
+pragma_kind_from_variant_name :: (fn(name : str) -> Option(PragmaKind))(
+  cond(
+    (name == "AllowUnsafe") => Option(PragmaKind).Some(.AllowUnsafe),
+    (name == "SkipPrelude") => Option(PragmaKind).Some(.SkipPrelude),
+    (name == "SkipWasm") => Option(PragmaKind).Some(.SkipWasm),
+    (name == "SkipWasm32Emscripten") => Option(PragmaKind).Some(.SkipWasm32Emscripten),
+    (name == "SkipWasm32Wasi") => Option(PragmaKind).Some(.SkipWasm32Wasi),
+    true => Option(PragmaKind).None
+  )
+);
+/// Recognise the `Pragma.X` argument shape in a pragma call. Yo
+/// parses property access as a `.`-function call:
+///   `Pragma.AllowUnsafe`  ==>  `.(Pragma, AllowUnsafe)`
+/// Returns `.None` when the argument isn't of the expected
+/// `Pragma.<variant>` form. The pre-scan is intentionally narrow:
+/// no identifier resolution, no aliased imports. That's fine — full
+/// evaluation in `evaluatePragma` handles the general case.
+///
+/// Mirrors `recognizePragmaArgByAstShape` in
+/// `src/evaluator/builtins/pragma.ts`.
+recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(PragmaKind))(
+  match(
+    arg,
+    .Atom(_, _) => Option(PragmaKind).None,
+    .FnCall(_, func_box, args, _, _) => {
+      is_dot := match(
+        func_box.*,
+        .Atom(_, tok) => (tok.kind == TokenKind.Dot),
+        .FnCall(_, _, _, _, _) => false
+      );
+      if(!(is_dot), return(Option(PragmaKind).None));
+      if(args.len() != usize(2), return(Option(PragmaKind).None));
+      lhs_is_pragma := match(
+        args.get(usize(0)),
+        .Some(lhs) => match(
+          lhs,
+          .Atom(_, tok) => (tok.value == String.from("Pragma")),
+          .FnCall(_, _, _, _, _) => false
+        ),
+        .None => false
+      );
+      if(!(lhs_is_pragma), return(Option(PragmaKind).None));
+      match(
+        args.get(usize(1)),
+        .Some(rhs) => match(
+          rhs,
+          .Atom(_, tok) => pragma_kind_from_variant_name(tok.value.as_str()),
+          .FnCall(_, _, _, _, _) => Option(PragmaKind).None
+        ),
+        .None => Option(PragmaKind).None
+      )
+    }
+  )
+);
+/// Pre-evaluation scan for `pragma(Pragma.SkipPrelude);` over the
+/// top level of `program`. Used by the `Evaluator` constructor to
+/// decide whether to inject the prelude. Pragma calls nested inside
+/// function bodies or blocks are not pre-scanned (they couldn't
+/// affect prelude loading anyway).
+///
+/// Mirrors `preScanForSkipPrelude` in
+/// `src/evaluator/builtins/pragma.ts`.
+pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
+  found := false;
+  i := usize(0);
+  n := program.len();
+  while(runtime((i < n) && !(found)), {
+    match(
+      program.get(i),
+      .Some(expr) => {
+        if(ast_expr_is_fn_call_of(expr, BF_PRAGMA, Option(usize).Some(usize(1))), {
+          match(
+            expr,
+            .FnCall(_, _, args, _, _) => match(
+              args.get(usize(0)),
+              .Some(arg) => match(
+                recognize_pragma_arg(arg),
+                .Some(kind) => match(
+                  kind,
+                  .SkipPrelude => {
+                    found = true;
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              ),
+              .None => ()
+            ),
+            .Atom(_, _) => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+export(pre_scan_for_skip_prelude, recognize_pragma_arg);
