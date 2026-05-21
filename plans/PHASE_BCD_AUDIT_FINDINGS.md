@@ -28,21 +28,27 @@ The original symptom: `s := arr(usize(0) .. usize(3))` evaluates to `i32` instea
 
 ## Broader test-suite picture
 
-The test-framework silent-skip repair (commit `7b3b788b`) made the entire test suite — not just iterator tests — actually run for the first time since `a3510d20`. That exposed a large number of latent failures **orthogonal to the iterator redesign**. Of the ~1253 failures observed in the first sweep after `7b3b788b`, two additional structural fixes have landed in this branch:
+The test-framework silent-skip repair (commit `7b3b788b`) made the entire test suite — not just iterator tests — actually run for the first time since `a3510d20`. That exposed a large number of latent failures **orthogonal to the iterator redesign**. Of the ~1253 failures observed in the first sweep after `7b3b788b`, the following structural fixes have landed in this branch:
 
 - ~~`comptime(name) : T` binding form no longer parsed~~ **FIXED** by `f4758e8b` (restore the `comptime(...)` wrapper unwrap in `evaluateBinding` — removed alongside `given(...)` in `a3510d20`).
 - ~~Auto-derived `to_string` for enums fails to compile because the match-subject codegen emits `Type self = (*self);` on top of the `T*`-typed parameter, causing C "redefinition of self with a different type"~~ **FIXED** by `f4758e8b` (skip the temp-var assignment when the subject is a `ref`-bound parameter atom; same guard already used in begin.ts / return.ts / cond.ts).
 - ~~`imm.Vec(T)` had no `Index(usize)` impl~~ **FIXED** by `c820d2b5`.
+- ~~`panic(...)` was eagerly typed as the function's overall return, so divergent panic arms inside nested matches couldn't unify with sibling-arm types (blocked LinkedList Index, ImmList Index, etc.)~~ **FIXED** by `b7688519`: `panic` now reads `context.expectedType` first and falls back to the function return only when nothing closer is available; `match` arm evaluation now passes the running `resultType` as `expectedType` so divergent arms pick up the unified type.
+- ~~`LinkedList(T)` had no `Index(usize)` impl~~ **FIXED** by `b7688519` using the above panic/match unification.
+- ~~`imm.List(T)` had no `Index(usize)` impl~~ **FIXED** by `d1a07bdc` (same pattern).
+- ~~`JsonValue` had no `Index(String)` / `Index(usize)` impls~~ **FIXED** by `1399106a` (uses `ArrayList.project` under the hood; impl-only — tests still blocked because `json_parse` has the Exception-forward-decl issue below).
+- ~~`asm(...)` operand `ref(reg, x)` parsed as a variable lookup~~ **FIXED** by `81ba6874` (rename slip-through; the asm operand parser now accepts `ref` as an alias for `inout`).
 
-Test-suite status after these fixes: 1651/2506 passing (up from 1253 immediately after `7b3b788b`). Remaining 855 failures cluster into a few orthogonal root causes:
+Test-suite status after these fixes: **1736/2506 passing** (up from 1253 immediately after `7b3b788b`, a +483-test improvement across this session). Remaining 770 failures cluster into the following orthogonal root causes:
 
-- Async/await generic inference (~120 tests in `async_await.test.yo`, `sys/bufio.test.yo` etc.): `io.async`/`io.await` fails to unify the lambda's return type with the trait's `T` parameter. `Impl(Future)` types lack registered concrete types.
-- Auto-derived `___dup` for structs that transitively contain `ctl(...)`-typed fields (~71 tests in `algebraic_effects.test.yo`): ctl-bound values can't be returned, but the derived dup tries to.
-- Missing forward declarations for non-generic functions with exception parameters (`base64_decode`, `Url.parse`, etc. — ~50 tests in `encoding/*`, `url/url`, `fn`): the function definitions are skipped by `generateSpecializedFunctionDeclarations` filters that should match.
-- Missing forward declarations for thread/channel/worker closure bodies (~80 tests in `sync/*`, `imm_threading`): closure body cName not emitted to the `.h`-style declaration prologue.
-- Collections missing `Index` impl on tree-based types (`imm.List`, `imm.Map`, `imm.SortedMap`, `LinkedList`, `imm.Set`, etc. — ~150 tests): each needs a careful `*(T)`-returning body design that respects Rc lifetimes.
+- **Async/await generic inference** (~120 tests in `async_await.test.yo`, `sys/bufio.test.yo` etc.): `io.async`/`io.await` fails to unify the lambda's return type with the trait's `T` parameter. `Impl(Future)` types lack registered concrete types. Deep evaluator/specialization work.
+- **Auto-derived `___dup` for structs that transitively contain `ctl(...)`-typed fields** (~71 tests in `algebraic_effects.test.yo`): ctl-bound values can't be returned, but the derived dup tries to. Needs the derive-rule logic to detect transitively-ctl fields and either skip-dup or generate a stub.
+- **Missing forward declarations for non-generic functions with Exception parameters** (`base64_decode`, `Url.parse`, `json_parse`, etc. — ~100 tests in `encoding/*`, `url/url`, `fn`): `typeContainsSomeType(Exception)` returns true because of the nested `throw : fn(forall(T, E), ...)` field, which makes the over-aggressive declarations/generation skip heuristics treat every function taking Exception as "generic" and skip its declaration AND its body. The natural fix is to make `typeContainsSomeType` not recurse into struct fields' forall parameters — but a previous attempt (later reverted) cascaded into call-site lowering failures, suggesting the call-site emitter also needs adjustment in tandem.
+- **Missing forward declarations for thread/channel/worker closure bodies** (~80 tests in `sync/*`, `imm_threading`, `arc`): closure body cName referenced by `__yo_spawn_wrapper_*` but the closure's `static inline` body is never emitted.
+- **Tree-collection Index impl dispatch** (`imm.Map`, `imm.SortedMap`, `imm.Set`, `imm.SortedSet` — ~80 tests): the Index trait body type-checks fine and `yo-cli check ./std` accepts it, but at user-call-site `m(key)` the dispatcher fails to find the impl. Differs structurally from HashMap (which dispatches fine) only in the type constructor's `where` constraints + `struct(...)` vs `object(...)` wrapping. Needs `tryMatchGenericImpl` debugging.
+- **Iterator combinator chains** (`iterator_combinators.test.yo`, `collection_literals.test.yo`, HashMap `keys()`/`values()` — ~30 tests): `xs.iter().map(f)` chains lose state across `next()` calls, infinite-looping at 60s. Pre-existing bug unrelated to this work.
 
-All five buckets pre-date the iterator redesign and are tracked separately; they're not part of `plans/ITERATOR_REDESIGN.md`'s remit and have been documented for future work.
+All buckets pre-date the iterator redesign and are tracked separately. They are documented for follow-up work — each requires its own focused effort with regression-safe scope.
 
 Once `Slice.project` works at runtime, the existing `tests/indexable.test.yo` Slice tests should pass without further changes.
 
