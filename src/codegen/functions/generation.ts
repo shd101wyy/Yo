@@ -17,15 +17,11 @@ import {
 import { type FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
 import type {
-  ArrayType,
   EnumType,
   FunctionType,
-  PtrType,
-  SliceType,
   TraitType,
   Type,
 } from "../../types/definitions";
-import { TypeTag } from "../../types/tags";
 import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
@@ -398,39 +394,11 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Or with SomeType in return type that isn't a plain Impl(...) or Impl(Future)
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
-    // For CLOSURES, use a struct-field-aware variant of typeContainsSomeType
-    // that doesn't recurse into struct field function signatures. Closure
-    // parameters like `io : IO` look "generic" only because IO carries
-    // nested `fn(forall(T, E), ...)` fields, but the closure itself is
-    // fully concrete and must be emitted. Without this, every
-    // Thread.spawn(io => ...) lambda silently disappears and the spawn
-    // wrapper references an undeclared function — see the audit memo
-    // for the call-site evidence.
-    const paramTypeContainsTrulyGeneric = (t: Type): boolean => {
-      if (isSomeType(t) && !t.isExtern && !t.resolvedConcreteType) {
-        if (typeImplementsFn(t)) return false;
-        if (typeImplementsFuture(t)) return false;
-        return true;
-      }
-      if (t.tag === TypeTag.Array) {
-        return paramTypeContainsTrulyGeneric((t as ArrayType).childType);
-      }
-      if (t.tag === TypeTag.Slice) {
-        return paramTypeContainsTrulyGeneric((t as SliceType).childType);
-      }
-      if (t.tag === TypeTag.Ptr) {
-        return paramTypeContainsTrulyGeneric((t as PtrType).childType);
-      }
-      return false;
-    };
-    const paramContainsSome = value.type.isClosure
-      ? paramTypeContainsTrulyGeneric
-      : (t: Type) => typeContainsSomeType(t);
     const hasGenericParams =
       !isUserMain &&
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
-      (functionType.parameters.some((p) => paramContainsSome(p.type)) ||
+      (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
 
