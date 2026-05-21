@@ -453,6 +453,14 @@ Got:      "${paramName}"`,
             ? expectedParamName
             : undefined,
       },
+      // Lambda parameter names live in a NEW frame that opens just
+      // for this closure body — they may legitimately shadow outer
+      // bindings (`Thread.spawn(io => …)` is a common case: the
+      // callback's `io` parameter shadows any outer `io` such as
+      // the test-runner-injected one). The 348-line site
+      // (`evaluateNamedFunctionParameter`) already sets this; mirror
+      // it here for consistency.
+      allowVariableShadowing: true,
     });
     env = nextEnv;
 
