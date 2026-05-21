@@ -5596,17 +5596,18 @@ impl(
   )
 );
 /// Array Indexable impl — projection-style indexing yielding `ref(T)`.
-/// Body uses `unsafe(__yo_array_index(...))` because the result is a
-/// raw `*(T)` borrow rooted in `self`'s storage; the `unsafe` wrap
-/// is the trusted escape from the flowability rule (privileged
-/// code only). See plans/ITERATOR_REDESIGN.md.
+/// Body takes `&(self)` so `__yo_array_index`'s `self : *(Array(T, N))`
+/// parameter is satisfied — the `ref(self) : Self` binding gives the
+/// body a value-typed view of `self` even though the C ABI passes a
+/// pointer. The `unsafe` wrap is the trusted escape from the
+/// flowability rule (privileged code only). See plans/ITERATOR_REDESIGN.md.
 impl(
   forall(T : Type, N : usize),
   Array(T, N),
   Indexable(usize)(
     Element : T,
     project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
-      unsafe(__yo_array_index(self, pos))
+      unsafe(__yo_array_index(&(self), pos))
     )
   )
 );
@@ -5671,7 +5672,7 @@ impl(
   Indexable(usize)(
     Element : T,
     project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
-      unsafe(__yo_slice_index(self, pos))
+      unsafe(__yo_slice_index(&(self), pos))
     )
   )
 );
