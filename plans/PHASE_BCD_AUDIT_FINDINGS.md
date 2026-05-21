@@ -1,14 +1,32 @@
 # Phase B/C/D audit findings — what we discovered, what's broken, what's next
 
-Status: investigation report. No code beyond `7b3b788b` (test-runner fix) committed against these findings. Two stashes preserved (`phase E.1 wip - phantom passing`, an older WIP).
+Status: **MOSTLY REPAIRED.** Phases B, C, and D (for-macro) work end-to-end on `Array(T, N)` at runtime as of commit `afede287`. `Slice` / `ArrayList` / `String` projection bodies still need follow-up work (different body shapes, separate codegen gaps).
 
-## Tl;dr
+## Tl;dr (history)
 
-Phases B, C, and D of `plans/ITERATOR_REDESIGN.md` were committed (`ebe910a6`, `ca518556`, `d9ddb7d3`, `c36429c8`, `9b089395`, `e9143f5e`) and reported as "all tests passing." **All those test reports were phantom.** Since `a3510d20` (2026-05-19), the Yo test framework had been silently skipping test bodies — emitting `/* "match" expression is not evaluated */` in the generated `__yo_user_main`, running an empty `main`, exiting 0, and reporting "passed." This commit (`7b3b788b`) repairs the test framework. With real test signal we now know:
+Phases B, C, and D of `plans/ITERATOR_REDESIGN.md` were committed (`ebe910a6`, `ca518556`, `d9ddb7d3`, `c36429c8`, `9b089395`, `e9143f5e`) and reported as "all tests passing." **All those test reports were phantom.** Since `a3510d20` (2026-05-19), the Yo test framework had been silently skipping test bodies — emitting `/* "match" expression is not evaluated */` in the generated `__yo_user_main`, running an empty `main`, exiting 0, and reporting "passed." Commit `7b3b788b` repaired the test framework. With real test signal, three concrete bugs surfaced and have now been fixed:
 
-- **Phase C's `Indexable(usize).project(...)` impls compile but fail to type-check at the call site.** `__yo_array_index(self, pos)` inside the body expects `*(Array(T, N))` for `self`, but the evaluator binds `self : Self` (value type) and never auto-takes-address through the `ref(self) : Self` binding.
-- **Phase D's for-macro expands to `coll.project(pos)` where `coll` is a local. Phase B's flowability rule R3 rejects this** because a local is not a `ref`-bound parameter. The two phases are mutually inconsistent.
-- The `ref(name) := projection_call(...)` binding has additional gaps further along the auto-deref / type-propagation chain (e.g., `r == i32(2)` fails with `Expected *(i32), Given i32` when `r` is ref-bound).
+- ~~**Phase C's `Indexable(usize).project(...)` impls compile but fail to type-check at the call site.**~~ **FIXED** by `4bee3bc3` (extend `*(T)` body-typing to the generic-impl specialization path in `impl.ts`) + updating `Array.project` and `Slice.project` bodies to pass `&(self)` rather than bare `self` to `__yo_array_index`/`__yo_slice_index`.
+- ~~**Phase D's for-macro expands to `coll.project(pos)` where `coll` is a local. Phase B's flowability rule R3 rejects this**~~ **FIXED** by `75f43055` (relax R1 at the binding site: same-frame locals are flowable, while the strict ref-bound-only rule still applies at function-return sites where the soundness argument actually matters). For-macro also updated in `afede287` to skip the intermediate `__for_coll := coll` copy so writes propagate through value-typed collections.
+- ~~The `ref(name) := projection_call(...)` binding has additional gaps further along the auto-deref / type-propagation chain~~ **FIXED** by `3b66f07b` (flowability R3 recognizes method-dispatch calls — `outer.project(...)`) and `9fcda34c` (init-assignment codegen declares the call's intermediate temp as `T*` when the variable is marked `isRef`).
+
+## What works end-to-end now
+
+- `tests/ref_binding.test.yo` — 4/4 passing. `ref(r) := flowable_call(...)` reads and writes through a chain of `ref`-bound function parameters.
+- `tests/indexable_runtime.test.yo` — 3/3 passing. `ref(r) := arr.project(usize(1))` (Array.project) reads and writes propagate, both directly in `main` (via the relaxed flowability) and through a `ref(outer)`-taking helper.
+- `tests/for_macro_borrow.test.yo` — 4/4 passing. `for(arr, ref(x) => body)` iterates, accumulates into outer locals, propagates writes, handles empty arrays, and interacts with captured locals.
+- `tests/indexable.test.yo` — Array tests pass; Slice/ArrayList/String tests still fail (task #94).
+- `./yo-cli check ./std` — 148/148 passes throughout the repair.
+
+## Still broken — Phase C follow-up (task #94)
+
+`Slice.project`, `ArrayList.project`, and `String.project` use body shapes that hit additional gaps:
+
+- **Slice**: a pre-existing slicing bug (`arr(usize(0) .. usize(3))` returns `i32` instead of `Slice(i32)`, surfaced now that tests actually run). Not introduced by Phase A-D; visible at `9b089395` and earlier. The Slice/ArrayList/String project bodies depend on slice indexing working correctly.
+- **ArrayList**: body is `match(self._ptr, .Some(_ptr) => unsafe(_ptr &+ pos), .None => panic(...))`. Goes through different evaluator/codegen paths than `__yo_array_index(&(self), pos)`.
+- **String**: body uses `match(self._bytes, .Some(bytes) => &(bytes(pos)), .None => panic(...))`. The `&(bytes(pos))` over Index trait paren-form produces a dangling stack-address (the paren-form auto-derefs to a temp; `&(temp)` is the temp's address).
+
+## Original tl;dr (preserved for context)
 
 Phase D needs a design revision before the implementation can be repaired. Phase C's body shape needs a different approach to dereferencing `self`. Phase B's flowability rule needs an additional case to admit common use cases.
 
