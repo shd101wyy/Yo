@@ -5565,13 +5565,17 @@ impl(
   })
 );
 /// Array Index impls
+/// Bodies take `&(self)` so the `*(Array(T, N))`-expecting builtin
+/// receives the right C-ABI shape — `ref(self) : Self` gives the body
+/// a value-typed view of `self` even though the runtime passes a
+/// pointer. See plans/ITERATOR_REDESIGN.md.
 impl(
   forall(T : Type, N : usize),
   Array(T, N),
   Index(usize)(
     Output : T,
     index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
-      __yo_array_index(self, idx)
+      __yo_array_index(&(self), idx)
     )
   )
 );
@@ -5581,7 +5585,7 @@ impl(
   Index(Range(usize))(
     Output : Slice(T),
     index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
-      __yo_array_index_range(self, idx)
+      __yo_array_index_range(&(self), idx)
     )
   )
 );
@@ -5591,7 +5595,7 @@ impl(
   Index(RangeInclusive(usize))(
     Output : Slice(T),
     index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
-      __yo_array_index_range_inclusive(self, idx)
+      __yo_array_index_range_inclusive(&(self), idx)
     )
   )
 );
@@ -5634,14 +5638,14 @@ impl(
     __yo_slice_ptr(self)
   )
 );
-/// Slice Index impls
+/// Slice Index impls (same `&(self)` rationale as Array above).
 impl(
   forall(T : Type),
   Slice(T),
   Index(usize)(
     Output : T,
     index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
-      __yo_slice_index(self, idx)
+      __yo_slice_index(&(self), idx)
     )
   )
 );
@@ -5651,7 +5655,7 @@ impl(
   Index(Range(usize))(
     Output : Slice(T),
     index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
-      __yo_slice_index_range(self, idx)
+      __yo_slice_index_range(&(self), idx)
     )
   )
 );
@@ -5661,7 +5665,7 @@ impl(
   Index(RangeInclusive(usize))(
     Output : Slice(T),
     index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
-      __yo_slice_index_range_inclusive(self, idx)
+      __yo_slice_index_range_inclusive(&(self), idx)
     )
   )
 );

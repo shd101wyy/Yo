@@ -1,6 +1,7 @@
 open(import("std/string"));
 { Sha256, sha256, sha256_hex } :: import("std/crypto/sha256");
 { ArrayList } :: import("std/collections/array_list");
+{ hex_encode } :: import("std/encoding/hex");
 // Helper: build an ArrayList(u8) from a str
 _bytes_from_str :: (fn(s : str) -> ArrayList(u8))(
   String.from(s).as_bytes()
@@ -63,7 +64,6 @@ test("Sha256 streaming matches one-shot", {
   while(i < usize(32), i = (i + usize(1)), {
     bytes.push(digest(i));
   });
-  { hex_encode } :: import("std/encoding/hex");
   streamed := hex_encode(bytes);
   assert(
     streamed.as_str() == one_shot.as_str(),
@@ -90,7 +90,6 @@ test("Sha256 streaming single byte at a time", {
   while(j < usize(32), j = (j + usize(1)), {
     bytes.push(digest(j));
   });
-  { hex_encode } :: import("std/encoding/hex");
   streamed := hex_encode(bytes);
   assert(
     streamed.as_str() == one_shot.as_str(),
@@ -110,7 +109,6 @@ test("Sha256 streaming empty update", {
   while(i < usize(32), i = (i + usize(1)), {
     bytes.push(digest(i));
   });
-  { hex_encode } :: import("std/encoding/hex");
   result := hex_encode(bytes);
   expected := sha256_hex(_bytes_from_str("test"));
   assert(
