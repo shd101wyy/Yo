@@ -336,17 +336,17 @@ This applies at any nesting depth: whenever you write `!expr && rhs`, add an ext
 
 The right shape for a function parameter depends on what kind of type the value is:
 
-| Type kind                                                     | Shape                                                     | Why                                                                                                                   |
-| ------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `object(...)`                                                 | `name : Type`                                             | Object types have reference semantics — mutations propagate via the underlying RC value. No pointer needed.           |
-| `struct(...)` value type (read-only)                          | `name : Type`                                             | Pass by value. Cheap if small; consider `inout` for large structs.                                                    |
-| `struct(...)` value type (need mutation)                      | `inout(name) : Type`                                      | Caller's binding sees in-place writes. See [`inout` section](#inout--name--t-parameters-for-in-place-mutation) below. |
-| `enum(...)` (read-only)                                       | `name : Type`                                             | Same as struct.                                                                                                       |
-| `enum(...)` (need mutation)                                   | `inout(name) : Type`                                      | Same as struct.                                                                                                       |
-| Primitive (`i32`, `bool`, …)                                  | `name : Type` for read, `inout(name) : Type` for mutation | Same rule.                                                                                                            |
-| Receiver of mutating method on `object`                       | `self : Self`                                             | Object semantics — explicit `inout(self)` is unnecessary noise (though it works).                                     |
-| Receiver of mutating method on value type (trait or inherent) | `inout(self) : Self`                                      | Caller-side writes propagate. Established for `Hash`, `Clone`, `ToString`, `Iterator`.                                |
-| Raw FFI pointer (legitimate `*(T)`)                           | `name : *(T)`                                             | Only when interfacing with C / the runtime ABI. Requires `pragma(Pragma.AllowUnsafe);` at the file top.               |
+| Type kind                                                     | Shape                                                   | Why                                                                                                             |
+| ------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `object(...)`                                                 | `name : Type`                                           | Object types have reference semantics — mutations propagate via the underlying RC value. No pointer needed.     |
+| `struct(...)` value type (read-only)                          | `name : Type`                                           | Pass by value. Cheap if small; consider `ref` for large structs.                                                |
+| `struct(...)` value type (need mutation)                      | `ref(name) : Type`                                      | Caller's binding sees in-place writes. See [`ref` section](#refname--t-parameters-for-in-place-mutation) below. |
+| `enum(...)` (read-only)                                       | `name : Type`                                           | Same as struct.                                                                                                 |
+| `enum(...)` (need mutation)                                   | `ref(name) : Type`                                      | Same as struct.                                                                                                 |
+| Primitive (`i32`, `bool`, …)                                  | `name : Type` for read, `ref(name) : Type` for mutation | Same rule.                                                                                                      |
+| Receiver of mutating method on `object`                       | `self : Self`                                           | Object semantics — explicit `ref(self)` is unnecessary noise (though it works).                                 |
+| Receiver of mutating method on value type (trait or inherent) | `ref(self) : Self`                                      | Caller-side writes propagate. Established for `Hash`, `Clone`, `ToString`, `Iterator`.                          |
+| Raw FFI pointer (legitimate `*(T)`)                           | `name : *(T)`                                           | Only when interfacing with C / the runtime ABI. Requires `pragma(Pragma.AllowUnsafe);` at the file top.         |
 
 **Anti-patterns to avoid:**
 
@@ -355,7 +355,7 @@ The right shape for a function parameter depends on what kind of type the value 
 foo : (fn(ctx : *(EvalContext)) -> unit)({ ctx.*.method() })
 
 // ✗ Inout on an object type — redundant; object semantics already share state
-foo : (fn(inout(ctx) : EvalContext) -> unit)({ ctx.method() })
+foo : (fn(ref(ctx) : EvalContext) -> unit)({ ctx.method() })
 
 // ✓ Plain — concise and correct
 foo : (fn(ctx : EvalContext) -> unit)({ ctx.method() })
@@ -363,11 +363,11 @@ foo : (fn(ctx : EvalContext) -> unit)({ ctx.method() })
 
 The same applies at call sites: don't wrap object arguments with `&(obj)` to pass to a function expecting an object; just pass `obj`.
 
-When choosing between `inout(self) : Self` and `self : Self` for a method receiver:
+When choosing between `ref(self) : Self` and `self : Self` for a method receiver:
 
-- If the receiver type is fundamentally a value type (anything other than `object`), use `inout(self) : Self` for mutators.
+- If the receiver type is fundamentally a value type (anything other than `object`), use `ref(self) : Self` for mutators.
 - If the receiver type is `object`, plain `self : Self` is the idiom — the methods documented in `yo-self/env.yo`, `yo-self/codegen/context.yo`, etc. follow this.
-- Trait declarations should match the dominant case of their impl targets. Existing widely-implemented traits (`Hash`, `Clone`, `ToString`, `Iterator`, `Index`) use `inout(self) : Self` for the reasons above; new traits that are object-specific can use plain `self : Self`.
+- Trait declarations should match the dominant case of their impl targets. Existing widely-implemented traits (`Hash`, `Clone`, `ToString`, `Iterator`, `Index`) use `ref(self) : Self` for the reasons above; new traits that are object-specific can use plain `self : Self`.
 
 ## Recursion requires `recur`
 
@@ -570,12 +570,12 @@ n := unsafe({
 
 `unsafe(...)` does NOT propagate through function calls — each function body is evaluated with its own context. If a function's body does pointer ops, the body must wrap them locally; callers don't need `unsafe(...)` at the call site. See `plans/MEMORY_SAFETY.md`.
 
-## `inout(name) : T` parameters for in-place mutation
+## `ref(name) : T` parameters for in-place mutation
 
-For mutating a caller's variable without raw pointers, use the `inout` parameter modifier. It wraps the parameter name (parallel to `own(name)`) and gives second-class reference semantics — reads/writes through the parameter access the caller's storage.
+For mutating a caller's variable without raw pointers, use the `ref` parameter modifier. It wraps the parameter name (parallel to `own(name)`) and gives second-class reference semantics — reads/writes through the parameter access the caller's storage. (Naming note: `ref` was previously called `inout`; the renamed keyword is the same feature, matching C#'s `ref` parameter convention.)
 
 ```rust
-swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
@@ -591,17 +591,17 @@ main :: (fn() -> unit)({
 
 Rules:
 
-- `inout(...)` cannot combine with `own(...)` (opposite calling conventions) or with `forall`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
-- `inout` CAN combine with `comptime` as `comptime(inout(name)) : T` (outer comptime, inner inout). The parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path. The prelude `ComptimeIndex` trait uses this form (`index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output)))`) to let comptime index methods mutate the caller's value without a raw pointer parameter.
-- Inside the callee, the inout-param identifier behaves like a regular variable for reads (`tmp := a;`) and assignments (`a = b;`).
-- Calls through inout-params chain naturally: `fn outer(inout(x))` calling `fn inner(inout(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
-- At codegen, `inout(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. No runtime cost vs hand-written pointer code. `comptime(inout(name))` has zero codegen impact (the parameter is erased).
+- `ref(...)` cannot combine with `own(...)` (opposite calling conventions) or with `forall`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
+- `ref` CAN combine with `comptime` as `comptime(ref(name)) : T` (outer comptime, inner ref). The parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path. The prelude `ComptimeIndex` trait uses this form (`index : (fn(comptime(ref(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output)))`) to let comptime index methods mutate the caller's value without a raw pointer parameter.
+- Inside the callee, the ref-param identifier behaves like a regular variable for reads (`tmp := a;`) and assignments (`a = b;`).
+- Calls through ref-params chain naturally: `fn outer(ref(x))` calling `fn inner(ref(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
+- At codegen, `ref(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. No runtime cost vs hand-written pointer code. `comptime(ref(name))` has zero codegen impact (the parameter is erased).
 
-`inout` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have been migrated to `(inout(self) : Self)` across Phase D of `plans/MEMORY_SAFETY.md` — Hash, Clone, ToString, Iterator (where applicable), Index, ComptimeIndex, Writer, Reader. Only the `Iterator` trait still uses `(self : *(Self))`; migrating it requires a for-loop redesign (see plan).
+`ref` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have been migrated to `(ref(self) : Self)` across Phase D of `plans/MEMORY_SAFETY.md` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader. Only the `Iterator` trait still uses `(self : *(Self))`; migrating it requires a for-loop redesign (see `plans/ITERATOR_REDESIGN.md`).
 
 ### Public stdlib boundary — no raw pointer leaks
 
-Every public top-level `fn(...)` in `std/` should take and return value or `inout`-bound types. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to `Slice(T)` for buffers, `inout(name) : T` for in-place mutation, or a higher-level safe type.
+Every public top-level `fn(...)` in `std/` should take and return value or `ref`-bound types. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to `Slice(T)` for buffers, `ref(name) : T` for in-place mutation, or a higher-level safe type.
 
 Verify with `./yo-cli public-safe-report ./std` (or `./yo-self`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. Source: `src/public-safe-report.ts`. Currently reports 0 findings; keep it that way when adding new stdlib surface.
 

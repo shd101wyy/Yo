@@ -370,7 +370,7 @@ MyVec :: struct(data : i32, len : i32);
 
 impl(MyVec, Index(usize)(
   Output : i32,
-  index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(&(self.data))
+  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(&(self.data))
 ));
 
 export(MyVec);

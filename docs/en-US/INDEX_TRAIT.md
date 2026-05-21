@@ -22,7 +22,7 @@ The `Index` trait is defined in the prelude and is available to all Yo programs:
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(inout(self) : Self, idx : Idx) -> *(Self.Output))
+    index : (fn(ref(self) : Self, idx : Idx) -> *(Self.Output))
   )
 );
 ```
@@ -53,7 +53,7 @@ MyArray :: struct(data0: i32, data1: i32, data2: i32);
 
 impl(MyArray, Index(usize)(
   Output : i32,
-  index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
     cond(
       (idx == usize(0)) => &(self.data0),
       (idx == usize(1)) => &(self.data1),
@@ -76,7 +76,7 @@ For generic types like `ArrayList(T)`, use `forall` in the impl:
 ```rust
 impl(forall(T : Type), ArrayList(T), Index(usize)(
   Output : T,
-  index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
     assert((idx < self._length), "ArrayList: index out of bounds");
     match(self._ptr,
       .Some(_ptr) => (_ptr &+ idx),

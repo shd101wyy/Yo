@@ -759,7 +759,7 @@ impl(Point,
         (self.y * self.y)))
   ),
 
-  move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
+  move_by : (fn(ref(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -769,18 +769,18 @@ p := Point(3, 4);
 d := p.distance_from_origin();  // Type method call - OK
 
 p2 := Point(0, 0);
-p2.move_by(5, 10);  // `inout(self)` lowers to `Self*` — &(p2) is taken automatically
+p2.move_by(5, 10);  // `ref(self)` lowers to `Self*` — &(p2) is taken automatically
 // p2 is now Point(5, 10)
 ```
 
 **Automatic pointer conversion for `inout`:**
 
-`inout(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
+`ref(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
 
 ```rust
 Point :: struct(x : i32, y : i32);
 impl(Point,
-  set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
+  set_x : (fn(ref(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
@@ -881,7 +881,7 @@ swap(&(x), &(y));  // Pass pointers to x and y
 // Now x == 2, y == 1
 ```
 
-For day-to-day in-place mutation, prefer the `inout(name) : T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller writes plain value-call syntax (`swap(x, y)`). Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
+For day-to-day in-place mutation, prefer the `ref(name) : T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller writes plain value-call syntax (`swap(x, y)`). Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
 
 ### Pointer Operations
 
@@ -1037,16 +1037,16 @@ main :: (fn() -> unit)({
 
 ### `inout` Parameters
 
-For in-place mutation without raw pointers, use the `inout(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `inout(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
+For in-place mutation without raw pointers, use the `ref(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `ref(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
 
 ```rust
-swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
 });
 
-increment :: (fn(inout(n) : i32) -> unit)({
+increment :: (fn(ref(n) : i32) -> unit)({
   n = (n + i32(1));
 });
 
@@ -1064,14 +1064,14 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (inout is runtime-only). For chained calls, passing an inout-param through to another function's inout-param works as expected:
+`ref(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (inout is runtime-only). For chained calls, passing an inout-param through to another function's inout-param works as expected:
 
 ```rust
-double :: (fn(inout(n) : i32) -> unit)({
+double :: (fn(ref(n) : i32) -> unit)({
   n = (n + n);
 });
 
-double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
+double_both :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
   double(x);  // passes &x through to double's inout-param
   double(y);
 });
@@ -1331,7 +1331,7 @@ The `Iterator` trait defines a sequence of values. It has an associated type `It
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(inout(self) : Self) -> Option(Self.Item))
+  next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1759,11 +1759,11 @@ A trait is defined as a function that returns a `Trait` type containing field de
 ```rust
 // Define a trait (like a trait in Rust)
 Summary :: trait(
-  summarize : (fn(inout(self) : Self) -> String)
+  summarize : (fn(ref(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(inout(self) : Self) -> String),
+  display : (fn(ref(self) : Self) -> String),
   where(Self <: Summary) // Constraint
 );
 
@@ -1789,12 +1789,12 @@ impl(NewsArticle, Display(
 ));
 
 // Pass in function
-notify :: (fn(inout(item) : NewsArticle) -> unit)({
+notify :: (fn(ref(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // Generic function with trait constraint
-notify2 :: (fn(forall(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
+notify2 :: (fn(forall(T : Type), ref(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2371,7 +2371,7 @@ result := use_id(42);  // Prints "i32: 42", returns 42
 
 ```rust
 RetI32 :: trait(
-  return_i32 : (fn(inout(self) : Self) -> i32)
+  return_i32 : (fn(ref(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({

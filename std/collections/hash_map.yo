@@ -492,7 +492,7 @@ impl(
   HashMapIter(K, V),
   Iterator(
     Item : Bucket(K, V),
-    next : (fn(inout(self) : Self) -> Option(Bucket(K, V)))(
+    next : (fn(ref(self) : Self) -> Option(Bucket(K, V)))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -538,7 +538,7 @@ impl(
   HashMapIterPtr(K, V),
   Iterator(
     Item : *(Bucket(K, V)),
-    next : (fn(inout(self) : Self) -> Option(*(Bucket(K, V))))(
+    next : (fn(ref(self) : Self) -> Option(*(Bucket(K, V))))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -582,7 +582,7 @@ impl(
   HashMapKeys(K, V),
   Iterator(
     Item : K,
-    next : (fn(inout(self) : Self) -> Option(K))(
+    next : (fn(ref(self) : Self) -> Option(K))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -613,7 +613,7 @@ impl(
   HashMapValues(K, V),
   Iterator(
     Item : V,
-    next : (fn(inout(self) : Self) -> Option(V))(
+    next : (fn(ref(self) : Self) -> Option(V))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -635,7 +635,7 @@ impl(
   HashMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(inout(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
+    index : (fn(ref(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
       hash := idx.hash();
       bucket_opt := Self._find_bucket(self, idx, hash);
       match(
@@ -655,7 +655,7 @@ impl(
   where(K <: (Clone, Eq(K), Hash), V <: Clone),
   HashMap(K, V),
   Clone(
-    clone : (fn(inout(self) : Self) -> Self)({
+    clone : (fn(ref(self) : Self) -> Self)({
       result := Self.new();
       it := self.iter();
       running := true;

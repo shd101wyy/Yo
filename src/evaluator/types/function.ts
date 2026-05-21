@@ -264,27 +264,27 @@ export function evaluateFunctionParameter({
       lhsExpr = lhsExpr.args[0]!;
     }
 
-    if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "inout")) {
+    if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "ref")) {
       if (lhsExpr.args.length !== 1) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `Expected one argument for "inout", got ${lhsExpr.args.length}`,
+          errorMessage: `Expected one argument for "ref", got ${lhsExpr.args.length}`,
         });
       }
       if (isOwningTheRcValue) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `Cannot combine 'own' and 'inout' on the same parameter — they have opposite calling conventions.`,
+          errorMessage: `Cannot combine 'own' and 'ref' on the same parameter — they have opposite calling conventions.`,
         });
       }
       if (isParameterComptimeByDefault) {
         // forall/using params are erased at runtime; they have no callee-
-        // side binding for inout to refer to. comptime(inout(...)) is
-        // permitted (sets isCompileTimeOnly here), but forall(inout(...))
+        // side binding for ref to refer to. comptime(ref(...)) is
+        // permitted (sets isCompileTimeOnly here), but forall(ref(...))
         // makes no sense.
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `'inout' cannot combine with 'forall'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
+          errorMessage: `'ref' cannot combine with 'forall'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
         });
       }
       isInout = true;

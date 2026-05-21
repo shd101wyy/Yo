@@ -55,7 +55,7 @@ impl(Thread,
   spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> Self),
 
   // Wait for the thread to complete (blocking)
-  join : (fn(inout(self) : Self) -> unit)
+  join : (fn(ref(self) : Self) -> unit)
 );
 ```
 

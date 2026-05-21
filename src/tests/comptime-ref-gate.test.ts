@@ -1,5 +1,5 @@
 /**
- * Negative tests for `comptime(inout(name)) : T` parameter form.
+ * Negative tests for `comptime(ref(name)) : T` parameter form.
  *
  * The positive direction lives in `tests/comptime_inout.test.yo`
  * (Yo-level). This file pins the error messages the evaluator
@@ -41,7 +41,7 @@ function compileAndExpectError(source: string): string {
   }
 }
 
-describe("comptime(inout(...)) parameter form — error cases", () => {
+describe("comptime(ref(...)) parameter form — error cases", () => {
   test("inout inside forall(...) is rejected with a targeted error", () => {
     // forall(...) params are comptime-by-default AND erased at
     // runtime, so there's no callee-side binding for inout to
@@ -50,33 +50,33 @@ describe("comptime(inout(...)) parameter form — error cases", () => {
     // encounters inout under a forall context.
     const output = compileAndExpectError(`
 take_param :: (
-  fn(forall(inout(T) : Type), x : T) -> T
+  fn(forall(ref(T) : Type), x : T) -> T
 )(x);
 main :: (fn() -> unit)({});
 export(main);
 `);
     expect(output).toMatch(
-      /'inout' cannot combine with 'forall'\/'using' parameters/
+      /'ref' cannot combine with 'forall'\/'using' parameters/
     );
   });
 
-  test("own(inout(...)) is rejected (opposite calling conventions)", () => {
+  test("own(ref(...)) is rejected (opposite calling conventions)", () => {
     // Pre-existing rule, but worth re-pinning under this gate's
     // umbrella so the error doesn't regress as the modifier
     // ordering evolves. Note: the rejection fires for the
     // own-outer ordering — the parser processes `own` first, then
     // `inout`, and the inout check sees `isOwningTheRcValue` set.
     const output = compileAndExpectError(`
-takes :: (fn(own(inout(x)) : i32) -> i32)(x);
+takes :: (fn(own(ref(x)) : i32) -> i32)(x);
 main :: (fn() -> unit)({});
 export(main);
 `);
     expect(output).toMatch(
-      /Cannot combine 'own' and 'inout' on the same parameter/
+      /Cannot combine 'own' and 'ref' on the same parameter/
     );
   });
 
-  test("comptime(inout(...)) compiles cleanly (positive guardrail)", () => {
+  test("comptime(ref(...)) compiles cleanly (positive guardrail)", () => {
     // Confirms the *positive* path actually works end-to-end —
     // catches accidental over-tightening of the gate.
     const tmpDir = fs.mkdtempSync(
@@ -86,7 +86,7 @@ export(main);
     fs.writeFileSync(
       file,
       `
-bump :: (fn(comptime(inout(n)) : usize) -> comptime(usize))({
+bump :: (fn(comptime(ref(n)) : usize) -> comptime(usize))({
   n = (n + usize(1));
   n
 });

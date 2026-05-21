@@ -150,7 +150,7 @@ from_raw_parts :: (fn(p : *(u8), n : usize) -> unit)({ return(()); });
         `pure_fn :: (fn(x : i32) -> i32)({
   return(x + 1);
 });
-takes_inout :: (fn(inout(x) : i32) -> unit)({
+takes_inout :: (fn(ref(x) : i32) -> unit)({
   x = (x + 1);
 });
 `

@@ -758,7 +758,7 @@ impl(Point,
         (self.y * self.y)))
   ),
 
-  move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
+  move_by : (fn(ref(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -768,19 +768,19 @@ p := Point(3, 4);
 d := p.distance_from_origin();  // 类型方法调用 - OK
 
 p2 := Point(0, 0);
-p2.move_by(5, 10);  // `inout(self)` 在 C 中降为 `Self*` — 编译器自动插入 &(p2)
+p2.move_by(5, 10);  // `ref(self)` 在 C 中降为 `Self*` — 编译器自动插入 &(p2)
 // p2 现在是 Point(5, 10)
 ```
 
 **`inout` 的自动指针转换：**
 
-`inout(name) : T` 参数在 C 中降为 `T*`。在调用点，Yo 会自动取对应实参的地址，
+`ref(name) : T` 参数在 C 中降为 `T*`。在调用点，Yo 会自动取对应实参的地址，
 所以调用方代码看起来就是普通的值传递语法：
 
 ```rust
 Point :: struct(x : i32, y : i32);
 impl(Point,
-  set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
+  set_x : (fn(ref(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
@@ -881,7 +881,7 @@ swap(&(x), &(y));  // 传入 x 和 y 的指针
 // 现在 x == 2, y == 1
 ```
 
-日常的就地修改应优先使用 `inout(name) : T` 参数形式（见[Type Methods](#type-methods)）——它在 C 中降为相同的 `T*` ABI，但保持安全，调用方写成普通的值传递语法（`swap(x, y)`）。原始 `*(T)` 仅保留给 FFI 和本节涉及的底层场景。
+日常的就地修改应优先使用 `ref(name) : T` 参数形式（见[Type Methods](#type-methods)）——它在 C 中降为相同的 `T*` ABI，但保持安全，调用方写成普通的值传递语法（`swap(x, y)`）。原始 `*(T)` 仅保留给 FFI 和本节涉及的底层场景。
 
 ### 指针操作
 
@@ -1035,16 +1035,16 @@ main :: (fn() -> unit)({
 
 ### `inout` 参数
 
-要在不使用原始指针的情况下实现原地修改，请使用 `inout(name) : T` 参数修饰符。该修饰符包裹参数名（与现有的 `own(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `inout(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
+要在不使用原始指针的情况下实现原地修改，请使用 `ref(name) : T` 参数修饰符。该修饰符包裹参数名（与现有的 `own(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `ref(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
 
 ```rust
-swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
 });
 
-increment :: (fn(inout(n) : i32) -> unit)({
+increment :: (fn(ref(n) : i32) -> unit)({
   n = (n + i32(1));
 });
 
@@ -1062,14 +1062,14 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`forall`（inout 是运行时专用的）组合使用。对于链式调用，将 inout 参数传递给另一个函数的 inout 参数按预期工作：
+`ref(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`forall`（inout 是运行时专用的）组合使用。对于链式调用，将 inout 参数传递给另一个函数的 inout 参数按预期工作：
 
 ```rust
-double :: (fn(inout(n) : i32) -> unit)({
+double :: (fn(ref(n) : i32) -> unit)({
   n = (n + n);
 });
 
-double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
+double_both :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
   double(x);  // 将 &x 透传给 double 的 inout 参数
   double(y);
 });
@@ -1329,7 +1329,7 @@ factorial2 :: (fn(n: i32) -> i32)({
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(inout(self) : Self) -> Option(Self.Item))
+  next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1757,11 +1757,11 @@ Trait 被定义为一个返回 `Trait` 类型的函数，其中包含字段定�
 ```rust
 // 定义一个 trait（类似于 Rust 中的 trait）
 Summary :: trait(
-  summarize : (fn(inout(self) : Self) -> String)
+  summarize : (fn(ref(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(inout(self) : Self) -> String),
+  display : (fn(ref(self) : Self) -> String),
   where(Self <: Summary) // 约束
 );
 
@@ -1787,12 +1787,12 @@ impl(NewsArticle, Display(
 ));
 
 // 传入函数
-notify :: (fn(inout(item) : NewsArticle) -> unit)({
+notify :: (fn(ref(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // 带 trait 约束的泛型函数
-notify2 :: (fn(forall(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
+notify2 :: (fn(forall(T : Type), ref(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2369,7 +2369,7 @@ result := use_id(42);  // 打印 "i32: 42"，返回 42
 
 ```rust
 RetI32 :: trait(
-  return_i32 : (fn(inout(self) : Self) -> i32)
+  return_i32 : (fn(ref(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({

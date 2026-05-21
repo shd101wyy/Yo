@@ -225,7 +225,7 @@ export(Dispose);
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(inout(self) : Self, idx : Idx) -> *(Self.Output))
+    index : (fn(ref(self) : Self, idx : Idx) -> *(Self.Output))
   )
 );
 export(Index);
@@ -233,7 +233,7 @@ export(Index);
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output))),
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output))),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -697,14 +697,14 @@ Hash :: trait(
   * Compute the hash of a value
   * Returns a u64 hash value
   */
-  (hash) : (fn(inout(self) : Self) -> u64)
+  (hash) : (fn(ref(self) : Self) -> u64)
 );
 export(Hash);
 /// Clone trait — deep-copy a value.
 Clone :: trait(
   /// Create an independent clone of `self`.
   clone :
-    fn(inout(self) : Self) -> Self
+    fn(ref(self) : Self) -> Self
 );
 export(Clone);
 /// Isolation trait — runtime check whether a value can be safely transferred.
@@ -5528,7 +5528,7 @@ impl(forall(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
 impl(
   forall(T : Type, U : usize),
   Array(T, U),
-  len : (fn(inout(self) : Self) -> usize)({
+  len : (fn(ref(self) : Self) -> usize)({
     return(U);
   })
   /*
@@ -5555,7 +5555,7 @@ impl(
   Array(T, N),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
       __yo_array_index(self, idx)
     )
   )
@@ -5565,7 +5565,7 @@ impl(
   Array(T, N),
   Index(Range(usize))(
     Output : Slice(T),
-    index : (fn(inout(self) : Self, idx : Range(usize)) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
       __yo_array_index_range(self, idx)
     )
   )
@@ -5575,7 +5575,7 @@ impl(
   Array(T, N),
   Index(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(inout(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
       __yo_array_index_range_inclusive(self, idx)
     )
   )
@@ -5609,7 +5609,7 @@ impl(
   Slice(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
       __yo_slice_index(self, idx)
     )
   )
@@ -5619,7 +5619,7 @@ impl(
   Slice(T),
   Index(Range(usize))(
     Output : Slice(T),
-    index : (fn(inout(self) : Self, idx : Range(usize)) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : Range(usize)) -> *(Self.Output))(
       __yo_slice_index_range(self, idx)
     )
   )
@@ -5629,7 +5629,7 @@ impl(
   Slice(T),
   Index(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(inout(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
+    index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
       __yo_slice_index_range_inclusive(self, idx)
     )
   )
@@ -5641,7 +5641,7 @@ impl(
   Array(T, N),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index(self, idx)
     )
   )
@@ -5652,7 +5652,7 @@ impl(
   Array(T, N),
   ComptimeIndex(Range(usize))(
     Output : Slice(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index_range(self, idx)
     )
   )
@@ -5663,7 +5663,7 @@ impl(
   Array(T, N),
   ComptimeIndex(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index_range_inclusive(self, idx)
     )
   )
@@ -5675,7 +5675,7 @@ impl(
   Slice(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_slice_index(self, idx)
     )
   )
@@ -5686,7 +5686,7 @@ impl(
   Slice(T),
   ComptimeIndex(Range(usize))(
     Output : Slice(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_slice_index_range(self, idx)
     )
   )
@@ -5697,7 +5697,7 @@ impl(
   Slice(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : Slice(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_slice_index_range_inclusive(self, idx)
     )
   )
@@ -5853,7 +5853,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index(self, idx)
     )
   )
@@ -5864,7 +5864,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(Range(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range(self, idx)
     )
   )
@@ -5875,7 +5875,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range_inclusive(self, idx)
     )
   )
@@ -7566,7 +7566,7 @@ impl(
   /// Create a new uninitialized value.
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
   /// Get a mutable pointer to the underlying value.
-  as_ptr : (fn(inout(self) : Self) -> *(BaseType))(
+  as_ptr : (fn(ref(self) : Self) -> *(BaseType))(
     __yo_maybe_uninit_as_ptr(Self, BaseType, &(self))
   ),
   /// Assume the value is initialized and extract it. **Undefined behavior if not initialized.**
@@ -7581,7 +7581,7 @@ Iterator :: trait(
   Item : Type,
   /// Advance the iterator and return the next value, or `None` when exhausted.
   next :
-    fn(inout(self) : Self) -> Option(Self.Item)
+    fn(ref(self) : Self) -> Option(Self.Item)
 );
 export(Iterator);
 /// IntoIterator trait — convert a collection into an iterator.
@@ -7610,7 +7610,7 @@ impl(
   ArrayIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(inout(self) : Self) -> Option(*(T)))(
+    next : (fn(ref(self) : Self) -> Option(*(T)))(
       cond(
         (self._index >= self._len) =>.None,
         true => {
@@ -7625,7 +7625,7 @@ impl(
 impl(
   forall(T : Type, N : usize),
   Array(T, N),
-  iter : (fn(inout(self) : Self) -> ArrayIterPtr(T))(
+  iter : (fn(ref(self) : Self) -> ArrayIterPtr(T))(
     unsafe(ArrayIterPtr(T)(_ptr : &(self(usize(0))), _index : usize(0), _len : N))
   )
 );
@@ -7646,7 +7646,7 @@ impl(
   SliceIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(inout(self) : Self) -> Option(*(T)))(
+    next : (fn(ref(self) : Self) -> Option(*(T)))(
       cond(
         (self._index >= self._slice.len()) =>.None,
         true => {
@@ -7661,7 +7661,7 @@ impl(
 impl(
   forall(T : Type),
   Slice(T),
-  iter : (fn(inout(self) : Self) -> SliceIterPtr(T))(
+  iter : (fn(ref(self) : Self) -> SliceIterPtr(T))(
     unsafe(SliceIterPtr(T)(_slice : self, _index : usize(0)))
   )
 );
@@ -7809,7 +7809,7 @@ impl(
   IterMap(I, B, F),
   Iterator(
     Item : B,
-    next : (fn(inout(self) : Self) -> Option(B))(
+    next : (fn(ref(self) : Self) -> Option(B))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -7836,7 +7836,7 @@ impl(
   IterFilter(I, F),
   Iterator(
     Item : A,
-    next : (fn(inout(self) : Self) -> Option(A))({
+    next : (fn(ref(self) : Self) -> Option(A))({
       (loop_result : Option(A)) =.None;
       while(runtime(true), {
         candidate := self._inner.next();
@@ -7876,7 +7876,7 @@ impl(
   IterTake(I),
   Iterator(
     Item : A,
-    next : (fn(inout(self) : Self) -> Option(A))(
+    next : (fn(ref(self) : Self) -> Option(A))(
       cond(
         (self._remaining == usize(0)) =>.None,
         true => {
@@ -7904,7 +7904,7 @@ impl(
   IterSkip(I),
   Iterator(
     Item : A,
-    next : (fn(inout(self) : Self) -> Option(A))({
+    next : (fn(ref(self) : Self) -> Option(A))({
       while(self._to_skip > usize(0), {
         result := self._inner.next();
         match(
@@ -7940,7 +7940,7 @@ impl(
   IterEnumerate(I),
   Iterator(
     Item : IterPair(usize, A),
-    next : (fn(inout(self) : Self) -> Option(IterPair(usize, A)))(
+    next : (fn(ref(self) : Self) -> Option(IterPair(usize, A)))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -7971,7 +7971,7 @@ impl(
   IterZip(I, J),
   Iterator(
     Item : IterPair(A, B),
-    next : (fn(inout(self) : Self) -> Option(IterPair(A, B)))(
+    next : (fn(ref(self) : Self) -> Option(IterPair(A, B)))(
       match(
         self._left.next(),
         .None =>.None,

@@ -123,16 +123,16 @@ The rule is structural: **no expression in safe code may have type `*(T)`**, and
 
 In a file without the unsafe privilege, the following are compile errors:
 
-| Construct                                                                        | Diagnostic                                                                                                       |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Declaring a parameter, field, or return of type `*(T)`                           | `error: raw pointer types are not available in safe code. Use 'object', 'Slice(T)', or 'inout(...)' parameters.` |
-| Writing an expression with type `*(T)` (e.g. `&(expr)`, `slice._ptr`, `*(T)(x)`) | `error: this expression has type '*(T)', which is not available in safe code.`                                   |
-| Calling a function whose return type is `*(T)`                                   | rejected at the call site (the result expression would have type `*(T)`)                                         |
-| `unsafe(...)` call                                                               | `error: 'unsafe(...)' is not available in safe code. This operation requires 'pragma(Pragma.AllowUnsafe);'.`     |
-| `asm(...)` block                                                                 | `error: inline assembly is not available in safe code.`                                                          |
-| `extern fn` declaration                                                          | `error: extern FFI declarations are not available in safe code. Call stdlib wrappers (e.g. 'std/sys').`          |
-| Pointer arithmetic operators (`&+`, `&-`, `&/`, etc.)                            | `error: pointer arithmetic requires raw pointers, which are not available in safe code.`                         |
-| `consume(p.* = v)` on a pointer deref                                            | `error: 'consume' on a pointer deref requires raw pointers, which are not available in safe code.`               |
+| Construct                                                                        | Diagnostic                                                                                                     |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Declaring a parameter, field, or return of type `*(T)`                           | `error: raw pointer types are not available in safe code. Use 'object', 'Slice(T)', or 'ref(...)' parameters.` |
+| Writing an expression with type `*(T)` (e.g. `&(expr)`, `slice._ptr`, `*(T)(x)`) | `error: this expression has type '*(T)', which is not available in safe code.`                                 |
+| Calling a function whose return type is `*(T)`                                   | rejected at the call site (the result expression would have type `*(T)`)                                       |
+| `unsafe(...)` call                                                               | `error: 'unsafe(...)' is not available in safe code. This operation requires 'pragma(Pragma.AllowUnsafe);'.`   |
+| `asm(...)` block                                                                 | `error: inline assembly is not available in safe code.`                                                        |
+| `extern fn` declaration                                                          | `error: extern FFI declarations are not available in safe code. Call stdlib wrappers (e.g. 'std/sys').`        |
+| Pointer arithmetic operators (`&+`, `&-`, `&/`, etc.)                            | `error: pointer arithmetic requires raw pointers, which are not available in safe code.`                       |
+| `consume(p.* = v)` on a pointer deref                                            | `error: 'consume' on a pointer deref requires raw pointers, which are not available in safe code.`             |
 
 Each error includes a "what to use instead" hint pointing at the safe alternative.
 
@@ -163,7 +163,7 @@ This is the standard abstraction-as-safety pattern — same as Rust's `Vec<T>`, 
 To recover the in-place-mutation pattern (`swap`, `increment`, etc.) without introducing references as a first-class concept, safe code gets an `inout` parameter form, modeled on Pascal / Nim / C#'s `ref` / Swift's `inout`:
 
 ```rust
-swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
@@ -187,23 +187,23 @@ Semantics:
   - As an argument to another function's `inout` parameter
   - Nowhere else.
 - The following are compile errors:
-  - Returning an inout-param as a binding (returning its value is fine; "returning the binding" is impossible because `inout(...)` is not a type)
+  - Returning an inout-param as a binding (returning its value is fine; "returning the binding" is impossible because `ref(...)` is not a type)
   - Storing an inout-param in a `let`-binding (`r := a` copies the value, which is fine; you cannot bind to the reference itself)
   - Capturing an inout-param in a closure (most closure forms — see Open Question 3)
-  - Putting an inout-param into a struct field (no syntax for this; `inout(...)` is a parameter-only modifier)
+  - Putting an inout-param into a struct field (no syntax for this; `ref(...)` is a parameter-only modifier)
 
 This is essentially "second-class references restricted to parameter syntax." Because there's no `inout` _type_, only an `inout` _parameter modifier_, the non-escape rule is trivially enforced — there's no way to write down a value of "inout type" that could escape.
 
-#### `inout(...)` Parameter Syntax
+#### `ref(...)` Parameter Syntax
 
 Yo's parameter modifiers follow a uniform shape: the modifier wraps the parameter name as a function-call-style annotation, then the type annotation follows. This matches the existing `own(name) : Type` pattern (used pervasively in `std/prelude.yo` and `std/imm/`):
 
 ```rust
-fn(inout(name) : Type, ...) -> Return
+fn(ref(name) : Type, ...) -> Return
 fn(own(name) : Type, ...) -> Return         // existing — consumes the argument
 ```
 
-Type annotation is required (same as regular parameters). Multiple `inout(...)` params are allowed in any position. `inout(...)` and `own(...)` are mutually exclusive on the same parameter.
+Type annotation is required (same as regular parameters). Multiple `ref(...)` params are allowed in any position. `ref(...)` and `own(...)` are mutually exclusive on the same parameter.
 
 ### Iteration in Safe Code
 
@@ -267,7 +267,7 @@ The inout-ness is part of the `Fn(...)` signature that `each_mut` expects, not s
 ```rust
 IteratorMut :: trait(
   Item : Type,
-  each_mut : (fn(self : Self, f : Impl(Fn(inout(x) : Self.Item) -> unit)) -> unit)
+  each_mut : (fn(self : Self, f : Impl(Fn(ref(x) : Self.Item) -> unit)) -> unit)
 );
 ```
 
@@ -312,7 +312,7 @@ The honest expected impact for safe user code:
 
 The stdlib continues to use `*(T)`, `unsafe(...)`, and `asm(...)` internally. Public stdlib APIs expose safe types only:
 
-- **Allowed in public stdlib signatures:** all the safe types listed above, plus `inout(name) : T` parameters where in-place mutation is the right ergonomics.
+- **Allowed in public stdlib signatures:** all the safe types listed above, plus `ref(name) : T` parameters where in-place mutation is the right ergonomics.
 - **Forbidden in public stdlib signatures:** `*(T)`. Stdlib internals can use raw pointers; the public surface cannot expose them.
 
 The boundary is enforced by a lint (`yo check --stdlib-public-safe`), not by the type system. A stdlib API that returns `*(T)` is technically legal but flagged in CI.
@@ -396,16 +396,16 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 - [x] `tests/unsafe.test.yo` — 8 positive tests for `unsafe(...)`: read/write/arithmetic deref, begin-block, transparency, nesting, cond/match wrap.
 - [x] `src/tests/unsafe-gate.test.ts` — 4 negative tests verifying the gate errors fire on (a) bare deref without unsafe, (b) bare pointer arith without unsafe, (c) `unsafe(...)` without pragma, (d) the positive case where pragma + unsafe wrap compiles cleanly.
 
-### Phase B — `inout(...)` parameters
+### Phase B — `ref(...)` parameters
 
-- [x] Parse `inout(name) : T` in function parameter lists. Added alongside `own(name)` in src/evaluator/types/function.ts. Combinations with `own` or `comptime`/forall are rejected.
+- [x] Parse `ref(name) : T` in function parameter lists. Added alongside `own(name)` in src/evaluator/types/function.ts. Combinations with `own` or `comptime`/forall are rejected.
 - [x] In the evaluator, treat inout-params as bindings to the caller's storage. Marked the parameter and env-side variable with `isInout` (FunctionParameter + Variable). Mark variables `isReassignable: true` so assignments inside the callee body type-check.
 - [x] Codegen: inout-params lower to `T*` in C. Three changes:
   - `src/codegen/functions/declarations.ts`: signature emits `T* name`.
   - `src/codegen/exprs/atom.ts`: variable reads return `(*name)` (three lookup paths — main, state-machine, and the fallback used by assignment-LHS).
   - `src/codegen/exprs/other-fn-call.ts`: at the call site, args for inout params are wrapped in `(&(arg))`; the cast-to-param-type uses `T*`. Wrap folds `(&(*x))` → `x` so passing through nested inout calls doesn't accumulate `&(*` indirection.
 - [x] `tests/inout_params.test.yo` — 6 tests: swap, increment, inout+value mix, double-inout (both params written), inout chained through another inout-param fn, and inout-read returning the caller's current value.
-- [x] **Non-escape enforcement (closure captures).** Closures (`=>` form) that capture an `inout` parameter from an enclosing function are now rejected at evaluation time with `Cannot capture inout parameter 'x' in a closure. \`inout(x) : T\` is a second-class reference …`. Implemented in `src/evaluator/values/anonymous-function.ts`immediately before`enrichCapturedVariables`— for each captured variable in an outer frame, the gate consults the variable's`isInout`flag and throws if set. Per Open Question 3, even the synchronous-callback case is forbidden in v1. Tests pinned in`tests/inout*closure_capture.test.yo`via`comptime_expect_error(...)` (read-capture, write-capture, nested-closure capture, plus a positive runtime test that a closure not touching any inout param still compiles and runs). Other escape vectors (`r := inout_param` binding, struct field) are structurally impossible: there's no syntax for an "inout type", only an inout \_parameter modifier*, so a let-binding copies the value (fine) and a struct field can't name the binding.
+- [x] **Non-escape enforcement (closure captures).** Closures (`=>` form) that capture an `inout` parameter from an enclosing function are now rejected at evaluation time with `Cannot capture inout parameter 'x' in a closure. \`ref(x) : T\` is a second-class reference …`. Implemented in `src/evaluator/values/anonymous-function.ts`immediately before`enrichCapturedVariables`— for each captured variable in an outer frame, the gate consults the variable's`isInout`flag and throws if set. Per Open Question 3, even the synchronous-callback case is forbidden in v1. Tests pinned in`tests/inout*closure_capture.test.yo`via`comptime_expect_error(...)` (read-capture, write-capture, nested-closure capture, plus a positive runtime test that a closure not touching any inout param still compiles and runs). Other escape vectors (`r := inout_param` binding, struct field) are structurally impossible: there's no syntax for an "inout type", only an inout \_parameter modifier*, so a let-binding copies the value (fine) and a struct field can't name the binding.
 
 ### Phase C — Privilege gate
 
@@ -423,12 +423,12 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
   - Pointer arithmetic operators (`&+`, `&-`, `&/`) — already gated in `src/evaluator/exprs/_expr.ts`. Pointer comparison (`&==`, `&<`, …) intentionally stays safe per design — comparing addresses can't violate memory safety.
   - `consume(p.* = v)` — gated transitively via the inner `.* ` deref gate in `property-access.ts`.
   - Pragma re-added by `scripts/add-pragma-for-pointer-decls.ts` to every file under `std/`, `yo-self/`, and `tests/` whose source mentions `*(...)` or `&(...)`. The trim pass (`scripts/trim-pragma.ts`) had removed it from files using only pointer-type declarations; the new structural gates require it everywhere a raw-pointer-typed expression appears.
-- [x] **Diagnostic messages match the "What Safe Code Cannot Do" table.** Each gate's error names the rejected construct, suggests the safe alternative (Slice(T), inout(name) : T, stdlib wrapper), and tells the user how to opt into unsafe-capability if they really need it. Tests in `tests/safe_code_structural_gates.test.yo` (`comptime_expect_error` for each of the five structural rejections + a positive runtime guardrail using `inout`) and `src/tests/unsafe-gate.test.ts`.
+- [x] **Diagnostic messages match the "What Safe Code Cannot Do" table.** Each gate's error names the rejected construct, suggests the safe alternative (Slice(T), ref(name) : T, stdlib wrapper), and tells the user how to opt into unsafe-capability if they really need it. Tests in `tests/safe_code_structural_gates.test.yo` (`comptime_expect_error` for each of the five structural rejections + a positive runtime guardrail using `inout`) and `src/tests/unsafe-gate.test.ts`.
 - [x] Add `pragma(Pragma.AllowUnsafe);` to every file in `std/`, `yo-self/`, and pointer-using `tests/*.test.yo` that needs it. Bulk-applied by `scripts/add-pragma.ts`, then trimmed by `scripts/trim-pragma.ts` to ~265 files (down from 633 — the initial bulk pass was deliberately over-inclusive).
 - [x] `tests/privilege_pragma.test.yo` — pragma enables unsafe constructs (deref, write-deref, pointer arithmetic, transparent block wrap). The negative direction (pragma absent) lives in `src/tests/unsafe-gate.test.ts`.
-- [x] `tests/safe_user_code.test.yo` — positive: safe code (arithmetic, cond/match, Option/Result, String/collections, `inout(...)` params, higher-order fns) compiles and runs WITHOUT the pragma. Negative side covered by `src/tests/unsafe-gate.test.ts` and `src/tests/pragma-validation.test.ts`.
+- [x] `tests/safe_user_code.test.yo` — positive: safe code (arithmetic, cond/match, Option/Result, String/collections, `ref(...)` params, higher-order fns) compiles and runs WITHOUT the pragma. Negative side covered by `src/tests/unsafe-gate.test.ts` and `src/tests/pragma-validation.test.ts`.
 
-### Phase D — Stdlib boundary sweep (`*(Self)` → `inout(self) : Self` and friends)
+### Phase D — Stdlib boundary sweep (`*(Self)` → `ref(self) : Self` and friends)
 
 - [x] **Hash trait migrated.** Trait signature + all primitive impls in std/prelude.yo. Plus `__derive_hash` macro, String, imm.String. Pattern:
 
@@ -440,14 +440,14 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
   // After:
   Hash :: trait(
-    hash : (fn(inout(self) : Self) -> u64)
+    hash : (fn(ref(self) : Self) -> u64)
   );
   ```
 
 - [x] **Clone trait migrated.** Same shape. Trait + all primitive impls + Box(T) + Option(T) + Result(T,E) + `__derive_clone` macro + ArrayList + HashMap + String. Bulk-migration of `(&(x)).clone()` → `x.clone()` in yo-self/ via `scripts/migrate-clone-calls.ts` (29 files).
 - [x] **Eq, PartialEq, Ord** — checked. Already take parameters by value (`lhs : Self, rhs : Rhs`); no migration needed.
 - [ ] **Iterator trait** — explicitly skipped per goal ("Let's not change Iterator for now"). Iterator methods still take `(self : *(Self))` and yield `*(T)`. Migrating them would also require redesigning the for-loop interaction (see plan's "Iteration in safe code" section).
-- [x] **ToString trait migrated** — trait declaration in `std/fmt/to_string.yo` plus all 28 impls (including primitives whose bodies use `self` as a bare value via `snprintf(..., "%llu", self)`, char, str, rune, String) now take `inout(self) : Self`. The `__derive_tostring` macro emits the same shape. The codegen bug that previously blocked this — `T self = (*self);` shadow on inout-param multi-statement bodies — was fixed earlier in the project (commit `d27044b1`).
+- [x] **ToString trait migrated** — trait declaration in `std/fmt/to_string.yo` plus all 28 impls (including primitives whose bodies use `self` as a bare value via `snprintf(..., "%llu", self)`, char, str, rune, String) now take `ref(self) : Self`. The `__derive_tostring` macro emits the same shape. The codegen bug that previously blocked this — `T self = (*self);` shadow on inout-param multi-statement bodies — was fixed earlier in the project (commit `d27044b1`).
 - [x] **Inherent-method `*(Self)` migrations** — bulk-migrated where `self` is only used for field access (`self.field`), not as a bare value:
   - `yo-self/emitter.yo` — 9 sigs, drops pragma
   - `yo-self/codegen/context.yo` — 83 sigs, 171 `self.*` rewrites (pragma stays for unrelated array-element writes)
@@ -467,7 +467,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
 - [x] Update `docs/{en-US,zh-CN}/DESIGN.md` — pointer section now describes the unsafe(...) marker and the pragma requirement; new "Memory Safety" subsection; `inout` parameter section. Cross-link to `yo unsafe-report`.
 - [x] `.github/instructions/yo-syntax.instructions.md` — `inout` parameter syntax, `unsafe(...)` + pragma rule.
-- [x] `.github/skills/yo-syntax/syntax-cheatsheet.md` — concise rule lines for `unsafe(...)`, pragma, and `inout(name)`.
+- [x] `.github/skills/yo-syntax/syntax-cheatsheet.md` — concise rule lines for `unsafe(...)`, pragma, and `ref(name)`.
 - [ ] `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` standalone user-facing page — **deferred.** The plan document itself (this file) plus the DESIGN.md section currently cover the user-facing surface. A standalone page can be split out later if the audience grows.
 
 ### Phase G — Unify comment-style directives under `pragma(...)`
@@ -494,9 +494,9 @@ Comment-style directives (`// @skip_prelude`, `// @skip_wasm`, …) were the ori
 
 3. **`inout` parameter capture in closures.** ✅ Resolved: forbid all closure captures of inout-params in v1, even the synchronous-callback case. Implementation in `src/evaluator/values/anonymous-function.ts`; tests in `tests/inout_closure_capture.test.yo` (`comptime_expect_error` negatives + a positive runtime guardrail). Revisit if real APIs demand the synchronous-callback carve-out.
 
-4. **`inout(...)` and `object` receiver.** An `inout(name) : T` where `T` is an `object` type — does it allow mutating the RC handle (rebinding to a different object) or just mutating through it? **Lean:** allow rebinding (caller's variable can be reassigned). This matches Pascal/Nim semantics.
+4. **`ref(...)` and `object` receiver.** An `ref(name) : T` where `T` is an `object` type — does it allow mutating the RC handle (rebinding to a different object) or just mutating through it? **Lean:** allow rebinding (caller's variable can be reassigned). This matches Pascal/Nim semantics.
 
-5. **Read-only-by-ref modifier `in(name) : T`?** Distinct from `inout(name) : T` (mutable by-ref). Useful for methods like `Hash.hash` that read but don't mutate — `inout(self) : Self` is slightly overly-permissive. **Lean:** start with only `inout` in v1. Add `in` later if patterns demand it. Convention documents read-vs-write intent in the meantime; the calling convention (by-reference, no copy) is the same.
+5. **Read-only-by-ref modifier `in(name) : T`?** Distinct from `ref(name) : T` (mutable by-ref). Useful for methods like `Hash.hash` that read but don't mutate — `ref(self) : Self` is slightly overly-permissive. **Lean:** start with only `inout` in v1. Add `in` later if patterns demand it. Convention documents read-vs-write intent in the meantime; the calling convention (by-reference, no copy) is the same.
 
 6. **`*(T)` to `*(U)` casts.** Pointer-type casts (`*(u8)(p)`) are address-preserving and currently unrestricted. **Lean: stays safe** within unsafe-capable files; rejected in safe code only because the result expression has type `*(U)`.
 
@@ -538,7 +538,7 @@ No pragma, no `&()`, no `*(T)`, no `unsafe(...)`. This is the default user exper
 ### In-place mutation with `inout`
 
 ```rust
-increment :: (fn(inout(x) : i32) -> unit)({
+increment :: (fn(ref(x) : i32) -> unit)({
   x = (x + i32(1));
 });
 
@@ -589,7 +589,7 @@ bad_unsafe :: (fn(p : *(i32)) -> i32)(   // error: raw pointer types are not ava
 bad_extern :: extern_fn("foo", ...);     // error: extern FFI declarations are not available in safe code
 ```
 
-Each error includes a "use 'inout(...)' parameters" / "use a stdlib wrapper" hint.
+Each error includes a "use 'ref(...)' parameters" / "use a stdlib wrapper" hint.
 
 ### Stdlib internal pattern — safe public API with unsafe internals
 
@@ -739,7 +739,7 @@ The following sharp edges remain after the gates above. They were raised in revi
 
 ## Status
 
-**Phase A + B + C + D (partial) + E + F landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file. `inout(name) : T` parameters give in-place mutation without raw pointers. Hash and Clone traits now take `inout(self) : Self` instead of `(self : *(Self))` — user code calling `value.hash()` or `value.clone()` works naturally with no manual `&(...)`. `yo unsafe-report` audits the unsafe surface across a project.
+**Phase A + B + C + D (partial) + E + F landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file. `ref(name) : T` parameters give in-place mutation without raw pointers. Hash and Clone traits now take `ref(self) : Self` instead of `(self : *(Self))` — user code calling `value.hash()` or `value.clone()` works naturally with no manual `&(...)`. `yo unsafe-report` audits the unsafe surface across a project.
 
 Resolved decisions:
 
@@ -751,9 +751,9 @@ Resolved decisions:
 Phase ordering (foundation → leaves):
 
 1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = v)`.
-2. **Phase B** ✅ — `inout(name) : T` parameter form. Used as the safe in-place-mutation primitive for user code; Phase D will use it to replace `*(Self)` receivers in stdlib trait method signatures.
+2. **Phase B** ✅ — `ref(name) : T` parameter form. Used as the safe in-place-mutation primitive for user code; Phase D will use it to replace `*(Self)` receivers in stdlib trait method signatures.
 3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)`, `asm(...)`, and `extern fn` declarations on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
-4. **Phase D** ✅ partial — Hash and Clone traits migrated to `inout(self) : Self`; their derive macros updated; ArrayList/HashMap/String impls updated; yo-self bulk migration of `(&(x)).clone()` → `x.clone()` (29 files via script). Iterator trait deferred per goal — would require for-loop redesign. Other one-off `*(T)` signatures (FFI wrappers, `as_ptr`, etc.) left case-by-case.
+4. **Phase D** ✅ partial — Hash and Clone traits migrated to `ref(self) : Self`; their derive macros updated; ArrayList/HashMap/String impls updated; yo-self bulk migration of `(&(x)).clone()` → `x.clone()` (29 files via script). Iterator trait deferred per goal — would require for-loop redesign. Other one-off `*(T)` signatures (FFI wrappers, `as_ptr`, etc.) left case-by-case.
 5. **Phase E** ✅ — `yo unsafe-report` (audit-friendly listing of every unsafe site, asm, extern, and pragma file). `yo audit-unsafe` (LLM-backed) deferred.
 6. **Phase F** ✅ — Docs (DESIGN.md en+zh, syntax instructions, cheatsheet, cross-links to `yo unsafe-report`). The standalone `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` user page is deferred; the DESIGN.md + plans/ coverage is sufficient for now.
 
