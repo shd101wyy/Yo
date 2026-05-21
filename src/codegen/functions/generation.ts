@@ -1290,7 +1290,7 @@ export function generateFunctionBody(
               const rawCode = generateExpr(lastExpr, indent, context);
 
               // Skip the temp-var declaration when the last expression
-              // is an inout-param atom — `T name = (*name);` would
+              // is an ref-param atom — `T name = (*name);` would
               // shadow the pointer parameter. The deferred dup below
               // will reference the inout name directly, which is
               // fine. See plans/MEMORY_SAFETY.md and
@@ -1301,7 +1301,7 @@ export function generateFunctionBody(
                   lastExpr.$.env,
                   lastExpr.$.variableName
                 );
-                if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+                if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
                   isInoutAtom = true;
                 }
               }
@@ -1352,7 +1352,7 @@ export function generateFunctionBody(
               lastExpr.$.env,
               lastExpr.$.variableName
             );
-            if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+            if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
               exprCode = getVariableNameForCodegen(
                 lastExpr.$.variableName,
                 lastExpr.$.env

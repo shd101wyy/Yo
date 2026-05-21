@@ -395,7 +395,7 @@ export function generateAtom(
       // become (*name). See plans/MEMORY_SAFETY.md Phase B.
       if (expr.$?.env) {
         const vars = getVariablesFromEnv(expr.$.env, expr.$.variableName);
-        if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+        if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
           return `(*${name})`;
         }
       }
@@ -437,7 +437,7 @@ export function generateAtom(
       const name = getVariableNameForCodegen(expr.$.variableName, expr.$?.env);
       if (expr.$?.env) {
         const vars = getVariablesFromEnv(expr.$.env, expr.$.variableName);
-        if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+        if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
           return `(*${name})`;
         }
       }
@@ -524,7 +524,7 @@ export function generateAtom(
   // plans/MEMORY_SAFETY.md Phase B.
   if (expr.$?.env) {
     const vars = getVariablesFromEnv(expr.$.env, expr.token.value);
-    if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+    if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
       return `(*${varNameToUse})`;
     }
   }

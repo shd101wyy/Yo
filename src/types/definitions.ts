@@ -417,7 +417,7 @@ export interface FunctionParameter {
    *
    * See plans/MEMORY_SAFETY.md Phase B.
    */
-  isInout?: boolean;
+  isRef?: boolean;
 
   /**
    * The expression information of the parameter.

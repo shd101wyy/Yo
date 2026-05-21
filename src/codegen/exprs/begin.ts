@@ -124,7 +124,7 @@ export function generateBegin(
           let isInoutAtom = false;
           if (exprIsAtom(lastArg) && lastArg.$?.env) {
             const vars = getVariablesFromEnv(lastArg.$.env, savedVariableName);
-            if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+            if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
               isInoutAtom = true;
             }
           }

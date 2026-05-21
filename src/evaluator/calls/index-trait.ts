@@ -149,8 +149,8 @@ function findIndexMethod({
     const selfParam = fnType.parameters[0]!;
     const idxParam = fnType.parameters[1]!;
 
-    // self must be a pointer type OR an inout parameter
-    if (!isPtrType(selfParam.type) && !selfParam.isInout) {
+    // self must be a pointer type OR an ref parameter
+    if (!isPtrType(selfParam.type) && !selfParam.isRef) {
       continue;
     }
 
@@ -417,8 +417,8 @@ function findComptimeIndexMethod({
     const selfParam = fnType.parameters[0]!;
     const idxParam = fnType.parameters[1]!;
 
-    // self must be a pointer type OR an inout parameter (modern form).
-    if (!isPtrType(selfParam.type) && !selfParam.isInout) continue;
+    // self must be a pointer type OR an ref parameter (modern form).
+    if (!isPtrType(selfParam.type) && !selfParam.isRef) continue;
 
     // idx type must be compatible with the argument type
     if (

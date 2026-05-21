@@ -481,7 +481,7 @@ export function generateReturn(
           arg.$.env
         );
 
-        // Skip the temp declaration when the arg is an inout parameter.
+        // Skip the temp declaration when the arg is an ref parameter.
         // `T name = (*name);` would shadow the pointer parameter and
         // produce a C redefinition error. The deferred dup below can
         // reference the inout name directly. See
@@ -490,7 +490,7 @@ export function generateReturn(
         let isInoutArgAtom = false;
         if (exprIsAtom(arg) && arg.$?.env) {
           const vars = getVariablesFromEnv(arg.$.env, savedVariableName);
-          if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+          if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
             isInoutArgAtom = true;
           }
         }

@@ -132,7 +132,7 @@ export interface Variable {
    *
    * See plans/MEMORY_SAFETY.md Phase B.
    */
-  isInout?: boolean;
+  isRef?: boolean;
 
   /**
    * Then token at which the variable is initialized.

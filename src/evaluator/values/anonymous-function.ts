@@ -440,11 +440,11 @@ Got:      "${paramName}"`,
         // Propagate inout-ness from the expected (trait/declared) param.
         // When a lambda like `((self) -> self)` is being type-checked
         // against a trait method like `hash : (fn(inout(self) : Self)
-        // -> u64)`, the lambda's `self` binding inherits isInout from
+        // -> u64)`, the lambda's `self` binding inherits isRef from
         // the trait's parameter; codegen then emits (*self) for reads
         // and writes. See plans/MEMORY_SAFETY.md Phase D.
-        isInout: expectedParam.isInout || undefined,
-        isReassignable: expectedParam.isInout,
+        isRef: expectedParam.isRef || undefined,
+        isReassignable: expectedParam.isRef,
         // If anonymous function uses different parameter name than expected,
         // store the expected name as alias for C codegen
         parameterAlias:
@@ -803,10 +803,10 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
       if (captureInfo.frameLevel >= env.frames.length) continue;
       const frame = env.frames[captureInfo.frameLevel]!;
       const variable = frame.variables.find((v) => v.name === varName);
-      if (variable?.isInout) {
+      if (variable?.isRef) {
         throw formatErrorMessage({
           token: captureInfo.token ?? expr.token,
-          errorMessage: `Cannot capture inout parameter '${varName}' in a closure. \`inout(${varName}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
+          errorMessage: `Cannot capture ref binding '${varName}' in a closure. \`ref(${varName}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
         });
       }
     }

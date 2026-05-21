@@ -571,8 +571,8 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
       // for both runtime inout (codegen lowers to T*) and
       // comptime(inout(...)) inout (comptime mutations propagate
       // via the evaluator's binding update path).
-      isInout: parameter.isInout || undefined,
-      isReassignable: parameter.isInout,
+      isRef: parameter.isRef || undefined,
+      isReassignable: parameter.isRef,
     },
   });
   calleeEnv = nextEnv;

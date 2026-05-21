@@ -408,7 +408,7 @@ export function generateFunctionPrototype(
       // body become `(*name)`; writes become `(*name) = v`. The
       // identifier `name` itself never escapes the callee. See
       // plans/MEMORY_SAFETY.md Phase B.
-      if (param.isInout) {
+      if (param.isRef) {
         paramTypeStr = `${paramTypeStr}*`;
       }
 

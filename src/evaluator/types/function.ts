@@ -148,7 +148,7 @@ export function evaluateFunctionParameter({
   let isCompileTimeOnly: boolean = isParameterComptimeByDefault;
   let isQuote: boolean = false;
   let isOwningTheRcValue: boolean = false;
-  let isInout: boolean = false;
+  let isRef: boolean = false;
 
   let lhsExpr: Expr | undefined = undefined;
   let rhsExpr: Expr | undefined = undefined;
@@ -287,7 +287,7 @@ export function evaluateFunctionParameter({
           errorMessage: `'ref' cannot combine with 'forall'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
         });
       }
-      isInout = true;
+      isRef = true;
       lhsExpr = lhsExpr.args[0]!;
     }
 
@@ -705,8 +705,8 @@ use_id :: (fn(forall(T : Type),
         // assignments inside the callee write through to the caller's
         // variable. Mark reassignable so `a = b;` inside the body
         // type-checks. Codegen lowers reads/writes through a T*.
-        isReassignable: isInout,
-        isInout: isInout || undefined,
+        isReassignable: isRef,
+        isRef: isRef || undefined,
         docComment: lhsExpr
           ? context.docCommentLookup?.get(getDocCommentLookupKey(lhsExpr.token))
           : undefined,
@@ -754,7 +754,7 @@ use_id :: (fn(forall(T : Type),
       isCompileTimeOnly,
       isQuote,
       isOwningTheRcValue,
-      isInout,
+      isRef,
       assignedValue,
     },
     env,

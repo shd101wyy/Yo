@@ -2199,7 +2199,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         frameVariables[j] = newVariable;
       }
       // case 3
-      else if (frameVariables[j]!.isInout) {
+      else if (frameVariables[j]!.isRef) {
         // inout(name) : T parameters are second-class references — the
         // slot always points to a valid caller-side Rc. Assignment in
         // some branches and not others is fine: assigning branches drop

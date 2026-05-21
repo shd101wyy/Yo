@@ -284,7 +284,7 @@ export function generateCondExpression(
                     );
 
                     // Skip the temp-var declaration when finalExpr is
-                    // an inout-param atom — `T name = (*name);` would
+                    // an ref-param atom — `T name = (*name);` would
                     // shadow the pointer parameter. See
                     // plans/MEMORY_SAFETY.md and
                     // issues/inout-multi-stmt-body-shadow.md.
@@ -294,7 +294,7 @@ export function generateCondExpression(
                         finalExpr.$.env,
                         savedVariableName
                       );
-                      if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+                      if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
                         isInoutAtom = true;
                       }
                     }
@@ -399,7 +399,7 @@ export function generateCondExpression(
                 );
 
                 // Skip the temp-var declaration when value is an
-                // inout-param atom — `T name = (*name);` would shadow
+                // ref-param atom — `T name = (*name);` would shadow
                 // the pointer parameter. See
                 // issues/inout-multi-stmt-body-shadow.md.
                 let isInoutAtom = false;
@@ -408,7 +408,7 @@ export function generateCondExpression(
                     value.$.env,
                     savedVariableName
                   );
-                  if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+                  if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
                     isInoutAtom = true;
                   }
                 }
