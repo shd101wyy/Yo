@@ -577,34 +577,26 @@ impl(
     ArrayListIter(T)(_list : self, _index : usize(0))
   )
 );
-/**
-* Pointer iterator for ArrayList - yields pointers to elements (*(T))
-* Used by iter() method
-*/
-ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    _list : ArrayList(T),
-    _index : usize
-  )
+/// Position iterator for ArrayList — yields `usize` indices into the
+/// list. Used by `ArrayList.iter()`; the for-macro pairs each yielded
+/// position with `ArrayList.project(pos)` (Indexable from Phase C) to
+/// bind the body's `ref`-name. See plans/ITERATOR_REDESIGN.md.
+_ArrayListPosIter :: struct(
+  _index : usize,
+  _len : usize
 );
 impl(
-  forall(T : Type),
-  ArrayListIterPtr(T),
+  _ArrayListPosIter,
   Iterator(
-    Item : *(T),
-    next : (fn(ref(self) : Self) -> Option(*(T)))(
+    Item : usize,
+    next : (fn(ref(self) : Self) -> Option(usize))(
       cond(
-        (self._index >= self._list._length) =>.None,
-        true =>
-          match(
-            self._list._ptr,
-            .Some(ptr) => {
-              element_ptr := (ptr &+ self._index);
-              self._index = (self._index + usize(1));
-              .Some(element_ptr)
-            },
-            .None =>.None
-          )
+        (self._index >= self._len) =>.None,
+        true => {
+          out := self._index;
+          self._index = (self._index + usize(1));
+          .Some(out)
+        }
       )
     )
   )
@@ -612,8 +604,8 @@ impl(
 impl(
   forall(T : Type),
   ArrayList(T),
-  iter : (fn(self : Self) -> ArrayListIterPtr(T))(
-    ArrayListIterPtr(T)(_list : self, _index : usize(0))
+  iter : (fn(ref(self) : Self) -> _ArrayListPosIter)(
+    _ArrayListPosIter(_index : usize(0), _len : self._length)
   )
 );
 impl(
@@ -801,8 +793,7 @@ impl(
 export(
   ArrayList,
   ArrayListError,
-  ArrayListIter,
-  ArrayListIterPtr
+  ArrayListIter
 );
 // =============================================================================
 // array_list! literal macro

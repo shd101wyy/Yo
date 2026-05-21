@@ -64,3 +64,60 @@ test("String.project read and write", {
   b1 = u8(122);
   assert(s(usize(1)) == u8(122), "writes through String.project propagate (122 = 'z')");
 });
+/// Phase D of plans/ITERATOR_REDESIGN.md — `for(coll, ref(x) => body)`
+/// lambda-shape dispatch lowers to `coll.iter()` + `coll.project(pos)`
+/// pairing. Verifies the end-to-end for-macro expansion across all four
+/// collections that have `Indexable(usize)`.
+test("for(arr, ref(x) => body) borrows each Array element", {
+  arr := [i32(1), i32(2), i32(3)];
+  sum := i32(0);
+  for(arr, ref(x) => {
+    sum = (sum + x);
+    x = (x * i32(10));
+  });
+  assert(sum == i32(6), "sum reads original values via ref-binding");
+  assert(arr(usize(0)) == i32(10), "writes propagate (0)");
+  assert(arr(usize(1)) == i32(20), "writes propagate (1)");
+  assert(arr(usize(2)) == i32(30), "writes propagate (2)");
+});
+test("for(slice, ref(x) => body) borrows each Slice element", {
+  arr := [i32(10), i32(20), i32(30), i32(40)];
+  s := arr(usize(1) .. usize(4));
+  sum := i32(0);
+  for(s, ref(x) => {
+    sum = (sum + x);
+  });
+  assert(sum == i32(90), "for-loop over slice sums 20+30+40 = 90");
+});
+test("for(list, ref(x) => body) borrows each ArrayList element", {
+  list := ArrayList(i32).new();
+  list.push(i32(2));
+  list.push(i32(3));
+  list.push(i32(5));
+  for(list, ref(x) => {
+    x = (x * i32(x));
+  });
+  assert(list(usize(0)) == i32(4), "squared (0)");
+  assert(list(usize(1)) == i32(9), "squared (1)");
+  assert(list(usize(2)) == i32(25), "squared (2)");
+});
+test("for(s, ref(b) => body) borrows each String byte", {
+  s := String.from_str("xyz");
+  bytes_seen := ArrayList(u8).new();
+  for(s, ref(b) => {
+    bytes_seen.push(b);
+  });
+  assert(bytes_seen.len() == usize(3), "for-loop visits each byte");
+  assert(bytes_seen(usize(0)) == u8(120), "0 = 'x' (120)");
+  assert(bytes_seen(usize(1)) == u8(121), "1 = 'y' (121)");
+  assert(bytes_seen(usize(2)) == u8(122), "2 = 'z' (122)");
+});
+test("for(s, ref(b) => body) writes propagate back to the String", {
+  s := String.from_str("abc");
+  for(s, ref(b) => {
+    b = (b + u8(1));
+  });
+  assert(s(usize(0)) == u8(98), "a -> b");
+  assert(s(usize(1)) == u8(99), "b -> c");
+  assert(s(usize(2)) == u8(100), "c -> d");
+});

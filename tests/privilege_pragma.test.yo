@@ -30,16 +30,17 @@ test("AllowUnsafe + unsafe(pointer arith) walks an array", {
   arr := [i32(10), i32(20), i32(30)];
   count := usize(0);
   sum := i32(0);
-  for(arr.iter(), (ptr) => {
+  for(arr, ref(x) => {
+    // Synthesize the raw pointer to the current element from the
+    // array base + offset, then round-trip through `&-` / `&+` to
+    // prove pointer arithmetic walks element-by-element.
+    ptr := unsafe(&(x));
     if(count > usize(0), {
-      // `ptr` here is yielded by Array.iter(); we synthesize the same
-      // ptr via raw arithmetic from the base pointer to prove `&+`
-      // actually walks element-by-element.
       base := unsafe(ptr &- count);
       via_arith := unsafe(base &+ count);
       assert(unsafe(via_arith.*) == unsafe(ptr.*), "&+ and &- round-trip to the same element");
     });
-    sum = (sum + unsafe(ptr.*));
+    sum = (sum + x);
     count = (count + usize(1));
   });
   assert(sum == i32(60), "iterated through all three elements");

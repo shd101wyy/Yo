@@ -83,19 +83,23 @@ project : fn(ref(self) : Self, pos : Position) -> ref(Element);
 
 If we later add a `in(name) : T` read-only-by-ref modifier (deferred from `plans/MEMORY_SAFETY.md` Open Question 5), the trait can grow a sibling `project_const` method then. For v1 a single `project` covers every use case.
 
-### Updated Iterator protocol — split `advance` and `current`
+### Iterator protocol — `next()` yields positions, projection happens at the call site
 
-The iterator yields a value-typed `Position` from `next()`, and the **collection's projection** is what actually hands back the borrow:
+The `Iterator` trait stays unchanged from today (yields `Item` by value via `next()`). What changes is **what concrete iterators yield**:
+
+- A collection's `iter()` returns an `Iterator(Item := Position)` — a position iterator. The position is a plain value (`usize` for arrays/slices/array-lists/string-bytes; could be a node key for trees, a bucket index for hash maps, etc.).
+- A collection's `into_iter()` keeps its existing role: returns an `Iterator(Item := T)` that yields owned elements and consumes the collection.
+
+The borrow side is the **`Indexable(Position)` impl** already landed in Phase C — `project(pos) -> ref(Element)`. The for-macro is what stitches `iter()` and `project(pos)` together so the user never has to call `project` by hand.
 
 ```rust
+// Trait stays exactly as today.
 Iterator :: trait(
-  Position : Type,
-  Collection : Type,
-  /// Advance the iterator. Returns the next position, or `.None` when exhausted.
-  next : fn(ref(self) : Self) -> Option(Self.Position),
-  where(Self.Collection <: Indexable(Self.Position))
+  Item : Type,
+  next : fn(ref(self) : Self) -> Option(Self.Item)
 );
 
+// From Phase C — unchanged.
 Indexable :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Element : Type,
@@ -104,19 +108,18 @@ Indexable :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 );
 ```
 
-This shape decouples _what positions exist_ (the iterator's job) from _how to read/write an element at a position_ (the collection's job). Linked-list iterators can have `Position := *(Node(T))` internally (privileged) and project through a node-deref; array iterators have `Position := usize` and project through array indexing. The user never sees either pointer.
+This shape decouples _what positions exist_ (the iterator's job) from _how to read/write an element at a position_ (the collection's `Indexable` impl). Linked-list iterators can have `Item := *(Node(T))` internally (privileged) and project through a node-deref; array iterators have `Item := usize` and project through array indexing. The user never sees either pointer.
 
-The `for` macro lowers `for(coll, x => body)` to:
+The `for` macro lowers `for(coll, ref(x) => body)` to:
 
 ```rust
 {
-  iter_var := coll.iter();
+  __for_coll := coll;
+  __for_iter := __for_coll.iter();
   while(runtime(true), {
-    pos_var := iter_var.next();
-    match(
-      pos_var,
-      .Some(pos) => {
-        ref(x) := coll.project(pos);
+    match(__for_iter.next(),
+      .Some(__for_pos) => {
+        ref(x) := __for_coll.project(__for_pos);
         body
       },
       .None => break
@@ -125,7 +128,23 @@ The `for` macro lowers `for(coll, x => body)` to:
 }
 ```
 
-Notice `body` is **lexically inside the while loop** — `break` and `continue` work exactly as they do in a hand-written `while`. There is no closure boundary between the body and the loop, so no escape problem.
+`body` is **lexically inside the while loop** — `break` and `continue` work exactly as they do in a hand-written `while`. There is no closure boundary between the body and the loop, so no escape problem.
+
+The value form `for(coll, (x) => body)` lowers identically except it calls `coll.into_iter()` and binds `x` directly from the `.Some` arm (no `project` call):
+
+```rust
+{
+  __for_iter := coll.into_iter();
+  while(runtime(true), {
+    match(__for_iter.next(),
+      .Some(x) => body,
+      .None => break
+    )
+  });
+}
+```
+
+The lambda's binding shape (`ref(x)` vs `(x)`) is what tells the macro which expansion to use; everything else is the same. A blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) makes `for(combinator_chain, (x) => body)` work uniformly with `for(coll, (x) => body)`.
 
 ### Worked example — `ArrayList(T)`
 
@@ -142,8 +161,7 @@ impl(
   forall(T : Type),
   ArrayListIter(T),
   Iterator(
-    Position : usize,
-    Collection : ArrayList(T),
+    Item : usize,
     next : (fn(ref(self) : Self) -> Option(usize))({
       cond(
         (self._idx >= self._coll.len()) => Option(usize).None,
@@ -183,7 +201,7 @@ main :: (fn() -> unit)({
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  for(list, (x) => {
+  for(list, ref(x) => {
     cond(
       (x == i32(2)) => continue,
       (x > i32(10)) => break,
@@ -451,15 +469,61 @@ Possible cleanup:
 
 ### Phase D — Iterator-protocol migration
 
-- Update the `Iterator` trait declaration to add `Position` and `Collection` associated types and the new `where Collection <: Indexable(Position)` constraint.
-- Migrate every stdlib iterator (`ArrayIterPtr`, `SliceIterPtr`, `ArrayListIter`, `HashMapIter`, …) to yield positions instead of `*(T)`. Drop the legacy `*IterPtr` types from the public surface (move to `_ArrayIterPos`-style internal names).
-- The `for` macro in `std/prelude.yo` changes its expansion to insert the `ref(x) := coll.project(pos);` binding between the `next()` call and the body.
+**Key insight:** no new trait is needed. The existing `Iterator` trait stays as-is (yields `Item` by value via `next()`). The for-macro is a macro, not a generic function, so the lambda's binding shape dictates which method on `coll` to call, and the type system enforces the rest. The new "position iterator" returned by `coll.iter()` is just an `Iterator(Item := Position)` — same trait, different `Item`. The borrow-side wiring is the `Indexable(Position)` impl that already landed in Phase C.
+
+**For-macro dispatch by lambda binding shape:**
+
+```rust
+// Borrow iteration — lambda is `ref(x) => body`. Calls `coll.iter()`.
+for(coll, ref(x) => body)
+  // expands to:
+  { __for_coll := coll;
+    __for_iter := __for_coll.iter();   // Iterator yielding positions
+    while(runtime(true), {
+      match(__for_iter.next(),
+        .Some(__for_pos) => {
+          ref(x) := __for_coll.project(__for_pos);
+          body
+        },
+        .None => break
+      )
+    });
+  }
+
+// Value iteration — lambda is `(x) => body`. Calls `coll.into_iter()`.
+for(coll, (x) => body)
+  // expands to:
+  { __for_iter := coll.into_iter();    // Iterator yielding owned values
+    while(runtime(true), {
+      match(__for_iter.next(),
+        .Some(x) => body,
+        .None => break
+      )
+    });
+  }
+```
+
+The `coll.iter()` / `coll.into_iter()` split is the existing one — the macro picks which method to invoke based on the lambda's shape. Bare `(x) =>` is consume semantics (collection consumed, each x owned); `ref(x) =>` is borrow semantics (collection survives, each x is a `ref`-binding into element storage). The pun matches the local-binding convention (`name := expr` consumes; `ref(name) := expr` borrows).
+
+**Combinators stay value-yielding.** `IterMap`, `IterFilter`, `IterTake`, etc. continue to implement `Iterator(Item := T)` for some computed `T`. They don't have a `Collection` to project from, so they only support the `(x) =>` shape. Calling `for(coll.iter().map(f), ref(x) => body)` would be a type error (the combinator has no `project` method) — the right answer.
+
+**`Iterator` blanket `into_iter` impl** for `forall(I), where(I <: Iterator)` returning `self`. This lets `for(combinator_chain, (x) => body)` work uniformly with `for(coll, (x) => body)` — the macro always emits `X.into_iter()` for the value-iteration shape; for raw iterators the blanket impl is the identity.
+
+**Migration:**
+
+- `coll.iter()`'s yielded type changes from `Option(*(T))` (old `ArrayIterPtr` etc.) to `Option(Position)` (new position iterator). Old `*IterPtr` types are removed.
+- `coll.into_iter()` stays as-is (yields `Option(T)`).
+- Every stdlib `for(coll.iter(), (ptr) => { ... ptr.* ... })` callsite migrates to one of:
+  - `for(coll, ref(x) => { ... x ... })` — borrow form, no pointer deref needed.
+  - `for(coll.into_iter(), (x) => { ... })` — consume form, if the original code was effectively copying.
+- Per-collection migration (Array, Slice, ArrayList, String first — all have `Indexable` from Phase C). HashMap and other non-Indexable collections defer until they grow `Indexable` impls.
 
 ### Phase E — User-facing migration
 
 - `public-safe-report` lint catches any remaining `*(T)`-yielding iterator on the public surface.
-- Update existing tests that destructured `*(T)` iterators (the for-macro change is transparent for callers that already used `for(coll, x => body)`; only direct `.next()` consumers need updating).
-- Update `docs/{en-US,zh-CN}/DESIGN.md` iteration section.
+- Update remaining tests and stdlib callsites that consume position iterators directly (rather than through `for`).
+- Update `docs/{en-US,zh-CN}/DESIGN.md` iteration section to describe the lambda-shape dispatch.
+- Extend `Indexable` to `HashMap` (key-as-position) and other non-array collections so they too support `for(coll, ref(x) => body)`. May require resolving Open Question 3 (HashMap tuple iteration).
 
 ## Alternatives Considered
 
@@ -499,7 +563,7 @@ with a `yield expr` form in the body that pauses and returns control to the call
 
 4. **Interaction with effect-typed `ctl` bodies.** A `ctl(...) -> R` function can `unwind` out of an `ref(x) := projection_call(...);` block. What happens to the projection? Lean: nothing — the projection has no destructor, it just dangles when the call frame is gone, which is fine because nothing was holding a reference to it after unwind.
 
-5. **Generic combinators.** `IteratorChain :: struct(it : I)` where `I <: Iterator` — how does `IteratorChain.next()` thread the `Position` and `Collection` associated types? Lean: associated-type passthrough, same shape as how `Result(T, E).map` threads `E`. May need experimentation.
+5. **Generic combinators.** Resolved: combinators stay value-yielding `Iterator(Item := T)` for some computed `T`. They don't have a `Collection` to project from, so they only support `for(combinator_chain, (x) => body)`. `ref(x) =>` on a combinator chain is a type error (no `project` method) — which is the right answer, since map/filter/take/skip can't naturally yield borrows into a single source.
 
 6. **Match destructuring of `inout`-bound values.** If `opt` is inout-bound and we write `match(opt, .Some(x) => ..., .None => ...)`, should `x` inherit `isInout` (so the body can write through it to caller storage) or be a fresh value-copy? Conservative answer for v1: fresh value-copy (current Yo behavior). Future refinement: a `match(opt, .Some(ref(x)) => ...)` form that explicitly opts into inout-binding for the destructured payload. Defer until a real use case demands it.
 

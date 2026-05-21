@@ -1503,6 +1503,31 @@ impl(
     )
   )
 );
+/// Byte-position iterator for `String` — yields `usize` byte indices.
+/// Used by `String.iter()`; the for-macro pairs each yielded position
+/// with `String.project(pos)` (Indexable from Phase C) to bind the
+/// body's `ref`-name to a byte in `self._bytes.Some`. See
+/// plans/ITERATOR_REDESIGN.md.
+_StringPosIter :: struct(
+  _index : usize,
+  _len : usize
+);
+impl(
+  _StringPosIter,
+  Iterator(
+    Item : usize,
+    next : (fn(ref(self) : Self) -> Option(usize))(
+      cond(
+        (self._index >= self._len) =>.None,
+        true => {
+          out := self._index;
+          self._index = (self._index + usize(1));
+          .Some(out)
+        }
+      )
+    )
+  )
+);
 impl(
   String,
   /**
@@ -1516,6 +1541,17 @@ impl(
   */
   bytes : (fn(self : Self) -> StringBytes)(
     StringBytes(_string : self, _index : usize(0))
+  ),
+  /// Byte-position iterator for `for(s, ref(b) => body)`. Yields
+  /// `usize` byte indices; the for-macro pairs each with
+  /// `s.project(pos)` (Indexable) so the body sees `ref(u8)` bound
+  /// to each byte. Iteration is byte-level, not rune-level — for
+  /// codepoint iteration use `chars()` explicitly.
+  iter : (fn(ref(self) : Self) -> _StringPosIter)(
+    _StringPosIter(
+      _index : usize(0),
+      _len : match(self._bytes,.Some(b) => b.len(),.None => usize(0))
+    )
   ),
   /**
   * Consume the string and return a rune iterator (default iteration)

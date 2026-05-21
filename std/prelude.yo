@@ -7635,29 +7635,25 @@ IntoIterator :: trait(
 );
 export(IntoIterator);
 /// === Array Iterator ===
-/**
-* Pointer iterator for Array(T, N) - yields *(T) pointers to each element
-* Used by Array.iter()
-*/
-ArrayIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    _ptr : *(T),
-    _index : usize,
-    _len : usize
-  )
+/// Position iterator for Array(T, N) — yields `usize` indices.
+/// Used by `Array.iter()`; the for-macro pairs each yielded position
+/// with `Array.project(pos)` (Indexable trait) to hand the body a
+/// `ref(T)`-binding into the element. See plans/ITERATOR_REDESIGN.md.
+_ArrayPosIter :: struct(
+  _index : usize,
+  _len : usize
 );
 impl(
-  forall(T : Type),
-  ArrayIterPtr(T),
+  _ArrayPosIter,
   Iterator(
-    Item : *(T),
-    next : (fn(ref(self) : Self) -> Option(*(T)))(
+    Item : usize,
+    next : (fn(ref(self) : Self) -> Option(usize))(
       cond(
         (self._index >= self._len) =>.None,
         true => {
-          element_ptr := (self._ptr &+ self._index);
+          out := self._index;
           self._index = (self._index + usize(1));
-          .Some(element_ptr)
+          .Some(out)
         }
       )
     )
@@ -7666,34 +7662,30 @@ impl(
 impl(
   forall(T : Type, N : usize),
   Array(T, N),
-  iter : (fn(ref(self) : Self) -> ArrayIterPtr(T))(
-    unsafe(ArrayIterPtr(T)(_ptr : &(self(usize(0))), _index : usize(0), _len : N))
+  iter : (fn(ref(self) : Self) -> _ArrayPosIter)(
+    _ArrayPosIter(_index : usize(0), _len : N)
   )
 );
-export(ArrayIterPtr);
 /// === Slice Iterator ===
-/**
-* Pointer iterator for Slice(T) - yields *(T) pointers to each element
-* Used by Slice.iter()
-*/
-SliceIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    _slice : Slice(T),
-    _index : usize
-  )
+/// Position iterator for Slice(T) — yields `usize` indices into the
+/// slice. Used by `Slice.iter()`; the for-macro pairs each yielded
+/// position with `Slice.project(pos)` (Indexable) to bind the body's
+/// `ref`-name. See plans/ITERATOR_REDESIGN.md.
+_SlicePosIter :: struct(
+  _index : usize,
+  _len : usize
 );
 impl(
-  forall(T : Type),
-  SliceIterPtr(T),
+  _SlicePosIter,
   Iterator(
-    Item : *(T),
-    next : (fn(ref(self) : Self) -> Option(*(T)))(
+    Item : usize,
+    next : (fn(ref(self) : Self) -> Option(usize))(
       cond(
-        (self._index >= self._slice.len()) =>.None,
+        (self._index >= self._len) =>.None,
         true => {
-          ptr := &((self._slice)(self._index));
+          out := self._index;
           self._index = (self._index + usize(1));
-          .Some(ptr)
+          .Some(out)
         }
       )
     )
@@ -7702,11 +7694,10 @@ impl(
 impl(
   forall(T : Type),
   Slice(T),
-  iter : (fn(ref(self) : Self) -> SliceIterPtr(T))(
-    unsafe(SliceIterPtr(T)(_slice : self, _index : usize(0)))
+  iter : (fn(ref(self) : Self) -> _SlicePosIter)(
+    _SlicePosIter(_index : usize(0), _len : self.len())
   )
 );
-export(SliceIterPtr);
 /// TryFrom trait — fallible conversion from one type to another.
 TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
   trait(
@@ -7770,17 +7761,38 @@ try :: (fn(quote(expr_to_try) : Expr) -> unquote(Expr))({
   })
 });
 export(try);
-/// `for` macro — iterate over a collection using the `Iterator` trait.
+/// `for` macro — iterate over a collection. The lambda's binding shape
+/// dictates whether the iteration borrows or consumes:
 ///
-/// # Example
+///   `for(coll, ref(x) => body)` — borrow form. Calls `coll.iter()`
+///     (must yield positions) + `coll.project(pos)` for each. `x` is
+///     `ref`-bound to the element; reads auto-deref, writes propagate
+///     back to the collection; `coll` survives the loop.
+///
+///   `for(coll, (x) => body)` — value form. Calls `coll.into_iter()`
+///     and binds `x` to each yielded value. The collection is moved
+///     into the iterator and consumed.
+///
+/// Combinator chains (`coll.iter().map(f)`, etc.) only support the
+/// value form — they yield computed values, not borrows. A blanket
+/// `into_iter` impl on `Iterator` (below) makes the value form work
+/// transparently on iterator chains.
+///
+/// See plans/ITERATOR_REDESIGN.md.
+///
+/// # Examples
 /// ```rust
-/// for arr.iter(), (value) => {
-///   printf("value %d\n", value.*);
-/// };
+/// // Borrow form — mutate elements in place.
+/// for(arr, ref(x) => {
+///   x = (x + i32(1));
+/// });
+///
+/// // Value form — consume the collection.
+/// for(list.into_iter(), (x) => print(x));
 /// ```
 for :: (
   fn(
-    quote(iter) : Expr,
+    quote(coll) : Expr,
     quote(handle) : Expr
   ) -> unquote(Expr)
 )({
@@ -7795,21 +7807,58 @@ for :: (
             comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
             variable :: args.car();
             body :: args.cdr().car();
-            iter_var :: gensym("for_iter_var");
-            temp_var :: gensym("for_temp_var");
-            quote({
-              unquote(iter_var) := unquote(iter);
-              while(runtime(true), {
-                unquote(temp_var) := unquote(iter_var).next();
-                match(
-                  unquote(temp_var),
-                  .Some(unquote(variable)) => unquote(body),
-                  .None => {
-                    break;
-                  }
-                )
-              });
-            })
+            // Detect `ref(name) => body` — borrow form. Otherwise
+            // it's the value form `(name) => body`.
+            is_ref_form :: cond(
+              variable.is_fn_call() => {
+                v_callee :: variable.get_callee();
+                v_callee.is_atom() && (v_callee == quote(ref))
+              },
+              true => false
+            );
+            cond(
+              is_ref_form => {
+                v_args :: variable.get_args();
+                comptime_assert(v_args.len() == 1, "'for' macro: ref(name) requires exactly one name");
+                name :: v_args.car();
+                coll_var :: gensym("for_coll");
+                iter_var :: gensym("for_iter_var");
+                pos_var :: gensym("for_pos_var");
+                quote({
+                  unquote(coll_var) := unquote(coll);
+                  unquote(iter_var) := unquote(coll_var).iter();
+                  while(runtime(true), {
+                    match(
+                      unquote(iter_var).next(),
+                      .Some(unquote(pos_var)) => {
+                        ref(unquote(name)) := unquote(coll_var).project(unquote(pos_var));
+                        unquote(body);
+                      },
+                      .None => {
+                        break;
+                      }
+                    );
+                  });
+                })
+              },
+              true => {
+                iter_var :: gensym("for_iter_var");
+                temp_var :: gensym("for_temp_var");
+                quote({
+                  unquote(iter_var) := unquote(coll).into_iter();
+                  while(runtime(true), {
+                    unquote(temp_var) := unquote(iter_var).next();
+                    match(
+                      unquote(temp_var),
+                      .Some(unquote(variable)) => unquote(body),
+                      .None => {
+                        break;
+                      }
+                    )
+                  });
+                })
+              }
+            )
           },
           true => {
             comptime_assert(false, "for macro requires a function handle with `=>`");
@@ -8029,6 +8078,18 @@ export(IterZip);
 // ---------------------------------------------------------------------------
 // Blanket methods — added to all types implementing Iterator
 // ---------------------------------------------------------------------------
+/// Blanket `into_iter` — every `Iterator` is its own `IntoIterator`,
+/// returning `self`. This lets `for(combinator_chain, (x) => body)`
+/// expand to `combinator_chain.into_iter().next()` uniformly with
+/// `for(coll, (x) => body)` — the macro always calls `.into_iter()`
+/// for the value-iteration form, and for an iterator we hand back
+/// self. See plans/ITERATOR_REDESIGN.md.
+impl(
+  forall(I : Type),
+  where(I <: Iterator),
+  I,
+  into_iter : (fn(self : Self) -> Self)(self)
+);
 impl(
   forall(I : Type),
   where(I <: Iterator),
