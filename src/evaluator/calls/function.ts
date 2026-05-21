@@ -2107,8 +2107,16 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         }
       }
 
-      // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr, true);
+      // Set temp variable which holds the result of the function call.
+      // For `-> ref(T)` returning calls, mark the temp as `isRef` so
+      // the codegen declares it `T*` (matching the call's actual C
+      // return type) and atom reads auto-deref via the existing
+      // ref-aware atom emitter. See plans/ITERATOR_REDESIGN.md
+      // Phase B.
+      const callReturnIsRef =
+        isFunctionType(functionToCall.type) &&
+        functionToCall.type.return.isRef === true;
+      attachTempVariableToExpr(expr, true, undefined, callReturnIsRef);
 
       // Attach necessary info to the func.
       // Preserve runtimeArgExprsInOrder and deferredDropExpressions if func was
@@ -2297,8 +2305,16 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
-      // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr, true);
+      // Set temp variable which holds the result of the function call.
+      // For `-> ref(T)` returning calls, mark the temp as `isRef` so
+      // the codegen declares it `T*` (matching the call's actual C
+      // return type) and atom reads auto-deref via the existing
+      // ref-aware atom emitter. See plans/ITERATOR_REDESIGN.md
+      // Phase B.
+      const callReturnIsRef =
+        isFunctionType(functionToCall.type) &&
+        functionToCall.type.return.isRef === true;
+      attachTempVariableToExpr(expr, true, undefined, callReturnIsRef);
 
       // Attach necessary info to the func
       func.$ = {
@@ -2355,8 +2371,16 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
-      // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr, true);
+      // Set temp variable which holds the result of the function call.
+      // For `-> ref(T)` returning calls, mark the temp as `isRef` so
+      // the codegen declares it `T*` (matching the call's actual C
+      // return type) and atom reads auto-deref via the existing
+      // ref-aware atom emitter. See plans/ITERATOR_REDESIGN.md
+      // Phase B.
+      const callReturnIsRef =
+        isFunctionType(functionToCall.type) &&
+        functionToCall.type.return.isRef === true;
+      attachTempVariableToExpr(expr, true, undefined, callReturnIsRef);
 
       // Attach necessary info to the func
       func.$ = {
@@ -2387,8 +2411,16 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       expr.$.env = env;
       expr.$.runtimeArgExprsInOrder = runtimeArgExprsInOrder;
 
-      // Set temp variable which holds the result of the function call
-      attachTempVariableToExpr(expr, true);
+      // Set temp variable which holds the result of the function call.
+      // For `-> ref(T)` returning calls, mark the temp as `isRef` so
+      // the codegen declares it `T*` (matching the call's actual C
+      // return type) and atom reads auto-deref via the existing
+      // ref-aware atom emitter. See plans/ITERATOR_REDESIGN.md
+      // Phase B.
+      const callReturnIsRef =
+        isFunctionType(functionToCall.type) &&
+        functionToCall.type.return.isRef === true;
+      attachTempVariableToExpr(expr, true, undefined, callReturnIsRef);
 
       // Attach necessary info to the func
       func.$ = {

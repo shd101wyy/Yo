@@ -1644,7 +1644,15 @@ export function consumeCaseBodyTempVar(
 export function attachTempVariableToExpr(
   expr: Expr,
   isOwningTheRcValue: boolean,
-  isOwningTheSameRcValueAs?: Variable
+  isOwningTheSameRcValueAs?: Variable,
+  /**
+   * Phase B of plans/ITERATOR_REDESIGN.md — set when the expression
+   * is a call to a function whose return slot is `ref(T)`. The temp
+   * variable created here will hold the raw `T*` returned by the C
+   * function; the codegen reads `isRef` on the variable to emit
+   * `T*` as the declared type and `(*name)` for atom reads.
+   */
+  isRef?: boolean
 ): void {
   if (!expr.$) {
     throw new Error(`Expected expression to be evaluated, but it is not:
@@ -1724,10 +1732,13 @@ ${exprToString(expr)}`);
         value: _isOwningTheARCValue ? undefined : value ? [value] : undefined,
         isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
         initializedAtToken: expr.token,
-        isOwningTheRcValue: _isOwningTheARCValue,
+        // A ref-yielding call's temp holds the raw `T*` returned by
+        // the C function — it borrows, doesn't own. Skip RC tracking.
+        isOwningTheRcValue: isRef ? false : _isOwningTheARCValue,
         isOwningTheSameRcValueAs,
         consumedAtToken: undefined,
         token: expr.token,
+        isRef: isRef || undefined,
       },
       addToBeginBlockFrame: true,
     });
@@ -1752,10 +1763,13 @@ ${exprToString(expr)}`);
       value: _isOwningTheARCValue ? undefined : value ? [value] : undefined,
       isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
       initializedAtToken: expr.token,
-      isOwningTheRcValue: _isOwningTheARCValue,
+      // A ref-yielding call's temp holds the raw `T*` returned by the
+      // C function — it borrows, doesn't own. Skip RC tracking.
+      isOwningTheRcValue: isRef ? false : _isOwningTheARCValue,
       isOwningTheSameRcValueAs,
       consumedAtToken: undefined,
       token: expr.token,
+      isRef: isRef || undefined,
     },
     addToBeginBlockFrame: true,
   });

@@ -422,11 +422,17 @@ Tests landed in `tests/ref_local_binding.test.yo`:
 - `comptime_expect_error` negatives for `ref(r) :: ...` (with `::`), and for closure-capture of a ref-bound local.
 - Positive smoke test that regular `:=` bindings still compile cleanly (no false positives).
 
-**Still deferred — codegen completeness:**
+**End-to-end codegen for ref-returning calls (landed in the same commit as the parser side ✅):**
 
-- **Flowability rule on the RHS.** Today the parser accepts any RHS for `ref(name) := X` and lets the C compiler error out on type mismatch. The flowability check (the same R1–R4 rule that gates `-> ref(T)` returns — see "Soundness of `ref(T)` return slots" above) should run on the RHS at evaluation time so the user gets a targeted error: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is of type ${T}, not a ref projection.`
-- **End-to-end C codegen for `ref(name) := call(...)`.** The call's intermediate temp variable today declares `T _temp = fn_call(...)`, but `fn_call` for a `-> ref(T)` function returns `T*` — a C type mismatch. To close this, the call's temp variable type needs to track the function's return.isRef flag (declare `T* _temp = fn_call(...)`), and value-context reads of that temp need to auto-deref via the same atom codegen path that handles `ref`-bound parameter reads. The fix is mechanical but threads through `expr.ts` (temp creation) and `codegen/exprs/initialization-assignment.ts` (temp emission). Land in a follow-up commit before Phase C (Indexable trait) so the iterator examples in Phase C actually compile.
-- **Call-site auto-deref for value contexts** — same blocker as the previous bullet; resolved together.
+- `attachTempVariableToExpr` in `src/expr.ts` grows an optional `isRef` parameter. The function-call evaluator passes `true` when the called function's return slot has `isRef`, so the temp variable holding the call result gets `isRef: true` in its env entry.
+- The temp's declaration in `src/codegen/exprs/other-fn-call.ts` checks `functionValueType.return.isRef` and appends `*` to the C declared type — so `int32_t _temp = fn_call(...)` becomes `int32_t* _temp = fn_call(...)`, matching the actual C return type.
+- Atom reads of the temp variable use the existing ref-aware atom emitter (which keys off `isRef`) to produce `(*_temp)` in value contexts — same code path as `ref`-bound parameter reads. So `y := identity(x);` becomes `int32_t y = (*_temp);` in the C output, with the deref happening exactly once at the read site.
+- `ref(name) := call(...)` flows the raw `T*` through both variables (call's temp and binding's local), each declared `T*`. Subsequent reads and writes through `name` go through the same `(*name)` lowering as `ref(name) : T` parameters.
+
+**Still deferred:**
+
+- **Flowability rule on the RHS.** Today the evaluator doesn't type-check the RHS as a ref-yielding expression; if it isn't, the C compiler errors out on type mismatch. The same R1–R4 flowability rule that gates `-> ref(T)` returns (see "Soundness of `ref(T)` return slots" above) should run on the RHS of `ref(name) := X` with a targeted error: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is of type ${T}, not a ref projection.`
+- **Flowability rule on `-> ref(T)` return expressions** — likewise, return-position should be checked against R1–R4. The simple cases (return a ref-param atom; return field-access on a ref-param) already produce correct code; complex cases (cond/match arms, projection chains) need the rule to enforce soundness before Phase C wires up real iterators.
 
 ### Phase C — `Indexable(Idx)` trait + ArrayList migration
 
@@ -494,7 +500,7 @@ with a `yield expr` form in the body that pauses and returns control to the call
 
 - ✅ Design sketched (this document).
 - ✅ Phase A — `ref(T)` return slot parsing + signature codegen (minimal body).
-- 🚧 Phase B — parser + binding form landed; flowability rule + end-to-end call codegen deferred.
+- 🚧 Phase B — parser + binding form + end-to-end ref-call codegen landed; flowability rule deferred.
 - ☐ Phase C — `Indexable(Idx)` trait + ArrayList migration.
 - ☐ Phase D — Iterator protocol migration.
 - ☐ Phase E — User-facing migration + lint pass.

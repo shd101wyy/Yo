@@ -1023,6 +1023,20 @@ export function generateOtherFunctionCall(
                 cTypeString = getTypeString(returnType ?? exprType, context);
               }
 
+              // Phase B of plans/ITERATOR_REDESIGN.md — for a function
+              // whose return slot is `-> ref(T)`, the C signature returns
+              // `T*`. The temp variable that holds the result must
+              // therefore be declared `T*` too. The evaluator marks
+              // such temp variables with `isRef: true` (in
+              // `attachTempVariableToExpr`); the existing ref-aware
+              // atom emitter handles `(*temp)` auto-deref on read.
+              if (
+                functionValueType.return.isRef &&
+                !cTypeString.endsWith("*")
+              ) {
+                cTypeString = `${cTypeString}*`;
+              }
+
               // Guard against duplicate temp variable declarations.
               // This can happen when the same sub-expression is traversed
               // multiple times (e.g., begin block dup handling).

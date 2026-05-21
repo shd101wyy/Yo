@@ -48,3 +48,19 @@ test("regular := bindings still compile", {
   y := x;
   assert(y == i32(5), "regular binding works");
 });
+// End-to-end positive: `ref(name) := call(...)` binds the local
+// to the storage yielded by a `-> ref(T)` function call. Reading
+// and writing through the binding reach the caller's storage.
+test("ref(name) := call(...) — read through the binding", {
+  x := i32(42);
+  ref(r) := identity(x);
+  // Reading r auto-derefs to the underlying i32 value.
+  assert(r == i32(42), "reads through the ref-binding");
+});
+test("ref(name) := call(...) — write through the binding propagates to caller", {
+  x := i32(5);
+  ref(r) := identity(x);
+  // Writing through r writes through the projection to x.
+  r = i32(99);
+  assert(x == i32(99), "writes through the ref-binding propagate");
+});
