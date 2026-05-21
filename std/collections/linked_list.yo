@@ -463,6 +463,36 @@ impl(
     LinkedListIterPtr(T)(_current : self.head)
   )
 );
+/// Index trait — `list(idx)` returns the element at `idx`. O(n) walk.
+/// `&(node.value)` is a valid heap pointer while `self` keeps the
+/// Rc chain alive — the dispatcher inlines and dereferences this
+/// before any drop runs. Same pattern as `LinkedListIterPtr.next`.
+impl(
+  forall(T : Type),
+  LinkedList(T),
+  Index(usize)(
+    Output : T,
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+      assert(idx < self.length, "LinkedList: index out of bounds");
+      (current : Option(Node(T))) = self.head;
+      i := usize(0);
+      while(runtime(true), {
+        match(
+          current,
+          .Some(node) => {
+            if(i == idx, {
+              return(unsafe(&(node.value)));
+            });
+            current = node.next;
+            i = (i + usize(1));
+          },
+          .None => panic("LinkedList: unreachable past length check")
+        );
+      });
+      panic("LinkedList: index loop exited without return")
+    })
+  )
+);
 export(
   LinkedList,
   LinkedListError,
