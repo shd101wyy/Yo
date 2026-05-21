@@ -446,4 +446,19 @@ impl(
     })
   )
 );
+/// Index trait — `vec(idx)` returns the element at `idx`, panicking if
+/// out of bounds. Body takes `&(self)` so the dispatcher's inlined call
+/// passes the right C-ABI shape. See plans/ITERATOR_REDESIGN.md.
+impl(
+  forall(T : Type),
+  where(T <: Send),
+  Vec(T),
+  Index(usize)(
+    Output : T,
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+      assert(idx < self._len, "imm.Vec: index out of bounds");
+      self._ptr &+ idx
+    })
+  )
+);
 export(Vec, PopResult);
