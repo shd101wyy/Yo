@@ -435,11 +435,20 @@ Tests landed in `tests/ref_local_binding.test.yo`:
 - `src/evaluator/exprs/initialization-assignment.ts`: runs `isFlowableExpr` on the RHS of every `ref(name) := X;` binding. Non-flowable RHS yields a targeted error listing what counts as flowable.
 - `src/evaluator/values/anonymous-function.ts` and `src/evaluator/calls/function-type.ts`: both function-body evaluation paths (inline lambda + top-level `(fn(...) -> ref(T))(body)`) run the check on the body's final expression, unwrapping begin blocks. The error points at the offending sub-expression.
 
-### Phase C — `Indexable(Idx)` trait + ArrayList migration
+### Phase C — `Indexable(Idx)` trait + collection impls (partial ✅)
 
-- Define `Indexable(Idx)` in `std/prelude.yo` alongside `Index(Idx)`. Initial scope: a single `project` method (no read-only variant).
-- Implement `Indexable(usize)` for `Array(T, N)`, `Slice(T)`, `ArrayList(T)`, `String`. Body uses pointer arithmetic inside `unsafe(...)` (privileged files).
-- Verify the existing `Index(usize)` trait can be expressed as a thin wrapper over `Indexable(usize).project` — possibly the two collapse into one in a later cleanup.
+Landed:
+
+- `Indexable(Idx)` trait declared in `std/prelude.yo` alongside `Index(Idx)`. The `project` method returns `ref(Element)` instead of `*(Element)`. Single method only (no read-only variant — see Open Question 1).
+- `Indexable(usize)` impls for `Array(T, N)`, `Slice(T)`, `ArrayList(T)`. Bodies wrap the existing pointer-arithmetic builtins (`__yo_array_index`, `__yo_slice_index`, `ArrayList` pointer arithmetic) in `unsafe(...)`. The flowability rule treats `unsafe(...)` as the trusted escape hatch from R1–R4 since the Phase C privilege gate already restricts `unsafe` to pragma'd files.
+- Flowability rule also accepts `panic(...)` and any expression with `controlFlow` set (return/unwind/break/continue) as vacuously flowable — those paths never actually yield a value.
+- Tests in `tests/indexable.test.yo` cover all three collections: read through a `ref`-bound projection returns the underlying element, write through the projection propagates to the collection.
+
+Still deferred:
+
+- **`Indexable(usize)` impl for `String`.** Blocked on match-arm type unification — `String`'s body uses `match(self._bytes, .Some(bytes) => &(bytes(pos)), .None => panic(...))`. The existing `Index` impl works because its return slot is `*(u8)` and panic adapts to `*(u8)`. With `Indexable`'s `-> ref(u8)`, the type-level expected type is `u8` (after the `ref(...)` unwrap), so the `.Some` arm produces `*(u8)` while the panic arm gets coerced to `u8` — types disagree. The fix needs either (a) the body type-check to expect `*(T)` when the function's return slot is `ref(T)`, or (b) a dedicated builtin that produces a flowable `*(u8)` from String's internal buffer without going through a `match`. Documented inline in `std/string/string.yo`.
+- Phase D's iterator redesign will reuse `Indexable`, so the `String` fix should land before that.
+- Verifying the existing `Index(usize)` trait can be expressed as a thin wrapper over `Indexable(usize).project` — possible cleanup later.
 
 ### Phase D — Iterator-protocol migration
 
@@ -502,7 +511,7 @@ with a `yield expr` form in the body that pauses and returns control to the call
 - ✅ Design sketched (this document).
 - ✅ Phase A — `ref(T)` return slot parsing + signature codegen (minimal body).
 - ✅ Phase B — parser + binding form + end-to-end ref-call codegen + flowability rule all landed.
-- ☐ Phase C — `Indexable(Idx)` trait + ArrayList migration.
+- 🚧 Phase C — Indexable trait + Array/Slice/ArrayList impls landed; String blocked on match-arm typing.
 - ☐ Phase D — Iterator protocol migration.
 - ☐ Phase E — User-facing migration + lint pass.
 

@@ -229,6 +229,21 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   )
 );
 export(Index);
+/// Indexable trait — projection-style indexing yielding a borrow.
+/// Companion to `Index`, but instead of returning a raw `*(T)` the
+/// `project` method returns a `ref(Element)` — a second-class
+/// reference that flows through Yo's flowability rule (R1–R4) and
+/// can be received by a `ref(name) := coll.project(pos);` local
+/// binding. The for-loop macro lowers iteration through this trait
+/// so user code never sees a raw pointer. See
+/// plans/ITERATOR_REDESIGN.md.
+Indexable :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Element : Type,
+    project : (fn(ref(self) : Self, pos : Idx) -> ref(Self.Element))
+  )
+);
+export(Indexable);
 /// ComptimeIndex — compile-time indexing trait for constant expressions.
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
@@ -5580,6 +5595,21 @@ impl(
     )
   )
 );
+/// Array Indexable impl — projection-style indexing yielding `ref(T)`.
+/// Body uses `unsafe(__yo_array_index(...))` because the result is a
+/// raw `*(T)` borrow rooted in `self`'s storage; the `unsafe` wrap
+/// is the trusted escape from the flowability rule (privileged
+/// code only). See plans/ITERATOR_REDESIGN.md.
+impl(
+  forall(T : Type, N : usize),
+  Array(T, N),
+  Indexable(usize)(
+    Element : T,
+    project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
+      unsafe(__yo_array_index(self, pos))
+    )
+  )
+);
 /// Slice
 impl(forall(T : Type), Slice(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), Slice(T), Comptime());
@@ -5631,6 +5661,17 @@ impl(
     Output : Slice(T),
     index : (fn(ref(self) : Self, idx : RangeInclusive(usize)) -> *(Self.Output))(
       __yo_slice_index_range_inclusive(self, idx)
+    )
+  )
+);
+/// Slice Indexable impl — see Array Indexable above.
+impl(
+  forall(T : Type),
+  Slice(T),
+  Indexable(usize)(
+    Element : T,
+    project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
+      unsafe(__yo_slice_index(self, pos))
     )
   )
 );

@@ -1,0 +1,55 @@
+/// Phase C of plans/ITERATOR_REDESIGN.md — `Indexable` trait + Array
+/// impl. Verifies the end-to-end stack:
+///
+/// - The `Indexable(usize)` impl on `Array(T, N)` declares
+///   `project` with `-> ref(T)` return slot.
+/// - The body uses `unsafe(__yo_array_index(self, pos))` to compute
+///   the element address. The flowability rule treats `unsafe(...)`
+///   as the trusted escape hatch (the privilege gate already restricts
+///   `unsafe` to pragma'd files).
+/// - Codegen lowers the C signature to `T*` and reads/writes through
+///   the resulting ref-binding propagate to the underlying array
+///   element.
+test("Array.project read", {
+  arr := Array(i32, usize(3)).fill(i32(0));
+  arr(usize(0)) = i32(10);
+  arr(usize(1)) = i32(20);
+  arr(usize(2)) = i32(30);
+  ref(r0) := arr.project(usize(0));
+  ref(r1) := arr.project(usize(1));
+  ref(r2) := arr.project(usize(2));
+  assert(r0 == i32(10), "r0 sees the 0th element");
+  assert(r1 == i32(20), "r1 sees the 1st element");
+  assert(r2 == i32(30), "r2 sees the 2nd element");
+});
+test("Array.project write propagates to the underlying array", {
+  arr := Array(i32, usize(3)).fill(i32(0));
+  ref(r) := arr.project(usize(1));
+  r = i32(99);
+  assert(arr(usize(0)) == i32(0), "untouched element stays at 0");
+  assert(arr(usize(1)) == i32(99), "written element reflects the new value");
+  assert(arr(usize(2)) == i32(0), "untouched element stays at 0");
+});
+test("Slice.project read and write", {
+  arr := Array(i32, usize(3)).fill(i32(0));
+  arr(usize(0)) = i32(10);
+  arr(usize(1)) = i32(20);
+  arr(usize(2)) = i32(30);
+  // Slice of the full array.
+  s := arr(usize(0)..usize(3));
+  ref(r1) := s.project(usize(1));
+  assert(r1 == i32(20), "Slice.project reads the 1st element");
+  r1 = i32(200);
+  assert(arr(usize(1)) == i32(200), "writes through slice projection propagate to array");
+});
+{ ArrayList } :: import("std/collections/array_list");
+test("ArrayList.project read and write", {
+  list := ArrayList(i32).new();
+  list.push(i32(7));
+  list.push(i32(14));
+  list.push(i32(21));
+  ref(r1) := list.project(usize(1));
+  assert(r1 == i32(14), "ArrayList.project reads the 1st element");
+  r1 = i32(140);
+  assert(list(usize(1)) == i32(140), "writes through ArrayList projection propagate");
+});

@@ -502,6 +502,24 @@ impl(
     })
   )
 );
+/// Indexable impl — projection-style indexing yielding `ref(T)`.
+/// See plans/ITERATOR_REDESIGN.md. Body wraps the pointer arithmetic
+/// in `unsafe(...)` to pass the flowability check.
+impl(
+  forall(T : Type),
+  ArrayList(T),
+  Indexable(usize)(
+    Element : T,
+    project : (fn(ref(self) : Self, pos : usize) -> ref(T))({
+      assert(pos < self._length, "ArrayList: project out of bounds");
+      match(
+        self._ptr,
+        .Some(_ptr) => unsafe(_ptr &+ pos),
+        .None => panic("ArrayList: project on empty list")
+      )
+    })
+  )
+);
 impl(
   forall(T : Type),
   ArrayList(T),

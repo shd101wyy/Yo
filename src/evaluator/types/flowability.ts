@@ -34,10 +34,12 @@
  */
 
 import {
+  BuiltinFunctions,
   BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  hasAnyControlFlow,
   type Expr,
   type FnCallExpr,
 } from "../../expr";
@@ -74,6 +76,38 @@ export function isFlowableExpr(expr: Expr): boolean {
   // Strip any outer `begin(...)` wrapper(s). Single-expression
   // bodies after evaluation often appear as `begin((expr))`.
   expr = unwrapBeginBlocks(expr);
+
+  // Divergent expressions never actually yield a value to the
+  // surrounding expression — `panic(...)`, `return(...)`,
+  // `unwind(...)`, `break`, `continue`, or anything with a control-
+  // flow flag set. Accept vacuously: a function whose return value
+  // is unreachable through this path can't smuggle a dangling
+  // reference out through it.
+  if (hasAnyControlFlow(expr.$?.controlFlow)) {
+    return true;
+  }
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCallOf(expr, BuiltinFunctions.panic)
+  ) {
+    return true;
+  }
+
+  // Trusted escape hatch: `unsafe(expr)` in privileged code is the
+  // documented "trust me" marker. The Phase C structural gate
+  // already restricts `unsafe(...)` to files declaring
+  // `pragma(Pragma.AllowUnsafe);`, so accepting it as flowable
+  // here doesn't widen the safe-code attack surface. Used by
+  // `Indexable.project` impls on Array, Slice, ArrayList, String —
+  // they compute the element address via `__yo_array_index` etc.
+  // and wrap the result in `unsafe(...)`. See
+  // plans/ITERATOR_REDESIGN.md and plans/MEMORY_SAFETY.md.
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCallOf(expr, BuiltinFunctions.unsafe)
+  ) {
+    return true;
+  }
 
   // R1: bare name → check binding flag.
   if (exprIsAtom(expr)) {

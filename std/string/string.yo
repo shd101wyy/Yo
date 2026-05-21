@@ -2111,6 +2111,17 @@ impl(
     )
   )
 );
+// TODO(iterator-phase-c): `Indexable(usize)` impl for `String` is
+// blocked on the match-arm type unification. The existing `Index`
+// impl works because the return slot is `*(u8)` and `panic`
+// adapts to `*(u8)`. With `Indexable`'s `-> ref(u8)` slot the
+// type-level expected type is `u8` (after the `ref(...)` unwrap),
+// so the match arms see `*(u8)` (from `&(bytes(pos))`) vs
+// `u8`-coerced panic — type-incompatible. The fix needs the body
+// type-check to expect `*(T)` for ref-returning functions, or a
+// dedicated builtin that produces a flowable `*(u8)` from the
+// String's internal buffer without going through `match`. See
+// plans/ITERATOR_REDESIGN.md.
 /// Clone implementation — produces an independent byte-level copy.
 impl(
   String,
