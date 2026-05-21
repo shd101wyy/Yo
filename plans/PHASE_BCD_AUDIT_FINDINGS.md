@@ -1,6 +1,6 @@
 # Phase B/C/D audit findings — what we discovered, what's broken, what's next
 
-Status: **MOSTLY REPAIRED.** Phases B, C, and D (for-macro) work end-to-end on `Array(T, N)` at runtime as of commit `afede287`. `Slice` / `ArrayList` / `String` projection bodies still need follow-up work (different body shapes, separate codegen gaps).
+Status: **MOSTLY REPAIRED.** Phases B, C, and D (for-macro) work end-to-end on `Array(T, N)`, `ArrayList(T)`, and `String` at runtime as of commit `bd928c1f`. Only `Slice(T)` projection remains blocked, due to a pre-existing slicing-typing bug that is wider than the iterator redesign.
 
 ## Tl;dr (history)
 
@@ -13,18 +13,22 @@ Phases B, C, and D of `plans/ITERATOR_REDESIGN.md` were committed (`ebe910a6`, `
 ## What works end-to-end now
 
 - `tests/ref_binding.test.yo` — 4/4 passing. `ref(r) := flowable_call(...)` reads and writes through a chain of `ref`-bound function parameters.
-- `tests/indexable_runtime.test.yo` — 3/3 passing. `ref(r) := arr.project(usize(1))` (Array.project) reads and writes propagate, both directly in `main` (via the relaxed flowability) and through a `ref(outer)`-taking helper.
-- `tests/for_macro_borrow.test.yo` — 4/4 passing. `for(arr, ref(x) => body)` iterates, accumulates into outer locals, propagates writes, handles empty arrays, and interacts with captured locals.
-- `tests/indexable.test.yo` — Array tests pass; Slice/ArrayList/String tests still fail (task #94).
+- `tests/indexable_runtime.test.yo` — 6/6 passing. Covers `arr.project` (Array), `list.project` (ArrayList), `s.project` (String) — all with read AND write semantics.
+- `tests/for_macro_borrow.test.yo` — 8/8 passing. `for(coll, ref(x) => body)` on Array, ArrayList, String — iteration, write-through, empty collections, capture-interaction, byte iteration on Strings.
+- `tests/closure_capture_rc_leak.test.yo` — 7/7 passing. Migrated to `.into_iter()` value form.
 - `./yo-cli check ./std` — 148/148 passes throughout the repair.
 
-## Still broken — Phase C follow-up (task #94)
+## Still broken — task #94 (`Slice.project`)
 
-`Slice.project`, `ArrayList.project`, and `String.project` use body shapes that hit additional gaps:
+Only `Slice(T)` remains blocked, due to a **pre-existing slicing-typing bug**:
 
-- **Slice**: a pre-existing slicing bug (`arr(usize(0) .. usize(3))` returns `i32` instead of `Slice(i32)`, surfaced now that tests actually run). Not introduced by Phase A-D; visible at `9b089395` and earlier. The Slice/ArrayList/String project bodies depend on slice indexing working correctly.
-- **ArrayList**: body is `match(self._ptr, .Some(_ptr) => unsafe(_ptr &+ pos), .None => panic(...))`. Goes through different evaluator/codegen paths than `__yo_array_index(&(self), pos)`.
-- **String**: body uses `match(self._bytes, .Some(bytes) => &(bytes(pos)), .None => panic(...))`. The `&(bytes(pos))` over Index trait paren-form produces a dangling stack-address (the paren-form auto-derefs to a temp; `&(temp)` is the temp's address).
+`s := arr(usize(0) .. usize(3))` evaluates to `i32` instead of `Slice(i32)`.
+
+The codegen emits a `Slice_int32_t` struct literal correctly, but the evaluator-level type is `i32`, so `s.len()`, `s(usize(1))`, and `s.project(...)` all fail with "Invalid function call on type i32". The bug pre-dates the iterator redesign (visible at commit `9b089395` and earlier) — it was masked by the test-framework silent-skip regression until commit `7b3b788b` fixed that.
+
+The fix likely requires either a new evaluator dispatch path for `arr(range)` calls or fixing the existing `tryToCallWithIndexTrait` to be invoked from the `arr(range)` path (currently the call goes through a different evaluator branch that returns the array's element type unwrapped). Out of scope for the immediate iterator-redesign repair; tracked as task #94.
+
+Once `Slice.project` works at runtime, the existing `tests/indexable.test.yo` Slice tests should pass without further changes.
 
 ## Original tl;dr (preserved for context)
 
