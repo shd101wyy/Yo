@@ -1,14 +1,18 @@
 /// Phase C of plans/ITERATOR_REDESIGN.md — `Indexable.project` runtime
 /// validation. These tests exercise `ref(r) := coll.project(pos)` at
-/// runtime on the collections whose `project` body works through a
-/// `&(self)` to `__yo_array_index` / `__yo_slice_index` chain.
+/// runtime on every collection whose `project` body now works (after
+/// the codegen fix at 651fdd85 that emits T*-typed unwind fallbacks for
+/// `-> ref(T)` functions).
 ///
-/// `ArrayList` and `String` are not covered here yet — their `project`
-/// bodies use different shapes (`self._ptr &+ pos` and
-/// `match(self._bytes, .Some(bytes) => &(bytes(pos)), .None => panic(…))`)
-/// that surface additional codegen / evaluator gaps. Covered as
-/// Phase C follow-up.
+/// Covered: `Array(T, N)`, `ArrayList(T)`, `String`.
+///
+/// `Slice(T)` is still blocked by a pre-existing slicing-typing bug
+/// (`arr(usize(0) .. usize(3))` evaluates to `i32` instead of
+/// `Slice(i32)`) that's separate from the iterator redesign. Tracked
+/// as task #94 / Phase E follow-up.
 pragma(Pragma.AllowUnsafe);
+open(import("std/collections/array_list"));
+open(import("std/string"));
 test("Phase C — Array.project read", {
   arr := [i32(10), i32(20), i32(30)];
   ref(r) := arr.project(usize(1));
@@ -35,4 +39,31 @@ test("Phase C — Array.project from ref-bound caller, read and write", {
   assert(caller_read(arr) == i32(3), "caller reads through Array.project");
   caller_write(arr, i32(42));
   assert(arr(usize(2)) == i32(42), "caller writes through Array.project propagate");
+});
+test("Phase C — ArrayList.project read and write", {
+  list := ArrayList(i32).new();
+  list.push(i32(10));
+  list.push(i32(20));
+  list.push(i32(30));
+  ref(r) := list.project(usize(1));
+  assert(r == i32(20), "ArrayList.project reads element at position 1");
+  r = i32(99);
+  assert(list(usize(1)) == i32(99), "write through ArrayList.project propagates");
+  assert(list(usize(0)) == i32(10), "untouched element 0 stays");
+  assert(list(usize(2)) == i32(30), "untouched element 2 stays");
+});
+test("Phase C — String.project read", {
+  s := `abc`;
+  ref(b0) := s.project(usize(0));
+  ref(b1) := s.project(usize(1));
+  ref(b2) := s.project(usize(2));
+  assert(b0 == u8(97), "byte 0 is 'a' (97)");
+  assert(b1 == u8(98), "byte 1 is 'b' (98)");
+  assert(b2 == u8(99), "byte 2 is 'c' (99)");
+});
+test("Phase C — String.project write propagates", {
+  s := `abc`;
+  ref(b) := s.project(usize(1));
+  b = u8(122);
+  assert(s(usize(1)) == u8(122), "write through String.project: 'b' -> 'z' (122)");
 });
