@@ -36,7 +36,7 @@ test("Slice.project read and write", {
   arr(usize(1)) = i32(20);
   arr(usize(2)) = i32(30);
   // Slice of the full array.
-  s := arr(usize(0)..usize(3));
+  s := arr(usize(0) .. usize(3));
   ref(r1) := s.project(usize(1));
   assert(r1 == i32(20), "Slice.project reads the 1st element");
   r1 = i32(200);
@@ -52,4 +52,15 @@ test("ArrayList.project read and write", {
   assert(r1 == i32(14), "ArrayList.project reads the 1st element");
   r1 = i32(140);
   assert(list(usize(1)) == i32(140), "writes through ArrayList projection propagate");
+});
+test("String.project read and write", {
+  s := String.from_str("abcd");
+  ref(b0) := s.project(usize(0));
+  ref(b1) := s.project(usize(1));
+  ref(b3) := s.project(usize(3));
+  assert(b0 == u8(97), "String.project reads byte at index 0 (97 = 'a')");
+  assert(b1 == u8(98), "String.project reads byte at index 1 (98 = 'b')");
+  assert(b3 == u8(100), "String.project reads byte at index 3 (100 = 'd')");
+  b1 = u8(122);
+  assert(s(usize(1)) == u8(122), "writes through String.project propagate (122 = 'z')");
 });

@@ -21,7 +21,7 @@ import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { createUnitType } from "../../types/creators";
+import { createPtrType, createUnitType } from "../../types/creators";
 import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
@@ -107,6 +107,12 @@ export function checkDeferredGenericReturnType({
     return;
   }
 
+  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // functions, the user-visible return is `T` but the body
+  // produces `*(T)`. Compare against `*(T)` in that case.
+  const expectedReturnForCompare: Type = functionType.return.isRef
+    ? createPtrType(functionType.return.type)
+    : functionType.return.type;
   if (
     trialBodyReturnType &&
     !(
@@ -115,7 +121,7 @@ export function checkDeferredGenericReturnType({
       isSomeType(trialBodyReturnType)
     ) &&
     !areTypesCompatible(
-      { type: functionType.return.type, env },
+      { type: expectedReturnForCompare, env },
       { type: trialBodyReturnType, env },
       true // requireExactMatch: concrete types must not match unconstrained SomeType
     )
@@ -123,7 +129,7 @@ export function checkDeferredGenericReturnType({
     throw formatErrorMessage({
       token: functionType.return.typeExpr.token,
       errorMessage: `Incompatible function return type for:
-- Expected: ${typeToString(functionType.return.type)}
+- Expected: ${typeToString(expectedReturnForCompare)}
 - Given  : ${typeToString(trialBodyReturnType)}`,
     });
   }
@@ -166,6 +172,19 @@ export function createFunctionBodyEvaluationContext(
     }
   }
 
+  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // functions, the body produces a place expression (`*(T)` at the
+  // C ABI). Setting the body's expected type to `*(T)` lets
+  // internal type unification — especially across `match` and
+  // `cond` arms — agree on a single pointer-typed shape, so
+  // bodies like `match(opt, .Some(b) => &(b(i)), .None => panic(...))`
+  // type-check correctly. The user-visible call-site type stays
+  // `T`; the flowability rule on the return expression owns the
+  // soundness check.
+  const bodyExpectedType: Type = functionType.return.isRef
+    ? createPtrType(functionType.return.type)
+    : functionType.return.type;
+
   const evaluationContext: EvaluatorContext = {
     ...context,
     isExecuting: false, // We're analyzing, not executing
@@ -176,7 +195,7 @@ export function createFunctionBodyEvaluationContext(
     capturedVariables, // Set the captured variables map here
     ownConsumedCaptures: new Set(), // Track captures consumed via own(self)
     expectedType: {
-      type: functionType.return.type,
+      type: bodyExpectedType,
       env: env,
     },
     functionReturnImplConcreteType: [], // Empty array for each function
@@ -489,11 +508,18 @@ export function tryToImplementFunctionByFunctionType({
   // contains SomeType (e.g. `using(exn : Exception)`). In that case the body's
   // SomeType result is a forall param of an implicit-parameter method; it will be
   // resolved when the function is specialized at a concrete call site.
+  //
+  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // functions, the body produces `*(T)`; compare against that.
+  const finalExpectedReturnForBody: Type = newFunctionType.return.isRef
+    ? createPtrType(newFunctionType.return.type)
+    : newFunctionType.return.type;
   if (
+    !shouldDeferBodyEvaluation &&
     !functionValue.isControlFunction &&
     functionBodyReturnType &&
     !areTypesCompatible(
-      { type: newFunctionType.return.type, env },
+      { type: finalExpectedReturnForBody, env },
       { type: functionBodyReturnType, env }
     )
   ) {
@@ -501,7 +527,7 @@ export function tryToImplementFunctionByFunctionType({
     throw formatErrorMessage({
       token: newFunctionType.return.typeExpr.token,
       errorMessage: `Incompatible function return type for:
-- Expected: ${typeToString(newFunctionType.return.type)}
+- Expected: ${typeToString(finalExpectedReturnForBody)}
 - Given  : ${typeToString(functionBodyReturnType)}`,
     });
   }

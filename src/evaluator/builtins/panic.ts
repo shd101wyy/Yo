@@ -1,6 +1,7 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import type { FnCallExpr } from "../../expr";
+import { createPtrType } from "../../types/creators";
 import { isComptimeStringType, isNewtypeType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue, isUnknownValue } from "../../value";
@@ -36,10 +37,19 @@ export function evaluatePanic({
     });
   }
 
-  // Get the return type from the function context
+  // Get the return type from the function context.
+  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // functions, the body produces `*(T)` (the C-ABI pointer that the
+  // caller dereferences), so panic — being divergent and slotting into
+  // any position — must yield `*(T)` to type-check inside `match`/`cond`
+  // arms whose other arms naturally produce a `*(T)` borrow.
   const functionReturnType =
     context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
-      ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+      ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.isRef
+        ? createPtrType(
+            context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+          )
+        : context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
       : VUnit.type;
 
   // If there's an argument, evaluate it and use as the panic message
