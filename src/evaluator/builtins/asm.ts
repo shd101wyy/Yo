@@ -43,7 +43,10 @@ const REGISTER_CLASSES = new Set([
 /** Operand direction kinds recognized as sub-calls in asm(). */
 const INPUT_OPERAND_KINDS = new Set(["in"]);
 const OUTPUT_OPERAND_KINDS = new Set(["out", "lateout"]);
-const INOUT_OPERAND_KINDS = new Set(["inout", "inlateout"]);
+// `ref` is an alias for `inout`, kept around because the inout→ref rename
+// (commit 746b4f60) updated the asm test sources but didn't update this
+// recognition set. Either spelling is accepted by the operand parser.
+const INOUT_OPERAND_KINDS = new Set(["inout", "inlateout", "ref"]);
 // clobber/clobber_abi/asm_options are handled separately (not as operands)
 const SPECIAL_OPERAND_KINDS = new Set(["const_val", "sym"]);
 
@@ -186,6 +189,14 @@ function parseOperand(
   context: EvaluatorContext,
   kind: string
 ): AsmOperand {
+  // Normalize the `ref` alias to `inout` so the downstream codegen
+  // (which switches on `op.kind === "inout"` / "inlateout") sees the
+  // canonical kind string. The rename in commit 746b4f60 surfaced
+  // `ref` in user-facing positions but kept the internal enum tag as
+  // "inout".
+  if (kind === "ref") {
+    kind = "inout";
+  }
   const args = operandExpr.args;
 
   if (kind === "const_val" || kind === "sym") {
