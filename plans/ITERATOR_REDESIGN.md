@@ -559,7 +559,7 @@ with a `yield expr` form in the body that pauses and returns control to the call
 
 2. **`String` iteration semantics.** `String`'s elements are bytes, but most users want `rune` iteration. Two iterators (`bytes()` / `chars()`) or one? Lean: two, matching Rust.
 
-3. **HashMap key/value tuple iteration.** Current API yields `IterPair(K, V)` by value. Migration target: yield positions whose projection returns a tuple of `(ref(K), ref(V))`? Tuple-of-inouts is a corner case for the structural rule — `(ref(K), ref(V))` is a tuple-type containing `inout`, which the rule rejects. The workaround is to projection-return a single value of type `struct(key : K, value : V)` and let the user destructure inside the loop, OR special-case the for-macro to handle two projections in parallel. Open.
+3. **HashMap key/value tuple iteration.** **Resolved (commit `e5a21392`).** Tuple-of-inouts `(ref(K), ref(V))` is structurally invalid as designed. Adopted: position-iter (`HashMapPosIter`, yields `usize` bucket indices) paired with `Indexable(usize)` whose `project(pos) -> ref(Bucket(K, V))` returns a borrow of the bucket struct, and the user destructures `b.key`/`b.value` inside the loop body. `for(map, ref(b) => body)` is the user-facing API. The single-Bucket projection avoids the tuple-of-refs corner case while keeping mutation-through-borrow semantics identical to Array/ArrayList/String iteration.
 
 4. **Interaction with effect-typed `ctl` bodies.** A `ctl(...) -> R` function can `unwind` out of an `ref(x) := projection_call(...);` block. What happens to the projection? Lean: nothing — the projection has no destructor, it just dangles when the call frame is gone, which is fine because nothing was holding a reference to it after unwind.
 
@@ -576,13 +576,15 @@ with a `yield expr` form in the body that pauses and returns control to the call
 - ✅ Phase B — `ref(name) := expr;` binding form + flowability rule + end-to-end ref-call codegen. Working at runtime; covered by `tests/ref_binding.test.yo` (4/4).
 - ✅ Phase C — `Indexable` trait + `project` impls. **Array**, **ArrayList**, **String**, **Slice** all work end-to-end at runtime (`tests/indexable_runtime.test.yo`, 9/9). The Slice slicing-typing bug (task #94) was resolved by changing Array/Slice `Index` impl bodies to take `&(self)` so the `*(T)`-expecting builtins receive the right C-ABI shape (commit `cd1e9eaf`).
 - ✅ Phase D — for-macro borrow form `for(coll, ref(x) => body)`. **Array**, **ArrayList**, **String**, **Slice** all work end-to-end (`tests/for_macro_borrow.test.yo`, 10/10) — iteration, write-through, empty collections, capture interaction.
-- 🟡 Phase E — User-facing migration:
+- ✅ Phase E — User-facing migration:
   - ✅ Test-framework regression repaired (commit `7b3b788b`).
   - ✅ Closure-capture/combinator test migrations from `.iter()` to `.into_iter()` landed (`closure_capture_rc_leak.test.yo` 7/7).
   - ✅ Docs (en-US + zh-CN) updated for the new for-macro shape (commit `ef41157c`).
   - ✅ Slice Indexable runtime path landed (commit `cd1e9eaf`).
   - ✅ `imm.Vec` Index trait landed (commit `c820d2b5`).
-  - 🟡 HashMap `Indexable` deferred (task #88, Open Question 3 in this doc). The current `Index(K)` impl is sufficient for `map(key)` use. Position-iter + projection-style `for(map, ref(v) => body)` blocks on the tuple-of-refs decision; defer until a concrete user need.
+  - ✅ `LinkedList` Index + `imm.List` Index landed (commits `b7688519`, `d1a07bdc`) — enabled by the panic/match unification fix in `b7688519`.
+  - ✅ `JsonValue` Index(String) / Index(usize) landed (commit `1399106a`).
+  - ✅ HashMap `Indexable(usize)` + position-iter + `for(map, ref(b) => body)` landed (commit `e5a21392`). Open Question 3 resolved in favor of single-Bucket projection (user destructures `b.key`/`b.value` inside the body) over the rejected `(ref(K), ref(V))` tuple-of-inouts shape.
   - Combinator chains on `my_range`-style iterators have pre-existing runtime bugs (state not preserved across `next()` calls in `iter().map(...)` chains) — out of scope for iterator redesign; pre-dates this work.
 
 ### Major caveat resolved during repair
