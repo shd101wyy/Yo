@@ -791,6 +791,14 @@ export interface FunctionReturn {
   isCompileTimeOnly: boolean;
   isUnquote: boolean;
   label: string;
+  /**
+   * True when the function's return slot is declared `-> ref(T)`.
+   * The function yields a second-class reference (lowered to `T*` at
+   * the C ABI) into storage rooted in one of its `ref`-typed
+   * parameters. The "flowability" rule on the return expression
+   * ensures the borrow is sound. See `plans/ITERATOR_REDESIGN.md`.
+   */
+  isRef?: boolean;
 }
 
 export interface FunctionType extends Type {

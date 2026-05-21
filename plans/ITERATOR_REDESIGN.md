@@ -392,12 +392,21 @@ The cost is one extra method call per iteration step. With cross-function inlini
 
 ## Phases
 
-### Phase A — Parser & evaluator support for `ref(T)` return slot
+### Phase A — Parser & evaluator support for `ref(T)` return slot ✅
 
-- Parse `-> ref(T)` in function signatures. Annotate the parsed `FunctionParameter`-style return descriptor with `isInout: true`.
-- Reject `ref(T)` anywhere inside a type expression that is not the top of a return slot. Error message: `'ref(T)' is a binding-kind marker — it can only appear in a parameter slot or at the top of a return type. To express borrow-typed storage, redesign the API to expose a projection method instead.`
-- Codegen: function returning `ref(T)` emits `T*` as its C return type. The body must produce a `T*` value (typically via an `unsafe(p &+ idx)` or `&(self.field)` expression in a privileged file).
-- Tests: positive cases (a function returning `ref(T)` compiles, call site can chain into another `inout` parameter); negative cases (`Option(ref(T))`, `struct(x : ref(T))`, `(ref(T), bool)` all rejected with the targeted error).
+Landed. Scope of what shipped:
+
+- **Parser** — `function.ts` recognises `-> ref(T)` (after the existing `comptime` / `unquote` / labeled-return unwrapping). Unwraps `ref(T)` to evaluate `T` as the underlying type and sets `isReturnTypeRef = true`. Outside the return-slot position the keyword `ref` is not recognised — `Option(ref(T))`, `struct(x : ref(T))`, `(ref(T), bool)`, and `fn(p : ref(T)) -> ...` all surface as "Variable 'ref' not found" via normal identifier resolution. (A more targeted diagnostic is a future refinement; the structural impossibility is what matters for soundness.)
+- **Type system** — `FunctionReturn` carries a new `isRef?: boolean` field. The function's return _type_ stays as `T` (the underlying type); `isRef` records the binding-yield marker as a separate flag, never leaking into the type universe.
+- **Codegen — signature** — `generateFunctionPrototype` emits `T*` as the C return type when `return.isRef` is set. The same machinery that emits `T*` for `ref(name) : T` parameters covers this.
+- **Codegen — body (minimal)** — for the simple pass-through case where the function body is a `ref`-bound parameter atom (e.g. `(fn(ref(p) : i32) -> ref(i32))(p)`), the function-body emit in `generation.ts` suppresses the standard inout deref so the emitted return is `return p;` (matching the `T*` signature) instead of `return (*p);`. More complex flowable expressions (field access, projection chains) are Phase B work — they need the flowability check and a more general place-expression lowering.
+- **Tests** — `tests/ref_return.test.yo`: four `comptime_expect_error` negatives (`ref(T)` in param type, in `Option(...)`, in a tuple, in a struct field) plus a positive parse-and-compile test for `(fn(ref(p) : T) -> ref(T))(p)`.
+
+Deferred to Phase B:
+
+- The full **flowability rule** on return expressions (cond/match arms, projection chains, field access).
+- **Call-site auto-deref** — calling `f()` where `f` returns `ref(T)` should yield a `T` value via `(*call())` in value contexts. Tied to the temp-variable-type story; will land alongside the `ref(name) := ...` binding form so both contexts can be lowered consistently.
+- A more targeted **diagnostic** when `ref(T)` appears outside the return slot.
 
 ### Phase B — `ref(name) := expr;` local binding form
 
@@ -471,8 +480,8 @@ with a `yield expr` form in the body that pauses and returns control to the call
 ## Status
 
 - ✅ Design sketched (this document).
-- ☐ Phase A — `ref(T)` return slot parsing + codegen.
-- ☐ Phase B — `ref(name) := expr;` binding form.
+- ✅ Phase A — `ref(T)` return slot parsing + signature codegen (minimal body).
+- ☐ Phase B — `ref(name) := expr;` binding form + flowability rule + call-site auto-deref.
 - ☐ Phase C — `Indexable(Idx)` trait + ArrayList migration.
 - ☐ Phase D — Iterator protocol migration.
 - ☐ Phase E — User-facing migration + lint pass.

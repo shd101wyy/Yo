@@ -2193,6 +2193,7 @@ export function evaluateFunctionType({
   let returnLabel: string | undefined = undefined;
   let isReturnTypeCompileTimeOnly = false;
   let isReturnTypeUnquote = false;
+  let isReturnTypeRef = false;
   let returnTypeExpr: Expr = returnExpr;
   /// has label
   /// -> (ret : i32)
@@ -2306,6 +2307,42 @@ export function evaluateFunctionType({
         errorMessage: `To define a macro function, please use "unquote" for the return type, not "quote".`,
       });
     }
+  }
+
+  // `ref(T)` in the return slot — Phase A of plans/ITERATOR_REDESIGN.md.
+  // The function yields a second-class reference into storage rooted
+  // in one of its `ref`-typed parameters; the C-ABI return is `T*`
+  // and the call site receives a `ref`-bindable expression. We
+  // unwrap `ref(...)` here to evaluate `T` as the underlying type,
+  // and mark `isReturnTypeRef` so the function type carries the
+  // distinction.
+  //
+  // `ref(T)` is only legal at the OUTERMOST position of a return
+  // slot. The rule that bars it from appearing inside `Option(...)`,
+  // generic args, struct fields, etc. is enforced by NOT recognizing
+  // `ref(...)` anywhere else in the type evaluator — outside this
+  // narrow spot, the evaluator falls through and tries to evaluate
+  // `ref` as a regular identifier, producing a "Variable not found"
+  // error. (We could add a more targeted diagnostic later; for v1
+  // the structural impossibility is sufficient.)
+  if (
+    exprIsFunctionCall(returnTypeExpr) &&
+    exprIsFunctionCallOf(returnTypeExpr, "ref")
+  ) {
+    if (returnTypeExpr.args.length !== 1) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `Expected one argument for "ref" return slot, got ${returnTypeExpr.args.length}`,
+      });
+    }
+    if (isReturnTypeUnquote) {
+      throw formatErrorMessage({
+        token: returnTypeExpr.token,
+        errorMessage: `Cannot combine 'unquote' with 'ref' in a return slot — macro return types are erased at runtime and have no place to put a borrow.`,
+      });
+    }
+    isReturnTypeRef = true;
+    returnTypeExpr = returnTypeExpr.args[0]!;
   }
 
   // Evaluate the return type expression
@@ -2441,6 +2478,7 @@ ${typeToString(returnType)}`,
       isCompileTimeOnly: isReturnTypeCompileTimeOnly,
       isUnquote: isReturnTypeUnquote,
       label: returnLabel ?? `fn_return_${randomId(env.modulePath)}`,
+      isRef: isReturnTypeRef || undefined,
     },
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,

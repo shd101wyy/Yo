@@ -345,9 +345,19 @@ export function generateFunctionPrototype(
   overrideReturnType?: string,
   originalFunctionType?: FunctionType
 ): string {
-  // For non-main functions, generate based on function type
-  const returnTypeStr =
-    overrideReturnType || getTypeString(functionType.return.type, context);
+  // For non-main functions, generate based on function type.
+  // `-> ref(T)` lowers to a `T*` return at the C ABI — the function
+  // yields a second-class reference whose storage is rooted in one
+  // of its `ref`-typed parameters. See `plans/ITERATOR_REDESIGN.md`.
+  let returnTypeStr: string;
+  if (overrideReturnType) {
+    returnTypeStr = overrideReturnType;
+  } else {
+    const baseReturnType = getTypeString(functionType.return.type, context);
+    returnTypeStr = functionType.return.isRef
+      ? `${baseReturnType}*`
+      : baseReturnType;
+  }
 
   // Generate parameter list (excluding compile-time parameters)
   const runtimeParams = functionType.parameters.filter(

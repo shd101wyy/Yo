@@ -1328,7 +1328,37 @@ export function generateFunctionBody(
           }
 
           // For other functions, generate the expression first
-          const exprCode = generateExpr(lastExpr, indent, context);
+          let exprCode = generateExpr(lastExpr, indent, context);
+
+          // `-> ref(T)` return slot: the function's C signature returns
+          // `T*`. The body's last expression must therefore produce a
+          // pointer at the C level. For the simplest case — the body
+          // is a `ref`-bound parameter atom — the generator above
+          // emits `(*name)` (the standard inout read); strip the
+          // deref so we emit the raw pointer instead.
+          //
+          // More complex flowable expressions (field access on a
+          // ref-bound base, projection calls) come in Phase B with
+          // the `ref(name) := ...` binding and the flowability rule.
+          // See `plans/ITERATOR_REDESIGN.md`.
+          if (
+            functionType.return.isRef &&
+            lastExpr &&
+            exprIsAtom(lastExpr) &&
+            lastExpr.$?.env &&
+            lastExpr.$?.variableName
+          ) {
+            const vars = getVariablesFromEnv(
+              lastExpr.$.env,
+              lastExpr.$.variableName
+            );
+            if (vars.length > 0 && vars[vars.length - 1]!.isInout) {
+              exprCode = getVariableNameForCodegen(
+                lastExpr.$.variableName,
+                lastExpr.$.env
+              );
+            }
+          }
 
           // Then generate deferred drop expressions before the return
           generateDeferredDropExpressions(expr, indent, context);
