@@ -173,17 +173,16 @@ test("iter.fold with multi-arg => lambda", {
 });
 test("iter.fold over ArrayList iter with multi-arg => lambda", {
   list := array_list(i32(10), i32(20), i32(30), i32(40));
-  iter := list.iter();
-  total := iter.fold(i32(0), (acc, x) => (acc + x.*));
-  assert(total == i32(100), "10+20+30+40=100 via => lambda over *(i32) iter");
+  total := list.into_iter().fold(i32(0), (acc, x) => (acc + x));
+  assert(total == i32(100), "10+20+30+40=100 via fold over value iter");
 });
 // --- for_each --------------------------------------------------------------
 test("iter.for_each with closure that captures ArrayList", {
   out := array_list(i32(0));
   out.clear();
   src := array_list(i32(1), i32(2), i32(3), i32(4));
-  src.iter().for_each((x) => {
-    out.push(x.*);
+  src.into_iter().for_each((x) => {
+    out.push(x);
   });
   assert(out.len() == usize(4), "out has 4 elements");
   assert(out(usize(0)) == i32(1), "first element is 1");
@@ -229,19 +228,21 @@ test("iter.filter then map then count", {
   assert(n == usize(5), "5 evens");
 });
 // --- combinators on ArrayList iter ----------------------------------------
-test("ArrayList.iter combinators", {
-  list := ArrayList(i32).new();
-  list.push(i32(1));
-  list.push(i32(2));
-  list.push(i32(3));
-  list.push(i32(4));
-  list.push(i32(5));
-  add :: (fn(acc : i32, x : i32) -> i32)(acc + x);
-  even_sum := list.iter().filter(p => ((p.*.* % i32(2)) == i32(0))).fold(i32(0), (fn(acc : i32, p : *(i32)) -> i32)(acc + p.*));
+test("ArrayList.into_iter combinators", {
+  make_list :: (fn() -> ArrayList(i32))({
+    list := ArrayList(i32).new();
+    list.push(i32(1));
+    list.push(i32(2));
+    list.push(i32(3));
+    list.push(i32(4));
+    list.push(i32(5));
+    list
+  });
+  even_sum := make_list().into_iter().filter(p => ((p.* % i32(2)) == i32(0))).fold(i32(0), (acc, x) => (acc + x));
   assert(even_sum == i32(6), "2+4=6");
-  even_count := list.iter().filter(p => ((p.*.* % i32(2)) == i32(0))).count();
+  even_count := make_list().into_iter().filter(p => ((p.* % i32(2)) == i32(0))).count();
   assert(even_count == usize(2), "2 evens");
-  double :: (fn(p : *(i32)) -> i32)(p.* * i32(2));
-  doubled_count := list.iter().map(double).count();
+  double :: (fn(x : i32) -> i32)(x * i32(2));
+  doubled_count := make_list().into_iter().map(double).count();
   assert(doubled_count == usize(5), "5 mapped");
 });
