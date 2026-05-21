@@ -413,11 +413,38 @@ export function generateInitializationAssignment(
               // Generate temp variable assignment first
               // Use convertedRuntimeType if available (e.g., comptime_string -> str)
               const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type!;
-              const tempVarType = getVariableTypeString(
+              let tempVarType = getVariableTypeString(
                 effectiveType,
                 tempVarName,
                 context
               );
+              // Phase B of plans/ITERATOR_REDESIGN.md — when the RHS is
+              // a call to a `-> ref(T)` function, the C-level result is
+              // `T*` even though the evaluator-level type is `T`.
+              // `attachTempVariableToExpr` marks the call's temp
+              // variable with `isRef: true`; we use that to recover the
+              // pointer shape here. Without this, we'd declare the temp
+              // as `T` and assign `T*` to it, producing the C error
+              // "incompatible pointer to integer conversion".
+              const rhsVars =
+                rhs.$?.env && rhs.$?.variableName
+                  ? getVariablesFromEnv(rhs.$.env, rhs.$.variableName)
+                  : [];
+              if (
+                rhsVars.length > 0 &&
+                rhsVars[rhsVars.length - 1]!.isRef &&
+                !tempVarType.includes("*")
+              ) {
+                // `tempVarType` is `<type> <var>`; insert `*` before the
+                // last space (between type and identifier).
+                const spaceIdx = tempVarType.lastIndexOf(" ");
+                if (spaceIdx > 0) {
+                  tempVarType =
+                    tempVarType.slice(0, spaceIdx) +
+                    "*" +
+                    tempVarType.slice(spaceIdx);
+                }
+              }
               context.emitter.emitLine(
                 `${indent}${tempVarType} = ${rhsExprCode};`
               );
