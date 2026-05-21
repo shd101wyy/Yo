@@ -572,11 +572,15 @@ with a `yield expr` form in the body that pauses and returns control to the call
 ## Status
 
 - ✅ Design sketched (this document).
-- ✅ Phase A — `ref(T)` return slot parsing + signature codegen (minimal body).
-- ✅ Phase B — parser + binding form + end-to-end ref-call codegen + flowability rule all landed.
-- ✅ Phase C — Indexable trait + Array/Slice/ArrayList/String impls landed.
-- ☐ Phase D — Iterator protocol migration.
-- ☐ Phase E — User-facing migration + lint pass.
+- ✅ Phase A — `ref(T)` return slot parsing + signature codegen.
+- ✅ Phase B — `ref(name) := expr;` binding form + flowability rule + end-to-end ref-call codegen. Working at runtime; covered by `tests/ref_binding.test.yo` (4/4).
+- 🟡 Phase C — `Indexable` trait + `project` impls. **Array** works end-to-end at runtime (`tests/indexable_runtime.test.yo`, 3/3). **Slice/ArrayList/String** project bodies still need follow-up (different body shapes, pre-existing slicing bug). Tracked in `plans/PHASE_BCD_AUDIT_FINDINGS.md`.
+- 🟡 Phase D — for-macro borrow form `for(coll, ref(x) => body)`. **Array** works end-to-end (`tests/for_macro_borrow.test.yo`, 4/4) — iterates, reads, writes propagate, empty collections, capture interaction. Slice/ArrayList/String depend on Phase C follow-up.
+- 🟡 Phase E — User-facing migration. Closure-capture/combinator test migrations from `.iter()` to `.into_iter()` landed (`closure_capture_rc_leak.test.yo` 7/7). Combinator chains on `my_range` style iterators have pre-existing runtime bugs (state not preserved across `next()` calls) — separate follow-up. Docs and HashMap Indexable not yet started.
+
+### Major caveat resolved during repair
+
+Commits `ebe910a6` (Phase B), `c36429c8`/`9b089395` (Phase C), `e9143f5e` (Phase D) all originally landed against a **silently broken test framework** (since `a3510d20`, the generated test-batch `__yo_user_main` was emitting `/* "match" expression is not evaluated */` and exiting 0 — every test was a phantom pass). Phase C/D were re-validated and repaired in commits `7b3b788b` through `cd394df2`; see `plans/PHASE_BCD_AUDIT_FINDINGS.md` for the full bug-by-bug breakdown.
 
 ## References
 
