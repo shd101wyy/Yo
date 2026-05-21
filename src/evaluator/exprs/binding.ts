@@ -2,7 +2,9 @@ import { addVariableToEnv, type Environment } from "../../env";
 import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
   type Expr,
+  exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   type FnCallExpr,
@@ -40,7 +42,7 @@ export function evaluateBinding({
       errorMessage: `Expected ":" for variable binding.`,
     });
   }
-  const lhs = expr.args[0]!;
+  let lhs = expr.args[0]!;
   const rhs = expr.args[1]!;
 
   // Evaluate the rhs expression
@@ -84,6 +86,24 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
 
   // Evaluate the lhs expression
   let isCompileTimeOnly = false;
+
+  // Unwrap `comptime(name) : T` — declares `name` as a compile-time binding
+  // with explicit type annotation. The wrapper signals "comptime", and the
+  // inner `name` is the actual binding identifier. Restored after commit
+  // a3510d20 removed this when stripping the unrelated `given(...)` wrapper.
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime)
+  ) {
+    isCompileTimeOnly = true;
+    if (lhs.args.length !== 1) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Expected one argument for "comptime", got ${lhs.args.length}`,
+      });
+    }
+    lhs = lhs.args[0]!;
+  }
 
   isCompileTimeOnly =
     isCompileTimeOnly || context.forceCompileTimeBindings === true;

@@ -207,12 +207,26 @@ export function generateMatchExpression(
   // we must materialize the temp var here. Otherwise inlining the subject
   // straight into `switch (...)` leaves the deferred drop referring to an
   // undeclared identifier. See issues/inline-enum-match-subject-phantom-drop.md.
+  //
+  // Skip the temp-var declaration when the subject is a `ref`-param atom:
+  // emitting `T name = (*name);` shadows the pointer parameter and causes a
+  // C redefinition error. Mirror the same guard used in begin.ts.
   if (subjectExpr.$?.variableName) {
     const subjectVarName = getVariableNameForCodegen(
       subjectExpr.$.variableName,
       subjectExpr.$.env
     );
-    if (matchedValueCode !== subjectVarName) {
+    let isInoutAtom = false;
+    if (exprIsAtom(subjectExpr) && subjectExpr.$?.env) {
+      const vars = getVariablesFromEnv(
+        subjectExpr.$.env,
+        subjectExpr.$.variableName
+      );
+      if (vars.length > 0 && vars[vars.length - 1]!.isRef) {
+        isInoutAtom = true;
+      }
+    }
+    if (!isInoutAtom && matchedValueCode !== subjectVarName) {
       const subjectTypeStr = getTypeString(matchValueType, context);
       context.emitter.emitLine(
         `${indent}${subjectTypeStr} ${subjectVarName} = ${matchedValueCode};`

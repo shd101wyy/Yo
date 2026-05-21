@@ -574,14 +574,15 @@ with a `yield expr` form in the body that pauses and returns control to the call
 - ✅ Design sketched (this document).
 - ✅ Phase A — `ref(T)` return slot parsing + signature codegen.
 - ✅ Phase B — `ref(name) := expr;` binding form + flowability rule + end-to-end ref-call codegen. Working at runtime; covered by `tests/ref_binding.test.yo` (4/4).
-- 🟡 Phase C — `Indexable` trait + `project` impls. **Array**, **ArrayList**, **String** all work end-to-end at runtime (`tests/indexable_runtime.test.yo`, 6/6). Only **Slice** still blocked — by a pre-existing slicing-typing bug (`arr(usize(0)..usize(3))` returns `i32` instead of `Slice(i32)`), out of scope for the immediate redesign; tracked in `plans/PHASE_BCD_AUDIT_FINDINGS.md` as task #94.
-- 🟡 Phase D — for-macro borrow form `for(coll, ref(x) => body)`. **Array**, **ArrayList**, **String** all work end-to-end (`tests/for_macro_borrow.test.yo`, 8/8) — iteration, write-through, empty collections, capture interaction. Slice depends on the same task #94 fix.
+- ✅ Phase C — `Indexable` trait + `project` impls. **Array**, **ArrayList**, **String**, **Slice** all work end-to-end at runtime (`tests/indexable_runtime.test.yo`, 9/9). The Slice slicing-typing bug (task #94) was resolved by changing Array/Slice `Index` impl bodies to take `&(self)` so the `*(T)`-expecting builtins receive the right C-ABI shape (commit `cd1e9eaf`).
+- ✅ Phase D — for-macro borrow form `for(coll, ref(x) => body)`. **Array**, **ArrayList**, **String**, **Slice** all work end-to-end (`tests/for_macro_borrow.test.yo`, 10/10) — iteration, write-through, empty collections, capture interaction.
 - 🟡 Phase E — User-facing migration:
   - ✅ Test-framework regression repaired (commit `7b3b788b`).
   - ✅ Closure-capture/combinator test migrations from `.iter()` to `.into_iter()` landed (`closure_capture_rc_leak.test.yo` 7/7).
   - ✅ Docs (en-US + zh-CN) updated for the new for-macro shape (commit `ef41157c`).
+  - ✅ Slice Indexable runtime path landed (commit `cd1e9eaf`).
   - 🟡 HashMap Indexable not yet started (task #88).
-  - Combinator chains on `my_range`-style iterators have pre-existing runtime bugs (state not preserved across `next()` calls in `iter().map(...)` chains) — task #94 covers.
+  - Combinator chains on `my_range`-style iterators have pre-existing runtime bugs (state not preserved across `next()` calls in `iter().map(...)` chains) — out of scope for iterator redesign; pre-dates this work.
 
 ### Major caveat resolved during repair
 
