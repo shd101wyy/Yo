@@ -2373,7 +2373,17 @@ function emitEffectUnwindCheck(
     emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
     const callerReturnType = context.currentFunctionType?.return.type;
     if (callerReturnType && !isUnitType(callerReturnType)) {
-      const callerCType = getTypeString(callerReturnType, context);
+      // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+      // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+      // ill-typed. Wrap with `*` when the function declares a ref return.
+      let callerCType = getTypeString(callerReturnType, context);
+      if (
+        context.currentFunctionType?.return.isRef &&
+        callerCType !== "void" &&
+        !callerCType.endsWith("*")
+      ) {
+        callerCType = `${callerCType}*`;
+      }
       if (callerCType !== "void") {
         emitter.emitLine(`${indent}  ${callerCType} _unw_result;`);
         emitter.emitLine(
@@ -2389,7 +2399,17 @@ function emitEffectUnwindCheck(
   } else {
     const callerReturnType = context.currentFunctionType?.return.type;
     if (callerReturnType && !isUnitType(callerReturnType)) {
-      const callerCType = getTypeString(callerReturnType, context);
+      // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+      // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+      // ill-typed. Wrap with `*` when the function declares a ref return.
+      let callerCType = getTypeString(callerReturnType, context);
+      if (
+        context.currentFunctionType?.return.isRef &&
+        callerCType !== "void" &&
+        !callerCType.endsWith("*")
+      ) {
+        callerCType = `${callerCType}*`;
+      }
       if (callerCType !== "void") {
         emitter.emitLine(`${indent}  return (${callerCType}){0};`);
       } else {
@@ -2512,7 +2532,17 @@ function generateEvidenceFnPtrCall(
     } else {
       const callerReturnType = context.currentFunctionType?.return.type;
       if (callerReturnType && !isUnitType(callerReturnType)) {
-        const callerCType = getTypeString(callerReturnType, context);
+        // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+        // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+        // ill-typed. Wrap with `*` when the function declares a ref return.
+        let callerCType = getTypeString(callerReturnType, context);
+        if (
+          context.currentFunctionType?.return.isRef &&
+          callerCType !== "void" &&
+          !callerCType.endsWith("*")
+        ) {
+          callerCType = `${callerCType}*`;
+        }
         if (callerCType !== "void") {
           emitter.emitLine(`${indent}  return (${callerCType}){0};`);
         } else {
@@ -2571,7 +2601,17 @@ function generateEvidenceFnPtrCall(
         } else {
           const callerReturnType = context.currentFunctionType?.return.type;
           if (callerReturnType && !isUnitType(callerReturnType)) {
-            const callerCType = getTypeString(callerReturnType, context);
+            // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+            // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+            // ill-typed. Wrap with `*` when the function declares a ref return.
+            let callerCType = getTypeString(callerReturnType, context);
+            if (
+              context.currentFunctionType?.return.isRef &&
+              callerCType !== "void" &&
+              !callerCType.endsWith("*")
+            ) {
+              callerCType = `${callerCType}*`;
+            }
             if (callerCType !== "void") {
               emitter.emitLine(`${indent}  return (${callerCType}){0};`);
             } else {
@@ -2625,7 +2665,17 @@ function generateEvidenceFnPtrCall(
         } else {
           const callerReturnType = context.currentFunctionType?.return.type;
           if (callerReturnType && !isUnitType(callerReturnType)) {
-            const callerCType = getTypeString(callerReturnType, context);
+            // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+            // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+            // ill-typed. Wrap with `*` when the function declares a ref return.
+            let callerCType = getTypeString(callerReturnType, context);
+            if (
+              context.currentFunctionType?.return.isRef &&
+              callerCType !== "void" &&
+              !callerCType.endsWith("*")
+            ) {
+              callerCType = `${callerCType}*`;
+            }
             if (callerCType !== "void") {
               emitter.emitLine(`${indent}  return (${callerCType}){0};`);
             } else {
@@ -2675,7 +2725,17 @@ function generateEvidenceFnPtrCall(
         // Return type for unwind propagation must match the CALLER's return type, not the callee's
         const callerReturnType = context.currentFunctionType?.return.type;
         if (callerReturnType && !isUnitType(callerReturnType)) {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           if (callerCType !== "void") {
             emitter.emitLine(`${indent}  return (${callerCType}){0};`);
           } else {
@@ -3030,7 +3090,17 @@ function generateEvidenceCallSite(
       }
       if (callerReturnType && !isUnitType(callerReturnType)) {
         if (isHandlerInstallation) {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           if (callerCType !== "void") {
             emitter.emitLine(`${indent}  ${callerCType} _unw_result;`);
             emitter.emitLine(
@@ -3041,7 +3111,17 @@ function generateEvidenceCallSite(
             emitter.emitLine(`${indent}  return;`);
           }
         } else {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           if (callerCType !== "void") {
             emitter.emitLine(`${indent}  return (${callerCType}){0};`);
           } else {
@@ -3096,7 +3176,17 @@ function generateEvidenceCallSite(
           callerReturnType &&
           !isUnitType(callerReturnType)
         ) {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           emitter.emitLine(`${indent}  ${callerCType} _unw_result;`);
           emitter.emitLine(
             `${indent}  memcpy(&_unw_result, __yo_unwind_value, sizeof(${callerCType}));`
@@ -3104,7 +3194,17 @@ function generateEvidenceCallSite(
           emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
           emitter.emitLine(`${indent}  return _unw_result;`);
         } else if (callerReturnType && !isUnitType(callerReturnType)) {
-          const callerCType = getTypeString(callerReturnType, context);
+          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
+          // ill-typed. Wrap with `*` when the function declares a ref return.
+          let callerCType = getTypeString(callerReturnType, context);
+          if (
+            context.currentFunctionType?.return.isRef &&
+            callerCType !== "void" &&
+            !callerCType.endsWith("*")
+          ) {
+            callerCType = `${callerCType}*`;
+          }
           if (callerCType !== "void") {
             emitter.emitLine(`${indent}  return (${callerCType}){0};`);
           } else {
