@@ -1,0 +1,47 @@
+/// Phase D of plans/ITERATOR_REDESIGN.md — `for(coll, ref(x) => body)`
+/// runtime validation. These tests exercise the borrow form of the
+/// for-macro end-to-end on `Array(T, N)` (the collection whose
+/// `Indexable.project` is repaired). Read and write through the
+/// `ref(x)` binding both propagate to the underlying array storage.
+///
+/// `Slice`, `ArrayList`, `String` are deferred — their `project`
+/// bodies hit additional codegen / evaluator gaps tracked as Phase C
+/// follow-up work.
+pragma(Pragma.AllowUnsafe);
+test("Phase D — for(arr, ref(x) => body) iterates and reads", {
+  arr := [i32(1), i32(2), i32(3), i32(4)];
+  sum := i32(0);
+  for(arr, ref(x) => {
+    sum = (sum + x);
+  });
+  assert(sum == i32(10), "sum of [1,2,3,4] = 10");
+});
+test("Phase D — for(arr, ref(x) => body) writes propagate", {
+  arr := [i32(1), i32(2), i32(3)];
+  for(arr, ref(x) => {
+    x = (x * i32(10));
+  });
+  assert(arr(usize(0)) == i32(10), "0 -> 10");
+  assert(arr(usize(1)) == i32(20), "1 -> 20");
+  assert(arr(usize(2)) == i32(30), "2 -> 30");
+});
+test("Phase D — for(arr, ref(x) => body) on zero-length array", {
+  arr := Array(i32, 0)();
+  count := i32(0);
+  for(arr, ref(x) => {
+    count = (count + i32(1));
+    consume(x);
+  });
+  assert(count == i32(0), "empty array iterates zero times");
+});
+test("Phase D — for-loop body interacts with outer locals", {
+  arr := [i32(10), i32(20), i32(30)];
+  hits := i32(0);
+  threshold := i32(15);
+  for(arr, ref(x) => {
+    if(x > threshold, {
+      hits = (hits + i32(1));
+    });
+  });
+  assert(hits == i32(2), "two elements (20, 30) exceed threshold 15");
+});

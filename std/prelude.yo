@@ -7822,17 +7822,27 @@ for :: (
                 v_args :: variable.get_args();
                 comptime_assert(v_args.len() == 1, "'for' macro: ref(name) requires exactly one name");
                 name :: v_args.car();
-                coll_var :: gensym("for_coll");
                 iter_var :: gensym("for_iter_var");
                 pos_var :: gensym("for_pos_var");
+                // Note: the borrow form does NOT materialize a local
+                // copy of `coll`. Writes through `ref(x) := …
+                // coll.project(pos)` need to propagate to the caller's
+                // storage; a value-typed local copy would receive the
+                // writes silently. The for-macro consumes `coll` as an
+                // expression directly so the `&coll` pointer it
+                // implicitly forms reaches the caller's collection.
+                // (This is correct for `coll : Array(T, N)` /
+                // `Slice(T)` / `String` value-typed collections and
+                // for `ref(coll)`-bound parameter inputs; for owning
+                // collections like `ArrayList` whose internal storage
+                // is heap, the receiver-by-ref semantics already work.)
                 quote({
-                  unquote(coll_var) := unquote(coll);
-                  unquote(iter_var) := unquote(coll_var).iter();
+                  unquote(iter_var) := unquote(coll).iter();
                   while(runtime(true), {
                     match(
                       unquote(iter_var).next(),
                       .Some(unquote(pos_var)) => {
-                        ref(unquote(name)) := unquote(coll_var).project(unquote(pos_var));
+                        ref(unquote(name)) := unquote(coll).project(unquote(pos_var));
                         unquote(body);
                       },
                       .None => {
