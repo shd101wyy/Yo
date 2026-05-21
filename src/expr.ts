@@ -642,7 +642,7 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
 export const BuiltinKeywords = {
   comptime: ["comptime" /*"@"*/],
   runtime: ["runtime"], // Force runtime evaluation, prevents CTFE
-  ref: ["ref"], // Reference semantics for struct/enum
+  ref: ["ref"], // Second-class reference: `ref(name) : T` parameter modifier, `-> ref(T)` return slot, `ref(name) := expr;` local binding. See plans/ITERATOR_REDESIGN.md.
 
   forall: ["forall", "∀"],
   where: ["where"],

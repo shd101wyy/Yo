@@ -2,6 +2,7 @@ import { addVariableToEnv, type Environment } from "../../env";
 import { getDocCommentLookupKey } from "../../doc/extractor";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -87,7 +88,41 @@ export function evaluateInitializationAssignment({
   const lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
 
-  const actualLhs = lhs;
+  // Phase B of plans/ITERATOR_REDESIGN.md — `ref(name) := expr;`
+  // declares a local that is a second-class reference to the storage
+  // yielded by `expr`. The bound name carries `isRef: true`
+  // (same flag used for `ref(name) : T` parameter bindings), so the
+  // existing inout-aware codegen handles reads (`(*name)`) and
+  // writes (`(*name) = v`).
+  //
+  // The RHS must evaluate to an inout-yielding expression — for v1
+  // that means a call to a function whose return slot is `ref(T)`.
+  // We unwrap the `ref(...)` wrapper here so subsequent code sees
+  // the inner identifier as the lhs.
+  let isRefBinding = false;
+  let actualLhs = lhs;
+  if (
+    exprIsFunctionCall(actualLhs) &&
+    exprIsFunctionCallOf(actualLhs, BuiltinKeywords.ref)
+  ) {
+    if (
+      exprIsFunctionCallOf(expr, "::") ||
+      context.forceCompileTimeBindings === true
+    ) {
+      throw formatErrorMessage({
+        token: actualLhs.token,
+        errorMessage: `'ref(name) :=' cannot be used with '::' or in a compile-time-only context — borrows are runtime constructs.`,
+      });
+    }
+    if (actualLhs.args.length !== 1) {
+      throw formatErrorMessage({
+        token: actualLhs.token,
+        errorMessage: `Expected one argument for 'ref' in a local binding, got ${actualLhs.args.length}`,
+      });
+    }
+    isRefBinding = true;
+    actualLhs = actualLhs.args[0]!;
+  }
 
   // Prevent declaring variable type using :: or :=
   if (exprIsFunctionCall(actualLhs) && exprIsFunctionCallOf(actualLhs, ":")) {
@@ -428,12 +463,18 @@ Use \`::\` for compile-time definitions inside impl.`,
         token: actualLhs.token,
         initializedAtToken: actualLhs.token,
         consumedAtToken: undefined, // Not consumed yet
-        // Under new ownership model: variables always own their values (or false for non-ARC types)
-        isOwningTheRcValue: typeContainsRcType(finalLhsType),
+        // `ref(name) := expr;` bindings are second-class references —
+        // the variable's storage IS the caller-side storage yielded
+        // by the RHS, not an owned value. Don't mark as RC-owning;
+        // the closure-capture gate already keys off `isRef`.
+        isOwningTheRcValue: isRefBinding
+          ? false
+          : typeContainsRcType(finalLhsType),
         // Only set shared ownership for Copy types (shared references)
         // If RHS was moved, LHS becomes the primary owner
         isOwningTheSameRcValueAs,
         isReassignable: true,
+        isRef: isRefBinding || undefined,
         isModuleLevel,
         docComment,
       },

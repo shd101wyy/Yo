@@ -264,7 +264,10 @@ export function evaluateFunctionParameter({
       lhsExpr = lhsExpr.args[0]!;
     }
 
-    if (exprIsFunctionCall(lhsExpr) && exprIsFunctionCallOf(lhsExpr, "ref")) {
+    if (
+      exprIsFunctionCall(lhsExpr) &&
+      exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.ref)
+    ) {
       if (lhsExpr.args.length !== 1) {
         throw formatErrorMessage({
           token: lhsExpr.token,
@@ -2327,7 +2330,7 @@ export function evaluateFunctionType({
   // the structural impossibility is sufficient.)
   if (
     exprIsFunctionCall(returnTypeExpr) &&
-    exprIsFunctionCallOf(returnTypeExpr, "ref")
+    exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref)
   ) {
     if (returnTypeExpr.args.length !== 1) {
       throw formatErrorMessage({

@@ -408,12 +408,25 @@ Deferred to Phase B:
 - **Call-site auto-deref** — calling `f()` where `f` returns `ref(T)` should yield a `T` value via `(*call())` in value contexts. Tied to the temp-variable-type story; will land alongside the `ref(name) := ...` binding form so both contexts can be lowered consistently.
 - A more targeted **diagnostic** when `ref(T)` appears outside the return slot.
 
-### Phase B — `ref(name) := expr;` local binding form
+### Phase B — `ref(name) := expr;` local binding form (parser-side ✅; codegen ☐)
 
-- Parser: recognize `ref(name) := expr;` as a binding declaration whose target carries `isInout: true`.
-- Type-check: the RHS must be a call whose return slot is `ref(T)`, or the access of an `inout`-bound parameter, or a projection chain. Otherwise: `'ref(name) := ...' requires an inout-yielding right-hand side. The expression on the right is of type ${T}, not an inout projection.`
-- The existing closure-capture gate already fires on any binding with `isInout: true`, so no new escape work needed.
-- Tests: positive case (binding and using one); negative cases (binding from a non-projection expression, capturing the binding in a closure, returning the binding from a non-`inout`-returning function).
+Parser + evaluator landed:
+
+- `ref(name) := expr;` recognized in `src/evaluator/exprs/initialization-assignment.ts`. Wraps the lhs identifier in a `ref(...)` call; the evaluator unwraps it to the inner name and flags the bound variable with `isRef: true` (same flag used for `ref(name) : T` parameter bindings).
+- `ref(name) := ...` is rejected when combined with `::` or in a comptime-only context (borrows are runtime constructs only).
+- The existing Phase B closure-capture gate from `plans/MEMORY_SAFETY.md` already fires on any binding with `isRef: true`, so the ref-binding inherits the no-escape rule for free.
+- Codegen side (`src/codegen/exprs/initialization-assignment.ts`): the lhs is unwrapped for emission; the binding's C-declared type uses `T*` when `isRef` is set on the variable (matching the existing `ref(name) : T` parameter ABI).
+
+Tests landed in `tests/ref_local_binding.test.yo`:
+
+- `comptime_expect_error` negatives for `ref(r) :: ...` (with `::`), and for closure-capture of a ref-bound local.
+- Positive smoke test that regular `:=` bindings still compile cleanly (no false positives).
+
+**Still deferred — codegen completeness:**
+
+- **Flowability rule on the RHS.** Today the parser accepts any RHS for `ref(name) := X` and lets the C compiler error out on type mismatch. The flowability check (the same R1–R4 rule that gates `-> ref(T)` returns — see "Soundness of `ref(T)` return slots" above) should run on the RHS at evaluation time so the user gets a targeted error: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is of type ${T}, not a ref projection.`
+- **End-to-end C codegen for `ref(name) := call(...)`.** The call's intermediate temp variable today declares `T _temp = fn_call(...)`, but `fn_call` for a `-> ref(T)` function returns `T*` — a C type mismatch. To close this, the call's temp variable type needs to track the function's return.isRef flag (declare `T* _temp = fn_call(...)`), and value-context reads of that temp need to auto-deref via the same atom codegen path that handles `ref`-bound parameter reads. The fix is mechanical but threads through `expr.ts` (temp creation) and `codegen/exprs/initialization-assignment.ts` (temp emission). Land in a follow-up commit before Phase C (Indexable trait) so the iterator examples in Phase C actually compile.
+- **Call-site auto-deref for value contexts** — same blocker as the previous bullet; resolved together.
 
 ### Phase C — `Indexable(Idx)` trait + ArrayList migration
 
@@ -481,7 +494,7 @@ with a `yield expr` form in the body that pauses and returns control to the call
 
 - ✅ Design sketched (this document).
 - ✅ Phase A — `ref(T)` return slot parsing + signature codegen (minimal body).
-- ☐ Phase B — `ref(name) := expr;` binding form + flowability rule + call-site auto-deref.
+- 🚧 Phase B — parser + binding form landed; flowability rule + end-to-end call codegen deferred.
 - ☐ Phase C — `Indexable(Idx)` trait + ArrayList migration.
 - ☐ Phase D — Iterator protocol migration.
 - ☐ Phase E — User-facing migration + lint pass.
