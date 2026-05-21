@@ -710,6 +710,31 @@ Considered. Rejected because a warning that doesn't block compilation is easy to
 
 The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the privilege gate keeps user code outside it entirely.** Combined with `object` being the default for ownership, this gets Yo to roughly Swift/Go's safety level — strictly better than C, comparable to other widely-adopted memory-safe languages, strictly weaker than Rust.
 
+### Known Limitations & Accepted Trade-offs
+
+The following sharp edges remain after the gates above. They were raised in review and are listed here so future readers don't re-discover them and assume the design overlooks them.
+
+1. **Dangling `Slice(T)` from local arrays (pre-existing).** `Slice(T)` is a fat pointer (ptr + length) whose user-visible type doesn't mention `*(T)`. Safe code can therefore construct a slice from a stack-allocated array and return it past the array's lifetime:
+
+   ```rust
+   make_dangling :: (fn() -> Slice(i32))({
+     arr := Array(i32, 3).of(i32(1), i32(2), i32(3));
+     arr.as_slice()                 // points into the dying call frame
+   });
+   ```
+
+   None of the Phase C structural gates catch this — the result expression doesn't have type `*(T)`. This is also the same shape as Open Question 7 in `plans/ITERATOR_REDESIGN.md`. Two ways to close it eventually: (a) extend the iterator flowability rule to "any returned value whose representation transitively carries a raw pointer must be flowable", which approaches lifetime tracking; (b) make `Array(T, N).as_slice` borrow-bound (a projection method returning `inout`), making the return slot inherit flowability. For now: **acknowledged hole**, AddressSanitizer catches at runtime.
+
+2. **`extern(...)` call sites are not wrapped in `unsafe(...)`.** Calling a C function with the wrong argument types is UB, but a call site like `c_function(x, y, z)` carries no syntactic marker — the only opt-in is the file's `pragma(Pragma.AllowUnsafe);`. Per Open Question 1 in this document, we deliberately chose not to require `unsafe(extern_call(...))` because calling a well-typed C function isn't intrinsically UB; the FFI binding owns its argument-typing contract. The trade-off: granularity is coarser than Rust's per-`unsafe`-block model. Acceptable for v1; revisit if FFI-related UB shows up in audit.
+
+3. **`asm(...)` blocks similarly carry no `unsafe(...)` wrap requirement** — they are implicitly unsafe by virtue of needing pragma. Same reasoning as #2; the audit story owns the granularity gap.
+
+4. **`pragma(Pragma.AllowUnsafe);` parsing depends on the `Pragma` enum** — which lives in `std/prelude.yo`. The bootstrap issue (the prelude itself declares `pragma(Pragma.AllowUnsafe);`) is solved by `preScanForSkipPrelude` in `src/evaluator/builtins/pragma.ts`: a narrow AST-shape match runs BEFORE the prelude loads, recognizing the literal `Pragma.AllowUnsafe` / `Pragma.SkipPrelude` shapes without resolving identifiers. All other pragma kinds are validated by full evaluation against the enum after the prelude is in scope. This is intentional and load-bearing — typos like `Pragma.AlloeUnsafe` still produce a clear error from the full-evaluation pass.
+
+5. **No `unsafe fn` — no per-call-site safety contract.** A function `(fn(p : *(i32)) -> i32)({ unsafe(p.*) })` carries the unsafety in its _body_, not its _signature_. Callers (inside an unsafe-capable file) write `f(some_ptr)` with no marker at the call site. If the caller passes a dangling pointer, UB happens with no visual signal where the deref occurs. Rust's `unsafe fn` forces the call site to write `unsafe { f(p) }` — Yo deliberately doesn't, per Open Question 1's stance that unsafety doesn't propagate to callers. The trade-off: within an unsafe-capable file, you can't tell at a glance which calls are UB-capable. Mitigation: `yo unsafe-report` flags every `unsafe(...)` site and every privileged file. Acceptable for v1; the audience for `pragma(Pragma.AllowUnsafe);`-bearing files is intentionally small (stdlib + FFI wrappers).
+
+6. **Integer overflow is C UB.** Yo's `i32(...)`, `i64(...)`, etc. compile to C signed integer types, whose overflow is UB in standard C. `x := i32(2147483647); y := (x + i32(1));` is UB in safe Yo code today. Out of scope for the memory-safety plan (this is _arithmetic_ UB, not _memory_ UB), but worth flagging because users will encounter it. Mitigation options: (a) compile with `-fwrapv` so overflow defines as two's-complement wrap; (b) add explicit `wrapping_add` / `checked_add` builtins and lint against raw `+` on signed integers; (c) accept the C-style behavior and document. Lean: (a) as a Yo default flag, (b) as future arithmetic-safety work in a separate plan.
+
 ---
 
 ## Status
