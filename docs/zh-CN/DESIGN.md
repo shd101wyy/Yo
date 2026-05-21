@@ -1371,53 +1371,51 @@ for(iter_expr, (variable) => {
 });
 ```
 
-每个集合提供两种迭代模式：
+`for` 宏通过 **lambda 参数的绑定形式** 区分借用迭代和值迭代——`ref(x) => body` 借用，`(x) => body` 消费：
 
-| 方法          | 产出   | 语义                         |
-| ------------- | ------ | ---------------------------- |
-| `iter()`      | `*(T)` | 通过指针借用集合；产出指针   |
-| `into_iter()` | `T`    | 获取 RC 句柄的所有权；产出值 |
+| 形式                        | 调用               | `x` 是什么                                                                        |
+| --------------------------- | ------------------ | --------------------------------------------------------------------------------- |
+| `for(coll, ref(x) => body)` | `coll.iter()`      | 按引用绑定到每个元素；读取自动解引用，写入回传到集合；`coll` 在循环结束后仍然有效 |
+| `for(coll, (x) => body)`    | `coll.into_iter()` | 持有元素值；集合被移入迭代器并被消费                                              |
 
 ```rust
+arr := Array(i32, 3)(1, 2, 3);
+
+// 借用形式 — `x` 按引用绑定；写入会传播。
+for(arr, ref(x) => {
+  x = (x * i32(10));
+});
+// arr 现在是 [10, 20, 30]。
+
+// 值形式 — 调用 `coll.into_iter()`；每个 `x` 都是拥有的值。
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
-
-// iter() — 产出指向元素的指针
-for(list.iter(), (ptr) => {
-  println(ptr.*);
-});
-
-// into_iter() — 产出值（获取 RC 句柄的所有权）
 for(list.into_iter(), (value) => {
   println(value);
 });
-
-// 数组使用 iter() — 产出指向元素的指针
-arr := Array(i32, 3)(1, 2, 3);
-for(arr.iter(), (ptr) => {
-  println(ptr.*);
-});
-
-// 字符串使用 chars() 和 bytes()
-s := String.from("Hello");
-for(s.chars(), (ch) => {
-  println(ch);
-});
 ```
 
-`for` 宏展开为：
+`for(coll, ref(x) => body)` 在底层展开为一个 `while`，将 `next()` 产出的每个位置与 `coll.project(pos)` 的借用配对：
 
 ```rust
-iter := iter_expr;
+__iter := coll.iter();
 while(runtime(true), {
-  temp := &(iter).next();
-  match(temp,
-    .Some(variable) => body,
+  match(__iter.next(),
+    .Some(__pos) => {
+      ref(x) := coll.project(__pos);
+      body
+    },
     .None => { break; }
   )
 });
 ```
+
+`coll.iter()` 返回一个 `Iterator(Item := Position)`（对于有索引的集合通常是 `usize`）。集合的 `Indexable(Position)` 实现提供 `project(pos) -> ref(Element)`，for 宏将其与每个位置配对，把元素存储的 `ref`-绑定交给循环体。详见 `plans/ITERATOR_REDESIGN.md`。
+
+值迭代 `for(coll, (x) => body)` 展开为 `coll.into_iter()`，后接标准的 `next()` 循环。组合器链（`coll.iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状——它们没有 `Collection` 可投射，因此只支持值形式。一个全覆盖的 `into_iter` 实现 `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
+
+字符串有专门的 `chars()`（rune 迭代）和 `bytes()`（字节迭代）方法；字节级借用形式 `for(s, ref(b) => body)` 也可用。
 
 ## 代数数据类型 (ADT)
 

@@ -1373,53 +1373,51 @@ for(iter_expr, (variable) => {
 });
 ```
 
-Each collection provides two iteration modes:
+The `for` macro distinguishes borrow iteration from value iteration by the **lambda's binding shape** — `ref(x) => body` borrows, `(x) => body` consumes:
 
-| Method        | Yields | Semantics                                           |
-| ------------- | ------ | --------------------------------------------------- |
-| `iter()`      | `*(T)` | Borrows the collection via pointer; yields pointers |
-| `into_iter()` | `T`    | Takes ownership of the RC handle; yields values     |
+| Form                        | Calls              | What `x` is                                                                                                      |
+| --------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `for(coll, ref(x) => body)` | `coll.iter()`      | `ref`-bound to each element; reads auto-deref, writes propagate back to the collection; `coll` survives the loop |
+| `for(coll, (x) => body)`    | `coll.into_iter()` | Owned value; collection is moved into the iterator and consumed                                                  |
 
 ```rust
+arr := Array(i32, 3)(1, 2, 3);
+
+// Borrow form — `x` is bound by reference; writes propagate.
+for(arr, ref(x) => {
+  x = (x * i32(10));
+});
+// arr is now [10, 20, 30].
+
+// Value form — `coll.into_iter()` is invoked; each `x` is owned.
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
-
-// iter() — yields pointers to elements
-for(list.iter(), (ptr) => {
-  println(ptr.*);
-});
-
-// into_iter() — yields values (takes ownership of the RC handle)
 for(list.into_iter(), (value) => {
   println(value);
 });
-
-// Arrays use iter() — yields pointers to elements
-arr := Array(i32, 3)(1, 2, 3);
-for(arr.iter(), (ptr) => {
-  println(ptr.*);
-});
-
-// Strings use chars() and bytes()
-s := String.from("Hello");
-for(s.chars(), (ch) => {
-  println(ch);
-});
 ```
 
-The `for` macro expands to:
+Under the hood, `for(coll, ref(x) => body)` lowers to a `while` that pairs each yielded position with a `coll.project(pos)` borrow:
 
 ```rust
-iter := iter_expr;
+__iter := coll.iter();
 while(runtime(true), {
-  temp := &(iter).next();
-  match(temp,
-    .Some(variable) => body,
+  match(__iter.next(),
+    .Some(__pos) => {
+      ref(x) := coll.project(__pos);
+      body
+    },
     .None => { break; }
   )
 });
 ```
+
+`coll.iter()` returns an `Iterator(Item := Position)` (typically `usize` for indexed collections). The collection's `Indexable(Position)` impl provides `project(pos) -> ref(Element)`, which the for-macro pairs with each position to hand the body a `ref`-binding into element storage. See `plans/ITERATOR_REDESIGN.md`.
+
+For value iteration, `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. Combinator chains (`coll.iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape — they don't have a `Collection` to project from, so they only support the value form. A blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
+
+Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration); the byte-level borrow form `for(s, ref(b) => body)` is available too.
 
 ## Algebraic Data Types (ADT)
 
