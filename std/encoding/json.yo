@@ -158,6 +158,47 @@ impl(
     )
   )
 );
+/// Index trait — `v(key)` returns the child JsonValue for `key`, panicking
+/// if `v` is not an Object or the key is missing.
+impl(
+  JsonValue,
+  Index(String)(
+    Output : JsonValue,
+    index : (fn(ref(self) : Self, key : String) -> *(Self.Output))(
+      match(
+        self,
+        .Object(keys, values) => {
+          i := usize(0);
+          while(i < keys.len(), i = (i + usize(1)), {
+            if(keys(i) == key, {
+              return(unsafe(&(values.project(i))));
+            });
+          });
+          panic("JsonValue: key not found in Object")
+        },
+        _ => panic("JsonValue: index by String requires .Object variant")
+      )
+    )
+  )
+);
+/// Index trait — `v(i)` returns the i-th JsonValue, panicking if `v` is
+/// not an Array or `i` is out of bounds.
+impl(
+  JsonValue,
+  Index(usize)(
+    Output : JsonValue,
+    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+      match(
+        self,
+        .Array(items) => {
+          assert(idx < items.len(), "JsonValue: Array index out of bounds");
+          return(unsafe(&(items.project(idx))));
+        },
+        _ => panic("JsonValue: index by usize requires .Array variant")
+      )
+    )
+  )
+);
 export(JsonValue, JsonKV);
 // ============================================================================
 // Parser state
