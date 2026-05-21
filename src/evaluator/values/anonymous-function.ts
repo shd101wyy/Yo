@@ -40,6 +40,7 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types/utils";
+import { isFlowableExpr } from "../types/flowability";
 import {
   createPtrType,
   createSliceType,
@@ -705,6 +706,38 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
   // from the enclosing function, not this function. The body's type is the abort value
   // type, which may not match the handler function's declared return type.
   const evaluatedBodyReturnType = evaluatedBody.$?.type;
+
+  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
+  // the return expression of a `-> ref(T)` function. The body must
+  // root back to a `ref`-bound parameter along a
+  // projection-respecting chain (R1–R4 in the plan); otherwise the
+  // function would hand out a borrow into its own dying frame.
+  //
+  // The body might be a single expression (the implicit return)
+  // OR a begin-block whose final expression is the return value.
+  // For Phase B's first cut we handle both shapes; explicit
+  // `return(expr)` statements buried deeper in the body aren't
+  // checked yet — a follow-up can walk control-flow more
+  // thoroughly when the projection redesign meets real iterator
+  // bodies in Phase D.
+  if (functionType.return.isRef) {
+    let returnExpr: Expr = evaluatedBody;
+    if (
+      exprIsFunctionCall(evaluatedBody) &&
+      exprIsFunctionCallOf(evaluatedBody, BuiltinKeywords.begin)
+    ) {
+      const beginCall = evaluatedBody as FnCallExpr;
+      if (beginCall.args.length > 0) {
+        returnExpr = beginCall.args[beginCall.args.length - 1]!;
+      }
+    }
+    if (!isFlowableExpr(returnExpr)) {
+      throw formatErrorMessage({
+        token: returnExpr.token,
+        errorMessage: `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable. See plans/ITERATOR_REDESIGN.md.`,
+      });
+    }
+  }
 
   // For closures with SomeType return type (from forall parameters, e.g., T : Type),
   // resolve the body's runtime type as the concrete type for the SomeType.

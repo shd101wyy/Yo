@@ -429,10 +429,11 @@ Tests landed in `tests/ref_local_binding.test.yo`:
 - Atom reads of the temp variable use the existing ref-aware atom emitter (which keys off `isRef`) to produce `(*_temp)` in value contexts — same code path as `ref`-bound parameter reads. So `y := identity(x);` becomes `int32_t y = (*_temp);` in the C output, with the deref happening exactly once at the read site.
 - `ref(name) := call(...)` flows the raw `T*` through both variables (call's temp and binding's local), each declared `T*`. Subsequent reads and writes through `name` go through the same `(*name)` lowering as `ref(name) : T` parameters.
 
-**Still deferred:**
+**Flowability rule (landed in the same commit as Phase C readiness):**
 
-- **Flowability rule on the RHS.** Today the evaluator doesn't type-check the RHS as a ref-yielding expression; if it isn't, the C compiler errors out on type mismatch. The same R1–R4 flowability rule that gates `-> ref(T)` returns (see "Soundness of `ref(T)` return slots" above) should run on the RHS of `ref(name) := X` with a targeted error: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is of type ${T}, not a ref projection.`
-- **Flowability rule on `-> ref(T)` return expressions** — likewise, return-position should be checked against R1–R4. The simple cases (return a ref-param atom; return field-access on a ref-param) already produce correct code; complex cases (cond/match arms, projection chains) need the rule to enforce soundness before Phase C wires up real iterators.
+- `src/evaluator/types/flowability.ts`: a single `isFlowableExpr(expr)` helper implements R1–R4. It unwraps outer `begin(...)` wrappers (single-expression bodies appear post-eval as `begin((expr))`) before applying the recursive rule.
+- `src/evaluator/exprs/initialization-assignment.ts`: runs `isFlowableExpr` on the RHS of every `ref(name) := X;` binding. Non-flowable RHS yields a targeted error listing what counts as flowable.
+- `src/evaluator/values/anonymous-function.ts` and `src/evaluator/calls/function-type.ts`: both function-body evaluation paths (inline lambda + top-level `(fn(...) -> ref(T))(body)`) run the check on the body's final expression, unwrapping begin blocks. The error points at the offending sub-expression.
 
 ### Phase C — `Indexable(Idx)` trait + ArrayList migration
 
@@ -500,7 +501,7 @@ with a `yield expr` form in the body that pauses and returns control to the call
 
 - ✅ Design sketched (this document).
 - ✅ Phase A — `ref(T)` return slot parsing + signature codegen (minimal body).
-- 🚧 Phase B — parser + binding form + end-to-end ref-call codegen landed; flowability rule deferred.
+- ✅ Phase B — parser + binding form + end-to-end ref-call codegen + flowability rule all landed.
 - ☐ Phase C — `Indexable(Idx)` trait + ArrayList migration.
 - ☐ Phase D — Iterator protocol migration.
 - ☐ Phase E — User-facing migration + lint pass.

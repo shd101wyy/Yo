@@ -35,6 +35,7 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
+import { isFlowableExpr } from "../types/flowability";
 import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
@@ -157,6 +158,20 @@ export function evaluateInitializationAssignment({
   if (hasAnyControlFlow(rhs.$?.controlFlow)) {
     // Check if the RHS is a cond expression to provide a more specific error message
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$!.controlFlow!);
+  }
+
+  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
+  // the RHS of `ref(name) := expr;`. The RHS must root back to a
+  // `ref`-bound parameter along a projection-respecting chain
+  // (R1–R4 in the plan); otherwise the binding would hand out a
+  // reference into storage that doesn't outlive the call frame.
+  if (isRefBinding) {
+    if (!isFlowableExpr(rhs)) {
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `'ref(name) := ...' requires a ref-yielding right-hand side that roots back to a 'ref'-bound parameter. The expression on the right is not flowable:\n  ${exprToString(rhs)}\n\nFlowable expressions: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable. See plans/ITERATOR_REDESIGN.md.`,
+      });
+    }
   }
 
   // §4 escape boundary 2: module-level binding type cannot be

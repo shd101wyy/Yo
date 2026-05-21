@@ -1,0 +1,159 @@
+/**
+ * Flowability check for `ref(T)`-yielding expressions.
+ *
+ * Implements the structural soundness rule from `plans/ITERATOR_REDESIGN.md`:
+ * an expression is "flowable" iff it roots back to a `ref`-bound
+ * parameter (or another `ref`-bound local with a flowable initializer)
+ * along a projection-respecting chain.
+ *
+ * Used at two enforcement points:
+ *
+ *  1. The RHS of a `ref(name) := expr;` local binding must be
+ *     flowable — otherwise the binding would hand out a reference
+ *     into storage that doesn't outlive the call frame.
+ *  2. The return expression of a function declared `-> ref(T)` must
+ *     be flowable — otherwise the function would return a borrow
+ *     into its own dying frame.
+ *
+ * The rules (numbered to match the plan):
+ *
+ *  R1. A name reference is flowable iff its binding has
+ *      `isRef: true` (a `ref(name) : T` parameter or a
+ *      `ref(name) := ...` local).
+ *  R2. `expr.field` is flowable iff `expr` is flowable.
+ *  R3. `expr(args)` is flowable iff the callee's return slot is
+ *      `ref(T)` AND every `ref`-typed argument it receives is
+ *      itself flowable.
+ *  R4. `cond` / `match` arms each return-flow independently —
+ *      every arm reachable as a return value must be flowable.
+ *
+ * Net effect: every flowable expression's root is a `ref`-typed
+ * parameter, which by definition points at storage in some active
+ * caller frame above the current one. Therefore the value yielded
+ * out of the current function is alive when the caller receives it.
+ */
+
+import {
+  BuiltinKeywords,
+  exprIsAtom,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  type Expr,
+  type FnCallExpr,
+} from "../../expr";
+import { isFunctionType } from "../../types/guards";
+import { isFunctionValue } from "../../value";
+import { getVariablesFromEnv } from "../../env";
+
+/**
+ * Strip outer `begin(...)` wrappers from an expression so we can
+ * inspect the value-producing inner. After evaluation, single-
+ * expression bodies often appear as `begin((expr))`; the value
+ * that flows out is `expr`. Recursively unwraps in case the body
+ * is `begin(begin((expr)))`.
+ */
+function unwrapBeginBlocks(expr: Expr): Expr {
+  let current = expr;
+  while (
+    exprIsFunctionCall(current) &&
+    exprIsFunctionCallOf(current, BuiltinKeywords.begin)
+  ) {
+    const call = current as FnCallExpr;
+    if (call.args.length === 0) return current;
+    current = call.args[call.args.length - 1]!;
+  }
+  return current;
+}
+
+/**
+ * Walk `expr` and return `true` iff it satisfies R1–R4. The
+ * expression must have been evaluated already (so `expr.$` is set
+ * and bindings can be looked up in `expr.$.env`).
+ */
+export function isFlowableExpr(expr: Expr): boolean {
+  // Strip any outer `begin(...)` wrapper(s). Single-expression
+  // bodies after evaluation often appear as `begin((expr))`.
+  expr = unwrapBeginBlocks(expr);
+
+  // R1: bare name → check binding flag.
+  if (exprIsAtom(expr)) {
+    if (!expr.$?.env || !expr.$?.variableName) return false;
+    const vars = getVariablesFromEnv(expr.$.env, expr.$.variableName);
+    if (vars.length === 0) return false;
+    return Boolean(vars[vars.length - 1]!.isRef);
+  }
+
+  if (!exprIsFunctionCall(expr)) return false;
+  const call = expr as FnCallExpr;
+
+  // R2: `expr.field` is parsed as a `.` function call with 2 args
+  //     `[base, field-name]`. Single-arg `.field` (variant ctor) and
+  //     other shapes never appear in a return-position projection
+  //     chain, so we ignore them here.
+  if (exprIsFunctionCallOf(call, ".", 2)) {
+    return isFlowableExpr(call.args[0]!);
+  }
+
+  // R4: `cond(expr1 => arm1, expr2 => arm2, ...)`.
+  //     Each `=>` pair is itself a 2-arg function call; the second
+  //     argument is the arm body that flows out. Every arm must be
+  //     flowable.
+  if (exprIsFunctionCallOf(call, "cond")) {
+    for (const arm of call.args) {
+      if (
+        exprIsFunctionCall(arm) &&
+        exprIsFunctionCallOf(arm as FnCallExpr, "=>", 2)
+      ) {
+        const armBody = (arm as FnCallExpr).args[1]!;
+        if (!isFlowableExpr(armBody)) return false;
+      } else {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // R4 (match form): `match(scrutinee, .Variant => arm, ...)`.
+  //     The scrutinee is the first arg; the remaining args are
+  //     `=>` pairs whose arm body is the second.
+  if (exprIsFunctionCallOf(call, "match")) {
+    for (let i = 1; i < call.args.length; i++) {
+      const arm = call.args[i];
+      if (
+        arm &&
+        exprIsFunctionCall(arm) &&
+        exprIsFunctionCallOf(arm as FnCallExpr, "=>", 2)
+      ) {
+        const armBody = (arm as FnCallExpr).args[1]!;
+        if (!isFlowableExpr(armBody)) return false;
+      } else {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // R3: regular function call. The callee's return slot must be
+  //     `ref(T)`, and every `ref`-typed argument must itself be
+  //     flowable.
+  const calleeValue = call.func.$?.value;
+  if (!calleeValue || !isFunctionValue(calleeValue)) return false;
+  const calleeType = calleeValue.type;
+  if (!isFunctionType(calleeType)) return false;
+  if (!calleeType.return.isRef) return false;
+
+  // For every parameter that is `ref`-typed, the corresponding
+  // argument in the call must be flowable. Parameters that aren't
+  // `ref` don't constrain anything — passing a regular value to a
+  // by-value parameter is fine.
+  const params = calleeType.parameters;
+  const args = call.args;
+  for (let i = 0; i < params.length; i++) {
+    const p = params[i]!;
+    if (!p.isRef) continue;
+    const a = args[i];
+    if (!a) return false;
+    if (!isFlowableExpr(a)) return false;
+  }
+  return true;
+}

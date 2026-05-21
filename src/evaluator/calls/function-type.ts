@@ -7,11 +7,16 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
   cloneExpr,
   type Expr,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  exprToString,
   type FnCallExpr,
   hasControlFlow,
 } from "../../expr";
+import { isFlowableExpr } from "../types/flowability";
 import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
@@ -433,6 +438,31 @@ export function tryToImplementFunctionByFunctionType({
 
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
+
+  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
+  // the return expression of a `-> ref(T)` function. Mirrors the
+  // identical check in `evaluateAnonymousFunctionImplementation`;
+  // this path covers top-level `name :: (fn(...) -> ref(T))(body)`
+  // definitions where the body is evaluated here rather than in
+  // the inline-lambda evaluator.
+  if (newFunctionType.return.isRef) {
+    let returnExpr: Expr = evaluatedFunctionBody;
+    if (
+      exprIsFunctionCall(evaluatedFunctionBody) &&
+      exprIsFunctionCallOf(evaluatedFunctionBody, BuiltinKeywords.begin)
+    ) {
+      const beginCall = evaluatedFunctionBody as FnCallExpr;
+      if (beginCall.args.length > 0) {
+        returnExpr = beginCall.args[beginCall.args.length - 1]!;
+      }
+    }
+    if (!isFlowableExpr(returnExpr)) {
+      throw formatErrorMessage({
+        token: returnExpr.token,
+        errorMessage: `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable. See plans/ITERATOR_REDESIGN.md.`,
+      });
+    }
+  }
 
   // Check if the function body type matches the function return type
   const functionBodyReturnType = evaluatedFunctionBody.$?.type;
