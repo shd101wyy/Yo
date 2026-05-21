@@ -73,7 +73,10 @@ function unwrapBeginBlocks(expr: Expr): Expr {
  * expression must have been evaluated already (so `expr.$` is set
  * and bindings can be looked up in `expr.$.env`).
  */
-export function isFlowableExpr(expr: Expr): boolean {
+export function isFlowableExpr(
+  expr: Expr,
+  options: { allowSameFrameLocal?: boolean } = {}
+): boolean {
   // Strip any outer `begin(...)` wrapper(s). Single-expression
   // bodies after evaluation often appear as `begin((expr))`.
   expr = unwrapBeginBlocks(expr);
@@ -115,7 +118,19 @@ export function isFlowableExpr(expr: Expr): boolean {
     if (!expr.$?.env || !expr.$?.variableName) return false;
     const vars = getVariablesFromEnv(expr.$.env, expr.$.variableName);
     if (vars.length === 0) return false;
-    return Boolean(vars[vars.length - 1]!.isRef);
+    const v = vars[vars.length - 1]!;
+    if (v.isRef) return true;
+    // R1' (binding-site only): a same-frame local also counts as
+    // flowable. Soundness: the borrowing binding's lifetime is
+    // bounded by its enclosing block, which is itself bounded by
+    // the local's call frame — so the source can't go away before
+    // the borrow does. The strict R1 (ref-bound only) still applies
+    // at function-return sites; only the `ref(name) := …` binding-
+    // site call from `init-assignment.ts` passes `allowSameFrameLocal`.
+    if (options.allowSameFrameLocal && !v.isModuleLevel) {
+      return true;
+    }
+    return false;
   }
 
   if (!exprIsFunctionCall(expr)) return false;
@@ -126,7 +141,7 @@ export function isFlowableExpr(expr: Expr): boolean {
   //     other shapes never appear in a return-position projection
   //     chain, so we ignore them here.
   if (exprIsFunctionCallOf(call, ".", 2)) {
-    return isFlowableExpr(call.args[0]!);
+    return isFlowableExpr(call.args[0]!, options);
   }
 
   // R4: `cond(expr1 => arm1, expr2 => arm2, ...)`.
@@ -140,7 +155,7 @@ export function isFlowableExpr(expr: Expr): boolean {
         exprIsFunctionCallOf(arm as FnCallExpr, "=>", 2)
       ) {
         const armBody = (arm as FnCallExpr).args[1]!;
-        if (!isFlowableExpr(armBody)) return false;
+        if (!isFlowableExpr(armBody, options)) return false;
       } else {
         return false;
       }
@@ -160,7 +175,7 @@ export function isFlowableExpr(expr: Expr): boolean {
         exprIsFunctionCallOf(arm as FnCallExpr, "=>", 2)
       ) {
         const armBody = (arm as FnCallExpr).args[1]!;
-        if (!isFlowableExpr(armBody)) return false;
+        if (!isFlowableExpr(armBody, options)) return false;
       } else {
         return false;
       }
@@ -219,7 +234,7 @@ export function isFlowableExpr(expr: Expr): boolean {
     if (!p.isRef) continue;
     const a = args[i];
     if (!a) return false;
-    if (!isFlowableExpr(a)) return false;
+    if (!isFlowableExpr(a, options)) return false;
   }
   return true;
 }

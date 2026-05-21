@@ -1,0 +1,38 @@
+/// Phase C of plans/ITERATOR_REDESIGN.md — `Indexable.project` runtime
+/// validation. These tests exercise `ref(r) := coll.project(pos)` at
+/// runtime on the collections whose `project` body works through a
+/// `&(self)` to `__yo_array_index` / `__yo_slice_index` chain.
+///
+/// `ArrayList` and `String` are not covered here yet — their `project`
+/// bodies use different shapes (`self._ptr &+ pos` and
+/// `match(self._bytes, .Some(bytes) => &(bytes(pos)), .None => panic(…))`)
+/// that surface additional codegen / evaluator gaps. Covered as
+/// Phase C follow-up.
+pragma(Pragma.AllowUnsafe);
+test("Phase C — Array.project read", {
+  arr := [i32(10), i32(20), i32(30)];
+  ref(r) := arr.project(usize(1));
+  assert(r == i32(20), "Array.project reads element at position 1");
+});
+test("Phase C — Array.project write propagates", {
+  arr := [i32(10), i32(20), i32(30)];
+  ref(r) := arr.project(usize(1));
+  r = i32(99);
+  assert(arr(usize(1)) == i32(99), "write through Array.project propagates back to the array");
+  assert(arr(usize(0)) == i32(10), "untouched element 0 stays");
+  assert(arr(usize(2)) == i32(30), "untouched element 2 stays");
+});
+test("Phase C — Array.project from ref-bound caller, read and write", {
+  caller_read :: (fn(ref(outer) : [i32 ; 3]) -> i32)({
+    ref(r) := outer.project(usize(2));
+    r
+  });
+  caller_write :: (fn(ref(outer) : [i32 ; 3], v : i32) -> unit)({
+    ref(r) := outer.project(usize(2));
+    r = v;
+  });
+  arr := [i32(1), i32(2), i32(3)];
+  assert(caller_read(arr) == i32(3), "caller reads through Array.project");
+  caller_write(arr, i32(42));
+  assert(arr(usize(2)) == i32(42), "caller writes through Array.project propagate");
+});

@@ -166,10 +166,19 @@ export function evaluateInitializationAssignment({
   // (R1–R4 in the plan); otherwise the binding would hand out a
   // reference into storage that doesn't outlive the call frame.
   if (isRefBinding) {
-    if (!isFlowableExpr(rhs)) {
+    // At the binding site, a same-frame local can root the borrow even
+    // if it isn't a `ref`-bound parameter — the binding's lifetime is
+    // bounded by its enclosing block, which is itself bounded by the
+    // local's frame. This is what makes the Phase D for-macro expansion
+    // sound: it materializes `__for_coll := coll;` and then
+    // `ref(x) := __for_coll.project(pos)`, where __for_coll outlives
+    // the per-iteration `x`. The strict R1 (ref-bound only) still
+    // applies at function-return sites; see `function-type.ts` and
+    // `anonymous-function.ts`.
+    if (!isFlowableExpr(rhs, { allowSameFrameLocal: true })) {
       throw formatErrorMessage({
         token: rhs.token,
-        errorMessage: `'ref(name) := ...' requires a ref-yielding right-hand side that roots back to a 'ref'-bound parameter. The expression on the right is not flowable:\n  ${exprToString(rhs)}\n\nFlowable expressions: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable. See plans/ITERATOR_REDESIGN.md.`,
+        errorMessage: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${exprToString(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable. See plans/ITERATOR_REDESIGN.md.`,
       });
     }
   }
