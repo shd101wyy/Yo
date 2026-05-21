@@ -340,18 +340,38 @@ function generateBatchedTestProgram(
 
   // Import env module for env var dispatch (unique name to avoid conflicts)
   lines.push('__yo_batch_env :: import("std/env");');
-  // Import Exception so the generated main signature can reference it
-  lines.push('__yo_test_exn :: import("std/error");');
   lines.push("");
 
   // Inline all test bodies into main's cond branches.
   // We can't use separate functions because tests with algebraic effects
   // (unwind/given) need to be in the same codegen scope as main.
   //
-  // main declares `io : IO, exn : Exception` so test bodies can reference
-  // `io` (for io.await/io.async) and `exn` (for exn.throw) directly. The
-  // C main wrapper injects the runtime values for these params.
-  lines.push(`main :: (fn(io : IO, exn : __yo_test_exn.Exception) -> unit)({`);
+  // main takes no parameters. We expose `io` as a local binding to
+  // `__yo_builtin_io` (the IO instance defined in `std/prelude.yo`) so
+  // test bodies that use `io.async`/`io.await`/`io.spawn`/`io.state`
+  // keep compiling unchanged.
+  //
+  // We deliberately do NOT declare `io : IO` as a parameter of `main`
+  // (or inject an `exn : Exception` parameter), because struct types
+  // like `IO` and `Exception` carry nested `fn(forall(T, E), …)` field
+  // signatures. `typeContainsSomeType(IO)` returns true through those
+  // nested foralls, which causes `shouldDeferBodyEvaluation` to defer
+  // `main`'s body. Since `main` is the entry point, it never gets
+  // specialized — and the deferred body silently disappears, leaving
+  // codegen to emit `/* "match" expression is not evaluated */` and
+  // the test binary becomes an empty no-op that exits 0. (Pre-commit
+  // `a3510d20` the test runner used `using(io : IO)` which routed io
+  // through `implicitParameters` and avoided this trap; once `using`
+  // was removed, every test silently passed without running its
+  // body.) The underlying deferral heuristic is too aggressive — see
+  // the in-progress task to fix `typeContainsSomeType` to respect
+  // forall scope. Until that lands, the injection-via-local pattern
+  // below sidesteps the issue without needing evaluator changes.
+  //
+  // Tests that throw exceptions construct their own `Exception` value
+  // locally (e.g. `tests/error.test.yo`); we don't inject one here.
+  lines.push(`main :: (fn() -> unit)({`);
+  lines.push("  io :: __yo_builtin_io;");
   lines.push("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),");
   lines.push("    .Some(__yo_test_idx) => cond(");
   for (let i = 0; i < tests.length; i++) {
