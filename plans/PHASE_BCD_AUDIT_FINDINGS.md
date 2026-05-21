@@ -1,6 +1,6 @@
 # Phase B/C/D audit findings — what we discovered, what's broken, what's next
 
-Status: **MOSTLY REPAIRED.** Phases B, C, and D (for-macro) work end-to-end on `Array(T, N)`, `ArrayList(T)`, and `String` at runtime as of commit `bd928c1f`. Only `Slice(T)` projection remains blocked, due to a pre-existing slicing-typing bug that is wider than the iterator redesign.
+Status: **REPAIRED.** Phases B, C, and D (for-macro) work end-to-end on `Array(T, N)`, `Slice(T)`, `ArrayList(T)`, and `String` at runtime as of commit `cd1e9eaf`. The pre-existing Slice slicing-typing bug was resolved by updating Array/Slice `Index` impl bodies to pass `&(self)` to the `*(T)`-expecting builtins (mirroring the Indexable.project fix from commit `c36429c8`).
 
 ## Tl;dr (history)
 
@@ -13,20 +13,36 @@ Phases B, C, and D of `plans/ITERATOR_REDESIGN.md` were committed (`ebe910a6`, `
 ## What works end-to-end now
 
 - `tests/ref_binding.test.yo` — 4/4 passing. `ref(r) := flowable_call(...)` reads and writes through a chain of `ref`-bound function parameters.
-- `tests/indexable_runtime.test.yo` — 6/6 passing. Covers `arr.project` (Array), `list.project` (ArrayList), `s.project` (String) — all with read AND write semantics.
-- `tests/for_macro_borrow.test.yo` — 8/8 passing. `for(coll, ref(x) => body)` on Array, ArrayList, String — iteration, write-through, empty collections, capture-interaction, byte iteration on Strings.
+- `tests/indexable_runtime.test.yo` — 9/9 passing. Covers `arr.project` (Array), `list.project` (ArrayList), `s.project` (String), `slice.project` (Slice) — all with read AND write semantics.
+- `tests/for_macro_borrow.test.yo` — 10/10 passing. `for(coll, ref(x) => body)` on Array, ArrayList, String, Slice — iteration, write-through, empty collections, capture-interaction, byte iteration on Strings.
 - `tests/closure_capture_rc_leak.test.yo` — 7/7 passing. Migrated to `.into_iter()` value form.
 - `./yo-cli check ./std` — 148/148 passes throughout the repair.
 
-## Still broken — task #94 (`Slice.project`)
+## Task #94 — Slice.project — RESOLVED
 
-Only `Slice(T)` remains blocked, due to a **pre-existing slicing-typing bug**:
+The original symptom: `s := arr(usize(0) .. usize(3))` evaluates to `i32` instead of `Slice(i32)`, so `s.len()`, `s(usize(1))`, and `s.project(...)` all failed with "Invalid function call on type i32".
 
-`s := arr(usize(0) .. usize(3))` evaluates to `i32` instead of `Slice(i32)`.
+**Root cause:** The Array/Slice `Index(usize/Range/RangeInclusive)` impl bodies in `std/prelude.yo` passed `self` (value-typed in the body's view of a `ref(self) : Self` parameter) to `__yo_array_index`/`__yo_slice_index`/etc, which expect `*(Array(T,N))`/`*(Slice(T))`. The evaluator's specialization step couldn't satisfy the type-check, so the impl method was never bound to the dispatch, and `arr(range)` fell back to the element-by-position overload.
 
-The codegen emits a `Slice_int32_t` struct literal correctly, but the evaluator-level type is `i32`, so `s.len()`, `s(usize(1))`, and `s.project(...)` all fail with "Invalid function call on type i32". The bug pre-dates the iterator redesign (visible at commit `9b089395` and earlier) — it was masked by the test-framework silent-skip regression until commit `7b3b788b` fixed that.
+**Fix:** Commit `cd1e9eaf` — change every Array/Slice Index impl body to use `&(self)` (mirroring the Indexable.project fix from commit `c36429c8`). `generateIndexTraitCall` inlines `&calleeCode` directly at every call site, so the standalone-emitted Index method body is only used by the evaluator's body-typing pass, not by the call site.
 
-The fix likely requires either a new evaluator dispatch path for `arr(range)` calls or fixing the existing `tryToCallWithIndexTrait` to be invoked from the `arr(range)` path (currently the call goes through a different evaluator branch that returns the array's element type unwrapped). Out of scope for the immediate iterator-redesign repair; tracked as task #94.
+## Broader test-suite picture
+
+The test-framework silent-skip repair (commit `7b3b788b`) made the entire test suite — not just iterator tests — actually run for the first time since `a3510d20`. That exposed a large number of latent failures **orthogonal to the iterator redesign**. Of the ~1253 failures observed in the first sweep after `7b3b788b`, two additional structural fixes have landed in this branch:
+
+- ~~`comptime(name) : T` binding form no longer parsed~~ **FIXED** by `f4758e8b` (restore the `comptime(...)` wrapper unwrap in `evaluateBinding` — removed alongside `given(...)` in `a3510d20`).
+- ~~Auto-derived `to_string` for enums fails to compile because the match-subject codegen emits `Type self = (*self);` on top of the `T*`-typed parameter, causing C "redefinition of self with a different type"~~ **FIXED** by `f4758e8b` (skip the temp-var assignment when the subject is a `ref`-bound parameter atom; same guard already used in begin.ts / return.ts / cond.ts).
+- ~~`imm.Vec(T)` had no `Index(usize)` impl~~ **FIXED** by `c820d2b5`.
+
+Test-suite status after these fixes: 1651/2506 passing (up from 1253 immediately after `7b3b788b`). Remaining 855 failures cluster into a few orthogonal root causes:
+
+- Async/await generic inference (~120 tests in `async_await.test.yo`, `sys/bufio.test.yo` etc.): `io.async`/`io.await` fails to unify the lambda's return type with the trait's `T` parameter. `Impl(Future)` types lack registered concrete types.
+- Auto-derived `___dup` for structs that transitively contain `ctl(...)`-typed fields (~71 tests in `algebraic_effects.test.yo`): ctl-bound values can't be returned, but the derived dup tries to.
+- Missing forward declarations for non-generic functions with exception parameters (`base64_decode`, `Url.parse`, etc. — ~50 tests in `encoding/*`, `url/url`, `fn`): the function definitions are skipped by `generateSpecializedFunctionDeclarations` filters that should match.
+- Missing forward declarations for thread/channel/worker closure bodies (~80 tests in `sync/*`, `imm_threading`): closure body cName not emitted to the `.h`-style declaration prologue.
+- Collections missing `Index` impl on tree-based types (`imm.List`, `imm.Map`, `imm.SortedMap`, `LinkedList`, `imm.Set`, etc. — ~150 tests): each needs a careful `*(T)`-returning body design that respects Rc lifetimes.
+
+All five buckets pre-date the iterator redesign and are tracked separately; they're not part of `plans/ITERATOR_REDESIGN.md`'s remit and have been documented for future work.
 
 Once `Slice.project` works at runtime, the existing `tests/indexable.test.yo` Slice tests should pass without further changes.
 

@@ -581,7 +581,8 @@ with a `yield expr` form in the body that pauses and returns control to the call
   - ✅ Closure-capture/combinator test migrations from `.iter()` to `.into_iter()` landed (`closure_capture_rc_leak.test.yo` 7/7).
   - ✅ Docs (en-US + zh-CN) updated for the new for-macro shape (commit `ef41157c`).
   - ✅ Slice Indexable runtime path landed (commit `cd1e9eaf`).
-  - 🟡 HashMap Indexable not yet started (task #88).
+  - ✅ `imm.Vec` Index trait landed (commit `c820d2b5`).
+  - 🟡 HashMap `Indexable` deferred (task #88, Open Question 3 in this doc). The current `Index(K)` impl is sufficient for `map(key)` use. Position-iter + projection-style `for(map, ref(v) => body)` blocks on the tuple-of-refs decision; defer until a concrete user need.
   - Combinator chains on `my_range`-style iterators have pre-existing runtime bugs (state not preserved across `next()` calls in `iter().map(...)` chains) — out of scope for iterator redesign; pre-dates this work.
 
 ### Major caveat resolved during repair
