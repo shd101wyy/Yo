@@ -43,6 +43,7 @@ import {
   type Expr,
   type FnCallExpr,
 } from "../../expr";
+import type { FunctionType } from "../../types/definitions";
 import { isFunctionType } from "../../types/guards";
 import { isFunctionValue } from "../../value";
 import { getVariablesFromEnv } from "../../env";
@@ -170,18 +171,49 @@ export function isFlowableExpr(expr: Expr): boolean {
   // R3: regular function call. The callee's return slot must be
   //     `ref(T)`, and every `ref`-typed argument must itself be
   //     flowable.
-  const calleeValue = call.func.$?.value;
-  if (!calleeValue || !isFunctionValue(calleeValue)) return false;
-  const calleeType = calleeValue.type;
-  if (!isFunctionType(calleeType)) return false;
+  //
+  // The callee type can be resolved from one of two places:
+  //   (a) `call.func.$.value` if the callee is a direct function
+  //       reference (`get_ref(arg)`) — value is a FunctionValue.
+  //   (b) `call.func.$.type` if the callee is a method-dispatch
+  //       access (`receiver.method(arg)`) — `call.func` is a
+  //       `.`-call whose `$.type` carries the method's FunctionType
+  //       (the resolved method, not a wrapped value).
+  // In case (b) the receiver is logically the first argument: a
+  // `ref(self) : Self` parameter requires the receiver to be flowable.
+  // Method calls (`receiver.method(arg)`) have `call.func` as a
+  // `.`-call carrying the resolved method's FunctionType on
+  // `call.func.$.type` (and often also `call.func.$.value` set to the
+  // bound method's FunctionValue). For arg-matching we treat the
+  // receiver as an implicit first argument.
+  const isMethodCall = exprIsFunctionCallOf(call.func, ".", 2);
+  let calleeType: FunctionType | undefined;
+  if (isMethodCall) {
+    const t = call.func.$?.type;
+    if (t && isFunctionType(t)) calleeType = t;
+  } else {
+    const calleeValue = call.func.$?.value;
+    if (calleeValue && isFunctionValue(calleeValue)) {
+      const t = calleeValue.type;
+      if (isFunctionType(t)) calleeType = t;
+    }
+  }
+  if (!calleeType) return false;
   if (!calleeType.return.isRef) return false;
 
   // For every parameter that is `ref`-typed, the corresponding
   // argument in the call must be flowable. Parameters that aren't
   // `ref` don't constrain anything — passing a regular value to a
   // by-value parameter is fine.
+  //
+  // For method calls, the receiver (`call.func.args[0]`) is the
+  // implicit first argument and lines up with `params[0]`; the
+  // remaining `call.args` shift by one. For direct calls,
+  // `call.args` aligns with `params` 1-to-1.
   const params = calleeType.parameters;
-  const args = call.args;
+  const args: Expr[] = isMethodCall
+    ? [(call.func as FnCallExpr).args[0]!, ...call.args]
+    : call.args;
   for (let i = 0; i < params.length; i++) {
     const p = params[i]!;
     if (!p.isRef) continue;
