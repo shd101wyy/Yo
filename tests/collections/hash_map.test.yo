@@ -469,22 +469,42 @@ test("HashMap into_iter - multiple entries all visited", {
   assert(val_sum == i32(60));
   assert(count == i32(3));
 });
-test("HashMap iter - yields pointers to buckets", {
+test("HashMap iter_ptr - yields pointers to buckets", {
   map := HashMap(i32, i32).new();
   map.set(i32(1), i32(10));
   map.set(i32(2), i32(20));
   val_sum := i32(0);
-  for(map.iter(), (ptr) => {
+  for(map.iter_ptr(), (ptr) => {
     val_sum = (val_sum + ptr.*.value);
   });
   assert(val_sum == i32(30));
 });
-test("HashMap iter - mutate values through pointer", {
+test("HashMap iter_ptr - mutate values through pointer", {
   map := HashMap(i32, i32).new();
   map.set(i32(1), i32(10));
   map.set(i32(2), i32(20));
-  for(map.iter(), (ptr) => {
+  for(map.iter_ptr(), (ptr) => {
     ptr.*.value = (ptr.*.value * i32(10));
+  });
+  assert(map(i32(1)) == i32(100));
+  assert(map(i32(2)) == i32(200));
+});
+test("HashMap for ref(b) => body iterates occupied buckets", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+  val_sum := i32(0);
+  for(map, ref(b) => {
+    val_sum = (val_sum + b.value);
+  });
+  assert(val_sum == i32(30));
+});
+test("HashMap for ref(b) => body mutates through borrowed bucket", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+  for(map, ref(b) => {
+    b.value = (b.value * i32(10));
   });
   assert(map(i32(1)) == i32(100));
   assert(map(i32(2)) == i32(200));
