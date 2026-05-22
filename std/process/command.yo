@@ -229,26 +229,25 @@ impl(
   Command,
   /// Spawn the child with stdio inherited from the parent, wait for it to
   /// exit, and return its `ExitStatus`.
-  status : (fn(ref(self) : Self, io : IO) -> Impl(Future(ExitStatus, IOErr)))({
-    // Materialize the spawn future BEFORE entering the async closure so the
-    // closure doesn't have to capture `ref(self) : Self` directly.
-    spawn_fut := _spawn_with_fds(self, i32(-(1)), i32(-(1)), i32(-(1)), io);
+  status : (fn(self : Self, io : IO) -> Impl(Future(ExitStatus, IOErr)))(
+    // `self : Self` is a value-copy of the Rc-counted Command object, so the
+    // closure can freely capture it. (Was `ref(self)` previously, which is a
+    // second-class reference and can't be captured across an async boundary.)
     io.async((e) => {
-      pid := e.io.await(spawn_fut, e);
+      pid := e.io.await(
+        _spawn_with_fds(self, i32(-(1)), i32(-(1)), i32(-(1)), io),
+        e
+      );
       raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
       IOError.check(raw, e.exn);
       ExitStatus(raw : raw)
     })
-  }),
+  ),
   /// Spawn the child with stdout and stderr captured through pipes. Waits for
   /// the child to exit and returns the exit status plus the captured bytes.
-  output : (fn(ref(self) : Self, io : IO) -> Impl(Future(Output, IOErr)))({
-    // Hoist a thunk that materializes the spawn future given write fds, so
-    // the inner closure doesn't capture `ref(self) : Self`. We can't build
-    // the future yet (fds aren't allocated) — instead capture a callback
-    // bound only to `self` is forbidden too, so eagerly resolve `self` by
-    // building cstr storage here and inlining the spawn closure body.
-    storage := _build_cstr_storage(self);
+  output : (fn(self : Self, io : IO) -> Impl(Future(Output, IOErr)))(
+    // `self : Self` is a value-copy of the Rc-counted Command object; the
+    // closure can freely capture it instead of needing `ref(self)`.
     io.async((e) => {
       // Create stdout and stderr pipes.
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
@@ -273,36 +272,11 @@ impl(
       );
       err_read := (err_fd &+ usize(0)).*;
       err_write := (err_fd &+ usize(1)).*;
-      // Spawn child with the write ends of both pipes. Inline the
-      // _spawn_with_fds body here so we don't have to pass `self`.
-      argc := storage.len();
-      argv_bytes := (sizeof(?*(u8)) * (argc + usize(1)));
-      argv_raw := malloc(argv_bytes).unwrap();
-      argv_buf := *(?*(u8))(argv_raw);
-      j := usize(0);
-      while(runtime(j < argc), {
-        match(
-          storage.get(j),
-          .Some(cs) => match(
-            cs.ptr(),
-            .Some(p) => {
-              (argv_buf &+ j).* =.Some(p);
-            },
-            .None => {
-              (argv_buf &+ j).* =.None;
-            }
-          ),
-          .None => {
-            (argv_buf &+ j).* =.None;
-          }
-        );
-        j = (j + usize(1));
-      });
-      (argv_buf &+ argc).* =.None;
-      program_cstr := (argv_buf &+ usize(0)).*.unwrap();
-      pid := e.io.await(IO_process.spawn(program_cstr, argv_buf,.None, i32(-(1)), out_write, err_write), e.io);
-      free(.Some(argv_raw));
-      IOError.check(pid, e.exn);
+      // Spawn child with the write ends of both pipes.
+      pid := e.io.await(
+        _spawn_with_fds(self, i32(-(1)), out_write, err_write, io),
+        e
+      );
       // Close write ends in parent so reads see EOF when child exits.
       e.io.await(IO_file.close(out_write), e.io);
       e.io.await(IO_file.close(err_write), e.io);
@@ -319,6 +293,6 @@ impl(
         stderr : stderr_buf
       )
     })
-  })
+  )
 );
 export(Command, ExitStatus, Output);
