@@ -60,7 +60,7 @@ test("metadata on directory", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_meta_dir`));
   cond(
-    io.await(fs_file.exists(dpath, io), IOErr(io : io, exn : exn)) => {
+    io.await(fs_file.exists(dpath, io), io) => {
       io.await(fs_dir.remove_dir(dpath, io), IOErr(io : io, exn : exn));
     },
     true => ()
@@ -126,13 +126,13 @@ test("symlink_metadata on symlink reports symlink", {
     )
   );
   cond(
-    io.await(fs_file.exists(lnk, io), IOErr(io : io, exn : exn)) => {
+    io.await(fs_file.exists(lnk, io), io) => {
       io.await(fs_dir.remove_file(lnk, io), IOErr(io : io, exn : exn));
     },
     true => ()
   );
   cond(
-    io.await(fs_file.exists(src, io), IOErr(io : io, exn : exn)) => {
+    io.await(fs_file.exists(src, io), io) => {
       io.await(fs_dir.remove_file(src, io), IOErr(io : io, exn : exn));
     },
     true => ()

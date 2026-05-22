@@ -103,7 +103,7 @@ test("exists returns true for existing file", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_exists.txt`));
   io.await(fs_file.write_file(fpath, String.from("exists"), io), IOErr(io : io, exn : exn));
-  e := io.await(fs_file.exists(fpath, io), IOErr(io : io, exn : exn));
+  e := io.await(fs_file.exists(fpath, io), io);
   unsafe(printf("  exists = %d\n", cond(e => i32(1), true => i32(0))));
   assert(e, "file should exist");
   io.await(fs_dir.remove_file(fpath, io), IOErr(io : io, exn : exn));
@@ -118,7 +118,7 @@ test("exists returns false for nonexistent file", {
     )
   );
   fpath := Path.new(`/nonexistent/path/yo_fs_no_such_file.txt`);
-  e := io.await(fs_file.exists(fpath, io), IOErr(io : io, exn : exn));
+  e := io.await(fs_file.exists(fpath, io), io);
   unsafe(printf("  exists = %d\n", cond(e => i32(1), true => i32(0))));
   assert(!(e), "file should not exist");
 });
@@ -240,7 +240,7 @@ test("OpenMode.CreateNew succeeds on new file", {
   fpath := Path.new(path_join(tmp, `yo_fs_file_create_new2.txt`));
   // Ensure doesn't exist
   cond(
-    io.await(fs_file.exists(fpath, io), IOErr(io : io, exn : exn)) => {
+    io.await(fs_file.exists(fpath, io), io) => {
       io.await(fs_dir.remove_file(fpath, io), IOErr(io : io, exn : exn));
     },
     true => ()

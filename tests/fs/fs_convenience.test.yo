@@ -25,7 +25,7 @@ test("is_file returns true for a regular file", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_file.txt`));
   io.await(fs_file.write_file(fpath, String.from("hello"), io), IOErr(io : io, exn : exn));
-  r := io.await(fs_file.is_file(fpath, io), IOErr(io : io, exn : exn));
+  r := io.await(fs_file.is_file(fpath, io), io);
   unsafe(printf("  is_file = %d\n", cond(r => i32(1), true => i32(0))));
   assert(r, "should be a file");
   io.await(fs_dir.remove_file(fpath, io), IOErr(io : io, exn : exn));
@@ -42,14 +42,14 @@ test("is_file returns false for a directory", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_conv_is_file_dir`));
   io.await(fs_dir.create_dir(dpath, io), IOErr(io : io, exn : exn));
-  r := io.await(fs_file.is_file(dpath, io), IOErr(io : io, exn : exn));
+  r := io.await(fs_file.is_file(dpath, io), io);
   unsafe(printf("  is_file on dir = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!(r), "directory should not be a file");
   io.await(fs_dir.remove_dir(dpath, io), IOErr(io : io, exn : exn));
 });
 test("is_file returns false for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_no_such_file.txt`);
-  r := io.await(fs_file.is_file(fpath, io), IOErr(io : io, exn : exn));
+  r := io.await(fs_file.is_file(fpath, io), io);
   unsafe(printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!(r), "nonexistent path should return false");
 });
@@ -68,7 +68,7 @@ test("is_dir returns true for a directory", {
   tmp := temp_dir();
   dpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir`));
   io.await(fs_dir.create_dir(dpath, io), IOErr(io : io, exn : exn));
-  r := io.await(fs_file.is_dir(dpath, io), IOErr(io : io, exn : exn));
+  r := io.await(fs_file.is_dir(dpath, io), io);
   unsafe(printf("  is_dir = %d\n", cond(r => i32(1), true => i32(0))));
   assert(r, "should be a directory");
   io.await(fs_dir.remove_dir(dpath, io), IOErr(io : io, exn : exn));
@@ -85,14 +85,14 @@ test("is_dir returns false for a file", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir_file.txt`));
   io.await(fs_file.write_file(fpath, String.from("test"), io), IOErr(io : io, exn : exn));
-  r := io.await(fs_file.is_dir(fpath, io), IOErr(io : io, exn : exn));
+  r := io.await(fs_file.is_dir(fpath, io), io);
   unsafe(printf("  is_dir on file = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!(r), "file should not be a directory");
   io.await(fs_dir.remove_file(fpath, io), IOErr(io : io, exn : exn));
 });
 test("is_dir returns false for nonexistent path", {
   dpath := Path.new(`/nonexistent/yo_fs_conv_no_such_dir`);
-  r := io.await(fs_file.is_dir(dpath, io), IOErr(io : io, exn : exn));
+  r := io.await(fs_file.is_dir(dpath, io), io);
   unsafe(printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!(r), "nonexistent path should return false");
 });
