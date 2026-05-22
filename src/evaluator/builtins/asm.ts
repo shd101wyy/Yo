@@ -515,9 +515,7 @@ export function evaluateAsm({
 Inline assembly can corrupt memory, violate calling conventions, and
 break the type system. To use it, declare at the top of this file:
 
-    pragma(Pragma.AllowUnsafe);
-
-See plans/MEMORY_SAFETY.md.`,
+    pragma(Pragma.AllowUnsafe);`,
     });
   }
   // asm can only be called inside a function body or test block

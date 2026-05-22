@@ -49,7 +49,7 @@ To use raw pointer operations in this file, declare at the top:
     pragma(Pragma.AllowUnsafe);
 
 This marks the file as unsafe-capable and accepts responsibility for
-the raw memory operations it contains. See plans/MEMORY_SAFETY.md.`,
+the raw memory operations it contains.`,
     });
   }
 

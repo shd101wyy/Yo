@@ -1226,7 +1226,7 @@ ${exprToString(expr)}`,
 
 Wrap the expression as: unsafe(${exprToString(expr)})
 
-Raw pointer arithmetic produces addresses usually destined to dereference, which may access invalid memory. See plans/MEMORY_SAFETY.md.`,
+Raw pointer arithmetic produces addresses usually destined to dereference, which may access invalid memory.`,
         });
       }
       // Permitted under unsafe(...) or in unsafe-capable file; fall

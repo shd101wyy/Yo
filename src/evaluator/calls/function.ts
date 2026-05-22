@@ -1822,9 +1822,7 @@ C functions are outside Yo's type-checking reach — wrong argument types, contr
 
 Fix: wrap the call:
 
-  unsafe(${exprToString(expr)})
-
-See plans/EXTERN_UNSAFE_WRAP.md.`,
+  unsafe(${exprToString(expr)})`,
       });
     }
   }

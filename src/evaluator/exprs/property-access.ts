@@ -231,7 +231,7 @@ export function evaluatePropertyAccess({
 
 Wrap as: unsafe(${exprToString(objectExpr)}.*)
 
-Raw pointer operations may dereference invalid memory. See plans/MEMORY_SAFETY.md.`,
+Raw pointer operations may dereference invalid memory.`,
         });
       }
       const pointerType = objectExpr.$.type;

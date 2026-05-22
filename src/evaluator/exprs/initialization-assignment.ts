@@ -178,7 +178,7 @@ export function evaluateInitializationAssignment({
     if (!isFlowableExpr(rhs, { allowSameFrameLocal: true })) {
       throw formatErrorMessage({
         token: rhs.token,
-        errorMessage: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${exprToString(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable. See plans/ITERATOR_REDESIGN.md.`,
+        errorMessage: `'ref(name) := ...' requires a ref-yielding right-hand side. The expression on the right is not flowable:\n  ${exprToString(rhs)}\n\nFlowable expressions: a 'ref'-bound name; any same-function local (the borrow is bounded by the enclosing block); '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable.`,
       });
     }
   }

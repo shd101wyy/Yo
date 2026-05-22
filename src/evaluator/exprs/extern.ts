@@ -58,8 +58,7 @@ reach. To use them, declare at the top of this file:
     pragma(Pragma.AllowUnsafe);
 
 User code should normally call stdlib wrappers (e.g. functions in
-'std/sys', 'std/fs') instead of declaring FFI directly. See
-plans/MEMORY_SAFETY.md.`,
+'std/sys', 'std/fs') instead of declaring FFI directly.`,
     });
   }
 
