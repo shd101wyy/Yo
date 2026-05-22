@@ -412,7 +412,12 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
         typeContainsSomeTypeForCodegenParam(p.type)
       ) ||
         functionType.forallParameters.length > 0);
-    const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
+    // Mirror the parameter check (see declarations.ts): a return type
+    // like `IOErr` (struct whose SomeType is confined to nested
+    // fn-pointer fields) is concrete at C ABI.
+    const hasGenericReturnType = typeContainsSomeTypeForCodegenParam(
+      functionType.return.type
+    );
 
     // Allow functions returning plain Impl(...) existential types (SomeType at top level)
     // These are not truly generic - the concrete type is determined from the function body

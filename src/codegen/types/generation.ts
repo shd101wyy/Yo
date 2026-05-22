@@ -28,10 +28,25 @@ import { typeContainsSomeType, typeToString } from "../../types/utils";
  * Local helper: struct whose only SomeType content lives inside function-typed
  * fields. Such structs are concrete at C level (the fn-ptr fields are
  * type-erased) and should still be emitted as typedefs.
+ *
+ * Recursive: also accepts struct-typed fields whose own SomeType content is
+ * confined to nested fn-ptr fields. This is what lets effect-bundle structs
+ * like `IOErr :: struct(io : IO, exn : Exception)` register a C typedef.
  */
-function structSomeTypeIsOnlyInFunctionFieldsLocal(type: StructType): boolean {
+function structSomeTypeIsOnlyInFunctionFieldsLocal(
+  type: StructType,
+  visited: Set<string> = new Set()
+): boolean {
+  if (visited.has(type.id)) return true;
+  visited.add(type.id);
   for (const field of type.fields) {
     if (isFunctionType(field.type)) continue;
+    if (
+      isStructType(field.type) &&
+      structSomeTypeIsOnlyInFunctionFieldsLocal(field.type, visited)
+    ) {
+      continue;
+    }
     if (typeContainsSomeType(field.type)) return false;
   }
   return true;
