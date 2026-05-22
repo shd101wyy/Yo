@@ -171,6 +171,10 @@ impl(
           i := usize(0);
           while(i < keys.len(), i = (i + usize(1)), {
             if(keys(i) == key, {
+              // SAFETY: `i` is bounded by `keys.len()` and the
+              // Object variant invariant says `values.len() ==
+              // keys.len()`, so `values.project(i)` yields a valid
+              // ref into the Rc-managed values list.
               return(unsafe(&(values.project(i))));
             });
           });
@@ -192,6 +196,9 @@ impl(
         self,
         .Array(items) => {
           assert(idx < items.len(), "JsonValue: Array index out of bounds");
+          // SAFETY: assert above bounds `idx`; `items` is the
+          // Rc-managed Array list whose storage outlives this call
+          // (ref(self) keeps `self` and therefore `items` alive).
           return(unsafe(&(items.project(idx))));
         },
         _ => panic("JsonValue: index by usize requires .Array variant")

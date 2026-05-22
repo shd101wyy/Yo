@@ -706,6 +706,9 @@ impl(
         .Some(p) => {
           i := usize(0);
           while(i < self._len, i = (i + usize(1)), {
+            // SAFETY: `p` points at the Rc-managed UTF-8 byte
+            // buffer of length `self._len`; the loop guard
+            // `i < self._len` keeps `p &+ i` inside the allocation.
             h = (h ^ u64(unsafe((p &+ i).*)));
             h = (h * u64(1099511628211));
           });

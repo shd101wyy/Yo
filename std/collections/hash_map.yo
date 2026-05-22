@@ -709,6 +709,10 @@ impl(
   Indexable(usize)(
     Element : Bucket(K, V),
     project : (fn(ref(self) : Self, pos : usize) -> ref(Bucket(K, V)))(
+      // SAFETY: `pos` comes from the position-iter, which yields
+      // only valid bucket indices (`pos < self._capacity`).
+      // `_data_ptr` returns the start of the Rc-managed _data buffer;
+      // it's alive while `self` holds the Rc.
       unsafe(Self._data_ptr(self) &+ pos)
     )
   )
@@ -743,6 +747,11 @@ impl(
             running = false;
           },
           .Some(bucket_ptr) => {
+            // SAFETY: iter_ptr().next() returns .Some(p) only when p
+            // points at an occupied bucket within the Rc-managed
+            // _data buffer; the buffer is alive while `self` holds
+            // the Rc (we received `ref(self)` so the caller still
+            // owns it across this call).
             k := unsafe(bucket_ptr.*.key.clone());
             v := unsafe(bucket_ptr.*.value.clone());
             result.set(k, v);

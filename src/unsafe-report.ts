@@ -381,7 +381,11 @@ export function generateUnsafeReport(rootPath: string): UnsafeReport {
         else findings.push(f);
       }
       prev.push(lines[i]!);
-      if (prev.length > 3) prev.shift();
+      // Keep enough previous lines that the SAFETY: scan-back can
+      // walk past several `//` continuation lines without losing
+      // the anchor. Most SAFETY: comments are 1-4 lines; 8 covers
+      // the long form comfortably.
+      if (prev.length > 8) prev.shift();
     }
     if (hasPragma) privilegedFiles.push(file);
   }

@@ -514,6 +514,10 @@ impl(
       assert(pos < self._length, "ArrayList: project out of bounds");
       match(
         self._ptr,
+        // SAFETY: assert above bounds `pos < self._length` and the
+        // length invariant guarantees `pos < self._capacity`, so
+        // `_ptr &+ pos` stays inside the Rc-managed heap buffer
+        // for the duration of the borrow.
         .Some(_ptr) => unsafe(_ptr &+ pos),
         .None => panic("ArrayList: project on empty list")
       )

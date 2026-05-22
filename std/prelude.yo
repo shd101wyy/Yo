@@ -7474,6 +7474,9 @@ impl(
   where(T <: Eq(T)),
   Box(T),
   Eq(Box(T))(
+    // SAFETY: Box always holds a non-null pointer to Rc-managed
+    // storage; the deref is sound for as long as either operand
+    // is alive, which covers the duration of this comparison.
     (==) : ((lhs, rhs) -> unsafe(lhs.* == rhs.*))
   )
 );
