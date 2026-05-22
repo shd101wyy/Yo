@@ -43,8 +43,13 @@ import {
   type Expr,
   type FnCallExpr,
 } from "../../expr";
+import { TokenType } from "../../token";
 import type { FunctionType } from "../../types/definitions";
 import { isFunctionType } from "../../types/guards";
+import {
+  typeMayProvideSliceSource,
+  typeRepresentationContainsRawPtr,
+} from "../../types/utils";
 import { isFunctionValue } from "../../value";
 import { getVariablesFromEnv } from "../../env";
 
@@ -72,10 +77,32 @@ function unwrapBeginBlocks(expr: Expr): Expr {
  * Walk `expr` and return `true` iff it satisfies R1–R4. The
  * expression must have been evaluated already (so `expr.$` is set
  * and bindings can be looked up in `expr.$.env`).
+ *
+ * Options:
+ *  - `allowSameFrameLocal`: passed by the `ref(name) := expr;`
+ *    binding site to accept a same-frame local (the borrowing binding's
+ *    lifetime is bounded by its block, which is bounded by the local's
+ *    frame, so the source can't go away before the borrow does). The
+ *    strict R1 (ref-bound only) still applies elsewhere.
+ *  - `allowParameterSource`: passed by the slice-flowability check
+ *    (`plans/SLICE_FLOWABILITY.md`). Accepts a name reference whose
+ *    binding is a parameter of the current function (any parameter,
+ *    not just `ref(name)`) — the caller's value lives for at least
+ *    the duration of the call, so handing a `Slice` rooted at it
+ *    back to the caller is sound. NOT enabled for `ref(T)`-return
+ *    enforcement; returning a non-`ref` parameter as a `ref(T)`
+ *    borrow is meaningless.
+ *  - `allowComptimeSource`: passed by the slice-flowability check.
+ *    Accepts a name reference whose binding is `comptime` — the value
+ *    lives in static storage and never dangles at runtime.
  */
 export function isFlowableExpr(
   expr: Expr,
-  options: { allowSameFrameLocal?: boolean } = {}
+  options: {
+    allowSameFrameLocal?: boolean;
+    allowParameterSource?: boolean;
+    allowComptimeSource?: boolean;
+  } = {}
 ): boolean {
   // Strip any outer `begin(...)` wrapper(s). Single-expression
   // bodies after evaluation often appear as `begin((expr))`.
@@ -115,6 +142,19 @@ export function isFlowableExpr(
 
   // R1: bare name → check binding flag.
   if (exprIsAtom(expr)) {
+    // Literal atoms (string/char/template-string) live in static
+    // storage — the runtime never holds a stack-frame-bound pointer.
+    // Accept them when the slice-flowability check opts in. Numeric
+    // and bool literals are unreachable here because their types
+    // don't carry raw ptrs, but stringly-typed literals (str) do.
+    if (
+      options.allowComptimeSource &&
+      (expr.token.type === TokenType.String ||
+        expr.token.type === TokenType.Char ||
+        expr.token.type === TokenType.TemplateString)
+    ) {
+      return true;
+    }
     if (!expr.$?.env || !expr.$?.variableName) return false;
     const vars = getVariablesFromEnv(expr.$.env, expr.$.variableName);
     if (vars.length === 0) return false;
@@ -128,6 +168,18 @@ export function isFlowableExpr(
     // at function-return sites; only the `ref(name) := …` binding-
     // site call from `init-assignment.ts` passes `allowSameFrameLocal`.
     if (options.allowSameFrameLocal && !v.isModuleLevel) {
+      return true;
+    }
+    // R1'' (slice-flowability only): a parameter of the enclosing
+    // function counts as flowable when the slice-flowability check
+    // opts in. The caller's value is alive for the duration of the
+    // call. See plans/SLICE_FLOWABILITY.md Phase B.
+    if (options.allowParameterSource && v.isParameter) {
+      return true;
+    }
+    // R1''' (slice-flowability only): a comptime-bound name lives in
+    // static storage, so its representation never dangles at runtime.
+    if (options.allowComptimeSource && v.isCompileTimeOnly) {
       return true;
     }
     return false;
@@ -214,12 +266,35 @@ export function isFlowableExpr(
     }
   }
   if (!calleeType) return false;
-  if (!calleeType.return.isRef) return false;
+
+  // The callee's return slot must either be a `ref(T)` borrow into
+  // one of its args (the original R3) or — in slice-flowability mode —
+  // a value-typed return whose representation transitively carries a
+  // raw pointer (Slice/Ptr/struct-wrapping-Slice/etc.). In the latter
+  // case the callee's body, if also subject to slice-flowability,
+  // can only have produced the pointer from one of its own args, so
+  // checking that those args themselves are flowable suffices.
+  const isRefReturn = calleeType.return.isRef;
+  const isSliceReturn =
+    !!options.allowParameterSource &&
+    !isRefReturn &&
+    typeRepresentationContainsRawPtr(calleeType.return.type);
+  if (!isRefReturn && !isSliceReturn) return false;
 
   // For every parameter that is `ref`-typed, the corresponding
   // argument in the call must be flowable. Parameters that aren't
-  // `ref` don't constrain anything — passing a regular value to a
-  // by-value parameter is fine.
+  // `ref` don't constrain anything in standard ref-return mode —
+  // passing a regular value to a by-value parameter is fine.
+  //
+  // In slice-flowability mode we ALSO check non-`ref` parameters
+  // whose declared type COULD provide the source storage for the
+  // returned slice's pointer (`typeMayProvideSliceSource`):
+  //   - A `Slice(T)` arg: the returned slice may point at the same
+  //     storage the arg already references.
+  //   - An `object` arg (ArrayList/HashMap/String/etc.): the callee
+  //     may project a slice into the object's heap buffer; the buffer
+  //     dies when the caller's Rc drops, so the arg must be flowable.
+  //   - A plain struct/tuple/enum/array of either of the above.
   //
   // For method calls, the receiver (`call.func.args[0]`) is the
   // implicit first argument and lines up with `params[0]`; the
@@ -231,7 +306,9 @@ export function isFlowableExpr(
     : call.args;
   for (let i = 0; i < params.length; i++) {
     const p = params[i]!;
-    if (!p.isRef) continue;
+    const needsCheck =
+      p.isRef || (isSliceReturn && typeMayProvideSliceSource(p.type));
+    if (!needsCheck) continue;
     const a = args[i];
     if (!a) return false;
     if (!isFlowableExpr(a, options)) return false;

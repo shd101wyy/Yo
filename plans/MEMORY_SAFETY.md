@@ -714,7 +714,7 @@ The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the priv
 
 The following sharp edges remain after the gates above. They were raised in review and are listed here so future readers don't re-discover them and assume the design overlooks them.
 
-1. **Dangling `Slice(T)` from local arrays (pre-existing).** `Slice(T)` is a fat pointer (ptr + length) whose user-visible type doesn't mention `*(T)`. Safe code can therefore construct a slice from a stack-allocated array and return it past the array's lifetime:
+1. **Dangling `Slice(T)` from local arrays — ✅ RESOLVED.** `Slice(T)` is a fat pointer (ptr + length) whose user-visible type doesn't mention `*(T)`. Safe code could previously construct a slice from a stack-allocated array and return it past the array's lifetime:
 
    ```rust
    make_dangling :: (fn() -> Slice(i32))({
@@ -723,7 +723,7 @@ The following sharp edges remain after the gates above. They were raised in revi
    });
    ```
 
-   None of the Phase C structural gates catch this — the result expression doesn't have type `*(T)`. This is also the same shape as Open Question 7 in `plans/ITERATOR_REDESIGN.md`. Two ways to close it eventually: (a) extend the iterator flowability rule to "any returned value whose representation transitively carries a raw pointer must be flowable", which approaches lifetime tracking; (b) make `Array(T, N).as_slice` borrow-bound (a projection method returning `inout`), making the return slot inherit flowability. For now: **acknowledged hole**, AddressSanitizer catches at runtime.
+   None of the Phase C structural gates caught this — the result expression doesn't have type `*(T)`. Closed by extending the iterator flowability rule to "any returned value whose representation transitively carries a raw pointer (or could provide source storage for one via an `object` arg) must be flowable". See **`plans/SLICE_FLOWABILITY.md`** for the design and **`tests/slice_flowability.test.yo`** for the verdicts. Same shape as Open Question 7 in `plans/ITERATOR_REDESIGN.md` (also resolved).
 
 2. **`extern(...)` call sites are not wrapped in `unsafe(...)`.** Calling a C function with the wrong argument types is UB, but a call site like `c_function(x, y, z)` carries no syntactic marker — the only opt-in is the file's `pragma(Pragma.AllowUnsafe);`. Per Open Question 1 in this document, we deliberately chose not to require `unsafe(extern_call(...))` because calling a well-typed C function isn't intrinsically UB; the FFI binding owns its argument-typing contract. The trade-off: granularity is coarser than Rust's per-`unsafe`-block model. Acceptable for v1; revisit if FFI-related UB shows up in audit.
 

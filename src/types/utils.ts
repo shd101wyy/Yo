@@ -389,6 +389,84 @@ export function typeRepresentationContainsRawPtr(
 }
 
 /**
+ * Sibling to `typeRepresentationContainsRawPtr` that ALSO treats
+ * `object`/`atomic(object(...))` types as a "yes" leaf. Used by the
+ * slice-flowability R3 check to decide which call arguments could
+ * have provided the source pointer for the callee's returned slice.
+ *
+ * The distinction matters because:
+ *
+ * - At the return-site question ("does this function's return type
+ *   transitively carry a raw pointer that could dangle?") an `object`
+ *   return is SAFE: ownership transfers to the caller and the Rc
+ *   keeps the buffer alive. So `typeRepresentationContainsRawPtr`
+ *   says NO for objects.
+ *
+ * - At the argument-source question ("could this arg be the storage
+ *   the callee's returned slice points into?") an `object` arg
+ *   absolutely qualifies — `arr.as_slice()` returns a `Slice` into
+ *   `arr`'s heap buffer, which dies when `arr`'s Rc count drops to
+ *   zero. If `arr` is a non-flowable local, the slice dangles.
+ *
+ * Returns true iff the type, walked through structs/tuples/unions/
+ * enums/arrays, has a leaf that is `Ptr`, `Slice`, or an `object`
+ * type. Function types are NOT recursed into (function pointers are
+ * static), and `SomeType` follows `resolvedConcreteType` if resolved.
+ */
+export function typeMayProvideSliceSource(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) return false;
+  if (checkedTypes.includes(type)) return false;
+  checkedTypes.push(type);
+
+  if (isObjectType(type)) return true;
+
+  switch (type.tag) {
+    case TypeTag.Ptr:
+      return true;
+    case TypeTag.Slice:
+      return true;
+    case TypeTag.Struct:
+      return (type as StructType).fields.some((field) =>
+        typeMayProvideSliceSource(field.type, checkedTypes)
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeMayProvideSliceSource(field.type, checkedTypes)
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeMayProvideSliceSource(field.type, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeMayProvideSliceSource(param.type, checkedTypes)
+        )
+      );
+    case TypeTag.Array:
+      return typeMayProvideSliceSource(
+        (type as ArrayType).childType,
+        checkedTypes
+      );
+    case TypeTag.SomeType: {
+      const someType = type as SomeType;
+      if (someType.resolvedConcreteType) {
+        return typeMayProvideSliceSource(
+          someType.resolvedConcreteType,
+          checkedTypes
+        );
+      }
+      return false;
+    }
+    default:
+      return false;
+  }
+}
+
+/**
  * Check if a type contains SomeType.
  */
 export function typeContainsSomeType(

@@ -38,6 +38,7 @@ import { isFunctionType, isObjectType, isSomeType } from "../../types/guards";
 import {
   typeContainsRcType,
   typeIsControlBound,
+  typeRepresentationContainsRawPtr,
   typeToString,
 } from "../../types/utils";
 import { VUnit } from "../../unit-value";
@@ -45,7 +46,9 @@ import { isFunctionValue, isTypeValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { typeImplementsFn } from "../trait-checking";
+import { isFlowableExpr } from "../types/flowability";
 import { synthesizeTypes } from "../types/synthesizer";
 
 /**
@@ -1188,6 +1191,36 @@ Install the handler at its use site instead:
   (raise : Raise) = ((msg) -> { unwind(...); });
   some_call(args, raise);`,
             });
+          }
+        }
+
+        // plans/SLICE_FLOWABILITY.md Phase D — explicit `return(expr)`
+        // inside a function whose declared return type carries a raw
+        // pointer in its representation (Slice/str/struct-wrapping-slice,
+        // etc.) must root the value in caller-owned storage. Matches the
+        // function-return-position check in function-type.ts and
+        // anonymous-function.ts.
+        if (
+          context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+        ) {
+          const fnType = context.isEvaluatingFunctionBodyOrAsyncBlock.type;
+          if (
+            !fnType.return.isRef &&
+            !fnType.return.isCompileTimeOnly &&
+            typeRepresentationContainsRawPtr(fnType.return.type) &&
+            !isImplicitlyUnsafeCapableFile(returnArg.token.modulePath)
+          ) {
+            if (
+              !isFlowableExpr(evaluatedReturnArgExpr, {
+                allowParameterSource: true,
+                allowComptimeSource: true,
+              })
+            ) {
+              throw formatErrorMessage({
+                token: returnArg.token,
+                errorMessage: `'return(...)' from a function returning '${typeToString(fnType.return.type)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${exprToString(returnArg)}\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter (caller's value is alive across the call); a 'comptime' constant or string literal; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.\n\nFixes:\n  - Take the source as a 'ref(name) : T' parameter and project a slice from it.\n  - Return an owned type ('ArrayList', 'String') instead — heap-allocated, no lifetime concern.\n  - Wrap unsafe construction in 'pragma(Pragma.AllowUnsafe);' at the file top if you genuinely need the raw form.\n\nSee plans/SLICE_FLOWABILITY.md and plans/MEMORY_SAFETY.md.`,
+              });
+            }
           }
         }
 

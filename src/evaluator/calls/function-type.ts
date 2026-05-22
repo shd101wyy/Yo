@@ -24,7 +24,12 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { createPtrType, createUnitType } from "../../types/creators";
 import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
-import { typeContainsSomeType, typeToString } from "../../types/utils";
+import {
+  typeContainsSomeType,
+  typeRepresentationContainsRawPtr,
+  typeToString,
+} from "../../types/utils";
+import { isImplicitlyUnsafeCapableFile } from "../memory-safety";
 import { randomId } from "../../utils";
 import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -479,6 +484,38 @@ export function tryToImplementFunctionByFunctionType({
       throw formatErrorMessage({
         token: returnExpr.token,
         errorMessage: `Function with '-> ref(T)' return slot must return a ref-yielding expression rooted in one of its 'ref'-typed parameters. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable: a 'ref'-bound name; '.field' on a flowable base; a call to a function whose return slot is 'ref(T)' with flowable 'ref'-typed arguments; or a 'cond'/'match' whose arms are all flowable. See plans/ITERATOR_REDESIGN.md.`,
+      });
+    }
+  } else if (
+    typeRepresentationContainsRawPtr(newFunctionType.return.type) &&
+    !newFunctionType.return.isCompileTimeOnly &&
+    !isImplicitlyUnsafeCapableFile(functionBodyExpr.token.modulePath)
+  ) {
+    // plans/SLICE_FLOWABILITY.md Phase C — a function whose return
+    // type is value-typed but transitively carries a raw pointer in
+    // its representation (e.g. `Slice(T)`, `str`, or any struct that
+    // wraps one) must root the returned value in caller-owned storage.
+    // Otherwise the returned fat pointer would point into the dying
+    // call frame.
+    let returnExpr: Expr = evaluatedFunctionBody;
+    if (
+      exprIsFunctionCall(evaluatedFunctionBody) &&
+      exprIsFunctionCallOf(evaluatedFunctionBody, BuiltinKeywords.begin)
+    ) {
+      const beginCall = evaluatedFunctionBody as FnCallExpr;
+      if (beginCall.args.length > 0) {
+        returnExpr = beginCall.args[beginCall.args.length - 1]!;
+      }
+    }
+    if (
+      !isFlowableExpr(returnExpr, {
+        allowParameterSource: true,
+        allowComptimeSource: true,
+      })
+    ) {
+      throw formatErrorMessage({
+        token: returnExpr.token,
+        errorMessage: `Function returning '${typeToString(newFunctionType.return.type)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${exprToString(returnExpr)}\n\nFlowable sources: a 'ref'-bound parameter; a non-'ref' parameter (caller's value is alive across the call); a 'comptime' constant or string literal; '.field' on a flowable base; a call returning ref or slice with flowable arguments; or a 'cond'/'match' whose arms are all flowable.\n\nFixes:\n  - Take the source as a 'ref(name) : T' parameter and project a slice from it.\n  - Return an owned type ('ArrayList', 'String') instead — heap-allocated, no lifetime concern.\n  - Wrap unsafe construction in 'pragma(Pragma.AllowUnsafe);' at the file top if you genuinely need the raw form.\n\nSee plans/SLICE_FLOWABILITY.md and plans/MEMORY_SAFETY.md.`,
       });
     }
   }

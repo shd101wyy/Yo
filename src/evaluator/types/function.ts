@@ -710,6 +710,7 @@ use_id :: (fn(forall(T : Type),
         // type-checks. Codegen lowers reads/writes through a T*.
         isReassignable: isRef,
         isRef: isRef || undefined,
+        isParameter: true,
         docComment: lhsExpr
           ? context.docCommentLookup?.get(getDocCommentLookupKey(lhsExpr.token))
           : undefined,
@@ -833,6 +834,7 @@ function prepareWhereClauseVariables({
             isOwningTheRcValue: false,
             isOwningTheSameRcValueAs: undefined,
             isReassignable: false,
+            isParameter: true,
           },
         });
         env = nextEnv;
@@ -1226,6 +1228,7 @@ function parseWhereClauseConstraints({
             isOwningTheRcValue: false,
             isOwningTheSameRcValueAs: undefined,
             isReassignable: false,
+            isParameter: true,
           },
         });
         env = nextEnv;
@@ -1726,6 +1729,7 @@ export function evaluateFunctionParameters({
           isOwningTheRcValue: false,
           isOwningTheSameRcValueAs: undefined,
           isReassignable: false,
+          isParameter: true,
         },
       });
       env = nextEnv;
@@ -1995,6 +1999,7 @@ export function evaluateFunctionParameters({
             isOwningTheRcValue: createdVariadicParameter.isOwningTheRcValue,
             isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
+            isParameter: true,
             docComment: context.docCommentLookup?.get(
               getDocCommentLookupKey(labelExpr.token)
             ),

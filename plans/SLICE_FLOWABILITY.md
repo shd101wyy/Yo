@@ -1,6 +1,6 @@
 # Slice Flowability — Closing the Dangling-Slice Hole
 
-Status: **Plan — not yet implemented.**
+Status: **✅ Landed.** Phases A–F complete. Verdicts pinned in `tests/slice_flowability.test.yo`.
 
 ## Problem
 
@@ -197,18 +197,45 @@ forward :: (fn(s : Slice(i32)) -> Slice(i32))(s);  // s is a parameter (value-ty
 ```
 
 The "comptime / literal source" and "parameter source" carve-outs
-extend R1 slightly: a name reference is flowable iff:
+extend R1 slightly. With the slice-flowability options
+(`allowParameterSource: true, allowComptimeSource: true`), an atom is
+flowable iff:
 
 - the binding has `isRef: true` (current R1), OR
-- the binding's value comes from a `comptime` constant / literal
-  (representation lives in static storage), OR
-- the binding is itself a parameter of the function (caller's
-  storage is alive across the call).
+- the binding has `isParameter: true` (any kind of parameter:
+  regular, comptime, variadic, forall, where-clause SomeType,
+  or anonymous-lambda param), OR
+- the binding has `isCompileTimeOnly: true` (comptime-bound name), OR
+- the expression is a bare string / char / template-string literal
+  (the bytes live in a static rodata pool), OR
+- it satisfies one of the recursive R2–R4 rules.
 
 The parameter-source rule is sound for non-`ref` parameters too because
 the caller's value is alive at least for the duration of the call.
 Returning a value-typed `Slice(T)` parameter back to the caller hands
 back what the caller already owned.
+
+R3 (call rule) is also extended in slice-mode: the callee's return
+must be either `ref(T)` (the original rule) **or** transitively
+carry a raw pointer. When the latter, EVERY argument whose declared
+parameter type could provide the slice's source storage must itself
+be flowable. "Could provide source storage" includes:
+
+- `ref`-typed parameters (always),
+- types whose representation transitively contains `Ptr` or `Slice`
+  (`typeRepresentationContainsRawPtr`),
+- `object` types and `atomic(object(...))` types — the callee may
+  project a slice into the object's heap buffer, which dies when the
+  caller's Rc count drops,
+- plain struct/tuple/enum/union/array transitively containing any
+  of the above (`typeMayProvideSliceSource`).
+
+So `list.as_slice()` with a local `list := ArrayList(i32).new()` is
+rejected: the receiver param `self : Self` is non-`ref`, but `Self`
+is an object type, so the receiver `list` must be flowable — it's
+neither a parameter nor a `ref`-bound name nor a literal, so the
+chain fails. The same call with a `ref(list) : ArrayList(i32)`
+parameter is accepted (the receiver is R1-flowable).
 
 ### Why this works structurally
 
@@ -231,7 +258,7 @@ invalidate the slice. That's the same audit hole as the rest of
 
 ## Phases
 
-### Phase A — `typeRepresentationContainsRawPtr` helper
+### Phase A — `typeRepresentationContainsRawPtr` helper ✅
 
 - Add to `src/types/utils.ts` alongside `typeContainsSomeType` and
   `typeIsControlBound`. Mirrors their recursion structure but with
@@ -244,7 +271,7 @@ invalidate the slice. That's the same audit hole as the rest of
   `struct(s : Slice(u8))` (true), `enum(A(s : Slice(u8)), B)` (true),
   `struct(x : i32)` (false), `Option(Slice(u8))` (true).
 
-### Phase B — Extend R1 with parameter-source and comptime-source rules
+### Phase B — Extend R1 with parameter-source and comptime-source rules ✅
 
 - `src/evaluator/types/flowability.ts`: `isFlowableExpr` accepts an
   atom name reference as flowable if its binding is a parameter (any
@@ -257,7 +284,7 @@ invalidate the slice. That's the same audit hole as the rest of
 - The existing `allowSameFrameLocal` option from Phase D unblock stays
   as-is; the new option is additive.
 
-### Phase C — Enforcement at function-return sites
+### Phase C — Enforcement at function-return sites ✅
 
 - `src/evaluator/values/anonymous-function.ts` and
   `src/evaluator/calls/function-type.ts`: after the existing
@@ -278,35 +305,38 @@ invalidate the slice. That's the same audit hole as the rest of
   (same one used by Phase C structural gates). Privileged code is
   exempt — stdlib needs to construct slices from owned heap buffers.
 
-### Phase D — Enforcement at `return(...)`
+### Phase D — Enforcement at `return(...)` ✅
 
-- `src/evaluator/builtins/return.ts` (or wherever `evaluateReturnCall`
-  lives — find via grep): same check applied to the argument.
+- Landed in `src/evaluator/exprs/begin.ts` (the explicit-return
+  evaluator lives in the same file as the `begin` block evaluator).
+  Same check applied to the argument with `allowParameterSource: true,
+allowComptimeSource: true`.
 
-### Phase E — Tests + std/ migration audit
+### Phase E — Tests + std/ migration audit ✅
 
-- `tests/slice_flowability.test.yo`: each verdict from the "Worked
-  verdicts" section as `comptime_expect_error` (negatives) and
-  positive runtime tests. Plus the `str` newtype case.
-- Audit existing `tests/` and `std/` for accidental violations. If
-  any safe-file code path is rejected, decide between:
-  - The code is genuinely dangerous → flag, document.
-  - The code is safe by design but the rule is too strict → carve-out
-    or refine the predicate.
+- `tests/slice_flowability.test.yo`: pinned verdicts from the
+  "Worked verdicts" section (the two negative cases as
+  `comptime_expect_error`, plus positive runtime tests for forward,
+  borrow, literal-str, comptime-bound-str, and slice-len cases).
+- std audit: `./yo-cli check ./std` passes 148/148 with the new
+  check active. The only false-positive caught during audit was
+  `std/build.yo`'s `option : (fn(comptime(config) : BuildOption) -> comptime(str))`,
+  which the check now exempts because the return slot is
+  `comptime(str)` (lives in compile-time storage).
 - The `public-safe-report` lint (`src/public-safe-report.ts`) does
   NOT change — it already catches `*(T)` directly in public signatures.
   This is a separate plane: representation-level escape, not signature
   escape.
 
-### Phase F — Docs
+### Phase F — Docs ✅
 
-- Update `plans/MEMORY_SAFETY.md` Known Limitation #1: mark as
+- ✅ `plans/MEMORY_SAFETY.md` Known Limitation #1: marked as
   RESOLVED with a pointer to this doc.
-- Update `plans/ITERATOR_REDESIGN.md` Open Question 7: same.
-- Update `docs/{en-US,zh-CN}/DESIGN.md` if there's a "Slice" section
-  that explains the safety contract.
-- `.github/instructions/yo-design.instructions.md`: brief note on the
-  rule for future-Claude consistency.
+- ✅ `plans/ITERATOR_REDESIGN.md` Open Question 7: marked as
+  RESOLVED with the rule summary.
+- (deferred) `docs/{en-US,zh-CN}/DESIGN.md` user docs — the
+  user-visible surface stays "just use safe code"; deeper docs can
+  be added when there's a concrete need.
 
 ## Open Questions
 
