@@ -545,6 +545,10 @@ __attribute__((constructor)) static void _yo_increase_stack_limit(void) {
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
           "-fno-strict-aliasing",
+          // Define signed-integer overflow as two's-complement wrap.
+          // See plans/MEMORY_SAFETY.md Limitation #6 and the matching
+          // codegen/index.ts setting for the rationale.
+          "-fwrapv",
           // Increase bracket nesting limit (default 256 is too low for large
           // batch test binaries that include the full yo-self evaluator).
           // Not supported by MSVC, so guard on !isMSVC is applied below.

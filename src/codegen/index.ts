@@ -245,13 +245,15 @@ export class CodeGenerator {
           const objectFile = outputFile + ".o";
           const needsPositionIndependentCode = !isTargetWindows(targetInfo);
 
-          // Step 1: Compile .c to .o
+          // Step 1: Compile .c to .o (see comment at the main compileArgs
+          // site for the rationale on `-fwrapv`).
           const compileToObjArgs = isMSVC
             ? ["/std:c11", "/c", tempCFile, `/Fo${objectFile}`]
             : [
                 ...(compiler === "zig" ? ["cc"] : []),
                 "-std=c11",
                 "-fno-strict-aliasing",
+                "-fwrapv",
                 "-c",
                 ...(needsPositionIndependentCode ? ["-fPIC"] : []),
                 "-w",
@@ -369,13 +371,23 @@ export class CodeGenerator {
               ];
         }
 
-        // Yo compiles to C11 standard
+        // Yo compiles to C11 standard.
+        //
+        // `-fwrapv` defines signed-integer overflow as two's-complement
+        // wrap-around (matches MEMORY_SAFETY.md Limitation #6 mitigation).
+        // Without it, signed overflow is UB and the optimizer can exploit
+        // that to eliminate bounds checks, hoist loop invariants past
+        // overflowing arithmetic, etc. — silently miscompiling code that
+        // looks safe in source form. Defined-wrap costs a few percent on
+        // some tight numeric loops; users who measure a regression can
+        // opt out with `--cflags='-fno-wrapv'`.
         const compileArgs = isMSVC
           ? ["/std:c11", ...optimizationFlags, tempCFile, `/Fe${outputFile}`]
           : [
               ...(options.cCompiler === "zig" ? ["cc"] : []),
               "-std=c11",
               "-fno-strict-aliasing",
+              "-fwrapv",
               ...optimizationFlags,
               tempCFile,
               "-o",
