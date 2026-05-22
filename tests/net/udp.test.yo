@@ -10,7 +10,7 @@ open(import("std/fmt"));
 { UdpSocket } :: import("std/net/udp");
 { SocketAddr, IpAddr } :: import("std/net/addr");
 { NetError } :: import("std/net/errors");
-{ Error, AnyError, Exception } :: import("std/error");
+{ Error, AnyError, Exception, IOErr } :: import("std/error");
 IO_tcp :: import("std/sys/tcp");
 // ============================================================================
 // UdpSocket tests
@@ -24,10 +24,10 @@ test("UdpSocket bind and close", {
       }
     )
   );
-  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), io);
+  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IOErr(io : io, exn : exn));
   unsafe(printf("  socket fd = %d\n", sock.fd()));
   assert(sock.fd() >= i32(0), "fd should be valid");
-  io.await(sock.close(io), io);
+  io.await(sock.close(io), IOErr(io : io, exn : exn));
   unsafe(printf("  close ok\n"));
 });
 test("UdpSocket local_addr", {
@@ -39,11 +39,11 @@ test("UdpSocket local_addr", {
       }
     )
   );
-  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), io);
+  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IOErr(io : io, exn : exn));
   la := sock.local_addr();
   unsafe(printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap()));
   assert(la.ip.is_loopback(), "should be loopback");
-  io.await(sock.close(io), io);
+  io.await(sock.close(io), IOErr(io : io, exn : exn));
 });
 test("UdpSocket send_to and recv", {
   exn := Exception(
@@ -55,9 +55,9 @@ test("UdpSocket send_to and recv", {
     )
   );
   server_addr := SocketAddr.loopback(u16(19910));
-  server := io.await(UdpSocket.bind(server_addr, io), io);
+  server := io.await(UdpSocket.bind(server_addr, io), IOErr(io : io, exn : exn));
   client_addr := SocketAddr.loopback(u16(19911));
-  client := io.await(UdpSocket.bind(client_addr, io), io);
+  client := io.await(UdpSocket.bind(client_addr, io), IOErr(io : io, exn : exn));
   // Client sends to server
   data := ArrayList(u8).new();
   data.push(u8(72)); // H
@@ -65,12 +65,12 @@ test("UdpSocket send_to and recv", {
   data.push(u8(108)); // l
   data.push(u8(108)); // l
   data.push(u8(111)); // o
-  n := io.await(client.send_to(data, server_addr, io), io);
+  n := io.await(client.send_to(data, server_addr, io), IOErr(io : io, exn : exn));
   unsafe(printf("  sent = %d\n", n));
   assert(n == i32(5), "should send 5 bytes");
   // Server receives
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
-  nr := io.await(server.recv(recv_buf, usize(256), io), io);
+  nr := io.await(server.recv(recv_buf, usize(256), io), IOErr(io : io, exn : exn));
   unsafe(printf("  received = %d\n", nr));
   assert(nr == i32(5), "should receive 5 bytes");
   assert((recv_buf &+ usize(0)).* == u8(72), "H");
@@ -79,8 +79,8 @@ test("UdpSocket send_to and recv", {
   assert((recv_buf &+ usize(3)).* == u8(108), "l");
   assert((recv_buf &+ usize(4)).* == u8(111), "o");
   free(.Some(*(void)(recv_buf)));
-  io.await(client.close(io), io);
-  io.await(server.close(io), io);
+  io.await(client.close(io), IOErr(io : io, exn : exn));
+  io.await(server.close(io), IOErr(io : io, exn : exn));
 });
 test("UdpSocket recv_from gets source address", {
   exn := Exception(
@@ -92,20 +92,20 @@ test("UdpSocket recv_from gets source address", {
     )
   );
   server_addr := SocketAddr.loopback(u16(19912));
-  server := io.await(UdpSocket.bind(server_addr, io), io);
+  server := io.await(UdpSocket.bind(server_addr, io), IOErr(io : io, exn : exn));
   client_addr := SocketAddr.loopback(u16(19913));
-  client := io.await(UdpSocket.bind(client_addr, io), io);
+  client := io.await(UdpSocket.bind(client_addr, io), IOErr(io : io, exn : exn));
   // Client sends
   data := ArrayList(u8).new();
   data.push(u8(65)); // A
   data.push(u8(66)); // B
-  io.await(client.send_to(data, server_addr, io), io);
+  io.await(client.send_to(data, server_addr, io), IOErr(io : io, exn : exn));
   // Server receives with source address
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   src_addr_buf := *(u8)(malloc(usize(128)).unwrap());
   src_addr_len := *(u32)(malloc(usize(4)).unwrap());
   src_addr_len.* = u32(128);
-  nr := io.await(server.recv_from(recv_buf, usize(256), src_addr_buf, src_addr_len, io), io);
+  nr := io.await(server.recv_from(recv_buf, usize(256), src_addr_buf, src_addr_len, io), IOErr(io : io, exn : exn));
   unsafe(printf("  received = %d\n", nr));
   assert(nr == i32(2), "should receive 2 bytes");
   assert((recv_buf &+ usize(0)).* == u8(65), "A");
@@ -120,8 +120,8 @@ test("UdpSocket recv_from gets source address", {
   free(.Some(*(void)(recv_buf)));
   free(.Some(*(void)(src_addr_buf)));
   free(.Some(*(void)(src_addr_len)));
-  io.await(client.close(io), io);
-  io.await(server.close(io), io);
+  io.await(client.close(io), IOErr(io : io, exn : exn));
+  io.await(server.close(io), IOErr(io : io, exn : exn));
 });
 test("UdpSocket set_broadcast", {
   exn := Exception(
@@ -132,8 +132,8 @@ test("UdpSocket set_broadcast", {
       }
     )
   );
-  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), io);
-  io.await(sock.set_broadcast(true, io), io);
+  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IOErr(io : io, exn : exn));
+  io.await(sock.set_broadcast(true, io), IOErr(io : io, exn : exn));
   unsafe(printf("  broadcast ok\n"));
-  io.await(sock.close(io), io);
+  io.await(sock.close(io), IOErr(io : io, exn : exn));
 });
