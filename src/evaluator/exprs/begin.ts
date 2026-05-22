@@ -1178,9 +1178,23 @@ export function evaluateBeginExpression({
         // the type contains a `ctl(...) -> ret` (directly or in a struct
         // field / tuple element / etc). This catches both bare CF
         // returns and aggregate-containing-CF returns.
+        //
+        // Carve-out: auto-generated derive functions (`___dup`, `___drop`,
+        // `___dispose`, …) emit `return(__yo_self)` to satisfy their
+        // signature. For struct types that transitively contain a `ctl`
+        // field, these derive bodies trip the check at definition time
+        // even though the function is never actually called for such
+        // values at runtime (control-bound structs are stack-only and
+        // skip RC). The token's `modulePath` starts with
+        // `auto-generated://` for these expansions; skip the rule
+        // there. User code on real source files still hits the check.
         {
           const returnedType = evaluatedReturnArgExpr.$?.type;
-          if (returnedType && typeIsControlBound(returnedType)) {
+          if (
+            returnedType &&
+            typeIsControlBound(returnedType) &&
+            !returnArg.token.modulePath.startsWith("auto-generated://")
+          ) {
             throw formatErrorMessage({
               token: returnArg.token,
               errorMessage: `Cannot return a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type). Control-function values are stack-bound to their install frame; returning them lets them outlive that frame, and invoking them later would unwind to a dead frame.
