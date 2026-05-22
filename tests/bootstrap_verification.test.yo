@@ -124,13 +124,13 @@ test("closure captures comptime i32 by value", {
   list.push(i32(5));
   list.push(i32(7));
   count := i32(0);
-  it := list.iter();
+  it := list.into_iter();
   while(true, {
     match(
       it.next(),
       .Some(p) => {
         cond(
-          (p.* > threshold) => {
+          (p > threshold) => {
             count = (count + i32(1));
           },
           true => ()
@@ -150,13 +150,13 @@ test("closure captures String by RC; outlives capture site", {
   list.push(`b`);
   // Capture prefix by reference; iteration produces concatenated strings
   results := ArrayList(String).new();
-  it := list.iter();
+  it := list.into_iter();
   while(true, {
     match(
       it.next(),
       .Some(p) => {
         // Use captured prefix
-        results.push(prefix + p.*);
+        results.push(prefix + p);
       },
       .None => {
         break;
@@ -175,12 +175,12 @@ test("closure captures ArrayList; mutation visible after iter scope", {
   src.push(i32(10));
   src.push(i32(20));
   src.push(i32(30));
-  it := src.iter();
+  it := src.into_iter();
   while(true, {
     match(
       it.next(),
       .Some(p) => {
-        collected.push(p.*);
+        collected.push(p);
       },
       .None => {
         break;

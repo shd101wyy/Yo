@@ -12,12 +12,12 @@ test("array_list with multiple i32 elements", {
   xs := array_list(i32(10), i32(20), i32(30));
   assert(xs.len() == usize(3), "len");
   total := i32(0);
-  it := xs.iter();
+  it := xs.into_iter();
   while(true, {
     match(
       it.next(),
-      .Some(p) => {
-        total = (total + p.*);
+      .Some(v) => {
+        total = (total + v);
       },
       .None => {
         break;
@@ -32,25 +32,25 @@ test("array_list rejects empty literal", {
 test("array_list with single element", {
   xs := array_list(i32(42));
   assert(xs.len() == usize(1), "len");
-  it := xs.iter();
+  it := xs.into_iter();
   match(
     it.next(),
-    .Some(p) => assert(p.* == i32(42), "value"),
+    .Some(v) => assert(v == i32(42), "value"),
     .None => assert(false, "should have an element")
   );
 });
 test("array_list with String elements (RC types)", {
   xs := array_list(`hello`, `world`);
   assert(xs.len() == usize(2), "len");
-  it := xs.iter();
+  it := xs.into_iter();
   match(
     it.next(),
-    .Some(p) => assert(p.* == `hello`, "first"),
+    .Some(v) => assert(v == `hello`, "first"),
     .None => assert(false, "missing first")
   );
   match(
     it.next(),
-    .Some(p) => assert(p.* == `world`, "second"),
+    .Some(v) => assert(v == `world`, "second"),
     .None => assert(false, "missing second")
   );
 });
@@ -60,15 +60,15 @@ test("array_list nested literals", {
     array_list(i32(3), i32(4), i32(5))
   );
   assert(outer.len() == usize(2), "outer len");
-  it := outer.iter();
+  it := outer.into_iter();
   match(
     it.next(),
-    .Some(p) => assert(p.*.len() == usize(2), "first inner len"),
+    .Some(v) => assert(v.len() == usize(2), "first inner len"),
     .None => assert(false, "missing first inner")
   );
   match(
     it.next(),
-    .Some(p) => assert(p.*.len() == usize(3), "second inner len"),
+    .Some(v) => assert(v.len() == usize(3), "second inner len"),
     .None => assert(false, "missing second inner")
   );
 });
