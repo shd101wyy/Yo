@@ -283,6 +283,112 @@ export function typeIsControlBound(
 }
 
 /**
+ * Check if a type's runtime representation transitively carries a raw
+ * pointer (`*(T)`), where "transitively" walks through aggregate fields
+ * but **stops at heap-owning `object` types** — those manage their own
+ * pointer's lifetime via Rc and cannot dangle through a return slot.
+ *
+ * Used by the Slice-flowability rule from `plans/SLICE_FLOWABILITY.md`:
+ * a function returning a type for which this predicate is true (and
+ * whose return is NOT already `-> ref(T)`) must have a flowable
+ * return expression, because the return slot would otherwise smuggle
+ * a pointer into the caller that aliases dead storage.
+ *
+ * Rules:
+ * - `Ptr` → true (a raw pointer is the base case).
+ * - `Slice` → true (a slice IS a fat pointer; its user-visible type
+ *   elides the inner `*(T)`, but the representation has one).
+ * - `Struct` with `isReferenceSemantics` (i.e. `object` / `atomic(object(...))`)
+ *   → **false**. Heap-owning types manage their own pointer; passing
+ *   them around at the value layer does not give the receiver an
+ *   alias to dying storage.
+ * - `Struct` without reference semantics (plain struct, newtype) →
+ *   recurse into each field's type. This catches `str` (newtype over
+ *   `Slice(u8)`) and any user wrapper that stores a `Slice` field.
+ * - `Tuple` / `Union` → recurse into each field.
+ * - `Enum` → recurse into each variant's fields. Catches
+ *   `Option(Slice(T))`, `Result(Slice(T), E)`, etc.
+ * - `Array(T, N)` → recurse into `T`. (Arrays inline their elements
+ *   contiguously, so if `T` carries a raw pointer the array does too.)
+ * - `Function` → false. A function pointer is itself a pointer at the
+ *   C ABI, but it points at code (static), not at data — it cannot
+ *   dangle through a stack-local source the way a `Slice` can. The
+ *   closure-capture story is handled by the separate
+ *   `cannot-capture-ref` gate.
+ * - `SomeType` → follow `resolvedConcreteType` if resolved; otherwise
+ *   false. An unresolved generic type variable doesn't tell us anything
+ *   yet — the check will re-run after specialization.
+ * - Primitive types, comptime types, etc. → false.
+ */
+export function typeRepresentationContainsRawPtr(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  if (checkedTypes.includes(type)) {
+    return false;
+  }
+  checkedTypes.push(type);
+
+  // Heap-owning `object` types (and atomic-rc variants) manage their
+  // pointer lifetime via Rc. They are safe to return at the value layer.
+  // Check this BEFORE the generic Struct fall-through so a struct's
+  // `isReferenceSemantics` short-circuits the field walk.
+  if (isObjectType(type)) {
+    return false;
+  }
+
+  switch (type.tag) {
+    case TypeTag.Ptr:
+      return true;
+    case TypeTag.Slice:
+      return true;
+    case TypeTag.Struct:
+      // Plain struct or newtype — walk fields. `str` is
+      // `newtype(bytes : Slice(u8))`; this catches it via the Slice field.
+      return (type as StructType).fields.some((field) =>
+        typeRepresentationContainsRawPtr(field.type, checkedTypes)
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeRepresentationContainsRawPtr(field.type, checkedTypes)
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeRepresentationContainsRawPtr(field.type, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeRepresentationContainsRawPtr(param.type, checkedTypes)
+        )
+      );
+    case TypeTag.Array:
+      return typeRepresentationContainsRawPtr(
+        (type as ArrayType).childType,
+        checkedTypes
+      );
+    case TypeTag.SomeType: {
+      const someType = type as SomeType;
+      if (someType.resolvedConcreteType) {
+        return typeRepresentationContainsRawPtr(
+          someType.resolvedConcreteType,
+          checkedTypes
+        );
+      }
+      return false;
+    }
+    default:
+      // Function, primitives, trait, dyn, type, etc. — no pointer-escape
+      // surface at the representation level for our purposes.
+      return false;
+  }
+}
+
+/**
  * Check if a type contains SomeType.
  */
 export function typeContainsSomeType(
