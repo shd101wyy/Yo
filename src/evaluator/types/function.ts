@@ -2257,6 +2257,42 @@ export function evaluateFunctionType({
         errorMessage: `To define a macro function, please use "unquote" for the return type, not "quote".`,
       });
     }
+    // `(ref(name) : T)` — labeled-ref-return form. Mirrors the
+    // parameter-side `ref(name) : T` shape so users don't have to
+    // remember a different convention for return-slot labels.
+    // Sets isReturnTypeRef just like `-> ref(T)` does at the
+    // unlabeled path below (lines 2336+); the inner identifier
+    // becomes the label.
+    if (
+      exprIsFunctionCall(returnLabelExpr) &&
+      exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.ref)
+    ) {
+      if (returnLabelExpr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: returnLabelExpr.token,
+          errorMessage: `Expected one argument for "ref" in return label, got ${returnLabelExpr.args.length}`,
+        });
+      }
+      // Forbid `(ref(name) : ref(T))` — ref appears twice for the
+      // same return slot. Pick one form, not both.
+      if (
+        exprIsFunctionCall(returnTypeExpr) &&
+        exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.ref)
+      ) {
+        throw formatErrorMessage({
+          token: returnTypeExpr.token,
+          errorMessage: `Cannot use 'ref' on both the label and the type of a return slot. Pick one: '-> (ref(name) : T)' or '-> (name : ref(T))'.`,
+        });
+      }
+      if (isReturnTypeUnquote) {
+        throw formatErrorMessage({
+          token: returnLabelExpr.token,
+          errorMessage: `Cannot combine 'unquote' with 'ref' in a return slot — macro return types are erased at runtime and have no place to put a borrow.`,
+        });
+      }
+      isReturnTypeRef = true;
+      returnLabelExpr = returnLabelExpr.args[0]!;
+    }
     if (!isValidVariableName(returnLabelExpr)) {
       throw formatErrorMessage({
         token: returnLabelExpr.token,
