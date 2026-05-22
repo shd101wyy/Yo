@@ -542,7 +542,40 @@ export function generateOtherFunctionCall(
             // If c is already an l-value-looking expression like
             // `(*expr)`, fold to just `expr` rather than `&(*expr)`.
             const inoutLvalue = c.match(/^\(\*(.+)\)$/);
-            args[i] = inoutLvalue ? inoutLvalue[1]! : `(&(${c}))`;
+            if (inoutLvalue) {
+              args[i] = inoutLvalue[1]!;
+              continue;
+            }
+            // If the generated arg code is a literal / rvalue (e.g.
+            // `123.to_string()` where the receiver is `123`, or
+            // `(1 + 2).to_string()` where the evaluator constant-folded
+            // the receiver to `3`), then `&(3)` is invalid C — you
+            // can't take the address of an rvalue. Wrap the literal in
+            // a C99 compound literal of the arg's runtime type so the
+            // address-of operates on the unnamed compound-literal
+            // object instead.
+            //
+            // We inspect the GENERATED code string `c` because the
+            // evaluator may have produced a temp `variableName` (which
+            // would normally let us use the variable as an lvalue), but
+            // the codegen ultimately emits the constant value rather
+            // than declaring the temp — so the c-string is just a bare
+            // literal in those cases.
+            const argRuntimeType = runtimeArgExprs[i]!.$?.type;
+            const cIsBareLiteral =
+              // signed/unsigned integer literal, possibly with L/LL/U
+              // suffixes, possibly negated
+              /^-?[0-9]+(?:[uU]?[lL]{0,2}[uU]?)?$/.test(c) ||
+              // floating-point literal with f/F suffix
+              /^-?[0-9]+\.[0-9]+(?:[fFlL]?)$/.test(c) ||
+              c === "true" ||
+              c === "false";
+            if (argRuntimeType && cIsBareLiteral) {
+              const cType = getTypeString(argRuntimeType, context);
+              args[i] = `(&((${cType}){${c}}))`;
+              continue;
+            }
+            args[i] = `(&(${c}))`;
           }
         }
       }
