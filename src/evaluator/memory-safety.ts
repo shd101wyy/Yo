@@ -55,6 +55,17 @@ export function _clearPragmaRegistry(): void {
 }
 
 /**
+ * Drop pragma entries for a single module. Called when an LSP edit
+ * (or any other module-level invalidation) removes a file from the
+ * cache so the file's previous privileges don't leak into the next
+ * evaluation of the same URI — e.g. a user editing `pragma(...)` out
+ * of an existing file.
+ */
+export function _clearPragmaForModule(modulePath: string): void {
+  privilegedFiles.delete(modulePath);
+}
+
+/**
  * Is the module path implicitly unsafe-capable for pointer ops?
  *
  * Returns true if:

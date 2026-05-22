@@ -340,6 +340,13 @@ export function typeRepresentationContainsRawPtr(
   if (isObjectType(type)) {
     return false;
   }
+  // `Dyn(Trait)` is a fat pointer (data + vtable) into RC-managed
+  // object storage. Same reasoning as `isObjectType`: returning a
+  // `Dyn` transfers (or shares) the Rc, so the data pointer stays
+  // alive. Skip the field walk.
+  if (isDynType(type)) {
+    return false;
+  }
 
   switch (type.tag) {
     case TypeTag.Ptr:
@@ -422,6 +429,10 @@ export function typeMayProvideSliceSource(
   checkedTypes.push(type);
 
   if (isObjectType(type)) return true;
+  // `Dyn(Trait)` carries an RC-managed object behind a fat pointer.
+  // A callee can project a slice into that object's heap data, so a
+  // `Dyn` arg is just as much a source candidate as an `object` arg.
+  if (isDynType(type)) return true;
 
   switch (type.tag) {
     case TypeTag.Ptr:

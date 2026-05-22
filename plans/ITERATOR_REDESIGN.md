@@ -1,6 +1,6 @@
 # Iterator Redesign — Projection-Style Borrowed Iteration
 
-Status: **Design sketch.** Not yet implemented. Phase D of `plans/MEMORY_SAFETY.md` deferred this redesign; everything else in that plan has landed.
+Status: **✅ Landed.** All phases (A–E) implemented; the "Status" section near the end of this file has the per-phase commit references. The `for` macro dispatches on `(x) =>` vs `ref(x) =>` to pick value vs borrow iteration; `Indexable(Position)` impls cover Array, Slice, ArrayList, String, HashMap. Verdicts pinned in `tests/indexable_runtime.test.yo`, `tests/iterator_combinators.test.yo`, `tests/for_macro_borrow.test.yo`, and the slice-flowability suite. Originally deferred from `plans/MEMORY_SAFETY.md` Phase D and tracked separately here.
 
 ## Problem
 
