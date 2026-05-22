@@ -488,7 +488,7 @@ Comment-style directives (`// @skip_prelude`, `// @skip_wasm`, …) were the ori
 
 ## Open Questions
 
-1. **`extern fn` call sites.** Calling an `extern fn` from an unsafe-capable file is fine (the C side is opaque). Should the call site require an explicit `unsafe(extern_call(...))` wrap? **Lean: no.** Calling a C function isn't intrinsically UB — the C function defines its own contract.
+1. **`extern fn` call sites.** ✅ Resolved (reversed from the original lean). Every `extern "c"` call must be wrapped in `unsafe(...)` even in pragma'd files — the pragma authorizes DECLARING the FFI symbol, the wrap is the per-call audit marker. See `plans/EXTERN_UNSAFE_WRAP.md`. The earlier "lean: no" reasoning (C calls aren't intrinsically UB) is technically correct — but in practice the wrap makes `yo unsafe-report` line up with UB-capable lines instead of just the file, which is the higher-value audit story.
 
 2. **`asm(...)` blocks.** Already inherently unsafe. **Lean: no `unsafe(asm(...))` requirement.** Document that `asm` is implicitly unsafe and only available in unsafe-capable files.
 

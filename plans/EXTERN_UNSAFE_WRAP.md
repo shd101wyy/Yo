@@ -1,6 +1,6 @@
 # Extern Call-Site `unsafe(...)` Wrap
 
-Status: **✅ Landed.** Phases A–C + B (tests) + E (docs) complete. Verdicts pinned in `tests/extern_unsafe_wrap.test.yo`. Phase D (`yo unsafe-report` granularity) deferred.
+Status: **✅ Landed.** All phases complete (A gate, B tests, C migration, D unsafe-report granularity, E docs). Verdicts pinned in `tests/extern_unsafe_wrap.test.yo`; classification covered by `src/tests/unsafe-report-classify.test.ts`.
 
 ## Problem
 
@@ -247,13 +247,20 @@ the wrapper's body owns the audit obligation.
 - One mechanical commit (parallel to the
   `scripts/add-pragma.ts`-driven Phase C of MEMORY_SAFETY in scale).
 
-### Phase D — `yo unsafe-report` granularity
+### Phase D — `yo unsafe-report` granularity ✅
 
-- Update `src/unsafe-report.ts` (or wherever the audit listing
-  lives) to list each `unsafe(extern_call(...))` site as a row,
-  with the callee name and source location. Distinguish from
-  `unsafe(...)` wraps around deref / arithmetic.
-- Output format: a CSV / table the auditor can review.
+- `src/unsafe-report.ts` classifies every `unsafe(...)` finding into
+  one of five sub-kinds: `extern-call` (callee name recorded),
+  `deref`, `arith`, `addr-of`, `other`. A first pass harvests every
+  extern "c" function name declared via `c_include(...)` or
+  `extern("c", ...)`; the per-line scanner uses the set to
+  recognize extern callees.
+- Output adds a per-sub-kind tally and a "Top extern callees" table
+  (descending by call-site count, top 15 shown). Each finding line
+  now reads `unsafe(extern-call:strlen)` / `unsafe(deref)` / etc.,
+  so a grep on the report tells the auditor exactly what each wrap
+  is guarding.
+- Coverage in `src/tests/unsafe-report-classify.test.ts` (7 tests).
 
 ### Phase E — Docs
 
