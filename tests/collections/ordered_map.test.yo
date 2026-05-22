@@ -18,8 +18,8 @@ test("OrderedMap set and get", {
   assert(m.len() == usize(2), "len 2");
   assert(m.contains_key(`a`), "has a");
   assert(m.contains_key(`b`), "has b");
-  assert(m(`a`) == i32(1), "a is 1");
-  assert(m(`b`) == i32(2), "b is 2");
+  assert(m.get(`a`).unwrap() == i32(1), "a is 1");
+  assert(m.get(`b`).unwrap() == i32(2), "b is 2");
 });
 test("OrderedMap update existing key preserves order", {
   m := OrderedMap(String, i32).new();
@@ -36,7 +36,7 @@ test("OrderedMap update existing key preserves order", {
   assert(old.is_some(), "should have old value");
   assert(old.unwrap() == i32(2), "old was 2");
   assert(m.len() == usize(3), "len still 3");
-  assert(m(`beta`) == i32(20), "new value");
+  assert(m.get(`beta`).unwrap() == i32(20), "new value");
   // Iteration order should still be alpha, beta, gamma
   it := m.keys();
   k1 := it.next().unwrap();
@@ -143,7 +143,7 @@ test("OrderedMap re-insert after remove appends to end", {
   assert(k1 == `b`, "b first");
   assert(k2 == `c`, "c second");
   assert(k3 == `a`, "a last (re-inserted)");
-  assert(m(`a`) == i32(99), "a is 99");
+  assert(m.get(`a`).unwrap() == i32(99), "a is 99");
 });
 test("OrderedMap many entries preserves order", {
   m := OrderedMap(String, i32).new();
