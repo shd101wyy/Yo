@@ -1,6 +1,8 @@
 import type { Expr } from "../../expr";
+import type { FunctionType } from "../../types/definitions";
 import {
   isComptimeStringType,
+  isFunctionType,
   isNewtypeType,
   isPtrType,
   isSliceType,
@@ -304,6 +306,17 @@ export function generateComptimeValue(
       return "NULL";
     }
     return `// Error: No C function name found for function value with ID ${value.funcId}\n`;
+  } else if (
+    value.tag === ValueTag.Unknown &&
+    isFunctionType(value.type) &&
+    (value.type as FunctionType).ioBuiltin
+  ) {
+    // Same as the FunctionValue case above — when an IO/JoinHandle struct
+    // is constructed at a runtime call site, its fields can show up as
+    // UnknownValue placeholders (variableName set to e.g. "__yo_io_async")
+    // rather than fully-resolved FunctionValue. The ioBuiltin markers
+    // are never dispatched through, so NULL is a safe field initializer.
+    return "NULL";
   } else if (isTypeValue(value)) {
     // For type values, we can return the C type name if available
     const type = value.value;

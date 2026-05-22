@@ -43,6 +43,7 @@ test("Slice.project read and write", {
   assert(arr(usize(1)) == i32(200), "writes through slice projection propagate to array");
 });
 { ArrayList } :: import("std/collections/array_list");
+open(import("std/string"));
 test("ArrayList.project read and write", {
   list := ArrayList(i32).new();
   list.push(i32(7));
@@ -54,7 +55,7 @@ test("ArrayList.project read and write", {
   assert(list(usize(1)) == i32(140), "writes through ArrayList projection propagate");
 });
 test("String.project read and write", {
-  s := String.from_str("abcd");
+  s := String.from("abcd");
   ref(b0) := s.project(usize(0));
   ref(b1) := s.project(usize(1));
   ref(b3) := s.project(usize(3));
@@ -102,7 +103,7 @@ test("for(list, ref(x) => body) borrows each ArrayList element", {
   assert(list(usize(2)) == i32(25), "squared (2)");
 });
 test("for(s, ref(b) => body) borrows each String byte", {
-  s := String.from_str("xyz");
+  s := String.from("xyz");
   bytes_seen := ArrayList(u8).new();
   for(s, ref(b) => {
     bytes_seen.push(b);
@@ -113,7 +114,7 @@ test("for(s, ref(b) => body) borrows each String byte", {
   assert(bytes_seen(usize(2)) == u8(122), "2 = 'z' (122)");
 });
 test("for(s, ref(b) => body) writes propagate back to the String", {
-  s := String.from_str("abc");
+  s := String.from("abc");
   for(s, ref(b) => {
     b = (b + u8(1));
   });
