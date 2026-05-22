@@ -1254,23 +1254,40 @@ async function runTestsSequentially(
   // others sharing its batch); instead we push the batch back onto the
   // worklist as two halves and retry. This bottoms out at single-test
   // batches, where compile failure is genuinely that one test's fault.
-  // The cost is wasted re-compiles for batches whose first failure was
-  // truly fatal, but tests that DO compile in isolation get accurately
-  // counted as passing.
-  const remainingBatches: TestToRun[][] = [];
+  //
+  // Bisection has a `depth` to cap how many times a failing batch can
+  // be split before we give up and report its tests as failed. For
+  // test files where ALL tests share the same compile error (e.g. all
+  // 30 imm_threading tests trip the same closure-body-emission bug),
+  // unbounded bisection wastes compile time without ever finding a
+  // mixed batch. Cap depth so the worst-case cost for an all-failing
+  // N-test batch is bounded — once depth is exhausted, fall through
+  // to the per-test "report failed" path with the original error
+  // message. The cap is chosen as `ceil(log2(testBatchSize)) + 1` so
+  // a full bisect of a maximally-sized initial batch can still reach
+  // single-test resolution; that bound only matters as a guard
+  // against pathological re-compile storms.
+  type WorklistEntry = { tests: TestToRun[]; bisectDepth: number };
+  const MAX_BISECT_DEPTH = Math.max(
+    4,
+    Math.ceil(Math.log2(Math.max(2, options.testBatchSize))) + 1
+  );
+  const remainingBatches: WorklistEntry[] = [];
   for (
     let batchStart = 0;
     batchStart < testsToRun.length;
     batchStart += options.testBatchSize
   ) {
-    remainingBatches.push(
-      testsToRun.slice(batchStart, batchStart + options.testBatchSize)
-    );
+    remainingBatches.push({
+      tests: testsToRun.slice(batchStart, batchStart + options.testBatchSize),
+      bisectDepth: 0,
+    });
   }
 
   while (remainingBatches.length > 0) {
     if (bailed) break;
-    const batchTests = remainingBatches.shift()!;
+    const entry = remainingBatches.shift()!;
+    const batchTests = entry.tests;
     const firstTest = batchTests[0]!;
 
     let batchResult: BatchCompileResult;
@@ -1285,16 +1302,20 @@ async function runTestsSequentially(
         options.noSanitize
       );
     } catch (compileError) {
-      // If this batch has more than one test, the compile error might
-      // be caused by a single bad test poisoning the whole batch. Split
-      // it in half and retry — the bisection bottoms out at single-test
-      // batches, where the error is genuinely that one test's fault.
-      if (batchTests.length > 1) {
+      // If this batch has more than one test AND we haven't blown the
+      // bisect-depth budget, the compile error might be caused by a
+      // single bad test poisoning the whole batch. Split it in half
+      // and retry. The depth cap prevents pathological re-compile
+      // storms when every test shares the same fatal error.
+      if (batchTests.length > 1 && entry.bisectDepth < MAX_BISECT_DEPTH) {
         const mid = Math.ceil(batchTests.length / 2);
         // Unshift in order so the first half runs next, then the second.
         remainingBatches.unshift(
-          batchTests.slice(0, mid),
-          batchTests.slice(mid)
+          {
+            tests: batchTests.slice(0, mid),
+            bisectDepth: entry.bisectDepth + 1,
+          },
+          { tests: batchTests.slice(mid), bisectDepth: entry.bisectDepth + 1 }
         );
         continue;
       }
