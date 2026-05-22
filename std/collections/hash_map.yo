@@ -710,7 +710,7 @@ impl(
     Element : Bucket(K, V),
     project : (fn(ref(self) : Self, pos : usize) -> ref(Bucket(K, V)))(
       cond(
-        (pos >= self._capacity) => panic("HashMap: project out of bounds"),
+        (pos >= self.capacity) => panic("HashMap: project out of bounds"),
         // SAFETY: cond above bounds `pos`; `_data_ptr` returns the
         // start of the Rc-managed _data buffer, which is alive while
         // `self` holds the Rc.
