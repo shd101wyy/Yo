@@ -551,9 +551,18 @@ export function tryToImplementFunctionByFunctionType({
   const finalExpectedReturnForBody: Type = newFunctionType.return.isRef
     ? createPtrType(newFunctionType.return.type)
     : newFunctionType.return.type;
+  // For `-> ref(T)` returns, the flowability check above already verified
+  // that the body roots back to a ref-bound parameter (R1–R4). At that
+  // point the body's `.$.type` is the underlying `T` (auto-deref'd
+  // through the ref binding), but codegen will emit the address-taking
+  // wrapper at the return site. Skip the strict compatibility check
+  // here — comparing `*(T)` vs `T` would spuriously reject every
+  // valid `ref_identity :: (fn(ref(p) : i32) -> ref(i32))(p)` shape.
+  const skipReturnTypeCheckForRefReturn = newFunctionType.return.isRef;
   if (
     !shouldDeferBodyEvaluation &&
     !functionValue.isControlFunction &&
+    !skipReturnTypeCheckForRefReturn &&
     functionBodyReturnType &&
     !areTypesCompatible(
       { type: finalExpectedReturnForBody, env },
