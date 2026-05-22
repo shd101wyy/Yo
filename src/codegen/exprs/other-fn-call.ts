@@ -230,8 +230,23 @@ export function generateOtherFunctionCall(
         }
       }
 
+      // Pre-compute which runtime parameter positions are `ref`-bound so
+      // the arg-materializer below can skip the temp-var copy for them.
+      // Materializing `(*self).field` into a local temp and then taking
+      // `&(temp)` breaks mutation propagation through the field — the
+      // local temp's mutations don't reach the original field. This was
+      // the iterator-combinator chain bug: `IterMap.next`'s body called
+      // `self._inner.next()`, but the codegen copied `(*self)._inner`
+      // into a local, called next on `&(local)`, and discarded the
+      // local — leaving the inner iterator's index unchanged across
+      // calls and causing the chain to infinite-loop yielding the same
+      // first element.
+      const _runtimeParamsForRefCheck = functionType.parameters.filter(
+        (p) => !p.isCompileTimeOnly && !p.isQuote
+      );
       // Generate arg list with special handling for dyn method calls
       const args = runtimeArgExprs.map((arg, index) => {
+        const paramIsRef = _runtimeParamsForRefCheck[index]?.isRef === true;
         // First, check if this argument needs a temporary variable
         if (arg.$?.variableName && arg.$?.type) {
           const functionContext = context as FunctionGenerationContext;
@@ -321,7 +336,8 @@ export function generateOtherFunctionCall(
             !isClosureCapturedVariable &&
             !isStateMachineCapturedVariable &&
             !isComptimeOnlyArg &&
-            !isInoutArg
+            !isInoutArg &&
+            !paramIsRef
           ) {
             // Only emit declaration if:
             // 1. The expression doesn't already handle it
@@ -453,11 +469,17 @@ export function generateOtherFunctionCall(
             // If this is an ref parameter, use the generated code — it's
             // already `(*name)` and we skipped the temp-var materialization
             // above (the shadow would have been a C redefinition error).
+            // If the target param is `ref` (paramIsRef), we also skipped
+            // the temp materialization above — return the place expression
+            // (e.g. `(*self)._inner`) directly so the isRef-wrapper at line
+            // ~518 can take its address without copying. See the iterator
+            // combinator chain fix.
             // Otherwise use the sanitized variable name (potentially duped)
             return isClosureCapturedVariable ||
               isStateMachineCapturedVariable ||
               isComptimeOnlyArg ||
-              isInoutArg
+              isInoutArg ||
+              paramIsRef
               ? argCode
               : sanitizeForCIdentifier(
                   finalArgVarName,
