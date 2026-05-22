@@ -6,7 +6,7 @@ open(import("std/fmt"));
 future_with_returned_state :: (fn(value : i32, io : IO) -> Impl(Future(i32, IO)))({
   local := Box(i32)(value);
   io.async((io : IO) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     return(local.* + i32(1));
   })
 });
@@ -19,7 +19,7 @@ test("Test lazy async", {
     unsafe(printf("Task started %d\n", b.*));
     c := Box(i32)(10);
     b.* = (b.* + 1);
-    another_io.await(yield(), another_io);
+    another_io.await(yield(another_io), another_io);
     printf("Task completed %d\n", b.*);
     assert(c.* == 10, "captured Box should still be 10");
   });
@@ -39,7 +39,7 @@ test("Test async function", {
     assert(bb.* == 0, "b should be 0");
     c := Box(i32)(10);
     bb.* = (bb.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     printf("Task completed %d\n", bb.*);
     assert(c.* == 10, "c should be 10");
     return(bb.*);
@@ -63,13 +63,13 @@ test("Test multiple sequential awaits", {
   task := io.async((io : IO) => {
     counter.* = (counter.* + 1);
     assert(counter.* == 1, "after first increment");
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
     assert(counter.* == 2, "after second increment");
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
     assert(counter.* == 3, "after third increment");
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
     assert(counter.* == 4, "after fourth increment");
   });
@@ -87,7 +87,7 @@ test("Test cond with await in one branch - non-await path", {
     value := i32(42);
     cond(
       flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = i32(1);
       },
       true => {
@@ -113,7 +113,7 @@ test("Test cond with await in one branch - await path", {
     value := i32(99);
     cond(
       flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = value;
       },
       true => {
@@ -136,11 +136,11 @@ test("Test cond with await in both branches", {
   task := io.async((io : IO) => {
     cond(
       flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = i32(10);
       },
       true => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = i32(20);
       }
     );
@@ -159,11 +159,11 @@ test("Test cond with await in both branches - false path", {
   task := io.async((io : IO) => {
     cond(
       flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = i32(10);
       },
       true => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = i32(20);
       }
     );
@@ -199,7 +199,7 @@ test("Test early return from cond branch in async", {
     s := Box(i32)(100);
     cond(
       flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = s.*;
         return;
       },
@@ -225,7 +225,7 @@ test("Test early return from non-await cond branch in async", {
         return;
       },
       true => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
       }
     );
     result.* = i32(999);
@@ -245,13 +245,13 @@ test("Test captured Box across multiple awaits", {
     assert(a.* == 1, "a should be 1");
     assert(b.* == 2, "b should be 2");
     assert(c.* == 3, "c should be 3");
-    io.await(yield(), io);
+    io.await(yield(io), io);
     a.* = (a.* + 10);
     assert(a.* == 11, "a should be 11 after increment");
-    io.await(yield(), io);
+    io.await(yield(io), io);
     b.* = (b.* + 20);
     assert(b.* == 22, "b should be 22 after increment");
-    io.await(yield(), io);
+    io.await(yield(io), io);
     c.* = (c.* + 30);
     assert(c.* == 33, "c should be 33 after increment");
   });
@@ -265,7 +265,7 @@ test("Test captured Box across multiple awaits", {
 // ---------------------------------------------------------------------------
 test("Test async function return through cond", {
   task_true := io.async((io : IO) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     v := cond(
       true => i32(42),
       true => i32(0)
@@ -273,7 +273,7 @@ test("Test async function return through cond", {
     return(v);
   });
   task_false := io.async((io : IO) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     v := cond(
       false => i32(42),
       true => i32(0)
@@ -294,7 +294,7 @@ test("Test while loop with await", {
   task := io.async((io : IO) => {
     while(runtime(counter.* < i32(5)), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       iterations.* = (iterations.* + 1);
     });
   });
@@ -311,7 +311,7 @@ test("Test while loop with break after await", {
   task := io.async((io : IO) => {
     while(runtime(true), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         (counter.* >= i32(3)) => {
           break;
@@ -334,7 +334,7 @@ test("Test nested cond with await", {
   task := io.async((io : IO) => {
     cond(
       outer_flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         cond(
           inner_flag.* => {
             result.* = i32(42);
@@ -362,12 +362,12 @@ test("Test lazy sequential async tasks", {
   order := Box(i32)(0);
   task1 := io.async((io : IO) => {
     order.* = i32(1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     order.* = i32(2);
   });
   task2 := io.async((io : IO) => {
     order.* = i32(3);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     order.* = i32(4);
   });
   // With lazy execution, neither task has started
@@ -384,7 +384,7 @@ test("Test async block drops local allocations", {
   task := io.async((io : IO) => {
     a := Box(i32)(100);
     b := Box(i32)(200);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     c := Box(i32)(300);
     assert(a.* == i32(100), "a should survive await");
     assert(b.* == i32(200), "b should survive await");
@@ -399,7 +399,7 @@ test("Test async function with multiple awaits and early return", {
   task := io.async((io : IO) => {
     i := Box(i32)(0);
     while(runtime(i.* < i32(10)), {
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         (i.* == i32(5)) => {
           return(i.*);
@@ -425,7 +425,7 @@ test("Test code after cond with await", {
     x := i32(10);
     cond(
       flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         x = i32(20);
       },
       true => ()
@@ -447,7 +447,7 @@ test("Test code after cond with await - non-await path", {
     x := i32(10);
     cond(
       flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         x = i32(20);
       },
       true => {
@@ -475,7 +475,7 @@ test("Test sequential conds with await", {
     x := i32(0);
     cond(
       a_flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         x = (x + i32(10));
       },
       true => {
@@ -484,7 +484,7 @@ test("Test sequential conds with await", {
     );
     cond(
       b_flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         x = (x + i32(100));
       },
       true => {
@@ -516,25 +516,25 @@ test("Test async block with no awaits", {
 test("Test many sequential awaits", {
   counter := Box(i32)(0);
   task := io.async((io : IO) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
   });
   assert(counter.* == i32(0), "counter should be 0 before task resumes");
@@ -553,7 +553,7 @@ test("Test continue in async while loop", {
     while(runtime(counter.* < i32(10)), {
       i := counter.*;
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         ((i % i32(2)) != i32(0)) => {
           continue;
@@ -575,7 +575,7 @@ test("Test break from cond in async while loop", {
   sum := Box(i32)(0);
   task := io.async((io : IO) => {
     while(runtime(true), {
-      io.await(yield(), io);
+      io.await(yield(io), io);
       counter.* = (counter.* + 1);
       cond(
         (counter.* >= i32(5)) => {
@@ -601,7 +601,7 @@ test("Test continue skips body after await", {
   task := io.async((io : IO) => {
     while(runtime(counter.* < i32(10)), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         ((counter.* == i32(3)) || (counter.* == i32(7))) => {
           continue;
@@ -625,7 +625,7 @@ test("Test break drops local allocations in async while loop", {
   task := io.async((io : IO) => {
     while(runtime(true), {
       temp := Box(i32)(counter.*);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       counter.* = (temp.* + 1);
       cond(
         (counter.* >= i32(3)) => {
@@ -649,7 +649,7 @@ test("Test continue drops local allocations in async while loop", {
     while(runtime(counter.* < i32(6)), {
       counter.* = (counter.* + 1);
       temp := Box(i32)(counter.*);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         ((temp.* % i32(2)) == i32(0)) => {
           continue;
@@ -680,7 +680,7 @@ test("Test break before first await in async while loop", {
         true => ()
       );
       counter.* = (temp.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       resumed.* = (resumed.* + 1);
     });
   });
@@ -706,7 +706,7 @@ test("Test continue before first await in async while loop", {
         },
         true => ()
       );
-      io.await(yield(), io);
+      io.await(yield(io), io);
       odd_resumed.* = (odd_resumed.* + 1);
     });
   });
@@ -726,7 +726,7 @@ test("Test zero-iteration async while loop", {
     while(runtime(false), {
       temp := Box(i32)(123);
       ran_body.* = true;
-      io.await(yield(), io);
+      io.await(yield(io), io);
       touched_after_await.* = (temp.* == i32(123));
     });
     done.* = true;
@@ -747,7 +747,7 @@ test("Test mixed continue then break in async while loop", {
   task := io.async((io : IO) => {
     while(runtime(true), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         (counter.* <= i32(2)) => {
           continue;
@@ -779,7 +779,7 @@ test("Test nested async while with inner break", {
       inner_counter := Box(i32)(0);
       while(runtime(true), {
         inner_counter.* = (inner_counter.* + 1);
-        io.await(yield(), io);
+        io.await(yield(io), io);
         cond(
           (inner_counter.* >= i32(2)) => {
             break;
@@ -808,7 +808,7 @@ test("Test nested async while with inner continue", {
       inner_sum := Box(i32)(0);
       while(runtime(inner_counter.* < i32(4)), {
         inner_counter.* = (inner_counter.* + 1);
-        io.await(yield(), io);
+        io.await(yield(io), io);
         cond(
           (inner_counter.* == i32(2)) => {
             continue;
@@ -834,7 +834,7 @@ test("Test match branches with continue and break in async loop", {
   task := io.async((io : IO) => {
     while(runtime(true), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       match(
         counter.*,
         (2 | 4) => {
@@ -866,7 +866,7 @@ test("Test loop-local and captured values with continue across await", {
     while(runtime(counter.* < i32(5)), {
       loop_value := Box(i32)(counter.*);
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         (loop_value.* == i32(2)) => {
           continue;
@@ -892,7 +892,7 @@ test("Test early return inside loop after continue", {
   task := io.async((io : IO) => {
     while(runtime(i.* < i32(10)), {
       i.* = (i.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         ((i.* % i32(2)) == i32(0)) => {
           continue;
@@ -930,7 +930,7 @@ test("Test mixed pre-await break and post-await continue", {
         true => ()
       );
       counter.* = (temp.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         (counter.* == i32(2)) => {
           continue;
@@ -965,7 +965,7 @@ test("Test non-async inner while with break inside async while", {
           true => ()
         );
       });
-      io.await(yield(), io);
+      io.await(yield(io), io);
       total.* = (total.* + inner.*);
     });
   });
@@ -995,7 +995,7 @@ test("Test non-async inner while with continue inside async while", {
         );
         inner_sum.* = (inner_sum.* + inner.*);
       });
-      io.await(yield(), io);
+      io.await(yield(io), io);
       sum.* = (sum.* + inner_sum.*);
     });
   });
@@ -1014,11 +1014,11 @@ test("Test sequential while-with-await loops", {
   task := io.async((io : IO) => {
     while(runtime(a.* < i32(3)), {
       a.* = (a.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
     });
     while(runtime(b.* < i32(4)), {
       b.* = (b.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
     });
   });
   io.await(task, io);
@@ -1034,7 +1034,7 @@ test("Test while with await as last expression in body", {
   task := io.async((io : IO) => {
     while(runtime(counter.* < i32(5)), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
     });
   });
   io.await(task, io);
@@ -1052,7 +1052,7 @@ test("Test single-iteration while-with-await", {
     while(runtime(counter.* < i32(1)), {
       counter.* = (counter.* + 1);
       temp := Box(i32)(42);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       result.* = temp.*;
     });
   });
@@ -1070,7 +1070,7 @@ test("Test code after while-with-await loop", {
   task := io.async((io : IO) => {
     while(runtime(counter.* < i32(3)), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
     });
     result.* = (counter.* * i32(10));
   });
@@ -1089,7 +1089,7 @@ test("Test cond-with-await then while-with-await", {
   task := io.async((io : IO) => {
     cond(
       flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = i32(10);
       },
       true => {
@@ -1098,7 +1098,7 @@ test("Test cond-with-await then while-with-await", {
     );
     while(runtime(counter.* < i32(3)), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
     });
     result.* = (result.* + counter.*);
   });
@@ -1116,11 +1116,11 @@ test("Test while-with-await then cond-with-await", {
   task := io.async((io : IO) => {
     while(runtime(counter.* < i32(3)), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
     });
     cond(
       (counter.* == i32(3)) => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = i32(100);
       },
       true => {
@@ -1143,7 +1143,7 @@ test("Test while-with-await break on first iteration", {
     while(runtime(true), {
       counter.* = (counter.* + 1);
       temp := Box(i32)(99);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       assert(temp.* == i32(99), "temp should survive await");
       break;
     });
@@ -1167,7 +1167,7 @@ test("Test nested async while with code after outer loop", {
       inner_counter := Box(i32)(0);
       while(runtime(true), {
         inner_counter.* = (inner_counter.* + 1);
-        io.await(yield(), io);
+        io.await(yield(io), io);
         cond(
           (inner_counter.* >= i32(3)) => {
             break;
@@ -1200,7 +1200,7 @@ test("Test multiple captured variables in nested while-with-await", {
       inner := Box(i32)(0);
       while(runtime(true), {
         inner.* = (inner.* + 1);
-        io.await(yield(), io);
+        io.await(yield(io), io);
         cond(
           (inner.* >= i32(2)) => {
             break;
@@ -1227,7 +1227,7 @@ test("Test while-with-await early break with local allocations", {
     while(runtime(counter.* < i32(10)), {
       counter.* = (counter.* + 1);
       temp := Box(i32)(counter.* * counter.*);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       sum.* = (sum.* + temp.*);
       cond(
         (counter.* >= i32(3)) => {
@@ -1252,7 +1252,7 @@ test("Test cond non-await path then code after cond in async", {
   task := io.async((io : IO) => {
     cond(
       flag.* => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         result.* = i32(1);
       },
       true => {
@@ -1279,7 +1279,7 @@ test("Test await of async subtask inside while loop", {
       counter.* = (counter.* + 1);
       val := counter.*;
       subtask := io.async((io : IO) => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         total.* = (total.* + val);
       });
       io.await(subtask, io);
@@ -1300,11 +1300,11 @@ test("Test match with await on primitive integer", {
     result.* = match(
       x,
       1 => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         i32(10)
       },
       2 => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         i32(20)
       },
       _ => i32(30)
@@ -1326,7 +1326,7 @@ test("Test match with await on primitive integer default branch", {
       1 => i32(10),
       2 => i32(20),
       _ => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         i32(30)
       }
     );
@@ -1345,7 +1345,7 @@ test("Test basic spawn of two futures", {
   task1 := io.async((io : IO) => {
     assert(counter.* == i32(0), "counter should be 0 at start of task1");
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     assert(counter.* == i32(11), "counter should be 11 after yield in task1");
     counter.* = (counter.* + 1);
     return(counter.*);
@@ -1353,7 +1353,7 @@ test("Test basic spawn of two futures", {
   task2 := io.async((io : IO) => {
     assert(counter.* == i32(1), "counter should be 1 at start of task2");
     counter.* = (counter.* + 10);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     assert(counter.* == i32(12), "counter should be 12 after yield in task2");
     counter.* = (counter.* + 10);
     return(counter.*);
@@ -1379,7 +1379,7 @@ test("Test spawn single future", {
   counter := Box(i32)(0);
   task := io.async((io : IO) => {
     counter.* = (counter.* + 42);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 8);
     return(counter.*);
   });
@@ -1400,11 +1400,11 @@ test("Test spawn with multi-yield futures", {
     // Round 1: task1 runs first
     assert(counter.* == i32(0), "counter should be 0 at task1 round 1");
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     // Round 2: after task2's round 1 (+10)
     assert(counter.* == i32(11), "counter should be 11 at task1 round 2");
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     // Round 3: after task2's round 2 (+10)
     assert(counter.* == i32(22), "counter should be 22 at task1 round 3");
     counter.* = (counter.* + 1);
@@ -1414,11 +1414,11 @@ test("Test spawn with multi-yield futures", {
     // Round 1: after task1's round 1 (+1)
     assert(counter.* == i32(1), "counter should be 1 at task2 round 1");
     counter.* = (counter.* + 10);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     // Round 2: after task1's round 2 (+1)
     assert(counter.* == i32(12), "counter should be 12 at task2 round 2");
     counter.* = (counter.* + 10);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     // Round 3: after task1's round 3 (+1)
     assert(counter.* == i32(23), "counter should be 23 at task2 round 3");
     counter.* = (counter.* + 10);
@@ -1440,7 +1440,7 @@ test("Test spawn with multi-yield futures", {
 test("Test code after spawn", {
   flag := Box(bool)(false);
   task := io.async((io : IO) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     flag.* = true;
   });
   handle := io.spawn(task);
@@ -1449,7 +1449,7 @@ test("Test code after spawn", {
   assert(flag.*, "flag should be true after spawn + await");
   // Code after should execute normally
   task2 := io.async((io : IO) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
   });
   io.await(task2, io);
   assert(flag.*, "flag should still be true after yield");
@@ -1462,7 +1462,7 @@ test("Test code after spawn", {
 // ---------------------------------------------------------------------------
 test("Test Future no effects backward compat", {
   task := io.async((io : IO) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     i32(42)
   });
   result := io.await(task, io);
@@ -1490,7 +1490,7 @@ test("Test Future with single effect row spread", {
       }
     );
     result := run(might_fail);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     result
   });
   result := io.await(task, io);
@@ -1512,7 +1512,7 @@ test("Test Future with single individual effect", {
       }
     );
     result := might_fail();
-    io.await(yield(), io);
+    io.await(yield(io), io);
     result
   });
   result := io.await(task, io);
@@ -1541,7 +1541,7 @@ test("Test Future with multiple individual effects", {
       }
     );
     result := might_fail_and_log();
-    io.await(yield(), io);
+    io.await(yield(io), io);
     result
   });
   result := io.await(task, io);
@@ -1584,7 +1584,7 @@ test("Test Future with multiple effect row spreads", {
       }
     );
     result := run_both(might_fail, might_log);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     result
   });
   result := io.await(task, io);
@@ -1612,7 +1612,7 @@ test("Test Future with mixed individual effect and spread", {
       my_raise(`mixed-effect`)
     );
     result := might_fail_and_forward();
-    io.await(yield(), io);
+    io.await(yield(io), io);
     result
   });
   result := io.await(task, io);
@@ -1638,7 +1638,7 @@ test("Test explicit Future annotation with bundle effect struct", {
   ctx := Ctx(io : io, raise : raise, log : log);
   (task : Impl(Future(i32, Ctx))) = io.async((ctx : Ctx) => {
     ctx.log(`bundle struct test`);
-    ctx.io.await(yield(), ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     i32(100)
   });
   result := io.await(task, ctx);
@@ -1675,7 +1675,7 @@ test("Test await future multiple times returns same result", {
 test("Test io.state pending", {
   // A cold (not yet started) Future should be Pending
   task := io.async((io : IO) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     return(i32(42));
   });
   s := io.state(task);
@@ -1694,8 +1694,8 @@ test("Test io.state completed", {
 test("Test io.state completed after yield", {
   // A task with yield points should be Completed after await
   task := io.async((io : IO) => {
-    io.await(yield(), io);
-    io.await(yield(), io);
+    io.await(yield(io), io);
+    io.await(yield(io), io);
     return(i32(7));
   });
   io.await(task, io);
@@ -1707,7 +1707,7 @@ test("Test io.state completed after spawn", {
   counter := Box(i32)(0);
   task_a := io.async((io : IO) => {
     counter.* = (counter.* + 1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     counter.* = (counter.* + 1);
   });
   task_b := io.async((io : IO) => {
@@ -1794,7 +1794,7 @@ test("Test unwind in async closure", {
 // ---------------------------------------------------------------------------
 test("Test JoinHandle await returns Some on success", {
   task := io.async((io : IO) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     return(i32(42));
   });
   handle := io.spawn(task);
@@ -1808,7 +1808,7 @@ test("Test JoinHandle await returns Some on success", {
 test("Test JoinHandle await returns None on unwind", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   task := io.async((io : IO, raise : Raise) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     raise(`aborting task`);
     return(i32(99));
   });
@@ -1826,12 +1826,12 @@ test("Test JoinHandle await returns None on unwind", {
 test("Test JoinHandle two tasks one escapes", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   task1 := io.async((io : IO, raise : Raise) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     raise(`task1 escapes`);
     return(i32(0));
   });
   task2 := io.async((io : IO, raise : Raise) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     return(i32(42));
   });
   (raise : Raise) =
@@ -1895,7 +1895,7 @@ test("Test effect injection via io.await on SM future", {
   Log :: (fn(msg : String) -> unit);
   task := io.async((io : IO, log : Log) => {
     log(`before yield`);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     log(`after yield`);
   });
   (log1 : Log) =
@@ -1917,7 +1917,7 @@ test("Test break in Option match arm in async while loop", {
   task := io.async((io : IO) => {
     while(runtime(true), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       opt := cond(
         (counter.* > i32(5)) => Option(i32).None,
         true => Option(i32).Some(counter.*)
@@ -1944,7 +1944,7 @@ test("Test continue in Option match arm in async while loop", {
   task := io.async((io : IO) => {
     while(runtime(counter.* < i32(6)), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       // Skip even numbers via Option match
       opt := cond(
         ((counter.* % i32(2)) == i32(0)) => Option(i32).None,
@@ -1972,7 +1972,7 @@ test("Test mixed break and continue in Option match in async while loop", {
   task := io.async((io : IO) => {
     while(runtime(true), {
       counter.* = (counter.* + 1);
-      io.await(yield(), io);
+      io.await(yield(io), io);
       // None means break, Some(0) means continue, Some(v) means accumulate
       opt := cond(
         (counter.* > i32(7)) => Option(i32).None,
@@ -2006,7 +2006,7 @@ test("Test effect resume inside async closure", {
   Raise :: (fn(msg : String) -> i32);
   task := io.async((io : IO, raise : Raise) => {
     a := raise(`first`);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     b := raise(`second`);
     r := (a + b);
     r
@@ -2029,10 +2029,10 @@ test("Test effect resume across multiple yields", {
   task := io.async((io : IO, raise : Raise) => {
     a := raise(`before yield 1`);
     counter.* = (counter.* + a);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     b := raise(`between yields`);
     counter.* = (counter.* + b);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     c := raise(`after yield 2`);
     counter.* = (counter.* + c);
     r := counter.*;
@@ -2082,7 +2082,7 @@ test("Test two effects injected via io.spawn", {
   Log :: (fn(msg : String) -> unit);
   task := io.async((io : IO, raise : Raise, log : Log) => {
     log(`spawned`);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     result := raise(`check`);
     log(`resumed`);
     result
@@ -2116,7 +2116,7 @@ test("Test effect resume in async while loop", {
       v := get_value();
       sum.* = (sum.* + v);
       counter.* = (counter.* + i32(1));
-      io.await(yield(), io);
+      io.await(yield(io), io);
     });
     r := sum.*;
     r
@@ -2141,7 +2141,7 @@ test("Test effect resume in async while loop with break", {
     while(runtime(true), {
       counter.* = (counter.* + i32(1));
       v := get_value();
-      io.await(yield(), io);
+      io.await(yield(io), io);
       cond(
         (counter.* >= i32(3)) => {
           break;
@@ -2170,7 +2170,7 @@ test("Test unwind via injected effect aborts future", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   test_unwind :: (fn(io : IO) -> i32)({
     task := io.async((io : IO, raise : Raise) => {
-      io.await(yield(), io);
+      io.await(yield(io), io);
       raise(`abort now`);
       return(i32(999));
     });
@@ -2192,7 +2192,7 @@ test("Test unwind via injected effect aborts future", {
 test("Test JoinHandle unwind via spawn-injected effect", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   task := io.async((io : IO, raise : Raise) => {
-    io.await(yield(), io);
+    io.await(yield(io), io);
     raise(`aborting`);
     return(i32(0));
   });
@@ -2224,9 +2224,9 @@ test("Test given handler inside async closure with yields", {
       )
     );
     a := might_fail(i32(5));
-    io.await(yield(), io);
+    io.await(yield(io), io);
     b := might_fail(i32(-(1)));
-    io.await(yield(), io);
+    io.await(yield(io), io);
     c := might_fail(i32(3));
     r := ((a + b) + c);
     r
@@ -2245,7 +2245,7 @@ test("Test given handler inside async closure with yields", {
 test("Regression: async SM result type for binary expression return", {
   task := io.async((io : IO) => {
     a := i32(10);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     b := i32(5);
     (a + b) * i32(3)
   });
@@ -2262,7 +2262,7 @@ test("Regression: 3-arg while loop in async SM with step expression", {
     sum := i32(0);
     i := i32(0);
     while(i < i32(5), i = (i + i32(1)), {
-      io.await(yield(), io);
+      io.await(yield(io), io);
       sum = (sum + i);
     });
     sum
@@ -2285,7 +2285,7 @@ test("Regression: async unwind RC no double-decrement UAF", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   test_and_check :: (fn(io : IO) -> i32)({
     task := io.async((io : IO, raise : Raise) => {
-      io.await(yield(), io);
+      io.await(yield(io), io);
       raise(`abort now`);
       return(i32(999));
     });
@@ -2310,11 +2310,11 @@ test("SM opt: segment-local i32 vars are not in struct", {
     a := i32(10);
     b := i32(20);
     sum0 := (a + b);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     c := i32(30);
     d := i32(40);
     sum1 := ((a + c) + d);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     e := i32(50);
     result := ((sum1 + e) - sum0);
     return(result);
@@ -2328,11 +2328,11 @@ test("SM opt: RC-typed segment-local variables", {
   // even when they are C locals rather than struct fields.
   task := io.async((io : IO) => {
     a := Box(i32)(1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     b := Box(i32)(2);
     c := Box(i32)(3);
     sum := (b.* + c.*);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     d := Box(i32)(4);
     result := ((a.* + sum) + d.*);
     return(result);
@@ -2346,10 +2346,10 @@ test("SM opt: String segment-local variables", {
   // String values used in only one segment should work correctly.
   task := io.async((io : IO) => {
     s1 := `hello`;
-    io.await(yield(), io);
+    io.await(yield(io), io);
     s2 := `world`;
     combined := `${s1} ${s2}`;
-    io.await(yield(), io);
+    io.await(yield(io), io);
     return(combined);
   });
   r := io.await(task, io);
@@ -2362,15 +2362,15 @@ test("SM opt: multiple awaits with cross-boundary and local vars", {
     persistent := i32(100);
     local0 := i32(1);
     check0 := (persistent + local0);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     // Segment 1: define another local, use persistent
     local1 := i32(2);
     check1 := (persistent + local1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     // Segment 2: define another local, use persistent
     local2 := i32(3);
     check2 := (persistent + local2);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     // Segment 3: use all checks — checks cross boundaries since used here
     return((check0 + check1) + check2);
   });
@@ -2393,9 +2393,9 @@ test("SM opt: variable reassignment across await", {
   // Variable mutated (reassigned) across an await boundary.
   task := io.async((io : IO) => {
     x := i32(1);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     x = (x + i32(10));
-    io.await(yield(), io);
+    io.await(yield(io), io);
     x = (x + i32(100));
     return(x);
   });
@@ -2407,12 +2407,12 @@ test("SM opt: cond with segment-local vars and no await in branches", {
   // to variables local to each segment.
   task := io.async((io : IO) => {
     flag := true;
-    io.await(yield(), io);
+    io.await(yield(io), io);
     local_val := cond(
       flag => i32(42),
       true => i32(0)
     );
-    io.await(yield(), io);
+    io.await(yield(io), io);
     return(local_val);
   });
   r := io.await(task, io);
@@ -2430,10 +2430,10 @@ test("SM opt: cond-with-await, non-branching segment locals", {
     cross := i32(100);
     local_before := i32(7);
     sum0 := (cross + local_before);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     cond(
       true => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
       },
       true => ()
     );
@@ -2451,10 +2451,10 @@ test("SM opt: while-with-await, non-branching segment locals", {
     persistent := i32(0);
     local_init := i32(5);
     persistent = (persistent + local_init);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     i := i32(0);
     while(i < i32(3), {
-      io.await(yield(), io);
+      io.await(yield(io), io);
       persistent = (persistent + i32(1));
       i = (i + i32(1));
     });
@@ -2470,11 +2470,11 @@ test("SM opt: cond-with-await, cross-boundary vars still work", {
   task := io.async((io : IO) => {
     a := i32(10);
     b := i32(20);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     c := i32(30);
     cond(
       true => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         a = ((a + b) + c);
       },
       true => ()
@@ -2491,10 +2491,10 @@ test("SM opt: nested cond-with-await, outer segment locals", {
     total := i32(0);
     local_setup := i32(100);
     total = (total + local_setup);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     cond(
       true => {
-        io.await(yield(), io);
+        io.await(yield(io), io);
         total = (total + i32(1));
       },
       true => ()
@@ -2506,16 +2506,16 @@ test("SM opt: nested cond-with-await, outer segment locals", {
   assert(r == i32(101), "nested cond-with-await outer locals should be 101");
 });
 test("SM opt: temp future vars aliased to await_future fields", {
-  // Phase 1b: io.await(yield(), io) creates a temp var that should be aliased
+  // Phase 1b: io.await(yield(io), io) creates a temp var that should be aliased
   // to the corresponding await_future_N field, not stored as a separate
   // struct field. This test verifies correctness with multiple temp futures.
   task := io.async((io : IO) => {
     x := i32(10);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     y := i32(20);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     z := i32(30);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     return((x + y) + z);
   });
   r := io.await(task, io);
@@ -2527,11 +2527,11 @@ test("SM opt: overlapping storage for non-RC value types", {
   // b overlaps with both, so it keeps its own field.
   task := io.async((io : IO) => {
     a := i32(10);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     b := (a + i32(5));
-    io.await(yield(), io);
+    io.await(yield(io), io);
     c := i32(20);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     return(b + c);
   });
   r := io.await(task, io);
@@ -2542,9 +2542,9 @@ test("SM opt: overlapping vars must conflict when ranges overlap", {
   // Ranges overlap at segment 2 — no sharing possible.
   task := io.async((io : IO) => {
     a := i32(10);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     b := i32(20);
-    io.await(yield(), io);
+    io.await(yield(io), io);
     return(a + b);
   });
   r := io.await(task, io);
@@ -2559,8 +2559,8 @@ test("SM opt: multiple non-overlapping pairs share slots", {
     a := i32(1);
     b := i32(2);
     sum1 := (a + b);
-    io.await(yield(), io);
-    io.await(yield(), io);
+    io.await(yield(io), io);
+    io.await(yield(io), io);
     c := i32(3);
     d := i32(4);
     sum2 := (c + d);
@@ -2574,11 +2574,11 @@ test("SM opt: RC types excluded from overlapping storage", {
   // ranges, they must NOT share a slot (RC deferred drops extend lifetime).
   task := io.async((io : IO) => {
     s1 := `hello`;
-    io.await(yield(), io);
+    io.await(yield(io), io);
     n1 := s1.len();
-    io.await(yield(), io);
+    io.await(yield(io), io);
     s2 := `world`;
-    io.await(yield(), io);
+    io.await(yield(io), io);
     n2 := s2.len();
     return(n1 + n2);
   });
@@ -2594,9 +2594,9 @@ test("Regression: multiple awaits in while loop body", {
     counter := i32(0);
     while(runtime(counter < i32(3)), {
       // First await in while body
-      io.await(yield(), io);
+      io.await(yield(io), io);
       // Second await in while body
-      io.await(yield(), io);
+      io.await(yield(io), io);
       counter = (counter + i32(1));
     });
     return(counter);
@@ -2633,9 +2633,9 @@ test("Regression: three awaits in while loop body", {
   task := io.async((io : IO) => {
     counter := i32(0);
     while(runtime(counter < i32(2)), {
-      io.await(yield(), io);
-      io.await(yield(), io);
-      io.await(yield(), io);
+      io.await(yield(io), io);
+      io.await(yield(io), io);
+      io.await(yield(io), io);
       counter = (counter + i32(1));
     });
     return(counter);
@@ -2654,7 +2654,7 @@ test("Regression: cond with await in while loop body", {
     counter := i32(0);
     done := false;
     while(runtime(!(done)), {
-      io.await(yield(), io);
+      io.await(yield(io), io);
       counter = (counter + i32(1));
       cond(
         (counter >= i32(3)) => {
@@ -2664,7 +2664,7 @@ test("Regression: cond with await in while loop body", {
       );
       cond(
         !(done) => {
-          io.await(yield(), io);
+          io.await(yield(io), io);
         },
         true => ()
       );

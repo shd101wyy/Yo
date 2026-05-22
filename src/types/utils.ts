@@ -576,6 +576,101 @@ export function typeContainsSomeType(
 }
 
 /**
+ * Variant of `typeContainsSomeType` used by codegen's "is this function
+ * parameter truly generic?" filter. Behaves identically to
+ * `typeContainsSomeType` except that when recursing into struct fields, it
+ * does NOT recurse into FunctionType-valued fields.
+ *
+ * Rationale: effect-record types like `Exception` are concrete C structs
+ * whose only "generic" content lives inside function-typed fields (e.g.
+ * `throw : ctl(forall(R), error : AnyError) -> R`). At C codegen time those
+ * fields are type-erased function pointers — concrete bytes — so a regular
+ * function taking `exn : Exception` is NOT itself generic and must still be
+ * emitted with a forward declaration and body. The plain
+ * `typeContainsSomeType` returns true for `Exception` (because the field
+ * walk hits the forall inside `throw`), which causes declarations.ts and
+ * generation.ts to incorrectly skip the function — leaving call sites with
+ * an undeclared `fn_*_parse` and similar.
+ */
+export function typeContainsSomeTypeForCodegenParam(
+  type?: Type,
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) return false;
+  if (checkedTypes.includes(type)) return false;
+  checkedTypes.push(type);
+
+  if (isSomeType(type)) {
+    if (type.isExtern) return false;
+    if (type.resolvedConcreteType) {
+      return typeContainsSomeTypeForCodegenParam(
+        type.resolvedConcreteType,
+        checkedTypes
+      );
+    }
+    if (typeImplementsFn(type)) return false;
+    if (typeImplementsFuture(type)) return false;
+    return true;
+  }
+
+  switch (type.tag) {
+    case TypeTag.Array:
+      return typeContainsSomeTypeForCodegenParam(
+        (type as ArrayType).childType,
+        checkedTypes
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeContainsSomeTypeForCodegenParam(field.type, checkedTypes)
+      );
+    case TypeTag.Struct:
+      return (type as StructType).fields.some(
+        (field) =>
+          !field.isEffectParam &&
+          field.type.tag !== TypeTag.Function &&
+          typeContainsSomeTypeForCodegenParam(field.type, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeContainsSomeTypeForCodegenParam(param.type, checkedTypes)
+        )
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeContainsSomeTypeForCodegenParam(field.type, checkedTypes)
+      );
+    case TypeTag.Function: {
+      const functionType = type as FunctionType;
+      return (
+        functionType.forallParameters.length > 0 ||
+        functionType.parameters.some((parameter) =>
+          typeContainsSomeTypeForCodegenParam(parameter.type, checkedTypes)
+        ) ||
+        typeContainsSomeTypeForCodegenParam(
+          functionType.return.type,
+          checkedTypes
+        )
+      );
+    }
+    case TypeTag.Ptr:
+      return typeContainsSomeTypeForCodegenParam(
+        (type as PtrType).childType,
+        checkedTypes
+      );
+    case TypeTag.Slice:
+      return typeContainsSomeTypeForCodegenParam(
+        (type as SliceType).childType,
+        checkedTypes
+      );
+    case TypeTag.TypeApplication:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
  * Check if a type contains any Unknown values (e.g., array length is Unknown).
  * Used to determine if we should fully specialize a generic impl method or not.
  */

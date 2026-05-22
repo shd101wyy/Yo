@@ -19,7 +19,11 @@ import {
   isSomeType,
   isStructType,
 } from "../../types/guards";
-import { typeContainsSomeType, typeToString } from "../../types/utils";
+import {
+  typeContainsSomeType,
+  typeContainsSomeTypeForCodegenParam,
+  typeToString,
+} from "../../types/utils";
 import {
   type CodeGenContext,
   findReturnedAsyncBlock,
@@ -201,7 +205,9 @@ export function generateFunctionDeclarations(
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
       !value.type.isClosure &&
-      (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
+      (functionType.parameters.some((p) =>
+        typeContainsSomeTypeForCodegenParam(p.type)
+      ) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
 

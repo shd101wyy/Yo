@@ -34,6 +34,7 @@ import {
 import {
   canTypeFormRcCycle,
   typeContainsSomeType,
+  typeContainsSomeTypeForCodegenParam,
   typeToString,
 } from "../../types/utils";
 import { isTargetWindows } from "../../target";
@@ -407,7 +408,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
       !value.type.isClosure &&
-      (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
+      (functionType.parameters.some((p) =>
+        typeContainsSomeTypeForCodegenParam(p.type)
+      ) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
 

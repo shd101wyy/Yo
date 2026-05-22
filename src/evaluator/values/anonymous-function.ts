@@ -38,6 +38,7 @@ import {
 import {
   convertComptimeTypeToRuntimeType,
   typeContainsSomeType,
+  typeContainsSomeTypeForCodegenParam,
   typeRepresentationContainsRawPtr,
   typeToString,
 } from "../../types/utils";
@@ -564,9 +565,22 @@ Got:      "${paramName}"`,
   // When the expected type has forall params but the lambda doesn't declare them
   // (e.g., a concrete throw handler for Exception module), evaluate the body now —
   // the forall type polymorphism is handled by void* erasure at runtime.
+  // Use the codegen-aware variant for the parameter check: an `exn :
+  // Exception` or `io : IO` parameter must NOT trigger body deferral. These
+  // are concrete structs whose only forall content lives in function-typed
+  // fields (e.g. `throw : ctl(forall(R), ...) -> R`) — type-erased function
+  // pointers at runtime, not generic body content. Plain
+  // `typeContainsSomeType` reports the parameter as generic via that
+  // recursion, which previously deferred every `fn(..., exn : Exception)`
+  // and `fn(..., io : IO)` body and left sub-expressions un-annotated for
+  // codegen (manifesting as link errors for `parse` etc. and
+  // "Unhandled function call" errors for closures passed to Thread.spawn /
+  // io.async / Worker).
   const shouldDeferBodyEvaluation =
     forallParamExprs.length > 0 ||
-    functionType.parameters.some((param) => typeContainsSomeType(param.type)) ||
+    functionType.parameters.some((param) =>
+      typeContainsSomeTypeForCodegenParam(param.type)
+    ) ||
     (functionType.SelfTraitType &&
       functionType.SelfType &&
       typeContainsSomeType(functionType.SelfType));

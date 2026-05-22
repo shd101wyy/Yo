@@ -26,6 +26,7 @@ import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
 import {
   typeContainsSomeType,
+  typeContainsSomeTypeForCodegenParam,
   typeRepresentationContainsRawPtr,
   typeToString,
 } from "../../types/utils";
@@ -403,10 +404,13 @@ export function tryToImplementFunctionByFunctionType({
   // If the function depends on generic type variables, we should NOT evaluate the body
   // at definition time. The body will be evaluated when the function is specialized
   // with concrete type arguments.
+  // See note in src/evaluator/values/anonymous-function.ts:
+  // an `exn : Exception` / `io : IO` parameter must NOT defer body evaluation —
+  // their forall content is only inside type-erased fn-pointer fields.
   const shouldDeferBodyEvaluation =
     newFunctionType.forallParameters.length > 0 ||
     newFunctionType.parameters.some((param) =>
-      typeContainsSomeType(param.type)
+      typeContainsSomeTypeForCodegenParam(param.type)
     ) ||
     (newFunctionType.SelfType &&
       typeContainsSomeType(newFunctionType.SelfType));

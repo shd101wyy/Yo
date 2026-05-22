@@ -63,7 +63,7 @@ impl(
       template_bytes := template_str.as_bytes();
       buf_len := (template_bytes.len() + usize(1));
       buf := *(u8)(malloc(buf_len).unwrap());
-      memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len());
+      unsafe(memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len()));
       (buf &+ template_bytes.len()).* = u8(0);
       result := IO_temp.mkdtemp(buf);
       cond(
@@ -119,7 +119,7 @@ impl(
       template_bytes := template_str.as_bytes();
       buf_len := (template_bytes.len() + usize(1));
       buf := *(u8)(malloc(buf_len).unwrap());
-      memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len());
+      unsafe(memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len()));
       (buf &+ template_bytes.len()).* = u8(0);
       fd := IO_temp.mkstemp(buf);
       cond(

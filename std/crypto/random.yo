@@ -109,19 +109,19 @@ export(random_bytes);
 // ============================================================================
 random_u32 :: (fn(exn : Exception) -> u32)({
   buf := Array(u8, usize(4)).fill(u8(0));
-  random_bytes(Slice(u8).from_raw_parts(&(buf(usize(0))), usize(4)));
+  random_bytes(Slice(u8).from_raw_parts(&(buf(usize(0))), usize(4)), exn);
   u32(buf(usize(0))) |
     (u32(buf(usize(1))) << u32(8)) |
       (u32(buf(usize(2))) << u32(16)) |
         (u32(buf(usize(3))) << u32(24))
       });
 random_u64 :: (fn(exn : Exception) -> u64)({
-  lo := u64(random_u32());
-  hi := u64(random_u32());
+  lo := u64(random_u32(exn));
+  hi := u64(random_u32(exn));
   lo | (hi << u64(32))
 });
 random_f64 :: (fn(exn : Exception) -> f64)(
-  f64(random_u64()) / f64(18446744073709551615.0)
+  f64(random_u64(exn)) / f64(18446744073709551615.0)
 );
 // Return a random integer in the half-open range [min, max).
 random_range :: (fn(min : i64, max : i64, exn : Exception) -> i64)({
@@ -129,7 +129,7 @@ random_range :: (fn(min : i64, max : i64, exn : Exception) -> i64)({
   cond(
     (span <= i64(0)) => min,
     true => {
-      r := random_u64();
+      r := random_u64(exn);
       min + i64(r % u64(span))
     }
   )
@@ -142,7 +142,7 @@ export(random_u32, random_u64, random_f64, random_range);
 uuid_v4 :: (fn(exn : Exception) -> String)({
   bytes := ArrayList(u8).with_capacity(usize(16));
   buf := Array(u8, usize(16)).fill(u8(0));
-  random_bytes(Slice(u8).from_raw_parts(&(buf(usize(0))), usize(16)));
+  random_bytes(Slice(u8).from_raw_parts(&(buf(usize(0))), usize(16)), exn);
   // Set version bits (v4)
   buf(usize(6)) = ((buf(usize(6)) & u8(0x0F)) | u8(0x40));
   // Set variant bits
