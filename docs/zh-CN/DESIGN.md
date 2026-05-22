@@ -772,7 +772,7 @@ p2.move_by(5, 10);  // `ref(self)` 在 C 中降为 `Self*` — 编译器自动�
 // p2 现在是 Point(5, 10)
 ```
 
-**`inout` 的自动指针转换：**
+**`ref` 的自动指针转换：**
 
 `ref(name) : T` 参数在 C 中降为 `T*`。在调用点，Yo 会自动取对应实参的地址，
 所以调用方代码看起来就是普通的值传递语法：
@@ -1035,7 +1035,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-### `inout` 参数
+### `ref` 参数
 
 要在不使用原始指针的情况下实现原地修改，请使用 `ref(name) : T` 参数修饰符。该修饰符包裹参数名（与现有的 `own(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `ref(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
 
@@ -1064,7 +1064,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`forall`（inout 是运行时专用的）组合使用。对于链式调用，将 inout 参数传递给另一个函数的 inout 参数按预期工作：
+`ref(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`forall`（`ref` 是运行时专用的）组合使用。对于链式调用，将 `ref` 参数传递给另一个函数的 `ref` 参数按预期工作：
 
 ```rust
 double :: (fn(ref(n) : i32) -> unit)({
@@ -1072,7 +1072,7 @@ double :: (fn(ref(n) : i32) -> unit)({
 });
 
 double_both :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
-  double(x);  // 将 &x 透传给 double 的 inout 参数
+  double(x);  // 将 &x 透传给 double 的 `ref` 参数
   double(y);
 });
 ```

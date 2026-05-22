@@ -265,14 +265,14 @@ This also applies to `fn` type annotations on the same line — always wrap in p
 
 ```rust
 // WRONG — bare fn type on same line as `:`:
-next : fn(self : *(Self)) -> Option(Self.Item)
+next : fn(ref(self) : Self) -> Option(Self.Item)
 
 // CORRECT — parenthesized fn type:
-next : (fn(self : *(Self)) -> Option(Self.Item))
+next : (fn(ref(self) : Self) -> Option(Self.Item))
 
 // ALSO CORRECT — newline after `:` triggers right associativity:
 next :
-  fn(self : *(Self)) -> Option(Self.Item)
+  fn(ref(self) : Self) -> Option(Self.Item)
 ```
 
 Special tight syntaxes must stay immediate: macro splices `#(expr)`, optional pointer types `?*(T)`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `?* (T)`, or `T <: !(Runtime)`.

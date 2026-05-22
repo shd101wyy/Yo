@@ -29,7 +29,7 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 
 - **`Idx`**: The index type (e.g., `usize`, or a custom key type).
 - **`Output`**: An associated type specifying the element type returned.
-- **`index`**: A method that takes `self` by `inout` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
+- **`index`**: A method that takes `self` by `ref` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
 
 The `index` method returns `*(Output)` (a pointer), which is automatically dereferenced when used in value context. This design enables both reading and writing through the same trait:
 

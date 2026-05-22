@@ -718,7 +718,7 @@ The following sharp edges remain after the gates above. They were raised in revi
 
    ```rust
    make_dangling :: (fn() -> Slice(i32))({
-     arr := Array(i32, 3).of(i32(1), i32(2), i32(3));
+     arr := Array(i32, 3).fill(i32(0));
      arr.as_slice()                 // points into the dying call frame
    });
    ```

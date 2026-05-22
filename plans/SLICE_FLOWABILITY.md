@@ -11,7 +11,7 @@ local-storage and return it past that storage's lifetime:
 
 ```rust
 make_dangling :: (fn() -> Slice(i32))({
-  arr := Array(i32, 3).of(i32(1), i32(2), i32(3));
+  arr := Array(i32, 3).fill(i32(0));
   arr.as_slice()                 // points into the dying call frame
 });
 ```
@@ -149,7 +149,7 @@ Use one of:
 ```rust
 // (1) Local array → slice → return. REJECT.
 make_dangling :: (fn() -> Slice(i32))({
-  arr := Array(i32, 3).of(i32(1), i32(2), i32(3));
+  arr := Array(i32, 3).fill(i32(0));
   arr.as_slice()        // arr is a local, non-flowable → reject
 });
 
@@ -160,7 +160,7 @@ borrow_slice :: (fn(ref(arr) : ArrayList(i32)) -> Slice(i32))({
 
 // (3) Range slicing on local. REJECT.
 sub :: (fn() -> Slice(i32))({
-  arr := Array(i32, 5).of(i32(1), i32(2), i32(3), i32(4), i32(5));
+  arr := Array(i32, 5).fill(i32(0));
   arr(usize(0) .. usize(3))   // local arr → reject
 });
 
@@ -180,14 +180,14 @@ greet :: (fn() -> str)({
 
 // (7) Struct wrapping a slice from a local. REJECT.
 make_wrapper :: (fn() -> SliceWrapper)({
-  arr := Array(i32, 3).of(i32(1), i32(2), i32(3));
+  arr := Array(i32, 3).fill(i32(0));
   SliceWrapper(s : arr.as_slice())   // wrapper carries Slice → reject
 });
 
 // (8) Slice from a local but consumed before return. ACCEPT trivially —
 //     the returned expression doesn't construct a slice.
 make_len :: (fn() -> usize)({
-  arr := Array(i32, 3).of(i32(1), i32(2), i32(3));
+  arr := Array(i32, 3).fill(i32(0));
   arr.as_slice().len()  // result is usize, no Slice in return type
 });
 

@@ -773,7 +773,7 @@ p2.move_by(5, 10);  // `ref(self)` lowers to `Self*` — &(p2) is taken automati
 // p2 is now Point(5, 10)
 ```
 
-**Automatic pointer conversion for `inout`:**
+**Automatic pointer conversion for `ref`:**
 
 `ref(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
 
@@ -1037,7 +1037,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-### `inout` Parameters
+### `ref` Parameters
 
 For in-place mutation without raw pointers, use the `ref(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `ref(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
 
@@ -1066,7 +1066,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (inout is runtime-only). For chained calls, passing an inout-param through to another function's inout-param works as expected:
+`ref(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (`ref` is runtime-only). For chained calls, passing a `ref`-param through to another function's `ref`-param works as expected:
 
 ```rust
 double :: (fn(ref(n) : i32) -> unit)({
@@ -1074,7 +1074,7 @@ double :: (fn(ref(n) : i32) -> unit)({
 });
 
 double_both :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
-  double(x);  // passes &x through to double's inout-param
+  double(x);  // passes &x through to double's ref-param
   double(y);
 });
 ```
