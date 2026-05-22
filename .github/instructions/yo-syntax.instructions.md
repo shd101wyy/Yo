@@ -568,7 +568,65 @@ n := unsafe({
 });
 ```
 
-`unsafe(...)` does NOT propagate through function calls — each function body is evaluated with its own context. If a function's body does pointer ops, the body must wrap them locally; callers don't need `unsafe(...)` at the call site. See `plans/MEMORY_SAFETY.md`.
+`unsafe(...)` does NOT propagate through function calls — each function body is evaluated with its own context. If a function's body does pointer ops, the body must wrap them locally; callers don't need `unsafe(...)` at the call site. See `plans/MEMORY_SAFETY.md`; user-facing version: `docs/en-US/MEMORY_SAFETY.md`.
+
+### Extern "c" calls also require an `unsafe(...)` wrap
+
+Even inside a pragma'd file, every `extern "c"` call site must be wrapped in `unsafe(...)`. The pragma authorizes DECLARING the FFI symbol (via `extern(...)` / `c_include(...)`); the wrap is the per-call audit marker that lets `yo unsafe-report` line up with the actual UB-capable lines.
+
+```rust
+pragma(Pragma.AllowUnsafe);
+{ memcpy, strlen } :: import("std/libc/string");
+
+copy :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
+  _ := unsafe(memcpy((*(void))(dst), (*(void))(src), n));   // wrap required
+});
+
+len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
+```
+
+`asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
+
+`auto-generated://` URIs (macros, derive expansions) bypass the per-call wrap — the macro author owns the contract via the expansion site. See `plans/EXTERN_UNSAFE_WRAP.md`.
+
+### Slice-flowability rule
+
+A function whose return type transitively carries a raw pointer in its representation (`Slice(T)`, `str`, a struct wrapping a Slice, ...) must root the returned value in caller-owned storage. The evaluator runs the same R1–R4 flowability check used for `-> ref(T)` returns, with carve-outs for non-ref parameters and `comptime`/literal sources:
+
+```rust
+// REJECTED: arr is a local, dies with the call frame.
+make_dangling :: (fn() -> Option(Slice(i32)))({
+  arr := ArrayList(i32).new();
+  arr.push(i32(1));
+  arr.as_slice()
+});
+
+// ACCEPTED: caller's storage outlives the call.
+borrow :: (fn(ref(arr) : ArrayList(i32)) -> Option(Slice(i32)))(arr.as_slice());
+
+// ACCEPTED: string literal lives in static storage.
+greet :: (fn() -> str)("hello");
+```
+
+See `plans/SLICE_FLOWABILITY.md` and `tests/slice_flowability.test.yo`.
+
+### Signed-integer overflow is defined (wrap-around)
+
+Yo passes `-fwrapv` to clang/gcc/zig by default, so signed-integer overflow is two's-complement wrap-around, not UB. `x := i32(2147483647); y := (x + i32(1));` evaluates to `i32(-2147483648)`, not silent miscompilation. Opt-out: `--cflags='-fno-wrapv'`.
+
+### `// SAFETY:` comment convention
+
+Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment explaining the contract (what invariant guarantees the deref/arith is in bounds and the pointer is live). `yo unsafe-report` scans the previous ~8 lines preceding each unsafe site and surfaces the comment in the report.
+
+```rust
+match(
+  self._ptr,
+  // SAFETY: pos bounds-checked above (pos < self._length);
+  // _ptr points at the Rc-managed heap buffer.
+  .Some(_ptr) => unsafe(_ptr &+ pos),
+  .None => panic("ArrayList: empty")
+)
+```
 
 ## `ref(name) : T` parameters for in-place mutation
 
@@ -597,7 +655,7 @@ Rules:
 - Calls through ref-params chain naturally: `fn outer(ref(x))` calling `fn inner(ref(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
 - At codegen, `ref(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. No runtime cost vs hand-written pointer code. `comptime(ref(name))` has zero codegen impact (the parameter is erased).
 
-`ref` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have been migrated to `(ref(self) : Self)` across Phase D of `plans/MEMORY_SAFETY.md` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader. Only the `Iterator` trait still uses `(self : *(Self))`; migrating it requires a for-loop redesign (see `plans/ITERATOR_REDESIGN.md`).
+`ref` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(ref(self) : Self)` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader, and `Iterator` (the for-loop redesign documented in `plans/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/MEMORY_SAFETY.md`).
 
 ### Public stdlib boundary — no raw pointer leaks
 
@@ -607,18 +665,21 @@ Verify with `./yo-cli public-safe-report ./std` (or `./yo-self`). It scans every
 
 ## `for` loop macro — correct form
 
-The `for` macro is a 2-argument prelude macro. The **first argument must be an iterator** (an expression with a `.next()` method):
+The `for` macro is a 2-argument prelude macro. The **first argument is the collection or an iterator chain** (the macro inserts `.into_iter()` / `.iter()` as needed based on the body's binding shape):
 
 ```rust
-for(list.iter(), x => { process(x); });          // ArrayList/array — call .iter() first
-for(map.into_iter(), bucket => { ... });          // consuming iterator
-for(list.iter(), (ptr) => { ptr.* = transform(ptr.*); });  // borrowing iterator
+for(list, (x) => { process(x); });               // value form: macro expands to list.into_iter()
+for(list, ref(x) => { x = transform(x); });      // borrow form: macro expands to list.iter() + list.project(pos)
+for(chain.map(f), (y) => println(y));            // combinator chain: pass as the value-form iterator
 ```
 
-- First argument: an **iterator** expression — call `.iter()` or `.into_iter()` on collections first
-- Second argument: an anonymous closure `item => { body }` (the `=>` form, no type annotation needed)
-- **Do NOT pass a raw array/ArrayList as first arg without `.iter()`** — they don't have `.next()`
+- First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
+- Second argument: an anonymous closure. The binding shape selects the form:
+  - `(x) => body` — value form. Macro expands to `coll.into_iter()`; `x` is `T` by value.
+  - `ref(x) => body` — borrow form. Macro expands to `coll.iter()` (a position iterator yielding `usize`) + `coll.project(pos)` (from the `Indexable` trait); `x` is a writable binding into the collection.
+- **Do NOT write `for(coll.iter(), (x) => …)` for the value form** — `.iter()` now yields _positions_ (usize), not elements. The macro calls `.into_iter()` itself for the value form.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/eval-for-loop-3arg-vs-2arg.md`.)
+- Combinator chains support **only the value form** — they yield computed values, not borrows. `coll.iter().map(f)` works as the first arg in `(x) => body`.
 
 ## Function call syntax — required immediate `(`
 

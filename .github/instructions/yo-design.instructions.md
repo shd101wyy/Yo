@@ -241,16 +241,18 @@ The `*(T)` field is required so the type parameter `T` appears in the struct fie
 Traits use direct `trait(...)` syntax with associated types as labeled `Type` fields:
 
 ```rust
-// Trait definition — Item is an associated type
+// Trait definition — Item is an associated type. Iterator was
+// migrated to take ref(self) : Self in plans/ITERATOR_REDESIGN.md
+// (the old *(Self) signature would be forbidden in safe code).
 Iterator :: trait(
   Item : Type,
-  next : (fn(self : *(Self)) -> Option(Self.Item))
+  next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 
 // impl — provide concrete values for all fields
 impl(Counter, Iterator(
   Item : i32,
-  next : (fn(self : *(Self)) -> Option(Self.Item))(cond(
+  next : (fn(ref(self) : Self) -> Option(Self.Item))(cond(
     (self._current >= self._max) => .None,
     true => { val := self._current; self._current = (self._current + i32(1)); .Some(val) }
   ))

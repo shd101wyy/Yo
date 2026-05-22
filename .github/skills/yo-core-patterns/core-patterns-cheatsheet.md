@@ -376,8 +376,8 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 result := inc(i32(5));
 
 transform :: (fn(values : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
-  for(values.iter(), (ptr) => {
-    ptr.* = f(ptr.*);
+  for(values, ref(x) => {
+    x = f(x);
   });
 });
 ```
@@ -396,22 +396,27 @@ list := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
 
-for(list.iter(), (ptr) => {
-  println(ptr.*);
+// Value form — implicit .into_iter().
+for(list, (value) => {
+  println(value);
 });
 
-for(list.into_iter(), (value) => {
-  println(value);
+// Borrow form — implicit .iter() + .project(pos). `x` is a writable
+// binding into the collection; assignments propagate back.
+for(list, ref(x) => {
+  x = (x + i32(10));
 });
 ```
 
-| Method         | Yields | Semantics                           |
-| -------------- | ------ | ----------------------------------- |
-| `.iter()`      | `*(T)` | Borrow via pointer; yields pointers |
-| `.into_iter()` | `T`    | Takes ownership; yields values      |
+| Form                          | Expansion                                  | When to use                                   |
+| ----------------------------- | ------------------------------------------ | --------------------------------------------- |
+| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value    | Read-only iteration; combinator chains        |
+| `for(coll, ref(x) => …)`      | `coll.iter()` + `coll.project(pos)` borrow | Mutation in place; writes propagate to `coll` |
+| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form)  | Computed values; chains support only value    |
 
-- Implement `Iterator` trait to make custom types iterable
-- Implement `IntoIterator` trait for collection-style iteration
+- `Iterator` trait — defines `next() -> Option(Item)`. Custom iterables impl this.
+- `IntoIterator` trait — defines `into_iter() -> IntoIter`. Collections impl this so `for(coll, ...)` works.
+- `Indexable(Position)` trait — defines `project(pos) -> ref(Element)`. Collections impl this to support the borrow form.
 
 ## Module-level mutable variables
 
