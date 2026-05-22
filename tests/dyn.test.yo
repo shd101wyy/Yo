@@ -137,7 +137,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 test("Test downcast success", {
   Cat :: object(name : String);
-  impl(Cat, ToString(to_string : ((self) -> self.*.name)));
+  impl(Cat, ToString(to_string : ((self) -> self.name)));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_cat := downcast(animal, Cat);
@@ -153,9 +153,9 @@ test("Test downcast success", {
 });
 test("Test downcast failure", {
   Cat :: object(name : String);
-  impl(Cat, ToString(to_string : ((self) -> self.*.name)));
+  impl(Cat, ToString(to_string : ((self) -> self.name)));
   Dog :: object(name : String);
-  impl(Dog, ToString(to_string : ((self) -> self.*.name)));
+  impl(Dog, ToString(to_string : ((self) -> self.name)));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_dog := downcast(animal, Dog);
@@ -171,9 +171,9 @@ test("Test downcast failure", {
 });
 test("Test downcast type check via is_some", {
   Cat :: object(name : String);
-  impl(Cat, ToString(to_string : ((self) -> self.*.name)));
+  impl(Cat, ToString(to_string : ((self) -> self.name)));
   Dog :: object(name : String);
-  impl(Dog, ToString(to_string : ((self) -> self.*.name)));
+  impl(Dog, ToString(to_string : ((self) -> self.name)));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
@@ -181,9 +181,9 @@ test("Test downcast type check via is_some", {
 });
 test("Test downcast with multiple concrete types", {
   Cat :: object(name : String);
-  impl(Cat, ToString(to_string : ((self) -> self.*.name)));
+  impl(Cat, ToString(to_string : ((self) -> self.name)));
   Dog :: object(name : String);
-  impl(Dog, ToString(to_string : ((self) -> self.*.name)));
+  impl(Dog, ToString(to_string : ((self) -> self.name)));
   Animal :: Dyn(ToString);
   (cat_animal : Animal) = dyn(Cat(`kitty`));
   (dog_animal : Animal) = dyn(Dog(`buddy`));
