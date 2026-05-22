@@ -61,7 +61,12 @@ import type {
   Type,
 } from "../../types/definitions";
 import { randomId } from "../../utils";
-import { createUnknownValue, isTypeValue, type Value } from "../../value";
+import {
+  createTypeValue,
+  createUnknownValue,
+  isTypeValue,
+  type Value,
+} from "../../value";
 import { ValueTag } from "../../value-tag";
 import { analyzeAwaitPoints } from "../async/await-analysis";
 import {
@@ -210,7 +215,7 @@ export function evaluateAnonymousFunctionImplementation({
     // the callee's env, not the caller's env. The lambda is evaluated with `env =
     // callerEnv`, so we must consult `context.expectedType?.env` (the calleeEnv)
     // when looking up where-clause constraints for SomeType `F`.
-    const expectedTypeEnv = context.expectedType?.env ?? env;
+    let expectedTypeEnv = context.expectedType?.env ?? env;
     const fnTraitFromWrapper = extractFnTraitFromType(
       expectedType,
       expectedTypeEnv
@@ -220,6 +225,109 @@ export function evaluateAnonymousFunctionImplementation({
       functionType = fnTraitFromWrapper.isFn.callType;
       isCreatingClosure = true;
       wrapperType = expectedType;
+
+      // Phase 2 (lambda-annotation-driven forall unification):
+      // When the lambda explicitly annotates a parameter (e.g. `(io2 :
+      // IO) =>`) and the expected closure parameter type is a bare
+      // forall SomeType (e.g. `e : E` from
+      // `Impl(Fn(e : E) -> T)` in io.async's signature), unify them by
+      // looking up the annotation as a simple atom name in
+      // expectedTypeEnv (the callee env where forall E lives) and
+      // binding E to that type. This lets the subsequent
+      // substituteSomeTypesFromEnv pass below resolve `e : E` to
+      // `e : IO`, so the lambda's body can type-check field accesses
+      // like `e.io.await(...)`. Skip silently on any structural
+      // mismatch — synthesis paths downstream will get another shot.
+      // Phase 2 (lambda-annotation-driven forall unification):
+      // When the lambda explicitly annotates a parameter (e.g. `(io2 :
+      // IO) =>`) and the expected closure parameter type is a bare
+      // forall SomeType (e.g. `e : E` from io.async's
+      // `Impl(Fn(e : E) -> T)`), unify them by looking up the
+      // annotation atom in the caller env and binding E to that type.
+      // The subsequent substituteSomeTypesFromEnv pass then resolves
+      // `e : E` to `e : IO`, so the lambda's body can type-check
+      // field accesses like `e.io.await(...)`. Skip silently on any
+      // structural mismatch — synthesis paths downstream get another shot.
+      try {
+        if (
+          exprIsFunctionCallOf(expr, "=>", 2) &&
+          isFunctionType(functionType)
+        ) {
+          const declExpr = expr.args[0]!;
+          let paramList: Expr[];
+          if (
+            exprIsFunctionCall(declExpr) &&
+            exprIsFunctionCallOf(declExpr, BuiltinKeywords.tuple)
+          ) {
+            paramList = declExpr.args;
+          } else {
+            paramList = [declExpr];
+          }
+          const filteredParams = paramList.filter(
+            (p) =>
+              !(
+                exprIsFunctionCall(p) &&
+                exprIsFunctionCallOf(p, BuiltinKeywords.forall)
+              )
+          );
+          for (
+            let i = 0;
+            i < filteredParams.length && i < functionType.parameters.length;
+            i++
+          ) {
+            const paramEx = filteredParams[i]!;
+            const expectedP = functionType.parameters[i]!;
+            if (!isSomeType(expectedP.type)) continue;
+            if (expectedP.type.resolvedConcreteType) continue;
+            if (
+              !exprIsFunctionCall(paramEx) ||
+              !exprIsFunctionCallOf(paramEx, BuiltinKeywords.quote) ||
+              paramEx.args.length !== 2
+            )
+              continue;
+            const typeExpr = paramEx.args[1]!;
+            if (!exprIsAtom(typeExpr)) continue;
+            const typeName = typeExpr.token.value;
+            let found = getVariablesFromEnv(env, typeName);
+            if (found.length === 0) {
+              found = getVariablesFromEnv(expectedTypeEnv, typeName);
+            }
+            const latest = found[found.length - 1];
+            if (!latest?.value?.[0] || !isTypeValue(latest.value[0])) continue;
+            const annotatedType = latest.value[0].value;
+            if (isSomeType(annotatedType)) continue;
+            const someTypeName = expectedP.type.name;
+            const existing = getVariablesFromEnv(expectedTypeEnv, someTypeName);
+            const alreadyConcrete = existing.some(
+              (v) =>
+                v.value &&
+                v.value[0] &&
+                isTypeValue(v.value[0]) &&
+                !isSomeType(v.value[0].value)
+            );
+            if (alreadyConcrete) continue;
+            const value = createTypeValue(annotatedType);
+            const { env: nextEnv } = addVariableToEnv({
+              env: expectedTypeEnv,
+              variable: {
+                name: someTypeName,
+                type: value.type,
+                isCompileTimeOnly: true,
+                value: [value],
+                token: paramEx.token,
+                initializedAtToken: paramEx.token,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+              allowVariableShadowing: true,
+            });
+            expectedTypeEnv = nextEnv;
+          }
+        }
+      } catch {
+        // Best-effort unification; ignore failures and rely on later passes.
+      }
+
       // Substitute forall SomeTypes (e.g., `Acc`, `A` from a generic
       // function's where-clause `F <: Fn(acc: Acc, item: A) -> Acc`) with
       // their concrete bindings from the callee's env. Without this, lambda
