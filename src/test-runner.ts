@@ -1247,15 +1247,30 @@ async function runTestsSequentially(
     }
   };
 
-  const batchCount = Math.ceil(testsToRun.length / options.testBatchSize);
-  for (let batchIndex = 0; batchIndex < batchCount; batchIndex++) {
-    if (bailed) break;
-
-    const batchStart = batchIndex * options.testBatchSize;
-    const batchTests = testsToRun.slice(
-      batchStart,
-      batchStart + options.testBatchSize
+  // Worklist of batches still to compile. Initially seeded with one
+  // batch per `testBatchSize` slice of testsToRun. If a batch fails
+  // to compile AND has more than one test, we don't report all of its
+  // tests as failed (which conflates a single bad test with all the
+  // others sharing its batch); instead we push the batch back onto the
+  // worklist as two halves and retry. This bottoms out at single-test
+  // batches, where compile failure is genuinely that one test's fault.
+  // The cost is wasted re-compiles for batches whose first failure was
+  // truly fatal, but tests that DO compile in isolation get accurately
+  // counted as passing.
+  const remainingBatches: TestToRun[][] = [];
+  for (
+    let batchStart = 0;
+    batchStart < testsToRun.length;
+    batchStart += options.testBatchSize
+  ) {
+    remainingBatches.push(
+      testsToRun.slice(batchStart, batchStart + options.testBatchSize)
     );
+  }
+
+  while (remainingBatches.length > 0) {
+    if (bailed) break;
+    const batchTests = remainingBatches.shift()!;
     const firstTest = batchTests[0]!;
 
     let batchResult: BatchCompileResult;
@@ -1270,6 +1285,19 @@ async function runTestsSequentially(
         options.noSanitize
       );
     } catch (compileError) {
+      // If this batch has more than one test, the compile error might
+      // be caused by a single bad test poisoning the whole batch. Split
+      // it in half and retry — the bisection bottoms out at single-test
+      // batches, where the error is genuinely that one test's fault.
+      if (batchTests.length > 1) {
+        const mid = Math.ceil(batchTests.length / 2);
+        // Unshift in order so the first half runs next, then the second.
+        remainingBatches.unshift(
+          batchTests.slice(0, mid),
+          batchTests.slice(mid)
+        );
+        continue;
+      }
       const errorMsg =
         compileError instanceof Error
           ? compileError.message
@@ -1289,10 +1317,8 @@ async function runTestsSequentially(
 
     try {
       if (options.profile && batchResult.yoCompileMs != null) {
-        const batchLabel =
-          batchCount === 1 ? "batch" : `batch ${batchIndex + 1}/${batchCount}`;
         console.log(
-          `  ${colors.dim}${batchLabel}: yo=${batchResult.yoCompileMs}ms cc=${batchResult.cCompileMs}ms (${batchTests.length} tests)${colors.reset}`
+          `  ${colors.dim}batch: yo=${batchResult.yoCompileMs}ms cc=${batchResult.cCompileMs}ms (${batchTests.length} tests)${colors.reset}`
         );
       }
 
