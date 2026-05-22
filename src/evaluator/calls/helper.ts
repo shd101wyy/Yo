@@ -103,7 +103,11 @@ import type {
 import { _evaluateExpression } from "../exprs/_expr";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsFn, typeImplementsFuture } from "../trait-checking";
+import {
+  extractFutureTraitFromType,
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../trait-checking";
 import {
   applyWhereClauseConstraints,
   evaluateFunctionParameterTypeAgain,
@@ -1303,6 +1307,56 @@ Got:   ${typeToString(typeValue.type)}`,
   // is evaluated with async-block context (allowing `await` inside).
   if (functionType.ioBuiltin === "io_async") {
     context = { ...context, isInsideIoAsyncCall: true };
+
+    // Pre-bind io.async's forall(T, E) from the expected return type when
+    // available. io.async's signature is
+    //   fn(forall(T, E), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))
+    // and the closure argument's parameter type references E. Without this
+    // binding the closure body walks with `e : SomeType_E` and field
+    // accesses like `e.io.await(...)` fail (E has no `.io` field at
+    // compile time). The generic `synthesizeTypes` pass above sometimes
+    // catches this, but for io.async specifically the structural
+    // unification through requiredTraits hops can silently drop the
+    // bindings — handle it directly here when we can read T and E off the
+    // expected Impl(Future(T_concrete, E_concrete)) at the call site.
+    if (context.expectedType?.type) {
+      const expectedFutureTrait = extractFutureTraitFromType(
+        context.expectedType.type
+      );
+      if (expectedFutureTrait) {
+        const tConcrete = expectedFutureTrait.isFuture.outputType;
+        const eConcrete = expectedFutureTrait.isFuture.effect?.type;
+        for (const forallParam of functionType.forallParameters) {
+          let bound: Type | undefined;
+          if (forallParam.label === "T") bound = tConcrete;
+          else if (forallParam.label === "E") bound = eConcrete;
+          if (!bound) continue;
+          const existing = getVariablesFromEnv(calleeEnv, forallParam.label);
+          // Only bind if not already bound to a concrete (non-SomeType) value.
+          const latest = existing[existing.length - 1];
+          const latestVal = latest?.value?.[0];
+          const alreadyConcrete =
+            latestVal && isTypeValue(latestVal) && !isSomeType(latestVal.value);
+          if (alreadyConcrete) continue;
+          const value = createTypeValue(bound);
+          const { env: nextEnv } = addVariableToEnv({
+            env: calleeEnv,
+            variable: {
+              name: forallParam.label,
+              type: value.type,
+              isCompileTimeOnly: true,
+              value: [value],
+              token: PlaceholderToken,
+              initializedAtToken: PlaceholderToken,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+            allowVariableShadowing: true,
+          });
+          calleeEnv = nextEnv;
+        }
+      }
+    }
   }
 
   // Early where-clause application: Apply where-clause constraints BEFORE argument

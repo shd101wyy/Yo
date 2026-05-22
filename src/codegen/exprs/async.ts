@@ -1644,18 +1644,38 @@ export function generateIoAsyncSyncCall(
   emitter.emitDeclarationLine(`};`);
   emitter.emitDeclarationLine(``);
 
-  // Look up closure function's evidence params to pass from capture struct
+  // Look up closure function's evidence params to pass from capture struct,
+  // plus zero-init shims for any non-evidence runtime parameters (e.g., the
+  // `e : E` arg from io.async's Impl(Fn(e : E) -> T) signature). For the
+  // sync path the closure has no awaits and never touches its `e`
+  // argument; passing a zero-initialized value of the parameter's C type
+  // is well-typed and unused at runtime. Without this, the C call site
+  // emits `closure(&__capture)` for a closure that expects 2 args, and
+  // clang errors with "too few arguments to function call".
   let closureEvidenceArgs = "";
   for (const funcId in context.functions) {
     const entry = context.functions[funcId]!;
     if (entry.cName === closureFunctionCName) {
       const evidenceParams = getEvidenceParameters(entry.value.type);
+      const shimArgs: string[] = [];
       if (evidenceParams.length > 0) {
-        closureEvidenceArgs =
-          ", " +
-          evidenceParams
-            .map((ep) => `(void*)sm->__capture.${ep.fieldPath.join(".")}`)
-            .join(", ");
+        for (const ep of evidenceParams) {
+          shimArgs.push(`(void*)sm->__capture.${ep.fieldPath.join(".")}`);
+        }
+      }
+      // Add zero-init shims for any non-comptime, non-evidence runtime
+      // parameters that the closure declares. The closure's CallType
+      // params include `e : E` for io.async-shaped closures; the
+      // capture-only pointer is the implicit first arg and not part of
+      // `callType.parameters`.
+      const callType = entry.value.type;
+      for (const param of callType.parameters) {
+        if (param.isCompileTimeOnly) continue;
+        const cType = getTypeString(param.type, context);
+        shimArgs.push(`(${cType}){0}`);
+      }
+      if (shimArgs.length > 0) {
+        closureEvidenceArgs = ", " + shimArgs.join(", ");
       }
       break;
     }
