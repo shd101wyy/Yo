@@ -585,7 +585,7 @@ with a `yield expr` form in the body that pauses and returns control to the call
   - ✅ `LinkedList` Index + `imm.List` Index landed (commits `b7688519`, `d1a07bdc`) — enabled by the panic/match unification fix in `b7688519`.
   - ✅ `JsonValue` Index(String) / Index(usize) landed (commit `1399106a`).
   - ✅ HashMap `Indexable(usize)` + position-iter + `for(map, ref(b) => body)` landed (commit `e5a21392`). Open Question 3 resolved in favor of single-Bucket projection (user destructures `b.key`/`b.value` inside the body) over the rejected `(ref(K), ref(V))` tuple-of-inouts shape.
-  - Combinator chains on `my_range`-style iterators have pre-existing runtime bugs (state not preserved across `next()` calls in `iter().map(...)` chains) — out of scope for iterator redesign; pre-dates this work.
+  - ✅ Iterator combinator chains (`xs.iter().map(f).count()`) fixed (commit `c29580fa`). Root cause: codegen materialized any complex arg expression (e.g. `(*self)._inner`) into a local temp before the isRef-wrapping took its address, so `IterMap.next`'s `self._inner.next()` mutated a discarded temp instead of the actual stored inner iterator. Fix: skip temp-var materialization for args whose corresponding parameter is `ref`-bound. `tests/iterator_combinators.test.yo` 19/19 passing; collateral fixes in `tests/collections/btree_map.test.yo`, `tests/collections/hash_map.test.yo` (keys/values iter), `tests/iter_filter_closure.test.yo`.
 
 ### Major caveat resolved during repair
 
