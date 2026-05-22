@@ -10,7 +10,7 @@ open(import("std/fmt"));
 { lookup_host, resolve } :: import("std/net/dns");
 { IpAddr, SocketAddr } :: import("std/net/addr");
 { NetError } :: import("std/net/errors");
-{ Error, AnyError, Exception } :: import("std/error");
+{ Error, AnyError, Exception, IOErr } :: import("std/error");
 // ============================================================================
 // DNS tests
 // ============================================================================
@@ -23,7 +23,7 @@ test("lookup_host localhost returns loopback", {
       }
     )
   );
-  addrs := io.await(lookup_host(`localhost`, io), io);
+  addrs := io.await(lookup_host(`localhost`, io), IOErr(io : io, exn : exn));
   unsafe(printf("  addrs.len = %zu\n", addrs.len()));
   assert(addrs.len() > usize(0), "should resolve at least one address");
   // Check that at least one address is loopback
@@ -51,7 +51,7 @@ test("lookup_host invalid host fails", {
       }
     )
   );
-  addrs := io.await(lookup_host(`this.host.does.not.exist.invalid`, io), io);
+  addrs := io.await(lookup_host(`this.host.does.not.exist.invalid`, io), IOErr(io : io, exn : exn));
   // Some systems may resolve any domain; if so, skip assertion
   unsafe(printf("  unexpectedly resolved %zu addresses\n", addrs.len()));
 });
@@ -64,7 +64,7 @@ test("resolve localhost returns socket addresses", {
       }
     )
   );
-  addrs := io.await(resolve(`localhost`, u16(8080), io), io);
+  addrs := io.await(resolve(`localhost`, u16(8080), io), IOErr(io : io, exn : exn));
   unsafe(printf("  addrs.len = %zu\n", addrs.len()));
   assert(addrs.len() > usize(0), "should resolve at least one address");
   i := usize(0);
