@@ -342,6 +342,16 @@ export function tryToImplementFunctionByFunctionType({
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
           isOwningTheRcValue: anonymousParam.isOwningTheRcValue,
+          // Propagate `ref(name) : T` and `inout(name) : T` parameter
+          // markings into the env variable so the body's codegen knows the
+          // C-level representation is a pointer and reads of the identifier
+          // become `(*name)`. Without this, `match(self, ...)` for a
+          // `ref(self) : Self`-typed parameter would compile to
+          // `switch ((self).tag) { ... self.data.Variant.field ... }`,
+          // tripping the C "is not a pointer" error because `self` is
+          // `Self*` at the C level (see std/encoding/json.yo Index impl).
+          isRef: anonymousParam.isRef || undefined,
+          isParameter: true,
           // Set up parameter alias if names differ
           parameterAlias:
             anonymousParamName !== expectedParamName
