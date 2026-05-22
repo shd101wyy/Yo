@@ -2,6 +2,7 @@
 //!
 //! Environment variables, command-line arguments, and current working
 //! directory live in `std/env`.
+pragma(Pragma.AllowUnsafe);
 /// Current target platform as a compile-time string.
 /// One of: "linux", "macos", "windows", "freebsd", "emscripten", "wasi".
 platform :: __yo_process_platform();
@@ -19,7 +20,7 @@ export(Arch);
 /// Exit the process with the given status code.
 exit :: (fn(code : usize) -> unit)({
   { exit : _exit } :: import("../libc/stdlib");
-  _exit(int(code));
+  unsafe(_exit(int(code)));
 });
 export(exit);
 _command :: import("./command.yo");

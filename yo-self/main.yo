@@ -54,7 +54,7 @@ module_id_from_path :: (fn(path : String) -> String)(
 ///   2. `./std` relative to the current working directory.
 resolve_std_path :: (fn() -> String)({
   name_cstr := String.from("YO_STD").to_cstr().ptr().unwrap();
-  val_ptr := getenv(*(char)(name_cstr));
+  val_ptr := unsafe(getenv(*(char)(name_cstr)));
   match(
     val_ptr,
     .None => String.from("./std"),

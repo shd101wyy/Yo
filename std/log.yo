@@ -61,7 +61,7 @@ _write_string :: (fn(s : String, dest : *(FILE)) -> unit)({
   cond(
     (bytes.len() > usize(0)) => {
       ptr := bytes.ptr().unwrap();
-      fwrite(*(void)(ptr), usize(1), bytes.len(), dest);
+      unsafe(fwrite(*(void)(ptr), usize(1), bytes.len(), dest));
     },
     true => ()
   );
@@ -80,11 +80,11 @@ log :: (fn(level : Level, msg : String) -> unit)({
     .Stderr => stderr
   );
   // Write "[LEVEL] msg\n"
-  fwrite(*(void)(*(u8)("[")), usize(1), usize(1), dest);
+  unsafe(fwrite(*(void)(*(u8)("[")), usize(1), usize(1), dest));
   _write_string(level_str, dest);
-  fwrite(*(void)(*(u8)("] ")), usize(1), usize(2), dest);
+  unsafe(fwrite(*(void)(*(u8)("] ")), usize(1), usize(2), dest));
   _write_string(msg, dest);
-  fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), dest);
+  unsafe(fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), dest));
 });
 export(log);
 // ============================================================================

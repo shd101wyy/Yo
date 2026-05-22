@@ -25,10 +25,10 @@ test("UdpSocket bind and close", {
     )
   );
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), io);
-  printf("  socket fd = %d\n", sock.fd());
+  unsafe(printf("  socket fd = %d\n", sock.fd()));
   assert(sock.fd() >= i32(0), "fd should be valid");
   io.await(sock.close(io), io);
-  printf("  close ok\n");
+  unsafe(printf("  close ok\n"));
 });
 test("UdpSocket local_addr", {
   exn := Exception(
@@ -41,7 +41,7 @@ test("UdpSocket local_addr", {
   );
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), io);
   la := sock.local_addr();
-  printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap());
+  unsafe(printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap()));
   assert(la.ip.is_loopback(), "should be loopback");
   io.await(sock.close(io), io);
 });
@@ -66,12 +66,12 @@ test("UdpSocket send_to and recv", {
   data.push(u8(108)); // l
   data.push(u8(111)); // o
   n := io.await(client.send_to(data, server_addr, io), io);
-  printf("  sent = %d\n", n);
+  unsafe(printf("  sent = %d\n", n));
   assert(n == i32(5), "should send 5 bytes");
   // Server receives
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   nr := io.await(server.recv(recv_buf, usize(256), io), io);
-  printf("  received = %d\n", nr);
+  unsafe(printf("  received = %d\n", nr));
   assert(nr == i32(5), "should receive 5 bytes");
   assert((recv_buf &+ usize(0)).* == u8(72), "H");
   assert((recv_buf &+ usize(1)).* == u8(101), "e");
@@ -106,16 +106,16 @@ test("UdpSocket recv_from gets source address", {
   src_addr_len := *(u32)(malloc(usize(4)).unwrap());
   src_addr_len.* = u32(128);
   nr := io.await(server.recv_from(recv_buf, usize(256), src_addr_buf, src_addr_len, io), io);
-  printf("  received = %d\n", nr);
+  unsafe(printf("  received = %d\n", nr));
   assert(nr == i32(2), "should receive 2 bytes");
   assert((recv_buf &+ usize(0)).* == u8(65), "A");
   assert((recv_buf &+ usize(1)).* == u8(66), "B");
   // Verify source address family
   src_family := IO_tcp.get_family(src_addr_buf);
-  printf("  src family = %u\n", src_family);
+  unsafe(printf("  src family = %u\n", src_family));
   // Verify source port
   src_port := IO_tcp.get_port_in(src_addr_buf);
-  printf("  src port = %u\n", src_port);
+  unsafe(printf("  src port = %u\n", src_port));
   assert(src_port == u16(19913), "src port should be 19913");
   free(.Some(*(void)(recv_buf)));
   free(.Some(*(void)(src_addr_buf)));
@@ -134,6 +134,6 @@ test("UdpSocket set_broadcast", {
   );
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), io);
   io.await(sock.set_broadcast(true, io), io);
-  printf("  broadcast ok\n");
+  unsafe(printf("  broadcast ok\n"));
   io.await(sock.close(io), io);
 });

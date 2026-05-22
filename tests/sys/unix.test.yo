@@ -18,12 +18,12 @@ test("Unix stream socket echo", {
   // Best-effort cleanup (ignore errors)
   io.await(dir.unlink(AT_FDCWD, sock_path, i32(0)), io);
   server_fd := io.await(unix.socket_stream(), io);
-  printf("  server fd = %d\n", server_fd);
+  unsafe(printf("  server fd = %d\n", server_fd));
   assert(server_fd >= i32(0), "server socket_stream failed");
   addr := unix.make_sockaddr_un(sock_path);
   cond(
     (addr.len == u32(0)) => {
-      printf("  sockaddr_un not supported on this platform\n");
+      unsafe(printf("  sockaddr_un not supported on this platform\n"));
       io.await(unix.close(server_fd), io);
       return;
     },
@@ -33,37 +33,37 @@ test("Unix stream socket echo", {
     addr.buf,
     .Some(p) => p,
     .None => {
-      printf("  sockaddr_un not supported on this platform\n");
+      unsafe(printf("  sockaddr_un not supported on this platform\n"));
       io.await(unix.close(server_fd), io);
       return;
     }
   );
   bind_result := io.await(unix.bind(server_fd, addr_buf, addr.len), io);
-  printf("  bind = %d\n", bind_result);
+  unsafe(printf("  bind = %d\n", bind_result));
   assert(bind_result == i32(0), "bind failed");
   listen_result := io.await(unix.listen(server_fd, i32(16)), io);
-  printf("  listen = %d\n", listen_result);
+  unsafe(printf("  listen = %d\n", listen_result));
   assert(listen_result == i32(0), "listen failed");
   client_fd := io.await(unix.socket_stream(), io);
-  printf("  client fd = %d\n", client_fd);
+  unsafe(printf("  client fd = %d\n", client_fd));
   assert(client_fd >= i32(0), "client socket_stream failed");
   conn_result := io.await(unix.connect(client_fd, addr_buf, addr.len), io);
-  printf("  connect = %d\n", conn_result);
+  unsafe(printf("  connect = %d\n", conn_result));
   assert(conn_result == i32(0), "connect failed");
   peer_size := sockaddr_storage_size();
   peer_buf := *(u8)(malloc(peer_size).unwrap());
   peer_len := *(u32)(malloc(usize(4)).unwrap());
   peer_len.* = u32(peer_size);
   accepted_fd := io.await(unix.accept(server_fd, peer_buf, peer_len), io);
-  printf("  accepted fd = %d\n", accepted_fd);
+  unsafe(printf("  accepted fd = %d\n", accepted_fd));
   assert(accepted_fd >= i32(0), "accept failed");
   msg := *(u8)("Hello Unix!");
   sent := io.await(unix.send(client_fd, msg, usize(11), i32(0)), io);
-  printf("  sent = %d\n", sent);
+  unsafe(printf("  sent = %d\n", sent));
   assert(sent == i32(11), "send length mismatch");
   recv_buf := *(u8)(malloc(usize(64)).unwrap());
   received := io.await(unix.recv(accepted_fd, recv_buf, usize(64), i32(0)), io);
-  printf("  received = %d\n", received);
+  unsafe(printf("  received = %d\n", received));
   assert(received == i32(11), "recv length mismatch");
   // Verify "Hello Unix!"
   assert((recv_buf &+ usize(0)).* == u8(72), "byte 0 mismatch");
@@ -81,13 +81,13 @@ test("Unix stream socket echo", {
   free(.Some(*(void)(peer_buf)));
   free(.Some(*(void)(peer_len)));
   c1 := io.await(unix.close(client_fd), io);
-  printf("  close client = %d\n", c1);
+  unsafe(printf("  close client = %d\n", c1));
   assert(c1 == i32(0), "close client failed");
   c2 := io.await(unix.close(accepted_fd), io);
-  printf("  close accepted = %d\n", c2);
+  unsafe(printf("  close accepted = %d\n", c2));
   assert(c2 == i32(0), "close accepted failed");
   c3 := io.await(unix.close(server_fd), io);
-  printf("  close server = %d\n", c3);
+  unsafe(printf("  close server = %d\n", c3));
   assert(c3 == i32(0), "close server failed");
   unix.free_addr(addr);
   io.await(dir.unlink(AT_FDCWD, sock_path, i32(0)), io);

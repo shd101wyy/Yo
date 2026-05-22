@@ -1,6 +1,6 @@
 # Extern Call-Site `unsafe(...)` Wrap
 
-Status: **Plan — not yet implemented.**
+Status: **✅ Landed.** Phases A–C + B (tests) + E (docs) complete. Verdicts pinned in `tests/extern_unsafe_wrap.test.yo`. Phase D (`yo unsafe-report` granularity) deferred.
 
 ## Problem
 

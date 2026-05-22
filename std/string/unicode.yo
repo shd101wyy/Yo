@@ -180,7 +180,7 @@ unicode_to_lowercase :: (fn(input : String) -> String)({
       // Try special case folding first
       if(!(_special_to_lower(cp, out)), {
         // Use C towlower for standard Unicode lowercase
-        (lower : i32) = i32(towlower(cp));
+        (lower : i32) = i32(unsafe(towlower(cp)));
         _encode_utf8(lower, out);
       });
       i = (i + len);
@@ -213,7 +213,7 @@ unicode_to_uppercase :: (fn(input : String) -> String)({
       // Try special case folding first
       if(!(_special_to_upper(cp, out)), {
         // Use C towupper for standard Unicode uppercase
-        (upper : i32) = i32(towupper(cp));
+        (upper : i32) = i32(unsafe(towupper(cp)));
         _encode_utf8(upper, out);
       });
       i = (i + len);

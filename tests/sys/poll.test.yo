@@ -53,7 +53,7 @@ test("poll detects readable pipe", {
   // Yield to event loop so tick fires
   io.await(sleep(u64(50)), io);
   recorded := result_ptr.*;
-  printf("  poll detected events: %d\n", recorded);
+  unsafe(printf("  poll detected events: %d\n", recorded));
   assert((recorded & events.POLL_READABLE) != i32(0), "expected POLL_READABLE");
   stop_ret := events.poll_stop(handle);
   assert(stop_ret == i32(0), "poll_stop failed");
@@ -80,7 +80,7 @@ test("poll detects writable pipe", {
   // Yield to event loop
   io.await(sleep(u64(50)), io);
   recorded := result_ptr.*;
-  printf("  poll detected events: %d\n", recorded);
+  unsafe(printf("  poll detected events: %d\n", recorded));
   assert((recorded & events.POLL_WRITABLE) != i32(0), "expected POLL_WRITABLE");
   stop_ret := events.poll_stop(handle);
   assert(stop_ret == i32(0), "poll_stop failed");
@@ -108,7 +108,7 @@ test("poll detects disconnect", {
   assert(ret == i32(0), "poll_start failed");
   io.await(sleep(u64(50)), io);
   recorded := result_ptr.*;
-  printf("  poll detected events: %d (expect READABLE|DISCONNECT)\n", recorded);
+  unsafe(printf("  poll detected events: %d (expect READABLE|DISCONNECT)\n", recorded));
   // When write end is closed, read end gets POLLIN|POLLHUP
   assert(recorded != i32(0), "expected some events on closed pipe");
   stop_ret := events.poll_stop(handle);
@@ -140,7 +140,7 @@ test("poll stop prevents further callbacks", {
   // Yield to event loop
   io.await(sleep(u64(50)), io);
   recorded := result_ptr.*;
-  printf("  after stop, recorded: %d (expect 0)\n", recorded);
+  unsafe(printf("  after stop, recorded: %d (expect 0)\n", recorded));
   assert(recorded == i32(0), "callback should not fire after stop");
   events.poll_close(handle);
   cr1 := io.await(file.close(read_fd), io);

@@ -15,7 +15,7 @@ test("sysinfo uname fills required fields", {
   assert(field_non_empty(uts_buf, sysinfo_io.UTSNAME_RELEASE), "uname release should be non-empty");
   assert(field_non_empty(uts_buf, sysinfo_io.UTSNAME_VERSION), "uname version should be non-empty");
   assert(field_non_empty(uts_buf, sysinfo_io.UTSNAME_MACHINE), "uname machine should be non-empty");
-  printf("  uname fields look valid\n");
+  unsafe(printf("  uname fields look valid\n"));
 });
 test("sysinfo gethostname returns non-empty name", {
   host_uninit := MaybeUninit(Array(u8, usize(256))).new();
@@ -23,5 +23,5 @@ test("sysinfo gethostname returns non-empty name", {
   ret := sysinfo_io.gethostname(host_buf, usize(256));
   assert(ret == i32(0), "gethostname should succeed");
   assert(host_buf.* != u8(0), "hostname should be non-empty");
-  printf("  gethostname returned a non-empty hostname\n");
+  unsafe(printf("  gethostname returned a non-empty hostname\n"));
 });

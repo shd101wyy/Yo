@@ -25,7 +25,7 @@ test("is_file returns true for a regular file", {
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_file.txt`));
   io.await(fs_file.write_file(fpath, String.from("hello"), io), io);
   r := io.await(fs_file.is_file(fpath, io), io);
-  printf("  is_file = %d\n", cond(r => i32(1), true => i32(0)));
+  unsafe(printf("  is_file = %d\n", cond(r => i32(1), true => i32(0))));
   assert(r, "should be a file");
   io.await(fs_dir.remove_file(fpath, io), io);
 });
@@ -42,14 +42,14 @@ test("is_file returns false for a directory", {
   dpath := Path.new(path_join(tmp, `yo_fs_conv_is_file_dir`));
   io.await(fs_dir.create_dir(dpath, io), io);
   r := io.await(fs_file.is_file(dpath, io), io);
-  printf("  is_file on dir = %d\n", cond(r => i32(1), true => i32(0)));
+  unsafe(printf("  is_file on dir = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!(r), "directory should not be a file");
   io.await(fs_dir.remove_dir(dpath, io), io);
 });
 test("is_file returns false for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_no_such_file.txt`);
   r := io.await(fs_file.is_file(fpath, io), io);
-  printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
+  unsafe(printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!(r), "nonexistent path should return false");
 });
 // ============================================================================
@@ -68,7 +68,7 @@ test("is_dir returns true for a directory", {
   dpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir`));
   io.await(fs_dir.create_dir(dpath, io), io);
   r := io.await(fs_file.is_dir(dpath, io), io);
-  printf("  is_dir = %d\n", cond(r => i32(1), true => i32(0)));
+  unsafe(printf("  is_dir = %d\n", cond(r => i32(1), true => i32(0))));
   assert(r, "should be a directory");
   io.await(fs_dir.remove_dir(dpath, io), io);
 });
@@ -85,14 +85,14 @@ test("is_dir returns false for a file", {
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir_file.txt`));
   io.await(fs_file.write_file(fpath, String.from("test"), io), io);
   r := io.await(fs_file.is_dir(fpath, io), io);
-  printf("  is_dir on file = %d\n", cond(r => i32(1), true => i32(0)));
+  unsafe(printf("  is_dir on file = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!(r), "file should not be a directory");
   io.await(fs_dir.remove_file(fpath, io), io);
 });
 test("is_dir returns false for nonexistent path", {
   dpath := Path.new(`/nonexistent/yo_fs_conv_no_such_dir`);
   r := io.await(fs_file.is_dir(dpath, io), io);
-  printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0)));
+  unsafe(printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!(r), "nonexistent path should return false");
 });
 // ============================================================================
@@ -113,7 +113,7 @@ test("canonical resolves a real path", {
   io.await(fs_file.write_file(fpath, String.from("canonical"), io), io);
   resolved := io.await(fs_file.canonical(fpath, io), io);
   resolved_str := resolved.to_string();
-  printf("  canonical = %s\n", resolved_str.to_cstr().ptr().unwrap());
+  unsafe(printf("  canonical = %s\n", resolved_str.to_cstr().ptr().unwrap()));
   assert(resolved.is_absolute(), "canonical path should be absolute");
   io.await(fs_dir.remove_file(fpath, io), io);
 });
@@ -140,8 +140,8 @@ test("canonical resolves dot-dot segments", {
   direct := io.await(fs_file.canonical(file_path, io), io);
   resolved_str := resolved.to_string();
   direct_str := direct.to_string();
-  printf("  dotdot resolved = %s\n", resolved_str.to_cstr().ptr().unwrap());
-  printf("  direct resolved  = %s\n", direct_str.to_cstr().ptr().unwrap());
+  unsafe(printf("  dotdot resolved = %s\n", resolved_str.to_cstr().ptr().unwrap()));
+  unsafe(printf("  direct resolved  = %s\n", direct_str.to_cstr().ptr().unwrap()));
   assert(resolved_str == direct_str, "dot-dot path should resolve to same as direct");
   io.await(fs_dir.remove_file(file_path, io), io);
   io.await(fs_dir.remove_dir(sub_path, io), io);
@@ -152,7 +152,7 @@ test("canonical throws for nonexistent path", {
   exn := Exception(
     throw : (
       (err) -> {
-        printf("  got expected error\n");
+        unsafe(printf("  got expected error\n"));
         unwind(());
       }
     )

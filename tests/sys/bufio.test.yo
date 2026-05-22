@@ -51,7 +51,7 @@ test("BufReader read_line reads single line", {
       match(
         opt,
         .Some(s) => {
-          printf("  line: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  line: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `hello world`, "should read the line without newline");
         },
         .None => assert(false, "should not get EOF")
@@ -84,7 +84,7 @@ test("BufReader read_line reads multiple lines", {
       match(
         opt,
         .Some(s) => {
-          printf("  line1: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  line1: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `line1`, "first line should be line1");
         },
         .None => assert(false, "should get line1")
@@ -99,7 +99,7 @@ test("BufReader read_line reads multiple lines", {
       match(
         opt,
         .Some(s) => {
-          printf("  line2: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  line2: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `line2`, "second line should be line2");
         },
         .None => assert(false, "should get line2")
@@ -114,7 +114,7 @@ test("BufReader read_line reads multiple lines", {
       match(
         opt,
         .Some(s) => {
-          printf("  line3: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  line3: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `line3`, "third line should be line3");
         },
         .None => assert(false, "should get line3")
@@ -131,7 +131,7 @@ test("BufReader read_line reads multiple lines", {
         opt,
         .Some(_) => assert(false, "should get EOF after all lines"),
         .None => {
-          printf("  got EOF correctly\n");
+          unsafe(printf("  got EOF correctly\n"));
         }
       );
     },
@@ -162,7 +162,7 @@ test("BufReader read_line handles line without trailing newline", {
       match(
         opt,
         .Some(s) => {
-          printf("  line: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  line: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `no newline at end`, "should read partial line");
         },
         .None => assert(false, "should get partial line")
@@ -179,7 +179,7 @@ test("BufReader read_line handles line without trailing newline", {
         opt,
         .Some(_) => assert(false, "should get EOF"),
         .None => {
-          printf("  got EOF correctly\n");
+          unsafe(printf("  got EOF correctly\n"));
         }
       );
     },
@@ -211,7 +211,7 @@ test("BufReader read_line on empty file returns None", {
         opt,
         .Some(_) => assert(false, "should get None on empty file"),
         .None => {
-          printf("  got None for empty file\n");
+          unsafe(printf("  got None for empty file\n"));
         }
       );
     },
@@ -240,7 +240,7 @@ test("BufReader read_bytes reads entire file", {
     result,
     .Ok(bytes) => {
       s := String.from_bytes(bytes);
-      printf("  read_bytes: %s\n", s.to_cstr().ptr().unwrap());
+      unsafe(printf("  read_bytes: %s\n", s.to_cstr().ptr().unwrap()));
       assert(s == `all data here`, "should read all data");
     },
     .Err(e) => assert(false, "should not error")
@@ -267,7 +267,7 @@ test("BufReader read_to_string reads entire file as String", {
   match(
     result,
     .Ok(s) => {
-      printf("  content: %s\n", s.to_cstr().ptr().unwrap());
+      unsafe(printf("  content: %s\n", s.to_cstr().ptr().unwrap()));
       assert(s == `string content`, "should match content");
     },
     .Err(e) => assert(false, "should not error")
@@ -303,7 +303,7 @@ test("BufWriter write and flush", {
   io.await(writer.flush(io), io);
   // Read back
   content := io.await(fs_file.read_string(fpath, io), io);
-  printf("  content: %s\n", content.to_cstr().ptr().unwrap());
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `buffered write test`, "content mismatch");
   io.await(fs_dir.remove_file(fpath, io), io);
 });
@@ -325,7 +325,7 @@ test("BufWriter write_string", {
   io.await(writer.write_string(`hello from bufwriter`, io), io);
   io.await(writer.flush(io), io);
   content := io.await(fs_file.read_string(fpath, io), io);
-  printf("  content: %s\n", content.to_cstr().ptr().unwrap());
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `hello from bufwriter`, "content mismatch");
   io.await(fs_dir.remove_file(fpath, io), io);
 });
@@ -349,7 +349,7 @@ test("BufWriter with small buffer flushes automatically", {
   io.await(writer.write_string(`abcdefghijklmnop`, io), io);
   io.await(writer.flush(io), io);
   content := io.await(fs_file.read_string(fpath, io), io);
-  printf("  content: %s\n", content.to_cstr().ptr().unwrap());
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `abcdefghijklmnop`, "should have all data after auto-flush");
   io.await(fs_dir.remove_file(fpath, io), io);
 });
@@ -385,7 +385,7 @@ test("BufWriter then BufReader round-trip", {
       match(
         opt,
         .Some(s) => {
-          printf("  l1: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  l1: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `line one`, "first line");
         },
         .None => assert(false, "should get first line")
@@ -400,7 +400,7 @@ test("BufWriter then BufReader round-trip", {
       match(
         opt,
         .Some(s) => {
-          printf("  l2: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  l2: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `line two`, "second line");
         },
         .None => assert(false, "should get second line")
@@ -415,7 +415,7 @@ test("BufWriter then BufReader round-trip", {
       match(
         opt,
         .Some(s) => {
-          printf("  l3: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  l3: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `line three`, "third line");
         },
         .None => assert(false, "should get third line")
@@ -431,7 +431,7 @@ test("BufWriter then BufReader round-trip", {
         opt,
         .Some(_) => assert(false, "should get EOF"),
         .None => {
-          printf("  got EOF\n");
+          unsafe(printf("  got EOF\n"));
         }
       );
     },
@@ -463,7 +463,7 @@ test("BufReader read returns bytes from file", {
   match(
     result,
     .Ok(n) => {
-      printf("  read %d bytes\n", n);
+      unsafe(printf("  read %d bytes\n", n));
       assert(n == i32(5), "should read 5 bytes");
       assert((buf &+ usize(0)).* == u8(97), "first byte should be 'a'");
       assert((buf &+ usize(4)).* == u8(101), "last byte should be 'e'");
@@ -494,7 +494,7 @@ test("BufReader read on empty file returns zero", {
   match(
     result,
     .Ok(n) => {
-      printf("  read %d bytes from empty file\n", n);
+      unsafe(printf("  read %d bytes from empty file\n", n));
       assert(n == i32(0), "should read 0 bytes from empty file");
     },
     .Err(e) => assert(false, "should not error")
@@ -524,21 +524,21 @@ test("BufReader read partial then remaining", {
   match(
     r1,
     .Ok(n) => {
-      printf("  first read: %d bytes\n", n);
+      unsafe(printf("  first read: %d bytes\n", n));
       assert(n == i32(5), "should read 5 bytes");
     },
     .Err(e) => assert(false, "first read failed")
   );
   // Now buffered() should be positive (rest of buffer from initial read)
   buffered := reader.buffered();
-  printf("  buffered after first read: %zu\n", buffered);
+  unsafe(printf("  buffered after first read: %zu\n", buffered));
   assert(buffered > usize(0), "should have buffered data");
   // Read rest
   r2 := io.await(reader.read(buf, u32(6), io), io);
   match(
     r2,
     .Ok(n) => {
-      printf("  second read: %d bytes\n", n);
+      unsafe(printf("  second read: %d bytes\n", n));
       assert(n == i32(6), "should read remaining 6 bytes");
       // Verify it reads " world"
       assert((buf &+ usize(0)).* == u8(32), "first byte should be space");
@@ -574,7 +574,7 @@ test("BufReader with small buffer reads multiple chunks", {
   match(
     result,
     .Ok(s) => {
-      printf("  content: %s\n", s.to_cstr().ptr().unwrap());
+      unsafe(printf("  content: %s\n", s.to_cstr().ptr().unwrap()));
       assert(s == `abcdefghijklmnopqrstuvwxyz`, "should read all data through small buffer");
     },
     .Err(e) => assert(false, "should not error")
@@ -605,7 +605,7 @@ test("BufReader with small buffer reads lines across chunks", {
       match(
         opt,
         .Some(s) => {
-          printf("  line1: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  line1: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `hello world`, "first line via small buffer");
         },
         .None => assert(false, "should get line1")
@@ -620,7 +620,7 @@ test("BufReader with small buffer reads lines across chunks", {
       match(
         opt,
         .Some(s) => {
-          printf("  line2: %s\n", s.to_cstr().ptr().unwrap());
+          unsafe(printf("  line2: %s\n", s.to_cstr().ptr().unwrap()));
           assert(s == `goodbye world`, "second line via small buffer");
         },
         .None => assert(false, "should get line2")
@@ -657,7 +657,7 @@ test("BufReader read_line with only newlines", {
       match(
         opt,
         .Some(s) => {
-          printf("  l1 len: %zu\n", s.len());
+          unsafe(printf("  l1 len: %zu\n", s.len()));
           assert(s.len() == usize(0), "first empty line");
         },
         .None => assert(false, "should get empty line, not EOF")
@@ -702,7 +702,7 @@ test("BufReader read_line with only newlines", {
         opt,
         .Some(_) => assert(false, "should get EOF after all newlines"),
         .None => {
-          printf("  got EOF after newlines\n");
+          unsafe(printf("  got EOF after newlines\n"));
         }
       );
     },
@@ -737,7 +737,7 @@ test("BufWriter write_bytes", {
   io.await(writer.write_bytes(data, io), io);
   io.await(writer.flush(io), io);
   content := io.await(fs_file.read_string(fpath, io), io);
-  printf("  content: %s\n", content.to_cstr().ptr().unwrap());
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `hello`, "should write bytes correctly");
   io.await(fs_dir.remove_file(fpath, io), io);
 });
@@ -758,10 +758,10 @@ test("BufWriter buffered returns pending bytes", {
   writer := BufWriter.new(fd);
   assert(writer.buffered() == usize(0), "initially no buffered data");
   io.await(writer.write_string(`test`, io), io);
-  printf("  buffered after write: %zu\n", writer.buffered());
+  unsafe(printf("  buffered after write: %zu\n", writer.buffered()));
   assert(writer.buffered() == usize(4), "should have 4 buffered bytes");
   io.await(writer.flush(io), io);
-  printf("  buffered after flush: %zu\n", writer.buffered());
+  unsafe(printf("  buffered after flush: %zu\n", writer.buffered()));
   assert(writer.buffered() == usize(0), "should have 0 buffered after flush");
   io.await(fs_dir.remove_file(fpath, io), io);
 });
@@ -785,7 +785,7 @@ test("BufWriter multiple writes then single flush", {
   io.await(writer.write_string(`ccc`, io), io);
   io.await(writer.flush(io), io);
   content := io.await(fs_file.read_string(fpath, io), io);
-  printf("  content: %s\n", content.to_cstr().ptr().unwrap());
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `aaabbbccc`, "should concatenate all writes");
   io.await(fs_dir.remove_file(fpath, io), io);
 });

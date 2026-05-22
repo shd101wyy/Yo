@@ -59,13 +59,13 @@ test("walk lists all entries recursively", {
   root := path_join(tmp, `yo_fs_walk_default`);
   _setup_walk_tree(root, io, exn);
   entries := io.await(fs_walker.walk(Path.new(root), io), io);
-  printf("  entries count = %lld\n", i64(entries.len()));
+  unsafe(printf("  entries count = %lld\n", i64(entries.len())));
   // Should have: sub, deep (dirs) + a.txt, b.txt, c.txt, d.txt (files) = 6
   // Default include_dirs = true
   i := usize(0);
   while(runtime(i < entries.len()), {
     e := entries(i);
-    printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap());
+    unsafe(printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap()));
     i = (i + usize(1));
   });
   assert(entries.len() == usize(6), "expected 6 entries (2 dirs + 4 files)");
@@ -92,12 +92,12 @@ test("walk_with max_depth limits traversal", {
     include_dirs : true
   );
   entries := io.await(fs_walker.walk_with(Path.new(root), opts, io), io);
-  printf("  entries at depth 0 = %lld\n", i64(entries.len()));
+  unsafe(printf("  entries at depth 0 = %lld\n", i64(entries.len())));
   // At depth 0: a.txt, b.txt, sub (dir) = 3
   i := usize(0);
   while(runtime(i < entries.len()), {
     e := entries(i);
-    printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap());
+    unsafe(printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap()));
     i = (i + usize(1));
   });
   assert(entries.len() == usize(3), "expected 3 entries at depth 0");
@@ -124,12 +124,12 @@ test("walk_with include_dirs false excludes directories", {
     include_dirs : false
   );
   entries := io.await(fs_walker.walk_with(Path.new(root), opts, io), io);
-  printf("  file-only entries = %lld\n", i64(entries.len()));
+  unsafe(printf("  file-only entries = %lld\n", i64(entries.len())));
   // Only files: a.txt, b.txt, c.txt, d.txt = 4
   i := usize(0);
   while(runtime(i < entries.len()), {
     e := entries(i);
-    printf("  %s\n", e.name.to_cstr().ptr().unwrap());
+    unsafe(printf("  %s\n", e.name.to_cstr().ptr().unwrap()));
     is_file := match(e.file_type,.File => true, _ => false);
     assert(is_file, "should only have files");
     i = (i + usize(1));
@@ -154,7 +154,7 @@ test("walk nonexistent returns error", {
   exn := Exception(
     throw : (
       (err) -> {
-        printf("  got expected error\n");
+        unsafe(printf("  got expected error\n"));
         unwind(());
       }
     )
@@ -181,7 +181,7 @@ test("walk_cstr works with C string path", {
   io.await(fs_dir.create_dir_all(Path.new(root), io), io);
   io.await(fs_file.write_file(Path.new(path_join(root, `x.txt`)), String.from("x"), io), io);
   entries := io.await(fs_walker.walk_cstr(root_c, io), io);
-  printf("  walk_cstr entries = %lld\n", i64(entries.len()));
+  unsafe(printf("  walk_cstr entries = %lld\n", i64(entries.len())));
   assert(entries.len() == usize(1), "expected 1 entry");
   io.await(fs_dir.remove_file(Path.new(path_join(root, `x.txt`)), io), io);
   io.await(fs_dir.remove_dir(Path.new(root), io), io);

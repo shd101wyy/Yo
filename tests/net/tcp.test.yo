@@ -25,10 +25,10 @@ test("TcpListener bind and close", {
     )
   );
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), io);
-  printf("  listener fd = %d\n", listener.fd());
+  unsafe(printf("  listener fd = %d\n", listener.fd()));
   assert(listener.fd() >= i32(0), "fd should be valid");
   io.await(listener.close(io), io);
-  printf("  close ok\n");
+  unsafe(printf("  close ok\n"));
 });
 test("TcpListener local_addr returns bound address", {
   exn := Exception(
@@ -41,7 +41,7 @@ test("TcpListener local_addr returns bound address", {
   );
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), io);
   la := listener.local_addr();
-  printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap());
+  unsafe(printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap()));
   assert(la.ip.is_loopback(), "should be loopback");
   io.await(listener.close(io), io);
 });
@@ -59,11 +59,11 @@ test("TCP connect to listener and accept", {
   );
   addr := SocketAddr.loopback(u16(19900));
   listener := io.await(TcpListener.bind(addr, io), io);
-  printf("  listener fd = %d\n", listener.fd());
+  unsafe(printf("  listener fd = %d\n", listener.fd()));
   client := io.await(TcpStream.connect(addr, io), io);
-  printf("  client fd = %d\n", client.fd());
+  unsafe(printf("  client fd = %d\n", client.fd()));
   server_stream := io.await(listener.accept(io), io);
-  printf("  accepted fd = %d\n", server_stream.fd());
+  unsafe(printf("  accepted fd = %d\n", server_stream.fd()));
   assert(server_stream.fd() >= i32(0), "accepted fd should be valid");
   io.await(server_stream.close(io), io);
   io.await(client.close(io), io);
@@ -84,12 +84,12 @@ test("TCP echo with write_str and read", {
   server_stream := io.await(listener.accept(io), io);
   // Client sends
   n := io.await(client.write_str("Hello Net!", io), io);
-  printf("  sent = %d\n", n);
+  unsafe(printf("  sent = %d\n", n));
   assert(n == i32(10), "should send 10 bytes");
   // Server reads
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   nr := io.await(server_stream.read(recv_buf, usize(256), io), io);
-  printf("  received = %d\n", nr);
+  unsafe(printf("  received = %d\n", nr));
   assert(nr == i32(10), "should receive 10 bytes");
   assert((recv_buf &+ usize(0)).* == u8(72), "H");
   assert((recv_buf &+ usize(1)).* == u8(101), "e");
@@ -117,12 +117,12 @@ test("TCP echo with write String", {
   // Write using String
   msg := `Hello String!`;
   n := io.await(client.write_string(msg, io), io);
-  printf("  sent = %d\n", n);
+  unsafe(printf("  sent = %d\n", n));
   assert(n == i32(13), "should send 13 bytes");
   // Server reads
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   nr := io.await(server_stream.read(recv_buf, usize(256), io), io);
-  printf("  received = %d\n", nr);
+  unsafe(printf("  received = %d\n", nr));
   assert(nr == i32(13), "should receive 13 bytes");
   free(.Some(*(void)(recv_buf)));
   io.await(server_stream.close(io), io);
@@ -149,12 +149,12 @@ test("TCP write_bytes", {
   data.push(u8(3));
   data.push(u8(4));
   n := io.await(client.write_bytes(data, io), io);
-  printf("  sent = %d\n", n);
+  unsafe(printf("  sent = %d\n", n));
   assert(n == i32(4), "should send 4 bytes");
   // Server reads
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   nr := io.await(server_stream.read(recv_buf, usize(256), io), io);
-  printf("  received = %d\n", nr);
+  unsafe(printf("  received = %d\n", nr));
   assert(nr == i32(4), "should receive 4 bytes");
   assert((recv_buf &+ usize(0)).* == u8(1), "byte 0");
   assert((recv_buf &+ usize(1)).* == u8(2), "byte 1");
@@ -178,9 +178,9 @@ test("TCP set_nodelay and set_keepalive", {
   listener := io.await(TcpListener.bind(addr, io), io);
   client := io.await(TcpStream.connect(addr, io), io);
   io.await(client.set_nodelay(true, io), io);
-  printf("  nodelay ok\n");
+  unsafe(printf("  nodelay ok\n"));
   io.await(client.set_keepalive(true, io), io);
-  printf("  keepalive ok\n");
+  unsafe(printf("  keepalive ok\n"));
   io.await(client.close(io), io);
   io.await(listener.close(io), io);
 });
@@ -198,7 +198,7 @@ test("TCP shutdown", {
   client := io.await(TcpStream.connect(addr, io), io);
   server_stream := io.await(listener.accept(io), io);
   io.await(client.shutdown(SHUT_RDWR, io), io);
-  printf("  shutdown ok\n");
+  unsafe(printf("  shutdown ok\n"));
   io.await(server_stream.close(io), io);
   io.await(client.close(io), io);
   io.await(listener.close(io), io);
@@ -216,7 +216,7 @@ test("TCP peer_addr returns remote address", {
   listener := io.await(TcpListener.bind(addr, io), io);
   client := io.await(TcpStream.connect(addr, io), io);
   pa := client.peer_addr();
-  printf("  peer_addr = %s\n", pa.to_string().to_cstr().ptr().unwrap());
+  unsafe(printf("  peer_addr = %s\n", pa.to_string().to_cstr().ptr().unwrap()));
   assert(pa.ip.is_loopback(), "peer should be loopback");
   assert(pa.port == u16(19906), "peer port should be 19906");
   io.await(client.close(io), io);
@@ -240,7 +240,7 @@ test("TCP read_bytes gets all data", {
   io.await(client.shutdown(i32(1), io), io);
   // Server reads all
   data := io.await(server_stream.read_bytes(io), io);
-  printf("  read_bytes len = %lld\n", i64(data.len()));
+  unsafe(printf("  read_bytes len = %lld\n", i64(data.len())));
   assert(data.len() == usize(5), "should be 5 bytes");
   assert(data(usize(0)) == u8(65), "A");
   assert(data(usize(1)) == u8(66), "B");

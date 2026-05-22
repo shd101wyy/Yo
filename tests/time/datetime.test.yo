@@ -7,7 +7,7 @@ open(import("std/fmt"));
 // ============================================================================
 test("DateTime.now_utc returns valid date", {
   now := DateTime.now_utc();
-  printf("  now = %s\n", now.to_string().to_cstr().ptr().unwrap());
+  unsafe(printf("  now = %s\n", now.to_string().to_cstr().ptr().unwrap()));
   // Year should be reasonable (2020-2099)
   assert(now.year >= i32(2020), "year should be >= 2020");
   assert(now.year < i32(2100), "year should be < 2100");
@@ -27,7 +27,7 @@ test("DateTime.now_utc returns valid date", {
 test("DateTime.from_unix known epoch", {
   // Unix epoch itself: 1970-01-01T00:00:00Z
   dt := DateTime.from_unix(i64(0), i64(0));
-  printf("  epoch = %s\n", dt.to_string().to_cstr().ptr().unwrap());
+  unsafe(printf("  epoch = %s\n", dt.to_string().to_cstr().ptr().unwrap()));
   assert(dt.year == i32(1970), "year should be 1970");
   assert(dt.month == u8(1), "month should be 1");
   assert(dt.day == u8(1), "day should be 1");
@@ -38,7 +38,7 @@ test("DateTime.from_unix known epoch", {
 test("DateTime.from_unix known date 2024-01-15", {
   // 2024-01-15T12:30:45Z = 1705321845
   dt := DateTime.from_unix(i64(1705321845), i64(0));
-  printf("  known date = %s\n", dt.to_string().to_cstr().ptr().unwrap());
+  unsafe(printf("  known date = %s\n", dt.to_string().to_cstr().ptr().unwrap()));
   assert(dt.year == i32(2024), "year should be 2024");
   assert(dt.month == u8(1), "month should be 1");
   assert(dt.day == u8(15), "day should be 15");
@@ -50,7 +50,7 @@ test("DateTime.to_unix round-trip", {
   original_secs := i64(1705321845);
   dt := DateTime.from_unix(original_secs, i64(0));
   result := dt.to_unix();
-  printf("  original = %lld, round-trip = %lld\n", original_secs, result);
+  unsafe(printf("  original = %lld, round-trip = %lld\n", original_secs, result));
   assert(result == original_secs, "should round-trip");
 });
 test("DateTime.to_unix epoch round-trip", {
@@ -94,19 +94,19 @@ test("DateTime.day_of_week", {
   // 2024-01-15 is a Monday (ISO 8601: 0 = Monday)
   dt := DateTime.from_unix(i64(1705318245), i64(0));
   dow := dt.day_of_week();
-  printf("  2024-01-15 day_of_week = %u\n", dow);
+  unsafe(printf("  2024-01-15 day_of_week = %u\n", dow));
   assert(dow == u8(0), "2024-01-15 should be Monday (0)");
   // 2024-01-14 is a Sunday (ISO 8601: 6 = Sunday)
   dt2 := DateTime.from_unix(i64(1705231845), i64(0));
   dow2 := dt2.day_of_week();
-  printf("  2024-01-14 day_of_week = %u\n", dow2);
+  unsafe(printf("  2024-01-14 day_of_week = %u\n", dow2));
   assert(dow2 == u8(6), "2024-01-14 should be Sunday (6)");
 });
 test("DateTime.day_of_year", {
   // 2024-01-15 should be day 15
   dt := DateTime.from_unix(i64(1705318245), i64(0));
   doy := dt.day_of_year();
-  printf("  2024-01-15 day_of_year = %u\n", doy);
+  unsafe(printf("  2024-01-15 day_of_year = %u\n", doy));
   assert(doy == u16(15), "Jan 15 should be day 15");
   // 2024-03-01 should be day 61 (31 + 29 + 1, leap year)
   dt2 := DateTime(
@@ -120,12 +120,12 @@ test("DateTime.day_of_year", {
     utc_offset_secs : i32(0)
   );
   doy2 := dt2.day_of_year();
-  printf("  2024-03-01 day_of_year = %u\n", doy2);
+  unsafe(printf("  2024-03-01 day_of_year = %u\n", doy2));
   assert(doy2 == u16(61), "Mar 1 in leap year should be day 61");
 });
 test("DateTime.to_string ISO 8601 format", {
   dt := DateTime.from_unix(i64(0), i64(0));
   s := dt.to_string();
-  printf("  epoch string = %s\n", s.to_cstr().ptr().unwrap());
+  unsafe(printf("  epoch string = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `1970-01-01T00:00:00Z`, "epoch should format as ISO 8601");
 });

@@ -16,7 +16,7 @@ future_with_returned_state :: (fn(value : i32, io : IO) -> Impl(Future(i32, IO))
 test("Test lazy async", {
   b := Box(i32)(0);
   task := io.async((another_io : IO) => {
-    printf("Task started %d\n", b.*);
+    unsafe(printf("Task started %d\n", b.*));
     c := Box(i32)(10);
     b.* = (b.* + 1);
     another_io.await(yield(), another_io);
@@ -24,7 +24,7 @@ test("Test lazy async", {
     assert(c.* == 10, "captured Box should still be 10");
   });
   // With lazy execution, task hasn't started yet
-  printf("Running main... %d\n", b.*);
+  unsafe(printf("Running main... %d\n", b.*));
   assert(b.* == 0, "b should be 0 before await (lazy)");
   io.await(task, io);
   assert(b.* == 1, "b should be 1 after task completes");
@@ -35,7 +35,7 @@ test("Test lazy async", {
 test("Test async function", {
   bb := Box(i32)(0);
   task := io.async((io : IO) => {
-    printf("Task started %d\n", bb.*);
+    unsafe(printf("Task started %d\n", bb.*));
     assert(bb.* == 0, "b should be 0");
     c := Box(i32)(10);
     bb.* = (bb.* + 1);
@@ -44,7 +44,7 @@ test("Test async function", {
     assert(c.* == 10, "c should be 10");
     return(bb.*);
   });
-  printf("Running main... %d\n", bb.*);
+  unsafe(printf("Running main... %d\n", bb.*));
   assert(bb.* == 0, "bb should be 0 before await (lazy)");
   result := io.await(task, io);
   assert(bb.* == 1, "bb should be 1 after task completes");

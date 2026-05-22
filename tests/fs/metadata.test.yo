@@ -25,22 +25,22 @@ test("metadata returns file info", {
   fpath := Path.new(path_join(tmp, `yo_fs_meta_file.txt`));
   io.await(fs_file.write_file(fpath, String.from("metadata test"), io), io);
   m := io.await(fs_metadata.metadata(fpath, io), io);
-  printf("  size = %lld\n", m.size());
+  unsafe(printf("  size = %lld\n", m.size()));
   assert(m.size() == i64(13), "size should be 13");
   is_file := m.is_file();
-  printf("  is_file = %d\n", cond(is_file => i32(1), true => i32(0)));
+  unsafe(printf("  is_file = %d\n", cond(is_file => i32(1), true => i32(0))));
   assert(is_file, "should be a file");
   is_dir := m.is_dir();
-  printf("  is_dir = %d\n", cond(is_dir => i32(1), true => i32(0)));
+  unsafe(printf("  is_dir = %d\n", cond(is_dir => i32(1), true => i32(0))));
   assert(!(is_dir), "should not be a dir");
   is_symlink := m.is_symlink();
-  printf("  is_symlink = %d\n", cond(is_symlink => i32(1), true => i32(0)));
+  unsafe(printf("  is_symlink = %d\n", cond(is_symlink => i32(1), true => i32(0))));
   assert(!(is_symlink), "should not be a symlink");
-  printf("  ino = %llu\n", m.ino());
+  unsafe(printf("  ino = %llu\n", m.ino()));
   assert(m.ino() > u64(0), "inode should be positive");
-  printf("  nlink = %llu\n", m.nlink());
+  unsafe(printf("  nlink = %llu\n", m.nlink()));
   assert(m.nlink() >= u64(1), "nlink should be >= 1");
-  printf("  modified_time = %lld\n", m.modified_time());
+  unsafe(printf("  modified_time = %lld\n", m.modified_time()));
   assert(m.modified_time() > i64(0), "mtime should be positive");
   io.await(fs_dir.remove_file(fpath, io), io);
 });
@@ -67,7 +67,7 @@ test("metadata on directory", {
   io.await(fs_dir.create_dir(dpath, io), io);
   m := io.await(fs_metadata.metadata(dpath, io), io);
   is_dir := m.is_dir();
-  printf("  is_dir = %d\n", cond(is_dir => i32(1), true => i32(0)));
+  unsafe(printf("  is_dir = %d\n", cond(is_dir => i32(1), true => i32(0))));
   assert(is_dir, "should be a dir");
   assert(!(m.is_file()), "should not be a file");
   io.await(fs_dir.remove_dir(dpath, io), io);
@@ -88,7 +88,7 @@ test("metadata_str works with str path", {
   fpath := Path.new(path_join(tmp, `yo_fs_meta_str.txt`));
   io.await(fs_file.write_file(fpath, String.from("str meta"), io), io);
   m := io.await(fs_metadata.metadata(fpath, io), io);
-  printf("  size = %lld\n", m.size());
+  unsafe(printf("  size = %lld\n", m.size()));
   assert(m.size() == i64(8), "size should be 8");
   assert(m.is_file(), "should be file");
   io.await(fs_dir.remove_file(fpath, io), io);
@@ -101,7 +101,7 @@ test("metadata nonexistent returns error", {
   exn := Exception(
     throw : (
       (err) -> {
-        printf("  got expected error\n");
+        unsafe(printf("  got expected error\n"));
         unwind(());
       }
     )
@@ -146,7 +146,7 @@ test("symlink_metadata on symlink reports symlink", {
           .Some(io_err) => match(
             io_err,
             .PermissionDenied => {
-              printf("  SKIP: symlinks require admin or Developer Mode on Windows\n");
+              unsafe(printf("  SKIP: symlinks require admin or Developer Mode on Windows\n"));
             },
             _ => {
               assert(false, "symlink creation failed");
@@ -172,13 +172,13 @@ test("symlink_metadata on symlink reports symlink", {
   // Regular metadata follows the symlink — should report file
   m1 := io.await(fs_metadata.metadata(lnk, io), io);
   is_file := m1.is_file();
-  printf("  metadata is_file = %d\n", cond(is_file => i32(1), true => i32(0)));
+  unsafe(printf("  metadata is_file = %d\n", cond(is_file => i32(1), true => i32(0))));
   assert(is_file, "metadata should follow symlink to file");
   assert(!(m1.is_symlink()), "metadata should not report symlink");
   // symlink_metadata should report symlink
   m2 := io.await(fs_metadata.symlink_metadata(lnk, io), io);
   is_sym := m2.is_symlink();
-  printf("  symlink_metadata is_symlink = %d\n", cond(is_sym => i32(1), true => i32(0)));
+  unsafe(printf("  symlink_metadata is_symlink = %d\n", cond(is_sym => i32(1), true => i32(0))));
   assert(is_sym, "symlink_metadata should report symlink");
   io.await(fs_dir.remove_file(lnk, io), io);
   io.await(fs_dir.remove_file(src, io), io);
@@ -201,7 +201,7 @@ test("File.metadata returns correct info", {
   { File } :: import("std/fs/file");
   f := io.await(File.open(fpath,.Read, io), io);
   m := io.await(f.metadata(io), io);
-  printf("  File.metadata size = %lld\n", m.size());
+  unsafe(printf("  File.metadata size = %lld\n", m.size()));
   assert(m.size() == i64(9), "size should be 9");
   assert(m.is_file(), "should be file");
   io.await(f.close(io), io);

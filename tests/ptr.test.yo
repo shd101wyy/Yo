@@ -9,7 +9,7 @@ impl(
   MyBox,
   Dispose(
     dispose : (fn(self : Self) -> unit)({
-      printf("Disposing MyBox with value: %d\n", self.*);
+      unsafe(printf("Disposing MyBox with value: %d\n", self.*));
     })
   )
 );
@@ -33,7 +33,7 @@ test("Test pointer to object type value and `consume` builtin function", {
   match(
     p,
     .None => {
-      printf("Memory allocation failed\n");
+      unsafe(printf("Memory allocation failed\n"));
     },
     .Some(ptr) => {
       casted_ptr := (*(Option(MyBox)))(ptr);

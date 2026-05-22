@@ -10,7 +10,7 @@ test("Instant.now returns non-zero time", {
   t := Instant.now();
   // Monotonic clock should have a positive value
   total := ((t.secs * i64(1000000000)) + t.nanos);
-  printf("  instant nanos = %lld\n", total);
+  unsafe(printf("  instant nanos = %lld\n", total));
   assert(total > i64(0), "monotonic clock should be > 0");
 });
 test("Instant.elapsed is non-negative", {
@@ -21,7 +21,7 @@ test("Instant.elapsed is non-negative", {
     ();
   });
   elapsed := start.elapsed();
-  printf("  elapsed nanos = %lld\n", elapsed.as_nanos());
+  unsafe(printf("  elapsed nanos = %lld\n", elapsed.as_nanos()));
   assert(elapsed.as_nanos() >= i64(0), "elapsed should be >= 0");
 });
 test("Instant.duration_since two instants", {
@@ -33,7 +33,7 @@ test("Instant.duration_since two instants", {
   });
   t2 := Instant.now();
   d := t2.duration_since(t1);
-  printf("  duration_since nanos = %lld\n", d.as_nanos());
+  unsafe(printf("  duration_since nanos = %lld\n", d.as_nanos()));
   assert(d.as_nanos() >= i64(0), "should be non-negative");
 });
 test("Instant.duration_since earlier returns zero", {

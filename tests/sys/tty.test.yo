@@ -18,19 +18,19 @@ test("isatty and winsize", {
       { STDIN_FILENO } :: import("std/libc/unistd");
       stdin_fd := i32(STDIN_FILENO);
       is_tty := tty.isatty(stdin_fd);
-      printf("  isatty = %d\n", print_bool(is_tty));
+      unsafe(printf("  isatty = %d\n", print_bool(is_tty)));
       cond(
         is_tty => {
           init := tty.tty_init(stdin_fd);
-          printf("  tty_init = %d\n", init);
+          unsafe(printf("  tty_init = %d\n", init));
           assert(init == i32(0));
           ws := tty.tty_winsize(stdin_fd);
-          printf("  winsize = %d x %d\n", ws.width, ws.height);
+          unsafe(printf("  winsize = %d x %d\n", ws.width, ws.height));
           assert(ws.width >= i32(0));
           assert(ws.height >= i32(0));
         },
         true => {
-          printf("  skipping winsize: not a tty\n");
+          unsafe(printf("  skipping winsize: not a tty\n"));
         }
       );
     }
@@ -50,14 +50,14 @@ test("set and reset tty mode", {
           init := tty.tty_init(stdin_fd);
           assert(init == i32(0));
           set_result := tty.tty_set_mode(stdin_fd, tty.TTY_MODE_NORMAL);
-          printf("  tty_set_mode = %d\n", set_result);
+          unsafe(printf("  tty_set_mode = %d\n", set_result));
           assert(set_result == i32(0));
           reset_result := tty.tty_reset();
-          printf("  tty_reset = %d\n", reset_result);
+          unsafe(printf("  tty_reset = %d\n", reset_result));
           assert(reset_result == i32(0));
         },
         true => {
-          printf("  skipping tty_set_mode: not a tty\n");
+          unsafe(printf("  skipping tty_set_mode: not a tty\n"));
         }
       );
     }

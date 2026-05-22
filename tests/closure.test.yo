@@ -7,7 +7,7 @@ impl(
   MyBox,
   Dispose(
     dispose : (fn(self : Self) -> unit)({
-      printf("Disposing Boxed i32 with value: %d\n", self.*);
+      unsafe(printf("Disposing Boxed i32 with value: %d\n", self.*));
     })
   )
 );
@@ -23,7 +23,7 @@ test("Test ClosureType({...}) to create closure value", {
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
-  printf("Final result: %d\n", result);
+  unsafe(printf("Final result: %d\n", result));
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
 });
@@ -39,7 +39,7 @@ test("Test anonymous closure value =>", {
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
-  printf("Final result: %d\n", result);
+  unsafe(printf("Final result: %d\n", result));
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
 });
@@ -133,7 +133,7 @@ test("Test closure with Dyn", {
   closure(1); // 2
   closure2(1); // 3
   result := closure(2); // 5
-  printf("Final result: %d\n", result);
+  unsafe(printf("Final result: %d\n", result));
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
 });
@@ -148,7 +148,7 @@ test("Test closure with Impl that captures Rc object", {
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
-  printf("Final result: %d\n", result);
+  unsafe(printf("Final result: %d\n", result));
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
@@ -190,7 +190,7 @@ test("Test anonymous closure value with Impl that captures Rc object", {
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
-  printf("Final result: %d\n", result);
+  unsafe(printf("Final result: %d\n", result));
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
@@ -206,7 +206,7 @@ test("Test anonymous closure value with Dyn that captures Rc object", {
   closure(1); // 2
   closure2(1); // 3
   result := closure(2); // 5
-  printf("Final result: %d\n", result);
+  unsafe(printf("Final result: %d\n", result));
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
@@ -221,7 +221,7 @@ test("Test anonymous closure value with Dyn that captures Rc object with auto bo
   closure(1); // 2
   closure2(1); // 3
   result := closure(2); // 5
-  printf("Final result: %d\n", result);
+  unsafe(printf("Final result: %d\n", result));
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
