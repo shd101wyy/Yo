@@ -56,7 +56,7 @@ export function evaluateAddressCall({
       token: expr.token,
       errorMessage: `Taking an address with '&(...)' produces a raw pointer ('*(T)'), which is not available in safe code.
 
-For in-place mutation of a value, use the 'inout(name) : T' parameter form on the receiving function. For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
+For in-place mutation of a value, use the 'ref(name) : T' parameter form on the receiving function. For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
     });
   }
 

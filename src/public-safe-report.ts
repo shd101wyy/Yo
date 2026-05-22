@@ -508,7 +508,7 @@ export function formatPublicSafeReport(report: PublicSafeReport): string {
   lines.push("");
   lines.push(
     `These public signatures expose raw pointer types. Migrate to ` +
-      `value types (e.g. Slice(u8), inout(name) : T) where the raw ` +
+      `value types (e.g. Slice(u8), ref(name) : T) where the raw ` +
       `pointer is not part of the API contract. Names ending in ` +
       `_cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — ` +
       `they signal raw-pointer use by contract.`

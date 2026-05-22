@@ -39,12 +39,14 @@ main :: (fn() -> unit)({
   list.push(i32(3));
 
   total := i32(0);
-  for(list.iter(), (item) => {
+  for(list, (item) => {
     total = (total + item);
   });
   println("total = ${total}");
 });
 ```
+
+`for` 宏会根据 body 的参数形式自动选择：`(item) => …` 是按值迭代（底层调用 `.into_iter()`），`for(coll, ref(item) => …)` 是按引用迭代，对 `item` 的写入会传播回集合。
 
 ## 安全代码不能做什么
 
@@ -76,12 +78,12 @@ swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // 调用处不需要 &() —— inout 性质在参数定义中
+  swap(x, y);              // 调用处不需要 &() —— `ref` 性质在参数定义中
   assert((x == i32(2)), "swapped");
 });
 ```
 
-`ref(name) : T` 是**二等的**：只能出现在参数位置，永远不能作为独立类型。没有"inout 类型的变量"这种语法，所以它无法泄漏到 struct 字段、let 绑定或闭包捕获中。编译器是结构性强制的 —— 没有逃逸路径需要强制，因为没有逃逸用的语法。
+`ref(name) : T` 是**二等的**：只能出现在参数位置，永远不能作为独立类型。没有"`ref` 类型的变量"这种语法，所以它无法泄漏到 struct 字段、let 绑定或闭包捕获中。编译器是结构性强制的 —— 没有逃逸路径需要强制，因为没有逃逸用的语法。
 
 使用场景：
 

@@ -80,7 +80,7 @@ export function evaluateRawPointerCall({
         token: expr.token,
         errorMessage: `Raw pointer types ('*(${typeToString(baseType)})') are not available in safe code.
 
-Use 'Slice(T)' for bounded byte/element views, 'inout(name) : T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module.`,
+Use 'Slice(T)' for bounded byte/element views, 'ref(name) : T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module.`,
       });
     }
 

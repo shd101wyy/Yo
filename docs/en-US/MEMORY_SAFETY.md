@@ -39,12 +39,14 @@ main :: (fn() -> unit)({
   list.push(i32(3));
 
   total := i32(0);
-  for(list.iter(), (item) => {
+  for(list, (item) => {
     total = (total + item);
   });
   println("total = ${total}");
 });
 ```
+
+The `for` macro dispatches on the body's parameter shape: `(item) => …` iterates by value (calls `.into_iter()` under the hood), and `for(coll, ref(item) => …)` iterates by reference so writes through `item` propagate back into the collection.
 
 ## What Safe Code Cannot Do
 
@@ -76,12 +78,12 @@ swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // no &() at the call site — inout-ness is in the param spec
+  swap(x, y);              // no &() at the call site — `ref` is in the param spec
   assert((x == i32(2)), "swapped");
 });
 ```
 
-`ref(name) : T` is **second-class**: it can only appear in parameter position, never as a type by itself. There is no syntax for "a variable of inout type", so it cannot leak into a struct field, a let-binding, or a closure capture. The compiler enforces this structurally — there's no escape route to enforce, because there's no syntax to escape with.
+`ref(name) : T` is **second-class**: it can only appear in parameter position, never as a type by itself. There is no syntax for "a variable of `ref` type", so it cannot leak into a struct field, a let-binding, or a closure capture. The compiler enforces this structurally — there's no escape route to enforce, because there's no syntax to escape with.
 
 Use cases:
 
