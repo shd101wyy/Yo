@@ -71,6 +71,17 @@ comptime_str :: (fn() -> str)({
   s :: "world";
   s
 });
+// ── Defense-in-depth: explicit `return(expr)` from `-> ref(T)` body
+//        must satisfy R1-R4 just like an implicit tail return.
+//        Without the begin.ts return-handler check, `return(local_x)`
+//        would be vacuously accepted because the return wrapper has
+//        controlFlow → true.
+comptime_expect_error(
+  bad_explicit_ref_return :: (fn() -> ref(i32))({
+    x := i32(0);
+    return(x)
+  })
+);
 // ── Positive runtime tests ───────────────────────────────────────
 test("slice-flow: forward a Slice parameter back to the caller", {
   list := ArrayList(i32).new();
