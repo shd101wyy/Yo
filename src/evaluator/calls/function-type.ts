@@ -118,6 +118,19 @@ export function checkDeferredGenericReturnType({
   const expectedReturnForCompare: Type = functionType.return.isRef
     ? createPtrType(functionType.return.type)
     : functionType.return.type;
+  // When the expected return type IS a bare SomeType (e.g. T from an
+  // outer forall like `io.async`'s `Impl(Fn(e : E) -> T)`), the
+  // closure body returning a concrete type is the CORRECT shape —
+  // synthesis at the outer call site binds the forall var from the
+  // concrete body type. Skip the strict trial check here; the
+  // anonymous-function evaluator runs synthesizeTypes against the
+  // SomeType separately to attach resolvedConcreteType for codegen.
+  // Without this carve-out, every `io.async((e) => concrete_value)`
+  // form is rejected at definition time with "Expected: T / Given:
+  // <concrete>" before the call-site forall binding has a chance.
+  if (trialBodyReturnType && isSomeType(expectedReturnForCompare)) {
+    return;
+  }
   if (
     trialBodyReturnType &&
     !(

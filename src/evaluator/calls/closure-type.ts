@@ -9,6 +9,7 @@ import {
 import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
+import { synthesizeTypes } from "../types/synthesizer";
 import type {
   DynType,
   FnTraitType,
@@ -172,6 +173,28 @@ Pass \`${varName}\` as a regular function parameter instead of capturing it in a
 
   // Check if the closure body type matches the closure return type
   const closureBodyReturnType = evaluatedClosureBody.$.type;
+  // Synthesize the return-type forall vars from the closure body's
+  // actual return type. The closure's `fnTraitType` is the EXPECTED
+  // Fn(e : E) -> T pulled from the surrounding call site (e.g.
+  // `io.async`'s `action : Impl(Fn(e : E) -> T)` where E and T are
+  // async's outer forall vars). After body evaluation we know what
+  // T concretely is — synthesize against the trait's return type so
+  // the outer forall(T) gets bound and the io.async call can derive
+  // `Impl(Future(T, E))` correctly. Without this, the compatibility
+  // check below silently accepts the SomeType match but leaves T (and
+  // by extension E, when the closure body uses other fields of E)
+  // unbound, propagating "Given Impl(Future(i32, E))" up to the
+  // enclosing function's return-type check.
+  try {
+    synthesizeTypes(
+      { type: fnTraitType.isFn.callType.return.type, env },
+      { type: closureBodyReturnType, env }
+    );
+  } catch {
+    // synthesizeTypes is best-effort here — if it fails (e.g. the
+    // return is unrelated to any forall) the compatibility check
+    // below still gates correctness.
+  }
   if (
     !areTypesCompatible(
       { type: fnTraitType.isFn.callType.return.type, env },
