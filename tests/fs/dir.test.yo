@@ -75,11 +75,11 @@ test("create_dir on existing returns error", {
   );
   cond(
     io.await(fs_file.exists(dpath, io), io) => {
-      io.await(fs_dir.remove_dir(dpath, io), IOErr(io : io, exn : exn));
+      io.await(fs_dir.remove_dir(dpath, io), IOErr(io : io, exn : setup_exn));
     },
     true => ()
   );
-  io.await(fs_dir.create_dir(dpath, io), IOErr(io : io, exn : exn));
+  io.await(fs_dir.create_dir(dpath, io), IOErr(io : io, exn : setup_exn));
   // Second create should fail
   exn := Exception(
     throw : (
@@ -257,17 +257,17 @@ test("symlink creates a symbolic link", {
   );
   cond(
     io.await(fs_file.exists(lnk, io), io) => {
-      io.await(fs_dir.remove_file(lnk, io), IOErr(io : io, exn : exn));
+      io.await(fs_dir.remove_file(lnk, io), IOErr(io : io, exn : setup_exn));
     },
     true => ()
   );
   cond(
     io.await(fs_file.exists(src, io), io) => {
-      io.await(fs_dir.remove_file(src, io), IOErr(io : io, exn : exn));
+      io.await(fs_dir.remove_file(src, io), IOErr(io : io, exn : setup_exn));
     },
     true => ()
   );
-  io.await(fs_file.write_file(src, String.from("symlink data"), io), IOErr(io : io, exn : exn));
+  io.await(fs_file.write_file(src, String.from("symlink data"), io), IOErr(io : io, exn : setup_exn));
   // Symlink may fail with PermissionDenied on Windows
   sym_exn := Exception(
     throw : (
