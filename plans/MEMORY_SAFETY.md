@@ -446,7 +446,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
 - [x] **Clone trait migrated.** Same shape. Trait + all primitive impls + Box(T) + Option(T) + Result(T,E) + `__derive_clone` macro + ArrayList + HashMap + String. Bulk-migration of `(&(x)).clone()` → `x.clone()` in yo-self/ via `scripts/migrate-clone-calls.ts` (29 files).
 - [x] **Eq, PartialEq, Ord** — checked. Already take parameters by value (`lhs : Self, rhs : Rhs`); no migration needed.
-- [ ] **Iterator trait** — explicitly skipped per goal ("Let's not change Iterator for now"). Iterator methods still take `(self : *(Self))` and yield `*(T)`. Migrating them would also require redesigning the for-loop interaction (see plan's "Iteration in safe code" section).
+- [x] **Iterator trait migrated** via the separate `plans/ITERATOR_REDESIGN.md` work. Trait declaration now reads `next : fn(ref(self) : Self) -> Option(Self.Item)`; all stdlib iterator impls follow suit (`std/prelude.yo`, `std/collections/*`, `std/imm/*`, `std/string/*`). The for-loop interaction redesign (`Indexable.project` projection rule + `for(coll, ref(x) => body)`) is documented in that plan. The original "skipped per goal" stance was reversed once the value-iterator path proved its perf was within noise.
 - [x] **ToString trait migrated** — trait declaration in `std/fmt/to_string.yo` plus all 28 impls (including primitives whose bodies use `self` as a bare value via `snprintf(..., "%llu", self)`, char, str, rune, String) now take `ref(self) : Self`. The `__derive_tostring` macro emits the same shape. The codegen bug that previously blocked this — `T self = (*self);` shadow on inout-param multi-statement bodies — was fixed earlier in the project (commit `d27044b1`).
 - [x] **Inherent-method `*(Self)` migrations** — bulk-migrated where `self` is only used for field access (`self.field`), not as a bare value:
   - `yo-self/emitter.yo` — 9 sigs, drops pragma
@@ -468,7 +468,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 - [x] Update `docs/{en-US,zh-CN}/DESIGN.md` — pointer section now describes the unsafe(...) marker and the pragma requirement; new "Memory Safety" subsection; `inout` parameter section. Cross-link to `yo unsafe-report`.
 - [x] `.github/instructions/yo-syntax.instructions.md` — `inout` parameter syntax, `unsafe(...)` + pragma rule.
 - [x] `.github/skills/yo-syntax/syntax-cheatsheet.md` — concise rule lines for `unsafe(...)`, pragma, and `ref(name)`.
-- [ ] `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` standalone user-facing page — **deferred.** The plan document itself (this file) plus the DESIGN.md section currently cover the user-facing surface. A standalone page can be split out later if the audience grows.
+- [x] `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` standalone user-facing page — landed. Covers the safe-by-default contract from a user's perspective, the `ref(name)` mutation primitive, the pragma opt-in for FFI / custom allocators, the `unsafe(...)` per-op wrap convention, `// SAFETY:` comments, `yo unsafe-report` output, the `-fwrapv` overflow default, and cross-links back to the design plans for readers who want more. DESIGN.md now links forward to it.
 
 ### Phase G — Unify comment-style directives under `pragma(...)`
 
@@ -739,7 +739,7 @@ The following sharp edges remain after the gates above. They were raised in revi
 
 ## Status
 
-**Phase A + B + C + D (partial) + E + F landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file. `ref(name) : T` parameters give in-place mutation without raw pointers. Hash and Clone traits now take `ref(self) : Self` instead of `(self : *(Self))` — user code calling `value.hash()` or `value.clone()` works naturally with no manual `&(...)`. `yo unsafe-report` audits the unsafe surface across a project.
+**Phases A–F all landed.** User code is memory-safe by construction unless it explicitly declares `pragma(Pragma.AllowUnsafe);` at the top of the file. `ref(name) : T` parameters give in-place mutation without raw pointers. Hash, Clone, ToString, and Iterator traits all take `ref(self) : Self` (or `inout(self)` for stateful next()) instead of `(self : *(Self))` — user code calling `value.hash()`, `value.clone()`, `it.next()`, etc. works naturally with no manual `&(...)`. `yo unsafe-report` audits the unsafe surface across a project, classifying each `unsafe(...)` site by inner kind (extern-call / deref / arith / addr-of / other) and showing a top-callees summary.
 
 Resolved decisions:
 
@@ -747,20 +747,22 @@ Resolved decisions:
 - ✅ **Migration of existing user code with `*(T)`** — auto-emit `pragma(Pragma.AllowUnsafe);` at the top of pre-existing files via `scripts/add-pragma.ts` (633 files touched in one mechanical commit).
 - ✅ **`inout` parameter capture in closures** — forbid all closure captures of inout-params for v1. Revisit if real APIs demand non-escaping-closure carve-outs.
 - ✅ **Read-only-by-ref modifier (`in(name) : T`)** — defer to v2. v1 ships only `inout`.
+- ✅ **Iterator trait redesign** — landed via `plans/ITERATOR_REDESIGN.md` (separate plan). Iterators now expose value-yielding `iter()` / `into_iter()` and the `Indexable.project` projection rule for in-place mutation. `for(coll, ref(x) => body)` works end-to-end.
+- ✅ **Dangling-slice hole** — closed via `plans/SLICE_FLOWABILITY.md`. The flowability rule now extends to any return type whose representation transitively carries a raw pointer.
+- ✅ **Per-call extern audit marker** — every `extern "c"` call must be wrapped in `unsafe(...)`, even in pragma'd files (see `plans/EXTERN_UNSAFE_WRAP.md`). The pragma authorizes declaring the FFI symbol; the wrap is the per-call review marker.
+- ✅ **Integer overflow** — `-fwrapv` is passed by default to clang/gcc/zig, defining signed-overflow as two's-complement wrap. Benchmark showed < 0.5% perf impact on realistic loops.
 
 Phase ordering (foundation → leaves):
 
 1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = v)`.
-2. **Phase B** ✅ — `ref(name) : T` parameter form. Used as the safe in-place-mutation primitive for user code; Phase D will use it to replace `*(Self)` receivers in stdlib trait method signatures.
+2. **Phase B** ✅ — `ref(name) : T` parameter form. Used as the safe in-place-mutation primitive for user code, and as the replacement for `*(Self)` receivers in stdlib trait method signatures.
 3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)`, `asm(...)`, and `extern fn` declarations on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
-4. **Phase D** ✅ partial — Hash and Clone traits migrated to `ref(self) : Self`; their derive macros updated; ArrayList/HashMap/String impls updated; yo-self bulk migration of `(&(x)).clone()` → `x.clone()` (29 files via script). Iterator trait deferred per goal — would require for-loop redesign. Other one-off `*(T)` signatures (FFI wrappers, `as_ptr`, etc.) left case-by-case.
-5. **Phase E** ✅ — `yo unsafe-report` (audit-friendly listing of every unsafe site, asm, extern, and pragma file). `yo audit-unsafe` (LLM-backed) deferred.
-6. **Phase F** ✅ — Docs (DESIGN.md en+zh, syntax instructions, cheatsheet, cross-links to `yo unsafe-report`). The standalone `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` user page is deferred; the DESIGN.md + plans/ coverage is sufficient for now.
+4. **Phase D** ✅ — Hash, Clone, ToString, and Iterator traits migrated to `ref(self) : Self` (or `inout(self)` where state needs to mutate). Derive macros updated; ArrayList/HashMap/String/imm.List impls updated; bulk migration of `(&(x)).clone()` → `x.clone()` (29 yo-self files). Iterator migration is documented in `plans/ITERATOR_REDESIGN.md`.
+5. **Phase E** ✅ — `yo unsafe-report` (audit-friendly listing of every unsafe site, asm, extern, and pragma file), now with sub-kind classification (extern-call / deref / arith / addr-of / other) and top-callees summary. `yo audit-unsafe` (LLM-backed) remains deferred.
+6. **Phase F** ✅ — Docs (DESIGN.md en+zh, syntax instructions, cheatsheet, cross-links to `yo unsafe-report`, and the standalone `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` user guide).
 
-Total implementation cost: ~2–3 weeks across all phases. Substantially less than `FUTURE_ORIGINS.md` (~1–2 months) for materially the same practical safety story.
-
-**Next concrete unit of work: Iterator trait redesign** (Phase D). The remaining Phase C structural gates (`*(T)` types, `&(expr)`) are also meaningful follow-ups but don't compromise memory safety in practice.
+Total implementation cost: ~3–4 weeks across all phases (including the follow-up slice-flowability and extern-wrap plans). Substantially less than `FUTURE_ORIGINS.md` (~1–2 months) for materially the same practical safety story.
 
 **Known gaps:**
 
-- **(All previously known gaps closed as of this revision.)**
+- **(All previously known gaps closed as of this revision.)** Future arithmetic-safety work (`wrapping_add` / `checked_add` builtins, opt-in overflow trapping) tracked separately if it becomes necessary.

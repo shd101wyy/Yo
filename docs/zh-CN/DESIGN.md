@@ -980,7 +980,9 @@ match(some_ptr,
 
 ### 内存安全
 
-Yo 的安全模型是分层的（详见 [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)）：
+面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`ref(name)` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`，以及处理有符号整数溢出的 `-fwrapv`。
+
+Yo 的安全模型是分层的（设计计划见 [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)）：
 
 - **`object` 类型**通过引用计数自动释放（RC + 循环回收），从构造上保证内存安全。
 - **`Iso(T)` / `Arc(T)`** 分别提供仿射所有权传递和原子 RC 共享所有权。
