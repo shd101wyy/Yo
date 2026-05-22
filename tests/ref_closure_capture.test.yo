@@ -21,11 +21,9 @@ comptime_expect_error(
 );
 // Closure that writes a ref parameter is rejected.
 comptime_expect_error(
-  make_writer :: (fn(ref(x) : i32) -> Impl(Fn() -> unit))(
-    () => {
-      x = i32(99);
-    }
-  )
+  make_writer :: (fn(ref(x) : i32) -> Impl(Fn() -> unit))(() => {
+    x = i32(99);
+  })
 );
 // Nested closure capturing an outer ref param is rejected.
 // Two closure layers: outer `=>` captures nothing ref; inner `=>`
