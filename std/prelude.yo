@@ -5611,7 +5611,10 @@ impl(
   Indexable(usize)(
     Element : T,
     project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
-      unsafe(__yo_array_index(&(self), pos))
+      cond(
+        (pos >= N) => panic("Array: project out of bounds"),
+        true => unsafe(__yo_array_index(&(self), pos))
+      )
     )
   )
 );
@@ -5676,7 +5679,10 @@ impl(
   Indexable(usize)(
     Element : T,
     project : (fn(ref(self) : Self, pos : usize) -> ref(T))(
-      unsafe(__yo_slice_index(&(self), pos))
+      cond(
+        (pos >= self.len()) => panic("Slice: project out of bounds"),
+        true => unsafe(__yo_slice_index(&(self), pos))
+      )
     )
   )
 );

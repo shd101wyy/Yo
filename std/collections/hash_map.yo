@@ -709,11 +709,13 @@ impl(
   Indexable(usize)(
     Element : Bucket(K, V),
     project : (fn(ref(self) : Self, pos : usize) -> ref(Bucket(K, V)))(
-      // SAFETY: `pos` comes from the position-iter, which yields
-      // only valid bucket indices (`pos < self._capacity`).
-      // `_data_ptr` returns the start of the Rc-managed _data buffer;
-      // it's alive while `self` holds the Rc.
-      unsafe(Self._data_ptr(self) &+ pos)
+      cond(
+        (pos >= self._capacity) => panic("HashMap: project out of bounds"),
+        // SAFETY: cond above bounds `pos`; `_data_ptr` returns the
+        // start of the Rc-managed _data buffer, which is alive while
+        // `self` holds the Rc.
+        true => unsafe(Self._data_ptr(self) &+ pos)
+      )
     )
   )
 );
