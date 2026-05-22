@@ -186,10 +186,21 @@ export function generateFunctionDeclarations(
     // Or with SomeType in return type that isn't a plain Impl(...) or Impl(Future)
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
+    // Mirror the carve-out from generation.ts: closures are per-
+    // instance with their own concrete capture struct and distinct C
+    // function name. Their parameter list may contain `io : IO`
+    // whose nested fn-pointer fields trip `typeContainsSomeType`,
+    // but the closure value itself is not truly generic. Without
+    // the carve-out, the forward declaration is missing while the
+    // body IS emitted (per generation.ts), causing
+    // "call to undeclared function" / "static declaration follows
+    // non-static declaration" errors when the spawn-wrapper calls
+    // the closure earlier in the file than its definition site.
     const hasGenericParams =
       !isUserMain &&
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
+      !value.type.isClosure &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);

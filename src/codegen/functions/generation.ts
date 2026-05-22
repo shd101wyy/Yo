@@ -394,10 +394,19 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Or with SomeType in return type that isn't a plain Impl(...) or Impl(Future)
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
+    // Closures (`isClosure: true`) are per-instance with their own
+    // concrete capture struct and distinct C function. Their parameter
+    // list may contain `io : IO` or similar effect-record types whose
+    // nested fn-pointer fields trip `typeContainsSomeType`, but the
+    // closure value itself is not truly generic and its body has
+    // been evaluated. Skipping such closures would leave the spawn-
+    // wrapper / state-machine references (`closure_*`) undeclared at
+    // link time. Let them through to emission.
     const hasGenericParams =
       !isUserMain &&
       !isEffectfulFunction &&
       !value.isEffectRecordMember &&
+      !value.type.isClosure &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
