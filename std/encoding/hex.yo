@@ -86,8 +86,8 @@ hex_decode :: (fn(s : str, exn : Exception) -> ArrayList(u8))({
   out := ArrayList(u8).with_capacity(s.len() / usize(2));
   i := usize(0);
   while(i < s.len(), i = (i + usize(2)), {
-    hi := _hex_nibble(s.bytes(i));
-    lo := _hex_nibble(s.bytes(i + usize(1)));
+    hi := _hex_nibble(s.bytes(i), exn);
+    lo := _hex_nibble(s.bytes(i + usize(1)), exn);
     out.push((hi << u8(4)) | lo);
   });
   out

@@ -234,7 +234,7 @@ impl(
             after_bracket := (bracket_end + usize(1));
             cond(
               ((after_bracket < auth_end) && (s.bytes(after_bracket) == _COLON)) => {
-                port =.Some(_parse_port(s, after_bracket + usize(1), auth_end));
+                port =.Some(_parse_port(s, after_bracket + usize(1), auth_end, exn));
               },
               true => ()
             );
@@ -264,7 +264,7 @@ impl(
                   hh2 = (hh2 + usize(1));
                 });
                 host =.Some(String.from_bytes(host_b));
-                port =.Some(_parse_port(s, cp_val + usize(1), auth_end));
+                port =.Some(_parse_port(s, cp_val + usize(1), auth_end, exn));
               },
               .None => {
                 // No port, entire range is host
