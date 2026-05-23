@@ -127,17 +127,17 @@ test("symlink_metadata on symlink reports symlink", {
   );
   cond(
     io.await(fs_file.exists(lnk, io), io) => {
-      io.await(fs_dir.remove_file(lnk, io), IOErr(io : io, exn : exn));
+      io.await(fs_dir.remove_file(lnk, io), IOErr(io : io, exn : setup_exn));
     },
     true => ()
   );
   cond(
     io.await(fs_file.exists(src, io), io) => {
-      io.await(fs_dir.remove_file(src, io), IOErr(io : io, exn : exn));
+      io.await(fs_dir.remove_file(src, io), IOErr(io : io, exn : setup_exn));
     },
     true => ()
   );
-  io.await(fs_file.write_file(src, String.from("symlink meta test"), io), IOErr(io : io, exn : exn));
+  io.await(fs_file.write_file(src, String.from("symlink meta test"), io), IOErr(io : io, exn : setup_exn));
   // Symlink may fail with PermissionDenied on Windows
   sym_exn := Exception(
     throw : (
@@ -161,7 +161,7 @@ test("symlink_metadata on symlink reports symlink", {
       }
     )
   );
-  io.await(fs_dir.symlink(src, lnk, io), IOErr(io : io, exn : exn));
+  io.await(fs_dir.symlink(src, lnk, io), IOErr(io : io, exn : sym_exn));
   exn := Exception(
     throw : (
       (err) -> {
