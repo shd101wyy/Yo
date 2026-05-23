@@ -20,7 +20,7 @@ test("Test lazy async", {
     c := Box(i32)(10);
     b.* = (b.* + 1);
     another_io.await(yield(another_io), another_io);
-    printf("Task completed %d\n", b.*);
+    unsafe(printf("Task completed %d\n", b.*));
     assert(c.* == 10, "captured Box should still be 10");
   });
   // With lazy execution, task hasn't started yet
@@ -40,7 +40,7 @@ test("Test async function", {
     c := Box(i32)(10);
     bb.* = (bb.* + 1);
     io.await(yield(io), io);
-    printf("Task completed %d\n", bb.*);
+    unsafe(printf("Task completed %d\n", bb.*));
     assert(c.* == 10, "c should be 10");
     return(bb.*);
   });
@@ -1760,7 +1760,7 @@ test("Test unwind in async closure", {
     });
     test_unwind(task);
     st := io.state(task);
-    printf("Future state after starting task: %d\n", st);
+    unsafe(printf("Future state after starting task: %d\n", st));
     assert(st == FutureState.Aborted);
   };
   {
@@ -1781,7 +1781,7 @@ test("Test unwind in async closure", {
     });
     result := test_unwind(task);
     st := io.state(task);
-    printf("Future state after starting task: %d\n", st);
+    unsafe(printf("Future state after starting task: %d\n", st));
     assert(st == FutureState.Aborted, "expected task to be aborted");
     assert(result == 666, "expected task to unwind with 666");
   };
@@ -1864,7 +1864,7 @@ test("Test effect injection via io.await on sync future", {
       println(msg);
     };
   io.await(task, io, log1, io);
-  printf("effect injection via await OK\n");
+  unsafe(printf("effect injection via await OK\n"));
 });
 // ---------------------------------------------------------------------------
 // Effect injection via io.spawn, then io.await (set-once semantics)
@@ -1886,7 +1886,7 @@ test("Test effect injection set-once via io.spawn then io.await", {
     };
   handle := io.spawn(task, io, log1);
   handle.await(io, handle, handle);
-  printf("set-once via spawn OK\n");
+  unsafe(printf("set-once via spawn OK\n"));
 });
 // ---------------------------------------------------------------------------
 // Effect injection via io.await on async future (SM path, with await inside)
@@ -1904,7 +1904,7 @@ test("Test effect injection via io.await on SM future", {
       println(msg);
     };
   io.await(task, io, log1, io);
-  printf("effect injection SM path OK\n");
+  unsafe(printf("effect injection SM path OK\n"));
 });
 // ---------------------------------------------------------------------------
 // Break in tagged union (Option) match arm inside async while loop
@@ -2067,7 +2067,7 @@ test("Test two effects injected via io.await", {
   );
   (log : Log) = (
     (msg) -> {
-      printf("log: ");
+      unsafe(printf("log: "));
       println(msg);
     }
   );
@@ -2094,7 +2094,7 @@ test("Test two effects injected via io.spawn", {
   );
   (log : Log) = (
     (msg) -> {
-      printf("spawn-log: ");
+      unsafe(printf("spawn-log: "));
       println(msg);
     }
   );
