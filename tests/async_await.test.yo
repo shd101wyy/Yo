@@ -1649,7 +1649,7 @@ test("Test explicit Future annotation with bundle effect struct", {
 // ---------------------------------------------------------------------------
 test("Test await future multiple times returns same result", {
   {
-    task := io.async(() => {
+    task := io.async((io : IO) => {
       return(42);
     });
     result1 := io.await(task, io);
@@ -1660,7 +1660,7 @@ test("Test await future multiple times returns same result", {
     assert(result3 == 42, "third await should return 42");
   };
   {
-    task := io.async(() => {
+    task := io.async((io : IO) => {
       return(Box(i32)(12));
     });
     result1 := io.await(task, io);
@@ -1725,7 +1725,7 @@ test("Test io.state completed after spawn", {
 });
 test("Test io.state consistency", {
   // Multiple io.state calls on the same future return consistent results
-  task := io.async(() => {
+  task := io.async((io : IO) => {
     return(i32(99));
   });
   s1 := io.state(task);
