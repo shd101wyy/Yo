@@ -1473,8 +1473,9 @@ test("Test Future no effects backward compat", {
 // ---------------------------------------------------------------------------
 test("Test Future with single effect row spread", {
   Raise :: (fn(msg : String) -> i32);
-  might_fail :: (fn(raise : Raise) -> i32)(
-    raise(`oops`)
+  RaiseBundle :: struct(raise : Raise);
+  might_fail :: (fn(e : RaiseBundle) -> i32)(
+    e.raise(`oops`)
   );
   run :: (
     fn(
@@ -1482,14 +1483,14 @@ test("Test Future with single effect row spread", {
       f : (fn(e : E) -> T),
       e : E
     ) -> T
-  )(f());
+  )(f(e));
   task := io.async((io : IO) => {
     (raise : Raise) = (
       (msg) -> {
         return(i32(99));
       }
     );
-    result := run(might_fail);
+    result := run(might_fail, RaiseBundle(raise : raise));
     io.await(yield(io), io);
     result
   });
@@ -1524,9 +1525,9 @@ test("Test Future with single individual effect", {
 test("Test Future with multiple individual effects", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
-  might_fail_and_log :: (fn(using(raise : Raise, log : Log)) -> i32)({
-    log(`about to raise`);
-    raise(`multi-effect`)
+  might_fail_and_log :: (fn(r : Raise, l : Log) -> i32)({
+    l(`about to raise`);
+    r(`multi-effect`)
   });
   task := io.async((io : IO) => {
     (raise : Raise) = (
@@ -1540,7 +1541,7 @@ test("Test Future with multiple individual effects", {
         println(msg);
       }
     );
-    result := might_fail_and_log();
+    result := might_fail_and_log(raise, log);
     io.await(yield(io), io);
     result
   });
@@ -1553,23 +1554,25 @@ test("Test Future with multiple individual effects", {
 test("Test Future with multiple effect row spreads", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
-  might_fail :: (fn(raise : Raise) -> i32)(
-    raise(`oops`)
+  RaiseBundle :: struct(raise : Raise);
+  LogBundle :: struct(log : Log);
+  might_fail :: (fn(e : RaiseBundle) -> i32)(
+    e.raise(`oops`)
   );
-  might_log :: (fn(log : Log) -> unit)(
-    log(`logged something`)
+  might_log :: (fn(e : LogBundle) -> unit)(
+    e.log(`logged something`)
   );
   run_both :: (
     fn(
       forall(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
-      f1 : (fn(E1 : Type.Struct) -> T1),
-      f2 : (fn(E2 : Type.Struct) -> T2),
+      f1 : (fn(e : E1) -> T1),
+      f2 : (fn(e : E2) -> T2),
       e1 : E1,
       e2 : E2
     ) -> T1
   )({
-    f2();
-    f1()
+    f2(e2);
+    f1(e1)
   });
   task := io.async((io : IO) => {
     (raise : Raise) = (
@@ -1583,7 +1586,12 @@ test("Test Future with multiple effect row spreads", {
         println(msg);
       }
     );
-    result := run_both(might_fail, might_log);
+    result := run_both(
+      might_fail,
+      might_log,
+      RaiseBundle(raise : raise),
+      LogBundle(log : log)
+    );
     io.await(yield(io), io);
     result
   });
@@ -1595,6 +1603,7 @@ test("Test Future with multiple effect row spreads", {
 // ---------------------------------------------------------------------------
 test("Test Future with mixed individual effect and spread", {
   Raise :: (fn(msg : String) -> i32);
+  EmptyBundle :: struct();
   task := io.async((io : IO) => {
     (raise : Raise) = (
       (msg) -> {
@@ -1606,12 +1615,12 @@ test("Test Future with mixed individual effect and spread", {
       fn(
         forall(E : Type.Struct),
         my_raise : Raise,
-        E : Type.Struct
+        e : E
       ) -> i32
     )(
       my_raise(`mixed-effect`)
     );
-    result := might_fail_and_forward();
+    result := might_fail_and_forward(raise, EmptyBundle());
     io.await(yield(io), io);
     result
   });
