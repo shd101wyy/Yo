@@ -53,6 +53,7 @@ import {
   emitAsyncFutureCompletion,
   emitAsyncFutureEscape,
 } from "../exprs/async-completion";
+import { findBundleFieldName } from "../exprs/async";
 import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -2453,6 +2454,29 @@ function emitEffectInjectionForSM(
       );
     }
   } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
+    // Phase 7 (SM-internal counterpart): when the awaited future's effect
+    // is a struct bundle (e.g. `IOErr`), forward the outer SM's bundle
+    // field (the closure's `e` param, stored at `sm->var_<id>_<param>`)
+    // into the inner future's SM via its
+    // `set_effect("__bundle", &outer_bundle)` callback. The matching
+    // set_effect impl on the inner SM copies the struct into its own
+    // bundle field. See src/codegen/exprs/async.ts:findBundleFieldName.
+    //
+    // We don't go through `generateExpr(awaitExpr.args[1])` because the
+    // atom-resolution in atom.ts doesn't always rewrite the bundle atom
+    // to its SM-level field name from the callsite of an io.await call
+    // tree — looking up via the outer SM's variable map directly is
+    // both more reliable and avoids generating a temporary copy.
+    const outerBundleField = findBundleFieldName(
+      futureTraitType,
+      context.stateMachineVariables
+    );
+    if (outerBundleField) {
+      context.emitter.emitLine(
+        `${indent}if (${futureAccess}->__yo_set_effect_fn) ${futureAccess}->__yo_set_effect_fn((void*)${futureAccess}, "__bundle", (void*)&sm->${outerBundleField});`
+      );
+      return;
+    }
     emitEffectRecordInjectionForSM(
       effect.type,
       futureArg.$.type,

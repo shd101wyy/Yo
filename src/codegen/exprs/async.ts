@@ -476,7 +476,7 @@ function getInjectableFutureEffectFieldMappings(
  * the bundle either isn't a struct effect, or there are no SM variables
  * available (set_effect emitted outside the SM body region).
  */
-function findBundleFieldName(
+export function findBundleFieldName(
   futureTraitType: FutureTraitType,
   stateMachineVariables:
     | Map<
