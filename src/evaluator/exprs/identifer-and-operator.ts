@@ -532,21 +532,12 @@ export function evaluateIdentifierAndOperator({
         context.capturedVariables &&
         context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv
       ) {
-        // The closure's own parameter frame is the LAST frame of the
-        // evaluation env (added by `pushEnvFrame` + param binding before
-        // the body runs). A variable at that frame is the closure's own
-        // parameter — NOT a captured outer variable. Use `< ownFrame` so
-        // the shadow case (`(io) =>` inside a function whose own `io`
-        // outer scope) correctly identifies the closure's `io` as a local
-        // bind, not a capture of the outer `io`. Pre-fix this counted
-        // the param frame as outer, which pulled the outer `io` into the
-        // closure's capture set and failed the `Send` check for
-        // `Thread.spawn((io) => { io.async(...) })`.
-        const ownFrame =
+        const closureEvaluationFrameLevel =
           context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv.frames
-            .length - 1;
+            .length;
 
-        if (variable.frameLevel < ownFrame) {
+        // If variable is from an outer scope (lower frame level than closure evaluation), it's captured
+        if (variable.frameLevel < closureEvaluationFrameLevel) {
           // Determine usage type based on closure kind
           const usageType = "own";
           /*
@@ -564,17 +555,16 @@ export function evaluateIdentifierAndOperator({
         }
       }
 
-      // For async blocks, track variables captured from outer scopes.
-      // Same rationale as the closure case above — exclude the async
-      // block's own param frame from the "outer" set.
+      // For async blocks, track variables captured from outer scopes
       if (
         context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "async-block"
       ) {
-        const ownFrame =
+        const asyncBlockEvaluationFrameLevel =
           context.isEvaluatingFunctionBodyOrAsyncBlock.evaluationEnv.frames
-            .length - 1;
+            .length;
 
-        if (variable.frameLevel < ownFrame) {
+        // If variable is from an outer scope (lower frame level than async block evaluation), it's captured
+        if (variable.frameLevel < asyncBlockEvaluationFrameLevel) {
           // Async blocks always own the captured variables (move semantics)
           const usageType = "own";
           trackVariableUsage(
