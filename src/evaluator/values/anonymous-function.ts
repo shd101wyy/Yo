@@ -687,6 +687,50 @@ Got:      "${paramName}"`,
   // for other shapes (e.g. `*(T)` direct fields). The unbound variant walks
   // every shape and only reports SomeTypes whose name isn't bound by a
   // surrounding `forall(...)`.
+  // Closure inference contract: when the surrounding context's expected
+  // type still carries an unbound SomeType in a closure parameter
+  // position AND the user did not provide a `(name : Type)` annotation
+  // on that parameter (which is the only knob the substitution pass
+  // above honors), the type genuinely cannot be inferred from the
+  // closure source. Deferring the body in that case produces confusing
+  // downstream failures ("Variable not found", "Internal error: return
+  // expression missing metadata", etc.) far from the actual user
+  // mistake. Report the missing annotation up front instead.
+  //
+  // Only fires for closure-creation (`=>`) — `->` regular function
+  // values declare their own type and have a different evaluation
+  // path that doesn't rely on caller-side inference.
+  if (isCreatingClosure) {
+    for (let i = 0; i < regularParamExprs.length; i++) {
+      const paramExpr = regularParamExprs[i]!;
+      const expectedParam = functionType.parameters[i];
+      if (!expectedParam) continue;
+      if (!typeContainsUnboundSomeType(expectedParam.type)) continue;
+      // Did the user write `(name : Type)`? The substitution pass
+      // upstream only honors that exact shape.
+      const userAnnotatedThisParam =
+        exprIsFunctionCall(paramExpr) &&
+        exprIsAtom(paramExpr.func) &&
+        paramExpr.func.token.value === ":" &&
+        paramExpr.args.length === 2;
+      if (userAnnotatedThisParam) continue;
+      const displayName = exprIsAtom(paramExpr)
+        ? paramExpr.token.value
+        : exprToString(paramExpr);
+      throw formatErrorMessage({
+        token: paramExpr.token,
+        errorMessage: `Cannot infer the type of anonymous closure parameter \`${displayName}\`.
+
+The surrounding context expects a parameter of type \`${typeToString(
+          expectedParam.type
+        )}\` (an unbound generic), and the closure source provides no information that lets the evaluator pin it down.
+
+Add an explicit annotation to the closure parameter, e.g.:
+  (${displayName} : <ConcreteType>) => ...`,
+      });
+    }
+  }
+
   const shouldDeferBodyEvaluation =
     forallParamExprs.length > 0 ||
     functionType.parameters.some((param) =>
