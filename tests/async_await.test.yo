@@ -15,11 +15,11 @@ future_with_returned_state :: (fn(value : i32, io : IO) -> Impl(Future(i32, IO))
 // ---------------------------------------------------------------------------
 test("Test lazy async", {
   b := Box(i32)(0);
-  task := io.async((another_io : IO) => {
+  task := io.async((io : IO) => {
     unsafe(printf("Task started %d\n", b.*));
     c := Box(i32)(10);
     b.* = (b.* + 1);
-    another_io.await(yield(another_io), another_io);
+    io.await(yield(io), io);
     unsafe(printf("Task completed %d\n", b.*));
     assert(c.* == 10, "captured Box should still be 10");
   });
