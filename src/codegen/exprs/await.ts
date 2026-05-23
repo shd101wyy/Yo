@@ -600,6 +600,25 @@ function emitEffectInjectionForAwait(
       );
     }
   } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
+    // Whole-bundle injection: io.await/io.spawn pass the user's bundle
+    // value as the second positional arg (e.g. `io.await(future, IOErr(...))`).
+    // Generate that expression, store it in a local, and hand its address
+    // to the future's set_effect("__bundle", &bundle) callback. The
+    // matching set_effect impl copies the struct into the SM's bundle
+    // field (see findBundleFieldName / generateFutureEffectSetter).
+    const bundleArg = expr.args[1];
+    if (bundleArg) {
+      const bundleCode = generateExpr(bundleArg, indent, context);
+      const bundleType = getTypeString(effect.type, context);
+      const tmpName = `__yo_eff_bundle_${effectInjectionTmpCounter++}`;
+      functionContext.emitter.emitLine(
+        `${indent}${bundleType} ${tmpName} = ${bundleCode};`
+      );
+      functionContext.emitter.emitLine(
+        `${indent}if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, "__bundle", (void*)&${tmpName});`
+      );
+      return;
+    }
     emitEffectRecordInjection(
       effect.type,
       futureArg.$.type,
@@ -611,6 +630,8 @@ function emitEffectInjectionForAwait(
     );
   }
 }
+
+let effectInjectionTmpCounter = 0;
 
 /**
  * Inject struct-record effect fields (e.g., Exception.throw) into a Future's capture struct.

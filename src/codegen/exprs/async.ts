@@ -22,6 +22,7 @@ import type {
   DynType,
   FutureTraitType,
   SomeType,
+  SourceNamespaceType,
   StructType,
   Type,
 } from "../../types/definitions";
@@ -359,41 +360,55 @@ export function generateAsyncBlock(
   }
 }
 
+/**
+ * Mapping from an effect-bundle leaf function field (e.g. `exn.throw`) to the
+ * full SM access path that stores it. Examples:
+ *   - `__capture.throw` (legacy: function-typed effect field stored in capture)
+ *   - `var_<id>.exn.throw` (Phase 7: effect is a struct bundle stored as a
+ *     SM-level field, recursed into struct-typed sub-fields)
+ */
 function getInjectableFutureEffectFieldMappings(
   futureTraitType: FutureTraitType,
-  captureType: StructType | undefined
-): Array<{ effectLabel: string; captureLabel: string }> {
-  if (!captureType) {
-    return [];
-  }
-
-  const mappings: Array<{ effectLabel: string; captureLabel: string }> = [];
-  const addMapping = (effectLabel: string, captureLabel: string) => {
+  captureType: StructType | undefined,
+  stateMachineVariables?: Map<
+    string,
+    import("../../evaluator/async/await-analysis-types").CapturedVariable
+  >
+): Array<{ effectLabel: string; accessPath: string }> {
+  const mappings: Array<{ effectLabel: string; accessPath: string }> = [];
+  const addMapping = (effectLabel: string, accessPath: string) => {
     if (
       !mappings.some(
-        (m) => m.effectLabel === effectLabel && m.captureLabel === captureLabel
+        (m) => m.effectLabel === effectLabel && m.accessPath === accessPath
       )
     ) {
-      mappings.push({ effectLabel, captureLabel });
+      mappings.push({ effectLabel, accessPath });
     }
   };
 
   const effect = futureTraitType.isFuture.effect;
-  if (effect) {
-    if (isFunctionType(effect.type)) {
-      const captureField =
-        captureType.fields.find((field) => field.label === effect.label) ??
-        captureType.fields.find(
-          (field) => field.label.toLowerCase() === effect.label.toLowerCase()
-        ) ??
-        captureType.fields.find((field) => field.type.id === effect.type.id);
-      if (captureField) {
-        addMapping(effect.label, captureField.label);
-      }
-    } else if (
-      isSourceNamespaceType(effect.type) ||
-      isStructType(effect.type)
-    ) {
+  if (!effect) {
+    return mappings;
+  }
+
+  // Path 1: function-typed effect — look for matching capture field.
+  if (isFunctionType(effect.type) && captureType) {
+    const captureField =
+      captureType.fields.find((field) => field.label === effect.label) ??
+      captureType.fields.find(
+        (field) => field.label.toLowerCase() === effect.label.toLowerCase()
+      ) ??
+      captureType.fields.find((field) => field.type.id === effect.type.id);
+    if (captureField) {
+      addMapping(effect.label, `__capture.${captureField.label}`);
+    }
+    return mappings;
+  }
+
+  // Path 2: struct-typed effect (e.g. `IOErr { io : IO, exn : Exception }`).
+  if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
+    // First try the legacy path: top-level fn-typed fields in __capture.
+    if (captureType) {
       for (const field of effect.type.fields) {
         if (isFunctionType(field.type)) {
           const captureField =
@@ -403,14 +418,86 @@ function getInjectableFutureEffectFieldMappings(
             ) ??
             captureType.fields.find((f) => f.type.id === field.type.id);
           if (captureField) {
-            addMapping(field.label, captureField.label);
+            addMapping(field.label, `__capture.${captureField.label}`);
           }
         }
+      }
+    }
+
+    // Phase 7: if some leaf-function fields are reached through nested
+    // struct fields (e.g. `exn.throw` inside an IOErr bundle), they live
+    // in a SM-level field `var_<id>_<param>` (the closure's bundle param)
+    // rather than in __capture. Look up `stateMachineVariables` for a
+    // variable whose type matches the bundle, then build paths into it.
+    if (stateMachineVariables) {
+      let bundleVarFieldName: string | undefined;
+      for (const [, smVar] of stateMachineVariables) {
+        if (smVar.kind === "outer") continue;
+        if (smVar.type.id === effect.type.id) {
+          bundleVarFieldName = `var_${smVar.id}`;
+          break;
+        }
+      }
+      if (bundleVarFieldName) {
+        const visit = (
+          structType: StructType | SourceNamespaceType,
+          basePath: string,
+          baseLabel: string
+        ) => {
+          for (const field of structType.fields) {
+            if (isFunctionType(field.type)) {
+              const effectLabel = baseLabel
+                ? `${baseLabel}.${field.label}`
+                : field.label;
+              addMapping(effectLabel, `${basePath}.${field.label}`);
+            } else if (
+              (isSourceNamespaceType(field.type) || isStructType(field.type)) &&
+              field.type.fields.length > 0
+            ) {
+              const subLabel = baseLabel
+                ? `${baseLabel}.${field.label}`
+                : field.label;
+              visit(field.type, `${basePath}.${field.label}`, subLabel);
+            }
+          }
+        };
+        visit(effect.type, bundleVarFieldName, "");
       }
     }
   }
 
   return mappings;
+}
+
+/**
+ * Look up the SM-level field that stores the closure's effect-bundle param
+ * (e.g. `var_yoa51d630f_e` for an `(e : IOErr) =>` async closure). Returns
+ * undefined when no SM variable matches the effect's struct type — i.e.
+ * the bundle either isn't a struct effect, or there are no SM variables
+ * available (set_effect emitted outside the SM body region).
+ */
+function findBundleFieldName(
+  futureTraitType: FutureTraitType,
+  stateMachineVariables:
+    | Map<
+        string,
+        import("../../evaluator/async/await-analysis-types").CapturedVariable
+      >
+    | undefined
+): string | undefined {
+  const effect = futureTraitType.isFuture.effect;
+  if (!effect) return undefined;
+  if (!(isSourceNamespaceType(effect.type) || isStructType(effect.type))) {
+    return undefined;
+  }
+  if (!stateMachineVariables) return undefined;
+  for (const [, smVar] of stateMachineVariables) {
+    if (smVar.kind === "outer") continue;
+    if (smVar.type.id === effect.type.id) {
+      return `var_${smVar.id}`;
+    }
+  }
+  return undefined;
 }
 
 function generateFutureEffectSetter(
@@ -422,42 +509,57 @@ function generateFutureEffectSetter(
 ): void {
   const mappings = getInjectableFutureEffectFieldMappings(
     futureTraitType,
-    captureType
+    captureType,
+    context.stateMachineVariables
   );
+  const bundleFieldName = findBundleFieldName(
+    futureTraitType,
+    context.stateMachineVariables
+  );
+  const effect = futureTraitType.isFuture.effect;
   const emitter = context.emitter;
 
   emitter.emitDeclarationLine(
     `void ${setEffectFunctionName}(void* ptr, const char* field, void* value) {`
   );
   emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
-  if (mappings.length === 0) {
+
+  const hasBundleCase = !!(bundleFieldName && effect);
+  const hasAnyCase = hasBundleCase || mappings.length > 0;
+
+  if (!hasAnyCase) {
     emitter.emitDeclarationLine(`  (void)sm;`);
     emitter.emitDeclarationLine(`  (void)field;`);
     emitter.emitDeclarationLine(`  (void)value;`);
   } else {
-    mappings.forEach(({ effectLabel, captureLabel }, index) => {
-      const keyword = index === 0 ? "if" : "else if";
-      const capitalizedEffectLabel =
-        effectLabel.length > 0
-          ? `${effectLabel[0]!.toUpperCase()}${effectLabel.slice(1)}`
-          : effectLabel;
-      const capitalizedCaptureLabel =
-        captureLabel.length > 0
-          ? `${captureLabel[0]!.toUpperCase()}${captureLabel.slice(1)}`
-          : captureLabel;
-      const aliases = [
-        ...new Set([
-          effectLabel,
-          captureLabel,
-          capitalizedEffectLabel,
-          capitalizedCaptureLabel,
-        ]),
-      ];
+    let firstCase = true;
+    if (hasBundleCase) {
+      // Whole-bundle copy: writer passes the bundle struct's address as
+      // `value` and `field == "__bundle"`. The set_effect copies the
+      // pointed-to struct into the SM's bundle field. This is how
+      // `io.await(future, IOErr(io, exn))` injects nested effect records.
+      const bundleCName = getTypeString(effect.type, context);
+      emitter.emitDeclarationLine(`  if (strcmp(field, "__bundle") == 0) {`);
+      emitter.emitDeclarationLine(
+        `    sm->${bundleFieldName} = *((${bundleCName}*)value);`
+      );
+      emitter.emitDeclarationLine(`  }`);
+      firstCase = false;
+    }
+    mappings.forEach(({ effectLabel, accessPath }) => {
+      const keyword = firstCase ? "if" : "else if";
+      firstCase = false;
+      const lastSegment = effectLabel.split(".").pop() ?? effectLabel;
+      const capitalizedLast =
+        lastSegment.length > 0
+          ? `${lastSegment[0]!.toUpperCase()}${lastSegment.slice(1)}`
+          : lastSegment;
+      const aliases = [...new Set([effectLabel, lastSegment, capitalizedLast])];
       const condition = aliases
         .map((alias) => `strcmp(field, ${JSON.stringify(alias)}) == 0`)
         .join(" || ");
       emitter.emitDeclarationLine(`  ${keyword} (${condition}) {`);
-      emitter.emitDeclarationLine(`    sm->__capture.${captureLabel} = value;`);
+      emitter.emitDeclarationLine(`    sm->${accessPath} = value;`);
       emitter.emitDeclarationLine(`  }`);
     });
   }
@@ -1283,11 +1385,10 @@ export function generateDeferredAsyncBlocks(
       context
     );
 
-    // Restore context
-    context.stateMachineVariables = savedSMVars;
-    context.currentEvidenceParams = savedEvidenceParams;
-    context.stateMachineFieldAliases = savedFieldAliases;
-
+    // Emit the set_effect impl before restoring context, so the SM-var
+    // lookup in `getInjectableFutureEffectFieldMappings` can see the SM's
+    // own var_<id> fields (the closure params, e.g. the bundle param `e`).
+    // Outside the SM body region those vars are dropped from context.
     emitter.emitLine(``);
 
     generateFutureEffectSetter(
@@ -1297,6 +1398,11 @@ export function generateDeferredAsyncBlocks(
       captureType,
       context
     );
+
+    // Restore context
+    context.stateMachineVariables = savedSMVars;
+    context.currentEvidenceParams = savedEvidenceParams;
+    context.stateMachineFieldAliases = savedFieldAliases;
 
     emitter.emitLine(``);
 
