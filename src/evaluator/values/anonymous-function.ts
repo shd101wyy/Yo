@@ -61,7 +61,12 @@ import type {
   Type,
 } from "../../types/definitions";
 import { randomId } from "../../utils";
-import { createUnknownValue, isTypeValue, type Value } from "../../value";
+import {
+  createTypeValue,
+  createUnknownValue,
+  isTypeValue,
+  type Value,
+} from "../../value";
 import { ValueTag } from "../../value-tag";
 import { analyzeAwaitPoints } from "../async/await-analysis";
 import {
@@ -71,6 +76,7 @@ import {
 import { type EvaluatorContext } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
+import { evaluateExpression } from "../exprs/expr";
 import { extractFnTraitFromType } from "../trait-checking";
 import { applyWhereClauseConstraints } from "../types/function";
 import {
@@ -413,6 +419,82 @@ Got:      "${paramName}"`,
     type: Type;
     token: Token;
   }> = [];
+  // When a closure parameter has an explicit annotation `(name : Type)` and
+  // the expected (Fn-trait) parameter type is an unresolved SomeType (e.g.
+  // io.async's `Impl(Fn(e : E) -> T)` exposes `e : E`), use the user's
+  // annotation to resolve the SomeType. Without this, the lambda's param
+  // type stays as `E` (free SomeType), `shouldDeferBodyEvaluation` fires,
+  // and the closure body never gets evaluated — leaving sub-expressions
+  // unannotated and producing "Unhandled function call" at codegen time.
+  //
+  // We build a per-lambda substitution env in a fresh frame (so the binding
+  // doesn't conflict with any outer `E` and doesn't escape to the caller),
+  // then run `substituteSomeTypesFromEnv` to produce a new `functionType`
+  // with the SomeType replaced throughout.
+  {
+    let needsSubstitution = false;
+    let substEnv: Environment | undefined;
+    for (let i = 0; i < regularParamExprs.length; i++) {
+      const paramExpr = regularParamExprs[i]!;
+      const expectedParam = functionType.parameters[i]!;
+      if (
+        !isCreatingClosure ||
+        !exprIsFunctionCall(paramExpr) ||
+        !exprIsAtom(paramExpr.func) ||
+        paramExpr.func.token.value !== ":" ||
+        paramExpr.args.length !== 2 ||
+        !isSomeType(expectedParam.type) ||
+        expectedParam.type.resolvedConcreteType
+      ) {
+        continue;
+      }
+      const typeExpr = paramExpr.args[1]!;
+      let userType: Type | undefined;
+      try {
+        const evalRes = evaluateExpression({
+          expr: typeExpr,
+          env,
+          context: { ...context, isEvaluatingFunctionType: true },
+        });
+        const val = evalRes.$?.value;
+        if (val && isTypeValue(val) && !isSomeType(val.value)) {
+          userType = val.value;
+        }
+      } catch {
+        // Annotation didn't evaluate to a concrete type — leave alone.
+      }
+      if (!userType) continue;
+      if (!substEnv) substEnv = pushEnvFrame(env);
+      const someName = expectedParam.type.name;
+      // Skip if a binding with this name already exists in the new frame
+      // (multi-param closures with two annotations using the same forall name).
+      const topFrame = substEnv.frames[substEnv.frames.length - 1]!;
+      if (topFrame.variables.some((v) => v.name === someName)) continue;
+      const addRes = addVariableToEnv({
+        env: substEnv,
+        variable: {
+          name: someName,
+          type: expectedParam.type.parentType,
+          isCompileTimeOnly: true,
+          value: [createTypeValue(userType)],
+          token: paramExpr.token,
+          initializedAtToken: paramExpr.token,
+          consumedAtToken: undefined,
+          isOwningTheRcValue: false,
+        },
+        allowVariableShadowing: true,
+      });
+      substEnv = addRes.env;
+      needsSubstitution = true;
+    }
+    if (needsSubstitution && substEnv) {
+      const substituted = substituteSomeTypesFromEnv(functionType, substEnv);
+      if (substituted !== functionType && isFunctionType(substituted)) {
+        functionType = substituted;
+      }
+    }
+  }
+
   // Check regular parameters (only comptime ones need exact matching)
   for (let i = 0; i < regularParamExprs.length; i++) {
     const paramExpr = regularParamExprs[i]!;
