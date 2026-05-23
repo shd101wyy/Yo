@@ -154,11 +154,21 @@ export function generateAwait(
     // Non-effectful futures being aborted is always unexpected, so panic for those too.
     const futureModuleForCheck = extractFutureTraitFromType(futureType);
     const futureEffect = futureModuleForCheck?.isFuture.effect;
+    // Resolve through SomeType.resolvedConcreteType so closure-param bundles
+    // (where the function.ts post-call sets E.resolvedConcreteType to the
+    // annotated bundle struct) are recognized as effectful futures. Without
+    // this, the unwind path falls through to the panic branch.
+    const effectTypeResolved =
+      futureEffect &&
+      isSomeType(futureEffect.type) &&
+      futureEffect.type.resolvedConcreteType
+        ? futureEffect.type.resolvedConcreteType
+        : futureEffect?.type;
     const hasAlgebraicEffects =
-      futureEffect !== undefined &&
-      (isFunctionType(futureEffect.type) ||
-        isSourceNamespaceType(futureEffect.type) ||
-        isStructType(futureEffect.type));
+      effectTypeResolved !== undefined &&
+      (isFunctionType(effectTypeResolved) ||
+        isSourceNamespaceType(effectTypeResolved) ||
+        isStructType(effectTypeResolved));
     if (hasAlgebraicEffects) {
       // Only panic if the future was already aborted before this await
       emitter.emitLine(`${indent}    if (${preAwaitStateVar} == -2) {`);
