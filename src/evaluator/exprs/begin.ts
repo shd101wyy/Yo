@@ -1168,6 +1168,32 @@ export function evaluateBeginExpression({
           });
         }
 
+        // Mark `&(ref-returning-call)` arguments to `return(...)` as
+        // sitting in a return slot. The codegen for `&` then forwards
+        // the inner pointer instead of spilling to a stack temp and
+        // taking its address. See generateAddressOf in ptr-fns.ts.
+        // Looks through a wrapping `unsafe(...)` (transparent at the
+        // value level).
+        {
+          let candidate: Expr = evaluatedReturnArgExpr;
+          while (
+            exprIsFunctionCall(candidate) &&
+            exprIsFunctionCallOf(candidate, BuiltinFunctions.unsafe, 1)
+          ) {
+            candidate = candidate.args[0]!;
+          }
+          if (
+            exprIsFunctionCallOf(
+              candidate,
+              BuiltinFunctions.__yo_address_of,
+              1
+            ) &&
+            candidate.$
+          ) {
+            candidate.$.isReturnSlot = true;
+          }
+        }
+
         // §4 escape boundary 1: function return type cannot be
         // control-bound. A control-bound type carries a control function
         // (transitively); returning it from a function takes the value

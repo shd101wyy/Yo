@@ -1,3 +1,4 @@
+import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinFunctions,
   exprIsAtom,
@@ -191,6 +192,24 @@ export function generateAddressOf(
   }
 
   const argCode = generateExpr(arg, indent, context);
+
+  // If `&(arg)` is positioned in a return slot — i.e. the address-of
+  // is the return value flowing out of a fn whose return type is `*(T)`
+  // — and `arg` is itself a call to a function returning `ref(T)`
+  // (which is `T*` at the C ABI), then `&(arg)` should forward the
+  // pointer rather than take its stack address. The evaluator marks
+  // such address-of expressions with `isReturnSlot` when it sees them
+  // as the flowing return value.
+  //
+  // Without this, the body emits `T* temp = call(...); return &temp;`
+  // — a use-after-free because `temp` dies when the function returns.
+  // With the marker, we just forward `temp` (already `T*`).
+  if (expr.$?.isReturnSlot && arg.$?.variableName && arg.$.env) {
+    const argVars = getVariablesFromEnv(arg.$.env, arg.$.variableName);
+    if (argVars.length > 0 && argVars[argVars.length - 1]!.isRef) {
+      return argCode;
+    }
+  }
 
   // If `arg` is an rvalue function-call expression (not a property access,
   // not a bare atom), C does not allow taking its address. Spill it into a

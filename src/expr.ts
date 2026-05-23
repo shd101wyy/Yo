@@ -443,6 +443,20 @@ export interface EvaluatedExprData {
   isIndexTraitAddressOf?: boolean;
 
   /**
+   * When true, this `&(expr)` expression sits in a return slot — i.e. its
+   * result is the value flowing out of the enclosing function (either as
+   * the body's tail-expression or via an explicit `return(&(expr))`). When
+   * the inner expression is a call returning `ref(T)`, the ref itself
+   * is already the `T*` value the caller expects, so codegen forwards it
+   * directly rather than spilling to a stack-local temp and taking its
+   * address (which would be a UAF on return).
+   *
+   * Marked by the evaluator at the binding/return boundary; checked in
+   * `src/codegen/exprs/ptr-fns.ts:generateAddressOf`.
+   */
+  isReturnSlot?: boolean;
+
+  /**
    * For assignments that are purely compile-time (both LHS and RHS are compile-time known),
    * this flag indicates that no C code should be generated for this assignment.
    *
