@@ -363,8 +363,18 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       (!value.isEffectRecordMember || hasComptimeParams) &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
+      !value.type.isClosure &&
       isFunctionTypeHardGeneric(value.type)
     ) {
+      // Hard-generic comptime-template skip — but closures are per-instance
+      // (each io.async / Thread.spawn site gets its own closure value with a
+      // concrete capture struct and unique funcId), so they must NOT be
+      // skipped here even when their parameter list still mentions forall
+      // SomeType (e.g. `e : E` from io.async's Impl(Fn(e : E) -> T)
+      // signature). The later carve-out at the hasGenericParams gate already
+      // exempts isClosure; mirror it here so the body emission path reaches
+      // such closures instead of leaving `closure_*_id_N` undeclared at the
+      // io.async sync_fut_t_resume call site.
       continue;
     }
 
@@ -427,7 +437,10 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
     if (
       hasGenericParams ||
-      (hasGenericReturnType && !returnsPlainImpl && !value.isEffectRecordMember)
+      (hasGenericReturnType &&
+        !returnsPlainImpl &&
+        !value.isEffectRecordMember &&
+        !value.type.isClosure)
     ) {
       continue;
     }
