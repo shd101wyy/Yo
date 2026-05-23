@@ -149,11 +149,20 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
   const variableName = lhs.token.value;
 
   // Validate that runtime variables with generic function types are prohibited
-  // Generic functions can't be represented as runtime function pointers in C
+  // Generic functions can't be represented as runtime function pointers in C —
+  // each monomorphization has a different ABI shape (return register width,
+  // etc.), and a single fn-ptr value can't span them.
+  //
+  // The caller may set `deferGenericFnTypeCheckToAssignment` to skip this
+  // check; it takes responsibility for re-running the check after the RHS
+  // value is evaluated, at which point an `all-paths-unwind` analysis can
+  // relax the rule for ctl handlers that never normally return through
+  // the function pointer. See `evaluateAssignment`.
   if (
     !isCompileTimeOnly &&
     isFunctionType(userDefinedType) &&
-    isFunctionTypeGeneric(userDefinedType)
+    isFunctionTypeGeneric(userDefinedType) &&
+    !context.deferGenericFnTypeCheckToAssignment
   ) {
     throw formatErrorMessage({
       token: lhs.token,

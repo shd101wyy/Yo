@@ -1815,7 +1815,7 @@ test("Test JoinHandle await returns Some on success", {
 // JoinHandle.await returns .None when the task escapes (aborts)
 // ---------------------------------------------------------------------------
 test("Test JoinHandle await returns None on unwind", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
   task := io.async((io : IO, raise : Raise) => {
     io.await(yield(io), io);
     raise(`aborting task`);

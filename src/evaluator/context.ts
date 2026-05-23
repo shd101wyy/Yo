@@ -250,6 +250,17 @@ export interface EvaluatorContext {
   forceCompileTimeBindings?: boolean;
 
   /**
+   * When true, `evaluateBinding` skips its "Runtime variables with generic
+   * function types are not allowed" check. The caller (typically
+   * `evaluateAssignment`) takes responsibility for performing an
+   * equivalent check after evaluating the RHS, where it has enough
+   * information to relax the constraint for ctl handlers whose body
+   * always unwinds (the C ABI never delivers the forall'd return value
+   * in that case). See `allPathsUnwind` in `src/expr-traversal.ts`.
+   */
+  deferGenericFnTypeCheckToAssignment?: boolean;
+
+  /**
    * Whether we are currently analyzing CTFE capability (with UnknownValue parameters).
    * This is different from forceCompileTimeBindings which is also used during actual CTFE execution.
    *
