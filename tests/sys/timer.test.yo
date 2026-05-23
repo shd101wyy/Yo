@@ -27,7 +27,7 @@ test("Test IO timer", {
   task2 := io.async((io : IO) => {
     assert(value.* == 1); // 1
     value.* = (value.* + 1); // 2
-    io.await(yield(), io);
+    io.await(yield(io), io);
     assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
     value.* = (value.* + 1); // 3
   });
