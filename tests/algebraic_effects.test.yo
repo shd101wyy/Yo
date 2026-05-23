@@ -847,7 +847,7 @@ test("Effect row inline typed declaration name : Type", {
   assert(sum.* == 10, "inline typed: sum should be 10");
 });
 test("Mixed unwind and return in effect handler", {
-  Yield :: (fn(v : i32) -> i32);
+  Yield :: (ctl(v : i32) -> i32);
   Log :: (fn(v : i32) -> unit);
   traverse :: (
     fn(
@@ -1812,12 +1812,16 @@ test("ctl rule 3: closure body with unwind is rejected", {
 test("ctl rule 4: closure cannot capture a ctl-typed value", {
   Raise :: (ctl(msg : String) -> i32);
   apply :: (fn(forall(T : Type), f : Impl(Fn() -> T)) -> T)(f());
-  (raise : Raise) = (
-    (msg) -> {
-      unwind(i32(0));
-    }
+  comptime_expect_error(
+    (fn() -> i32)({
+      (raise : Raise) = (
+        (msg) -> {
+          unwind(i32(0));
+        }
+      );
+      return(apply(() => raise(`captured`)));
+    })()
   );
-  comptime_expect_error(apply(() => raise("captured")));
 });
 // Rule 2: an inline lambda whose body contains `unwind` must carry an
 // explicit `ctl(...) -> ret` annotation (either on the LHS binding or on
