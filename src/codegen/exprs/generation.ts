@@ -36,7 +36,12 @@ import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
 import { emitAsyncFutureEscape } from "./async-completion";
 import { generateAtom } from "./atom";
-import { generateAwait, generateJoinHandleAwait, generateState } from "./await";
+import {
+  emitIoSpawnEffectInjection,
+  generateAwait,
+  generateJoinHandleAwait,
+  generateState,
+} from "./await";
 import { generateBegin } from "./begin";
 import { generateBinding } from "./binding";
 import { generateClosureConstruction, isClosureConstruction } from "./closures";
@@ -761,6 +766,12 @@ function generateFuncCall(
     );
     emitter.emitLine(`${indent}  abort();`);
     emitter.emitLine(`${indent}}`);
+    // Phase 7: inject the bundle effect (e.g. `IOErr(io, exn)`) into the
+    // future's SM via its set_effect callback BEFORE cold-starting. This is
+    // the same mechanism used by io.await — see emitEffectInjectionForAwait
+    // and src/codegen/exprs/async.ts:findBundleFieldName.
+    emitIoSpawnEffectInjection(expr, spawnVar, indent, context);
+
     const isIoFuture = isIoFutureType(futureArg.$?.type);
     if (!isIoFuture) {
       emitter.emitLine(

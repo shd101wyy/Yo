@@ -565,6 +565,40 @@ function emitFutureEffectInjectionLine(
 /**
  * Generate effect injection code for io.await call sites.
  */
+/**
+ * Inject the effect bundle from `io.spawn(future, bundle)` / similar callers
+ * into the future's SM via the set_effect callback. Exported variant of the
+ * struct-bundle path of `emitEffectInjectionForAwait`. Caller passes the
+ * bundle as `expr.args[1]`.
+ */
+export function emitIoSpawnEffectInjection(
+  expr: FnCallExpr,
+  futureVar: string,
+  indent: string,
+  context: CodeGenContext
+): void {
+  const futureArg = expr.args[0];
+  if (!futureArg?.$?.type) return;
+  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
+  const effect = futureTraitType?.isFuture.effect;
+  if (!effect) return;
+  if (!(isSourceNamespaceType(effect.type) || isStructType(effect.type))) {
+    return;
+  }
+  const bundleArg = expr.args[1];
+  if (!bundleArg) return;
+  const functionContext = context as FunctionGenerationContext;
+  const bundleCode = generateExpr(bundleArg, indent, context);
+  const bundleType = getTypeString(effect.type, context);
+  const tmpName = `__yo_eff_bundle_${effectInjectionTmpCounter++}`;
+  functionContext.emitter.emitLine(
+    `${indent}${bundleType} ${tmpName} = ${bundleCode};`
+  );
+  functionContext.emitter.emitLine(
+    `${indent}if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, "__bundle", (void*)&${tmpName});`
+  );
+}
+
 function emitEffectInjectionForAwait(
   expr: FnCallExpr,
   futureVar: string,
