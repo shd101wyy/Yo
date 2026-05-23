@@ -576,6 +576,119 @@ export function typeContainsSomeType(
 }
 
 /**
+ * Like `typeContainsSomeType` but distinguishes "free" SomeTypes from those
+ * locally bound by a nested function's `forall(...)`. A function type's
+ * `forallParameters` introduce SomeType bindings whose scope is just that
+ * function's signature; references to those names inside the parameters or
+ * return type are NOT free in the outer position.
+ *
+ * Without this distinction, `typeContainsSomeType(IO)` returns true via the
+ * recursion into IO's fn-typed fields (`async : fn(forall(T, E), ...) -> ...`),
+ * which causes `shouldDeferBodyEvaluation` in anonymous-function.ts to defer
+ * any function body that takes `io : IO` as a parameter. The test runner's
+ * batched-main function hit exactly this trap and silently dropped every test
+ * body until commit `7b3b788b` worked around it by removing the parameter.
+ *
+ * This function tracks the set of forall-bound SomeType names per scope
+ * (innermost wins, supporting shadowing). When recursing into a FunctionType,
+ * the function's own forall labels are added to the bound set for the inner
+ * walk. SomeTypes whose `name` matches a bound entry are skipped.
+ *
+ * NOTE: name-based tracking is sufficient because forall parameter names are
+ * unique within a single function signature and Yo's evaluator generates a
+ * fresh SomeType per forall declaration. A SomeType encountered inside the
+ * function whose name matches a forall label IS that forall's variable.
+ */
+export function typeContainsUnboundSomeType(
+  type?: Type,
+  boundNames: Set<string> = new Set(),
+  checkedTypes: Type[] = []
+): boolean {
+  if (!type) return false;
+  if (checkedTypes.includes(type)) return false;
+  checkedTypes.push(type);
+
+  if (isSomeType(type)) {
+    if (type.isExtern) return false;
+    if (type.resolvedConcreteType) {
+      return typeContainsUnboundSomeType(
+        type.resolvedConcreteType,
+        boundNames,
+        checkedTypes
+      );
+    }
+    if (typeImplementsFn(type)) return false;
+    if (typeImplementsFuture(type)) return false;
+    if (boundNames.has(type.name)) return false;
+    return true;
+  }
+
+  switch (type.tag) {
+    case TypeTag.Array:
+      return typeContainsUnboundSomeType(
+        (type as ArrayType).childType,
+        boundNames,
+        checkedTypes
+      );
+    case TypeTag.Tuple:
+      return (type as TupleType).fields.some((field) =>
+        typeContainsUnboundSomeType(field.type, boundNames, checkedTypes)
+      );
+    case TypeTag.Struct:
+      return (type as StructType).fields.some(
+        (field) =>
+          !field.isEffectParam &&
+          typeContainsUnboundSomeType(field.type, boundNames, checkedTypes)
+      );
+    case TypeTag.Enum:
+      return (type as EnumType).variants.some((variant) =>
+        variant.fields?.some((param) =>
+          typeContainsUnboundSomeType(param.type, boundNames, checkedTypes)
+        )
+      );
+    case TypeTag.Union:
+      return (type as UnionType).fields.some((field) =>
+        typeContainsUnboundSomeType(field.type, boundNames, checkedTypes)
+      );
+    case TypeTag.Function: {
+      const fnType = type as FunctionType;
+      // Extend bound set with this function's forall labels for the inner walk.
+      // Use a per-recursion copy so siblings don't see each other's bindings.
+      const innerBound = new Set(boundNames);
+      for (const fp of fnType.forallParameters) {
+        innerBound.add(fp.label);
+      }
+      return (
+        fnType.parameters.some((p) =>
+          typeContainsUnboundSomeType(p.type, innerBound, checkedTypes)
+        ) ||
+        typeContainsUnboundSomeType(
+          fnType.return.type,
+          innerBound,
+          checkedTypes
+        )
+      );
+    }
+    case TypeTag.Ptr:
+      return typeContainsUnboundSomeType(
+        (type as PtrType).childType,
+        boundNames,
+        checkedTypes
+      );
+    case TypeTag.Slice:
+      return typeContainsUnboundSomeType(
+        (type as SliceType).childType,
+        boundNames,
+        checkedTypes
+      );
+    case TypeTag.TypeApplication:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
  * Variant of `typeContainsSomeType` used by codegen's "is this function
  * parameter truly generic?" filter. Behaves identically to
  * `typeContainsSomeType` except that when recursing into struct fields, it

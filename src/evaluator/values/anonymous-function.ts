@@ -38,7 +38,7 @@ import {
 import {
   convertComptimeTypeToRuntimeType,
   typeContainsSomeType,
-  typeContainsSomeTypeForCodegenParam,
+  typeContainsUnboundSomeType,
   typeRepresentationContainsRawPtr,
   typeToString,
 } from "../../types/utils";
@@ -679,14 +679,22 @@ Got:      "${paramName}"`,
   // codegen (manifesting as link errors for `parse` etc. and
   // "Unhandled function call" errors for closures passed to Thread.spawn /
   // io.async / Worker).
+  // Use `typeContainsUnboundSomeType` (forall-scope aware) instead of the
+  // older `typeContainsSomeTypeForCodegenParam` to decide whether a parameter
+  // type carries a *free* SomeType that should defer body evaluation. The old
+  // function-fields carve-out treated struct fields containing fn-typed
+  // foralls as concrete, but it stopped recursing entirely — losing fidelity
+  // for other shapes (e.g. `*(T)` direct fields). The unbound variant walks
+  // every shape and only reports SomeTypes whose name isn't bound by a
+  // surrounding `forall(...)`.
   const shouldDeferBodyEvaluation =
     forallParamExprs.length > 0 ||
     functionType.parameters.some((param) =>
-      typeContainsSomeTypeForCodegenParam(param.type)
+      typeContainsUnboundSomeType(param.type)
     ) ||
     (functionType.SelfTraitType &&
       functionType.SelfType &&
-      typeContainsSomeType(functionType.SelfType));
+      typeContainsUnboundSomeType(functionType.SelfType));
 
   let evaluationContext: EvaluatorContext;
   let evaluatedBody: Expr;
