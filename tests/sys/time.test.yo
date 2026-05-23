@@ -70,7 +70,7 @@ test("utime on nonexistent file returns -ENOENT", {
 test("lutime changes symlink timestamps without affecting target", {
   // NODERAWFS does not support utimensat with AT_SYMLINK_NOFOLLOW on symlinks
   if(arch == Arch.Wasm32, {
-    printf("  skipped on wasm32 (lutime on symlinks unsupported)\n");
+    unsafe(printf("  skipped on wasm32 (lutime on symlinks unsupported)\n"));
     return(());
   });
   path_cstr := make_test_file(`yo_time_lutime_target.txt`);
@@ -107,7 +107,7 @@ test("lutime changes symlink timestamps without affecting target", {
 test("utime with nanosecond precision", {
   // WASM NODERAWFS doesn't preserve sub-microsecond precision
   if(arch == Arch.Wasm32, {
-    printf("  skipped on wasm32 (no nsec precision)\n");
+    unsafe(printf("  skipped on wasm32 (no nsec precision)\n"));
     return(());
   });
   path_cstr := make_test_file(`yo_time_nsec.txt`);
