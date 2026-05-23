@@ -582,14 +582,19 @@ export function emitIoSpawnEffectInjection(
   const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
   const effect = futureTraitType?.isFuture.effect;
   if (!effect) return;
-  if (!(isSourceNamespaceType(effect.type) || isStructType(effect.type))) {
-    return;
-  }
   const bundleArg = expr.args[1];
   if (!bundleArg) return;
   const functionContext = context as FunctionGenerationContext;
   const bundleCode = generateExpr(bundleArg, indent, context);
-  const bundleType = getTypeString(effect.type, context);
+  // Prefer the future's resolved effect type for the cast; fall back to the
+  // arg's own type when the effect remains SomeType (closure-param bundles
+  // for io.async-shaped closures, where the SM declares a __yo_param_<i>
+  // slot via the dedicated "__bundle" set_effect case).
+  const castType =
+    isSourceNamespaceType(effect.type) || isStructType(effect.type)
+      ? effect.type
+      : (bundleArg.$?.type ?? effect.type);
+  const bundleType = getTypeString(castType, context);
   const tmpName = `__yo_eff_bundle_${effectInjectionTmpCounter++}`;
   functionContext.emitter.emitLine(
     `${indent}${bundleType} ${tmpName} = ${bundleCode};`
@@ -662,6 +667,24 @@ function emitEffectInjectionForAwait(
       functionContext,
       expr
     );
+  } else {
+    // Closure-param bundle injection: when the future's effect type is still
+    // a SomeType (unbound at the future-trait level) but the user supplied a
+    // bundle value as args[1], inject it via set_effect("__bundle", ...).
+    // The receiving sync future SM has a dedicated __yo_param_<i> slot for
+    // exactly this — see generateIoAsyncSyncCall in async.ts.
+    const bundleArg = expr.args[1];
+    if (bundleArg?.$?.type) {
+      const bundleCode = generateExpr(bundleArg, indent, context);
+      const bundleType = getTypeString(bundleArg.$.type, context);
+      const tmpName = `__yo_eff_bundle_${effectInjectionTmpCounter++}`;
+      functionContext.emitter.emitLine(
+        `${indent}${bundleType} ${tmpName} = ${bundleCode};`
+      );
+      functionContext.emitter.emitLine(
+        `${indent}if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, "__bundle", (void*)&${tmpName});`
+      );
+    }
   }
 }
 

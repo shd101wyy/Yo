@@ -27,7 +27,7 @@ print :: (fn(forall(T : Type), v : T, where(T <: ToString)) -> unit)({
   cond(
     (str_bytes_len > usize(0)) => {
       str_bytes_ptr := str_bytes.ptr().unwrap();
-      fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout);
+      unsafe(fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout));
     },
     true => ()
   );

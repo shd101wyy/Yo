@@ -20,6 +20,7 @@ import {
 } from "../../expr";
 import type {
   DynType,
+  FunctionType,
   FutureTraitType,
   SomeType,
   SourceNamespaceType,
@@ -194,6 +195,35 @@ export function generateAsyncBlock(
     context.deferredAsyncBlocks = [];
   }
 
+  // Collect closure parameter slots. For io.async(closure) — the closure
+  // declares an `e : E` bundle param; the value flows in at io.await time
+  // via set_effect("__bundle", &value). We stash each runtime param so the
+  // SM struct can carry it across yields.
+  const closureParamSlots: {
+    fieldName: string;
+    cType: string;
+    paramName: string;
+    paramType: Type;
+  }[] = [];
+  if (isIoAsyncCall(expr)) {
+    const closureArg = expr.$?.runtimeArgExprsInOrder?.[0];
+    const closureFnValue = closureArg?.$?.closureFunctionValue;
+    if (closureFnValue && isFunctionValue(closureFnValue)) {
+      const callType = closureFnValue.type;
+      for (let i = 0; i < callType.parameters.length; i++) {
+        const param = callType.parameters[i]!;
+        if (param.isCompileTimeOnly) continue;
+        const cType = getTypeString(param.type, context);
+        closureParamSlots.push({
+          fieldName: `__yo_param_${i}`,
+          cType,
+          paramName: param.label ?? `param_${i}`,
+          paramType: param.type,
+        });
+      }
+    }
+  }
+
   context.deferredAsyncBlocks.push({
     bodyExpr,
     asyncBlockId,
@@ -208,6 +238,8 @@ export function generateAsyncBlock(
     resultTypeCName: resultTypeCName,
     captureType: expr.$?.captureType,
     analysis,
+    closureParamSlots:
+      closureParamSlots.length > 0 ? closureParamSlots : undefined,
   });
 
   // Generate the constructor call with captured variables
@@ -373,7 +405,8 @@ function getInjectableFutureEffectFieldMappings(
   stateMachineVariables?: Map<
     string,
     import("../../evaluator/async/await-analysis-types").CapturedVariable
-  >
+  >,
+  stateMachineFieldAliases?: Map<string, string>
 ): Array<{ effectLabel: string; accessPath: string }> {
   const mappings: Array<{ effectLabel: string; accessPath: string }> = [];
   const addMapping = (effectLabel: string, accessPath: string) => {
@@ -434,7 +467,10 @@ function getInjectableFutureEffectFieldMappings(
       for (const [, smVar] of stateMachineVariables) {
         if (smVar.kind === "outer") continue;
         if (smVar.type.id === effect.type.id) {
-          bundleVarFieldName = `var_${smVar.id}`;
+          // Honor field aliases (e.g., closure-param slots map to
+          // __yo_param_<i>, not the default var_<id> naming).
+          const aliased = stateMachineFieldAliases?.get(smVar.id);
+          bundleVarFieldName = aliased ?? `var_${smVar.id}`;
           break;
         }
       }
@@ -483,7 +519,8 @@ export function findBundleFieldName(
         string,
         import("../../evaluator/async/await-analysis-types").CapturedVariable
       >
-    | undefined
+    | undefined,
+  stateMachineFieldAliases?: Map<string, string>
 ): string | undefined {
   const effect = futureTraitType.isFuture.effect;
   if (!effect) return undefined;
@@ -494,6 +531,10 @@ export function findBundleFieldName(
   for (const [, smVar] of stateMachineVariables) {
     if (smVar.kind === "outer") continue;
     if (smVar.type.id === effect.type.id) {
+      // Honor field aliases (e.g., closure-param slots map to __yo_param_<i>,
+      // not the default var_<id> naming).
+      const aliased = stateMachineFieldAliases?.get(smVar.id);
+      if (aliased) return aliased;
       return `var_${smVar.id}`;
     }
   }
@@ -505,16 +546,19 @@ function generateFutureEffectSetter(
   setEffectFunctionName: string,
   futureTraitType: FutureTraitType,
   captureType: StructType | undefined,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  syncParamSlot?: { fieldName: string; cType: string }
 ): void {
   const mappings = getInjectableFutureEffectFieldMappings(
     futureTraitType,
     captureType,
-    context.stateMachineVariables
+    context.stateMachineVariables,
+    context.stateMachineFieldAliases
   );
   const bundleFieldName = findBundleFieldName(
     futureTraitType,
-    context.stateMachineVariables
+    context.stateMachineVariables,
+    context.stateMachineFieldAliases
   );
   const effect = futureTraitType.isFuture.effect;
   const emitter = context.emitter;
@@ -524,8 +568,9 @@ function generateFutureEffectSetter(
   );
   emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
 
+  const hasSyncParamCase = !!syncParamSlot;
   const hasBundleCase = !!(bundleFieldName && effect);
-  const hasAnyCase = hasBundleCase || mappings.length > 0;
+  const hasAnyCase = hasSyncParamCase || hasBundleCase || mappings.length > 0;
 
   if (!hasAnyCase) {
     emitter.emitDeclarationLine(`  (void)sm;`);
@@ -533,13 +578,29 @@ function generateFutureEffectSetter(
     emitter.emitDeclarationLine(`  (void)value;`);
   } else {
     let firstCase = true;
+    if (hasSyncParamCase) {
+      // Sync future closure parameter slot: io.await/io.spawn passes the
+      // bundle value via set_effect("__bundle", &value). Copy into the
+      // dedicated __yo_param_<i> field so resume() can hand it to the
+      // closure call. Sync futures have no await analysis state to consult,
+      // so bundleFieldName is empty — this case handles them directly.
+      emitter.emitDeclarationLine(`  if (strcmp(field, "__bundle") == 0) {`);
+      emitter.emitDeclarationLine(
+        `    sm->${syncParamSlot!.fieldName} = *((${syncParamSlot!.cType}*)value);`
+      );
+      emitter.emitDeclarationLine(`  }`);
+      firstCase = false;
+    }
     if (hasBundleCase) {
       // Whole-bundle copy: writer passes the bundle struct's address as
       // `value` and `field == "__bundle"`. The set_effect copies the
       // pointed-to struct into the SM's bundle field. This is how
       // `io.await(future, IOErr(io, exn))` injects nested effect records.
       const bundleCName = getTypeString(effect.type, context);
-      emitter.emitDeclarationLine(`  if (strcmp(field, "__bundle") == 0) {`);
+      const keyword = firstCase ? "if" : "else if";
+      emitter.emitDeclarationLine(
+        `  ${keyword} (strcmp(field, "__bundle") == 0) {`
+      );
       emitter.emitDeclarationLine(
         `    sm->${bundleFieldName} = *((${bundleCName}*)value);`
       );
@@ -578,6 +639,11 @@ function emitAsyncBlockStructDefinition(
     awaitFutureTempVarAliases?: Map<string, string>;
     overlappingSlotAliases?: Map<string, string>;
     overlappingSlots?: OverlappingSlot[];
+    closureParamSlots?: {
+      fieldName: string;
+      cType: string;
+      paramName: string;
+    }[];
   },
   context: FunctionGenerationContext
 ): void {
@@ -593,6 +659,7 @@ function emitAsyncBlockStructDefinition(
     awaitFutureTempVarAliases,
     overlappingSlotAliases,
     overlappingSlots,
+    closureParamSlots,
   } = asyncBlockInfo;
 
   emitter.emitDeclarationLine(
@@ -649,6 +716,18 @@ function emitAsyncBlockStructDefinition(
       : `async_capture_${captureType.id}`;
     emitter.emitDeclarationLine(`  // Captured variables from outer scope`);
     emitter.emitDeclarationLine(`  ${captureStructName} __capture;`);
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Closure parameter slots — bundle value supplied at io.await/io.spawn
+  // time via set_effect("__bundle", &value). See [[yo-anon-closure-param-name-extraction]].
+  if (closureParamSlots && closureParamSlots.length > 0) {
+    emitter.emitDeclarationLine(`  // Closure parameter slots`);
+    for (const slot of closureParamSlots) {
+      emitter.emitDeclarationLine(
+        `  ${slot.cType} ${slot.fieldName};  // ${slot.paramName}`
+      );
+    }
     emitter.emitDeclarationLine(``);
   }
 
@@ -952,6 +1031,7 @@ function emitDeferredAsyncBlockStructDefinitions(
         awaitFutureTempVarAliases,
         overlappingSlotAliases,
         overlappingSlots,
+        closureParamSlots: b.closureParamSlots,
       },
       context
     );
@@ -1309,6 +1389,7 @@ export function generateDeferredAsyncBlocks(
       resultTypeCName,
       captureType,
       analysis,
+      closureParamSlots,
     } = asyncBlockInfo;
 
     // Generate resume function implementation (before dispose, to collect local var drops)
@@ -1345,6 +1426,25 @@ export function generateDeferredAsyncBlocks(
         awaitFutureTempVarAliases.has(v.id) ||
         overlappingSlotAliases.has(v.id)
     );
+    // Register closure parameters as state-machine variables so atom.ts emits
+    // `sm->__yo_param_<i>` for references to them inside resume segments.
+    // Without this the SM resume body emits the bare parameter name and clang
+    // errors with "undeclared identifier". See [[yo-anon-closure-param-name-extraction]].
+    // Inject into the captured-variables list so they survive the many SM
+    // contexts that rebuild stateMachineVariables from analysis.capturedVariables.
+    if (closureParamSlots) {
+      for (let cpIdx = 0; cpIdx < closureParamSlots.length; cpIdx++) {
+        const slot = closureParamSlots[cpIdx]!;
+        const slotVarId = `__closure_param_${cpIdx}`;
+        filteredCapturedVariables.push({
+          id: slotVarId,
+          name: slot.paramName,
+          type: slot.paramType,
+          kind: "local",
+          isOwningTheSameRcValueAs: undefined,
+        });
+      }
+    }
     const filteredAnalysis: AwaitAnalysisResult = {
       ...analysis,
       capturedVariables: filteredCapturedVariables,
@@ -1364,6 +1464,7 @@ export function generateDeferredAsyncBlocks(
         });
       }
     }
+
     context.stateMachineVariables = smVarMap;
     // Phase 1b + Phase 2: Set field aliases so atom.ts redirects variable
     // lookups to the corresponding aliased field (await_future_N or slot_N).
@@ -1371,6 +1472,12 @@ export function generateDeferredAsyncBlocks(
     const mergedAliases = new Map<string, string>(awaitFutureTempVarAliases);
     for (const [varId, slotField] of overlappingSlotAliases) {
       mergedAliases.set(varId, slotField);
+    }
+    if (closureParamSlots) {
+      for (let cpIdx = 0; cpIdx < closureParamSlots.length; cpIdx++) {
+        const slot = closureParamSlots[cpIdx]!;
+        mergedAliases.set(`__closure_param_${cpIdx}`, slot.fieldName);
+      }
     }
     context.stateMachineFieldAliases = mergedAliases;
 
@@ -1396,7 +1503,8 @@ export function generateDeferredAsyncBlocks(
       setEffectFunctionName,
       futureTraitType,
       captureType,
-      context
+      context,
+      closureParamSlots?.[0]
     );
 
     // Restore context
@@ -1469,6 +1577,7 @@ export function generateDeferredAsyncBlocks(
             awaitFutureTempVarAliases: newAliases,
             overlappingSlotAliases: newSlotAliases,
             overlappingSlots: newSlots,
+            closureParamSlots: newBlock.closureParamSlots,
           },
           context
         );
@@ -1730,6 +1839,29 @@ export function generateIoAsyncSyncCall(
     return `/* Error: no closure function or capture type for io.async sync path */`;
   }
 
+  // Discover the closure's runtime parameters (non-comptime, non-evidence).
+  // For io.async-shaped closures these are the `e : E` bundle parameter.
+  // We surface them as `__yo_param_<i>` slots on the SM struct so the bundle
+  // value supplied at the io.await/io.spawn call site (via set_effect's
+  // "__bundle" path) survives until the resume function actually calls the
+  // closure — sync futures have no awaits, but the closure body still reads
+  // its parameter.
+  const syncParamSlots: { fieldName: string; cType: string }[] = [];
+  let closureCallType: FunctionType | undefined;
+  for (const funcId in context.functions) {
+    const entry = context.functions[funcId]!;
+    if (entry.cName === closureFunctionCName) {
+      closureCallType = entry.value.type;
+      for (let i = 0; i < closureCallType.parameters.length; i++) {
+        const param = closureCallType.parameters[i]!;
+        if (param.isCompileTimeOnly) continue;
+        const cType = getTypeString(param.type, context);
+        syncParamSlots.push({ fieldName: `__yo_param_${i}`, cType });
+      }
+      break;
+    }
+  }
+
   // Emit struct definition — includes an embedded __capture field so the
   // capture data lives as long as the future (heap-allocated).
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
@@ -1747,43 +1879,27 @@ export function generateIoAsyncSyncCall(
     `  void (*__yo_set_effect_fn)(void*, const char*, void*);`
   );
   emitter.emitDeclarationLine(`  ${captureCName} __capture;`);
+  for (const slot of syncParamSlots) {
+    emitter.emitDeclarationLine(`  ${slot.cType} ${slot.fieldName};`);
+  }
   emitter.emitDeclarationLine(`};`);
   emitter.emitDeclarationLine(``);
 
-  // Look up closure function's evidence params to pass from capture struct,
-  // plus zero-init shims for any non-evidence runtime parameters (e.g., the
-  // `e : E` arg from io.async's Impl(Fn(e : E) -> T) signature). For the
-  // sync path the closure has no awaits and never touches its `e`
-  // argument; passing a zero-initialized value of the parameter's C type
-  // is well-typed and unused at runtime. Without this, the C call site
-  // emits `closure(&__capture)` for a closure that expects 2 args, and
-  // clang errors with "too few arguments to function call".
+  // Build resume call args: evidence params come from __capture; runtime
+  // params come from the dedicated __yo_param_<i> slots populated by
+  // set_effect("__bundle", ...).
   let closureEvidenceArgs = "";
-  for (const funcId in context.functions) {
-    const entry = context.functions[funcId]!;
-    if (entry.cName === closureFunctionCName) {
-      const evidenceParams = getEvidenceParameters(entry.value.type);
-      const shimArgs: string[] = [];
-      if (evidenceParams.length > 0) {
-        for (const ep of evidenceParams) {
-          shimArgs.push(`(void*)sm->__capture.${ep.fieldPath.join(".")}`);
-        }
-      }
-      // Add zero-init shims for any non-comptime, non-evidence runtime
-      // parameters that the closure declares. The closure's CallType
-      // params include `e : E` for io.async-shaped closures; the
-      // capture-only pointer is the implicit first arg and not part of
-      // `callType.parameters`.
-      const callType = entry.value.type;
-      for (const param of callType.parameters) {
-        if (param.isCompileTimeOnly) continue;
-        const cType = getTypeString(param.type, context);
-        shimArgs.push(`(${cType}){0}`);
-      }
-      if (shimArgs.length > 0) {
-        closureEvidenceArgs = ", " + shimArgs.join(", ");
-      }
-      break;
+  if (closureCallType) {
+    const evidenceParams = getEvidenceParameters(closureCallType);
+    const shimArgs: string[] = [];
+    for (const ep of evidenceParams) {
+      shimArgs.push(`(void*)sm->__capture.${ep.fieldPath.join(".")}`);
+    }
+    for (const slot of syncParamSlots) {
+      shimArgs.push(`sm->${slot.fieldName}`);
+    }
+    if (shimArgs.length > 0) {
+      closureEvidenceArgs = ", " + shimArgs.join(", ");
     }
   }
   const syncSetEffectFunctionName = `${structName}_set_effect`;
@@ -1793,7 +1909,8 @@ export function generateIoAsyncSyncCall(
     syncSetEffectFunctionName,
     futureTraitType,
     syncCaptureType,
-    context
+    context,
+    syncParamSlots[0]
   );
   emitter.emitDeclarationLine(``);
 

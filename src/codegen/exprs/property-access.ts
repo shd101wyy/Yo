@@ -91,6 +91,28 @@ export function generateFieldAccess(
         const objFields = objectType.fields;
         const matchingField = objFields.find((f) => f.label === fieldName);
         if (matchingField && isFunctionType(matchingField.type)) {
+          // If the object is a closure parameter (lives in a __yo_param_<i>
+          // SM slot, not in __capture), route through that slot instead.
+          // See [[yo-anon-closure-param-name-extraction]].
+          // Walk all matching SM vars; prefer one with an alias (closure params).
+          const objectVarName = objectExpr.token.value;
+          if (
+            functionContext.stateMachineVariables &&
+            functionContext.stateMachineFieldAliases
+          ) {
+            for (const [
+              varId,
+              capturedVar,
+            ] of functionContext.stateMachineVariables) {
+              if (capturedVar.name === objectVarName) {
+                const aliased =
+                  functionContext.stateMachineFieldAliases.get(varId);
+                if (aliased) {
+                  return `sm->${aliased}.${fieldName}`;
+                }
+              }
+            }
+          }
           return `sm->__capture.${fieldName}`;
         }
       }

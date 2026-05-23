@@ -2469,7 +2469,8 @@ function emitEffectInjectionForSM(
     // both more reliable and avoids generating a temporary copy.
     const outerBundleField = findBundleFieldName(
       futureTraitType,
-      context.stateMachineVariables
+      context.stateMachineVariables,
+      context.stateMachineFieldAliases
     );
     if (outerBundleField) {
       context.emitter.emitLine(

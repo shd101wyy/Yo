@@ -524,7 +524,18 @@ Got:      "${paramName}"`,
     // Add regular parameter to environment
     // Use the expected parameter's isOwningTheRcValue to properly track ownership
     // (borrowed parameters default to false, owned parameters are true)
-    const anonymousParamName = paramExpr.token.value;
+    //
+    // Param surface forms:
+    //   atom            — `(x) =>`         → paramExpr.token.value is the name
+    //   colon pair      — `(x : T) =>`     → paramExpr is `:`(x, T); extract from args[0]
+    let anonymousParamName = paramExpr.token.value;
+    if (
+      exprIsFunctionCall(paramExpr) &&
+      exprIsFunctionCallOf(paramExpr, ":", 2) &&
+      exprIsAtom(paramExpr.args[0]!)
+    ) {
+      anonymousParamName = paramExpr.args[0]!.token.value;
+    }
     const expectedParamName = expectedParam.label;
     const { env: nextEnv } = addVariableToEnv({
       env,
@@ -601,11 +612,19 @@ Got:      "${paramName}"`,
       } else {
         // Non-comptime parameters can use anonymous function's name with expected type
         const paramExpr = regularParamExprs[index]!;
+        // Surface forms for paramExpr (mirror the binding site above):
+        //   atom            — `(x) =>`        → name from paramExpr.token.value
+        //   colon pair      — `(x : T) =>`    → name from paramExpr.args[0]
+        const userParamLabel = exprIsAtom(paramExpr)
+          ? paramExpr.token.value
+          : exprIsFunctionCall(paramExpr) &&
+              exprIsFunctionCallOf(paramExpr, ":", 2) &&
+              exprIsAtom(paramExpr.args[0]!)
+            ? paramExpr.args[0]!.token.value
+            : expectedParam.label;
         return {
           ...expectedParam,
-          label: exprIsAtom(paramExpr)
-            ? paramExpr.token.value
-            : expectedParam.label,
+          label: userParamLabel,
           exprs: {
             ...expectedParam.exprs,
             expr: paramExpr,
