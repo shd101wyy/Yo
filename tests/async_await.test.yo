@@ -1360,8 +1360,8 @@ test("Test basic spawn of two futures", {
   });
   // Both tasks are cold (not started).
   // spawn starts both without waiting for completion, returns JoinHandle.
-  handle1 := io.spawn(task1);
-  handle2 := io.spawn(task2);
+  handle1 := io.spawn(task1, io);
+  handle2 := io.spawn(task2, io);
   // After spawn, both are running — handle.await waits and returns Option(T).
   result1 := handle1.await(io, handle1, handle1);
   result2 := handle2.await(io, handle2, handle2);
@@ -1383,7 +1383,7 @@ test("Test spawn single future", {
     counter.* = (counter.* + 8);
     return(counter.*);
   });
-  handle := io.spawn(task);
+  handle := io.spawn(task, io);
   result := handle.await(io, handle, handle);
   assert(counter.* == i32(50), "counter should be 50 after single spawn");
   assert(result.is_some(), "task should complete successfully");
@@ -1424,8 +1424,8 @@ test("Test spawn with multi-yield futures", {
     counter.* = (counter.* + 10);
     return(counter.*);
   });
-  handle1 := io.spawn(task1);
-  handle2 := io.spawn(task2);
+  handle1 := io.spawn(task1, io);
+  handle2 := io.spawn(task2, io);
   result1 := handle1.await(io, handle1, handle1);
   result2 := handle2.await(io, handle2, handle2);
   // Both tasks completed successfully, results are Some.
@@ -1443,7 +1443,7 @@ test("Test code after spawn", {
     io.await(yield(io), io);
     flag.* = true;
   });
-  handle := io.spawn(task);
+  handle := io.spawn(task, io);
   handle.await(io, handle, handle);
   // After spawn + await, flag should be set
   assert(flag.*, "flag should be true after spawn + await");
@@ -1713,8 +1713,8 @@ test("Test io.state completed after spawn", {
   task_b := io.async((io : IO) => {
     assert(counter.* == i32(1), "task_a should have started and set counter");
   });
-  handle_a := io.spawn(task_a);
-  handle_b := io.spawn(task_b);
+  handle_a := io.spawn(task_a, io);
+  handle_b := io.spawn(task_b, io);
   handle_a.await(io, handle_a, handle_a);
   handle_b.await(io, handle_b, handle_b);
   sa := io.state(task_a);
@@ -1797,7 +1797,7 @@ test("Test JoinHandle await returns Some on success", {
     io.await(yield(io), io);
     return(i32(42));
   });
-  handle := io.spawn(task);
+  handle := io.spawn(task, io);
   result := handle.await(io, handle, handle);
   assert(result.is_some(), "successful task should return Some");
   assert(result.unwrap() == i32(42), "result should be 42");
