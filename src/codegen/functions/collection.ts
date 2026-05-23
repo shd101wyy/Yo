@@ -394,10 +394,18 @@ export function findFunctionCallsInExpr(
         }
 
         // Skip collecting functions that are generic and haven't been specialized.
+        // BUT still recurse into args — they may contain closure constructions
+        // (e.g. `io.async((io2 : IO) => { ... })` where io.async stays generic
+        // but the closure arg needs registration) or other functions that
+        // need to be collected independently.
         if (
           isFunctionSpecializable(functionValue) &&
           !functionValue.specializedType
         ) {
+          findFunctionCallsInExpr(expr.func, context);
+          for (const arg of expr.args) {
+            findFunctionCallsInExpr(arg, context);
+          }
           return;
         }
 
