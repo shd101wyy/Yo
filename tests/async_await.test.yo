@@ -2217,17 +2217,17 @@ test("Test given handler inside async closure with yields", {
         return(i32(50));
       }
     );
-    might_fail :: (fn(x : i32, raise : Raise) -> i32)(
+    might_fail :: (fn(x : i32, r : Raise) -> i32)(
       cond(
-        (x < i32(0)) => raise(`negative`),
+        (x < i32(0)) => r(`negative`),
         true => x
       )
     );
-    a := might_fail(i32(5));
+    a := might_fail(i32(5), raise);
     io.await(yield(io), io);
-    b := might_fail(i32(-(1)));
+    b := might_fail(i32(-(1)), raise);
     io.await(yield(io), io);
-    c := might_fail(i32(3));
+    c := might_fail(i32(3), raise);
     r := ((a + b) + c);
     r
   });
