@@ -883,6 +883,16 @@ export function generateOtherFunctionCall(
           // Control functions / effect record members set __yo_effect_escaped.
           // Specialized effectful functions transitively call handlers.
           // Functions whose body has effects may also trigger escape transitively.
+          const paramHasCtlField =
+            functionType &&
+            functionType.parameters.some((p) => {
+              if (isStructType(p.type)) {
+                return p.type.fields.some(
+                  (f) => isFunctionType(f.type) && f.type.isControl
+                );
+              }
+              return false;
+            });
           const callMayUnwind =
             (isFunctionValue(functionValue) &&
               functionValue.isControlFunction) ||
@@ -890,6 +900,23 @@ export function generateOtherFunctionCall(
               functionValue.isEffectRecordMember) ||
             (isFunctionValue(functionValue) &&
               functionValue.body?.$?.effectAnalysis?.hasEffects) ||
+            // Effect-record-field call shape: `exn.throw(...)` where the
+            // callee is a property access on an effect-record value and the
+            // resolved function type is a `ctl(...) -> R`. The handler is
+            // free to call `unwind(...)` which sets __yo_effect_escaped, so
+            // we must propagate after the call.
+            (functionType &&
+              isFunctionType(functionType) &&
+              functionType.isControl) ||
+            // Callee takes an effect-record parameter whose struct has at
+            // least one `ctl(...)` field (e.g. `exn : Exception` whose
+            // `throw` is `ctl(...) -> R`). The callee may call into that
+            // handler and transitively unwind. Without this, code like
+            // `fn(s : str, exn : Exception) -> T` calling exn.throw deep
+            // inside its body wouldn't trigger an unwind check at the call
+            // site — "should fail" assertions fire after the unwind handler
+            // ran but before the caller observes __yo_effect_escaped.
+            paramHasCtlField ||
             // Fallback: function has function-typed params that may be handlers
             (functionType &&
               functionType.parameters.some((p) => isFunctionType(p.type))) ||
@@ -1301,6 +1328,22 @@ export function generateOtherFunctionCall(
                 isHandlerAtomBoundLocally(expr.func, expr),
                 expr
               );
+            } else if (
+              // Effect-record-field call shape: `exn.throw(...)` where the
+              // callee is a property access on an effect-record value (and
+              // the resolved function type is `ctl(...)`). The handler may
+              // call `unwind(...)`, which sets __yo_effect_escaped — we
+              // must propagate after the call.
+              isFunctionType(functionType) &&
+              functionType.isControl &&
+              !exprIsAtom(expr.func)
+            ) {
+              emitEffectUnwindCheck(
+                indent,
+                context as FunctionGenerationContext,
+                false, // propagation, not install
+                expr
+              );
             }
 
             if (isEffectRecordCapture) {
@@ -1382,6 +1425,19 @@ export function generateOtherFunctionCall(
                   indent,
                   context as FunctionGenerationContext,
                   isHandlerAtomBoundLocally(expr.func, expr),
+                  expr
+                );
+              } else if (
+                // Effect-record-field call shape: `exn.throw(...)` —
+                // see counterpart in the unit-return branch above.
+                isFunctionType(functionType) &&
+                functionType.isControl &&
+                !exprIsAtom(expr.func)
+              ) {
+                emitEffectUnwindCheck(
+                  indent,
+                  context as FunctionGenerationContext,
+                  false,
                   expr
                 );
               }
