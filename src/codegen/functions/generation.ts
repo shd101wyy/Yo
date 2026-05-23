@@ -46,6 +46,7 @@ import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
 } from "../exprs/drop-dup";
+import { registerImplClosureCallMappings } from "../exprs/closures";
 import { generateExpr } from "../exprs/expr";
 import { generateImplicitReturnStatement } from "../exprs/return";
 import { generateParallelismRuntime } from "../parallelism/runtime";
@@ -244,6 +245,14 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
   // Generate closure constructor and Rc functions
   generateClosureConstructorFunctions(context);
+
+  // Pre-pass: populate `implClosureCallMap` for every Impl(Fn(...)) closure
+  // implementation BEFORE any function body is generated. The body loop below
+  // iterates `context.functions` in insertion order, which doesn't follow the
+  // closure-creator → closure-caller dependency. Without this pre-pass, a
+  // call site processed before the closure's construction site falls through
+  // to an incorrect fn-pointer-cast fallback.
+  registerImplClosureCallMappings(context);
 
   // NOTE: Don't generate capture dispose functions here yet!
   // They will be generated after deferred async blocks are processed
