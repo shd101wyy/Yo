@@ -304,6 +304,11 @@ impl(
                         bytes_to_move := (elements_after * element_size);
                         dst_void := *(void)(dst_ptr);
                         src_void := *(void)(src_ptr);
+                        // SAFETY: dst_ptr and src_ptr both point into self._ptr's
+                        // contiguous element buffer. `elements_after = self._length - (start + actual_count)`
+                        // counts elements still in-bounds after the remove range,
+                        // so `bytes_to_move = elements_after * sizeof(T)` stays within
+                        // the allocated buffer. memmove handles overlap.
                         unsafe(memmove(dst_void, src_void, bytes_to_move));
                       }
                     );

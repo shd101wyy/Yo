@@ -66,6 +66,11 @@ impl(
   * Note: We manually search for the null terminator by iterating
   */
   from_cstr : (fn(cstr : *(u8)) -> Result(Self, StringError))({
+    // SAFETY: caller's contract — `cstr` must point at a null-terminated byte
+    // sequence (the standard C string invariant). `strlen` walks forward until
+    // it hits the null byte and returns the count not including it. If the
+    // caller passes a non-null-terminated buffer, the read walks past the end;
+    // this is the same trust boundary as `<string.h>`'s `strlen`.
     len := unsafe(strlen((*(char))(cstr)));
     if(len == usize(0), {
       return(.Ok(Self(_bytes :.None)));
@@ -2162,12 +2167,13 @@ impl(
   Indexable(usize)(
     Element : u8,
     project : (fn(ref(self) : Self, pos : usize) -> ref(u8))(
-      unsafe(
-        match(
-          self._bytes,
-          .Some(bytes) => &(bytes(pos)),
-          .None => panic("String: project on empty string")
-        )
+      match(
+        self._bytes,
+        // SAFETY: `pos < self.len()` is the precondition; the `_bytes` is the
+        // String's own owned ArrayList whose `data[pos]` lives as long as the
+        // ref-bound `self`. `bytes(pos)` is auto-bounds-checked by ArrayList.project.
+        .Some(bytes) => unsafe(&(bytes(pos))),
+        .None => panic("String: project on empty string")
       )
     )
   )

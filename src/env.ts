@@ -661,10 +661,6 @@ export function addVariableToEnv({
 
   const frame = env.frames[frameLevel];
   if (!frame) {
-    // print traceback
-    console.trace(
-      `Frame at level ${frameLevel} does not exist in the environment.`
-    );
     throw new Error(
       `Frame at level ${frameLevel} does not exist in the environment.`
     );

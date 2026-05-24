@@ -581,7 +581,6 @@ export function createUnknownValue(
 ): UnknownValue | TypeValue {
   if (isTypeHierarchyType(type) && type.level === 0) {
     if (!variableName) {
-      console.trace("!variableName bug found in createUnknownValue");
       throw new Error(
         `createUnknownValue expects a variable name for type ${typeToString(type)}`
       );
