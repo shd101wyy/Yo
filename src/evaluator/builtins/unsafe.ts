@@ -70,15 +70,20 @@ the raw memory operations it contains.`,
   }
   env = evaluatedArgExpr.$.env;
 
-  // unsafe(...) is transparent — propagate the inner value/type unchanged.
+  // unsafe(...) is transparent — propagate the inner value/type AND the
+  // ownership-tracking fields unchanged so that downstream bindings,
+  // dup/drop scheduling, and consumption tracking see the inner
+  // expression's temp variable as if `unsafe(...)` weren't there.
+  //
+  // In particular, **`variableName` must propagate**: without it, a
+  // pattern like `k := unsafe(s1.clone())` makes the binding create a
+  // fresh temp for `unsafe(...)` instead of aliasing the inner
+  // `s1.clone()` temp, and the begin-block drop list ends up with BOTH
+  // the inner temp and `k` — producing a double-drop (use-after-free
+  // at runtime).
   expr.$ = {
+    ...evaluatedArgExpr.$,
     env,
-    type: evaluatedArgExpr.$.type,
-    value: evaluatedArgExpr.$.value,
-    pathCollection: evaluatedArgExpr.$.pathCollection ?? [],
-    sourceVariable: evaluatedArgExpr.$.sourceVariable,
-    originType: evaluatedArgExpr.$.originType,
-    isAccessingProperty: evaluatedArgExpr.$.isAccessingProperty,
   };
   return expr;
 }
