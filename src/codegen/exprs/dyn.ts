@@ -162,6 +162,11 @@ export function generateDynCall(
     context.emitter.emitLine(`${indent}};`);
     return smFieldRef;
   } else {
+    const funcCtx = context as FunctionGenerationContext;
+    if (!funcCtx.declaredTempVars) funcCtx.declaredTempVars = new Set();
+    if (!funcCtx.declaredTempVars.has(tempVarName)) {
+      funcCtx.declaredTempVars.add(tempVarName);
+    }
     context.emitter.emitLine(`${indent}${dynTypeCName} ${tempVarName} = {`);
     context.emitter.emitLine(`${indent}  .data = ${valueCode},`);
     context.emitter.emitLine(`${indent}  .vtable = &${vtableName}`);

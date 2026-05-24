@@ -2501,6 +2501,45 @@ function emitEffectUnwindCheck(
     generateConsumedVarDropsForEscape(indent + "  ", context, expr);
   }
   if (context.inAsyncStateMachine) {
+    // Drop RC-typed arg temporaries that are segment-local C locals.
+    // Cross-boundary struct fields are cleaned up later by _state_dispose,
+    // but segment-local C locals go out of scope and would leak without an
+    // explicit drop here. Zero the variable afterwards to prevent double-drop
+    // if the variable happens to also be a cross-boundary struct field.
+    const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
+    if (runtimeArgExprs) {
+      const declaredTempVars = context.declaredTempVars;
+      for (const arg of runtimeArgExprs) {
+        if (
+          arg.$?.variableName &&
+          arg.$?.type &&
+          typeContainsRcType(arg.$.type)
+        ) {
+          const argVarName = resolveVarNameInContext(
+            sanitizeForCIdentifier(arg.$.variableName),
+            context
+          );
+          // Only drop if we can confirm the variable exists:
+          // - sm-> prefix → SM struct field, always exists
+          // - declaredTempVars → was emitted as a C local declaration
+          const isSMField = argVarName.startsWith("sm->");
+          const isDeclared =
+            isSMField || (declaredTempVars && declaredTempVars.has(argVarName));
+          if (!isDeclared) continue;
+          const dropCode = generateDropCodeForValue(
+            argVarName,
+            arg.$.type,
+            context
+          );
+          if (dropCode) {
+            emitter.emitLine(`${indent}  ${dropCode};`);
+            emitter.emitLine(
+              `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+            );
+          }
+        }
+      }
+    }
     if (isHandlerInstallation) {
       emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
     }
