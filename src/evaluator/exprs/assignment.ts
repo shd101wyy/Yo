@@ -534,6 +534,24 @@ comptime(${variableName}) : ${typeToString(variable.type)}
           ? cloneValue(rhsValue)
           : undefined;
 
+      // Mutual-recursion bridge: when `comptime(name) : (fn ...)` declared
+      // the variable, sibling functions evaluated before this assignment
+      // captured an UnknownValue placeholder at their call sites. Back-
+      // patch that UnknownValue with the RHS's funcId so codegen can
+      // resolve the callee via context.functions instead of falling back
+      // to the fn-pointer-cast path (which emits the raw `name` identifier
+      // with no C declaration). See UnknownValue.resolvedFuncValueId.
+      const existingUnknown = variable.value?.[0];
+      const rhsFnVal = Array.isArray(rhsValue) ? rhsValue[0] : rhsValue;
+      if (
+        existingUnknown &&
+        isUnknownValue(existingUnknown) &&
+        rhsFnVal &&
+        isFunctionValue(rhsFnVal)
+      ) {
+        existingUnknown.resolvedFuncValueId = rhsFnVal.funcId;
+      }
+
       // Under the new simplified ownership model:
       // Variables created by := always own their values
       // But we track shared ownership for dup/drop optimization
@@ -620,6 +638,23 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         variable.isCompileTimeOnly && rhsValue
           ? cloneValue(rhsValue)
           : undefined;
+
+      // Mutual-recursion bridge — see UnknownValue.resolvedFuncValueId.
+      // (Same logic mirrored in the first-assignment branch above.)
+      {
+        const existingUnknownReassign = variable.value?.[0];
+        const rhsFnValReassign = Array.isArray(rhsValue)
+          ? rhsValue[0]
+          : rhsValue;
+        if (
+          existingUnknownReassign &&
+          isUnknownValue(existingUnknownReassign) &&
+          rhsFnValReassign &&
+          isFunctionValue(rhsFnValReassign)
+        ) {
+          existingUnknownReassign.resolvedFuncValueId = rhsFnValReassign.funcId;
+        }
+      }
 
       // Generate a new variable ID for reassignment
       // This is crucial for dup/drop optimization: dup calls on the old ID

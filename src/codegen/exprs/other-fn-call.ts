@@ -206,7 +206,27 @@ export function generateOtherFunctionCall(
     return generateComptimeValue(expr.$.value, context, expr);
   }
 
-  const functionValue = expr.func.$?.value;
+  // Mutual-recursion bridge: when a `comptime(name) : (fn ...)` variable's
+  // body was evaluated before the matching `name = ...` assignment, the
+  // body's call to `name(...)` captured an UnknownValue. The assignment
+  // later back-patches that UnknownValue with the funcId; resolve it
+  // here so codegen emits a direct call instead of routing through the
+  // fn-pointer-cast fallback (which would print a raw `name` identifier
+  // with no C declaration). See UnknownValue.resolvedFuncValueId.
+  let functionValue = expr.func.$?.value;
+  const rawFnValue = Array.isArray(functionValue)
+    ? functionValue[0]
+    : functionValue;
+  if (
+    rawFnValue &&
+    isUnknownValue(rawFnValue) &&
+    rawFnValue.resolvedFuncValueId
+  ) {
+    const resolved = context.functions[rawFnValue.resolvedFuncValueId]?.value;
+    if (resolved && isFunctionValue(resolved)) {
+      functionValue = resolved;
+    }
+  }
   const functionType =
     expr.func.$?.type ??
     (isFunctionValue(functionValue)

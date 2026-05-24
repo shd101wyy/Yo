@@ -184,6 +184,15 @@ export type UnknownValue = {
    * (e.g., from CTFE analysis) that CAN be used for comptime functions.
    */
   isRuntimeOnly?: boolean;
+  /**
+   * Mutual-recursion bridge. When an UnknownValue stands for a
+   * `comptime(name) : (fn ...)` variable that will be assigned a
+   * FunctionValue later, the assignment back-patches this field with the
+   * eventual funcId. Codegen then uses it to emit a direct call instead
+   * of treating the callee as a runtime fn-pointer (which would emit the
+   * raw `name` identifier with no declaration).
+   */
+  resolvedFuncValueId?: string;
 };
 
 /**
