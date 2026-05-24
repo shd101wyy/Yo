@@ -171,11 +171,21 @@ export function generateFunctionDeclarations(
       continue;
     }
 
+    // A specialization entry (value.specializedType present, no further specializations
+    // hanging off it) is concrete at the C ABI even though value.type is the original
+    // generic type. Without this carve-out, the hard-generic skip below would drop
+    // both the base AND its specialization, leaving call sites that reference the
+    // specialized cName with no matching declaration.
+    const isConcreteSpecialization =
+      !!value.specializedType &&
+      (value.specializedFunctionCaches?.length ?? 0) === 0;
+
     if (
       !isUserMain &&
       !isEffectfulFunction &&
       !hasEvidenceParams &&
       !value.isEffectRecordMember &&
+      !isConcreteSpecialization &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
           !value.type.isClosure) ||

@@ -1481,11 +1481,15 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     }
 
     // Also skip if any parameter type contains SomeType (generic type parameters)
-    // This happens when a function specialization wasn't completed properly
+    // This happens when a function specialization wasn't completed properly.
+    // Use the codegen-aware variant: struct fields whose type is a function
+    // (effect-record handlers like `throw : ctl(forall, ...)`) are type-erased
+    // fn pointers at the C ABI, so their inner forall does NOT make the outer
+    // struct "still generic" for codegen purposes.
     const hasGenericParams = functionValue.specializedType.parameters.some(
-      (p) => typeContainsSomeType(p.type)
+      (p) => typeContainsSomeTypeForCodegenParam(p.type)
     );
-    const hasGenericReturnType = typeContainsSomeType(
+    const hasGenericReturnType = typeContainsSomeTypeForCodegenParam(
       functionValue.specializedType.return.type
     );
     if (hasGenericParams || hasGenericReturnType) {
