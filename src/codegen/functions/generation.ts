@@ -12,6 +12,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  type FnCallExpr,
   hasAnyControlFlow,
 } from "../../expr";
 import { type FunctionValue } from "../../function-value";
@@ -190,6 +191,26 @@ function findUserDisposeMethodForType(
 }
 
 /**
+ * True if the expression tree contains a `return(expr)` call with an
+ * argument (a value-returning return statement). Used by the
+ * `isEffectRecordMember` stub-emit gate to detect bodies whose
+ * generic-AST `return` lacks the `.$` metadata that generateReturn requires.
+ */
+function bodyHasExplicitReturn(expr: Expr): boolean {
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
+    const args = (expr as FnCallExpr).args;
+    if (args.length > 0) return true;
+  }
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of (expr as FnCallExpr).args) {
+      if (bodyHasExplicitReturn(arg)) return true;
+    }
+    if (bodyHasExplicitReturn((expr as FnCallExpr).func)) return true;
+  }
+  return false;
+}
+
+/**
  * Generate all collected functions
  */
 export function generateAllFunctions(context: FunctionGenerationContext): void {
@@ -307,28 +328,45 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       }
     }
 
-    // For isEffectRecordMember functions that have specializations, the generic
-    // body lacks type annotations on sub-expressions (metadata is only filled in
-    // during specialization). We must emit the unspecialized form because its name
-    // is stored as a void* function pointer in async capture structs by
-    // emitEffectRecordInjection (see await.ts). Emit a minimal stub: set the
-    // effect-escaped flag and return a zero value matching the declared return type.
-    if (
-      value.isEffectRecordMember &&
-      (value.specializedFunctionCaches?.length ?? 0) > 0
-    ) {
-      const proto = generateFunctionPrototype(value.type, cName, context);
-      const returnTypeStr = getTypeString(value.type.return.type, context);
-      const returnStmt = isUnitType(value.type.return.type)
-        ? `return;`
-        : returnTypeStr === "void"
+    // For isEffectRecordMember functions whose generic body cannot be safely
+    // emitted, write a minimal stub. The function's address is stored as a
+    // void* fn pointer in the effect record's capture struct (see
+    // emitEffectRecordInjection in await.ts), so the symbol must exist —
+    // but the body is dispatched via the effect runtime (set_effect / unwind),
+    // so the stub return is never observed by user code.
+    //
+    // "Cannot safely emit" covers:
+    //   - the base has registered specializations (specializedFunctionCaches > 0):
+    //     its generic body has unresolved forall returns and sub-expression
+    //     `.$` is only filled in on the specializations.
+    //   - the declared type carries a forall AND the body contains an explicit
+    //     `return(expr)` statement: the body was deferred at definition time
+    //     (`shouldDeferBodyEvaluation`) and the `return`'s `.$` is unpopulated,
+    //     so generateReturn would throw "missing metadata". Bodies that only
+    //     `unwind(...)` don't need `.$` to emit and so should NOT be stubbed
+    //     — emitting their bodies preserves observable side effects (e.g.
+    //     `println(msg)` before `unwind(())` in async raise handlers).
+    if (value.isEffectRecordMember) {
+      const hasRegisteredSpecs =
+        (value.specializedFunctionCaches?.length ?? 0) > 0;
+      const isUnspecializedForallWithReturn =
+        value.type.forallParameters.length > 0 &&
+        !!value.body &&
+        bodyHasExplicitReturn(value.body);
+      if (hasRegisteredSpecs || isUnspecializedForallWithReturn) {
+        const proto = generateFunctionPrototype(value.type, cName, context);
+        const returnTypeStr = getTypeString(value.type.return.type, context);
+        const returnStmt = isUnitType(value.type.return.type)
           ? `return;`
-          : `return (${returnTypeStr}){0};`;
-      context.emitter.emitLine(`static inline ${proto} {`);
-      context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
-      context.emitter.emitLine(`  ${returnStmt}`);
-      context.emitter.emitLine(`}`);
-      continue;
+          : returnTypeStr === "void"
+            ? `return;`
+            : `return (${returnTypeStr}){0};`;
+        context.emitter.emitLine(`static inline ${proto} {`);
+        context.emitter.emitLine(`  __yo_effect_escaped = 1;`);
+        context.emitter.emitLine(`  ${returnStmt}`);
+        context.emitter.emitLine(`}`);
+        continue;
+      }
     }
 
     // If the function is generic or has been specialized, we will handle it later
