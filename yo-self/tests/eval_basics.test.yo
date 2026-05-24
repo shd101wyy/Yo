@@ -2983,7 +2983,7 @@ test("evaluate: anonymous struct shorthand _(val) — unlabeled field", {
 });
 test("evaluate: enum(None, Some(value: T)) creates EnumT TypeVal", {
   env := make_env_with_T();
-  env_ptr := (env);
+  env_ptr := env;
   none_expr := make_ident("None");
   val_field := make_labeled_field("value", make_ident("T"));
   some_args := ArrayList(AstExpr).new();
@@ -3021,7 +3021,7 @@ test("evaluate: enum(None, Some(value: T)) creates EnumT TypeVal", {
 });
 test("evaluate: enum(Red, Green, Blue) plain fieldless variants", {
   env := empty_env();
-  env_ptr := (env);
+  env_ptr := env;
   type_args := ArrayList(AstExpr).new();
   type_args.push(make_ident("Red"));
   type_args.push(make_ident("Green"));
@@ -3053,7 +3053,7 @@ test("evaluate: enum(Red, Green, Blue) plain fieldless variants", {
 });
 test("evaluate: struct(x: i32, y: bool) creates Struct TypeVal", {
   env := empty_env();
-  env_ptr := (env);
+  env_ptr := env;
   type_args := ArrayList(AstExpr).new();
   type_args.push(make_labeled_field("x", make_ident("i32")));
   type_args.push(make_labeled_field("y", make_ident("bool")));
@@ -3088,7 +3088,7 @@ test("evaluate: struct(x: i32, y: bool) creates Struct TypeVal", {
 });
 test("evaluate: object(x: i32) creates Struct with is_reference_semantics=true", {
   env := empty_env();
-  env_ptr := (env);
+  env_ptr := env;
   type_args := ArrayList(AstExpr).new();
   type_args.push(make_labeled_field("x", make_ident("i32")));
   expr := make_typedef_call(BK_OBJECT, type_args);
@@ -3115,7 +3115,7 @@ test("evaluate: object(x: i32) creates Struct with is_reference_semantics=true",
 });
 test("evaluate: newtype(i32) creates Struct with is_newtype=true", {
   env := empty_env();
-  env_ptr := (env);
+  env_ptr := env;
   type_args := ArrayList(AstExpr).new();
   type_args.push(make_ident("i32"));
   expr := make_typedef_call(BK_NEWTYPE, type_args);
@@ -3145,7 +3145,7 @@ test("evaluate: newtype(i32) creates Struct with is_newtype=true", {
 });
 test("evaluate: union(x: i32, y: bool) creates Union TypeVal", {
   env := empty_env();
-  env_ptr := (env);
+  env_ptr := env;
   type_args := ArrayList(AstExpr).new();
   type_args.push(make_labeled_field("x", make_ident("i32")));
   type_args.push(make_labeled_field("y", make_ident("bool")));
@@ -3176,7 +3176,7 @@ test("evaluate: union(x: i32, y: bool) creates Union TypeVal", {
 });
 test("evaluate: trait() stub creates TraitT TypeVal", {
   env := empty_env();
-  env_ptr := (env);
+  env_ptr := env;
   expr := make_typedef_call(BK_TRAIT, ArrayList(AstExpr).new());
   result := evaluate(expr, env_ptr);
   check_some(result, "trait");
