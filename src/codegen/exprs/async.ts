@@ -528,17 +528,20 @@ export function findBundleFieldName(
     return undefined;
   }
   if (!stateMachineVariables) return undefined;
+  // Prefer entries with a field alias (e.g., synthetic closure-param slots
+  // mapped to __yo_param_<i>) over the default var_<id> form. The aliased
+  // slot is where set_effect writes the bundle; reading from var_<id> would
+  // see zero-initialized memory.
+  let fallback: string | undefined;
   for (const [, smVar] of stateMachineVariables) {
     if (smVar.kind === "outer") continue;
     if (smVar.type.id === effect.type.id) {
-      // Honor field aliases (e.g., closure-param slots map to __yo_param_<i>,
-      // not the default var_<id> naming).
       const aliased = stateMachineFieldAliases?.get(smVar.id);
       if (aliased) return aliased;
-      return `var_${smVar.id}`;
+      if (fallback === undefined) fallback = `var_${smVar.id}`;
     }
   }
-  return undefined;
+  return fallback;
 }
 
 function generateFutureEffectSetter(
@@ -569,7 +572,11 @@ function generateFutureEffectSetter(
   emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
 
   const hasSyncParamCase = !!syncParamSlot;
-  const hasBundleCase = !!(bundleFieldName && effect);
+  // When the synthetic syncParamSlot case is active, suppress the
+  // findBundleFieldName-driven case to avoid two "__bundle" branches in the
+  // same if/else-if chain (only the first would ever fire, leaving the
+  // findBundleFieldName slot uninitialized — see SIGSEGV in fs tests).
+  const hasBundleCase = !hasSyncParamCase && !!(bundleFieldName && effect);
   const hasAnyCase = hasSyncParamCase || hasBundleCase || mappings.length > 0;
 
   if (!hasAnyCase) {
@@ -643,6 +650,7 @@ function emitAsyncBlockStructDefinition(
       fieldName: string;
       cType: string;
       paramName: string;
+      paramType: Type;
     }[];
   },
   context: FunctionGenerationContext
@@ -1389,8 +1397,10 @@ export function generateDeferredAsyncBlocks(
       resultTypeCName,
       captureType,
       analysis,
-      closureParamSlots,
+      closureParamSlots: rawClosureParamSlots,
     } = asyncBlockInfo;
+
+    const closureParamSlots = rawClosureParamSlots;
 
     // Generate resume function implementation (before dispose, to collect local var drops)
     // Set SM context so effect injection can resolve captured variables
@@ -1432,6 +1442,8 @@ export function generateDeferredAsyncBlocks(
     // errors with "undeclared identifier". See [[yo-anon-closure-param-name-extraction]].
     // Inject into the captured-variables list so they survive the many SM
     // contexts that rebuild stateMachineVariables from analysis.capturedVariables.
+    // (closureParamSlots was already filtered upstream to drop entries that
+    // overlap with an existing local var.)
     if (closureParamSlots) {
       for (let cpIdx = 0; cpIdx < closureParamSlots.length; cpIdx++) {
         const slot = closureParamSlots[cpIdx]!;

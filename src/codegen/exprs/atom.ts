@@ -296,6 +296,28 @@ export function generateAtom(
             foundInStateMachine = true;
             return `sm->${aliasedField}`;
           }
+          // Closure-param coordination: when the env binds varName to a
+          // local SM var without an alias, but another SM var with the same
+          // name DOES have an alias (i.e., a synthetic __closure_param_<i>
+          // slot for the same bundle), prefer the aliased entry. The
+          // aliased slot is where set_effect writes the bundle; the
+          // unaliased var_<id> would stay zero-initialized.
+          // See [[yo-anon-closure-param-name-extraction]].
+          if (functionContext.stateMachineFieldAliases) {
+            for (const [
+              otherVarId,
+              otherVar,
+            ] of functionContext.stateMachineVariables) {
+              if (otherVarId === varId) continue;
+              if (otherVar.name !== varName) continue;
+              const otherAlias =
+                functionContext.stateMachineFieldAliases.get(otherVarId);
+              if (otherAlias) {
+                foundInStateMachine = true;
+                return `sm->${otherAlias}`;
+              }
+            }
+          }
           // This is a state machine variable - access it through sm->
           // Use kind to determine field name:
           // - "outer": Use __capture.varName (sm->__capture.varName)
@@ -312,7 +334,41 @@ export function generateAtom(
 
     // Fallback: if we don't have env info or didn't find it by ID, search by name
     // This handles captured variables from outer scopes (capture struct) where we might not have env
+    // Prefer entries that have an alias (e.g., closure-param __yo_param_<i>
+    // slots) when multiple entries share the same name — the synthetic slot
+    // is where set_effect writes the bundle, so the body must read from it.
     if (!foundInStateMachine) {
+      let nameMatchFallback:
+        | [
+            string,
+            import("../../evaluator/async/await-analysis-types").CapturedVariable,
+          ]
+        | undefined;
+      for (const [
+        varId,
+        capturedVar,
+      ] of functionContext.stateMachineVariables) {
+        if (
+          capturedVar.name === varName &&
+          functionContext.stateMachineFieldAliases?.has(varId)
+        ) {
+          const aliasedField =
+            functionContext.stateMachineFieldAliases.get(varId)!;
+          return `sm->${aliasedField}`;
+        }
+        if (capturedVar.name === varName && !nameMatchFallback) {
+          nameMatchFallback = [varId, capturedVar];
+        }
+      }
+      if (nameMatchFallback) {
+        const [varId, capturedVar] = nameMatchFallback;
+        const fieldName =
+          capturedVar.kind === "outer"
+            ? `__capture.${varName}`
+            : `var_${varId}`;
+        foundInStateMachine = true;
+        return `sm->${fieldName}`;
+      }
       for (const [
         varId,
         capturedVar,
