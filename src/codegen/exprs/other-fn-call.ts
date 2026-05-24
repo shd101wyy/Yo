@@ -551,13 +551,23 @@ export function generateOtherFunctionCall(
       // Match each runtime arg index to the runtime parameter at the
       // same index (filter out comptime params first). See
       // plans/MEMORY_SAFETY.md Phase B.
+      //
+      // Skip the auto-`&` for the receiver slot of a Dyn method call:
+      // the dyn-method branch above already transformed the receiver
+      // from the Dyn value to its `.data` pointer (the box address),
+      // which IS the pointer that the vtable wrapper expects as a bare
+      // `void*` self_ptr. Wrapping `(err).data` in `(&(...))` would
+      // pass `&err.data` (address of the Dyn's data field) instead of
+      // `err.data` (the box pointer value), so the vtable wrapper would
+      // dereference a slot offset inside the Dyn struct instead of the
+      // heap-boxed value — a stack-buffer-overflow at runtime.
       {
         const runtimeParams = functionType.parameters.filter(
           (p) => !p.isCompileTimeOnly && !p.isQuote
         );
         for (let i = 0; i < args.length; i++) {
           const param = runtimeParams[i];
-          if (param?.isRef) {
+          if (param?.isRef && !(isDynMethodCall && i === 0)) {
             const c = args[i]!;
             // If c is already an l-value-looking expression like
             // `(*expr)`, fold to just `expr` rather than `&(*expr)`.
