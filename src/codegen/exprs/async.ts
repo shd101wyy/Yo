@@ -1094,8 +1094,6 @@ function generateAsyncBlockStateDisposeFunction(
         `  /* Error: capture struct type not found in context */`
       );
     } else {
-      const captureTypeName = existingCaptureTypeEntry.cName;
-
       // Find the ___drop function for the capture struct
       const dropFunction = captureType.trait.fields.find(
         (field) => field.label === BuiltinFunctions.___drop[0]
@@ -1112,9 +1110,42 @@ function generateAsyncBlockStateDisposeFunction(
           emitter.emitLine(`  ${dropFunctionCName}(sm->__capture);`);
         }
       } else {
-        emitter.emitLine(
-          `  /* Warning: ___drop function not found for capture struct ${captureTypeName} */`
-        );
+        // The capture struct's ___drop function was not generated (likely because
+        // the struct contains fields with unresolved SomeType from forall parameters,
+        // e.g. Io's method signatures). Generate inline drops for each RC-typed field.
+        for (const field of captureType.fields) {
+          if (field.isEffectParam) continue;
+          const fieldRef = `sm->__capture.${field.label}`;
+
+          if (isDynType(field.type)) {
+            emitter.emitLine(
+              `  if ((${fieldRef}).data != NULL) { __yo_decr_rc((void*)(${fieldRef}).data); }`
+            );
+          } else if (isIsoType(field.type) || isAtomicObjectType(field.type)) {
+            emitter.emitLine(
+              `  if (${fieldRef} != NULL) { __yo_decr_rc_atomic((void*)${fieldRef}); }`
+            );
+          } else if (
+            isObjectType(field.type) ||
+            (isSomeType(field.type) && isRcType(field.type))
+          ) {
+            const dropFn = getDropFunctionForType(field.type, context);
+            if (dropFn) {
+              emitter.emitLine(
+                `  if (${fieldRef} != NULL) { ${dropFn}(${fieldRef}); }`
+              );
+            } else {
+              emitter.emitLine(
+                `  if (${fieldRef} != NULL) { __yo_decr_rc((void*)${fieldRef}); }`
+              );
+            }
+          } else if (typeContainsRcType(field.type)) {
+            const dropFn = getDropFunctionForType(field.type, context);
+            if (dropFn) {
+              emitter.emitLine(`  ${dropFn}(${fieldRef});`);
+            }
+          }
+        }
       }
     }
   }
