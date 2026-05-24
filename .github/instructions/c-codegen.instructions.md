@@ -178,6 +178,26 @@ Functions with evidence parameters (from `io: IO` or algebraic effect parameters
 
 3. **SomeType ARC function filter** — `___drop`/`___dup` for SomeType(Future) are skipped because SomeType has no C representation. But user-defined functions (e.g., `test_escape(task: Impl(Future(...)))`) with evidence params should NOT be skipped — their SomeType params are resolved at call sites.
 
+### Specialization entries vs the base generic
+
+A specialization `FunctionValue` always has `specializedType` set but inherits `value.type` from the original generic FunctionValue. So a specialization is "concrete at the C ABI" yet still answers `isFunctionTypeHardGeneric(value.type) === true`. Without a carve-out, the hard-generic skip in `declarations.ts` / `generation.ts` would drop both the base AND its specializations, leaving call sites that reference the specialized cName with no matching decl/def.
+
+Use the predicate `isConcreteSpecialization = !!value.specializedType && (value.specializedFunctionCaches?.length ?? 0) === 0` to exempt specializations from those skips. The `generateSpecializedFunctions` pass that emits the specialized bodies must use `typeContainsSomeTypeForCodegenParam` (not the strict `typeContainsSomeType`) when probing for "still-generic" parameters — struct fields whose type is a `Function` (effect-record handlers like `throw : ctl(forall(ResumeType), ...) -> ResumeType`) are type-erased fn pointers at the C ABI, so their inner forall does NOT make the outer struct still-generic for codegen.
+
+### Effect-record handlers whose body uses `return(value)`
+
+When a struct field declared as `throw : ctl(forall(ResumeType), ...) -> ResumeType` is bound to a lambda body like `(val, resume_val) -> { return(resume_val); }`, the lambda's body is `shouldDeferBodyEvaluation`'d — its sub-expressions (including the `return`) never get `.$` populated. The handler still needs a C function symbol because its address is stored as `void*` in the effect record's capture struct (via `emitEffectRecordInjection` in `await.ts`).
+
+The stub-emit gate in `generation.ts` covers this: an `isEffectRecordMember` whose body contains an explicit `return(expr)` (use `bodyHasExplicitReturn`) is emitted as a `__yo_effect_escaped = 1; return ZERO;` stub. The effect runtime resumes via `set_effect`, so the stub return value is never observed. Bodies that only `unwind(...)` keep their real bodies — they preserve observable side effects like `println(msg)` before `unwind(())`.
+
+### `-> ref(T)` body and cond-arm lowering
+
+Inside a `-> ref(T)` function, `function-type.ts` lowers the body's expected type to `*(T)` (`bodyExpectedType`) so cross-arm unification, the return-type compatibility check, and downstream synth all agree on a single pointer-typed shape. Two downstream pieces need to know about this lowering:
+
+- **Call-return synth in `_tryToCallFunctionWithArgumentsImpl`** — when the callee is `-> ref(T)`, its return type is the raw `T` while the surrounding `context.expectedType` is `*(T)`. Lift `returnType` to `createPtrType(...)` _only_ when the expected is itself a `Ptr` AND `returnType` isn't already a `Ptr`. The "already a Ptr" guard avoids double-wrapping a generic forall `T` that was pre-resolved upstream (e.g. `values.project(...)` in std/encoding/json's `Index.index` with `T = JsonValue` resolved to `*(JsonValue)`).
+- **Cond arm typecheck** — in `evaluator/exprs/cond.ts`, accept an arm whose `.$.type` is the underlying `T` against an expected `*(T)` (PtrRelaxedMatch). Flowability still owns soundness — the arm must root back to a ref-bound parameter via R1–R4.
+- **Cond arm codegen** — in `codegen/exprs/cond.ts`, the cond's temp var is declared as `T*` (the lowered place shape). Arm bodies whose `.$.type` is the raw `T` must have their assignment to the temp wrapped in `&(...)` so the C-level lvalue types agree. The `maybeAddressOf` helper handles this when `currentFunctionType.return.isRef && isPtrType(condValueType)`.
+
 ### Await unwind value handling: handler installation vs propagation
 
 When an `io.await` detects a Future abort (state == -2), the behavior depends on whether the current function is the **handler installation point** or a **propagation point**:
