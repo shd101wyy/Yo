@@ -22,6 +22,7 @@ import { type Type } from "../../types/definitions";
 import {
   isBooleanType,
   isFunctionTypeAndReturnsComptimeValue,
+  isPtrType,
 } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
@@ -341,9 +342,25 @@ export function evaluateCond({
       caseBodyValues.push(evaluatedCaseBodyExpr.$.value);
 
       if (context.expectedType) {
+        // For `-> ref(T)` enclosing functions the body's expected type is
+        // lowered to `*(T)` (see function-type.ts `bodyExpectedType`).
+        // Cond arms that produce raw `T` (e.g. a field projection `p.x`
+        // of a ref-bound parameter) are flowable — the codegen will emit
+        // address-taking on the way out. Accept the raw `T` form here;
+        // the flowability rule on the return expression owns soundness.
+        const armType = evaluatedCaseBodyExpr.$.type;
+        const expectedType = context.expectedType.type;
+        const isPtrRelaxedMatch =
+          isPtrType(expectedType) &&
+          !isPtrType(armType) &&
+          areTypesCompatible(
+            { type: expectedType.childType, env: context.expectedType.env },
+            { type: armType, env: evaluatedCaseBodyExpr.$.env }
+          );
         if (
+          !isPtrRelaxedMatch &&
           !areTypesCompatible(context.expectedType, {
-            type: evaluatedCaseBodyExpr.$.type,
+            type: armType,
             env: evaluatedCaseBodyExpr.$.env,
           })
         ) {
