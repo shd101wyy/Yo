@@ -129,8 +129,21 @@ export function checkDeferredGenericReturnType({
   // Without this carve-out, every `io.async((e) => concrete_value)`
   // form is rejected at definition time with "Expected: T / Given:
   // <concrete>" before the call-site forall binding has a chance.
+  //
+  // BUT — when the function declares its OWN `forall(T)` and the
+  // return type is exactly that T, the body MUST produce a T-shaped
+  // value (or escape). A concrete-typed body would only type-check
+  // for one monomorphization; we reject it at definition time. This
+  // is the "generic function with concrete return" case caught by
+  // `tests/fn.test.yo::Test generic functions`.
   if (trialBodyReturnType && isSomeType(expectedReturnForCompare)) {
-    return;
+    const returnedSomeName = expectedReturnForCompare.name;
+    const isOwnForall = functionType.forallParameters.some(
+      (p) => p.label === returnedSomeName
+    );
+    if (!isOwnForall) {
+      return;
+    }
   }
   if (
     trialBodyReturnType &&
