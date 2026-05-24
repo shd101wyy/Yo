@@ -1530,23 +1530,17 @@ Got:   ${typeToString(typeValue.type)}`,
   // return type will be determined after macro expansion.
   if (context.expectedType && !functionType.return.isUnquote) {
     // For `-> ref(T)` callees, the user-visible return type is `T` but at
-    // the C ABI the call evaluates to `*(T)`. The surrounding body's expected
-    // type is also lowered to `*(T)` for `-> ref(T)` enclosing functions
-    // (see function-type.ts `bodyExpectedType`). When the callee's return
-    // type isn't already a pointer (which happens when it's a concrete
-    // non-generic ref-return like identity's `i32`), pad with `*(...)` so
-    // the synthesizer compares the lowered shapes. Skip when returnType is
-    // already a Ptr — generic forall T may have been pre-resolved upstream
-    // to `*(JsonValue)` and double-wrapping would re-introduce the mismatch
-    // (std/encoding/json's Index.index calling `values.project(...)`).
-    // For `-> ref(T)` callees, the user-visible return type is `T` but at
     // the C ABI the call evaluates to `*(T)`. Only lift to the Ptr-shaped
     // form when the surrounding expected type IS itself a Ptr — which
     // happens when the body of an enclosing `-> ref(T)` function has had
     // its expected type lowered to `*(T)` (see function-type.ts
     // `bodyExpectedType`). When the caller asks for the raw `T` (auto-
     // deref'd by the consumer, e.g. binding the call result to a value
-    // variable, or comparing in an arm), leave it raw.
+    // variable, or comparing in an arm), leave it raw. Skip when
+    // returnType is already a Ptr — a generic forall T may have been
+    // pre-resolved upstream to `*(JsonValue)` and double-wrapping would
+    // re-introduce the mismatch (std/encoding/json's Index.index calling
+    // `values.project(...)`).
     const returnTypeForSynth: Type =
       functionType.return.isRef &&
       !isPtrType(returnType) &&

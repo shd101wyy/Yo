@@ -1,6 +1,7 @@
 import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinKeywords,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -50,9 +51,7 @@ export function generateCondExpression(
       !!valueType &&
       isPtrType(valueType);
     const maybeAddressOf = (
-      armExpr:
-        | { $?: { type?: import("../../types/definitions").Type } }
-        | undefined,
+      armExpr: Expr | undefined,
       code: string
     ): string => {
       if (!condOuterIsPtr) return code;
