@@ -39,6 +39,7 @@ import {
   convertComptimeTypeToRuntimeType,
   typeContainsSomeType,
   typeContainsUnboundSomeType,
+  typeIsControlBound,
   typeRepresentationContainsRawPtr,
   typeToString,
 } from "../../types/utils";
@@ -1070,6 +1071,27 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
         throw formatErrorMessage({
           token: captureInfo.token ?? expr.token,
           errorMessage: `Cannot capture ref binding '${varName}' in a closure. \`ref(${varName}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
+        });
+      }
+      // §4 typing rule 4: closures cannot capture a value of
+      // control-bound type. The captured ctl handler would escape
+      // with the closure value (which can be stored or returned),
+      // leaving an unwind that targets a dead install frame.
+      // Mirror of the rule enforced in closure-type.ts:151, applied
+      // here for the regular "closure passed as function arg" path
+      // (e.g. `apply(() => raise(...))`).
+      if (
+        variable &&
+        !variable.isCompileTimeOnly &&
+        typeIsControlBound(variable.type)
+      ) {
+        throw formatErrorMessage({
+          token: captureInfo.token ?? expr.token,
+          errorMessage: `Closures cannot capture a value of control-bound type. The captured value \`${varName}\` has type \`${typeToString(
+            variable.type
+          )}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
+
+Pass \`${varName}\` as a regular function parameter instead of capturing it in a closure.`,
         });
       }
     }
