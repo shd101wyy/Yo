@@ -14,7 +14,7 @@ import * as os from "os";
 import * as path from "path";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
-const YO_CLI = path.join(REPO_ROOT, "yo-cli");
+const YO_CLI = path.join(REPO_ROOT, "out", "cjs", "yo-cli.cjs");
 
 function compileAndExpectError(source: string): string {
   const tmpDir = fs.mkdtempSync(
@@ -25,8 +25,8 @@ function compileAndExpectError(source: string): string {
   try {
     try {
       execFileSync(
-        YO_CLI,
-        ["compile", file, "--emit-c", "--skip-c-compiler", "--release"],
+        "node",
+        [YO_CLI, "compile", file, "--emit-c", "--skip-c-compiler", "--release"],
         { stdio: "pipe" }
       );
     } catch (e: unknown) {
@@ -98,8 +98,8 @@ export(main);
     );
     try {
       execFileSync(
-        YO_CLI,
-        ["compile", file, "--emit-c", "--skip-c-compiler", "--release"],
+        "node",
+        [YO_CLI, "compile", file, "--emit-c", "--skip-c-compiler", "--release"],
         { stdio: "pipe" }
       );
     } finally {

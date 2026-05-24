@@ -136,6 +136,23 @@ Always save verbose output to a file to avoid terminal truncation:
 ./yo-cli compile src/tests/fixme.yo --release &> compile_output.txt
 ```
 
+### Windows compatibility
+
+`./yo-cli` is a bash script; it does not work on Windows. Use one of these instead:
+
+```bash
+# Option 1: the built JavaScript entry point (works everywhere)
+node ./out/cjs/yo-cli.cjs test ./tests --parallel 8 --bail
+
+# Option 2: the PowerShell wrapper (Windows PowerShell)
+./yo-cli.ps1 test ./tests --parallel 8 --bail
+```
+
+TypeScript test files that shell out to `yo-cli` (`comptime-ref-gate.test.ts`,
+`pragma-validation.test.ts`, `unsafe-gate.test.ts`) must use
+`execFileSync("node", [YO_CLI, ...])` where `YO_CLI` points to
+`out/cjs/yo-cli.cjs`, not the `yo-cli` bash script.
+
 ### Build system commands
 
 ```bash
