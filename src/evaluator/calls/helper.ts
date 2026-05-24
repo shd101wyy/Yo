@@ -368,7 +368,7 @@ export function checkIfFunctionParameterMatchesArgument({
     // This is normal function call parameter
     else {
       // For io.await, evaluate the argument WITHOUT expectedType so the argument
-      // retains its natural type (e.g., IOFuture = Impl(Concrete(...), Future(i32))).
+      // retains its natural type (e.g., IoFuture = Impl(Concrete(...), Future(i32))).
       // This prevents the expected SomeType from coercing the arg type, which would
       // make synthesis unable to resolve forall type parameter T from Future(T).
       const expectedType =
@@ -1843,7 +1843,7 @@ Got:   ${typeToString(typeValue.type)}`,
   const hasUnknownImplicitArgs = argValues_.implicitArgs?.some((arg) =>
     isUnknownValue(arg.value)
   );
-  // Allow specialization when the only unknown implicit args are record effects (like IO)
+  // Allow specialization when the only unknown implicit args are record effects (like Io)
   // AND the call has runtime parameters with SomeType (e.g., Impl(Future(...)))
   // that need concrete type resolution from the call site.
   // This avoids unnecessary re-evaluation for functions where specialization
@@ -1896,7 +1896,7 @@ Got:   ${typeToString(typeValue.type)}`,
     // Skip specialization when implicit args contain UnknownValue (e.g., at function
     // definition time when the handler hasn't been concretely provided yet).
     // This prevents creating broken specializations that reference unresolved functions.
-    // Exception 1: allow when only effect-record implicit args (like IO) are unknown AND
+    // Exception 1: allow when only effect-record implicit args (like Io) are unknown AND
     // the call has SomeType runtime parameters that benefit from specialization.
     // Exception 2: allow when the only Unknown args come from effect row spread
     // parameters — those are forwarded effects that the body may not reference.

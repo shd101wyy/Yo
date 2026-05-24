@@ -54,7 +54,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - 同像性（Homoiconicity）和元编程（**Yo** 语法受 **Lisp** S 表达式启发。简单的语法规则，对人类和 AI 友好）。
 - 闭包（Closure）。
 - [代数效应与处理器](./ALGEBRAIC_EFFECTS.md)（一次性 delimited continuation、尾调用恢复式、通过 `using`/`given` 的隐式参数、通过 `return`/`unwind` 的效应处理器，基于 [证据传递/Evidence Passing](https://xnning.github.io/papers/multip.pdf)）。
-- [Async/Await](./ASYNC_AWAIT.md)（内置 `IO` 效应。无栈协程与合作式多任务。惰性 Future、多 await、通过状态机转换实现的单线程并发）。
+- [Async/Await](./ASYNC_AWAIT.md)（内置 `Io` 效应。无栈协程与合作式多任务。惰性 Future、多 await、通过状态机转换实现的单线程并发）。
 - [默认内存安全](./MEMORY_SAFETY.md) —— 用户代码无法在不显式声明 `pragma(Pragma.AllowUnsafe);` opt-in 的情况下写出 UB（无原始指针、无 FFI、无内联汇编）。原地修改使用 `ref(name)`；`yo unsafe-report` 用于审计 unsafe 表面。
 - 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的 `object` 类型。
 - [基于所有权和生命周期分析的编译时引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
@@ -234,7 +234,7 @@ $ yo fmt --check            # 只检查格式，不写入变更
 - **C 兼容类型**：`int`、`uint`、`short`、`long`、`longlong`、`char` 等
 - **核心 trait**：`Eq`、`Ord`、`Add`、`Sub`、`Mul`、`Div`、`Iterator`、`IntoIterator`、`TryFrom`、`TryInto`、`Dispose`、`Send`、`Rc`、`Acyclic` 等
 - **元编程**：`Type`、`Expr`、`ExprList`、`Var`
-- **异步**：`IO`、`FutureState`、`JoinHandle`
+- **异步**：`Io`、`FutureState`、`JoinHandle`
 - **工具函数**：`assert`、`unsafe`、`try`、`for`、`not`、`arc`、`Box`、`box`
 - 等等
 
@@ -338,7 +338,7 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
 | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | [`yo-syntax`](../../.github/skills/yo-syntax/SKILL.md)                     | 核心语言语法：花括号语义、cond/match、结构体、枚举、运算符、模块 |
 | [`yo-core-patterns`](../../.github/skills/yo-core-patterns/SKILL.md)       | 常用模式：类型、泛型、trait、错误处理、集合、迭代器              |
-| [`yo-async-effects`](../../.github/skills/yo-async-effects/SKILL.md)       | 异步/await、代数效应、Exception、IO、任务派生                    |
+| [`yo-async-effects`](../../.github/skills/yo-async-effects/SKILL.md)       | 异步/await、代数效应、Exception、Io、任务派生                    |
 | [`yo-project-workflow`](../../.github/skills/yo-project-workflow/SKILL.md) | `yo` CLI 命令、`build.yo` 项目文件、依赖管理                     |
 
 ### 在自己的项目中使用

@@ -2644,12 +2644,12 @@ Yo uses **async/await with state machine transformation** for efficient **single
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(io : IO) -> unit)({
-  task1 := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit)({
+  task1 := io.async((io : Io)=> {
     io.await(yield());
     return(i32(1));
   });
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     io.await(yield());
     return(i32(2));
   });
@@ -2817,7 +2817,7 @@ test("Test description", {
   assert(x == 2);
 });
 
-// IO is implicitly available via `io` in all test bodies
+// Io is implicitly available via `io` in all test bodies
 test("With effects", {
   io.await(sleep(u64(1000)));
 });

@@ -2636,12 +2636,12 @@ Yo 使用**基于状态机转换的 async/await** 实现高效的**单线程并�
 ```rust
 { yield } :: import("std/async");
 
-main :: (fn(io : IO) -> unit)({
-  task1 := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit)({
+  task1 := io.async((io : Io)=> {
     io.await(yield());
     return(i32(1));
   });
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     io.await(yield());
     return(i32(2));
   });
@@ -2809,7 +2809,7 @@ test("Test description", {
   assert(x == 2);
 });
 
-// IO 通过 `io` 自动注入到所有测试体中
+// Io 通过 `io` 自动注入到所有测试体中
 test("With effects", {
   io.await(sleep(u64(1000)));
 });

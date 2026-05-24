@@ -3,7 +3,7 @@
 //! Provides async DNS resolution wrapping `getaddrinfo`/`getnameinfo`, plus
 //! accessors for iterating the linked list of `addrinfo` results.
 //!
-//! All async operations return `IOFuture` which resolves to:
+//! All async operations return `IoFuture` which resolves to:
 //! - 0: success
 //! - Non-zero: raw `gai_error` code (`EAI_NONAME`, `EAI_AGAIN`, etc.)
 //
@@ -39,10 +39,10 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
-{ IOFuture } :: import("./future.yo");
+{ IoFuture } :: import("./future.yo");
 { __yo_async_getaddrinfo_start, __yo_async_getnameinfo_start, __yo_freeaddrinfo, __yo_addrinfo_size, __yo_addrinfo_flags, __yo_addrinfo_family, __yo_addrinfo_socktype, __yo_addrinfo_protocol, __yo_addrinfo_addrlen, __yo_addrinfo_addr, __yo_addrinfo_canonname, __yo_addrinfo_next } :: import("./externs.yo");
 // ============================================================================
-// DNS Resolution (return IOFuture, use with await)
+// DNS Resolution (return IoFuture, use with await)
 // ============================================================================
 // Resolve hostname to a linked list of addrinfo results.
 // node: hostname or IP string (e.g. "localhost", "example.com")
@@ -51,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
 // result: pointer to a ?*(u8) that will receive the head of the result list
 // Returns 0 on success, non-zero gai_error on failure.
 // Caller must call freeaddrinfo() on the result when done.
-getaddrinfo :: (fn(node : *(u8), service : ?*(u8), hints : ?*(u8), result : *(?*(u8))) -> IOFuture)(
+getaddrinfo :: (fn(node : *(u8), service : ?*(u8), hints : ?*(u8), result : *(?*(u8))) -> IoFuture)(
   __yo_async_getaddrinfo_start(node, service, hints, result)
 );
 // Reverse lookup: convert a socket address to hostname and service strings.
@@ -63,7 +63,7 @@ getaddrinfo :: (fn(node : *(u8), service : ?*(u8), hints : ?*(u8), result : *(?*
 // servlen: size of service buffer
 // flags: NI_NUMERICHOST, NI_NUMERICSERV, etc.
 // Returns 0 on success, -gai_error on failure.
-getnameinfo :: (fn(addr : *(u8), addrlen : u32, host : *(u8), hostlen : usize, service : *(u8), servlen : usize, flags : i32) -> IOFuture)(
+getnameinfo :: (fn(addr : *(u8), addrlen : u32, host : *(u8), hostlen : usize, service : *(u8), servlen : usize, flags : i32) -> IoFuture)(
   __yo_async_getnameinfo_start(addr, addrlen, host, hostlen, service, servlen, flags)
 );
 // Free an addrinfo result list returned by getaddrinfo.

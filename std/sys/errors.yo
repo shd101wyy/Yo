@@ -1,13 +1,13 @@
-//! `IOError` type — comprehensive I/O error type with errno-to-error mapping.
+//! `IoError` type — comprehensive I/O error type with errno-to-error mapping.
 { String } :: import("../string");
 { ToString } :: import("../fmt");
 { Error, Exception } :: import("../error");
 { ENOENT, EPERM, EACCES, EEXIST, ENOTDIR, EISDIR, ENOTEMPTY, EPIPE, EAGAIN, EWOULDBLOCK, EINVAL, EINTR, EMFILE, ENFILE, EFBIG, ENOSPC, EROFS, EXDEV, EMLINK, ENAMETOOLONG, ENOTSUP, EOPNOTSUPP, ETIMEDOUT, EBUSY, ECONNREFUSED, ECONNRESET, ECONNABORTED, ENOTCONN, EADDRINUSE, EADDRNOTAVAIL, ENETUNREACH, EHOSTUNREACH, ENETDOWN, EISCONN, EBADF, EIO } :: import("../libc/errno");
 // ============================================================================
-// IOError - I/O error type
+// IoError - I/O error type
 // ============================================================================
 /// Comprehensive I/O error type with errno-to-error mapping.
-IOError :: enum(
+IoError :: enum(
   /// File or directory not found (ENOENT).
   NotFound,
   /// Permission denied (EACCES, EPERM).
@@ -51,7 +51,7 @@ IOError :: enum(
   /// Bad file descriptor (EBADF).
   BadFileDescriptor,
   /// Generic I/O error (EIO).
-  IOError,
+  IoError,
   /// Connection refused (ECONNREFUSED).
   ConnectionRefused,
   /// Connection reset by peer (ECONNRESET).
@@ -76,7 +76,7 @@ IOError :: enum(
   Other(code : i32)
 );
 impl(
-  IOError,
+  IoError,
   from_errno : (fn(errno : i32) -> Self)(
     cond(
       (errno == i32(ENOENT)) =>.NotFound,
@@ -100,7 +100,7 @@ impl(
       (errno == i32(ETIMEDOUT)) =>.TimedOut,
       (errno == i32(EBUSY)) =>.Busy,
       (errno == i32(EBADF)) =>.BadFileDescriptor,
-      (errno == i32(EIO)) =>.IOError,
+      (errno == i32(EIO)) =>.IoError,
       (errno == i32(ECONNREFUSED)) =>.ConnectionRefused,
       (errno == i32(ECONNRESET)) =>.ConnectionReset,
       (errno == i32(ECONNABORTED)) =>.ConnectionAborted,
@@ -122,7 +122,7 @@ impl(
   )
 );
 impl(
-  IOError,
+  IoError,
   ToString(
     to_string : (
       self -> {
@@ -149,7 +149,7 @@ impl(
           .TimedOut => String.from("operation timed out"),
           .Busy => String.from("resource busy"),
           .BadFileDescriptor => String.from("bad file descriptor"),
-          .IOError => String.from("I/O error"),
+          .IoError => String.from("I/O error"),
           .ConnectionRefused => String.from("connection refused"),
           .ConnectionReset => String.from("connection reset by peer"),
           .ConnectionAborted => String.from("connection aborted"),
@@ -167,9 +167,9 @@ impl(
     )
   )
 );
-impl(IOError, Error());
+impl(IoError, Error());
 impl(
-  IOError,
+  IoError,
   // Check a raw result code, throwing on error via Exception effect.
   check : (fn(result : i32, exn : Exception) -> i32)(
     cond(
@@ -178,4 +178,4 @@ impl(
     )
   )
 );
-export(IOError);
+export(IoError);

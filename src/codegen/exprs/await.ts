@@ -120,7 +120,7 @@ export function generateAwait(
     emitter.emitLine(
       `${indent}int ${preAwaitStateVar} = ${syncFutureVar}->state;`
     );
-    // Only cold-start state machine futures; IO futures are already submitted to io_uring
+    // Only cold-start state machine futures; Io futures are already submitted to io_uring
     const isIoFuture = isIoFutureType(futureArg.$?.type);
     if (!isIoFuture) {
       emitter.emitLine(
@@ -145,8 +145,8 @@ export function generateAwait(
     emitter.emitLine(`${indent}    __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
-    // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise))
-    // or effect record types (e.g., Future(i32, IO, Exception)).
+    // Check if the Future type includes algebraic effect types (e.g., Future(i32, Io, Raise))
+    // or effect record types (e.g., Future(i32, Io, Exception)).
     // Effectful futures may be intentionally aborted by a ctl/unwind handler
     // during the CURRENT await — don't panic for that case.
     // But if the future was ALREADY aborted before we started awaiting (re-await),
@@ -500,7 +500,7 @@ function isAwaitUnwindHandlerInstallation(
       return true; // Not forwarded → locally installed
     }
   } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
-    // Record-type effect (e.g., Exception/IO): check if any member is in evidence
+    // Record-type effect (e.g., Exception/Io): check if any member is in evidence
     let isForwarded = false;
     if (evidenceParams) {
       for (const [key] of evidenceParams) {
@@ -650,7 +650,7 @@ function emitEffectInjectionForAwait(
     }
   } else if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
     // Whole-bundle injection: io.await/io.spawn pass the user's bundle
-    // value as the second positional arg (e.g. `io.await(future, IOErr(...))`).
+    // value as the second positional arg (e.g. `io.await(future, IoExn(...))`).
     // Generate that expression, store it in a local, and hand its address
     // to the future's set_effect("__bundle", &bundle) callback. The
     // matching set_effect impl copies the struct into the SM's bundle

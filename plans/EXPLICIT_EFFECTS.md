@@ -81,7 +81,7 @@ is at the surface-syntax + evaluator level only.
 
 - **Not** changing the codegen strategy. Evidence passing
   (fn-ptr params + `__yo_effect_escaped` flag) stays.
-- **Not** changing async/await semantics or the IO event loop.
+- **Not** changing async/await semantics or the Io event loop.
 - **Not** removing effects altogether. The language still supports
   one-shot delimited continuations via `return` / `unwind`.
 - **Not** breaking-change safe. This plan accepts full prelude + tests +
@@ -191,7 +191,7 @@ traverse(arr, (v, using(_yield, _log)) => { ... }, using(yield, log));
 traverse(arr, (v, e) => { e.log(v); e.yield(v); }, effects);
 ```
 
-### IO / Future signatures (prelude redesign)
+### Io / Future signatures (prelude redesign)
 
 Two shape changes happen together here:
 
@@ -220,16 +220,16 @@ spawn : (fn(forall(T : Type, E : Type.Struct),
 ```
 
 Future is **single-arg**: `Future(T, E)` where `E` is a struct type
-holding the effect bundle. There is no `Future(T, IO, Exception)`
+holding the effect bundle. There is no `Future(T, Io, Exception)`
 variadic spelling; combined effects use an explicit struct type.
 
 Repeated bundles get a named alias so signatures stay readable:
 
 ```rust
-IOErr :: struct(io : IO, exn : Exception);
+IoExn :: struct(io : Io, exn : Exception);
 
-create_dir :: (fn(path : Path, io : IO, exn : Exception)
-  -> Impl(Future(unit, IOErr)))(
+create_dir :: (fn(path : Path, io : Io, exn : Exception)
+  -> Impl(Future(unit, IoExn)))(
   io.async((e) => { e.exn.throw(...); }, { io, exn })
 );
 ```
@@ -238,12 +238,12 @@ At call sites the bundle's _type_ and the bundle's _value_ mirror each
 other:
 
 ```rust
-// Single effect — Future(T, IO), E = IO, e = io
-fut1 : Impl(Future(i32, IO));
+// Single effect — Future(T, Io), E = Io, e = io
+fut1 : Impl(Future(i32, Io));
 x := io.await(fut1, io);
 
-// Combined bundle — Future(T, IOErr), E = IOErr, e = { io, exn }
-fut2 : Impl(Future(i32, IOErr));
+// Combined bundle — Future(T, IoExn), E = IoExn, e = { io, exn }
+fut2 : Impl(Future(i32, IoExn));
 y := io.await(fut2, { io, exn });
 
 // No effects — Future(T, struct()), e = {}
@@ -681,13 +681,13 @@ has a wider type than the callee expects must **project** to the
 callee's exact bundle type, not rely on structural subtyping.
 
 ```rust
-// e : IOErr, but inner future only needs IO
-io.await(IO_dir.mkdir(...), e.io);    // ✓ project to IO
+// e : IoExn, but inner future only needs Io
+io.await(IO_dir.mkdir(...), e.io);    // ✓ project to Io
 
-// e : IOErr, inner future needs IOErr
+// e : IoExn, inner future needs IoExn
 io.await(some_combined_fut, e);       // ✓ exact match
 
-// e : IOErr, inner future needs IO — passing e directly is an error
+// e : IoExn, inner future needs Io — passing e directly is an error
 io.await(IO_dir.mkdir(...), e);       // ✗ type mismatch
 ```
 
@@ -695,18 +695,18 @@ The std/ migration is a mechanical pass over four patterns:
 
 1. **Common bundle aliases land in `std/error.yo`** alongside
    `Exception` — since `Exception` itself isn't in prelude, the alias
-   has to live where it can reference both `IO` (prelude) and
+   has to live where it can reference both `Io` (prelude) and
    `Exception` (error.yo). Consumers already import `std/error` when
-   they need `Exception`. Start with `IOErr :: struct(io : IO, exn :
+   they need `Exception`. Start with `IoExn :: struct(io : Io, exn :
 Exception);` and add more as the migration discovers them. A later
    refactor could promote `Exception` and the bundles to prelude.
 2. **`io.await(fut)` → `io.await(fut, io)`** when fut's effect bundle
-   is just IO. Most stdlib calls fall here.
+   is just Io. Most stdlib calls fall here.
 3. **`io.await(fut)` → `io.await(fut, e.io)` or `io.await(fut, e)`**
    when the caller has a wider bundle: project to whatever the callee's
    type signature requires.
-4. **Future type signatures** like `Impl(Future(unit, IO, Exception))`
-   (old variadic) → `Impl(Future(unit, IOErr))`. Introduce aliases
+4. **Future type signatures** like `Impl(Future(unit, Io, Exception))`
+   (old variadic) → `Impl(Future(unit, IoExn))`. Introduce aliases
    before the mechanical pass so the diff stays readable.
 
 Default evidence values (§9.6) are tracked independently. They reduce
@@ -716,7 +716,7 @@ leaf-call boilerplate later but are not required to start 2g.
 
 Migrated and type-checks clean (`./yo-cli check std/`):
 
-- `std/error.yo` — added `IOErr :: struct(io : IO, exn : Exception)`
+- `std/error.yo` — added `IoExn :: struct(io : Io, exn : Exception)`
 - `std/fs/` — `dir.yo`, `file.yo`, `metadata.yo`, `temp.yo`, `walker.yo`
 - `std/net/` — `tcp.yo`, `udp.yo`, `dns.yo`
 - `std/http/` — `client.yo`
@@ -732,24 +732,24 @@ Whole `std/` passes `./yo-cli check`: **148/148**.
   function-typed-atom call, breaking propagation through bare fn-typed
   effect parameters. Fixed via env-frame check
   (`isHandlerAtomBoundLocally`). See §4 "Known codegen pitfall".
-- **Main with explicit `(io : IO, exn : Exception)` codegen.** Fixed
+- **Main with explicit `(io : Io, exn : Exception)` codegen.** Fixed
   in `src/codegen/types/{collection,generation}.ts` and
   `src/codegen/functions/{declarations,generation}.ts`:
   - Type collection now registers struct types whose only `SomeType`
-    content lives inside function-typed fields (IO / Exception have
+    content lives inside function-typed fields (Io / Exception have
     forall fn-ptr fields; the struct itself is concrete at C level).
   - Forward declaration + struct typedef emission gets the same
     exemption so `__yo_struct_<id>` shows up in the C output.
   - `hasGenericParams` skip filter exempts `__yo_user_main` so the
     user-main body emits with its flattened fn-ptr params.
   - C main wrapper constructs zero-initialized values for each main
-    parameter. IO field calls (`io.async`, `io.await`, etc.) are
+    parameter. Io field calls (`io.async`, `io.await`, etc.) are
     inlined by codegen, so the struct field values are never invoked
     through fn-ptrs. Exception's throw field would crash if reached
     with the wrapper's default; programs should install a real handler
     before throwing.
-- **Test-runner main declares `io : IO, exn : Exception`.** Generated
-  main signature is now `(io : IO, exn : Exception) -> unit` so test
+- **Test-runner main declares `io : Io, exn : Exception`.** Generated
+  main signature is now `(io : Io, exn : Exception) -> unit` so test
   bodies can reference `io` and `exn` directly. The C main wrapper
   injects the runtime values per the bullet above.
 
@@ -816,7 +816,7 @@ Items intentionally not done in this pass; tracked for follow-up:
    - `given(name) :=` → `name :=`; `(given(name) : Type) =` → `(name : Type) =`
    - `escape` was already `unwind` (Phase 0 covered yo-self)
    - `io.await(X)` → `io.await(X, io)`
-   - `Future(T, IO, Exception)` → `Future(T, IOErr)` (added IOErr to
+   - `Future(T, Io, Exception)` → `Future(T, IoExn)` (added IoExn to
      `std/error` import where needed)
    - Reverted over-migration of `sb.write_string(X, io)` (StringBuilder
      doesn't take io)
@@ -1026,31 +1026,31 @@ Listed in the original numbering for cross-reference continuity.
    `EFFECT_INJECTION_VIA_SPECIALIZED_RESUME.md` goes away; closures use
    the normal capture path.
 
-3. **`io.await` and IO as an effect.** ✅ Shape (a) — fully explicit,
-   threaded. IO is just an effect record like any other; there is no
+3. **`io.await` and Io as an effect.** ✅ Shape (a) — fully explicit,
+   threaded. Io is just an effect record like any other; there is no
    compiler injection and no default for `e`.
 
    Future is **single-arg** at the type level: `Future(T, E)`. The
    bundle type and the bundle value mirror each other:
 
    ```rust
-   // Future carries only IO — E = IO (itself a struct)
-   fut1 : Impl(Future(i32, IO));
+   // Future carries only Io — E = Io (itself a struct)
+   fut1 : Impl(Future(i32, Io));
    x := io.await(fut1, io);
 
-   // Future carries IO + Exception — E is a named or anonymous struct
-   IOErr :: struct(io : IO, exn : Exception);
-   fut2 : Impl(Future(i32, IOErr));
+   // Future carries Io + Exception — E is a named or anonymous struct
+   IoExn :: struct(io : Io, exn : Exception);
+   fut2 : Impl(Future(i32, IoExn));
    y := io.await(fut2, { io, exn });
    ```
 
    Single-effect calls pass the effect value directly (`io`), because
-   `E = IO` is itself a struct. Multi-effect calls pass a value of the
-   bundle struct type (e.g. `IOErr`, declared in `std/prelude.yo`).
+   `E = Io` is itself a struct. Multi-effect calls pass a value of the
+   bundle struct type (e.g. `IoExn`, declared in `std/prelude.yo`).
    There is one mental model — "pass a value of type `E`" — with one
    surface form. Yo structs are nominal, so when the caller's bundle
    is wider than the callee's, the caller must **project** to the
-   callee's exact type (e.g. `e.io` to pass just IO).
+   callee's exact type (e.g. `e.io` to pass just Io).
 
    Cost: ~129 stdlib edits, plus Future signatures throughout. Accepted.
    Default evidence values (§9.6) are still planned independently for

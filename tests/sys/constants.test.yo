@@ -3,9 +3,9 @@ constants :: import("std/sys/constants");
 socket :: import("std/sys/socket");
 signals :: import("std/sys/signals");
 events :: import("std/sys/events");
-{ IOError } :: import("std/sys/errors");
+{ IoError } :: import("std/sys/errors");
 { platform, Platform } :: import("std/process");
-test("Test IO constants", {
+test("Test Io constants", {
   // =========================================================================
   // Test: module structure and constant imports
   // =========================================================================
@@ -73,12 +73,12 @@ test("Test IO constants", {
   assert(events.TTY_MODE_RAW == i32(1));
   assert(events.POLL_READABLE == i32(1));
   assert(events.POLL_WRITABLE == i32(2));
-  // IOError
+  // IoError
   { ENOENT } :: import("std/libc/errno");
-  err := IOError.from_errno(i32(ENOENT));
+  err := IoError.from_errno(i32(ENOENT));
   match(
     err,
-    .NotFound => assert(true, "IOError.from_errno(ENOENT) should be NotFound"),
-    _ => assert(false, "IOError.from_errno(ENOENT) should be NotFound")
+    .NotFound => assert(true, "IoError.from_errno(ENOENT) should be NotFound"),
+    _ => assert(false, "IoError.from_errno(ENOENT) should be NotFound")
   );
 });

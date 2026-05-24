@@ -395,7 +395,7 @@ export function findFunctionCallsInExpr(
 
         // Skip collecting functions that are generic and haven't been specialized.
         // BUT still recurse into args — they may contain closure constructions
-        // (e.g. `io.async((io2 : IO) => { ... })` where io.async stays generic
+        // (e.g. `io.async((io2 : Io) => { ... })` where io.async stays generic
         // but the closure arg needs registration) or other functions that
         // need to be collected independently.
         if (
@@ -414,7 +414,7 @@ export function findFunctionCallsInExpr(
         // BUT: still scan the args — they may contain closure constructions or
         // other functions that need to be collected independently.
         // Use isFunctionTypeHardGeneric: functions generic ONLY due to implicit
-        // params (e.g., using(io : IO)) can still be codegen'd because implicit
+        // params (e.g., using(io : Io)) can still be codegen'd because implicit
         // params are compile-time-only and don't appear in C signatures.
         // EXCEPTION: Functions with evidence parameters (from implicit params that
         // resolve to module/function effects) are valid for codegen even if
@@ -446,10 +446,10 @@ export function findFunctionCallsInExpr(
           let isGenericOnlyDueToImplicitParams = false;
           if (exprContainsUnknownValue(functionValue.body)) {
             // Functions that are only "generic" due to implicit parameters
-            // (e.g., using(io : IO)) may have UnknownValue in their body for the
+            // (e.g., using(io : Io)) may have UnknownValue in their body for the
             // implicit parameter references (like `io` or `io.await`). These functions
             // are still valid for codegen because:
-            // 1. IO builtin calls (io.await, io.async, io.state) are handled specially by codegen
+            // 1. Io builtin calls (io.await, io.async, io.state) are handled specially by codegen
             // 2. The implicit parameters are compile-time-only and don't appear in C signatures
             // 3. The function body is otherwise fully evaluated
             // Check both original and specialized types: the original type may be
@@ -467,7 +467,7 @@ export function findFunctionCallsInExpr(
           // Skip collecting SomeType's ARC functions (___drop, ___dup) that have
           // generic Impl(Future) parameters without resolvedConcreteType.
           // Exception: user-defined functions with evidence parameters (e.g.,
-          // test_escape(task: Impl(Future(...)), using(io: IO))) should be
+          // test_escape(task: Impl(Future(...)), using(io: Io))) should be
           // collected — their SomeType params are valid for codegen because the
           // concrete type is resolved at the call site.
           if (!isGenericOnlyDueToImplicitParams) {

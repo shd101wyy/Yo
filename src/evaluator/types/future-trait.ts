@@ -24,7 +24,7 @@ import { evaluateExpression } from "../exprs/expr";
  * - Dyn(Future(T))     for dynamic dispatch
  *
  * Multiple effects must be packed into a single struct (e.g.
- *   Ctx :: struct(io : IO, raise : Raise);
+ *   Ctx :: struct(io : Io, raise : Raise);
  *   Future(T, Ctx)
  * ) rather than passed as separate type arguments.
  */
@@ -104,7 +104,7 @@ To combine multiple effects, declare a struct that bundles them and pass that st
 
 /**
  * Resolve a single effect argument in Future(T, ...).
- * Each effect is now an individual type (Raise, Log, IOErr, ...);
+ * Each effect is now an individual type (Raise, Log, IoExn, ...);
  * the legacy `...(E)` spread syntax has been removed in favour of
  * `forall(E : Type.Struct)` + `Future(T, E)`.
  */
@@ -113,7 +113,7 @@ function resolveEffectArg(
   env: Environment,
   context: EvaluatorContext
 ): { effect: FutureEffect; env: Environment } {
-  // Evaluate as an individual effect type (e.g. Raise, Log, IOErr)
+  // Evaluate as an individual effect type (e.g. Raise, Log, IoExn)
   const evaluatedExpr = evaluateExpression({
     expr: effectExpr,
     env,

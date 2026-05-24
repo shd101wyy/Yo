@@ -1,6 +1,6 @@
 ---
 name: yo-async-effects
-description: Write Yo async code and algebraic effect handlers. Use this when working with IO, Future, JoinHandle, ctl/fn handlers, io.async, io.await, io.spawn, return, and unwind.
+description: Write Yo async code and algebraic effect handlers. Use this when working with Io, Future, JoinHandle, ctl/fn handlers, io.async, io.await, io.spawn, return, and unwind.
 argument-hint: "[async task, effect, or API]"
 ---
 
@@ -14,7 +14,7 @@ If a repository wraps these primitives, keep the same semantics and verify wheth
 
 Use this skill when you need to:
 
-- write functions that take an `io : IO` parameter
+- write functions that take an `io : Io` parameter
 - return or consume `Future(...)` values
 - run tasks with `io.async`, `io.await`, or `io.spawn`
 - define handlers using `ctl(args) -> R` and install them as plain local bindings
@@ -23,7 +23,7 @@ Use this skill when you need to:
 ## Workflow
 
 1. Decide whether the task needs sequential async, concurrent async on one thread, or true parallelism.
-2. Add the effect parameters (`io : IO`, `raise : Raise`, …) to function signatures and call sites. There is no implicit injection — pass them explicitly.
+2. Add the effect parameters (`io : Io`, `raise : Raise`, …) to function signatures and call sites. There is no implicit injection — pass them explicitly.
 3. Use the [async and effects recipes](./async-effects-recipes.md) for working patterns.
 4. Re-check handler semantics before finalizing:
    - `return(value)` resumes the continuation

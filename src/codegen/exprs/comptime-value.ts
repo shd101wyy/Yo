@@ -297,11 +297,11 @@ export function generateComptimeValue(
     // io.async / io.await / io.state / io.spawn (and join_handle.await) are
     // ioBuiltin MARKERS — they have no C function body. Every call site is
     // inlined into direct runtime calls by codegen, so the field value
-    // stored in an `IO` / `JoinHandle` struct literal is never invoked
+    // stored in an `Io` / `JoinHandle` struct literal is never invoked
     // through a function pointer. Emit a NULL pointer so the struct
     // initializer is valid C; if a caller ever did dispatch through the
     // field it would crash, which is the same failure mode the explicit
-    // injection of `(IO){0}` from main wrapper gives.
+    // injection of `(Io){0}` from main wrapper gives.
     if (value.type.ioBuiltin) {
       return "NULL";
     }
@@ -311,7 +311,7 @@ export function generateComptimeValue(
     isFunctionType(value.type) &&
     (value.type as FunctionType).ioBuiltin
   ) {
-    // Same as the FunctionValue case above — when an IO/JoinHandle struct
+    // Same as the FunctionValue case above — when an Io/JoinHandle struct
     // is constructed at a runtime call site, its fields can show up as
     // UnknownValue placeholders (variableName set to e.g. "__yo_io_async")
     // rather than fully-resolved FunctionValue. The ioBuiltin markers

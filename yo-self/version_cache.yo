@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { Command } :: import("std/process/command");
-{ AnyError, Exception, IOErr } :: import("std/error");
+{ AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
 { read_string, exists } :: import("std/fs/file");
@@ -44,9 +44,9 @@ NPM_PACKAGE_PATH :: "/@shd101wyy/yo";
 _remove_dir_all :: (
   fn(
     path : Path,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
@@ -276,9 +276,9 @@ _sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
 is_version_cached :: (
   fn(
     version : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(bool, IOErr))
+  ) -> Impl(Future(bool, IoExn))
 )(
   io.async((io, exn) => {
     version_dir := get_version_cache_dir(version);
@@ -315,9 +315,9 @@ is_version_cached :: (
 /// Returns an ArrayList sorted by semver (ascending).
 list_cached_versions :: (
   fn(
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(ArrayList(String), IOErr))
+  ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((io, exn) => {
     versions_dir := get_global_versions_cache_dir();
@@ -351,9 +351,9 @@ list_cached_versions :: (
 clean_version_cache :: (
   fn(
     version_opt : Option(String),
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     match(
@@ -380,9 +380,9 @@ clean_version_cache :: (
 install_dependencies :: (
   fn(
     version_dir : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     pkg_json_path := version_dir.concat(String.from("/package.json"));
@@ -429,9 +429,9 @@ install_dependencies :: (
 _http_get :: (
   fn(
     url : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IOErr))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((io, exn) => {
     cmd := Command.new(String.from("curl"));
@@ -457,9 +457,9 @@ _download_file :: (
   fn(
     url : String,
     dest_path : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     cmd := Command.new(String.from("curl"));
@@ -484,9 +484,9 @@ _download_file :: (
 _fetch_tarball_url :: (
   fn(
     version : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IOErr))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((io, exn) => {
     pkg_url := `${NPM_REGISTRY_URL}${NPM_PACKAGE_PATH}/${version}`;
@@ -513,9 +513,9 @@ _fetch_tarball_url :: (
 download_version :: (
   fn(
     version : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IOErr))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((io, exn) => {
     // 1. Fetch tarball URL from npm registry.
@@ -565,9 +565,9 @@ download_version :: (
 ensure_cached_version :: (
   fn(
     version : String,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IOErr))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((io, exn) => {
     cached := io.await(is_version_cached(version), io);
@@ -581,9 +581,9 @@ ensure_cached_version :: (
 /// Returns an ArrayList sorted by semver (ascending).
 fetch_remote_versions :: (
   fn(
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(ArrayList(String), IOErr))
+  ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((io, exn) => {
     pkg_url := `${NPM_REGISTRY_URL}${NPM_PACKAGE_PATH}`;
@@ -597,9 +597,9 @@ fetch_remote_versions :: (
 /// Throws if neither is found.
 find_js_runtime :: (
   fn(
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IOErr))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((io, exn) => {
     // Try node first.

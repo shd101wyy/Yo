@@ -9,7 +9,7 @@ The Yo compiler currently stores **all** local variables from an async block bod
 Given:
 
 ```rust
-task := io.async((using(io : IO)) => {
+task := io.async((using(io : Io)) => {
   a := i32(1);    // used in segment 0 AND segment 2
   b := i32(2);    // used ONLY in segment 0
   io.await(yield());

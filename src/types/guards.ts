@@ -504,7 +504,7 @@ export function isFunctionTypeHardGeneric(functionType: FunctionType): boolean {
  *    — checked by specializedFunctionCaches
  *
  * This correctly handles:
- * - using(io : IO): generic type but no caches (IO resolved at compile time) → false
+ * - using(io : Io): generic type but no caches (Io resolved at compile time) → false
  * - using(raise : Raise): generic type + evaluator created caches → true
  * - using(raise_mod : RaiseMod): generic type + evaluator created caches → true
  * - forall(T): generic type + evaluator created caches → true

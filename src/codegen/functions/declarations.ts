@@ -165,7 +165,7 @@ export function generateFunctionDeclarations(
     const hasEvidenceParams =
       getEvidenceParameters(functionTypeForCheck).length > 0;
 
-    // IO async state machine closures are generated via the deferred async
+    // Io async state machine closures are generated via the deferred async
     // block system, not as standalone declarations.
     if (!isUserMain && value.isIoAsyncStateMachineClosure) {
       continue;
@@ -202,7 +202,7 @@ export function generateFunctionDeclarations(
     const functionType = value.specializedType ?? value.type;
     // Mirror the carve-out from generation.ts: closures are per-
     // instance with their own concrete capture struct and distinct C
-    // function name. Their parameter list may contain `io : IO`
+    // function name. Their parameter list may contain `io : Io`
     // whose nested fn-pointer fields trip `typeContainsSomeType`,
     // but the closure value itself is not truly generic. Without
     // the carve-out, the forward declaration is missing while the
@@ -219,10 +219,10 @@ export function generateFunctionDeclarations(
         typeContainsSomeTypeForCodegenParam(p.type)
       ) ||
         functionType.forallParameters.length > 0);
-    // Mirror the parameter check: a return type of `IOErr` (a struct
+    // Mirror the parameter check: a return type of `IoExn` (a struct
     // whose SomeType content only lives inside nested fn-pointer fields)
     // is concrete at the C ABI and should not flag the function as
-    // generic. Without this, `fn(..., exn : Exception) -> IOErr`
+    // generic. Without this, `fn(..., exn : Exception) -> IoExn`
     // declarations are skipped and call sites reference the undeclared
     // function name.
     const hasGenericReturnType = typeContainsSomeTypeForCodegenParam(

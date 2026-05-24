@@ -438,7 +438,7 @@ function getInjectableFutureEffectFieldMappings(
     return mappings;
   }
 
-  // Path 2: struct-typed effect (e.g. `IOErr { io : IO, exn : Exception }`).
+  // Path 2: struct-typed effect (e.g. `IoExn { io : Io, exn : Exception }`).
   if (isSourceNamespaceType(effect.type) || isStructType(effect.type)) {
     // First try the legacy path: top-level fn-typed fields in __capture.
     if (captureType) {
@@ -458,7 +458,7 @@ function getInjectableFutureEffectFieldMappings(
     }
 
     // Phase 7: if some leaf-function fields are reached through nested
-    // struct fields (e.g. `exn.throw` inside an IOErr bundle), they live
+    // struct fields (e.g. `exn.throw` inside an IoExn bundle), they live
     // in a SM-level field `var_<id>_<param>` (the closure's bundle param)
     // rather than in __capture. Look up `stateMachineVariables` for a
     // variable whose type matches the bundle, then build paths into it.
@@ -507,7 +507,7 @@ function getInjectableFutureEffectFieldMappings(
 
 /**
  * Look up the SM-level field that stores the closure's effect-bundle param
- * (e.g. `var_yoa51d630f_e` for an `(e : IOErr) =>` async closure). Returns
+ * (e.g. `var_yoa51d630f_e` for an `(e : IoExn) =>` async closure). Returns
  * undefined when no SM variable matches the effect's struct type — i.e.
  * the bundle either isn't a struct effect, or there are no SM variables
  * available (set_effect emitted outside the SM body region).
@@ -602,7 +602,7 @@ function generateFutureEffectSetter(
       // Whole-bundle copy: writer passes the bundle struct's address as
       // `value` and `field == "__bundle"`. The set_effect copies the
       // pointed-to struct into the SM's bundle field. This is how
-      // `io.await(future, IOErr(io, exn))` injects nested effect records.
+      // `io.await(future, IoExn(io, exn))` injects nested effect records.
       const bundleCName = getTypeString(effect.type, context);
       const keyword = firstCase ? "if" : "else if";
       emitter.emitDeclarationLine(

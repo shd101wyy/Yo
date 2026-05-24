@@ -112,27 +112,27 @@ FileHandle :: object(...)              // File descriptor wrapper (existing as F
 
 | Yo Function               | Node.js Equivalent         | Priority | Returns                                        |
 | ------------------------- | -------------------------- | -------- | ---------------------------------------------- |
-| `stat(path)`              | `fs.promises.stat()`       | High     | `Future(Result(FileStat, IOError))`            |
-| `lstat(path)`             | `fs.promises.lstat()`      | Medium   | `Future(Result(FileStat, IOError))`            |
-| `fstat(fd)`               | `fs.promises.fstat()`      | Medium   | `Future(Result(FileStat, IOError))`            |
+| `stat(path)`              | `fs.promises.stat()`       | High     | `Future(Result(FileStat, IoError))`            |
+| `lstat(path)`             | `fs.promises.lstat()`      | Medium   | `Future(Result(FileStat, IoError))`            |
+| `fstat(fd)`               | `fs.promises.fstat()`      | Medium   | `Future(Result(FileStat, IoError))`            |
 | `exists(path)`            | `fs.promises.access()`     | High     | `Future(bool)`                                 |
-| `mkdir(path, options)`    | `fs.promises.mkdir()`      | High     | `Future(Result(unit, IOError))`                |
-| `rmdir(path)`             | `fs.promises.rmdir()`      | High     | `Future(Result(unit, IOError))`                |
-| `rm(path, options)`       | `fs.promises.rm()`         | High     | `Future(Result(unit, IOError))`                |
-| `rename(old, new)`        | `fs.promises.rename()`     | High     | `Future(Result(unit, IOError))`                |
-| `copy_file(src, dst)`     | `fs.promises.copyFile()`   | Medium   | `Future(Result(unit, IOError))`                |
-| `readdir(path)`           | `fs.promises.readdir()`    | High     | `Future(Result(ArrayList(DirEntry), IOError))` |
-| `read_file(path)`         | `fs.promises.readFile()`   | High     | `Future(Result(ArrayList(u8), IOError))`       |
-| `write_file(path, data)`  | `fs.promises.writeFile()`  | High     | `Future(Result(unit, IOError))`                |
-| `append_file(path, data)` | `fs.promises.appendFile()` | Medium   | `Future(Result(unit, IOError))`                |
-| `truncate(path, len)`     | `fs.promises.truncate()`   | Medium   | `Future(Result(unit, IOError))`                |
-| `chmod(path, mode)`       | `fs.promises.chmod()`      | Medium   | `Future(Result(unit, IOError))`                |
-| `chown(path, uid, gid)`   | `fs.promises.chown()`      | Low      | `Future(Result(unit, IOError))`                |
-| `link(src, dst)`          | `fs.promises.link()`       | Low      | `Future(Result(unit, IOError))`                |
-| `symlink(target, path)`   | `fs.promises.symlink()`    | Low      | `Future(Result(unit, IOError))`                |
-| `readlink(path)`          | `fs.promises.readlink()`   | Low      | `Future(Result(String, IOError))`              |
-| `realpath(path)`          | `fs.promises.realpath()`   | Medium   | `Future(Result(Path, IOError))`                |
-| `watch(path, callback)`   | `fs.watch()`               | Low      | `Future(Result(Watcher, IOError))`             |
+| `mkdir(path, options)`    | `fs.promises.mkdir()`      | High     | `Future(Result(unit, IoError))`                |
+| `rmdir(path)`             | `fs.promises.rmdir()`      | High     | `Future(Result(unit, IoError))`                |
+| `rm(path, options)`       | `fs.promises.rm()`         | High     | `Future(Result(unit, IoError))`                |
+| `rename(old, new)`        | `fs.promises.rename()`     | High     | `Future(Result(unit, IoError))`                |
+| `copy_file(src, dst)`     | `fs.promises.copyFile()`   | Medium   | `Future(Result(unit, IoError))`                |
+| `readdir(path)`           | `fs.promises.readdir()`    | High     | `Future(Result(ArrayList(DirEntry), IoError))` |
+| `read_file(path)`         | `fs.promises.readFile()`   | High     | `Future(Result(ArrayList(u8), IoError))`       |
+| `write_file(path, data)`  | `fs.promises.writeFile()`  | High     | `Future(Result(unit, IoError))`                |
+| `append_file(path, data)` | `fs.promises.appendFile()` | Medium   | `Future(Result(unit, IoError))`                |
+| `truncate(path, len)`     | `fs.promises.truncate()`   | Medium   | `Future(Result(unit, IoError))`                |
+| `chmod(path, mode)`       | `fs.promises.chmod()`      | Medium   | `Future(Result(unit, IoError))`                |
+| `chown(path, uid, gid)`   | `fs.promises.chown()`      | Low      | `Future(Result(unit, IoError))`                |
+| `link(src, dst)`          | `fs.promises.link()`       | Low      | `Future(Result(unit, IoError))`                |
+| `symlink(target, path)`   | `fs.promises.symlink()`    | Low      | `Future(Result(unit, IoError))`                |
+| `readlink(path)`          | `fs.promises.readlink()`   | Low      | `Future(Result(String, IoError))`              |
+| `realpath(path)`          | `fs.promises.realpath()`   | Medium   | `Future(Result(Path, IoError))`                |
+| `watch(path, callback)`   | `fs.watch()`               | Low      | `Future(Result(Watcher, IoError))`             |
 
 ### 1.2 Path Module (`std/path/`)
 

@@ -7,7 +7,7 @@ Bugs discovered while making the `tests/fs/` test suite work. Items marked ✅ a
 ### 1. Match arm variable scoping (codegen)
 
 - **File**: `src/codegen/exprs/match.ts`
-- **Symptom**: `.Ok(e)` and `.Err(e)` in same match cause C compilation error — `bool e` conflicts with `IOError e`
+- **Symptom**: `.Ok(e)` and `.Err(e)` in same match cause C compilation error — `bool e` conflicts with `IoError e`
 - **Root cause**: Generated C `switch/case` bodies were not wrapped in `{ }`, so all case arms shared the same scope
 - **Fix**: Added `{ }` block scoping around every case body (6 locations in match.ts)
 

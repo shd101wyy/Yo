@@ -230,10 +230,10 @@ export function evaluateAnonymousFunctionImplementation({
 
       // Phase 2 (lambda-annotation-driven forall unification):
       // When the lambda explicitly annotates a parameter (e.g. `(io2 :
-      // IO) =>`) and the expected closure parameter type is a bare
+      // Io) =>`) and the expected closure parameter type is a bare
       // NOTE: An attempted Phase 2 lambda-annotation-driven forall
-      // unification (binding `E := IO` in expectedTypeEnv when the
-      // user wrote `(io2 : IO) =>`) was abandoned because:
+      // unification (binding `E := Io` in expectedTypeEnv when the
+      // user wrote `(io2 : Io) =>`) was abandoned because:
       //   (a) addVariableToEnv on a name already present in the
       //       top frame throws even with allowVariableShadowing —
       //       working around it via pushEnvFrame broke later body
@@ -689,13 +689,13 @@ Got:      "${paramName}"`,
   // (e.g., a concrete throw handler for Exception module), evaluate the body now —
   // the forall type polymorphism is handled by void* erasure at runtime.
   // Use the codegen-aware variant for the parameter check: an `exn :
-  // Exception` or `io : IO` parameter must NOT trigger body deferral. These
+  // Exception` or `io : Io` parameter must NOT trigger body deferral. These
   // are concrete structs whose only forall content lives in function-typed
   // fields (e.g. `throw : ctl(forall(R), ...) -> R`) — type-erased function
   // pointers at runtime, not generic body content. Plain
   // `typeContainsSomeType` reports the parameter as generic via that
   // recursion, which previously deferred every `fn(..., exn : Exception)`
-  // and `fn(..., io : IO)` body and left sub-expressions un-annotated for
+  // and `fn(..., io : Io)` body and left sub-expressions un-annotated for
   // codegen (manifesting as link errors for `parse` etc. and
   // "Unhandled function call" errors for closures passed to Thread.spawn /
   // io.async / Worker).
@@ -888,7 +888,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     functionValue.isControlFunction = true;
   }
 
-  // For functions with using(IO) implicit parameters or io.async closures,
+  // For functions with using(Io) implicit parameters or io.async closures,
   // run await analysis on the body to detect io.await calls and mark as async.
   // This enables the codegen to generate the function as a state machine.
   if (

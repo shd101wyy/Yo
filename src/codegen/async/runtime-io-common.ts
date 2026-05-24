@@ -4,13 +4,13 @@
  * Two categories of POSIX/cross-platform C helpers:
  *
  * 1. generateSysRuntime — synchronous system helpers that do NOT depend on the
- *    async IOFuture type or event loop.  Always emitted for non-wasm targets so
+ *    async IoFuture type or event loop.  Always emitted for non-wasm targets so
  *    that non-async programs (signals, stat, TTY, sync file ops) compile.
  *    All functions are `static`, so unused ones are stripped by the C compiler.
  *
  *    Sections: stat/dirent, sendfile/copyfile, sync ops, statfs, signal, TTY.
  *
- * 2. generateAsyncRuntimeIOCommon — helpers that create / consume IOFuture or
+ * 2. generateAsyncRuntimeIOCommon — helpers that create / consume IoFuture or
  *    participate in the event loop.  Only emitted when `usesAsync` is true.
  *
  *    Sections: timers, directory scanning (async), DNS (async), process spawn/
@@ -32,12 +32,12 @@ import type { AsyncRuntimeOptions } from "./runtime";
 import { generatePlatformSysRuntimeWasm } from "./runtime-io-wasm";
 
 // ---------------------------------------------------------------------------
-// 1. Synchronous system runtime — no async/IOFuture dependency
+// 1. Synchronous system runtime — no async/IoFuture dependency
 // ---------------------------------------------------------------------------
 
 /**
  * Emits synchronous POSIX system helpers.  These do NOT depend on the async
- * runtime (no IOFuture, no event-loop types).  Emitted for every target;
+ * runtime (no IoFuture, no event-loop types).  Emitted for every target;
  * unused `static` functions are dead-code-eliminated by the C compiler.
  * WASM targets get stub implementations that return -ENOSYS.
  */
@@ -183,7 +183,7 @@ static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_
   // Sync operations
   emitter.emitLine(`
 // ============================================================================
-// Synchronous Operations (POSIX-only) - no IOFuture overhead
+// Synchronous Operations (POSIX-only) - no IoFuture overhead
 // ============================================================================
 
 static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
@@ -549,11 +549,11 @@ static int32_t __yo_isatty(int32_t fd) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Async I/O runtime — requires IOFuture / event loop types
+// 2. Async I/O runtime — requires IoFuture / event loop types
 // ---------------------------------------------------------------------------
 
 /**
- * Emits async I/O helpers that depend on the IOFuture type and event loop.
+ * Emits async I/O helpers that depend on the IoFuture type and event loop.
  * Only called when the program uses async code (`context.usesAsync === true`).
  *
  * Sections: timer operations, directory scanning (async wrappers), DNS (async),

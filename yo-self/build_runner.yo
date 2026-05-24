@@ -11,7 +11,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ Exception, IOErr } :: import("std/error");
+{ Exception, IoExn } :: import("std/error");
 { Path } :: import("std/path");
 { cwd } :: import("std/env");
 { exists } :: import("std/fs/file");
@@ -305,9 +305,9 @@ compile_artifact :: (
   fn(
     artifact : BuildArtifact,
     ctx : ExecutionContext,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Result(unit, String), IOErr))
+  ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((io, exn) => {
     effective_target := match(
@@ -390,9 +390,9 @@ run_executable :: (
     artifact : BuildArtifact,
     args : ArrayList(String),
     ctx : ExecutionContext,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Result(unit, String), IOErr))
+  ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((io, exn) => {
     effective_target := match(
@@ -437,9 +437,9 @@ run_test_suite :: (
   fn(
     suite : BuildTestSuite,
     ctx : ExecutionContext,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(Result(unit, String), IOErr))
+  ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((io, exn) => {
     test_path := Path.new(ctx.project_dir).join(Path.new(suite.root));
@@ -475,9 +475,9 @@ execute_node :: (
   fn(
     node : DAGNode,
     ctx : ExecutionContext,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(StepResult, IOErr))
+  ) -> Impl(Future(StepResult, IoExn))
 )(
   io.async((io, exn) => {
     description := String.from(node.name.as_str());
@@ -576,9 +576,9 @@ execute_dag :: (
   fn(
     dag : ArrayList(DAGNode),
     ctx : ExecutionContext,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(HashMap(String, StepResult), IOErr))
+  ) -> Impl(Future(HashMap(String, StepResult), IoExn))
 )(
   io.async((io, exn) => {
     results := HashMap(String, StepResult).new();
@@ -766,9 +766,9 @@ execute_step :: (
   fn(
     step_name : str,
     ctx : ExecutionContext,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     match(
@@ -836,9 +836,9 @@ evaluate_build_file :: (
   fn(
     build_file : String,
     defines : HashMap(String, String),
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(BuildRegistry, IOErr))
+  ) -> Impl(Future(BuildRegistry, IoExn))
 )(
   io.async((io, exn) => {
     cmd := Command.new(String.from("yo-cli"));
@@ -882,9 +882,9 @@ evaluate_build_file :: (
 run_build :: (
   fn(
     options : BuildOptions,
-    io : IO,
+    io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IOErr))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((io, exn) => {
     build_file_path := Path.new(options.build_file);

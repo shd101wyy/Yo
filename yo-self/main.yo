@@ -10,7 +10,7 @@
 //!
 //! test: Parses a `.test.yo` file, extracts `test("name", { body })` declarations,
 //!   compiles each test body to a standalone C program, and reports pass/fail.
-//!   Only supports pure tests (no IO effects, no struct methods) in Phase 5b.
+//!   Only supports pure tests (no Io effects, no struct methods) in Phase 5b.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/error"));
@@ -185,7 +185,7 @@ collect_module_deps :: (
     std_base : str,
     visited : ArrayList(String),
     all_exprs : ArrayList(AstExpr),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
@@ -309,7 +309,7 @@ _walk_check_dir :: (
   fn(
     dir : String,
     out : ArrayList(String),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
@@ -361,7 +361,7 @@ _walk_check_dir :: (
 collect_check_files :: (
   fn(
     path_str : String,
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> ArrayList(String)
 )({
@@ -388,7 +388,7 @@ check_single_file :: (
   fn(
     input_path : String,
     std_path : String,
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> bool
 )({
@@ -501,7 +501,7 @@ check_single_file :: (
 run_check :: (
   fn(
     argv : ArrayList(String),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
@@ -541,7 +541,7 @@ run_check :: (
 run_compile :: (
   fn(
     argv : ArrayList(String),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
@@ -595,7 +595,7 @@ run_compile :: (
 run_test :: (
   fn(
     argv : ArrayList(String),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
@@ -772,7 +772,7 @@ run_test :: (
 run_fmt :: (
   fn(
     argv : ArrayList(String),
-    io : IO,
+    io : Io,
     exn : Exception
   ) -> unit
 )({
@@ -824,7 +824,7 @@ run_fmt :: (
     }
   );
 });
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   exn := Exception(
     throw : (
       (err) -> {

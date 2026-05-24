@@ -3,34 +3,34 @@ open(import("std/libc/stdio"));
 open(import("std/string"));
 open(import("std/fmt"));
 { NetError } :: import("std/net/errors");
-{ IOError } :: import("std/sys/errors");
+{ IoError } :: import("std/sys/errors");
 { Error, AnyError, Exception } :: import("std/error");
 // ============================================================================
 // NetError tests
 // ============================================================================
 test("NetError.from_io maps ConnectionRefused", {
-  io_err := IOError.ConnectionRefused;
+  io_err := IoError.ConnectionRefused;
   net_err := NetError.from_io(io_err);
   s := net_err.to_string();
   unsafe(printf("  err = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `connection refused`, "should be connection refused");
 });
 test("NetError.from_io maps ConnectionReset", {
-  io_err := IOError.ConnectionReset;
+  io_err := IoError.ConnectionReset;
   net_err := NetError.from_io(io_err);
   s := net_err.to_string();
   unsafe(printf("  err = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `connection reset by peer`, "should be connection reset");
 });
 test("NetError.from_io maps TimedOut", {
-  io_err := IOError.TimedOut;
+  io_err := IoError.TimedOut;
   net_err := NetError.from_io(io_err);
   s := net_err.to_string();
   unsafe(printf("  err = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `operation timed out`, "should be timed out");
 });
-test("NetError.from_io wraps unknown error in IO variant", {
-  io_err := IOError.WouldBlock;
+test("NetError.from_io wraps unknown error in Io variant", {
+  io_err := IoError.WouldBlock;
   net_err := NetError.from_io(io_err);
   s := net_err.to_string();
   unsafe(printf("  err = %s\n", s.to_cstr().ptr().unwrap()));

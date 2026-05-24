@@ -582,10 +582,10 @@ export function typeContainsSomeType(
  * function's signature; references to those names inside the parameters or
  * return type are NOT free in the outer position.
  *
- * Without this distinction, `typeContainsSomeType(IO)` returns true via the
- * recursion into IO's fn-typed fields (`async : fn(forall(T, E), ...) -> ...`),
+ * Without this distinction, `typeContainsSomeType(Io)` returns true via the
+ * recursion into Io's fn-typed fields (`async : fn(forall(T, E), ...) -> ...`),
  * which causes `shouldDeferBodyEvaluation` in anonymous-function.ts to defer
- * any function body that takes `io : IO` as a parameter. The test runner's
+ * any function body that takes `io : Io` as a parameter. The test runner's
  * batched-main function hit exactly this trap and silently dropped every test
  * body until commit `7b3b788b` worked around it by removing the parameter.
  *

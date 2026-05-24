@@ -10,12 +10,12 @@ Yo uses **async/await with state machine transformation** via **algebraic effect
 { yield } :: import "std/async";
 
 // All async code runs on the SAME thread
-main :: (fn(io : IO) -> unit)({
-  task1 := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit)({
+  task1 := io.async((io : Io)=> {
     io.await(yield());
     return i32(1);
   });
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     io.await(yield());
     return i32(2);
   });
@@ -38,9 +38,9 @@ export main;
 
 ```rust
 // Concurrency: Same thread, interleaved execution
-main :: (fn(io : IO) -> unit)({
-  a := io.async((io : IO)=> { /* ... */ });
-  b := io.async((io : IO)=> { /* ... */ });
+main :: (fn(io : Io) -> unit)({
+  a := io.async((io : Io)=> { /* ... */ });
+  b := io.async((io : Io)=> { /* ... */ });
   io.spawn(a);  // Start a without waiting (returns JoinHandle)
   io.spawn(b);  // Start b without waiting (returns JoinHandle)
   io.await(a);
@@ -56,7 +56,7 @@ task := Task(i32, bool).spawn((parent) -> {
 
 ## Execution Model: Lazy Start via Algebraic Effects
 
-Yo's async uses **algebraic effects** with the `IO` effect type. Async tasks are **lazy** — they don't start until explicitly awaited or spawned:
+Yo's async uses **algebraic effects** with the `Io` effect type. Async tasks are **lazy** — they don't start until explicitly awaited or spawned:
 
 - `io.async(fn)` creates a **cold Future** — the function body is NOT executed yet
 - `io.await(task)` starts a cold task and runs it to completion (sequential)
@@ -65,17 +65,17 @@ Yo's async uses **algebraic effects** with the `IO` effect type. Async tasks are
 ```rust
 { yield } :: import "std/async";
 
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   counter := Box(i32)(0);
 
   // Lazy creation — neither task starts yet
-  task1 := io.async((io : IO)=> {
+  task1 := io.async((io : Io)=> {
     counter.* = (counter.* + 1);   // Runs when started
     io.await(yield());              // Yields to event loop
     counter.* = (counter.* + 1);   // Resumes after other tasks yield
   });
 
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     counter.* = (counter.* + 10);
     io.await(yield());
     counter.* = (counter.* + 10);
@@ -117,7 +117,7 @@ export main;
 5. **Zero-Cost Abstraction**: State machine transformation at compile time
 6. **Familiar Model**: Similar to JavaScript's event loop - proven and intuitive
 7. **No Atomics Needed**: Reference counting doesn't need atomic operations
-8. **Algebraic Effects**: IO capabilities are explicit via `io : IO`
+8. **Algebraic Effects**: Io capabilities are explicit via `io : Io`
 
 ### Why Not Multi-Threaded Async?
 
@@ -136,7 +136,7 @@ Yo's approach: Keep async simple (single-threaded), use `Task.spawn` for paralle
 { yield } :: import "std/async";
 
 // Async task creation (lazy — doesn't run until awaited/spawned)
-task := io.async((io : IO)=> {
+task := io.async((io : Io)=> {
   io.await(yield());  // Yield to event loop
   return i32(42);
 });
@@ -155,14 +155,14 @@ r2 := handle2.await(io);
 r3 := handle3.await(io);
 ```
 
-### IO Effect and Using
+### Io Effect and Using
 
-Async operations require the `IO` effect, passed via `io : IO`:
+Async operations require the `Io` effect, passed via `io : Io`:
 
 ```rust
-// Main function receives IO effect
-main :: (fn(io : IO) -> unit)({
-  task := io.async((io : IO)=> {
+// Main function receives Io effect
+main :: (fn(io : Io) -> unit)({
+  task := io.async((io : Io)=> {
     // Can use io.await, io.async, io.spawn here
     io.await(yield());
   });
@@ -170,9 +170,9 @@ main :: (fn(io : IO) -> unit)({
 });
 export main;
 
-// Test blocks automatically have `io : IO` available
+// Test blocks automatically have `io : Io` available
 test "my test", {
-  task := io.async((io : IO)=> { /* ... */ });
+  task := io.async((io : Io)=> { /* ... */ });
   io.await(task);
 };
 ```
@@ -205,11 +205,11 @@ yield()                       // Create a pre-completed Future (yields control t
 
 ```rust
 // All three tasks run on the SAME thread
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   // LAZY — tasks are cold, nothing runs yet
-  t1 := io.async((io : IO)=> { /* task1 body */ });
-  t2 := io.async((io : IO)=> { /* task2 body */ });
-  t3 := io.async((io : IO)=> { /* task3 body */ });
+  t1 := io.async((io : Io)=> { /* task1 body */ });
+  t2 := io.async((io : Io)=> { /* task2 body */ });
+  t3 := io.async((io : Io)=> { /* task3 body */ });
 
   // spawn starts each task without waiting:
   // - t1 runs until first yield, suspends
@@ -249,12 +249,12 @@ Future(T, E)     // Future yielding T with effect bundle E
 ```
 
 `E` is a single type — typically a struct that bundles every effect the async body
-needs (handler fields plus any `IO`-like records). The author packs the bundle
+needs (handler fields plus any `Io`-like records). The author packs the bundle
 themselves; the language does not concatenate effects from multiple type arguments.
 
 ```rust
 // A bundle struct carries every effect the task needs.
-TaskCtx :: struct(io : IO, raise : Raise, log : Log);
+TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 ```
 
 **Matching rules**
@@ -265,8 +265,8 @@ TaskCtx :: struct(io : IO, raise : Raise, log : Log);
 2. **Unannotated and annotated mix freely.** `Future(T)` (no bundle) is
    compatible with `Future(T, E)` (any bundle). Use the unannotated form when
    the caller doesn't need to refer to the effect type.
-3. **IO when the body awaits.** Any async body that calls `io.await` / `yield`
-   needs an `IO` in its bundle, so the bundle struct typically has an `io : IO`
+3. **Io when the body awaits.** Any async body that calls `io.await` / `yield`
+   needs an `Io` in its bundle, so the bundle struct typically has an `io : Io`
    field.
 
 **Example: bundled effects through async**
@@ -275,9 +275,9 @@ TaskCtx :: struct(io : IO, raise : Raise, log : Log);
 { yield } :: import "std/async";
 Raise :: (fn(forall(T : Type), msg : String) -> T);
 Log :: (fn(msg : String) -> unit);
-TaskCtx :: struct(io : IO, raise : Raise, log : Log);
+TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   (raise : Raise) = ((msg) -> { return(i32(0)); });
   (log : Log) = ((msg) -> { println(msg); });
   ctx := TaskCtx(io: io, raise: raise, log: log);
@@ -293,11 +293,11 @@ main :: (fn(io : IO) -> unit)({
 export main;
 ```
 
-The `IO` effect record is itself a bundle-shaped struct that the async runtime
+The `Io` effect record is itself a bundle-shaped struct that the async runtime
 provides:
 
 ```rust
-IO :: struct(
+Io :: struct(
   async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
   state : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
@@ -317,7 +317,7 @@ This is an implementation choice, not a semantic requirement.
 A Future can be awaited **multiple times**. Each `io.await` call on the same Future returns the same result:
 
 ```rust
-main :: (fn(io : IO) -> unit) {
+main :: (fn(io : Io) -> unit) {
   task := io.async(() => {
     return 42;
   });
@@ -342,9 +342,9 @@ When an algebraic effect handler calls `unwind` inside an async task, the Future
 **With `handle.await`**: `JoinHandle.await` returns `Option(T)` — `.None` on abort, safely catching the unwind:
 
 ```rust
-main :: (fn(io : IO) -> unit) {
+main :: (fn(io : Io) -> unit) {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
-  task := io.async((io : IO, raise : Raise) => {
+  task := io.async((io : Io, raise : Raise) => {
     raise(`something went wrong`);
     return i32(42);
   });
@@ -381,8 +381,8 @@ FutureState :: enum(
 ```
 
 ```rust
-main :: (fn(io : IO) -> unit) {
-  task := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit) {
+  task := io.async((io : Io)=> {
     io.await(yield());
     return i32(42);
   });
@@ -414,7 +414,7 @@ The compiler transforms async functions into state machines at each `await` poin
 **Input Yo code:**
 
 ```rust
-task := io.async((io : IO)=> {
+task := io.async((io : Io)=> {
   response := io.await(http_get(url));
   data := io.await(response.read());
   return data;
@@ -471,13 +471,13 @@ The async runtime uses a simple **single-threaded event loop**:
 │  ┌─────────────────────────────────────┐    │
 │  │         Poll next ready task        │    │
 │  │   - Run until await                 │    │
-│  │   - If IO pending, register waker   │    │
+│  │   - If Io pending, register waker   │    │
 │  │   - If ready, continue              │    │
 │  └─────────────────────────────────────┘    │
 │                    │                        │
 │                    ▼                        │
 │  ┌─────────────────────────────────────┐    │
-│  │         IO Completion Check         │    │
+│  │         Io Completion Check         │    │
 │  │   - Check epoll/kqueue/IOCP         │    │
 │  │   - Wake completed tasks            │    │
 │  │   - Add to ready queue              │    │
@@ -490,10 +490,10 @@ The async runtime uses a simple **single-threaded event loop**:
 
 1. **Dequeue** a ready task from the ready queue
 2. **Poll** the task's state machine
-3. **If await on pending IO**: Register waker, task sleeps
+3. **If await on pending Io**: Register waker, task sleeps
 4. **If await on ready Future**: Continue to next state
 5. **If complete**: Mark Future as ready, wake awaiters
-6. **Check IO**: Poll OS for completed IO events
+6. **Check Io**: Poll OS for completed Io events
 7. **Wake tasks**: Move woken tasks to ready queue
 8. **Repeat** until all tasks complete
 
@@ -545,7 +545,7 @@ int main(int argc, char** argv) {
 
 Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `worker.spawn`. Non-parallel programs save ~450 lines of generated C code.
 
-**Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, mmap/madvise, fcntl, flock, socket address helpers, signal handlers, TTY) are always emitted via `generateSysRuntime()` which includes both cross-platform helpers and platform-specific sync helpers (`generatePlatformSysRuntime{MacOS,Linux,Windows}`). These have **no IOFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, mmap, TTY, etc. compile without pulling in the full async runtime.
+**Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, mmap/madvise, fcntl, flock, socket address helpers, signal handlers, TTY) are always emitted via `generateSysRuntime()` which includes both cross-platform helpers and platform-specific sync helpers (`generatePlatformSysRuntime{MacOS,Linux,Windows}`). These have **no IoFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, mmap, TTY, etc. compile without pulling in the full async runtime.
 
 ### Platform-Specific I/O Backends
 
@@ -612,8 +612,8 @@ Futures (async block state machines) are **reference counted** to handle cases w
 **Lifetime Pattern: "Event Loop Holds References"**
 
 ```rust
-main :: (fn(io : IO) -> unit)({
-  task := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit)({
+  task := io.async((io : Io)=> {
     /* work */
   });
   // task is cold (refcount=1), hasn't started yet
@@ -765,7 +765,7 @@ State machines are small (~32-500 bytes):
 { yield } :: import "std/async";
 
 // io.async: Create a lazy Future (cold, doesn't start until awaited/spawned)
-task := io.async((io : IO)=> {
+task := io.async((io : Io)=> {
   // body
   return value;
 });
@@ -786,17 +786,17 @@ r2 := handle2.await(io);
 ```rust
 { yield } :: import "std/async";
 
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   counter := Box(i32)(0);
 
-  task1 := io.async((io : IO)=> {
+  task1 := io.async((io : Io)=> {
     counter.* = (counter.* + 1);
     io.await(yield());
     counter.* = (counter.* + 1);
     return counter.*;
   });
 
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     counter.* = (counter.* + 10);
     io.await(yield());
     counter.* = (counter.* + 10);
@@ -818,16 +818,16 @@ export main;
 ```rust
 { yield } :: import "std/async";
 
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   counter := Box(i32)(0);
 
-  task1 := io.async((io : IO)=> {
+  task1 := io.async((io : Io)=> {
     counter.* = (counter.* + 1);
     io.await(yield());
     counter.* = (counter.* + 1);
   });
 
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     counter.* = (counter.* + 10);
     io.await(yield());
     counter.* = (counter.* + 10);
@@ -873,7 +873,7 @@ time, and they are bound into the future's capture struct. `io.spawn` returns a 
 An effect parameter becomes a runtime `void*` field in the capture struct when
 **all** of the following are true:
 
-1. The parameter is **function-typed** (not a module like `IO`)
+1. The parameter is **function-typed** (not a module like `Io`)
 2. The function type has **no `forall` parameters** (generic effects like
    `fn(forall(T : Type), ...) -> T` are resolved at compile time instead)
 3. The handler is **not already resolved** at `io.async` creation time (no
@@ -893,7 +893,7 @@ retained.
 ```rust
 Log :: (fn(msg : String) -> unit);
 
-task := io.async((io : IO, log : Log)=> {
+task := io.async((io : Io, log : Log)=> {
   log(`hello`);
 });
 
@@ -937,7 +937,7 @@ handle.await(io);
 | -------------------------------- | ----------------- | --------------------- |
 | `handler` in scope at `io.async` | Compile-time      | Direct function call  |
 | Generic effect (`forall(T)`)     | Compile-time      | Direct function call  |
-| Non-module (`IO`) type           | Compile-time      | No runtime field      |
+| Non-module (`Io`) type           | Compile-time      | No runtime field      |
 | Non-generic, unresolved handler  | Runtime injection | `void*` capture field |
 
 ## Async + Algebraic Effects
@@ -990,7 +990,7 @@ Yo's async/await provides:
 2. **Single-threaded concurrency** — all async runs on one thread
 3. **Concurrent spawn** — `io.spawn(f)` starts a cold Future without waiting, returns `JoinHandle(T)`
 4. **No thread safety concerns** — no data races possible
-5. **Algebraic effects** — IO capabilities explicit via `io : IO`
+5. **Algebraic effects** — Io capabilities explicit via `io : Io`
 6. **State machine transformation** — zero-cost abstraction
 7. **Non-atomic RC** — no synchronization overhead
 8. **Memory efficient** — millions of concurrent tasks (~200 bytes each)
@@ -1003,7 +1003,7 @@ Yo's async/await provides:
 { yield } :: import "std/async";
 
 // Create lazy async task
-task := io.async((io : IO)=> {
+task := io.async((io : Io)=> {
   io.await(yield());  // Yield to event loop
   return i32(42);
 });
@@ -1029,14 +1029,14 @@ r2 := handle2.await(io);  // Option(T)
 7. **State machines** — compiler transforms each `io.await` into state transition
 8. **No thread safety** — no Send trait, no data races
 9. **Non-atomic RC** — simple reference counting (no synchronization)
-10. **Event loop** — runs ready tasks, checks IO completion
+10. **Event loop** — runs ready tasks, checks Io completion
 11. **Zero-cost** — compiled to efficient C code
 
 ### When to Use What
 
 | Use Case                       | Mechanism                         |
 | ------------------------------ | --------------------------------- |
-| IO-bound concurrent tasks      | `io.async`/`io.await`             |
+| Io-bound concurrent tasks      | `io.async`/`io.await`             |
 | Running multiple tasks at once | `io.spawn` + `handle.await`       |
 | CPU-bound parallel computation | `Task.spawn` (see PARALLELISM.md) |
 | Background processing          | `Task.spawn` (see PARALLELISM.md) |

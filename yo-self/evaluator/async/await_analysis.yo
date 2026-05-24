@@ -13,7 +13,7 @@
 //! * `analyzeAwaitPoints(body)` → `analyze_await_points(body, get_info)`:
 //!   the extra `get_info` parameter is Yo's equivalent of `expr.$` (the per-
 //!   expression evaluation annotation). No `ioBuiltin` type marker exists in Yo,
-//!   so IO calls are identified structurally by matching `io.await` / `io.async`
+//!   so Io calls are identified structurally by matching `io.await` / `io.async`
 //!   dot-access patterns.
 //!
 //! * `SuspensionPointDetector<AwaitPoint>` (TypeScript generic) → untyped base
@@ -74,7 +74,7 @@ AwaitPointExtra :: object(
 // ---------------------------------------------------------------------------
 /// Returns true if `expr` is a call of the form `obj_name.method_name(...)`.
 ///
-/// IO builtin calls like `io.await(task, io)` parse as:
+/// Io builtin calls like `io.await(task, io)` parse as:
 ///   FnCall(func=FnCall(func=Atom(dot), args=[Atom("io"), Atom("await")],
 ///                      is_infix=true), args=[Atom("task")])
 ///
@@ -125,7 +125,7 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
   )
 );
 // ---------------------------------------------------------------------------
-// IO builtin structural checks
+// Io builtin structural checks
 // ---------------------------------------------------------------------------
 /// Checks if an expression is an io.async(closure) call.
 ///
@@ -573,7 +573,7 @@ export(
   // Future-trait helpers
   extract_future_trait_from_type,
   type_implements_future,
-  // IO call structural checks
+  // Io call structural checks
   is_io_async_call,
   is_io_await_call,
   is_io_state_call,

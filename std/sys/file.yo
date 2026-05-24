@@ -2,65 +2,65 @@
 //!
 //! Provides low-level file I/O wrappers around the C runtime externs.
 //!
-//! Async operations return `IOFuture` which resolves to:
+//! Async operations return `IoFuture` which resolves to:
 //! - Positive value: success (fd for open, bytes for read/write, 0 for others)
 //! - Negative value: -errno on failure
-// Use IOError.from_result() to convert results to Result(i32, IOError).
+// Use IoError.from_result() to convert results to Result(i32, IoError).
 //
 // Example:
-//   IO :: import "std/io";
+//   Io :: import "std/io";
 //
 //   task := async {
 //     (path : *(u8)) = "test.txt";
-//     fd_result := await IO.openat(IO.AT_FDCWD, path, IO.O_RDONLY, i32(0));
-//     fd := IOError.from_result(fd_result).unwrap();
-//     close_result := await IO.close(fd);
+//     fd_result := await Io.openat(Io.AT_FDCWD, path, Io.O_RDONLY, i32(0));
+//     fd := IoError.from_result(fd_result).unwrap();
+//     close_result := await Io.close(fd);
 //   };
 pragma(Pragma.AllowUnsafe);
-{ IOFuture } :: import("./future.yo");
+{ IoFuture } :: import("./future.yo");
 { __yo_async_read_start, __yo_async_write_start, __yo_async_openat_start, __yo_async_close_start, __yo_async_statx_start, __yo_async_fsync_start, __yo_async_fdatasync_start, __yo_async_ftruncate_start, __yo_file_open, __yo_file_close, __yo_file_size } :: import("./externs.yo");
 // ============================================================================
-// Async File Operations (return IOFuture, use with await)
+// Async File Operations (return IoFuture, use with await)
 // ============================================================================
 // Open a file relative to dirfd. Use AT_FDCWD for current directory.
 // Returns fd on success, -errno on failure.
-openat :: (fn(dirfd : i32, path : *(u8), flags : i32, mode : i32) -> IOFuture)(
+openat :: (fn(dirfd : i32, path : *(u8), flags : i32, mode : i32) -> IoFuture)(
   __yo_async_openat_start(dirfd, path, flags, mode)
 );
 // Close a file descriptor.
 // Returns 0 on success, -errno on failure.
-close :: (fn(fd : i32) -> IOFuture)(
+close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
 );
 // Read from fd into buffer at the given offset.
 // Returns number of bytes read on success, -errno on failure.
-read :: (fn(fd : i32, buffer : *(u8), size : u32, offset : u64) -> IOFuture)(
+read :: (fn(fd : i32, buffer : *(u8), size : u32, offset : u64) -> IoFuture)(
   __yo_async_read_start(fd, buffer, size, offset)
 );
 // Write buffer to fd at the given offset.
 // Returns number of bytes written on success, -errno on failure.
-write :: (fn(fd : i32, buffer : *(u8), size : u32, offset : u64) -> IOFuture)(
+write :: (fn(fd : i32, buffer : *(u8), size : u32, offset : u64) -> IoFuture)(
   __yo_async_write_start(fd, buffer, size, offset)
 );
 // Get file metadata via statx. Results are written to statxbuf.
 // Use Statx object to wrap and read the buffer.
 // Returns 0 on success, -errno on failure.
-statx :: (fn(dirfd : i32, path : *(u8), flags : i32, mask : u32, statxbuf : *(u8)) -> IOFuture)(
+statx :: (fn(dirfd : i32, path : *(u8), flags : i32, mask : u32, statxbuf : *(u8)) -> IoFuture)(
   __yo_async_statx_start(dirfd, path, flags, mask, statxbuf)
 );
 // Sync file data and metadata to disk.
 // Returns 0 on success, -errno on failure.
-fsync :: (fn(fd : i32) -> IOFuture)(
+fsync :: (fn(fd : i32) -> IoFuture)(
   __yo_async_fsync_start(fd)
 );
 // Sync file data (but not metadata) to disk.
 // Returns 0 on success, -errno on failure.
-fdatasync :: (fn(fd : i32) -> IOFuture)(
+fdatasync :: (fn(fd : i32) -> IoFuture)(
   __yo_async_fdatasync_start(fd)
 );
 // Truncate file to the given length.
 // Returns 0 on success, -errno on failure.
-ftruncate :: (fn(fd : i32, length : i64) -> IOFuture)(
+ftruncate :: (fn(fd : i32, length : i64) -> IoFuture)(
   __yo_async_ftruncate_start(fd, length)
 );
 // ============================================================================

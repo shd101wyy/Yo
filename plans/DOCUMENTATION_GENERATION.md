@@ -457,7 +457,7 @@ Adding a dedicated `StepKind.Documentation` (rather than reusing `Custom`) lets 
 
 1. **Doc comment sections**: Should we support Rust-style sections like `# Examples`, `# Panics`, `# Errors`, `# Safety`? Or keep it freeform Markdown?
 
-2. **Inline type rendering**: For complex generic types like `fn(forall(T: Type), x: T, using(io: IO)) -> Impl(Future(Result(T, E), IO))`, how much should we simplify in the rendered signature?
+2. **Inline type rendering**: For complex generic types like `fn(forall(T: Type), x: T, using(io: Io)) -> Impl(Future(Result(T, E), Io))`, how much should we simplify in the rendered signature?
 
 3. **Doc tests**: Should code blocks in doc comments be extractable as tests (like Rust's `cargo test` running doc examples)? This could be a future phase.
 

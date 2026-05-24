@@ -428,7 +428,7 @@ export function tryToImplementFunctionByFunctionType({
   // at definition time. The body will be evaluated when the function is specialized
   // with concrete type arguments.
   // See note in src/evaluator/values/anonymous-function.ts:
-  // an `exn : Exception` / `io : IO` parameter must NOT defer body evaluation —
+  // an `exn : Exception` / `io : Io` parameter must NOT defer body evaluation —
   // their forall content is only inside type-erased fn-pointer fields.
   const shouldDeferBodyEvaluation =
     newFunctionType.forallParameters.length > 0 ||

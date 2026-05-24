@@ -24,7 +24,7 @@ import { evaluateExpression } from "./expr";
  * During normal compilation, test declarations are skipped (no-op, returns unit).
  * The test runner will extract these declarations and compile/run them separately.
  *
- * All tests implicitly have `using(io : IO)` — the IO effect is always available.
+ * All tests implicitly have `using(io : Io)` — the Io effect is always available.
  *
  * Syntax:
  *   test "test_name", { body };
@@ -54,7 +54,7 @@ export function evaluateTest({
   if (expr.args.length !== 2) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `test expects 2 arguments (name, body), got ${expr.args.length}. IO is implicitly available via "io" — no using clause needed.`,
+      errorMessage: `test expects 2 arguments (name, body), got ${expr.args.length}. Io is implicitly available via "io" — no using clause needed.`,
     });
   }
 
@@ -86,22 +86,22 @@ export function evaluateTest({
     });
   }
 
-  // Inject `io : IO` as an implicit variable so test bodies can reference it.
-  // At runtime, main has `using(io : IO)` and the body is inlined into main.
-  // The variable `IO` in the env is the effect record type definition:
-  //   IO :: struct(async: ..., await: ..., spawn: ...)
+  // Inject `io : Io` as an implicit variable so test bodies can reference it.
+  // At runtime, main has `using(io : Io)` and the body is inlined into main.
+  // The variable `Io` in the env is the effect record type definition:
+  //   Io :: struct(async: ..., await: ..., spawn: ...)
   // Its type is the metatype (Type), and its value is TypeValue(StructType).
   // We need the actual StructType for the `io` parameter.
-  const ioVariables = getVariablesFromEnv(env, "IO");
+  const ioVariables = getVariablesFromEnv(env, "Io");
   const ioTypeVar = ioVariables[ioVariables.length - 1];
   if (!ioTypeVar) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `IO module not found in environment. Is the prelude loaded?`,
+      errorMessage: `Io module not found in environment. Is the prelude loaded?`,
     });
   }
 
-  // Extract the actual StructType from IO's TypeValue.
+  // Extract the actual StructType from Io's TypeValue.
   const ioRawValue = Array.isArray(ioTypeVar.value)
     ? ioTypeVar.value[0]
     : ioTypeVar.value;
@@ -142,7 +142,7 @@ export function evaluateTest({
   // Trial-evaluate the test body in a synthetic function-body context.
   //
   // Under explicit effects, the test runner generates
-  //   main :: (fn(io : IO, exn : Exception) -> unit)({ ...test body... })
+  //   main :: (fn(io : Io, exn : Exception) -> unit)({ ...test body... })
   // and inlines test bodies into it; that's where the *authoritative*
   // type check happens at build time. The trial evaluation here just
   // surfaces obvious mistakes earlier — but it operates from a test-block

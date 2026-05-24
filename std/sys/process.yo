@@ -1,14 +1,14 @@
 //! Child process management.
 //!
 //! Provides cross-platform child process spawning, waiting, and signal delivery.
-//! All async operations return `IOFuture` which resolves to:
+//! All async operations return `IoFuture` which resolves to:
 //! - Positive value: success (pid for spawn, status for waitpid)
 //! - Negative value: -errno on failure
 //!
 //! `argv`/`envp` are NULL-terminated arrays of C strings.
 // Use `?*(u8)` for entries so .None can be used as the terminator.
 pragma(Pragma.AllowUnsafe);
-{ IOFuture } :: import("./future.yo");
+{ IoFuture } :: import("./future.yo");
 { __yo_async_spawn_start, __yo_async_waitpid_start, __yo_process_exit_status, __yo_process_term_signal, __yo_kill } :: import("./externs.yo");
 // Spawn a child process.
 // Returns the child pid on success, -errno on failure.
@@ -23,13 +23,13 @@ spawn :: (
     stdin_fd : i32,
     stdout_fd : i32,
     stderr_fd : i32
-  ) -> IOFuture
+  ) -> IoFuture
 )(
   __yo_async_spawn_start(file, argv, envp, stdin_fd, stdout_fd, stderr_fd)
 );
 // Wait for a child process to exit.
 // Returns the exit status (encoded; use exit_status/term_signal helpers).
-waitpid :: (fn(pid : i32, options : i32) -> IOFuture)(
+waitpid :: (fn(pid : i32, options : i32) -> IoFuture)(
   __yo_async_waitpid_start(pid, options)
 );
 // Send a signal to a process.

@@ -40,7 +40,7 @@ The test-framework silent-skip repair (commit `7b3b788b`) made the entire test s
 - ~~`asm(...)` operand `ref(reg, x)` parsed as a variable lookup~~ **FIXED** by `81ba6874` (rename slip-through; the asm operand parser now accepts `ref` as an alias for `inout`).
 - ~~`HashMap` had no `Indexable`/for-macro support~~ **FIXED** by `e5a21392` — closes task #88 and resolves the plan's Open Question 3. `HashMap.iter()` now returns the position-iter `HashMapPosIter` (was the pointer-iter `HashMapIterPtr`, kept as `iter_ptr()` for low-level callers); `Indexable(usize).project(pos)` returns `ref(Bucket(K, V))`; user destructures `b.key` / `b.value` inside `for(map, ref(b) => body)`.
 - ~~Auto-derived `Clone` for `HashMap` broke after the iter migration~~ **FIXED** by `8a705b58` (use `iter_ptr()` explicitly).
-- **Attempted: closure bodies skipped by generation heuristic** (commit `a256da32`, reverted in `14fcc6d1`). The codegen-side skip via `typeContainsSomeType(IO) == true` was loosened to use a struct-field-aware variant for closure params only. Closure bodies then reached `generateFunction`, but surfaced a separate spawn-wrapper-vs-body signature mismatch (wrapper passes `(closure)` with one arg while body declares `(closure_context, io)` with two), and the body itself failed to codegen `shared.*` deref because its env lacks proper type info for captured variables. Both downstream issues need solving before this skip-loosening is useful, so it was reverted to avoid swapping the linker error for the wrapper/body signature error.
+- **Attempted: closure bodies skipped by generation heuristic** (commit `a256da32`, reverted in `14fcc6d1`). The codegen-side skip via `typeContainsSomeType(Io) == true` was loosened to use a struct-field-aware variant for closure params only. Closure bodies then reached `generateFunction`, but surfaced a separate spawn-wrapper-vs-body signature mismatch (wrapper passes `(closure)` with one arg while body declares `(closure_context, io)` with two), and the body itself failed to codegen `shared.*` deref because its env lacks proper type info for captured variables. Both downstream issues need solving before this skip-loosening is useful, so it was reverted to avoid swapping the linker error for the wrapper/body signature error.
 - ~~Iterator combinator chains infinite-looped because `self._inner.next()` operated on a copied local temp instead of mutating the actual stored inner iterator~~ **FIXED** by `c29580fa`. The codegen `other-fn-call.ts` materialized any complex arg expression (e.g. `(*self)._inner`) into a local temp before the isRef-wrapping took its address — so `next(&(temp))` mutated the temp, which was discarded after the call, leaving the inner iterator's index unchanged. Fix: skip the temp-var materialization for args whose corresponding parameter is `ref`-bound, and return the place expression directly so isRef-wrapping emits `&((*self)._inner)`. Unblocks `iterator_combinators.test.yo` (10/19 → 19/19), HashMap `keys()`/`values()` iter, BTreeMap iter, and `iter_filter_closure` tests.
 
 Test-suite status after these fixes: **1753/2508 passing** (up from 1253 immediately after `7b3b788b`, a +500-test improvement across this session). Remaining 755 failures cluster into the following orthogonal root causes:
@@ -76,7 +76,7 @@ Working back from there:
 `src/test-runner.ts` generates a batched main per file:
 
 ```yo
-main :: (fn(io : IO, exn : __yo_test_exn.Exception) -> unit)({
+main :: (fn(io : Io, exn : __yo_test_exn.Exception) -> unit)({
   match(__yo_batch_env.env.get(`YO_TEST_INDEX`),
     .Some(__yo_test_idx) => cond(
       (__yo_test_idx == `0`) => { /* test body 0 */ },
@@ -87,7 +87,7 @@ main :: (fn(io : IO, exn : __yo_test_exn.Exception) -> unit)({
 });
 ```
 
-Pre-`a3510d20`, the signature was `fn(using(io : IO))`. Implicit params went into a separate `implicitParameters: FunctionParameter[]` array. `using` was removed in `a3510d20`; both `io : IO` and a newly-added `exn : Exception` were placed in the regular `parameters` array.
+Pre-`a3510d20`, the signature was `fn(using(io : Io))`. Implicit params went into a separate `implicitParameters: FunctionParameter[]` array. `using` was removed in `a3510d20`; both `io : Io` and a newly-added `exn : Exception` were placed in the regular `parameters` array.
 
 In `src/evaluator/calls/function-type.ts`:
 
@@ -98,9 +98,9 @@ const shouldDeferBodyEvaluation =
   (newFunctionType.SelfType && typeContainsSomeType(newFunctionType.SelfType));
 ```
 
-`IO` is a struct whose fields are `async`, `await`, `spawn`, `state`, each typed `fn(forall(T : Type, E : Type.Struct), …)`. `typeContainsSomeType` recurses into struct fields, hits the function types, sees `forallParameters.length > 0`, and reports the parameter type as "containing SomeType." Same for `Exception` (`throw : ctl(forall(ResumeType), …)`). The predicate fires, `main`'s body is deferred, no specialization ever happens because `main` is the entry point, and codegen falls through to the empty-stub branch.
+`Io` is a struct whose fields are `async`, `await`, `spawn`, `state`, each typed `fn(forall(T : Type, E : Type.Struct), …)`. `typeContainsSomeType` recurses into struct fields, hits the function types, sees `forallParameters.length > 0`, and reports the parameter type as "containing SomeType." Same for `Exception` (`throw : ctl(forall(ResumeType), …)`). The predicate fires, `main`'s body is deferred, no specialization ever happens because `main` is the entry point, and codegen falls through to the empty-stub branch.
 
-The deferral predicate's behavior is technically a separate evaluator bug — it should distinguish "free" SomeTypes (referring to outside) from those locally bound by a nested function's `forall(...)`. I sketched a `typeContainsUnboundSomeType` walker that tracks "locally bound" SomeType names; with it, `IO` and `Exception` no longer trigger deferral on the test runner main, but **14 unrelated stdlib files break** because they contain code that _only worked under the deferred body path_ (e.g., `std/async.yo`'s `yield :: fn(io : IO) -> Impl(Future(unit))` has `io.async(() => …)` where the closure is 0-arg but `io.async`'s `action : Impl(Fn(e : E) -> T)` expects 1 arg — the mismatch was masked by deferred evaluation). So a "principled" evaluator fix has a wide blast radius.
+The deferral predicate's behavior is technically a separate evaluator bug — it should distinguish "free" SomeTypes (referring to outside) from those locally bound by a nested function's `forall(...)`. I sketched a `typeContainsUnboundSomeType` walker that tracks "locally bound" SomeType names; with it, `Io` and `Exception` no longer trigger deferral on the test runner main, but **14 unrelated stdlib files break** because they contain code that _only worked under the deferred body path_ (e.g., `std/async.yo`'s `yield :: fn(io : Io) -> Impl(Future(unit))` has `io.async(() => …)` where the closure is 0-arg but `io.async`'s `action : Impl(Fn(e : E) -> T)` expects 1 arg — the mismatch was masked by deferred evaluation). So a "principled" evaluator fix has a wide blast radius.
 
 The workaround that landed in `7b3b788b` is narrower: the test runner now generates `main :: (fn() -> unit)({ io :: __yo_builtin_io; … })`. No params, no `exn`. The `io` binding aliases `__yo_builtin_io` (already defined in `std/prelude.yo`); tests using `io.async`/`await`/`spawn` continue to work. Tests using `exn` already construct their own `Exception` value locally (verified in `tests/error.test.yo` line 36–48, etc.), so dropping the injected `exn` is safe.
 
@@ -228,7 +228,7 @@ I see three credible directions; none is fast.
 
 ### Direction A: Fix at the evaluator level, top-down
 
-1. Replace `typeContainsSomeType` in `shouldDeferBodyEvaluation` with a `forall`-scope-aware walker that doesn't over-recurse into nested function types. Restores `main :: fn(io : IO, exn : Exception)` evaluability without the test-runner workaround.
+1. Replace `typeContainsSomeType` in `shouldDeferBodyEvaluation` with a `forall`-scope-aware walker that doesn't over-recurse into nested function types. Restores `main :: fn(io : Io, exn : Exception)` evaluability without the test-runner workaround.
 2. Fix `tryToCallFunctionWithArguments` so `ref` parameters bind with `bindingType = createPtrType(argType)`. Wire auto-deref-on-read for `ref`-bound locals across all reading sites (atoms, field access, index, `==`, etc.). This likely requires changes in many evaluator files.
 3. Audit and fix the ~14 stdlib files whose evaluation now actually runs and exposes pre-existing type mismatches (per the earlier `typeContainsUnboundSomeType` experiment).
 4. Decide what to do about R3 / Phase D — either relax R3 to admit locals at the immediate enclosing scope, or rewrite the for-macro to avoid `ref(name) := …` with a local-rooted projection.

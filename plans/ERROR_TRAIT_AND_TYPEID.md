@@ -148,9 +148,9 @@ AnyError :: Dyn(Error);
 Usage example:
 
 ```rust
-IOError :: object(message : String);
-impl(IOError, ToString(to_string : ((self) -> self.*.message)));
-impl(IOError, Error());  // uses default source
+IoError :: object(message : String);
+impl(IoError, ToString(to_string : ((self) -> self.*.message)));
+impl(IoError, Error());  // uses default source
 
 NetworkError :: object(
   message : String,

@@ -30,7 +30,7 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 
 - Emit C only: `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release`
 - Compile with clang: `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out`
-- Add `-luring` on Linux for async IO features.
+- Add `-luring` on Linux for async Io features.
 - On Windows, use `zig` instead of `clang`.
 - Full pipeline: `./yo-cli compile src/tests/fixme.yo --release -o a.out && ./a.out`
 
@@ -170,7 +170,7 @@ Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (decla
 
 ### Function collection for evidence-bearing functions
 
-Functions with evidence parameters (from `io: IO` or algebraic effect parameters) need special handling in `collection.ts`. Three skip conditions must allow these functions through:
+Functions with evidence parameters (from `io: Io` or algebraic effect parameters) need special handling in `collection.ts`. Three skip conditions must allow these functions through:
 
 1. **`isFunctionTypeHardGeneric` check** — A specialized function may still appear "hard-generic" because evidence params trace back to a comptime-only `forall(...)` binding. If `getEvidenceParameters(specializedType).length > 0`, the function is valid for codegen — evidence params become C function pointers.
 
@@ -251,7 +251,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 
 `emitEffectInjection` resolves effect handler function pointers and injects them into the spawned future's capture struct. Resolution order for each effect:
 
-**Struct-record effects (e.g., IO):** For each function field in the struct evidence record:
+**Struct-record effects (e.g., Io):** For each function field in the struct evidence record:
 
 1. SM capture variables (`sm->__capture.<field>`)
 2. Struct value fields (concrete `StructValue` from evaluator)

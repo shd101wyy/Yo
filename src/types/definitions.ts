@@ -76,8 +76,8 @@ export interface Type {
   definedInModulePath?: string;
 
   /**
-   * Marks this type as an IO module builtin function.
-   * Set on IO effect record field types so that io.async and io.await
+   * Marks this type as an Io module builtin function.
+   * Set on Io effect record field types so that io.async and io.await
    * can be detected even when aliased (e.g., `my_async :: io.async`).
    */
   ioBuiltin?:

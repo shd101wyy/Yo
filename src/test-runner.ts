@@ -347,11 +347,11 @@ function generateBatchedTestProgram(
   // (unwind/given) need to be in the same codegen scope as main.
   //
   // main takes no parameters. We expose `io` as a local binding to
-  // `__yo_builtin_io` (the IO instance defined in `std/prelude.yo`) so
+  // `__yo_builtin_io` (the Io instance defined in `std/prelude.yo`) so
   // test bodies that use `io.async`/`io.await`/`io.spawn`/`io.state`
   // keep compiling unchanged.
   //
-  // We tried declaring `io : IO` directly so the body could reference
+  // We tried declaring `io : Io` directly so the body could reference
   // the parameter — this works in isolation but regresses 3 Thread /
   // Worker async tests where the closure captures `io`. Pre-fix, those
   // tests use `__yo_builtin_io` via the comptime alias path which the

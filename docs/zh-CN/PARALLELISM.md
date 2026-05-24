@@ -51,8 +51,8 @@ Thread :: struct(
 );
 impl(Thread,
   // 派生一个新的操作系统线程，运行给定的闭包。
-  // 该闭包会获得自己的每线程 IO 事件循环。
-  spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> Self),
+  // 该闭包会获得自己的每线程 Io 事件循环。
+  spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self),
 
   // 等待线程完成（阻塞）
   join : (fn(ref(self) : Self) -> unit)
@@ -72,8 +72,8 @@ thread := Thread.spawn(() => {
 thread.join();
 
 // 派生一个支持异步 I/O 的线程
-thread := Thread.spawn((io : IO) => {
-  task := io.async((io : IO) => {
+thread := Thread.spawn((io : Io) => {
+  task := io.async((io : Io) => {
     io.await(yield());
     return i32(42);
   });
@@ -100,7 +100,7 @@ thread.join();
 Worker :: import "std/worker";
 
 // 在线程池上派生一个任务
-Worker.spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> unit);
+Worker.spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit);
 
 // 配置线程池大小（需在首次 spawn 之前调用）
 Worker.set_num_threads : (fn(num : usize) -> unit);
@@ -122,8 +122,8 @@ Worker.spawn(() => {
 });
 
 // 在线程池上运行异步任务
-Worker.spawn((io : IO) => {
-  task := io.async((io : IO) => {
+Worker.spawn((io : Io) => {
+  task := io.async((io : Io) => {
     io.await(yield());
   });
   io.await(task);
@@ -257,9 +257,9 @@ Worker :: import "std/worker";
 { Channel } :: import "std/sync/channel";
 
 // 带异步 I/O 的专用线程
-thread := Thread.spawn((io : IO) => {
+thread := Thread.spawn((io : Io) => {
   // 此线程拥有自己的事件循环
-  task := io.async((io : IO) => { io.await(yield()); });
+  task := io.async((io : Io) => { io.await(yield()); });
   io.await(task);
 });
 thread.join();

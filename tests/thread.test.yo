@@ -28,7 +28,7 @@ test("Thread spawn and join with multiple captures", {
 });
 test("Thread with async task", {
   thread := Thread.spawn((io) => {
-    task := io.async((io : IO) => {
+    task := io.async((io : Io) => {
       io.await(yield(io), io);
     });
     io.await(task, io);
@@ -39,7 +39,7 @@ test("Thread with async returning value", {
   thread := Thread.spawn((io) => {
     x := 10;
     y := 20;
-    task := io.async((io : IO) => {
+    task := io.async((io : Io) => {
       io.await(yield(io), io);
       return(x + y);
     });
@@ -50,7 +50,7 @@ test("Thread with async returning value", {
 });
 test("Thread with async loop", {
   thread := Thread.spawn((io) => {
-    task := io.async((io : IO) => {
+    task := io.async((io : Io) => {
       counter := 0;
       while(runtime(counter < i32(5)), {
         counter = (counter + 1);
@@ -65,11 +65,11 @@ test("Thread with async loop", {
 });
 test("Thread with multiple async tasks", {
   thread := Thread.spawn((io) => {
-    task1 := io.async((io : IO) => {
+    task1 := io.async((io : Io) => {
       io.await(yield(io), io);
       return(i32(1));
     });
-    task2 := io.async((io : IO) => {
+    task2 := io.async((io : Io) => {
       io.await(yield(io), io);
       return(i32(2));
     });

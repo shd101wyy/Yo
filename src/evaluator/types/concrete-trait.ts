@@ -13,7 +13,7 @@ import { evaluateExpression } from "../exprs/expr";
  *
  * Example:
  *   extern "Yo", yo_io_future : Type;
- *   IOReadFuture :: Impl(Concrete(yo_io_future), Future(i32));
+ *   IoReadFuture :: Impl(Concrete(yo_io_future), Future(i32));
  *
  * The Concrete(T) trait is used in Impl(...) to explicitly set the
  * resolvedConcreteType of the resulting SomeType to T.

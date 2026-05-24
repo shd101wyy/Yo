@@ -40,7 +40,7 @@ print_bool :: (fn(value: bool) -> i32)(
 );
 
 // WRONG - lambda body wraps single expression in {...}, creating a struct:
-io.async((io : IO) => {
+io.async((io : Io) => {
   cond(
     done => .Ok(()),
     true => .Err(e)
@@ -48,7 +48,7 @@ io.async((io : IO) => {
 })
 
 // CORRECT - lambda body is just the expression, no {...}:
-io.async((io : IO) =>
+io.async((io : Io) =>
   cond(
     done => .Ok(()),
     true => .Err(e)
@@ -408,21 +408,21 @@ impl(Tree,
 
 ### Async recursion — `recur` does NOT work inside `io.async`
 
-`recur` refers to the **nearest enclosing `fn`**. Inside `io.async((io : IO) => ...)`, that lambda _is_ the enclosing `fn`, so `recur` would call the lambda — not the outer function. This causes an argument-type mismatch error.
+`recur` refers to the **nearest enclosing `fn`**. Inside `io.async((io : Io) => ...)`, that lambda _is_ the enclosing `fn`, so `recur` would call the lambda — not the outer function. This causes an argument-type mismatch error.
 
 **Pattern for async recursion**: Replace recursion with an iterative worklist:
 
 ```rust
 // WRONG — "Variable 'walk_dir' not found" inside io.async:
-walk_dir :: (fn(path: Path, io: IO) -> Impl(Future(unit, IO)))(
-  io.async((io : IO) => {
+walk_dir :: (fn(path: Path, io: Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
     entries := io.await(read_dir(path, io), io);
     // CANNOT call walk_dir recursively here
   })
 );
 
 // CORRECT — bundle the needed effects into one struct and iterate with a stack:
-WalkCtx :: struct(io : IO, exn : Exception);
+WalkCtx :: struct(io : Io, exn : Exception);
 
 walk_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {

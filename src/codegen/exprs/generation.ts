@@ -718,7 +718,7 @@ function generateFuncCall(
     return generateDynCall(expr, indent, context);
   }
 
-  // io.await(future) - extract value from Future (via IO module)
+  // io.await(future) - extract value from Future (via Io module)
   if (isIoAwaitCall(expr)) {
     return generateAwait(expr, indent, context);
   }
@@ -766,7 +766,7 @@ function generateFuncCall(
     );
     emitter.emitLine(`${indent}  abort();`);
     emitter.emitLine(`${indent}}`);
-    // Phase 7: inject the bundle effect (e.g. `IOErr(io, exn)`) into the
+    // Phase 7: inject the bundle effect (e.g. `IoExn(io, exn)`) into the
     // future's SM via its set_effect callback BEFORE cold-starting. This is
     // the same mechanism used by io.await — see emitEffectInjectionForAwait
     // and src/codegen/exprs/async.ts:findBundleFieldName.

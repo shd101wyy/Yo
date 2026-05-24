@@ -55,12 +55,12 @@ numbers. The constants are resolved at C compile time via `#include <errno.h>`.
 ## I/O Architecture
 
 The WASM runtime (`src/codegen/async/runtime-io-wasm.ts`) uses **synchronous POSIX calls wrapped in
-immediately-completed IOFutures**, the same pattern as the macOS runtime for regular files. With
+immediately-completed IoFutures**, the same pattern as the macOS runtime for regular files. With
 `-sNODERAWFS=1`, Emscripten uses Node.js's real filesystem instead of a virtual MEMFS, so all
 file/directory operations work on actual files.
 
 The async timer/sleep uses a **sorted linked list timer queue** (same pattern as Windows runtime).
-Timers are registered as pending IOFutures with due times, and the event loop polls/waits for them
+Timers are registered as pending IoFutures with due times, and the event loop polls/waits for them
 via `__yo_io_poll`/`__yo_io_wait`. This enables cooperative scheduling during sleep.
 
 ### WASI-specific runtime
@@ -104,7 +104,7 @@ Since `process.arch` is comptime, the guard is resolved at compile time — no r
 ```rust
 { arch, Arch } :: import "std/process";
 
-test "my test", using(io : IO), {
+test "my test", using(io : Io), {
   if((arch == Arch.Wasm32), {
     printf("  skipped on wasm32\n");
     return ();
@@ -282,7 +282,7 @@ Emscripten supports POSIX threads via the `-pthread` flag. The compiler automati
 
 All async file/directory/pipe/metadata I/O operations now work on WASM using NODERAWFS.
 The `runtime-io-wasm.ts` was rewritten from stubs to real POSIX calls wrapped in
-immediately-completed IOFutures (same pattern as macOS).
+immediately-completed IoFutures (same pattern as macOS).
 
 ### Async Timer/Sleep
 

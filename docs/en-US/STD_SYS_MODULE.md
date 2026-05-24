@@ -50,13 +50,13 @@ std/sys/
 ├── copy.yo         — copyfile, sendfile
 ├── dir.yo          — mkdir, unlink, rename, symlink, link, readlink, getdents/readdir
 ├── dns.yo          — getaddrinfo, getnameinfo, addrinfo accessors
-├── errors.yo       — IOError enum with errno mapping, ToString impl
+├── errors.yo       — IoError enum with errno mapping, ToString impl
 ├── events.yo       — TTY/poll/FS event constants + FS-event / poll wrappers
 ├── externs.yo      — All C extern function declarations
 ├── fallocate.yo    — fallocate (pre-allocate file space)
 ├── fcntl.yo        — getfl/setfl/getfd/setfd (file descriptor flags)
 ├── file.yo         — Async + sync file ops (openat, read, write, stat, fsync, etc.)
-├── future.yo       — IOFuture extern type wrapping __yo_io_future_t
+├── future.yo       — IoFuture extern type wrapping __yo_io_future_t
 ├── iov.yo          — readv/writev/preadv/pwritev + iovec helpers
 ├── lock.yo         — flock advisory locking
 ├── mmap.yo         — mmap, munmap, mprotect, msync
@@ -104,8 +104,8 @@ timer  :: import "std/sys/timer";
 | Socket Constants | `socket.yo`     | ✅ Complete | Platform-aware AF*\*, SOCK*\_, SO\_\_, TCP*\*, NI*\*     |
 | Signals          | `signals.yo`    | ✅ Complete | Platform-aware POSIX signal numbers                      |
 | Events           | `events.yo`     | ✅ Complete | TTY/poll/FS event constants + FS/poll wrappers           |
-| IOError          | `errors.yo`     | ✅ Complete | Enum with errno mapping, ToString impl                   |
-| IOFuture         | `future.yo`     | ✅ Complete | Extern type wrapping `__yo_io_future_t`                  |
+| IoError          | `errors.yo`     | ✅ Complete | Enum with errno mapping, ToString impl                   |
+| IoFuture         | `future.yo`     | ✅ Complete | Extern type wrapping `__yo_io_future_t`                  |
 | Externs          | `externs.yo`    | ✅ Complete | All C extern function declarations                       |
 | Statx            | `statx.yo`      | ✅ Complete | File metadata accessor object                            |
 | Timer            | `timer.yo`      | ✅ Complete | `sleep(ms)`                                              |

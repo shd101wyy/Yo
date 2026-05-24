@@ -668,7 +668,7 @@ use_id :: (fn(forall(T : Type),
     existingPreAddedVar.isCompileTimeOnly &&
     existingPreAddedVar.value &&
     // Only reuse if the pre-added variable is in the current (top) frame.
-    // Variables from outer frames (e.g., an outer function's using(io : IO))
+    // Variables from outer frames (e.g., an outer function's using(io : Io))
     // must NOT be reused — we need to create a new variable in the current
     // parameters frame so it appears in parametersFrame for body evaluation.
     existingPreAddedVar.frameLevel === env.frames.length - 1

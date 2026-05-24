@@ -27,7 +27,7 @@ import { evaluateExpression } from "../exprs/expr";
  *
  *   // Explicit concrete type for extern futures:
  *   extern "Yo", yo_io_future : Type;
- *   IOReadFuture :: Impl(Concrete(yo_io_future), Future(i32));
+ *   IoReadFuture :: Impl(Concrete(yo_io_future), Future(i32));
  *
  * ImplId is a SomeType that requires types to implement the Id trait.
  */

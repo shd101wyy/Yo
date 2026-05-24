@@ -3,12 +3,12 @@ pragma(Pragma.AllowUnsafe);
 { sleep } :: import("std/sys/timer");
 open(import("std/libc/stdio"));
 { yield } :: import("std/async");
-test("Test IO timer", {
+test("Test Io timer", {
   // =========================================================================
   // Test: async timer operations
   // =========================================================================
   value := Box(i32)(0);
-  task1 := io.async((io : IO) => {
+  task1 := io.async((io : Io) => {
     assert(value.* == 0); // 0
     value.* = (value.* + 1); // 1
     unsafe(printf("Timer test: sleeping 50ms...\n"));
@@ -24,7 +24,7 @@ test("Test IO timer", {
     assert(value.* == 4); // 4
     unsafe(printf("All async timer tests passed!\n"));
   });
-  task2 := io.async((io : IO) => {
+  task2 := io.async((io : Io) => {
     assert(value.* == 1); // 1
     value.* = (value.* + 1); // 2
     io.await(yield(io), io);

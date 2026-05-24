@@ -217,7 +217,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   context.emitter.emitLine(`// Function implementations`);
 
   // Always emit synchronous system helpers (stat, sync ops, signal, TTY).
-  // These have no async/IOFuture dependency.  All functions are `static`, so
+  // These have no async/IoFuture dependency.  All functions are `static`, so
   // unused ones are dead-code-eliminated by the C compiler.
   generateSysRuntime(context.emitter, context.targetInfo);
 
@@ -283,7 +283,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const { value, cName } = context.functions[funcId]!;
 
     // Never skip __yo_user_main - it's the entry point and its implicit
-    // IO parameter is resolved at compile time
+    // Io parameter is resolved at compile time
     const isUserMain = cName === "__yo_user_main";
 
     // Check if this function's body has effect analysis (it uses algebraic effects).
@@ -425,7 +425,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       continue;
     }
 
-    // IO async state machine closures are always generated via the deferred
+    // Io async state machine closures are always generated via the deferred
     // async block system, never as standalone functions. Skip unconditionally
     // to prevent duplicate struct/function definitions.
     if (!isUserMain && value.isIoAsyncStateMachineClosure) {
@@ -454,7 +454,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const functionType = value.specializedType ?? value.type;
     // Closures (`isClosure: true`) are per-instance with their own
     // concrete capture struct and distinct C function. Their parameter
-    // list may contain `io : IO` or similar effect-record types whose
+    // list may contain `io : Io` or similar effect-record types whose
     // nested fn-pointer fields trip `typeContainsSomeType`, but the
     // closure value itself is not truly generic and its body has
     // been evaluated. Skipping such closures would leave the spawn-
@@ -470,7 +470,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       ) ||
         functionType.forallParameters.length > 0);
     // Mirror the parameter check (see declarations.ts): a return type
-    // like `IOErr` (struct whose SomeType is confined to nested
+    // like `IoExn` (struct whose SomeType is confined to nested
     // fn-pointer fields) is concrete at C ABI.
     const hasGenericReturnType = typeContainsSomeTypeForCodegenParam(
       functionType.return.type
@@ -633,12 +633,12 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   {
     // Build the argument list for __yo_user_main.
     // Each regular parameter of main is matched by type-name:
-    //   - IO          → construct from runtime __yo_io_async/await/state/spawn
+    //   - Io          → construct from runtime __yo_io_async/await/state/spawn
     //   - Exception   → construct default panic-on-throw handler
     //   - Other       → fail (no automatic injection for unknown effect types)
     //
     // This replaces the old implicit-parameter injection path. With explicit
-    // effects, main declares `io : IO, exn : Exception` as regular params and
+    // effects, main declares `io : Io, exn : Exception` as regular params and
     // the C wrapper constructs the runtime values.
     const evidenceParams = getEvidenceParameters(mainFunctionValue.type);
     let mainCallArgs: string;

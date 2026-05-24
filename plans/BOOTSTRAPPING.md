@@ -542,7 +542,7 @@ Struct and enum-variant construction branches in
 `evaluator/calls/function.yo` used to abort comptime construction on
 any `UnknownVal` field; TS only aborts on `isRuntimeOnly: true`.
 Relaxed to match TS default. Unblocks
-`__yo_builtin_io :: IO(async : __yo_io_async, …)` at
+`__yo_builtin_io :: Io(async : __yo_io_async, …)` at
 `std/prelude.yo:8196`.
 
 ### a63ecce0 — `TypeVal(SomeT)` for extern/c_include Type-typed fields (§5i)

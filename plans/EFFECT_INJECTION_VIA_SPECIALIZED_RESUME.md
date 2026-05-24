@@ -16,7 +16,7 @@ This means the async closure body calls effect functions as **bare C names** (e.
 ```rust
 Log :: (fn(msg : String) -> unit);
 
-task := io.async((using(io : IO, log : Log))=> {
+task := io.async((using(io : Io, log : Log))=> {
   log(`Task started`);  // In generated C: log(...) → links to glibc math log!
 });
 
@@ -51,7 +51,7 @@ The first caller to transition the future from pending to running "wins" and bin
 ### API (unchanged)
 
 ```rust
-IO :: module(
+Io :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
   state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
@@ -145,13 +145,13 @@ Add a flag to `CapturedVariable` or to the analysis result to mark which capture
 
 **File**: `src/codegen/exprs/async.ts`
 
-- For async blocks that have effect parameters (using params beyond IO):
+- For async blocks that have effect parameters (using params beyond Io):
 
   - Set `sm->__yo_resume_fn = NULL` instead of `resume_fn_123`
   - Do NOT initialize effect param fields in the capture struct at allocation time
   - Still initialize non-effect capture fields normally (captured variables from outer scope)
 
-- For async blocks with NO extra effects (only IO or no effects):
+- For async blocks with NO extra effects (only Io or no effects):
   - Keep current behavior: `sm->__yo_resume_fn = resume_fn_123`
 
 #### 2.2 `io.spawn` — inject effects and set resume function
@@ -217,7 +217,7 @@ Update the fixme.yo test to verify that effect injection works:
 
 ```rust
 Log :: (fn(msg : String) -> unit);
-task := io.async((using(io : IO, log : Log))=> {
+task := io.async((using(io : Io, log : Log))=> {
   log(`Task started`);
 });
 (given(log1) : Log) = (msg) -> { println(`Log1: ${msg}`); };
@@ -255,4 +255,4 @@ Document:
 
 - **Breaking change**: This changes the internal representation of async closures with effects. All existing tests should still pass since they don't use custom effects in async.
 - **Effect capture ordering**: The capture struct field order must match between the closure code and the spawn/await injection code.
-- **IO effect**: The IO effect itself is special — it's the IO module, which is a compile-time constant. It doesn't need runtime injection. Only user-defined effects (Log, Raise, etc.) need runtime injection.
+- **Io effect**: The Io effect itself is special — it's the Io module, which is a compile-time constant. It doesn't need runtime injection. Only user-defined effects (Log, Raise, etc.) need runtime injection.

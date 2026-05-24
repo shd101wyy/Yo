@@ -147,18 +147,18 @@ test("my test", {
 });
 ```
 
-**`io : IO` is automatically bound** inside every test body — no parameter is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
+**`io : Io` is automatically bound** inside every test body — no parameter is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
 
 ```rust
 test("Async test", {
-  task := io.async((io : IO) => {
+  task := io.async((io : Io) => {
     io.await(yield(), io);
   });
   io.await(task, io);
 });
 ```
 
-> **Note:** The old `test "name", using(io : IO), { body }` 3-argument form is no longer supported.
+> **Note:** The old `test "name", using(io : Io), { body }` 3-argument form is no longer supported.
 
 ## Assertion builtins for Yo tests
 

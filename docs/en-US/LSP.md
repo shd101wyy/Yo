@@ -56,7 +56,7 @@ match(color,
 
 Type any prefix to see matching variables, functions, and keywords in scope. This includes:
 
-- **Prelude types**: `Option`, `Result`, `Box`, `IO`, and other types available without imports
+- **Prelude types**: `Option`, `Result`, `Box`, `Io`, and other types available without imports
 - **Imported types**: Types and functions from `open import` statements
 - **Local variables**: Variables declared earlier in the same scope
 - **Internal names filtered**: `__yo_*` and `___*` compiler-internal symbols are hidden

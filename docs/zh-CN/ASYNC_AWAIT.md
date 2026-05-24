@@ -10,12 +10,12 @@ Yo 使用基于**代数效应**的 **async/await 状态机变换**来实现高�
 { yield } :: import "std/async";
 
 // 所有异步代码运行在同一线程上
-main :: (fn(io : IO) -> unit)({
-  task1 := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit)({
+  task1 := io.async((io : Io)=> {
     io.await(yield());
     return i32(1);
   });
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     io.await(yield());
     return i32(2);
   });
@@ -38,9 +38,9 @@ export main;
 
 ```rust
 // 并发：同一线程，交替执行
-main :: (fn(io : IO) -> unit)({
-  a := io.async((io : IO)=> { /* ... */ });
-  b := io.async((io : IO)=> { /* ... */ });
+main :: (fn(io : Io) -> unit)({
+  a := io.async((io : Io)=> { /* ... */ });
+  b := io.async((io : Io)=> { /* ... */ });
   io.spawn(a);  // 启动 a 但不等待（返回 JoinHandle）
   io.spawn(b);  // 启动 b 但不等待（返回 JoinHandle）
   io.await(a);
@@ -56,7 +56,7 @@ task := Task(i32, bool).spawn((parent) -> {
 
 ## 执行模型：基于代数效应的惰性启动
 
-Yo 的 async 使用**代数效应**和 `IO` 效应类型。异步任务是**惰性**的——在被显式 await 或 spawn 之前不会启动：
+Yo 的 async 使用**代数效应**和 `Io` 效应类型。异步任务是**惰性**的——在被显式 await 或 spawn 之前不会启动：
 
 - `io.async(fn)` 创建一个**冷 Future**——函数体尚未执行
 - `io.await(task)` 启动冷任务并顺序运行至完成
@@ -65,17 +65,17 @@ Yo 的 async 使用**代数效应**和 `IO` 效应类型。异步任务是**惰�
 ```rust
 { yield } :: import "std/async";
 
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   counter := Box(i32)(0);
 
   // 惰性创建——两个任务都尚未启动
-  task1 := io.async((io : IO)=> {
+  task1 := io.async((io : Io)=> {
     counter.* = (counter.* + 1);   // 启动时执行
     io.await(yield());              // 让出控制权给事件循环
     counter.* = (counter.* + 1);   // 其他任务让出后恢复执行
   });
 
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     counter.* = (counter.* + 10);
     io.await(yield());
     counter.* = (counter.* + 10);
@@ -117,7 +117,7 @@ export main;
 5. **零成本抽象**：编译期进行状态机变换
 6. **熟悉的模型**：类似 JavaScript 的事件循环——经过验证且直观
 7. **无需原子操作**：引用计数不需要原子操作
-8. **代数效应**：通过 `io : IO` 显式声明 IO 能力
+8. **代数效应**：通过 `io : Io` 显式声明 Io 能力
 
 ### 为什么不用多线程异步？
 
@@ -136,7 +136,7 @@ Yo 的策略：保持 async 简单（单线程），使用 `Task.spawn` 实现�
 { yield } :: import "std/async";
 
 // 异步任务创建（惰性——在 await/spawn 之前不会运行）
-task := io.async((io : IO)=> {
+task := io.async((io : Io)=> {
   io.await(yield());  // 让出控制权给事件循环
   return i32(42);
 });
@@ -155,14 +155,14 @@ r2 := handle2.await(io);
 r3 := handle3.await(io);
 ```
 
-### IO 效应与 Using
+### Io 效应与 Using
 
-异步操作需要 `IO` 效应，通过 `io : IO` 传递：
+异步操作需要 `Io` 效应，通过 `io : Io` 传递：
 
 ```rust
-// main 函数接收 IO 效应
-main :: (fn(io : IO) -> unit)({
-  task := io.async((io : IO)=> {
+// main 函数接收 Io 效应
+main :: (fn(io : Io) -> unit)({
+  task := io.async((io : Io)=> {
     // 此处可使用 io.await、io.async、io.spawn
     io.await(yield());
   });
@@ -170,9 +170,9 @@ main :: (fn(io : IO) -> unit)({
 });
 export main;
 
-// 测试块自动提供 `io : IO`
+// 测试块自动提供 `io : Io`
 test "my test", {
-  task := io.async((io : IO)=> { /* ... */ });
+  task := io.async((io : Io)=> { /* ... */ });
   io.await(task);
 };
 ```
@@ -205,11 +205,11 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 
 ```rust
 // 三个任务全部运行在同一线程上
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   // 惰性——任务为冷状态，尚未运行
-  t1 := io.async((io : IO)=> { /* task1 的函数体 */ });
-  t2 := io.async((io : IO)=> { /* task2 的函数体 */ });
-  t3 := io.async((io : IO)=> { /* task3 的函数体 */ });
+  t1 := io.async((io : Io)=> { /* task1 的函数体 */ });
+  t2 := io.async((io : Io)=> { /* task2 的函数体 */ });
+  t3 := io.async((io : Io)=> { /* task3 的函数体 */ });
 
   // spawn 启动每个任务但不等待：
   // - t1 运行到第一个 yield，挂起
@@ -249,12 +249,12 @@ Future(T, E)     // 携带效应包 E 的 Future，产出 T
 ```
 
 `E` 是单个类型——通常是一个把异步体所需的所有效应（处理器字段加上类似
-`IO` 的记录）打包到一起的 struct。作者自行把效应打包；语言不会再把多个
+`Io` 的记录）打包到一起的 struct。作者自行把效应打包；语言不会再把多个
 类型参数拼接为效应集合。
 
 ```rust
 // 一个把异步任务所需的全部效应打包在一起的 struct。
-TaskCtx :: struct(io : IO, raise : Raise, log : Log);
+TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 ```
 
 **匹配规则**
@@ -265,9 +265,9 @@ TaskCtx :: struct(io : IO, raise : Raise, log : Log);
 2. **带注解与不带注解可以互通。** `Future(T)`（无效应包）与
    `Future(T, E)`（任意效应包）兼容。当调用方不需要引用具体效应类型时
    使用不带注解的形式。
-3. **使用 await 的异步体需要 IO。** 任何调用 `io.await` / `yield`
-   的异步体都需要在效应包中包含 `IO`，因此效应包 struct 通常会有一个
-   `io : IO` 字段。
+3. **使用 await 的异步体需要 Io。** 任何调用 `io.await` / `yield`
+   的异步体都需要在效应包中包含 `Io`，因此效应包 struct 通常会有一个
+   `io : Io` 字段。
 
 **示例：通过 async 传递打包后的效应**
 
@@ -275,9 +275,9 @@ TaskCtx :: struct(io : IO, raise : Raise, log : Log);
 { yield } :: import "std/async";
 Raise :: (fn(forall(T : Type), msg : String) -> T);
 Log :: (fn(msg : String) -> unit);
-TaskCtx :: struct(io : IO, raise : Raise, log : Log);
+TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   (raise : Raise) = ((msg) -> { return(i32(0)); });
   (log : Log) = ((msg) -> { println(msg); });
   ctx := TaskCtx(io: io, raise: raise, log: log);
@@ -293,10 +293,10 @@ main :: (fn(io : IO) -> unit)({
 export main;
 ```
 
-`IO` 效应记录本身就是一个效应包形态的 struct，由异步运行时提供：
+`Io` 效应记录本身就是一个效应包形态的 struct，由异步运行时提供：
 
 ```rust
-IO :: struct(
+Io :: struct(
   async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
   state : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
@@ -316,7 +316,7 @@ IO :: struct(
 同一个 Future 可以被**多次** await。每次对同一 Future 调用 `io.await` 都会返回相同的结果：
 
 ```rust
-main :: (fn(io : IO) -> unit) {
+main :: (fn(io : Io) -> unit) {
   task := io.async(() => {
     return 42;
   });
@@ -341,9 +341,9 @@ Future 在完成后保留其结果。对于引用计数类型的结果，每次 
 **使用 `handle.await`**：`JoinHandle.await` 返回 `Option(T)`——中止时返回 `.None`，安全地捕获 unwind：
 
 ```rust
-main :: (fn(io : IO) -> unit) {
+main :: (fn(io : Io) -> unit) {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
-  task := io.async((io : IO, raise : Raise) => {
+  task := io.async((io : Io, raise : Raise) => {
     raise(`something went wrong`);
     return i32(42);
   });
@@ -380,8 +380,8 @@ FutureState :: enum(
 ```
 
 ```rust
-main :: (fn(io : IO) -> unit) {
-  task := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit) {
+  task := io.async((io : Io)=> {
     io.await(yield());
     return i32(42);
   });
@@ -413,7 +413,7 @@ export main;
 **输入的 Yo 代码：**
 
 ```rust
-task := io.async((io : IO)=> {
+task := io.async((io : Io)=> {
   response := io.await(http_get(url));
   data := io.await(response.read());
   return data;
@@ -470,13 +470,13 @@ task := io.async((io : IO)=> {
 │  ┌─────────────────────────────────────┐    │
 │  │         轮询下一个就绪任务            │    │
 │  │   - 运行直到 await                  │    │
-│  │   - 若 IO 待处理，注册唤醒器         │    │
+│  │   - 若 Io 待处理，注册唤醒器         │    │
 │  │   - 若已就绪，继续执行               │    │
 │  └─────────────────────────────────────┘    │
 │                    │                        │
 │                    ▼                        │
 │  ┌─────────────────────────────────────┐    │
-│  │          IO 完成检查                │    │
+│  │          Io 完成检查                │    │
 │  │   - 检查 epoll/kqueue/IOCP          │    │
 │  │   - 唤醒已完成的任务                 │    │
 │  │   - 加入就绪队列                    │    │
@@ -489,10 +489,10 @@ task := io.async((io : IO)=> {
 
 1. 从就绪队列中**出队**一个就绪任务
 2. **轮询**该任务的状态机
-3. **若 await 的 IO 未完成**：注册唤醒器，任务休眠
+3. **若 await 的 Io 未完成**：注册唤醒器，任务休眠
 4. **若 await 的 Future 已就绪**：继续到下一状态
 5. **若已完成**：将 Future 标记为就绪，唤醒等待者
-6. **检查 IO**：向操作系统查询已完成的 IO 事件
+6. **检查 Io**：向操作系统查询已完成的 Io 事件
 7. **唤醒任务**：将被唤醒的任务移入就绪队列
 8. **重复**直到所有任务完成
 
@@ -544,7 +544,7 @@ int main(int argc, char** argv) {
 
 类似地，**并行运行时**（线程池、Worker 创建、硬件检测）仅在程序使用 `Thread.spawn` 或 `worker.spawn` 时才生成。非并行程序可节省约 450 行生成的 C 代码。
 
-**同步系统辅助函数**（stat/dirent 访问器、sendfile/copyfile、同步文件操作、mmap/madvise、fcntl、flock、socket 地址辅助函数、信号处理器、TTY）始终通过 `generateSysRuntime()` 生成，其中包括跨平台辅助函数和平台特定的同步辅助函数（`generatePlatformSysRuntime{MacOS,Linux,Windows}`）。这些**不依赖 IOFuture**。所有函数均为 `static`，因此未使用的函数会被 C 编译器的死代码消除机制剥离。这确保了使用信号、stat、mmap、TTY 等功能的非异步程序在编译时不会引入完整的异步运行时。
+**同步系统辅助函数**（stat/dirent 访问器、sendfile/copyfile、同步文件操作、mmap/madvise、fcntl、flock、socket 地址辅助函数、信号处理器、TTY）始终通过 `generateSysRuntime()` 生成，其中包括跨平台辅助函数和平台特定的同步辅助函数（`generatePlatformSysRuntime{MacOS,Linux,Windows}`）。这些**不依赖 IoFuture**。所有函数均为 `static`，因此未使用的函数会被 C 编译器的死代码消除机制剥离。这确保了使用信号、stat、mmap、TTY 等功能的非异步程序在编译时不会引入完整的异步运行时。
 
 ### 平台特定的 I/O 后端
 
@@ -611,8 +611,8 @@ Future（异步块状态机）使用**引用计数**来处理任务在被 await 
 **生命周期模式："事件循环持有引用"**
 
 ```rust
-main :: (fn(io : IO) -> unit)({
-  task := io.async((io : IO)=> {
+main :: (fn(io : Io) -> unit)({
+  task := io.async((io : Io)=> {
     /* 工作 */
   });
   // task 为冷状态（refcount=1），尚未启动
@@ -764,7 +764,7 @@ __yo_decr_rc(future);  // 释放运行中任务的引用
 { yield } :: import "std/async";
 
 // io.async：创建惰性 Future（冷，在 await/spawn 之前不会启动）
-task := io.async((io : IO)=> {
+task := io.async((io : Io)=> {
   // 函数体
   return value;
 });
@@ -785,17 +785,17 @@ r2 := handle2.await(io);
 ```rust
 { yield } :: import "std/async";
 
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   counter := Box(i32)(0);
 
-  task1 := io.async((io : IO)=> {
+  task1 := io.async((io : Io)=> {
     counter.* = (counter.* + 1);
     io.await(yield());
     counter.* = (counter.* + 1);
     return counter.*;
   });
 
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     counter.* = (counter.* + 10);
     io.await(yield());
     counter.* = (counter.* + 10);
@@ -817,16 +817,16 @@ export main;
 ```rust
 { yield } :: import "std/async";
 
-main :: (fn(io : IO) -> unit)({
+main :: (fn(io : Io) -> unit)({
   counter := Box(i32)(0);
 
-  task1 := io.async((io : IO)=> {
+  task1 := io.async((io : Io)=> {
     counter.* = (counter.* + 1);
     io.await(yield());
     counter.* = (counter.* + 1);
   });
 
-  task2 := io.async((io : IO)=> {
+  task2 := io.async((io : Io)=> {
     counter.* = (counter.* + 10);
     io.await(yield());
     counter.* = (counter.* + 10);
@@ -868,7 +868,7 @@ export main;
 
 当以下条件**全部**满足时，效应参数在捕获结构体中成为运行时 `void*` 字段：
 
-1. 参数是**函数类型**（不是像 `IO` 这样的模块）
+1. 参数是**函数类型**（不是像 `Io` 这样的模块）
 2. 函数类型**没有 `forall` 参数**（像 `fn(forall(T : Type), ...) -> T` 这样的泛型效应在编译期解析）
 3. 处理器在 `io.async` 创建时**尚未解析**（外部作用域中没有 `(name : Type) = handler` 绑定）
 
@@ -881,7 +881,7 @@ export main;
 ```rust
 Log :: (fn(msg : String) -> unit);
 
-task := io.async((io : IO, log : Log)=> {
+task := io.async((io : Io, log : Log)=> {
   log(`hello`);
 });
 
@@ -919,7 +919,7 @@ handle.await(io);
 | ------------------------------------ | ---------- | ---------------- |
 | `handler` 在 `io.async` 时在作用域内 | 编译期     | 直接函数调用     |
 | 泛型效应（`forall(T)`）              | 编译期     | 直接函数调用     |
-| 模块（`IO`）类型                     | 编译期     | 无运行时字段     |
+| 模块（`Io`）类型                     | 编译期     | 无运行时字段     |
 | 非泛型、未解析的处理器               | 运行时注入 | `void*` 捕获字段 |
 
 ## Async + 代数效应
@@ -958,7 +958,7 @@ Yo 的 async/await 提供：
 2. **单线程并发** — 所有异步代码运行在同一线程上
 3. **并发 spawn** — `io.spawn(f)` 启动冷 Future 但不等待，返回 `JoinHandle(T)`
 4. **无线程安全顾虑** — 不可能发生数据竞争
-5. **代数效应** — 通过 `io : IO` 显式声明 IO 能力
+5. **代数效应** — 通过 `io : Io` 显式声明 Io 能力
 6. **状态机变换** — 零成本抽象
 7. **非原子引用计数** — 无同步开销
 8. **内存高效** — 数百万并发任务（每个约 200 字节）
@@ -971,7 +971,7 @@ Yo 的 async/await 提供：
 { yield } :: import "std/async";
 
 // 创建惰性异步任务
-task := io.async((io : IO)=> {
+task := io.async((io : Io)=> {
   io.await(yield());  // 让出控制权给事件循环
   return i32(42);
 });
@@ -997,16 +997,16 @@ r2 := handle2.await(io);  // Option(T)
 7. **状态机** — 编译器将每个 `io.await` 变换为状态转换
 8. **无线程安全问题** — 无 Send trait，无数据竞争
 9. **非原子引用计数** — 简单的引用计数（无同步）
-10. **事件循环** — 运行就绪任务，检查 IO 完成
+10. **事件循环** — 运行就绪任务，检查 Io 完成
 11. **零成本** — 编译为高效的 C 代码
 
 ### 使用场景
 
 | 使用场景           | 机制                                |
 | ------------------ | ----------------------------------- |
-| IO 密集型并发任务  | `io.async`/`io.await`               |
+| Io 密集型并发任务  | `io.async`/`io.await`               |
 | 同时运行多个任务   | `io.spawn` + `handle.await`         |
 | CPU 密集型并行计算 | `Task.spawn`（参见 PARALLELISM.md） |
 | 后台处理           | `Task.spawn`（参见 PARALLELISM.md） |
-| 等待多个 IO        | `io.spawn` + `handle.await`         |
+| 等待多个 Io        | `io.spawn` + `handle.await`         |
 | 利用多个 CPU 核心  | `Task.spawn`（参见 PARALLELISM.md） |

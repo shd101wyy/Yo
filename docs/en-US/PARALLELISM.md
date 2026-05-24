@@ -51,8 +51,8 @@ Thread :: struct(
 );
 impl(Thread,
   // Spawn a new OS thread running the given closure.
-  // The closure receives its own per-thread IO event loop.
-  spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> Self),
+  // The closure receives its own per-thread Io event loop.
+  spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self),
 
   // Wait for the thread to complete (blocking)
   join : (fn(ref(self) : Self) -> unit)
@@ -72,8 +72,8 @@ thread := Thread.spawn(() => {
 thread.join();
 
 // Spawn a thread with async I/O
-thread := Thread.spawn((io : IO) => {
-  task := io.async((io : IO) => {
+thread := Thread.spawn((io : Io) => {
+  task := io.async((io : Io) => {
     io.await(yield());
     return i32(42);
   });
@@ -100,7 +100,7 @@ thread.join();
 Worker :: import "std/worker";
 
 // Spawn a task on the thread pool
-Worker.spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> unit);
+Worker.spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit);
 
 // Configure thread pool size (call before first spawn)
 Worker.set_num_threads : (fn(num : usize) -> unit);
@@ -122,8 +122,8 @@ Worker.spawn(() => {
 });
 
 // Async tasks on thread pool
-Worker.spawn((io : IO) => {
-  task := io.async((io : IO) => {
+Worker.spawn((io : Io) => {
+  task := io.async((io : Io) => {
     io.await(yield());
   });
   io.await(task);
@@ -257,9 +257,9 @@ Worker :: import "std/worker";
 { Channel } :: import "std/sync/channel";
 
 // Dedicated thread with async I/O
-thread := Thread.spawn((io : IO) => {
+thread := Thread.spawn((io : Io) => {
   // This thread has its own event loop
-  task := io.async((io : IO) => { io.await(yield()); });
+  task := io.async((io : Io) => { io.await(yield()); });
   io.await(task);
 });
 thread.join();

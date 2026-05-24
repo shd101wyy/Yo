@@ -4,7 +4,7 @@
 //! `Eq`, `Ord`, `Hash`, …), fundamental types (`Option`, `Result`, `Box`,
 //! `Slice`, `Range`, `String`, …), operator traits (`Add`, `Sub`, …), type
 //! reflection (`TypeInfo`), conversion (`Into`, `From`), the async runtime
-//! (`IO`, `Future`, `JoinHandle`), and derive rules.
+//! (`Io`, `Future`, `JoinHandle`), and derive rules.
 //!
 //! **Do NOT import `std/prelude`** — it is loaded automatically and an
 //! explicit import will produce a compile error.
@@ -8346,11 +8346,11 @@ JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 export(JoinHandle);
-/// IO module — the async runtime effect.
+/// Io module — the async runtime effect.
 ///
 /// Provides `io.async`, `io.await`, `io.spawn`, and `io.state` operations.
-/// Automatically injected into `main` when declared with `io : IO`.
-IO :: struct(
+/// Automatically injected into `main` when declared with `io : Io`.
+Io :: struct(
   /// Create a new `Future` from an async closure.
   async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   /// Await a `Future`, suspending until its result is ready.
@@ -8360,7 +8360,7 @@ IO :: struct(
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
   spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
-export(IO);
+export(Io);
 extern(
   "Yo",
   __yo_io_async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
@@ -8368,19 +8368,19 @@ extern(
   __yo_io_state : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
   __yo_io_spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
-/// Built-in IO module instance. Automatically injected for `main` functions
-/// with `io : IO`.
-__yo_builtin_io :: IO(
+/// Built-in Io module instance. Automatically injected for `main` functions
+/// with `io : Io`.
+__yo_builtin_io :: Io(
   async : __yo_io_async,
   await : __yo_io_await,
   state : __yo_io_state,
   spawn : __yo_io_spawn
 );
 export(__yo_builtin_io);
-/// JoinHandle methods — defined after IO so `io : IO` resolves.
+/// JoinHandle methods — defined after Io so `io : Io` resolves.
 extern(
   "Yo",
-  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), io : IO) -> Option(T))
+  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), io : Io) -> Option(T))
 );
 impl(
   forall(T : Type),

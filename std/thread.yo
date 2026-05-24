@@ -1,4 +1,4 @@
-//! OS thread creation and management with per-thread IO event loops.
+//! OS thread creation and management with per-thread Io event loops.
 pragma(Pragma.AllowUnsafe);
 extern(
   "Yo",
@@ -9,18 +9,18 @@ extern(
 extern(
   "Yo",
   __yo_thread_t : Type,
-  __yo_thread_spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> __yo_thread_t),
+  __yo_thread_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
 );
-/// OS thread handle. Each spawned thread gets its own IO event loop.
+/// OS thread handle. Each spawned thread gets its own Io event loop.
 Thread :: struct(
   handle : __yo_thread_t
 );
 impl(
   Thread,
   /// Spawn a new OS thread running the given closure.
-  /// The closure receives its own per-thread IO event loop.
-  spawn : (fn(cb : Impl(Fn(io : IO) -> unit, Send)) -> Self)({
+  /// The closure receives its own per-thread Io event loop.
+  spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self)({
     raw := __yo_thread_spawn(cb);
     Self(raw)
   }),

@@ -1127,9 +1127,9 @@ function synthesizeFutureEffects(
   // Allow same-id fast-path AND the bind-forall-var case where the
   // expected effect is a SomeType (forall E from an outer signature)
   // and the given effect is a concrete struct. The strict id-equality
-  // gate previously blocked binding `E := IOErr` when synthesizing
+  // gate previously blocked binding `E := IoExn` when synthesizing
   // `io.async`'s outer return `Impl(Future(T, E))` against the
-  // surrounding function's declared `Impl(Future(i32, IOErr))`.
+  // surrounding function's declared `Impl(Future(i32, IoExn))`.
   if (
     expectedEffect.type.id !== givenEffect.type.id &&
     !isSomeType(expectedEffect.type)

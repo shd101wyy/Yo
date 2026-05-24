@@ -500,7 +500,7 @@ test("Async test", {
 });
 ```
 
-- `test("description", { body })` defines a test — `io : IO` is automatically available
+- `test("description", { body })` defines a test — `io : Io` is automatically available
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - `assert(condition, "message")` — runtime assertion (always include a message)
 - `comptime_assert(condition)` — compile-time assertion

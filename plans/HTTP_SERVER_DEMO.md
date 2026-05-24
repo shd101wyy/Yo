@@ -4,7 +4,7 @@
 
 Create a simple HTTP server demo project in Yo that showcases:
 
-- **Algebraic effects** (`IO`, `Exception`) for async I/O and error handling
+- **Algebraic effects** (`Io`, `Exception`) for async I/O and error handling
 - **Async/await** with Futures for concurrent connections
 - **Build system** with dependencies (reusable library pattern)
 - **String processing** and HTTP protocol handling
@@ -32,15 +32,15 @@ The server will be a single-file demo (~200-300 lines) that:
 ### TCP Networking (`std/net/tcp`)
 
 ```rust
-TcpListener.bind(addr, using(io, exn)) → Future(TcpListener, IO, Exception)
-TcpListener.accept(using(io, exn))     → Future(TcpStream, IO, Exception)
-TcpStream.connect(addr, using(io, exn))→ Future(TcpStream, IO, Exception)
-TcpStream.read(buf, len, using(io))    → Future(i32, IO)          // returns bytes read
-TcpStream.read_bytes(n, using(io,exn)) → Future(ArrayList(u8), IO, Exception)
-TcpStream.write_str(s, using(io))      → Future(i32, IO)          // str literal
-TcpStream.write_string(s, using(io))   → Future(i32, IO)          // String type
-TcpStream.close(using(io))             → Future(unit, IO)
-TcpStream.shutdown(how, using(io))     → Future(unit, IO)
+TcpListener.bind(addr, using(io, exn)) → Future(TcpListener, Io, Exception)
+TcpListener.accept(using(io, exn))     → Future(TcpStream, Io, Exception)
+TcpStream.connect(addr, using(io, exn))→ Future(TcpStream, Io, Exception)
+TcpStream.read(buf, len, using(io))    → Future(i32, Io)          // returns bytes read
+TcpStream.read_bytes(n, using(io,exn)) → Future(ArrayList(u8), Io, Exception)
+TcpStream.write_str(s, using(io))      → Future(i32, Io)          // str literal
+TcpStream.write_string(s, using(io))   → Future(i32, Io)          // String type
+TcpStream.close(using(io))             → Future(unit, Io)
+TcpStream.shutdown(how, using(io))     → Future(unit, Io)
 ```
 
 ### HTTP Types (`std/http/http`)
@@ -138,7 +138,7 @@ open import "std/fmt";
 PORT :: u16(8080);
 BUF_SIZE :: usize(4096);
 
-main :: (fn(using(io : IO)) -> unit)({
+main :: (fn(using(io : Io)) -> unit)({
   given(exn) := Exception(throw : ((err) -> {
     println(`Server error: ${err.message()}`);
     escape ();
@@ -155,7 +155,7 @@ main :: (fn(using(io : IO)) -> unit)({
   };
 });
 
-handle_connection :: (fn(stream: TcpStream, using(io: IO), using(exn: Exception)) -> unit)({
+handle_connection :: (fn(stream: TcpStream, using(io: Io), using(exn: Exception)) -> unit)({
   // Read request
   buf := *(u8)(malloc(BUF_SIZE).unwrap());
   n := io.await(stream.read(buf, BUF_SIZE));
