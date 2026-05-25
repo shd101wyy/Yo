@@ -16,7 +16,7 @@
 - Negative trait impls: **new `impl(T, !(Trait))` syntax** (Phase N) for opting a type out of an auto-derived marker trait. Used to keep `JoinHandle(T)` and `Io` non-Send without changing their representation. No pragma gate — negative impls are restrictive, not permissive.
 - Atomic-object field writes: **forbidden in safe code** (Phase O) — a new structural rule, uniform across all field names (no `(*)` carve-out). `arc.* = ...`, `myarc._inner = ...`, `arc.field.subfield = ...`, and passing such an expression as `ref(T)` / `inout` are all rejected. Reads stay allowed at the Phase O layer; the synchronized-interior read concern is closed separately by Phase P (field visibility). Mutation requires composition with `AtomicX` / `Mutex(T)` / `RwLock(T)`. The rule is purely lexical (checks the root of the LHS / argument expression). Pragma'd code bypasses.
 - Field visibility: **`_`-prefix is file-private** (Phase P) — a general language rule, not specific to thread safety. A field whose name starts with `_` is accessible only within the file that defines its containing type. Promotes the existing `_handle`/`_value`/`_inner`/`_ptr`/`_capacity` convention (already pervasive in `std/`) to enforced privacy. Closes Mutex/RwLock/Once interior-read holes (`mutex._value` racing with `with_lock` writers) and a class of latent encapsulation gaps for non-atomic types too (`string._ptr`, `arraylist._capacity`, etc.). No new keyword, no breaking change for std/ — the convention already matches.
-- `Once` fast-path: **closed in Phase D** — use `atomic_bool` for the `_done` flag instead of the current non-atomic read.
+- `Once` fast-path: **closed in Phase D** — the current plain `bool` read of `_done` (`std/sync/once.yo:22, 43`) lacks an acquire-load happens-before edge with the initializer's release-store, so a thread observing `_done == true` on the fast path may not observe side-effects written by the initializer. Phase D switches `_done` to `atomic_bool` with Acquire-load on the fast path and Release-store on completion, restoring the publication edge.
 - Phase J **dropped**: drop's thread-portability is safe by design under the current rules (`object` only ever drops on its owning thread; `atomic object` requires all fields to be Send, so the drop body operates only on Send data).
 - Phase K **dropped**: no `immutable` modifier in the type system. Immutable data structures (`std/imm/list.yo`, etc.) live in pragma'd files and audit-establish their Acyclic claim through implementation review, the same way `unsafe(...)` audit works today.
 - No backwards compatibility constraints.
@@ -134,13 +134,17 @@ Every concrete way user or compiler-emitted code could cause a race, paired with
 - C11 atomics surface available via `std/libc/stdatomic.yo`.
 - `static mut` doesn't exist for user code.
 - Per-thread runtime state is `_Thread_local`.
+- `*(T) <: Acyclic` is unconditional (`std/prelude.yo:5479`) while `*(T) <: Send` is conditional on `T <: Send` (line 5478). The asymmetry is intentional — raw pointers don't participate in Yo's ARC cycle analysis (verified: `canTypeFormRcCycle` returns false for `Ptr` types), so Acyclic is structurally trivial. Send needs the conditional to avoid sending an `*(NonSendT)` across threads.
 
 ⚠️ **Partial** (each entry lists the phase that closes it):
 
 - Manual `impl(T, Send())` in any file passes today with no gate — load-bearing hole. → **Phase A**.
 - Mutex/RwLock/Once expose manual `unlock()` — no RAII guard. → **Phase D**.
 - Closure-capture Send check is aggregate-only, not per-variable. → **Phase E**.
-- `Once` has an acknowledged non-atomic fast-path read. → **Phase D** (`_done` becomes `atomic_bool`).
+- `Once` has a missing happens-before edge on its fast-path `_done` read — plain `bool` read without acquire semantics. → **Phase D** (`_done` becomes `atomic_bool` with Acquire-load on fast path, Release-store on write).
+- Channel `is_closed()`, `len()`, `is_empty()` read shared mutable state (`_closed`, `_len`) without the mutex. → Fix in Phase D (these are pragma-internal; need explicit synchronization or removal from public API).
+- WaitGroup `count()` reads shared mutable state (`_count`) without the mutex. → Same fix as Channel.
+- `std/libc/stdatomic.yo` exports C11 atomic types but provides **zero** `impl(atomic_bool, Send())` / `impl(atomic_bool, Acyclic())` declarations. Without these, the `Atomic*` wrappers (Phase C) and the `Once` fast-path fix (`atomic_bool` field, Phase D) cannot compile — `atomic object` auto-derive rejects non-Send fields. → **Phase C** prerequisite sub-task.
 - `Arc(T)` / `MyArc(T)` allow `arc.* = value` and `arc.field = value` writes from safe code — empirically verified race vector. → **Phase O**.
 - Synchronized-interior fields (`mutex._value`, `arraylist._capacity`, etc.) are accessible from any file by convention only. → **Phase P**.
 - `JoinHandle(T)` and `Io` auto-derive `Send` structurally — load-bearing for soundness. → **Phase N** (`!(Send)` syntax) + **Phase L** (apply to both types).
@@ -399,11 +403,33 @@ impl(
 
 **Breaking change** — every existing `mutex.lock(); ...; mutex.unlock()` site rewrites to `mutex.with_lock((v) => { ... })`. Acceptable per your direction.
 
-**Migration sites (audited):**
+**Migration sites (audited, 2026-05-26):** four `std/sync/*.yo` files use `_mutex.lock()`/`_mutex.unlock()` directly — 29 call sites total. They split into two patterns:
 
-- **`std/sync/waitgroup.yo`** uses `self._mutex.lock(); ...; self._mutex.unlock()` at lines 45/54 (`add`) and 62/66 (`wait`). Rewrite both to `self._mutex.with_lock((v) => { ... })`. This is the only internal `std/sync/` site that uses the bare lock/unlock pair today.
-- **`std/sync/cond.yo`** uses raw `__YO_COND_TYPE` operations without a Mutex `_value` field — unaffected by the rewrite shape change. `Cond` keeps its existing API.
-- User tests / examples calling `mutex.lock()` / `mutex.unlock()` directly: deprecated, rewrite at the same time.
+| File                    | Sites                                                               | Pattern                                                                        | Migrates to                                                                          |
+| ----------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `std/sync/waitgroup.yo` | 4 (lines 45/54 in `add`, 62/66 in `wait`)                           | Closure-fits; mutex held only over a small block                               | `self._mutex.with_lock((v) => { ... })`                                              |
+| `std/sync/once.yo`      | 3 (slow-path inside `call`)                                         | Closure-fits; mutex held only over init                                        | `self._mutex.with_lock((v) => { ... })`                                              |
+| `std/sync/channel.yo`   | 14 (across `send`, `recv`, `try_send`, `try_recv`, `close`)         | Holds mutex across `Cond.wait` — closure scope can't model the cv-wait pattern | `self._mutex._raw_lock()` / `self._mutex._raw_unlock()` (pragma-only API, see below) |
+| `std/sync/rwlock.yo`    | 8 (across `read_lock`, `write_lock`, `read_unlock`, `write_unlock`) | Holds mutex while updating reader-count / writer-state across cv-waits         | Same — `_raw_lock`/`_raw_unlock`                                                     |
+
+For the cv-wait pattern, the closure-scoped `with_lock` doesn't fit (you need to release the mutex inside `Cond.wait` and reacquire on wake — that interleaves with the closure's stack frame). Phase D exposes `Mutex._raw_lock()` / `Mutex._raw_unlock()` as **pragma-only methods**: they're declared in `std/sync/mutex.yo` and callable only from files that have `pragma(Pragma.AllowUnsafe)`. (The method names start with `_` per Phase P's convention; under Phase P, the field-name rule applies only to fields, but the method-naming convention signals "internal API" — and to enforce pragma-only invocation, Phase D adds a per-method pragma gate analogous to Phase A's manual-Send gate.)
+
+**Cond × Mutex cross-file access (finding 4 resolution):** `std/sync/cond.yo` currently calls `__yo_cond_wait(&(self.cv), &(mutex.mutex))` — it reads the `mutex` field of `Mutex` directly. Under Phase D's rewrite, this field is renamed to `_handle`; under Phase P, `_handle` is file-private to `mutex.yo`. To restore the call, Phase D adds `Mutex._raw_handle_ptr() -> *(__YO_THREAD_SYNC_TYPE)` as a pragma-only method (the `*(T)` return type means safe code cannot call it — the memory-safety pass auto-rejects expressions of pointer type — while `cond.yo` (pragma'd) can). `Cond.wait` rewrites to `__yo_cond_wait(&(self.cv), mutex._raw_handle_ptr())`.
+
+**Channel / WaitGroup query-method races (findings 1 + 2 resolution, proposed):** four query methods currently read shared mutable state without acquiring the mutex — `Channel.is_closed()`, `Channel.len()`, `Channel.is_empty()`, `WaitGroup.count()`. These are **active C11 data races today**, not future concerns. Phase D's proposed fix:
+
+- Change `Channel._closed : bool` → `_closed : atomic_bool`. Writers (`close()`) do `atomic_store_explicit(_closed, true, Release)`. Readers (`is_closed()`) do `atomic_load_explicit(_closed, Acquire)`. Lock-free, no mutex on the fast path.
+- Change `Channel._len : usize` → `_len : atomic_usize` (or `atomic_size_t`). Same pattern: writers (`send`/`recv`) atomic-fetch-add/sub under the mutex (the mutex still orders multi-field updates); readers (`len()`, `is_empty()`) do atomic-load on the fast path.
+- Change `WaitGroup._count : i32` → `_count : atomic_int`. `add()`/`done()` writers under the mutex; `count()` reader is atomic-load.
+
+This matches Rust's idiomatic mpsc/channels (atomic length + lock for multi-field updates) and gives query methods snapshot semantics — the value may be stale by the time the caller acts on it, which is the same as Rust and is the only honest semantic for a lock-free read against a mutating channel/group. Atomic load is roughly free on modern CPUs; the cost is acceptable.
+
+User tests / examples calling `mutex.lock()` / `mutex.unlock()` directly: deprecated. Rewrite at the same time.
+
+**Tests:**
+
+- **Add `tests/sync/mutex.test.yo`** — does not exist today. Phase D adds it, covering: concurrent mutation (2+ threads contending), unwind safety (does `_raw_unlock` fire on `unwind(...)` escape via the `__MutexUnlocker.Drop`?), re-entrant deadlock behavior (documented footgun), return-value propagation through `with_lock`.
+- Existing `tests/sync/once.test.yo`, `tests/sync/channel.test.yo`, etc. — verify they still pass after Phase D's API rewrite.
 
 **Why not a Rust-style `MutexGuard`?** Rust needs an explicit guard type because Rust _has_ `&'a T` lifetimes the borrow checker tracks. Yo's `ref(T)` is already scope-bound by being second-class — it can't appear in a struct field, return type slot (other than the labeled-return shape), or be captured by a Send closure. The closure boundary in `with_lock` gives the user exactly what Rust's `MutexGuard` gives Rust users, minus the type and minus an allocation. The earlier draft tried to write `object(_owner : ref(Mutex(T)))` — that's not even valid Yo syntax; `ref(T)` isn't a type.
 
@@ -623,6 +649,8 @@ Yo's async runtime is per-thread (per AGENTS.md). A `Future(T, E)` value carries
 
 **Worker.spawn note:** `std/worker.yo:14` defines `spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)` — returns `unit`, not a handle. Workers are fire-and-forget; no `JoinHandle` for the OS-thread side. Phase L only affects the async `JoinHandle` returned by `io.spawn`, not anything in `std/worker.yo` or `std/thread.yo`. `Thread.spawn` returns `Thread` (an `object` per `std/thread.yo:23` — already non-Send by construction). No further changes for those.
 
+**Pin test (regression-guard):** add `comptime_assert(!typeImplementsSend(Impl(Future(i32, unit))))` to the test suite. This locks in the invariant that bare `Impl(Trait)` types are non-Send unless `, Send` is explicitly listed in the trait bound. Future evaluator changes that accidentally auto-grant Send to `DynType` would trip this assertion.
+
 ### Phase O — Forbid mutation of `atomic object` fields in safe code
 
 **Prerequisites:** none. Independent structural rule. Consumed by Phase C (so user code can't write to `AtomicI32`'s `(*)` field directly) and Phase D (so user code can't write to Mutex's interior bypassing the lock).
@@ -635,17 +663,21 @@ Phase O closes this for the atomic-object case only, leaving non-atomic `object`
 
 > In safe (non-pragma'd) code, the following are rejected:
 >
-> 1. **Assignment** whose LHS is a field-access expression whose _root binding_ has `atomic object` type.
+> 1. **Assignment** whose LHS is a field-access expression whose _root sub-expression's resolved type_ is `atomic object`. The "root" is the leftmost sub-expression after stripping field accesses (`.foo`) and the deref `.*`.
 >    - `arc.* = ...` (root `arc : Arc(T)`) → rejected.
 >    - `arc.field = ...` → rejected.
 >    - `arc.field.subfield = ...` → rejected (root is still `arc`).
 >    - `myarc._inner = ...` where `MyArc` is user-defined `atomic object` → rejected.
+>    - `someFn().field = ...` where `someFn()` returns an atomic object → rejected (the root is a call expression of atomic-object type).
+>    - `(cond ? arc1 : arc2).* = ...` where both branches are atomic-object-typed → rejected (root is a conditional expression of atomic-object type).
 > 2. **Compound assignment** (`+=`, `-=`, etc.) on the same forms — desugars to a write.
 > 3. **Passing such an expression as a `ref(T)` or `inout` argument** — the callee would write through the ref, same race.
 >
 > Reads through atomic-object fields remain allowed (no writer can exist in safe code → no race).
 > Construction via the type's constructor (`Arc(value)`, `MyArc(initial)`) remains allowed — initialization is a separate code path, not a field write.
 > Pragma'd code bypasses the rule, consistent with the rest of the trust model.
+
+The rule is **type-based on the LHS root sub-expression**, not "is the root a named binding?" — this is more general and covers all expression forms (named locals, call results, conditional expressions, lambda calls, pointer deref). For pointer-deref forms `(*(ptr_to_atomic)).field = ...`, the memory-safety pass already rejects `*(T)` expressions in safe code earlier in the pipeline; in pragma'd code, Phase O bypasses, so the case never reaches a conflict.
 
 **Why this is the right shape — the lexical-root check.**
 
@@ -693,6 +725,8 @@ Same model as Rust. User-defined `MyArc(V) :: atomic(object(_inner : V))` falls 
 - Accept: construction `arc(i32(0))`, `MyArc(i32)(i32(0))`.
 - Accept: `arc_mutex.with_lock((v) => { v.field = i32(5); })` — user-facing pattern.
 - Accept: any write inside a pragma'd file (regression-pin existing `std/sync/mutex.yo` mutation patterns).
+
+**Test-migration impact:** `tests/sync/once.test.yo:9` declares `SharedCounter :: atomic(object(value : i32))` and increments `counter.value = (counter.value + i32(1))` from inside `Once.call(...)` closures (lines 94, 99, 104, 109). The increments are serialized at runtime by `Once`, but Phase O rejects them statically — the type system doesn't know `Once.call` is the synchronization barrier. Migration: rewrite the test to use `AtomicI32` (post-Phase C) for the counter, or move the counter into a plain non-atomic local inside the `Once.call` closure. Phase O's test-migration sub-task includes auditing every existing `tests/sync/*.test.yo` for this pattern.
 
 ### Phase P — Field visibility (`_`-prefix enforced as file-private)
 
@@ -760,7 +794,10 @@ Same model as Rust. User-defined `MyArc(V) :: atomic(object(_inner : V))` falls 
 **Prerequisites:** all prior phases. Runs last; consolidates docs and diagnostic-message polish after the implementation surface stops moving.
 
 - `yo unsafe-report --thread-safety` mode: lists every `impl(T, Send/Acyclic/Sync())`, every raw-pointer-bearing field of a Send type, every `Dyn(...)` without `Send` in its trait list that crosses the API boundary.
-- `docs/{en-US,zh-CN}/THREAD_SAFETY.md`: user-facing explainer with the data-race-freedom theorem, the vector inventory, and the trust boundary.
+- `docs/{en-US,zh-CN}/THREAD_SAFETY.md`: user-facing explainer with the data-race-freedom theorem, the vector inventory, and the trust boundary. Include:
+  - The Phase O / Phase P story for atomic-object types and field visibility.
+  - The `Slice(T) <: Send when T <: Send` argument: slices are value-typed views (pointer + length) over a backing array. Sending a slice across threads copies the header; both threads read the backing array (no writes through a slice). The implicit assumption — somebody must keep the backing array alive across both threads — is upheld by Yo's RC analysis at the backing-array owner. Document this explicitly so users understand why slices appear in the Send vector inventory.
+  - The Mutex deadlock-on-recursive-lock footgun (matches Rust's `std::sync::Mutex`).
 - Error messages: every gate (manual Send impl, non-Send capture, Future-as-Send, etc.) emits a "Fixes:" section pointing at the right primitive (Arc/Iso/Channel/Mutex/Atomic).
 
 #### Channel error model
@@ -803,7 +840,31 @@ Document this contract clearly in the user-facing `docs/.../THREAD_SAFETY.md` an
 | Codegen runtime (TS)        | Atomic RC ops use correct memory ordering. Per-thread state is `_Thread_local`. Worker pool is correctly synchronized.           | Phase G pin tests guard against regressions. CI runs TSan on a curated suite.                                                                                                                                                                                                                                                           |
 | `extern("c", ...)`          | C functions are reentrant-safe if called from multiple threads.                                                                  | Out of scope; same audit boundary as memory-safety pass.                                                                                                                                                                                                                                                                                |
 
-## Open questions (still need your input)
+## Audit findings (2026-05-26 code review) — resolution log
+
+A reviewing agent ran a thorough audit against the TypeScript evaluator, C codegen, `std/sync/`, and test files. All 12 findings have been integrated into the relevant phases above. This log records each finding and where it now lives.
+
+| #   | Severity | Finding                                                                                          | Where resolved                                                                                                                                     |
+| --- | -------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 🔴       | Channel `is_closed()`/`len()`/`is_empty()` unsynchronized reads — **active C11 race today**      | Phase D "Channel / WaitGroup query-method races (proposed)" — switches `_closed`/`_len` to atomic fields                                           |
+| 2   | 🔴       | WaitGroup `count()` unsynchronized read — **active C11 race today**                              | Same Phase D subsection — `_count` becomes `atomic_int`                                                                                            |
+| 3   | 🔴       | Phase D migration scope undercounted — 29 lock/unlock sites across channel/rwlock/waitgroup/once | Phase D "Migration sites (audited)" table — split into `with_lock` pattern (waitgroup/once) and `_raw_lock`/`_raw_unlock` pattern (channel/rwlock) |
+| 4   | 🟡       | `Cond.wait` reads `mutex.mutex` cross-file — Phase D × Phase P conflict                          | Phase D "Cond × Mutex cross-file access" — adds `Mutex._raw_handle_ptr() -> *(__YO_THREAD_SYNC_TYPE)` pragma-only method                           |
+| 5   | 🟡       | Once fast-path is a missing happens-before edge, not just "not atomic"                           | "Decided so far" Once bullet rewritten; Partial summary updated                                                                                    |
+| 6   | 🟡       | `std/libc/stdatomic.yo` lacks `Send`/`Acyclic` impls for atomic types — blocks Phase C and D     | Added to Partial summary as a Phase C prerequisite sub-task                                                                                        |
+| 7   | 🟡       | Phase O "root binding" rule doesn't cover unnamed roots, conditionals, lambda calls, deref       | Phase O rule generalized: "root sub-expression's resolved type" (type-based, not binding-based)                                                    |
+| 8   | 🟢       | `tests/sync/once.test.yo` exercises the Phase O race vector — needs migration                    | Phase O "Test-migration impact" subsection added                                                                                                   |
+| 9   | 🟢       | `*(T) <: Acyclic` is unconditional — intentional asymmetry with `*(T) <: Send`                   | Added to "What's already in place ✅ Solid" with the rationale                                                                                     |
+| 10  | 🟢       | No dedicated `tests/sync/mutex.test.yo`                                                          | Phase D "Tests" subsection — adds the file with concurrent-mutation, unwind-safety, re-entrant-deadlock, return-value coverage                     |
+| 11  | 🟢       | `Slice(T)` cross-thread safety argument is non-obvious (immutable view over a backing array)     | Phase M's `docs/{en-US,zh-CN}/THREAD_SAFETY.md` content list updated                                                                               |
+| 12  | 🟢       | `Impl(Trait)` Send auto-derive verified correct (closure captures, DynType resolution)           | Phase L "Pin test" subsection — adds `comptime_assert(!typeImplementsSend(Impl(Future(i32, unit))))`                                               |
+
+**Three findings (1, 2, 4) involve design choices that I resolved with a proposed direction:**
+
+- **Findings 1 & 2 (Channel/WaitGroup unsync reads):** I proposed migrating the affected fields to `atomic_bool` / `atomic_size_t` / `atomic_int`, giving the query methods lock-free snapshot semantics (matches Rust's `mpsc` idiom). The alternative — guard each query with `with_lock` — pays an unnecessary mutex on every poll. Confirm or override; if you prefer mutex-guarded, Phase D's text needs a small revision.
+- **Finding 4 (Cond × Mutex cross-file):** I proposed `Mutex._raw_handle_ptr()` as a pragma-only method (the `*(T)` return type means safe code can't even name the result, while pragma'd `cond.yo` can). The alternative would be adding same-directory visibility to Phase P — a larger language change. Confirm or override.
+
+## Open Questions (still need your input)
 
 All currently raised questions are resolved. New questions will be added here as the design evolves.
 
