@@ -19,6 +19,8 @@
 - `Once` fast-path: **closed in Phase D** — the current plain `bool` read of `_done` (`std/sync/once.yo:22, 43`) lacks an acquire-load happens-before edge with the initializer's release-store, so a thread observing `_done == true` on the fast path may not observe side-effects written by the initializer. Phase D switches `_done` to `atomic_bool` with Acquire-load on the fast path and Release-store on completion, restoring the publication edge.
 - Phase J **dropped**: drop's thread-portability is safe by design under the current rules (`object` only ever drops on its owning thread; `atomic object` requires all fields to be Send, so the drop body operates only on Send data).
 - Phase K **dropped**: no `immutable` modifier in the type system. Immutable data structures (`std/imm/list.yo`, etc.) live in pragma'd files and audit-establish their Acyclic claim through implementation review, the same way `unsafe(...)` audit works today.
+- Channel/WaitGroup unsynchronized query methods: **fix in Phase D** — migrate `Channel._closed`/`_len` to `atomic_bool`/`atomic_usize` and `WaitGroup._count` to `atomic_int`, giving query methods lock-free snapshot semantics (matching Rust's `mpsc` idiom). Writers still use the mutex for multi-field ordering; readers use atomic loads.
+- Cond × Mutex cross-file access: **`Mutex._raw_handle_ptr()` pragma-only method in Phase D** — returns `*(__YO_THREAD_SYNC_TYPE)` so safe code cannot call it (memory-safety pass rejects `*(T)` expressions), while pragma'd `cond.yo`/`channel.yo`/`rwlock.yo` can. No same-directory visibility exception needed in Phase P.
 - No backwards compatibility constraints.
 
 ## Goal
@@ -321,7 +323,7 @@ The `Arc(AtomicI32)` wrap that the earlier draft showed was redundant — `atomi
 
 **MemoryOrder defaulting:** per your earlier direction, **explicit `MemoryOrder` at every call site, Rust-style**, no SeqCst default. The runtime enum tag inlines to a C `memory_order_*` constant when the order is statically known (a small codegen specialization in `src/codegen/exprs/other-fn-call.ts`).
 
-**Types covered:** `AtomicBool` (over `atomic_bool`), `AtomicI8/16/32/64` (over `atomic_int_least8_t`/`16_t`/`32_t`/`64_t` — or the libc binding's closest typedef), `AtomicU8/16/32/64` (over `atomic_uint_least*_t`), `AtomicUsize` (over `atomic_size_t`), `AtomicIsize` (over `atomic_ptrdiff_t`), `AtomicPtr(T)` (over `atomic_intptr_t` + a transparent cast). Each lives in `std/sync/atomic.yo` under `pragma(Pragma.AllowUnsafe)`; bodies are thin wrappers over the C11 `atomic_*_explicit` calls. Construction is direct via the type name (`AtomicI32(i32(0))`, `AtomicBool(true)`, etc.) — no top-level builder, no `.new(...)` static.
+**Types covered:** `AtomicBool` (over `atomic_bool`), `AtomicI8/16/32/64` (over `atomic_int_least8_t`/`16_t`/`32_t`/`64_t` — or the libc binding's closest typedef), `AtomicU8/16/32/64` (over `atomic_uint_least*_t`), `AtomicUsize` (over `atomic_size_t`), `AtomicIsize` (over `atomic_ptrdiff_t`), `AtomicPtr(T)` (over `atomic_intptr_t` + a transparent cast — the pointer value round-trips through `intptr_t` for storage in the `_Atomic` cell; the C11 `atomic_load`/`atomic_store` semantics on `atomic_intptr_t` are equivalent to those on `_Atomic(void*)` since `intptr_t` is defined to be the integer type capable of holding any `void*` with no data loss). Each lives in `std/sync/atomic.yo` under `pragma(Pragma.AllowUnsafe)`; bodies are thin wrappers over the C11 `atomic_*_explicit` calls. Construction is direct via the type name (`AtomicI32(i32(0))`, `AtomicBool(true)`, etc.) — no top-level builder, no `.new(...)` static.
 
 **Pre-requisite audit:** confirm `std/libc/stdatomic.yo` (a) exposes all the C11 atomic typedefs we need and (b) declares manual `impl(<typedef>, Send())` / `Acyclic` for each under its pragma. If it doesn't, add those impls as the first concrete sub-task of Phase C.
 
@@ -416,7 +418,7 @@ For the cv-wait pattern, the closure-scoped `with_lock` doesn't fit (you need to
 
 **Cond × Mutex cross-file access (finding 4 resolution):** `std/sync/cond.yo` currently calls `__yo_cond_wait(&(self.cv), &(mutex.mutex))` — it reads the `mutex` field of `Mutex` directly. Under Phase D's rewrite, this field is renamed to `_handle`; under Phase P, `_handle` is file-private to `mutex.yo`. To restore the call, Phase D adds `Mutex._raw_handle_ptr() -> *(__YO_THREAD_SYNC_TYPE)` as a pragma-only method (the `*(T)` return type means safe code cannot call it — the memory-safety pass auto-rejects expressions of pointer type — while `cond.yo` (pragma'd) can). `Cond.wait` rewrites to `__yo_cond_wait(&(self.cv), mutex._raw_handle_ptr())`.
 
-**Channel / WaitGroup query-method races (findings 1 + 2 resolution, proposed):** four query methods currently read shared mutable state without acquiring the mutex — `Channel.is_closed()`, `Channel.len()`, `Channel.is_empty()`, `WaitGroup.count()`. These are **active C11 data races today**, not future concerns. Phase D's proposed fix:
+**Channel / WaitGroup query-method races (findings 1 + 2 resolution, decided):** four query methods currently read shared mutable state without acquiring the mutex — `Channel.is_closed()`, `Channel.len()`, `Channel.is_empty()`, `WaitGroup.count()`. These are **active C11 data races today**, not future concerns. Phase D's fix:
 
 - Change `Channel._closed : bool` → `_closed : atomic_bool`. Writers (`close()`) do `atomic_store_explicit(_closed, true, Release)`. Readers (`is_closed()`) do `atomic_load_explicit(_closed, Acquire)`. Lock-free, no mutex on the fast path.
 - Change `Channel._len : usize` → `_len : atomic_usize` (or `atomic_size_t`). Same pattern: writers (`send`/`recv`) atomic-fetch-add/sub under the mutex (the mutex still orders multi-field updates); readers (`len()`, `is_empty()`) do atomic-load on the fast path.
@@ -708,7 +710,7 @@ Same model as Rust. User-defined `MyArc(V) :: atomic(object(_inner : V))` falls 
 
 **Implementation:**
 
-- One predicate added to the evaluator: `isAtomicObjectFieldWrite(expr) → bool` — given an LHS expression, walk to its root (skipping field accesses and method-deref `(*)`), check whether the root binding's type is `atomic object`.
+- One predicate added to the evaluator: `isAtomicObjectFieldWrite(expr) → bool` — given an LHS expression, walk to its root (skipping field accesses and method-deref `(*)`), check whether the root sub-expression's resolved type is `atomic object`.
 - Two call sites for the predicate:
   - Assignment evaluation (`x.y = ...`, `x.y op= ...`): reject if the predicate is true on the LHS.
   - Function call evaluation, for each argument bound to a `ref(T)` / `inout` parameter: reject if the predicate is true on the argument expression.
@@ -859,10 +861,10 @@ A reviewing agent ran a thorough audit against the TypeScript evaluator, C codeg
 | 11  | 🟢       | `Slice(T)` cross-thread safety argument is non-obvious (immutable view over a backing array)     | Phase M's `docs/{en-US,zh-CN}/THREAD_SAFETY.md` content list updated                                                                               |
 | 12  | 🟢       | `Impl(Trait)` Send auto-derive verified correct (closure captures, DynType resolution)           | Phase L "Pin test" subsection — adds `comptime_assert(!typeImplementsSend(Impl(Future(i32, unit))))`                                               |
 
-**Three findings (1, 2, 4) involve design choices that I resolved with a proposed direction:**
+**Three findings (1, 2, 4) involved design choices — all decided:**
 
-- **Findings 1 & 2 (Channel/WaitGroup unsync reads):** I proposed migrating the affected fields to `atomic_bool` / `atomic_size_t` / `atomic_int`, giving the query methods lock-free snapshot semantics (matches Rust's `mpsc` idiom). The alternative — guard each query with `with_lock` — pays an unnecessary mutex on every poll. Confirm or override; if you prefer mutex-guarded, Phase D's text needs a small revision.
-- **Finding 4 (Cond × Mutex cross-file):** I proposed `Mutex._raw_handle_ptr()` as a pragma-only method (the `*(T)` return type means safe code can't even name the result, while pragma'd `cond.yo` can). The alternative would be adding same-directory visibility to Phase P — a larger language change. Confirm or override.
+- **Findings 1 & 2 (Channel/WaitGroup unsync reads):** migrating the affected fields to `atomic_bool` / `atomic_size_t` / `atomic_int`, giving the query methods lock-free snapshot semantics (matches Rust's `mpsc` idiom).
+- **Finding 4 (Cond × Mutex cross-file):** `Mutex._raw_handle_ptr()` as a pragma-only method (the `*(T)` return type means safe code can't even name the result, while pragma'd `cond.yo` can).
 
 ## Open Questions (still need your input)
 
