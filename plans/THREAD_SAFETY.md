@@ -153,7 +153,52 @@ Every concrete way user or compiler-emitted code could cause a race, paired with
 
 ## Phases
 
+Phase letters (A, B, C, …) are stable identifiers, assigned in the order each phase was first sketched during plan iteration — **they do not indicate execution order.** Implementation order, dependencies, and milestones are below.
+
+### Implementation order (execute in this sequence)
+
+| #   | Phase | Title                                                      | Effort   | Prerequisites | Tier             |
+| --- | ----- | ---------------------------------------------------------- | -------- | ------------- | ---------------- |
+| 1   | **A** | Gate manual `Send`/`Acyclic` impls behind pragma           | 2–3 days | —             | Foundation       |
+| 2   | **F** | `atomic object` field re-verification (safety net for A)   | 1 day    | A             | Foundation       |
+| 3   | **N** | Negative trait impls (`impl(T, !(Trait))`)                 | 2 days   | —             | Language feature |
+| 4   | **L** | `JoinHandle`/`Io` get `!(Send)` impl; Future docs + audit  | 1 day    | N             | Language feature |
+| 5   | **P** | `_`-prefix enforced as file-private field visibility       | 1–2 days | —             | Language feature |
+| 6   | **O** | Forbid `atomic object` field writes in safe code           | 1–2 days | —             | Language feature |
+| 7   | **E** | Per-variable closure-capture Send check                    | 2 days   | —             | Analysis         |
+| 8   | **I** | `Dyn(Trait, Send)` cross-thread audit + diagnostic         | 1 day    | —             | Analysis         |
+| 9   | **C** | High-level `Atomic*` wrappers (`std/sync/atomic.yo`)       | 3–4 days | P, O          | Library          |
+| 10  | **H** | `Iso(T)` runtime tightening + API lockdown + ban Iso/Arc   | 2 days   | A, E          | Library          |
+| 11  | **D** | Closure-scoped lock APIs (`with_lock`) + Once fast-path    | 5–7 days | P, O, C       | API rewrite      |
+| 12  | **G** | Codegen pin tests + memory ordering audit + TSan CI        | 2–3 days | C, D          | Validation       |
+| 13  | **B** | No-op (`ref(T)` stays second-class, no `Sync`)             | 0        | —             | Decision-only    |
+| 14  | **M** | Diagnostics + user-facing docs                             | 3–4 days | All prior     | Docs             |
+| —   | ~~J~~ | Dropped — drop is safe by design under current rules       | 0        | —             | —                |
+| —   | ~~K~~ | Dropped — no `immutable` modifier; audit boundary suffices | 0        | —             | —                |
+
+**Milestone checkpoints** (incremental safety after each):
+
+- **After step 4 (A, F, N, L)**: manual Send claims gated and audit-verified. `JoinHandle`/`Io` properly non-Send. Existing Mutex/RwLock APIs untouched — backwards-compatible improvement.
+- **After step 8 (… P, O, E, I)**: all structural / analysis rules in place. User code can no longer construct the obvious data-race vectors (direct atomic-object writes, non-Send captures, Dyn-without-Send across threads). Library still uses the old `Mutex.lock()/unlock()` API.
+- **After step 11 (… C, H, D)**: full v1 thread-safety surface. New `Atomic*` wrappers, tightened `Iso`, and `with_lock`-style lock APIs. **Breaking change at this step** — every `mutex.lock(); …; mutex.unlock()` site rewrites.
+- **After step 12 (G)**: validated end-to-end with codegen pin tests and TSan on a curated Linux/Clang matrix.
+- **After step 14 (M)**: documented and shipped.
+
+**Why this ordering, in short:**
+
+- Foundation first (A, F) — A is the keystone; without it every later rule has an escape hatch. F is the cheap safety belt that catches A2's lies on `atomic object` types.
+- Quick structural wins next (N, L, P, O) — each is a small, mostly-independent rule that immediately closes a specific hole. N must precede L (L uses `!(Send)` syntax). P and O are independent of each other and of N/L.
+- Analyses (E, I) — extend the closure-capture and Dyn-trait pipelines. Independent of other phases but Phase H later wants E's machinery.
+- Library work (C, H) — C builds the `Atomic*` wrappers (consumed by D's `Once` fast-path); H tightens `Iso` and depends on E's per-variable capture walk.
+- Major API rewrite (D) — the biggest single chunk. Depends on P (private Mutex fields), O (no direct atomic-object writes), and C (`atomic_bool` for `Once`).
+- Validation (G) — runs after the primitives stabilize so the codegen pin tests and TSan matrix have something to pin against.
+- Docs (M, B) — final, after the implementation surface stops moving.
+
+Each phase below carries a **Prerequisites:** line restating its dependencies. Letters remain alphabetical in the doc for predictable lookup, but the table above is the order of work.
+
 ### Phase A — Gate manual `Send` / `Acyclic` impls behind pragma
+
+**Prerequisites:** none. This is the keystone — start here.
 
 **The keystone change.** Without this, every later phase has an escape hatch.
 
@@ -180,9 +225,13 @@ Tests: `comptime_expect_error` for every form in `tests/safe_code_structural_gat
 
 ### Phase B — `ref(T)` stays second-class. No `Sync`. No-op for this pass.
 
+**Prerequisites:** none. Decision-only; no code change. Documentation is folded into Phase M.
+
 Documented in `docs/{en-US,zh-CN}/THREAD_SAFETY.md` so users understand the model: cross-thread sharing always goes through Arc + Mutex / Atomic / Channel.
 
 ### Phase C — High-level `Atomic*` wrappers (`std/sync/atomic.yo`)
+
+**Prerequisites:** P (so `std/libc/stdatomic.yo`'s `_`-prefixed internals are file-private), O (so user code can't directly write the atomic-object's interior). Library-only; no compiler change.
 
 **Pure library work — no compiler change.** This phase uses two existing pieces only:
 
@@ -273,6 +322,8 @@ Tests: race-free counter, MPSC ring buffer using AtomicPtr + AtomicUsize, lock-f
 
 ### Phase D — Closure-scoped lock APIs (no user-visible guard)
 
+**Prerequisites:** P (Mutex's `_handle`/`_value` interior must be file-private so user code can't bypass the lock), O (user code can't write to the atomic-object's fields directly), C (`atomic_bool` from the new wrapper set is used for `Once`'s fast-path).
+
 The big API rewrite. Mutex _owns_ T (matches Rust; safer than the pthread-style decoupled approach). Access is granted by a closure that receives the inner value by `ref(T)` — Yo's existing second-class `ref` already prevents the borrow from escaping the closure, so no Rust-style guard type / lifetime is needed.
 
 ```rust
@@ -349,6 +400,8 @@ impl(
 
 ### Phase E — Per-variable closure-capture Send check
 
+**Prerequisites:** none. Independent analysis improvement. Phase H later reuses the closure-capture walk this phase touches.
+
 Today's check at `src/evaluator/values/anonymous-function.ts:1192–1200` collapses to the aggregate capture struct's Send. The fix walks each captured name before the collapse:
 
 For every closure whose required impl bound includes `Send` (i.e., the closure type is `Impl(Fn(...) -> R, Send)`):
@@ -367,6 +420,8 @@ Also confirm via comprehensive tests:
 
 ### Phase F — `atomic object` field re-verification
 
+**Prerequisites:** A. F is the cheap safety belt that catches A2's lies on `atomic object` types — do this right after A.
+
 Even with Phase A gating manual Send impls, the _post-impl-registration_ check needs to verify reality matches claim. The user's concern was specifically `atomic object { inner : NonAtomicObject }` slipping through if someone writes `impl(MyAtomic, Send())`.
 
 After all impls are evaluated, walk each `atomic object` type:
@@ -378,6 +433,8 @@ This is the safety belt that catches A2's lie.
 
 ### Phase G — Codegen pin tests + memory ordering audit
 
+**Prerequisites:** C, D. G validates the primitives end-to-end, so it runs after they stabilize.
+
 Pin tests for the codegen guarantees the soundness argument depends on:
 
 - `__yo_incr_rc_atomic` emits `atomic_fetch_add_explicit(..., relaxed)`.
@@ -388,6 +445,8 @@ Pin tests for the codegen guarantees the soundness argument depends on:
 Also: enable `--sanitize thread` on a curated CI matrix (Linux/Clang). The matrix runs the channel/mutex/atomic/spawn tests under TSan; the goal is zero diagnostics in the curated suite.
 
 ### Phase H — `Iso(T)` runtime tightening + API-surface lock-down + ban Iso/Arc direct composition
+
+**Prerequisites:** A (pragma gate for the SAFETY-comment block on `Iso(T) <: Send`), E (the closure-capture analysis machinery is reused for the sender-side last-use diagnostic).
 
 Four tightenings. The first three close the runtime/discipline risks listed in "Iso(T) design notes — precedent and known risks" above; the fourth closes the composition redundancy.
 
@@ -445,6 +504,8 @@ Error: Arc(Iso(T)) is not allowed.
 
 ### Phase I — `Dyn(Trait, Send)` for cross-thread trait objects
 
+**Prerequisites:** none. Audit + one-line additions to existing `Dyn(...)` sites; independent of other phases.
+
 Yo already supports comma-separated trait lists in `Dyn` (e.g. `Dyn(Speak, Run)` in `tests/dyn.test.yo:130`). Add `Send` to the list for cross-thread use:
 
 ```rust
@@ -477,6 +538,8 @@ No `immutable` modifier in the type system. The motivation was to compile-check 
 If a user wants to write their own immutable data structure with self-referential `atomic object`, they put it in a pragma'd file and follow the same convention. The type system doesn't enforce immutability directly; the data structure's implementation does.
 
 ### Phase N — Negative trait impls (`impl(T, !(Trait))`)
+
+**Prerequisites:** none. Small standalone language feature that enables Phase L.
 
 > Phase letter is a fresh bookmark; document order places it before Phase L because Phase L depends on this feature.
 
@@ -534,6 +597,8 @@ If audit of other concrete async-runtime types surfaces more candidates (e.g., a
 
 ### Phase L — Future / async cross-thread bound
 
+**Prerequisites:** N. L is the consumer of negative impls — it adds `impl(JoinHandle(T), !(Send))` and `impl(Io, !(Send))` to `std/prelude.yo`.
+
 Yo's async runtime is per-thread (per AGENTS.md). A `Future(T, E)` value carries a state machine that references the per-thread scheduler. Moving it to another thread is undefined.
 
 **Concrete changes:**
@@ -548,6 +613,8 @@ Yo's async runtime is per-thread (per AGENTS.md). A `Future(T, E)` value carries
 **Migration audit:** grep std/ and tests/ for any code that captures `JoinHandle(T)` or `Io` in a `Thread.spawn` / `Channel.send` closure. Expected count: zero. If any exist, they were already unsound and need rewriting.
 
 ### Phase O — Forbid mutation of `atomic object` fields in safe code
+
+**Prerequisites:** none. Independent structural rule. Consumed by Phase C (so user code can't write to `AtomicI32`'s `(*)` field directly) and Phase D (so user code can't write to Mutex's interior bypassing the lock).
 
 **A new structural rule, not an extension of any existing memory-safety guarantee.** Yo today has _no_ rule restricting writes through aliased objects — Box, Arc, and user-defined atomic-object wrappers all permit `b.* = value` and `b.field = value` in safe code, and aliases share storage. This is the deliberate share-by-reference semantics for `object` types. For non-atomic `object` it's intra-thread shared mutation (no race, by virtue of non-Send). For `atomic object` it's a cross-thread data-race vector — verified empirically: `arc.* = (arc.* + i32(1))` compiles and runs today with the inner i32 read/written non-atomically.
 
@@ -618,6 +685,8 @@ Same model as Rust. User-defined `MyArc(V) :: atomic(object(_inner : V))` falls 
 
 ### Phase P — Field visibility (`_`-prefix enforced as file-private)
 
+**Prerequisites:** none. Independent general language feature. Consumed by Phase C (libc-binding internals stay private), Phase D (Mutex/RwLock/Once's `_handle`/`_value`/`_done` interiors become inaccessible to user code), and closes vector 27.
+
 **Goal.** A general field-visibility mechanism — not specific to thread safety, but load-bearing for closing the synchronized-interior read hole that Phase O leaves open (`mutex._value` reads racing with `with_lock` writes), and for tightening encapsulation across std/ generally.
 
 **The rule.**
@@ -676,6 +745,8 @@ Same model as Rust. User-defined `MyArc(V) :: atomic(object(_inner : V))` falls 
 **Effort.** ~1–2 days. The check is localized to field-access resolution; no broad refactor.
 
 ### Phase M — Diagnostics & documentation
+
+**Prerequisites:** all prior phases. Runs last; consolidates docs and diagnostic-message polish after the implementation surface stops moving.
 
 - `yo unsafe-report --thread-safety` mode: lists every `impl(T, Send/Acyclic/Sync())`, every raw-pointer-bearing field of a Send type, every `Dyn(...)` without `Send` in its trait list that crosses the API boundary.
 - `docs/{en-US,zh-CN}/THREAD_SAFETY.md`: user-facing explainer with the data-race-freedom theorem, the vector inventory, and the trust boundary.
