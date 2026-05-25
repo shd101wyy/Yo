@@ -1,0 +1,628 @@
+# Thread Safety by Default
+
+**Status:** Draft — for discussion. Not yet implemented.
+**Companion to:** `plans/MEMORY_SAFETY.md`.
+**Decided so far:**
+
+- Phase A approach: **A2** — manual `impl(T, Send())` requires `pragma(Pragma.AllowUnsafe)`.
+- Phase B scope: **B1** — `ref(T)` stays second-class, never crosses a thread boundary. No `Sync` trait, no shared `&T` for v1.
+- Phase I syntax: **existing `Dyn(Trait1, Trait2, ...)` form**, e.g. `Dyn(MyTrait, Send)` — no new syntax needed.
+- Phase D shape: **closure-scoped lock APIs**, e.g. `mutex.with_lock((v) => {...})`. No user-visible guard type. The `ref(v) : T` parameter is second-class so the borrow can't escape; the private unlocker's `Drop` handles normal-and-unwind unlock.
+- Channel error model: **only "channel closed" (and "buffer full" for bounded `try_send`) flow through the `Result`. OOM panics** via the existing allocator contract, same as every other std/ heap-using primitive.
+- `Iso` / `Arc` composition: **ban direct `Iso(Arc(T))` and `Arc(Iso(T))`** (the former is redundant with naked Arc + move-on-spawn; the latter is contradictory — Arc means shared, Iso means unique). Transitive nesting through a user struct stays legal.
+- Phase C atomic wrapping: **`atomic object((*) : atomic_int)` using libc's existing atomic types** — no new `atomic T` field modifier. Only the existing `atomic object` form is used.
+- Mutex re-entrant lock: **deadlock + doc warning**, matching Rust's `std::sync::Mutex`. No thread-id check, no recursion counter.
+- Async cross-thread bound: **`Impl(Future(T, E))` is NOT Send and `JoinHandle(T)` is NOT Send.** Yo's async/await is single-threaded; both stay thread-pinned. Cross-thread result delivery uses `Channel(T)`. Non-Send is enforced via the new negative-impl syntax (Phase N).
+- Negative trait impls: **new `impl(T, !(Trait))` syntax** (Phase N) for opting a type out of an auto-derived marker trait. Used to keep `JoinHandle(T)` and `Io` non-Send without changing their representation. No pragma gate — negative impls are restrictive, not permissive.
+- `Once` fast-path: **closed in Phase D** — use `atomic_bool` for the `_done` flag instead of the current non-atomic read.
+- Phase J **dropped**: drop's thread-portability is safe by design under the current rules (`object` only ever drops on its owning thread; `atomic object` requires all fields to be Send, so the drop body operates only on Send data).
+- Phase K **dropped**: no `immutable` modifier in the type system. Immutable data structures (`std/imm/list.yo`, etc.) live in pragma'd files and audit-establish their Acyclic claim through implementation review, the same way `unsafe(...)` audit works today.
+- No backwards compatibility constraints.
+
+## Goal
+
+Same trust model as the memory-safety pass:
+
+- **User code (no pragma) cannot construct a data race.** Every shared-mutable handoff between threads goes through a primitive whose soundness is audited in std/. Sharing unsynchronized state across threads is a compile error, not a runtime check.
+- **Stdlib code (pragma'd) builds the primitives.** The audit surface is the file boundary; `yo unsafe-report` already covers it.
+- **Performance parity with Rust.** No atomic-by-default tax on single-threaded data — the compile-time distinction between `object` (thread-local Rc) and `atomic object` (Arc) already exists; we're hardening it.
+
+**Non-goals (this pass):**
+
+- Deadlock prevention (same as Rust).
+- A `Sync` trait / cross-thread shared references (deferred; B1 chosen).
+- Dynamic ThreadSanitizer integration (TSan already buildable via `--sanitize thread`; goal is that it finds nothing in user code).
+
+## What "data-race-free" means in Yo
+
+A **data race** = two threads access the same memory location, at least one is a write, with no synchronization edge between them. C11 / Rust definitions apply.
+
+**Theorem we want to be able to state:**
+
+> For every program P that compiles without `pragma(Pragma.AllowUnsafe)` and uses only primitives from `std/`, every shared cross-thread mutable access in P is mediated by a synchronization primitive in `std/sync/`. P is therefore data-race-free under the C11 memory model.
+
+**Important correction vs an earlier draft:** `Send` is **not** a move. `Thread.spawn` / `Worker.spawn` / `Channel.send` all take their payload by-value (e.g. `cb : Impl(Fn(io : Io) -> unit, Send)`, no `own()`), which means the closure's capture struct is _duped_ — both sender and receiver hold an Rc to the same heap value. Uniqueness is only enforced where we explicitly opt into it: `Iso(T).extract()` checks `rc == 1` at runtime (atomic load on an `atomic object`). So the data-race story rests on _shared-ownership_ primitives doing the right thing, not on move semantics.
+
+The induction:
+
+1. **Single-thread base case.** Within one thread, Yo's compile-time Rc forbids aliased mutation (the same machinery that gives memory safety). One mutable owner at a time within a thread ⇒ no intra-thread race.
+2. **Cross-thread capture / send.** A captured / sent value always falls into one of three categories, each safe by construction:
+   - **(a) Plain value-typed (primitives, structs/enums of primitives).** The closure capture struct _copies_ the value. Sender and receiver have independent copies — they're not the same memory, so no race.
+   - **(b) Shared via an Rc-managed synchronization primitive** (`Arc(T)`, `Channel(T)`, `Mutex(T)`, `RwLock(T)`, `Atomic*`). Both sides hold an Rc to the same heap object. The primitive's public API only exposes _synchronized_ reads/writes (mutex lock, atomic op, channel send/recv). The Rc itself uses atomic increment/decrement (`__yo_incr_rc_atomic` relaxed, `__yo_decr_rc_atomic` acq_rel). ⇒ every access is serialized by the primitive.
+   - **(c) Shared as `Iso(T)`, with uniqueness checked at the receiver.** The closure-capture dup still happens (sender keeps its Iso reference until it drops). The receiver calls `Iso(T).extract()`, which atomically loads the Rc and succeeds only if `rc == 1`. If the sender hasn't dropped its reference yet, `extract()` returns `.None` (Phase H tightens this to a panic — see below). ⇒ at the moment of extraction, no other thread can observe the inner T.
+3. **No fourth path.** `Send` blocks `object` / `Box(T)` / `Future` / raw `*(T)`-with-non-Send-pointee from being captured into a Send-bounded closure or sent through a channel. Phase B1 keeps `ref(T)` second-class, so a borrow never crosses a thread. Phase I requires `Dyn(Trait + Send)` for cross-thread trait objects. So categories (a/b/c) above are exhaustive.
+
+Soundness collapses to three trusted bases:
+
+- **`std/sync/` primitives are correctly implemented** (audit boundary).
+- **The compile-time Rc analysis is sound** (established by the memory-safety pass).
+- **The codegen atomic-RC ops use correct C11 memory ordering** (Phase G pins this).
+
+**Caveat on `Iso(T)`.** The runtime `rc == 1` check at `extract()` is the actual enforcement. If the sender forgets to drop its `Iso` reference before the receiver extracts, `extract()` fails — that's safety-preserving (no race), but it's runtime-late, not compile-time-early. The compile-time Rc analysis _can_ often prove uniqueness statically at the construction site, but the cross-thread move boundary is checked dynamically. Plan Phase H tightens the failure mode (panic vs `.None`) and considers whether a stronger compile-time check is feasible.
+
+**Why `Iso(T)` is unconditionally `Send` (no `T <: Send` bound).** Every other shareable type in std/ that crosses a thread (`Arc(T)`, `Channel(T)`, `Mutex(T)`, `RwLock(T)`) carries a `where(T <: Send)` clause. `Iso(T)` does not — the impl at `std/prelude.yo:7502` is `impl(forall(T : Type), Iso(T), Send())` with no `where` clause. This is intentional and safe for the following reason:
+
+> A type is required to be `Send` so that any thread that gets a hold of a value of that type can use it without racing against another thread also using that same value. The whole point of `Iso(T)` is that **at the moment of use (i.e. `extract()`), at most one thread holds a live reference to the inner T.** The runtime `rc == 1` atomic-load check at `extract()` is the gate: if the sending thread still has its `Iso(T)` reference, the receiver's `extract()` panics (post-Phase H) rather than handing out a second pointer to the same T. So the inner T is only ever observed by one thread at a time — non-Send-ness of T cannot cause a race, because the precondition for a race (two threads observing the same T concurrently) is exactly what `Iso` excludes by construction.
+
+This is the same logic behind Rust's `T: Send` being automatically derived for `Box<T> where T: Send` — once you transfer ownership uniquely, the destination thread is the sole observer. `Iso(T)` makes the uniqueness check explicit (`rc == 1`), so the `T <: Send` bound is not needed on top.
+
+### `Iso(T)` design notes — precedent and known risks
+
+`Iso(T)` is not invented from scratch. The closest direct ancestor is **Pony's `iso` reference capability**, which means exactly what `Iso(T)` means: a unique alias safe to send across threads even when the inner type isn't otherwise sendable. Pony has been in production for over a decade; the `iso` pattern is the load-bearing concurrency primitive there. **Project Verona** (Microsoft Research) generalizes the idea to region-based isolation. **Rust** has no direct library-level equivalent — Rust uses move semantics + the borrow checker to enforce uniqueness statically; the closest pattern is `unsafe impl<T> Send for ...` wrapping a non-Send `T`, but Rust offers no audited primitive that wraps this.
+
+Key implementation difference: **Pony enforces uniqueness at compile time via consume tokens; Yo enforces it at runtime via the `rc == 1` check at `extract()`.** Pony's model is more sound but requires a whole reference-capability system; Yo's is lighter but has runtime failure modes. This is a deliberate trade-off — Yo trades static soundness for system-level simplicity, and accepts the resulting discipline burden listed below.
+
+The following risks **are real** and the design accepts them as the cost of avoiding a Pony-style reference-cap system. They are documented here so future contributors understand what they're maintaining:
+
+1. **Hidden API-surface precondition.** The "unconditionally Send" rule has a precondition: `Iso(T)`'s public API must expose **nothing** that touches the inner `T` except `extract()`. The moment anyone adds an `Iso(T)::map(self, f)`, `Iso(T)::peek(self)`, or any method that operates on the inner `T` while `rc > 1`, the safety story collapses — both threads now race on the non-Send `T`. This is a _discipline_ invariant, not a _type-system_ invariant. One careless future PR could break it. Phase H below makes the invariant explicit and adds an audit-gate comment in `std/prelude.yo`.
+
+2. **Runtime-late failure mode.** The `rc == 1` check at `extract()` fires on the receiver, but the bug (sender forgot to drop its handle) is at the sender. By the time `extract()` panics, the thread has been spawned, other work has run, and the failure is far from its cause. Pony catches this at compile time; Yo does not.
+
+3. **Sender-side "drop before receiver extracts" is implicit.** In Pony, `consume` is a syntactically visible token. In Yo, the sender keeps its `Iso` reference and the rc==1 check only succeeds after the sender's reference is dropped (scope exit, explicit re-assign, etc.). Easy footgun: holding the `Iso` in an outer-scope struct that outlives the spawn — then `extract()` perpetually fails. The compile-time RC analysis _can_ see this; Phase H notes a possible follow-up hint.
+
+4. **Narrow use case relative to surface complexity.** Most cross-thread types users encounter will already be `Send`. The non-Send-handoff niche is real (handing off a non-atomic `object` graph one-shot to a worker) but uncommon. We accept the surface cost because the alternatives — make everything `atomic object` from the start, or hand-write `unsafe impl Send` per type — are worse.
+
+**Conclusion:** `Iso(T)` is a pragmatic primitive that fills a real niche by paying a documentation/discipline cost. It is not as elegant as Pony's compile-time `iso`, but it fits Yo's existing infrastructure (`atomic object` + atomic RC) without requiring a reference-capability system. We keep it, and the safeguards in Phase H below are how we contain its sharp edges.
+
+## The data-race vector inventory
+
+Every concrete way user or compiler-emitted code could cause a race, paired with how this plan closes it.
+
+| #   | Vector                                                                                   | How closed                                                                                                                                                                                                                                                                                                                                                    |
+| --- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Move a `Box(T)` / `object(T)` value across `Thread.spawn`                                | `Send` bound on the closure's capture struct (already in place). Box and non-atomic `object` are not Send.                                                                                                                                                                                                                                                    |
+| 2   | Send a struct with a non-Send field                                                      | Auto-derive Send only when _all_ fields are Send (already enforced for `atomic object` at struct-def; **Phase A** extends to all structs).                                                                                                                                                                                                                    |
+| 3   | Hand-written `impl(T, Send())` lies about T being Send                                   | **Phase A2:** manual Send impls require `pragma(Pragma.AllowUnsafe)`. **Phase F:** post-impl re-verification on `atomic object` rejects the lie at struct-def time.                                                                                                                                                                                           |
+| 4   | `atomic object` with a non-atomic `object` field                                         | Auto-derive rejects (today). Manual Send impl could lie ⇒ closed by F.                                                                                                                                                                                                                                                                                        |
+| 5   | Cross-thread shared `Arc(T)` where T has a non-atomic mutable interior                   | `Arc(V)` requires `V <: Send` (today). Send is structural ⇒ T's mutable interior must itself be Send (i.e., `atomic_*` or wrapped in Mutex/RwLock).                                                                                                                                                                                                           |
+| 6   | `Iso(T).extract()` after the Iso has been aliased                                        | Compile-time RC check at construction + runtime `can_isolate` (`rc == 1`). **Phase H** tightens the runtime path to panic instead of returning `.None` when invoked from the wrong thread.                                                                                                                                                                    |
+| 7   | Capture a `ref(T)` borrow inside a `Thread.spawn` closure                                | Already blocked: closures cannot capture ctl-typed _or_ ref-bound values (Phase B of MEMORY_SAFETY). Re-affirmed in **Phase E** with a Send-specific diagnostic.                                                                                                                                                                                              |
+| 8   | Capture a non-Send local in a `Thread.spawn` closure (aggregate check passes due to bug) | **Phase E:** per-variable Send check at the capture site, with the diagnostic pointing at the offending capture name.                                                                                                                                                                                                                                         |
+| 9   | Pass a raw `*(T)` whose pointee is non-Send across a thread                              | `*(T) <: Send` already requires `T <: Send` (`std/prelude.yo:5478`). Audit confirmed.                                                                                                                                                                                                                                                                         |
+| 10  | Construct a `*(T)` in safe code that escapes via Send                                    | Safe code cannot construct or deref `*(T)` (memory-safety pass). Pragma'd module exporting a `*(T)` field: the field's _type_ leaks into safe scope (Issue 26/27 deferred), but the deref still requires `unsafe(...)`. ⇒ no race-capable use.                                                                                                                |
+| 11  | `Dyn(Trait)` cross-thread with a non-Send concrete type                                  | **Phase I:** use the existing `Dyn(Trait, Send)` multi-trait form. The evaluator already rejects `dyn(value)` when the concrete type doesn't impl every listed trait. Sending a bare `Dyn(Trait)` (no Send in the list) to `Thread.spawn` is rejected by the spawn-API bound.                                                                                 |
+| 12  | Non-atomic increment of `Arc::clone()`                                                   | Already correct: `__yo_incr_rc_atomic` emits `atomic_fetch_add_explicit(..., relaxed)`, `__yo_decr_rc_atomic` uses `acq_rel`. Pinned in **Phase G** by a codegen test.                                                                                                                                                                                        |
+| 13  | Drop of a `T` running on a different thread than construction                            | **Safe by design.** A non-atomic `object` only drops on its owning thread (it can't be sent). An `atomic object` is Send only if all its fields are Send, so the drop body operates on Send data; per-thread services it uses are accessed via that thread's own thread-local state. No phase needed.                                                         |
+| 14  | Drop ordering between Arc's atomic decrement and the final-release destructor            | Already correct: `acq_rel` on the decrement establishes the happens-before edge for the destructor. Pinned in **Phase G**.                                                                                                                                                                                                                                    |
+| 15  | Mutex's lock-state escaping the locking thread                                           | **Phase D:** lock is exposed only through `with_lock((v) => {...})`. The closure's `ref(v) : T` parameter is second-class — it can't be stored, returned, or captured by another Send closure. Lock state lives inside the private `__MutexUnlocker` local; no user-visible handle to leak.                                                                   |
+| 16  | Manual `unlock()` not paired with `lock()` (no race per se, but unsoundness vector)      | **Phase D:** remove public `lock()` / `unlock()`; only `with_lock` exists. The private unlocker's `Drop` fires on both normal scope exit and unwind, so unlock is structurally paired with lock.                                                                                                                                                              |
+| 17  | `static` mutable state accessed from multiple threads                                    | User code cannot declare `static mut`. Compiler-internal statics (e.g., `__yo_argc`) are immutable after init. Per-thread runtime state is `_Thread_local` (`src/codegen/async/runtime-io-*.ts`). Verified.                                                                                                                                                   |
+| 18  | `Atomic*` operations with mismatched memory ordering                                     | **Phase C:** typed `MemoryOrder` enum; primitive APIs require an explicit order at each call site (Rust-style, per your direction below).                                                                                                                                                                                                                     |
+| 19  | Self-referential `atomic object` (e.g. `ListNode(T)`) with mutated tail                  | **Audit boundary** (no compile-time marker). The Acyclic claim on a self-referential `atomic object` is established by data-structure implementation review inside a pragma'd file. Phase A2 enforces that the manual `impl(T, Acyclic())` site requires `pragma(Pragma.AllowUnsafe)`; that file's `// SAFETY:` comment documents the immutability invariant. |
+| 20  | `io.async` Future moved to another thread                                                | Today's async runtime is per-thread (per AGENTS.md). **Phase L:** mark `Impl(Future(T, E))` as NOT Send unless the runtime explicitly supports cross-thread futures. Sending a Future to `Thread.spawn` should fail.                                                                                                                                          |
+| 21  | Iterator chain consumed across threads                                                   | Iterators are derived from collections via `.iter()`; the iterator wraps a ref-bound `self`. **Phase E** subsumes — if the iterator captures a `ref` or a non-Send collection, the send fails. Iterators over Send collections that own their state (e.g., `into_iter()`) are themselves Send.                                                                |
+| 22  | Channel send/receive race on the channel handle itself                                   | `Channel(T)` is `atomic object` ⇒ Arc semantics. Multiple producers / consumers share via `arc.clone()`. The handle is Send. The element type is bounded `T <: Send` at channel construction.                                                                                                                                                                 |
+| 23  | Worker pool re-entrancy: a worker spawning into its own pool                             | Pool init is idempotent (`__yo_worker_pool_init`). Per-worker mutex + cond protect the queue. No user-visible race. **Phase G** pins with stress tests.                                                                                                                                                                                                       |
+| 24  | `extern "c"` function called from multiple threads (race in C code)                      | Out of user-code scope. Pragma'd `extern("c", ...)` carries the audit burden, same as memory-safety pass. **Phase G** doc note.                                                                                                                                                                                                                               |
+
+## What's already in place (audit summary)
+
+✅ **Solid:**
+
+- `Send` marker trait, transitively enforced on `atomic object` fields at struct-def time (`src/evaluator/types/struct.ts:128–145`).
+- `object` types non-Send by construction (`src/evaluator/trait-checking.ts:61–62, 91–93`).
+- `Arc(V)` requires `V <: (Send, Acyclic)` (`std/prelude.yo:7575`).
+- `Iso(T)` uniqueness via compile-time RC introspection (`Var.is_owning_the_rc_value`, `Var.has_other_aliases`) + runtime `can_isolate`.
+- Atomic RC ops: `__yo_incr_rc_atomic` (relaxed), `__yo_decr_rc_atomic` (acq_rel).
+- `Thread.spawn` / `Worker.spawn` / `Channel(T)` all carry `Send` bounds.
+- `Mutex`, `RwLock`, `Once`, `Cond`, `WaitGroup` exist; correctly Send via atomic-object backing.
+- C11 atomics surface available via `std/libc/stdatomic.yo`.
+- `static mut` doesn't exist for user code.
+- Per-thread runtime state is `_Thread_local`.
+
+⚠️ **Partial:**
+
+- Manual `impl(T, Send())` in any file passes today with no gate — load-bearing hole.
+- Mutex/RwLock/Once expose manual `unlock()` — no RAII guard.
+- Closure-capture Send check is aggregate-only, not per-variable.
+- `Once` has an acknowledged non-atomic fast-path read.
+
+❌ **Gaps:**
+
+- No high-level `Atomic*` wrappers (raw C11 types only).
+- `Iso(Arc(T))` / `Arc(Iso(T))` semantics undefined (`plans/ARC_TYPE.md:272`).
+- No `Dyn(Trait + Send)` syntax — Dyn dispatch across threads is unprotected.
+- `Impl(Future(T, E))` Send status undefined.
+- Self-referential `atomic object` immutability is documented, not enforced.
+- No formal data-race-freedom statement in user-facing docs.
+
+## Phases
+
+### Phase A — Gate manual `Send` / `Acyclic` impls behind pragma
+
+**The keystone change.** Without this, every later phase has an escape hatch.
+
+Rules added to the evaluator:
+
+- `impl(T, Send())` in a non-pragma'd file → compile error: `Manual 'impl(T, Send())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why T is safe to send across threads.`
+- Same for `impl(T, Acyclic())` and (when added) `impl(T, Sync())`.
+- Audit-tool integration: `yo unsafe-report` lists every such impl alongside the explanation comment.
+
+**Migration audit (performed during plan finalization):** `grep -rn "impl.*Send()\|impl.*Acyclic()" std/` finds 6 distinct files with manual impls (the rest are primitive integer rows in `std/prelude.yo`). 5 of 6 already have `pragma(Pragma.AllowUnsafe)`:
+
+| File                     | Has pragma?   | Action                                                                                            |
+| ------------------------ | ------------- | ------------------------------------------------------------------------------------------------- |
+| `std/prelude.yo`         | Yes (line 70) | Add `// SAFETY:` comments to existing Send/Acyclic impls                                          |
+| `std/imm/sorted_map.yo`  | Yes (line 20) | Add `// SAFETY:` comment                                                                          |
+| `std/imm/list.yo`        | Yes (line 18) | Add `// SAFETY:` comment                                                                          |
+| `std/sync/cond.yo`       | Yes (line 2)  | Add `// SAFETY:` comment                                                                          |
+| `std/sync/mutex.yo`      | Yes (line 2)  | Add `// SAFETY:` comment                                                                          |
+| **`std/string/rune.yo`** | **No**        | **Add `pragma(Pragma.AllowUnsafe);` + `// SAFETY:` comment for `impl(rune, Send());` at line 96** |
+
+Only one file needs the pragma added. The remaining work is purely the per-impl `// SAFETY:` comment annotations.
+
+Tests: `comptime_expect_error` for every form in `tests/safe_code_structural_gates.test.yo`.
+
+### Phase B — `ref(T)` stays second-class. No `Sync`. No-op for this pass.
+
+Documented in `docs/{en-US,zh-CN}/THREAD_SAFETY.md` so users understand the model: cross-thread sharing always goes through Arc + Mutex / Atomic / Channel.
+
+### Phase C — High-level `Atomic*` wrappers (`std/sync/atomic.yo`)
+
+**Pure library work — no compiler change.** This phase uses two existing pieces only:
+
+1. The existing `atomic object` form (heap cell, atomically-Rc'd handle).
+2. The existing libc atomic typedefs (`atomic_int`, `atomic_bool`, `atomic_uint`, `atomic_long`, `atomic_intptr_t`, etc.) re-exported through `std/libc/stdatomic.yo`.
+
+There is **no new `atomic T` field modifier**. We don't extend the type system; we wrap the existing pieces.
+
+The user reaches for an atomic type when they want to share a counter (or flag, or pointer) across threads — that need _requires_ a stable memory address that both threads can reach, which only an atomic-Rc'd heap cell provides. There are two distinct atomic ops at two distinct times:
+
+| Op                                                                                        | When it fires                                                  | Frequency                      |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------ |
+| Atomic Rc inc / dec (the `atomic object` layer)                                           | On capture / alias of the handle and on the last handle's drop | Rare — once per thread handoff |
+| Atomic value op (load / store / CAS / fetch*add — operates on the libc `atomic*\*` field) | On every read or write of the counter                          | Frequent — every operation     |
+
+They serve different purposes (one provides shared addressing, the other serializes value access) and you'd need both layers no matter how you spelled the wrapping. The single user-visible wrap level is the `atomic object` itself; the inner `atomic_int` (etc.) does the value-level atomicity.
+
+```rust
+MemoryOrder :: enum(Relaxed, Acquire, Release, AcqRel, SeqCst);
+
+// `atomic object` gives the heap-allocated, atomically-Rc'd cell. The
+// atomic-object layer is what makes the counter shareable across threads
+// (both handles point at the SAME heap cell). The inner field's type is
+// libc's `atomic_int` (which is `_Atomic int` at the C ABI) — that's what
+// makes load/store/CAS race-free on the inner integer at that one address.
+//
+// The `(*)` field name is Yo's "deref" notation (same as `Box`, `Arc`,
+// `Iso`) — it lets the type constructor take a positional argument of
+// the field type.
+//
+// Send and Acyclic are auto-derived: `atomic_int` is Send (its C-typedef
+// surface is Send via the libc binding's manual impls in std/libc/), and
+// `atomic object` is Send when all its fields are Send, so
+// `atomic object((*) : atomic_int)` inherits both transitively through
+// the usual auto-derive path. NO manual `impl(AtomicI32, Send())` — the
+// auto-derive already covers it.
+AtomicI32 :: atomic object((*) : atomic_int);
+
+impl(
+  AtomicI32,
+  load : (fn(ref(self) : Self, order : MemoryOrder) -> i32)(...),
+  store : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> unit)(...),
+  fetch_add : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> i32)(...),
+  fetch_sub : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> i32)(...),
+  compare_exchange : (
+    fn(
+      ref(self) : Self,
+      expected : i32,
+      new_value : i32,
+      success_order : MemoryOrder,
+      failure_order : MemoryOrder
+    ) -> Result(i32, i32)
+  )(...),
+  swap : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> i32)(...),
+);
+```
+
+**Direct construction, no `Arc` wrap, no top-level builder, no `.new(...)`, no explicit `.clone()`:**
+
+```rust
+counter := AtomicI32(i32(0));
+
+Thread.spawn((io : Io) => {
+  // Capturing `counter` here triggers the compile-time RC analysis to
+  // emit an atomic dup of the handle into the closure's capture struct.
+  // Both threads end up with handles to the SAME heap atomic_int.
+  counter.fetch_add(i32(1), MemoryOrder.Relaxed);
+});
+counter.fetch_add(i32(2), MemoryOrder.Relaxed);
+// Final value: 3 (synchronized via the inner _Atomic int).
+```
+
+The constructor's positional `i32(0)` is admitted via the `(*)`-field convention (same as `Box(i32)(i32(0))`, `arc(value)`, `iso(value)`). The bridging from a plain `i32` to the C `atomic_int` field happens at the `AtomicI32` constructor (the body initializes `_Atomic int` via `atomic_init`); the load/store/CAS APIs unwrap back to `i32` for ergonomics. Yo's compile-time Rc analysis auto-inserts the atomic dup on every alias point — explicit `.clone()` is only needed when you want to fork the handle into a _separately named_ variable (e.g. one to retain locally and one to consume into a builder).
+
+The `Arc(AtomicI32)` wrap that the earlier draft showed was redundant — `atomic object` IS the addressing layer. Whichever handle you alias gets you another Rc'd reference to the same `atomic_int`; no extra wrap needed.
+
+**Why not `newtype`:** a value-typed newtype (`newtype(_inner : atomic_int)`) is stack-local by default, which means `b := a` memcpy's the bytes into a fresh atomic at a different address. The two copies don't synchronize. To make them share you'd have to wrap in `Arc(newtype)` — and then you have the same two layers (atomic Rc + atomic value), just with two named types instead of one. The `atomic object` form rolls them into a single user-visible type and removes the footgun of accidentally copying the value-type atomic.
+
+**Why not manual `impl(AtomicI32, Send())`:** auto-derive already grants Send because `atomic_int` (the libc typedef) carries a Send impl from `std/libc/stdatomic.yo` (which lives under `pragma(Pragma.AllowUnsafe)`), and `atomic object` is Send when all its fields are Send. Manual impl would just trip the Phase A2 audit-comment gate for no soundness benefit — auto-derive is the authoritative path here.
+
+**MemoryOrder defaulting:** per your earlier direction, **explicit `MemoryOrder` at every call site, Rust-style**, no SeqCst default. The runtime enum tag inlines to a C `memory_order_*` constant when the order is statically known (a small codegen specialization in `src/codegen/exprs/other-fn-call.ts`).
+
+**Types covered:** `AtomicBool` (over `atomic_bool`), `AtomicI8/16/32/64` (over `atomic_int_least8_t`/`16_t`/`32_t`/`64_t` — or the libc binding's closest typedef), `AtomicU8/16/32/64` (over `atomic_uint_least*_t`), `AtomicUsize` (over `atomic_size_t`), `AtomicIsize` (over `atomic_ptrdiff_t`), `AtomicPtr(T)` (over `atomic_intptr_t` + a transparent cast). Each lives in `std/sync/atomic.yo` under `pragma(Pragma.AllowUnsafe)`; bodies are thin wrappers over the C11 `atomic_*_explicit` calls. Construction is direct via the type name (`AtomicI32(i32(0))`, `AtomicBool(true)`, etc.) — no top-level builder, no `.new(...)` static.
+
+**Pre-requisite audit:** confirm `std/libc/stdatomic.yo` (a) exposes all the C11 atomic typedefs we need and (b) declares manual `impl(<typedef>, Send())` / `Acyclic` for each under its pragma. If it doesn't, add those impls as the first concrete sub-task of Phase C.
+
+Tests: race-free counter, MPSC ring buffer using AtomicPtr + AtomicUsize, lock-free Treiber stack, fence operations.
+
+### Phase D — Closure-scoped lock APIs (no user-visible guard)
+
+The big API rewrite. Mutex _owns_ T (matches Rust; safer than the pthread-style decoupled approach). Access is granted by a closure that receives the inner value by `ref(T)` — Yo's existing second-class `ref` already prevents the borrow from escaping the closure, so no Rust-style guard type / lifetime is needed.
+
+```rust
+Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
+  atomic object(_handle : __YO_THREAD_SYNC_TYPE, _value : T)
+);
+
+impl(
+  forall(T : Type),
+  Mutex(T),
+  new : (fn(value : T) -> Self)(...),
+  with_lock : (
+    fn(
+      forall(R : Type),
+      ref(self) : Self,
+      body : Impl(Fn(ref(v) : T) -> R)
+    ) -> R
+  )({
+    self._raw_lock();
+    // __MutexUnlocker is a private object held in a local; its Drop
+    // calls self._raw_unlock(). Whether the body returns normally or
+    // unwinds, the local goes out of scope and the unlocker fires.
+    _guard := __MutexUnlocker(self);
+    body(self._value)
+  }),
+  // No public lock()/unlock(). The closure boundary is the only way in.
+);
+```
+
+Use site:
+
+```rust
+mutex := Mutex(Counter).new(Counter(0));
+mutex.with_lock((v) => {
+  v.count = (v.count + 1);
+});
+
+// With a return value:
+new_count := mutex.with_lock((v) => {
+  v.count = (v.count + 1);
+  v.count
+});
+```
+
+Why this fits Yo:
+
+- `ref(v) : T` is second-class — the closure body can read and write through `v`, but cannot store it in a struct, return it from the closure, or send it across a thread. The borrow stays scope-local to the closure invocation.
+- The private `__MutexUnlocker` is a plain `object` with `Drop` that calls `_raw_unlock`. It's allocated locally inside `with_lock`'s frame; Yo's existing drop-on-scope-exit and drop-on-unwind machinery (from the algebraic-effects pass) guarantees unlock under both normal return and `unwind(...)`.
+- Zero per-call allocation visible to the user. The `__MutexUnlocker` is stack-local in practice (one Rc field copy).
+
+Same shape for the other primitives:
+
+```rust
+impl(
+  forall(T : Type),
+  RwLock(T),
+  with_read : (
+    fn(forall(R), ref(self) : Self, body : Impl(Fn(ref(v) : T) -> R)) -> R
+  )(...),
+  with_write : (
+    fn(forall(R), ref(self) : Self, body : Impl(Fn(ref(v) : T) -> R)) -> R
+  )(...),
+);
+```
+
+`Once` keeps its existing API shape (init function, idempotent); two changes inside it:
+
+- The internal manual `_mutex.unlock()` is replaced by the closure-scoped form against the embedded Mutex.
+- **The acknowledged non-atomic fast-path read of `_done` is closed.** Switch `_done` from a plain `bool` field to an `atomic_bool` field (libc atomic typedef), and read it with `atomic_load_explicit(..., MemoryOrder.Acquire)` on the fast path. Acquire-load + release-store on completion gives the standard "publication" happens-before edge: any thread observing `_done == true` is guaranteed to also observe everything the initializer wrote. This closes the partial gap listed in the audit summary.
+
+**Breaking change** — every existing `mutex.lock(); ...; mutex.unlock()` site rewrites to `mutex.with_lock((v) => { ... })`. Acceptable per your direction.
+
+**Why not a Rust-style `MutexGuard`?** Rust needs an explicit guard type because Rust _has_ `&'a T` lifetimes the borrow checker tracks. Yo's `ref(T)` is already scope-bound by being second-class — it can't appear in a struct field, return type slot (other than the labeled-return shape), or be captured by a Send closure. The closure boundary in `with_lock` gives the user exactly what Rust's `MutexGuard` gives Rust users, minus the type and minus an allocation. The earlier draft tried to write `object(_owner : ref(Mutex(T)))` — that's not even valid Yo syntax; `ref(T)` isn't a type.
+
+### Phase E — Per-variable closure-capture Send check
+
+Today's check at `src/evaluator/values/anonymous-function.ts:1192–1200` collapses to the aggregate capture struct's Send. The fix walks each captured name before the collapse:
+
+For every closure whose required impl bound includes `Send` (i.e., the closure type is `Impl(Fn(...) -> R, Send)`):
+
+- Enumerate captured variables (`capturedVariables` map already exists in context).
+- For each, check `typeImplementsSend(variable.type)`.
+- On failure, emit one error per offending capture pointing at the _capture site_, not the closure site: `Captured variable '<name>' (type <Type>) is not Send. To move it across threads, wrap in Arc/Iso, or extract a Send projection.`
+
+Also confirm via comprehensive tests:
+
+- Capture a `Box(i32)` in a `Thread.spawn` closure → reject (Box is not Send).
+- Capture a `*(SomeObject)` → reject (pointee not Send).
+- Capture an `object`-typed local → reject.
+- Capture an `Arc(SomeType)` → accept (closure capture dups the atomic Rc; both sender and receiver have handles to the same heap cell).
+- Capture an `Iso(SomeType)` → accept. The closure capture dups the Iso wrapper (Iso is `atomic object` — atomic Rc inc on capture); the sender still holds its local Iso ref until end of its scope. Uniqueness is enforced at the _receiver_'s `extract()` via the runtime `rc == 1` check, NOT by sender-side consumption.
+
+### Phase F — `atomic object` field re-verification
+
+Even with Phase A gating manual Send impls, the _post-impl-registration_ check needs to verify reality matches claim. The user's concern was specifically `atomic object { inner : NonAtomicObject }` slipping through if someone writes `impl(MyAtomic, Send())`.
+
+After all impls are evaluated, walk each `atomic object` type:
+
+- For each field, call `typeImplementsSend` _transitively_ — walk through `Box(SomeObject)`, `Option(SomeObject)`, struct fields, etc.
+- If any field is not Send, error at the struct definition with the offending field path: `atomic object 'MyAtomic' has non-Send field 'inner._handle' (type SomeObject). atomic objects shared across threads require all fields to be deeply Send. Either wrap '_handle' in Arc, or remove the manual 'impl(MyAtomic, Send())'.`
+
+This is the safety belt that catches A2's lie.
+
+### Phase G — Codegen pin tests + memory ordering audit
+
+Pin tests for the codegen guarantees the soundness argument depends on:
+
+- `__yo_incr_rc_atomic` emits `atomic_fetch_add_explicit(..., relaxed)`.
+- `__yo_decr_rc_atomic` emits `atomic_fetch_sub_explicit(..., acq_rel)`.
+- Drop on last-release runs _after_ the `acq_rel` decrement (happens-before edge).
+- Worker pool init is idempotent.
+
+Also: enable `--sanitize thread` on a curated CI matrix (Linux/Clang). The matrix runs the channel/mutex/atomic/spawn tests under TSan; the goal is zero diagnostics in the curated suite.
+
+### Phase H — `Iso(T)` runtime tightening + API-surface lock-down + ban Iso/Arc direct composition
+
+Four tightenings. The first three close the runtime/discipline risks listed in "Iso(T) design notes — precedent and known risks" above; the fourth closes the composition redundancy.
+
+**1. `Iso(T).extract()` failure mode.** Today it returns `Option(T)` based on a runtime `rc == 1` check, returning `.None` on failure. Replace with a panic. The runtime check stays — defense in depth — but if the compile-time RC analysis is sound, this path is unreachable. If the panic ever fires, that's a soundness bug to fix in the compiler, not a runtime control-flow choice for the user. Signature becomes `extract : (fn(self : Self) -> T)`.
+
+**2. API-surface lock-down (closes Risk #1: hidden API-surface precondition).** The "unconditionally Send" rule depends on Iso's public API exposing nothing that touches the inner `T` except `extract()`. Make this invariant explicit so future contributors cannot violate it accidentally:
+
+- Add an audit-gate comment block immediately above `impl(forall(T : Type), Iso(T), Send())` in `std/prelude.yo`:
+  ```
+  // SAFETY: Iso(T) is unconditionally Send (no `T <: Send` bound) because
+  // Iso's public API exposes no operation on the inner T except extract(),
+  // which atomically verifies rc == 1 before returning. If you add any new
+  // method to Iso(T) that touches the inner T (map, peek, read, &self
+  // borrow, etc.), this Send claim becomes unsound and must be revoked.
+  // See plans/THREAD_SAFETY.md "Iso(T) design notes — precedent and known
+  // risks" for the full argument.
+  ```
+- Add a `tests/iso_api_surface.test.yo` pin test that uses `comptime_assert` to verify the exact set of `Iso(T)` public methods (constructor, `extract`, plus any others currently public). Any future PR that adds a method to Iso will fail this test, forcing the author to read the SAFETY block and consciously decide whether the addition preserves the invariant.
+- Document in `docs/{en-US,zh-CN}/THREAD_SAFETY.md` that `Iso(T)` is intentionally minimal.
+
+**3. Sender-side "last-use after spawn" diagnostic (closes Risk #3: implicit drop-before-extract).** Today, a sender that holds an `Iso(T)` in an outer scope and tries to `extract()` from a spawned thread will see the spawn fail at runtime (rc != 1). The compile-time RC analysis can often see this statically: if the sender's last lexical use of an `Iso(T)` local follows a `Thread.spawn` / `Worker.spawn` / `Channel.send` call that captures/sends the same Iso, that's almost certainly a bug. Emit a compile-time warning (not error — there may be advanced patterns we don't want to forbid) pointing at the sender's later use:
+
+```
+Warning: 'iso_val' is held after being sent to Thread.spawn at line 42.
+The receiver's Iso(T).extract() will fail (rc != 1) until 'iso_val'
+goes out of scope here. Consider re-scoping or shadowing the binding.
+```
+
+Implementation: extend the closure-capture analysis (Phase E touches the same machinery) to walk forward from spawn/send sites and check for further uses of any captured Iso-typed locals. Low risk — purely additive warning.
+
+**4. Ban direct `Iso(Arc(T))` and `Arc(Iso(T))` composition.** Both are meaningless or contradictory:
+
+- **`Iso(Arc(T))` is redundant.** Iso's uniqueness invariant is about the _Iso wrapper_'s rc, not the inner Arc cell. After `extract()` you get the Arc back; the Arc's own rc is unaffected by the Iso layer. So `Iso(Arc(T))` adds nothing over a naked `Arc(T)` sent through a closure capture with move semantics — the sender drops their Arc local after spawning, the receiver has the Arc, that's it.
+- **`Arc(Iso(T))` is internally contradictory.** Arc lets you clone the handle freely; Iso claims uniqueness. The only charitable reading — "single-shot rendezvous: multiple handles race to `extract()`, one wins, others get `.None`" — is a real pattern but it's a _Oneshot_, not an Arc. If we want that pattern, add an explicit `Oneshot(T)` primitive to `std/sync/`; don't dress it up as Arc.
+
+Implementation: detect at type construction. Reject `Iso(Arc(...))` and `Arc(Iso(...))` with the actionable diagnostic:
+
+```
+Error: Iso(Arc(T)) is not allowed.
+  - To send an Arc handle across a thread, send the Arc directly — the
+    spawn closure already consumes it. Iso adds nothing.
+  - If you want unique-owned heap data, use Iso(Box(T)) or Iso(...your struct...).
+```
+
+```
+Error: Arc(Iso(T)) is not allowed.
+  - Arc is for shared ownership; Iso is for unique ownership. The composition
+    is contradictory.
+  - If you want a "one of many threads races to claim a value" pattern, build
+    a Oneshot(T) primitive on top of Mutex + Option (or wait for std/sync to
+    expose one).
+```
+
+**Transitive nesting stays legal.** `Arc(MyStruct(_inner : Iso(T)))` and `Iso(MyStruct(_inner : Arc(T)))` are user-domain-meaningful structures and aren't banned. The rule only fires on directly-adjacent composition because that's the case that's redundant or contradictory.
+
+### Phase I — `Dyn(Trait, Send)` for cross-thread trait objects
+
+Yo already supports comma-separated trait lists in `Dyn` (e.g. `Dyn(Speak, Run)` in `tests/dyn.test.yo:130`). Add `Send` to the list for cross-thread use:
+
+```rust
+worker :: (fn(work : Dyn(Job, Send)) -> unit)(...);
+```
+
+No new syntax. The evaluator already verifies that `dyn(value)` against `Dyn(T1, T2, ...)` requires the concrete type to implement every listed trait; once `Send` is in the list, that requirement applies. Vtable construction is unchanged — Send is a marker with no methods, so no vtable slot.
+
+Sending a `Dyn(Trait)` (without `Send` in the list) to `Thread.spawn` or via `Channel(Dyn(Trait))` is rejected by the spawn API's Send bound — no special case needed.
+
+**Audit task:** scan every `Dyn(...)` in `std/sync/`, `std/thread.yo`, `std/worker.yo`, channel/atomic APIs, and any cross-thread API surface. Add `Send` to the trait list anywhere the dyn-typed value can cross a thread boundary. Document the rule in `docs/{en-US,zh-CN}/THREAD_SAFETY.md`.
+
+### Phase J — Dropped
+
+`Drop` thread-portability is safe by design:
+
+- A non-atomic `object` is only ever dropped on its owning thread — it can't be sent in the first place, so its `Drop` body always runs on the same thread that allocated it.
+- An `atomic object` is Send only if all its fields are Send (Phase F re-verifies this even when the impl is manual). The `Drop` body therefore operates only on Send data; whichever thread brings rc to 0 can safely run it. Per-thread services that the body happens to use (allocator, stdout buffer, etc.) are addressed via that thread's own thread-local state — no cross-thread sharing.
+
+No phase needed.
+
+### Phase K — Dropped
+
+No `immutable` modifier in the type system. The motivation was to compile-check the immutability claim that `std/imm/list.yo`'s self-referential `atomic object` makes when manually implementing `Acyclic`. But the same audit boundary that Phase A2 already establishes is sufficient:
+
+- Manual `impl(T, Acyclic())` requires `pragma(Pragma.AllowUnsafe)`.
+- The std/imm/ data structures live in pragma'd files and audit-establish their immutability claim through implementation review — exactly the trust model `unsafe(...)` already uses elsewhere.
+- A future contributor accidentally adding a mutation method to `ListNode` would land in a pragma'd file, where the `// SAFETY:` comment on the Acyclic impl serves as a reviewer prompt.
+
+If a user wants to write their own immutable data structure with self-referential `atomic object`, they put it in a pragma'd file and follow the same convention. The type system doesn't enforce immutability directly; the data structure's implementation does.
+
+### Phase N — Negative trait impls (`impl(T, !(Trait))`)
+
+> Phase letter is a fresh bookmark; document order places it before Phase L because Phase L depends on this feature.
+
+**Motivation.** Send (and Acyclic) are auto-derived structurally: a struct is Send iff all its fields are Send. Today there is **no way to declare a type as explicitly not-Send when its fields would otherwise auto-derive Send.** That gap blocks Phase L: `JoinHandle(T)` is `struct(__future : *(T))` and `*(T) <: Send` when `T <: Send`, so `JoinHandle(T)` auto-derives Send when `T` is Send — but it shouldn't, because the inner future state lives on the spawner's event-loop thread. Same for `Io` (a struct of Send function refs, but the runtime it represents is thread-local).
+
+The structural-auto-derive workarounds (make it an `object`, add a phantom non-Send field) all introduce a real cost: an extra heap allocation per handle / Io / etc. Negative impls give us a zero-overhead, explicit opt-out.
+
+**Syntax:**
+
+```rust
+impl(forall(T : Type), JoinHandle(T), !(Send));
+impl(Io, !(Send));
+```
+
+`!(Trait)` in the trait position of an `impl(...)` declaration declares that the type explicitly does **not** implement Trait. Reads naturally as "not Send".
+
+**Semantics:**
+
+- If a type T has a negative impl `impl(T, !(Trait))` in scope, then `T <: Trait` is **false**, regardless of any structural auto-derive that would otherwise fire.
+- The negative impl is checked _first_, before auto-derive. It is authoritative.
+- Contradiction is a compile error: `impl(T, Trait())` and `impl(T, !(Trait))` cannot coexist for the same T (and for the same instantiation of generic T). Error message: `Conflicting impls for T: impl(T, Trait()) at <loc> and impl(T, !(Trait)) at <loc>.`
+- Only meaningful for **marker traits** (no methods): Send, Acyclic, Sync (when added). Negative-impl'ing a trait with methods is a compile error (`!(Trait)` makes no sense — there are no methods to "not have").
+- Negative impls participate in generic resolution the same way positive impls do: `impl(forall(T : Type), JoinHandle(T), !(Send))` makes every `JoinHandle(T)` non-Send regardless of T.
+
+**Audit boundary — no pragma required.**
+
+Unlike `impl(T, Send())` which under Phase A2 requires `pragma(Pragma.AllowUnsafe)`, **`impl(T, !(Send))` requires neither pragma nor `// SAFETY:` comment.** The asymmetry is intentional:
+
+- `impl(T, Send())` _adds_ a permission (T may cross thread boundaries). A wrong claim makes user code unsound. Hence the audit gate.
+- `impl(T, !(Send))` _removes_ a permission (T must not cross). A wrong claim makes user code over-restrictive (spawn sites refuse to compile), never unsound. No audit gate needed.
+
+Anyone may declare `impl(MyType, !(Send))` freely.
+
+**Implementation:**
+
+- Parser: extend the impl-declaration grammar to recognize `!(IDENT)` in the trait-name slot, lowering to a `NegativeImplDecl` AST node.
+- Evaluator: maintain a per-type negative-impl set alongside the existing per-type impl set. Resolution order in `typeImplementsTraitBool`: check negative-impl set first; if hit, return false; otherwise fall through to the existing positive-impl + auto-derive logic.
+- Evaluator: at impl-registration time, error on contradictory `impl(T, Trait())` + `impl(T, !(Trait))` pairs.
+- Evaluator: error on `impl(T, !(Trait))` when `Trait` has methods.
+
+**Scope (this pass):** the feature is general, but the only uses in std/ for v1 are:
+
+- `impl(forall(T : Type), JoinHandle(T), !(Send));`
+- `impl(Io, !(Send));`
+
+If audit of other concrete async-runtime types surfaces more candidates (e.g., a concrete Future implementor type that holds thread-local state directly), they get the same impl.
+
+**Tests:**
+
+- Positive: `JoinHandle(i32)` rejected when captured by a `Thread.spawn` closure.
+- Positive: `Io` rejected at any cross-thread send/spawn site.
+- Negative: `comptime_expect_error` for `impl(MyTrait, !(Send))` when `MyTrait` has methods.
+- Negative: `comptime_expect_error` for the contradictory `impl(T, Send())` + `impl(T, !(Send))` pair.
+- Acceptance: a user struct `impl(MyHandle, !(Send));` works and compiles errors propagate when sent.
+
+### Phase L — Future / async cross-thread bound
+
+Yo's async runtime is per-thread (per AGENTS.md). A `Future(T, E)` value carries a state machine that references the per-thread scheduler. Moving it to another thread is undefined.
+
+**Concrete changes:**
+
+- `Impl(Future(T, E))` is **NOT Send** today — `Impl(Trait)` types are Send only when `Send` is in the impl-bound list (e.g., `Impl(Future(T, E), Send)`), which Yo's async runtime never produces. No change needed; document this in `docs/{en-US,zh-CN}/THREAD_SAFETY.md`.
+- `JoinHandle(T)` (the async-task handle returned by `io.spawn`, defined in `std/prelude.yo:8343`) is **today auto-derived Send when T is Send** because its single field `__future : *(T)` propagates Send structurally. **Fix:** add `impl(forall(T : Type), JoinHandle(T), !(Send));` immediately after the `JoinHandle` type definition. This is zero overhead — the struct stays a struct, the raw pointer field stays a raw pointer, only the Send claim is removed.
+- `Io` (`std/prelude.yo:8354`) is **today auto-derived Send** because all its fields are function refs (which are Send). **Fix:** add `impl(Io, !(Send));`. Same zero-overhead rationale.
+- Cross-thread result delivery uses `Channel(T)` — that has always been the model for OS-thread `Thread.spawn`; this phase just clarifies that the async-side `JoinHandle` follows the same rule (await on the spawning thread; if another thread needs the result, send it through a Channel).
+
+**Why this matters even though no user is currently sending `JoinHandle` cross-thread:** the Send claim is load-bearing in the soundness theorem. Every cross-thread API takes `Impl(... , Send)` bounds, and the type system uses transitive Send-ness to decide what's safe to capture. A bogus structural Send on `JoinHandle` means a user closure that captures a JoinHandle is reported Send when it isn't — and the closure can then be passed to `Thread.spawn`. Closing the hole costs nothing now and removes a class of future "how did this ever compile" surprises.
+
+**Migration audit:** grep std/ and tests/ for any code that captures `JoinHandle(T)` or `Io` in a `Thread.spawn` / `Channel.send` closure. Expected count: zero. If any exist, they were already unsound and need rewriting.
+
+### Phase M — Diagnostics & documentation
+
+- `yo unsafe-report --thread-safety` mode: lists every `impl(T, Send/Acyclic/Sync())`, every raw-pointer-bearing field of a Send type, every `Dyn(...)` without `Send` in its trait list that crosses the API boundary.
+- `docs/{en-US,zh-CN}/THREAD_SAFETY.md`: user-facing explainer with the data-race-freedom theorem, the vector inventory, and the trust boundary.
+- Error messages: every gate (manual Send impl, non-Send capture, Future-as-Send, etc.) emits a "Fixes:" section pointing at the right primitive (Arc/Iso/Channel/Mutex/Atomic).
+
+#### Channel error model
+
+Channel error reporting matches the rest of Yo's std: only logical/communication errors flow through the return `Result`; OOM is a panic, same as `ArrayList.push`, `HashMap.set`, and every other allocation site in std/.
+
+```rust
+ChannelError :: enum(
+  Closed,        // both forms
+  Full           // try_send on a bounded channel only
+);
+
+impl(
+  Channel(T),
+  // Bounded: blocks until space; surfaces Closed only.
+  send : (fn(ref(self) : Self, value : T) -> Result(unit, ChannelError))(...),
+  // Bounded, non-blocking: surfaces Closed or Full.
+  try_send : (fn(ref(self) : Self, value : T) -> Result(unit, ChannelError))(...),
+  // ...
+);
+```
+
+For an unbounded channel, `send` returns `Err(.Closed)` only — buffer-full is impossible by construction. OOM during the internal slot allocation panics via the existing allocator contract (`malloc(size).unwrap()`).
+
+Why panic-on-OOM rather than `Result(unit, OutOfMemory)`:
+
+- Rust (`std::sync::mpsc`, `crossbeam-channel`, `tokio::mpsc`), C# `Channels`, Java's unbounded `ConcurrentLinkedQueue`, Erlang mailboxes, Haskell `Chan` — all panic / throw / abort on alloc failure. None thread OOM through the channel API.
+- Yo's std is internally consistent: `ArrayList`, `HashMap`, `String`, and every other heap-using primitive `.unwrap()` allocations and panic on NULL. Channel matches.
+- Threading OOM through `Result` would be ergonomic tax on a path that almost never fires in practice — every `send()` call site would have to `match` or `.unwrap()` an OOM variant that's never reachable in normal operation. Past the OOM point the process is unrecoverable anyway.
+- If Yo ever targets embedded / kernel / no-OS environments, the right answer is a Zig-style end-to-end fallible-allocator pass across _all_ of std/ (every `push`, `insert`, `concat`, etc.), not a channel-specific workaround. That's a separate language-wide decision.
+
+Document this contract clearly in the user-facing `docs/.../THREAD_SAFETY.md` and in `Channel(T)`'s rustdoc-equivalent comment block so users don't reach for try/recover around `send`.
+
+## Trust boundary
+
+| Layer                       | What's trusted                                                                                                                   | What's enforced                                                                                                                                                                                                                                                                                                                         |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User code (no pragma)       | Nothing                                                                                                                          | All cross-thread sharing goes through std/sync primitives. Manual `impl(T, Send())` rejected. Non-Send captures rejected. `Future(T, E)` not Send. `JoinHandle(T)` not Send. `Dyn(...)` requires `Send` in its trait list for cross-thread use. `Channel(T)` / `Arc(T)` / `Mutex(T)` / `RwLock(T)` require `T <: Send` at construction. |
+| Stdlib `std/sync/` (pragma) | Primitive bodies implement their Mutex/Atomic/Channel/Arc contracts correctly. C11 atomic memory orderings are used as intended. | Manual Send impls require `// SAFETY:` comments. Phase F re-verifies `atomic object` field Send-ness even when impl is manual.                                                                                                                                                                                                          |
+| Codegen runtime (TS)        | Atomic RC ops use correct memory ordering. Per-thread state is `_Thread_local`. Worker pool is correctly synchronized.           | Phase G pin tests guard against regressions. CI runs TSan on a curated suite.                                                                                                                                                                                                                                                           |
+| `extern("c", ...)`          | C functions are reentrant-safe if called from multiple threads.                                                                  | Out of scope; same audit boundary as memory-safety pass.                                                                                                                                                                                                                                                                                |
+
+## Open questions (still need your input)
+
+All currently raised questions are resolved. New questions will be added here as the design evolves.
+
+1. ~~`Dyn(Trait + Send)` syntax~~ — **resolved:** use existing `Dyn(Trait, Send)` multi-trait form.
+2. ~~Phase J approach~~ — **resolved:** drop is safe by design under current rules; phase removed.
+3. ~~Phase K `immutable` modifier~~ — **resolved:** not adding it. Immutable data structures audit-establish their Acyclic claim through implementation review in pragma'd files.
+4. ~~MutexGuard projection~~ — **resolved:** no user-visible guard. `with_lock((v) => ...)` closure-scoped API; the closure receives `ref(v) : T` directly.
+5. ~~Channel.send on unbounded OOM~~ — **resolved:** panic via the existing allocator contract, same as every other heap-using primitive in std/. The `Result` return type signals "channel closed" only. See Phase M's "Channel error model" subsection.
+6. ~~`Iso(Arc(T))` / `Arc(Iso(T))`~~ — **resolved:** ban both direct compositions. Iso(Arc) is redundant; Arc(Iso) is contradictory (the "single-shot rendezvous" reading belongs to a dedicated `Oneshot(T)` primitive, not Arc). Transitive nesting through a user struct stays legal. See Phase H.
+7. ~~Phase C atomic wrapping~~ — **resolved:** use libc's existing `atomic_int` (and friends) as the field type inside `atomic object`, i.e. `AtomicI32 :: atomic object((*) : atomic_int)`. No new `atomic T` field modifier; no compiler change. Phase C is pure library work. See Phase C.
+8. ~~Mutex re-entrant lock semantics~~ — **resolved:** deadlock + doc warning, matching Rust's `std::sync::Mutex`. No thread-id check, no recursion counter. Document the footgun in `docs/{en-US,zh-CN}/THREAD_SAFETY.md`.
+9. ~~`JoinHandle(T)` Send~~ — **resolved:** `JoinHandle(T)` is NOT Send. Yo's async/await is single-threaded; `JoinHandle` is the OS-thread analogue and stays thread-pinned for symmetry with `Future`. Cross-thread result delivery uses `Channel(T)`. See Phase L.
+10. ~~Phase A migration audit~~ — **resolved (audit performed):** 6 files in std/ carry manual `impl(T, Send/Acyclic())` impls. 5 of 6 already have `pragma(Pragma.AllowUnsafe)` at the top (`std/prelude.yo`, `std/imm/sorted_map.yo`, `std/imm/list.yo`, `std/sync/cond.yo`, `std/sync/mutex.yo`). **1 file is missing the pragma:** `std/string/rune.yo:96` has `impl(rune, Send());` with no pragma. Phase A's first sub-task is to add the pragma + `// SAFETY:` comment to `std/string/rune.yo`. No widespread migration needed.
+11. ~~`Once` non-atomic fast-path~~ — **resolved:** closed in Phase D. Switch `_done` to `atomic_bool` with Acquire-load on the fast path and Release-store on completion.
+12. ~~`Iso(T)` unconditional Send rationale~~ — **resolved:** rationale paragraph added to the soundness section above ("Why `Iso(T)` is unconditionally `Send`").
+13. ~~`Channel(T)`'s `T <: Send` bound in trust boundary table~~ — **resolved:** added to the User code row of the trust boundary table.
+
+## Rough effort estimate
+
+| Phase                                                                               | Effort   | Risk                                 |
+| ----------------------------------------------------------------------------------- | -------- | ------------------------------------ |
+| A — gate manual Send/Acyclic + 1-file migration                                     | 2–3 days | Low; mechanical                      |
+| B — no-op (B1)                                                                      | 0        | None                                 |
+| C — typed Atomic wrappers (pure library, no compiler change)                        | 3–4 days | Low; thin wrappers over libc atomics |
+| D — closure-scoped lock APIs + Once fast-path closure                               | 5–7 days | Medium — biggest API rewrite         |
+| E — per-variable closure Send check                                                 | 2 days   | Low                                  |
+| F — atomic-object re-verification                                                   | 1 day    | Low                                  |
+| G — codegen pin tests + TSan CI                                                     | 2–3 days | Low                                  |
+| H — Iso runtime tightening + API-surface lock-down + ban Iso/Arc direct composition | 2 days   | Low                                  |
+| I — audit `Dyn(...)` cross-thread sites, add `, Send`                               | 1 day    | Low; no new syntax                   |
+| ~~J — Drop thread-portability~~                                                     | 0        | dropped — safe by design             |
+| ~~K — `immutable` modifier~~                                                        | 0        | dropped — audit boundary suffices    |
+| N — Negative trait impls (`impl(T, !(Trait))`)                                      | 2 days   | Low; small parser/evaluator change   |
+| L — JoinHandle/Io get `!(Send)` impl; Future docs + audit migration                 | 1 day    | Low; depends on Phase N              |
+| M — diagnostics + docs                                                              | 3–4 days | Low                                  |
+
+Total: **~3 working weeks** for v1 (after dropping J, K). Phase N is the only new language feature in this plan beyond what already exists; everything else is library, codegen, or analysis work. Phase A and Phase D remain the architecturally important ones. Phase F is the belt-and-suspenders that closes the `atomic object`-wraps-`object` concern you flagged. Phase N + L together close the load-bearing `JoinHandle`/`Io` auto-derive hole at zero runtime overhead.
